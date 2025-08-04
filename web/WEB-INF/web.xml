@@ -1,0 +1,64 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<web-app version='2.4'>
+
+  <!--distributable/-->
+
+  <display-name>Test web application</display-name>
+  <description>The test web application that ships with gumdrop</description>
+
+  <servlet>
+    <servlet-name>TestServlet</servlet-name>
+    <servlet-class>test.TestServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>TestServlet</servlet-name>
+    <url-pattern>/test</url-pattern>
+  </servlet-mapping>
+  <servlet-mapping>
+    <servlet-name>TestServlet</servlet-name>
+    <url-pattern>*.test</url-pattern>
+  </servlet-mapping>
+
+  <welcome-file-list>
+    <welcome-file>index.html</welcome-file>
+  </welcome-file-list>
+
+  <mime-mapping>
+    <mime-type>text/css</mime-type>
+    <extension>.css</extension>
+  </mime-mapping>
+
+  <login-config>
+    <auth-method>BASIC</auth-method>
+    <realm-name>myRealm</realm-name>
+  </login-config>
+
+  <security-constraint>
+    <web-resource-collection>
+      <url-pattern>/test</url-pattern>
+      <url-pattern>*.test</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+      <role-name>Editors</role-name>
+    </auth-constraint>
+  </security-constraint>
+
+</web-app>
+

@@ -1,0 +1,265 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>gumdrop</h1>
+</td>
+</table>
+
+<p>
+Congratulations, you've installed gumdrop!
+</p>
+
+<p>
+This is the home page of the test gumdrop web application. Included is a
+<a href='simple.test'>simple</a> <a href='test'>test</a> servlet
+that demonstrates some of the Servlet 2.4 features of gumdrop (login with
+<code>admin</code>/<code>admin</code> or
+<code>editor</code>/<code>editor</code>).
+</p>
+
+<p>
+You can also use the supplied <a href='manager'><strong>Manager</strong></a>
+web application to examine and administer a running gumdrop container.
+</p>
+
+<p>
+If you have any questions about gumdrop, please direct them to
+<a href='mailto:dog@gnu.org'>Chris Burdess</a>.
+</p>
+
+<p>
+Thanks for trying out gumdrop!
+</p>
+
+<h3>Architecture</h3>
+
+<p>
+The server is configured with a number of connectors, which are bound to
+ports. It then sits in a <code>select</code> loop waiting for socket data.
+When an <i>accept</i> request is received, it uses the corresponding
+connector as a factory to create a new connection object to handle that IP
+connection. Subsequent <i>read</i> requests are demultiplexed to a thread
+pool specific to the connector. Servers based on an asynchronous, or
+reactor, model can thus be developed quite quickly in response to incoming
+data. 
+</p>
+
+<p>
+The server framework transparently supports TLS connections. All you have
+to do is set the <code>secure</code> connector property to <code>true</code>
+and communication with the client will be encrypted. You can specify the
+keystore to use as well as whether to require client certificates. Otherwise,
+if you develop a new protocol connector you can just deal with the decrypted
+application data.
+</p>
+
+<p>
+The servlet container is a slightly special case because servlets use an
+InputStream to read request body data instead of having it being delivered
+them in an event-based fashion. The servlet connector additionally manages
+a pool of worker threads which are able to read from request body data
+delivered via a pipe. Thus, servlets can either block reading the request
+body, or use servlet 3.1 asynchronous methods via ReadListener to be
+informed when the data becomes available.
+</p>
+
+<p>
+Because the number of request-processing threads is completely independent
+of the number of client TCP connections to the server, gumdrop scales very
+gracefully. You can specify the maximum size of the thread pool for handling
+connection reads and processing on a per-connector basis, as well as the
+maximum size of the thread pool for servlet worker threads.
+</p>
+
+<p>
+Servlet contexts marked as <i>distributable</i> cause gumdrop to start
+another thread, used for cluster synchronisation. The mechanism used is
+a simple UDP broadcast of the changed session data.
+</p>
+
+<p>
+Unless otherwise configured, containers also use a separate thread to detect
+changes in the web application configuration, such as recompilation of Java
+classes and changes to the deployment descriptor. Such changes cause the
+context to be reloaded. This process is referred to as <i>hot deploy</i>.
+</p>
+
+<h3>Configuration</h3>
+
+<p>
+The configuration of gumdrop is primarily contained in the
+<code>gumdroprc</code> file. The remainder of the configuration is supplied
+by standard Java system properties, e.g. the logging subsystem which uses
+the <code>java.util.logging</code> package.
+<p>
+
+<h4>Format of the <code>gumdroprc</code> file</h4>
+
+<p>
+The <code>gumdroprc</code> file is an XML file, although it is not intended
+to be validated, as it may contain attribute names that are specific to
+properties of the resources to be configured, and which can therefore not be
+known in advance. However, here is the general format of the file:
+</p>
+
+<ul>
+<li>The <code>server</code> element is the root element. This represents the
+<code>org.bluezoo.gumdrop.Server</code> object. It may contain <code>container</code>
+or <code>connector</code> elements.</li>
+<li>A <code>container</code> element represents a
+<code>org.bluezoo.gumdrop.servlet.Container</code>. It logically groups a set of
+related resources, contexts, and connectors. The configurable attributes
+are:
+  <ul>
+  <li><code>hot-deploy</code> - if false, hot deployment of contexts will be
+  disabled</li>
+  <li><code>cluster-port</code> - the UDP port on which to synchronise a
+  cluster of gumdrop containers containing distributable contexts.
+  Defaults to 8080.</li>
+  <li><code>cluster-group-address</code> - the IP address to specify as the
+  group address for multiplexed UDP datagrams when synchronising
+  distributable contexts. Defaults to 224.0.80.80.</li>
+  </ul>
+It may contain <code>realm</code>, <code>resource</code>,
+<code>context</code>, and <code>connector</code> elements.
+</li>
+<li>A <code>connector</code> element represents a
+<code>org.bluezoo.gumdrop.Connector</code> object. This is a service that listens on
+a particular server port and manages connections made to that port. Its
+attributes include:
+  <ul>
+  <li><b><code>class</code></b> - the subclass of
+  <code>org.bluezoo.gumdrop.Connector</code> used to realise the connector.</li>
+  <li><b><code>port</code></b> - the port to which the connector should
+  listen on.</li>
+  <li><code>addresses</code> - a space-separated list of IP addresses to
+  which the connector should bind. If absent, all known local IP addresses
+  will be bound to.</li>
+  </ul>
+The servlet connector (<code>org.bluezoo.gumdrop.servlet.ServletConnector</code>)
+provides the following additional attributes:
+  <ul>
+  <li><code>initial-thread-count</code> - the number of request-handling
+  threads to spawn initially.</li>
+  <li><code>access-log</code> - the path to the log file for logging
+  accesses (in W3C httpd format), if any.</li>
+  </ul>
+</li>
+<li>A <code>context</code> element represents a web application context,
+realised by the <code>org.bluezoo.gumdrop.servlet.Context</code> class. It has 2
+attributes:
+  <ul>
+  <li><b><code>path</code></b> - the context path for the context (see the
+  servlet specification for further details)</li>
+  <li><b><code>root</code></b> - the web application root. This may be a
+  directory or the path to a WAR file. Note that gumdrop does not unpack
+  WAR files: if you want to deploy into the filesystem, specify a directory
+  instead.</li>
+  </ul>
+This element may contain <code>resource</code>, <code>parameter</code>,
+and <code>realm</code> elements.
+</li>
+<li>A <code>parameter</code> element defines an initialisation parameter
+for a context, the values of which will be accessible via the
+<code>getInitParameter</code> method. The following attributes are required:
+  <ul>
+  <li><b><code>name</code></b> - the parameter name.</li>
+  <li><b><code>value</code></b> - the parameter value, always interpreted
+  as a string.</li>
+  </ul>
+</li>
+<li><code>resource</code> elements are used to specify objects of almost
+unlimited type, which can be bound into the JNDI namespace accessible
+to web applications within a given context or container. There are 2
+required attributes:
+  <ul>
+  <li><b><code>name</code></b> - the JNDI name (relative to
+  <code>java:comp/env/</code>) to which the resource will be bound.</li>
+  <li><b><code>type</code></b> - the class name of the object to
+  instantiate.</li>
+  <li><code>value</code> - if specified, the default value of the
+  resource, for value types. The object class must specify a String
+  constructor for initialisation.</li>
+  </ul>
+Any other attributes on a <code>resource</code> element are taken to be
+bean property names, and the associated method will be invoked with the
+given attribute value (converted to a primitive type if necessary). There
+are also two special types that can be specified:
+<code>javax.sql.DataSource</code> and <code>javax.mail.Session</code>.
+The Session type instantiates a mail Session object. The DataSource type
+provides access to a pool of connections to a JDBC data source. It must
+specify the following attributes (all other attributes, e.g.
+<code>user</code>, <code>password</code> are interpreted as
+properties for obtaining the connection):
+  <ul>
+  <li><b><code>driver</code></b> - the class name of the JDBC driver.</li>
+  <li><b><code>url</code></b> - the JDBC URL to connect to.</li>
+  </ul>
+</li>
+<li>The <code>realm</code> is used to specify a security domain. It
+has the following attributes:
+  <ul>
+  <li><b><code>name</code></b> - the realm name, typically used in
+  challenges.</li>
+  <li><b><code>type</code></b> - the subclass of
+  <code>org.bluezoo.gumdrop.Realm</code> used to realise the realm.</li>
+  </ul>
+A simple static realm implementation is provided by the
+<code>org.bluezoo.gumdrop.BasicRealm</code> class. This reads its configuration from
+an XML file specified in the <code>href</code> attribute. A sample basic
+realm file is provided. More complex, dynamic realm implementations,
+drawing user and group information from e.g. databases, can use other
+attributes, which will be invoked as bean properties on the realm instance
+during configuration.</li>
+</ul>
+</p>
+
+<h3>Where to go from here</h3>
+
+<p>
+Hopefully you will try out some of your own web applications within
+gumdrop. If the speed, simplicity, and ease of configuration appeals to you,
+please consider getting involved and developing a new feature. If it
+doesn't work the way you wanted it to, please let me know!
+</p>
+
+<p>
+There are a number of new features planned for gumdrop. If you are interested
+in implementing JSP support, I'd love to hear from you.
+</p>
+
+<p class='server-info'>gumdrop</p>
+
+</body>
+</html>

@@ -1,0 +1,22 @@
+<?xml version='1.0' standalone='yes'?>
+<server>
+  <!--container>
+    <realm name='myRealm' type='org.bluezoo.gumdrop.BasicRealm'
+      href='myRealm.xml'/>
+    <context path='/' root='web'/>
+    <context path='/manager' root='manager.war'/>
+    <connector class='org.bluezoo.gumdrop.servlet.ServletConnector'
+      port='8080' initial-thread-count='1'/>
+    <connector class='org.bluezoo.gumdrop.servlet.ServletConnector'
+      secure='true' keystoreFile='keystore.jks' keystorePass='password'
+      port='8443' initial-thread-count='1'>
+    </connector>
+  </container-->
+  <connector class='org.bluezoo.gumdrop.http.FileBasedHTTPConnector'
+    port='8081' root='web'/>
+  <connector class='org.bluezoo.gumdrop.http.FileBasedHTTPConnector'
+    secure='true' keystoreFile='testkeystore.p12' keystorePass='changeit'
+    port='8082' root='web'/>
+  <!--connector class='org.bluezoo.gumdrop.ftp.FTPConnector'
+    port='8083' root='web'/-->
+</server>

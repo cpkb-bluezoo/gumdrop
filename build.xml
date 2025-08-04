@@ -1,0 +1,62 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Copyright (C) 2005 Chris Burdess
+
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<project name='gumdrop' default='dist'>
+
+  <property name='src' location='src'/>
+  <property name='dst' location='dist'/>
+  
+  <property name='servlet'  location='lib/javax.servlet-api-4.0.1.jar'/>
+  <property name='javamail'  location='lib/javax.mail-1.6.2.jar'/>
+
+  <target name='build'>
+    <mkdir dir='${dst}'/>
+    <javac srcdir='${src}' destdir='${dst}' debug='true'>
+      <classpath>
+        <pathelement location='${servlet}'/>
+        <pathelement location='${javamail}'/>
+      </classpath>
+    </javac>
+    <copy todir='${dst}'>
+      <fileset dir='${src}'>
+        <include name='**/*.properties'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name='compile' depends='build'/><!-- alias -->
+
+  <target name='dist' depends='compile'>
+    <jar destfile='gumdrop.jar' basedir='${dst}'>
+      <manifest>
+        <attribute name='Main-Class' value='gnu.gumdrop.Server'/>
+        <attribute name='Class-Path' value='${servlet}'/>
+      </manifest>
+    </jar>
+    <jar destfile='manager.war' basedir='manager'/>
+  </target>
+
+  <target name='clean'>
+    <delete dir='${dst}'/>
+    <delete file='gumdrop.jar'/>
+    <delete file='manager.war'/>
+  </target>
+
+</project>
