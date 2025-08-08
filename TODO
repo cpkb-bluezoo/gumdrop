@@ -1,0 +1,14 @@
+Before 1.0 release
+
+- Test SSL more under more different conditions
+- Create unit tests
+  - move code out of hpack classes into test
+- Finish HTTP/2 frame handling
+- Implement servlet 4.0 methods in servlet package
+- Redo cluster management (distributable contexts) to use NIO
+- Redo HotDeploymentThread to use nio.file.WatchService
+- Finish FTP connector
+
+Long term
+
+- JSP
