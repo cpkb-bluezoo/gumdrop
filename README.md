@@ -1,6 +1,8 @@
 # gumdrop
 Multipurpose asynchronous Java server and servlet container
 
+![gumdrop logo](https://www.nongnu.org/gumdrop/gumdrop.png "gumdrop logo")
+
 This is gumdrop, a multipurpose Java server using asynchronous, event-driven
 I/O. It supports HTTP and HTTPS. HTTP/2 support and FTP are under development.
 
