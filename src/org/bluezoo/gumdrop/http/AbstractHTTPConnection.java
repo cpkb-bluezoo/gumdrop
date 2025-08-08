@@ -299,8 +299,6 @@ public abstract class AbstractHTTPConnection extends Connection {
      */
     protected synchronized void received(ByteBuffer buf) {
         // in is ready for put
-        System.err.println("AbstractHTTPConnection.received buf="+toString(buf));
-        System.err.println("\tin="+toString(in));
         int len = buf.remaining();
         if (in.remaining() < len) {
             // need to reallocate in
@@ -315,7 +313,6 @@ public abstract class AbstractHTTPConnection extends Connection {
 
         Stream stream;
         while (in.hasRemaining()) {
-            System.err.println("AbstractHTTPConnection.received loop: state="+state+" in="+toASCIIString(in));
             String line;
             Frame frame;
             switch (state) {
@@ -323,7 +320,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                     stream = getStream(clientStreamId);
                     try {
                         line = lineReader.readLine(US_ASCII_DECODER);
-                        System.err.println("STATE_REQUEST_LINE: line="+line);
                     } catch (IOException e) {
                         sendStreamError(stream, 400); // Bad Request
                         in.compact();
@@ -372,7 +368,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                     headerName = null;
                     headerValue = CharBuffer.allocate(4096);
                     state = STATE_HEADER;
-                    System.err.println("end of STATE_REQUEST_LINE: remaining="+in.remaining());
                     break;
                 case STATE_HEADER:
                     stream = getStream(clientStreamId);
@@ -382,7 +377,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                         // though we won't issue any non-ASCII header data
                         // outrselves.
                         line = lineReader.readLine(ISO_8859_1_DECODER);
-                        System.err.println("STATE_HEADER: line="+line);
                     } catch (IOException e) {
                         sendStreamError(stream, 400); // Bad Request
                         in.compact();
@@ -407,7 +401,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                             LOGGER.log(Level.SEVERE, e.getMessage(), e);
                         }
                         if (stream.upgrade != null && stream.upgrade.contains("h2c") && stream.settingsFrame != null) {
-                            System.err.println("Upgrading to HTTP/2");
                             // 3.2 Starting HTTP/2
                             Collection<Header> responseHeaders = new ArrayList<>();
                             responseHeaders.add(new Header("Connection", "Upgrade"));
@@ -474,7 +467,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                             appendHeaderValue(line.substring(ci + 1));
                         }
                     }
-                    System.err.println("end of STATE_HEADER: remaining="+in.remaining());
                     break;
                 case STATE_BODY:
                     stream = getStream(clientStreamId);
@@ -515,11 +507,9 @@ public abstract class AbstractHTTPConnection extends Connection {
                     stream = getStream(clientStreamId);
                     // SM\r\n\r\n + SETTINGS frame
                     if (in.remaining() < 16) {
-                        System.err.println("*** Not enough data for client preface");
                         in.compact();
                         return; // underflow
                     }
-                    System.err.println("*** Expecting client preface, in is: "+toASCIIString(in));
                     byte[] smt = new byte[6];
                     in.get(smt);
                     if (smt[0] != 'S' || smt[1] != 'M' || smt[2] != '\r' || smt[3] != '\n' || smt[4] != '\r' || smt[5] != '\n') {
@@ -528,12 +518,11 @@ public abstract class AbstractHTTPConnection extends Connection {
                         return;
                     }
                     frame = readFrame();
-                    System.err.println("*** Frame is: "+frame.toString());
                     if (frame == null) {
                         return; // not enough data for settings frame
                     }
                     in.compact(); // remove frame from in
-                    /*if (frame.getType() != Frame.TYPE_SETTINGS) {
+                    /* XXX if (frame.getType() != Frame.TYPE_SETTINGS) {
                         sendStreamError(stream, 400);
                         return;
                     }*/
@@ -790,7 +779,6 @@ public abstract class AbstractHTTPConnection extends Connection {
      * @param endStream if no response body data will be sent
      */
     void sendResponseHeaders(int streamId, int statusCode, Collection<Header> headers, boolean endStream) {
-        System.err.println("sendResponseHeaders headers="+headers+" endStream="+endStream);
         ByteBuffer buf;
         boolean success = false;
         switch (state) {
@@ -849,11 +837,13 @@ public abstract class AbstractHTTPConnection extends Connection {
                     }
                 }
                 buf.flip();
-                System.err.println("sendStatusLineAndHeaders: buf="+toASCIIString(buf));
                 send(buf);
         }
     }
 
+    /**
+     * Send HTTP/1 status line and headers.
+     */
     private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Collection<Header> headers) {
         try {
             String statusLine = String.format("%s %03d %s\r\n", version.toString(), statusCode, HTTPConstants.getMessage(statusCode));
@@ -914,10 +904,13 @@ public abstract class AbstractHTTPConnection extends Connection {
      * @param endStream if this is the last response data that will be sent
      */
     void sendResponseBody(int streamId, byte[] data, boolean endStream) {
+        // NB we have both byte[] and ByteBuffer versions of this method
+        // since we're currently storing data payloads for frames as byte[].
+        // We should probably store them as ByteBuffer at some point
         switch (state) {
             case STATE_HTTP2:
                 // Use DATA frame
-                int padLength = 0; // TODO
+                int padLength = 0; // TODO allow user to specify padding
                 sendFrame(new DataFrame(streamId, padLength > 0, endStream, padLength, data));
                 break;
             default:
@@ -937,7 +930,7 @@ public abstract class AbstractHTTPConnection extends Connection {
         switch (state) {
             case STATE_HTTP2:
                 // Use DATA frame
-                int padLength = 0; // TODO
+                int padLength = 0; // TODO allow user to specify padding
                 int length = buf.remaining();
                 byte[] data = new byte[length];
                 buf.get(data);

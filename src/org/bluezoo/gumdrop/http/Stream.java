@@ -47,12 +47,19 @@ import gnu.inet.http.HTTPDateFormat;
  * This represents a single request/response.
  * Although the concept was introduced in HTTP/2, we use the same
  * mechanism in HTTP/1.
+ * This class transparently handles Transfer-Encoding: chunked in requests.
+ * This method is deprecated for responses: implementations should always
+ * set the Content-Length.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see https://www.rfc-editor.org/rfc/rfc7540#section-5
  */
 public class Stream {
 
+    /**
+     * Methods that by definition do not have a request body, therefore we
+     * do not need a Content-Length.
+     */
     private static final Set<String> NO_REQUEST_BODY = new TreeSet<>(Arrays.asList(new String[] {
         "GET", "HEAD", "OPTIONS", "DELETE"
     }));
@@ -82,8 +89,8 @@ public class Stream {
     }
 
     State state = State.IDLE;
-    Collection<Header> headers;
-    ByteBuffer headerBlock;
+    Collection<Header> headers; // NB these are the *request* headers
+    ByteBuffer headerBlock; // raw HPACK-encoded header block
     boolean pushPromise;
     boolean closeConnection;
     Collection<String> upgrade;
@@ -107,6 +114,9 @@ public class Stream {
     boolean chunked;
     ChunkLineInput chunkLineInput;
 
+    /**
+     * Handles reading the CRLF-delimited chunk sizes and terminators.
+     */
     static class ChunkLineInput implements LineInput {
 
         private ByteBuffer chunkBuffer;
@@ -193,10 +203,20 @@ public class Stream {
             state == State.HALF_CLOSED_REMOTE;
     }
 
+    /**
+     * Indicates whether this stream will cause the connection to the client
+     * to be closed after its response is sent.
+     * This is the default behaviour for HTTP/1.0, and can be set by using
+     * the Connection: close header in HTTP/1.1.
+     */
     public boolean isCloseConnection() {
         return closeConnection;
     }
 
+    /**
+     * Returns the Content-Length of the request, or -1 if not known: this
+     * indicates chunked encoding.
+     */
     protected long getContentLength() {
         return contentLength;
     }
@@ -309,7 +329,7 @@ public class Stream {
     }
 
     /**
-     * Informs the stream that the headers are complete.
+     * Informs the stream that the request headers are complete.
      * @param headers the headers
      */
     protected void endHeaders(Collection<Header> headers) {
@@ -407,7 +427,7 @@ public class Stream {
      * This method should only be called once. It corresponds to
      * "committing" the response.
      * @param statusCode the status code of the response
-     * @param headers the headers
+     * @param headers the headers to send in the response
      * @param endStream if no response data will be sent and this is a
      * complete response
      */
@@ -487,7 +507,6 @@ public class Stream {
      * @param statusCode the HTTP status code
      */
     protected void sendError(int statusCode) throws ProtocolException {
-        new Throwable(">>>> Sending error: "+statusCode).printStackTrace(System.err);
         if (state == State.IDLE) {
             state = State.OPEN;
         }

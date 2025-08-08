@@ -60,6 +60,9 @@ public abstract class Connection {
 
     private static final Logger LOGGER = Logger.getLogger(Connection.class.getName());
 
+    // getKeySize relies on us parsing the cipher suite string, since it is
+    // not available via any API function. Either the key size will be a
+    // number in the string or we can infer from one of the ciphers below
     private static final Map<String,Integer> KNOWN_KEY_SIZES = new HashMap<>();
     static {
         KNOWN_KEY_SIZES.put("3DES", Integer.valueOf(168));
@@ -82,10 +85,17 @@ public abstract class Connection {
     protected final SSLEngine engine;
     private SSLState sslState; // will be non-null if secure and SSLEngine present
 
+    /**
+     * Constructor for an unencrypted connection.
+     */
     protected Connection() {
         this(null, false);
     }
 
+    /**
+     * Connector for an encrypted connection. Secure must be true and the
+     * SSLEngine not null for encryption to occur.
+     */
     protected Connection(SSLEngine engine, boolean secure) {
         this.engine = engine;
         this.secure = secure;
@@ -210,6 +220,9 @@ public abstract class Connection {
 
     /**
      * Invoked when application data is received from the client.
+     * The connection takes care of decrypting the network data if this is
+     * an encrypted connection.
+     * @param buf the application data received from the client
      */
     protected abstract void received(ByteBuffer buf);
 
@@ -237,7 +250,10 @@ public abstract class Connection {
      * Sends the specified data to the underlying socket.
      * The buffer should be ready for reading, i.e. its position should be set
      * to zero and its limit set to the index after the last byte to be
-     * written.
+     * written. Note that this takes application data - the connection
+     * transparently handles encrypting it if this is an encrypted
+     * connection.
+     * @param buf the application data to send to the client
      */
     public void send(ByteBuffer buf) {
         if (!channel.isOpen()) {
@@ -338,12 +354,10 @@ public abstract class Connection {
          * Will be invoked on main SSL executor thread.
          */
         void processSSLEvents() throws IOException {
-            System.err.println("processSSLEvents on "+Thread.currentThread());
             if (delegatedTasks.get() > 0) { // it will be 0 when the last task has been completed
                 return;
             }
             if (!handshakeStarted) {
-                //System.err.println("\tbeginHandshake");
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     Object sa = channel.socket().getRemoteSocketAddress();
                     String message = Server.L10N.getString("info.ssl_begin_handshake");
@@ -376,23 +390,18 @@ public abstract class Connection {
          * We are handshaking.
          */
         private void handleHandshake(SSLEngineResult.HandshakeStatus handshakeStatus) throws IOException {
-            System.err.println("handleHandshake start");
             boolean loop = false;
             SSLEngineResult result;
             do {
                 loop = false;
-                System.err.println("\thandshakeStatus = "+handshakeStatus);
                 switch (handshakeStatus) {
                     case NEED_WRAP:
-                        System.err.println("Preparing for handshake wrap");
                         rawOut.clear();
                         //System.err.println("appOut contains:\n"+Server.hexdump(appOut));
                         result = engine.wrap(appOut, rawOut);
-                        debugResult("handshake.wrap", result);
                         if (rawOut.position() > 0) {
                             ByteBuffer readRawOut = rawOut.duplicate();
                             readRawOut.flip();
-                            System.err.println("rawOut contains:\n"+Server.hexdump(readRawOut));
                         }
                         switch (result.getStatus()) {
                             case OK:
@@ -413,15 +422,11 @@ public abstract class Connection {
                                 break;
                             case CLOSED:
                                 handleClosed();
-                                //System.err.println("handleHandshake termination due to CLOSED");
                                 return;
                         }
                         break;
                     case NEED_UNWRAP:
-                        System.err.println("Preparing for handshake unwrap");
-                        System.err.println("rawIn contains:\n"+Server.hexdump(rawIn));
                         result = engine.unwrap(rawIn, appIn);
-                        debugResult("handshake.unwrap", result);
                         switch (result.getStatus()) {
                             case OK:
                                 break;
@@ -438,12 +443,10 @@ public abstract class Connection {
                                 break;
                             case CLOSED:
                                 handleClosed();
-                                //System.err.println("handleHandshake termination due to CLOSED");
                                 return;
                         }
                         break;
                     case NEED_TASK:
-                        System.err.println("Delegating tasks");
                         // First count the tasks to do
                         Collection<Runnable> tasks = new ArrayList<>();
                         for (Runnable task = engine.getDelegatedTask(); task != null; task = engine.getDelegatedTask()) {
@@ -467,7 +470,6 @@ public abstract class Connection {
                         loop = true;
                 }
             } while (loop);
-            //System.err.println("handleHandshake normal termination");
         }
 
         void sendRawOut() {
@@ -475,7 +477,6 @@ public abstract class Connection {
                 ByteBuffer data = ByteBuffer.allocate(rawOut.remaining());
                 data.put(rawOut);
                 data.flip();
-                //System.err.println("\tqueueing "+data.remaining()+" bytes for send");
                 outboundQueue.put(data);
                 Server.getInstance().addWriteRequest(Connection.this);
             } catch (InterruptedException e) {
@@ -483,19 +484,11 @@ public abstract class Connection {
             }
         }
 
-        void debugResult(String name, SSLEngineResult result) {
-            System.err.println(name + ": SSLEngineResult: status=" + result.getStatus() +
-                    ", handshakeStatus=" + result.getHandshakeStatus() +
-                    ", bytesConsumed=" + result.bytesConsumed() +
-                    ", bytesProduced=" + result.bytesProduced());
-        }
-
         /**
          * Process application data to be wrapped and client data to be
          * unwrapped.
          */
         private void handleApplicationData(SSLEngineResult.HandshakeStatus handshakeStatus) throws IOException {
-            System.err.println("handleApplicationData handshakeStatus="+handshakeStatus);
             SSLEngineResult result;
             // wrap pending outbound data in appOut
             boolean loop = appOut.hasRemaining();
@@ -503,9 +496,7 @@ public abstract class Connection {
                 // wrap
                 loop = false;
                 rawOut.clear();
-                System.err.println("wrap: appOut="+Connection.toASCIIString(appOut));
                 result = engine.wrap(appOut, rawOut);
-                debugResult("wrap", result);
                 switch (result.getStatus()) {
                     case OK:
                         if (rawOut.position() > 0) { // output was produced
@@ -516,7 +507,7 @@ public abstract class Connection {
                         loop = appOut.hasRemaining();
                         break;
                     case BUFFER_UNDERFLOW:
-                        // FIXME what should happen here?
+                        // XXX what should happen here?
                         break;
                     case BUFFER_OVERFLOW: // extend rawOut and wrap again
                         ByteBuffer b = ByteBuffer.allocate(rawOut.capacity() + 4096);
@@ -535,9 +526,7 @@ public abstract class Connection {
             while (loop) {
                 // unwrap
                 loop = false;
-                System.err.println("unwrap: appIn="+Connection.toString(appIn));
                 result = engine.unwrap(rawIn, appIn);
-                debugResult("unwrap", result);
                 switch (result.getStatus()) {
                     case OK:
                         if (appIn.position() > 0) {
@@ -549,12 +538,10 @@ public abstract class Connection {
                             // Prepare the copy for reading
                             data.flip();
                             // Submit the copy to received(ByteBuffer)
-                            System.err.println("Unwrapped application message: "+Connection.toASCIIString(data));
                             threadPool.submit(Connection.this.new ReadRequest(data));
                             appIn.compact(); // Clear appIn for the next unwrap operation
                         }
                         if (rawIn.hasRemaining()) {
-                            //System.err.println("Stay in loop as rawIn was not fully processed: still contains\n"+Server.hexdump(rawIn));
                             loop = true; // Stay in loop to unwrap more records
                         }
                         break;
@@ -592,11 +579,10 @@ public abstract class Connection {
             }
 
             public void run() {
-                System.err.println("DelegatedTask starting on "+Thread.currentThread());
                 task.run();
-                System.err.println("DelegatedTask: resuming main SSL processing thread");
-                delegatedTasks.decrementAndGet();
-                Server.getInstance().sslMainExecutor.execute(sslResume);
+                if (delegatedTasks.decrementAndGet() == 0) {
+                    Server.getInstance().sslMainExecutor.execute(sslResume);
+                }
             }
         }
 
@@ -609,9 +595,7 @@ public abstract class Connection {
                 try {
                     processSSLEvents();
                 } catch (IOException e) {
-                    e.printStackTrace(System.err);
-                    // receiveFailed(e);
-                    throw (RuntimeException) new RuntimeException().initCause(e);
+                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
                 }
             }
 
@@ -645,8 +629,7 @@ public abstract class Connection {
                     rawIn.flip(); // prepare for read
                     processSSLEvents();
                 } catch (IOException e) {
-                    e.printStackTrace(System.err);
-                    throw (RuntimeException) new RuntimeException().initCause(e);
+                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
                 }
             }
         }
@@ -678,8 +661,7 @@ public abstract class Connection {
                     appOut.flip(); // prepare for read
                     processSSLEvents();
                 } catch (IOException e) {
-                    e.printStackTrace(System.err);
-                    throw (RuntimeException) new RuntimeException().initCause(e);
+                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
                 }
             }
         }
@@ -693,12 +675,20 @@ public abstract class Connection {
                     processSSLEvents();
                     doClose();
                 } catch (IOException e) {
-                    e.printStackTrace(System.err);
-                    throw (RuntimeException) new RuntimeException().initCause(e);
+                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
                 }
             }
         }
 
+    }
+
+    // -- Debugging --
+
+    void debugResult(String name, SSLEngineResult result) {
+        System.err.println(name + ": SSLEngineResult: status=" + result.getStatus() +
+                ", handshakeStatus=" + result.getHandshakeStatus() +
+                ", bytesConsumed=" + result.bytesConsumed() +
+                ", bytesProduced=" + result.bytesProduced());
     }
 
     protected static String toString(ByteBuffer buf) {

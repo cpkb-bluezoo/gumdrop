@@ -299,7 +299,6 @@ public class Server extends Thread {
             try {
                 while (queue.peek() != null) {
                     buffer = queue.peek(); // do not remove until we write all data in the buffer
-                    //System.err.println("SocketChannel.write:\n"+hexdump(buffer));
                     int len = sc.write(buffer);
                     if (LOGGER.isLoggable(Level.FINEST)) {
                         Object sa = sc.socket().getRemoteSocketAddress();
@@ -349,7 +348,6 @@ public class Server extends Thread {
                     throw new EOFException();
                 } else if (len > 0) {
                     readBuffer.flip();
-                    //System.err.println("SocketChannel.read:\n"+hexdump(readBuffer));
                     ByteBuffer data = ByteBuffer.allocate(len);
                     data.put(readBuffer);
                     data.flip();
@@ -476,8 +474,6 @@ public class Server extends Thread {
     private final class Shutdown extends Thread {
 
         public void run() {
-            System.err.println("calling Shutdown");
-            System.err.flush();
             active = false;
             if (selector != null) {
                 selector.wakeup();
