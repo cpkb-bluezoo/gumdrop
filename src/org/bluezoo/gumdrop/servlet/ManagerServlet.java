@@ -110,12 +110,20 @@ public class ManagerServlet extends HttpServlet {
         buf.append(resources.getString("set"));
         buf.append("'/></form></div>\r\n");
 
-        // Connector status TODO
+        // Contexts
+        buf.append("\t\t<h3>");
+        buf.append(resources.getString("contexts"));
+        buf.append("</h3>\r\n");
         buf.append("\t\t<table summary='");
-        buf.append(resources.getString("threads"));
+        buf.append(resources.getString("contexts"));
         buf.append("'>\r\n");
-        buf.append("\t\t\t<tr><th>");
-        buf.append(resources.getString("thread"));
+        // Header
+        buf.append("\t\t\t<tr><th></th><th colspan='3'>"); // nb icon
+        buf.append(resources.getString("displayName"));
+        buf.append("</th><th>");
+        buf.append(resources.getString("contextPath"));
+        buf.append("</th><th>");
+        buf.append(resources.getString("root"));
         buf.append("</th><th>");
         buf.append(resources.getString("total"));
         buf.append("</th><th>");
@@ -128,26 +136,10 @@ public class ManagerServlet extends HttpServlet {
         buf.append(resources.getString("clientError"));
         buf.append("</th><th>");
         buf.append(resources.getString("serverError"));
-        buf.append("</th></tr>\r\n");
-        /*for (Iterator i = connector.threads.iterator(); i.hasNext(); ) {
-            RequestHandlerThread t = (RequestHandlerThread) i.next();
-            buf.append("\t\t\t<tr><td>");
-            buf.append(t.getName());
-            buf.append("</td>");
-            for (int j = 0; j < 6; j++) {
-                buf.append("<td>");
-                buf.append(t.hits[j]);
-                buf.append("</td>");
-            }
-            buf.append("</tr>\r\n");
-        }*/
-        buf.append("</table>\r\n");
+        buf.append("</th><th></th></tr>\r\n"); // nb reload button
 
-        // Contexts
-        buf.append("\t\t<table summary='");
-        buf.append(resources.getString("contexts"));
-        buf.append("'>\r\n");
         for (Context context : container.contexts) {
+            HitStatistics hitStatistics = context.hitStatistics;
             // Context name and description
             buf.append("\t\t\t<tr class='context'><td>");
             String icon = context.smallIcon;
@@ -157,7 +149,7 @@ public class ManagerServlet extends HttpServlet {
             buf.append("<img src='");
             buf.append(icon);
             buf.append("'/>");
-            buf.append("</td><td colspan='2'>");
+            buf.append("</td><td colspan='3'>");
             if (context.displayName != null) {
                 buf.append(context.displayName);
             }
@@ -165,6 +157,20 @@ public class ManagerServlet extends HttpServlet {
             buf.append(context.contextPath);
             buf.append("</td><td>");
             buf.append(context.root);
+            buf.append("</td><td>");
+            synchronized (hitStatistics) {
+                buf.append(hitStatistics.getTotal());
+                buf.append("</td><td>");
+                buf.append(hitStatistics.getHits(HitStatistics.INFORMATIONAL));
+                buf.append("</td><td>");
+                buf.append(hitStatistics.getHits(HitStatistics.SUCCESS));
+                buf.append("</td><td>");
+                buf.append(hitStatistics.getHits(HitStatistics.REDIRECT));
+                buf.append("</td><td>");
+                buf.append(hitStatistics.getHits(HitStatistics.CLIENT_ERROR));
+                buf.append("</td><td>");
+                buf.append(hitStatistics.getHits(HitStatistics.SERVER_ERROR));
+            }
             buf.append("</td><td><form method='post'><input type='hidden' name='reload' value='");
             buf.append(context.contextPath);
             buf.append("'><input type='submit' value='");
@@ -172,13 +178,13 @@ public class ManagerServlet extends HttpServlet {
             buf.append("'/></form>");
             buf.append("</td></tr>\r\n");
             if (context.description != null) {
-                buf.append("\t\t<tr><td></td><td colspan='3'>");
+                buf.append("\t\t<tr><td></td><td colspan='10'>");
                 buf.append(context.description);
                 buf.append("</td></tr>\r\n");
             }
             // List filters
             if (!context.filterDefs.isEmpty()) {
-                buf.append("\t\t<tr><td colspan='4'><h4>");
+                buf.append("\t\t<tr><td colspan='10'><h4>");
                 buf.append(resources.getString("filters"));
                 buf.append("</h4></td></tr>\r\n");
             }
@@ -265,11 +271,11 @@ public class ManagerServlet extends HttpServlet {
         buf.append("\t\t<p class='server-info'>");
         MessageFormat mf = new MessageFormat(resources.getString("serverInfo"));
         Object[] args =
-                new Object[] {
-                    getServletContext().getServerInfo(),
-                    System.getProperty("java.vm.name"),
-                    System.getProperty("java.vm.version")
-                };
+            new Object[] {
+                getServletContext().getServerInfo(),
+                System.getProperty("java.vm.name"),
+                System.getProperty("java.vm.version")
+            };
         buf.append(mf.format(args));
         // buf.append(System.getProperties().toString());
         buf.append("</p>\r\n");
@@ -290,7 +296,7 @@ public class ManagerServlet extends HttpServlet {
         OutputStream out = response.getOutputStream();
         out.write(bytes);
         out.flush();
-    }
+            }
 
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         System.err.println("doPost ");
@@ -337,10 +343,10 @@ public class ManagerServlet extends HttpServlet {
                                     long t2 = System.currentTimeMillis();
                                     Context.LOGGER.info(
                                             "Redeployed context "
-                                                    + context.contextPath
-                                                    + " in "
-                                                    + (t2 - t1)
-                                                    + "ms");
+                                            + context.contextPath
+                                            + " in "
+                                            + (t2 - t1)
+                                            + "ms");
                                 }
                             } catch (Exception e) {
                                 response.sendError(500, "Error redeploying context");

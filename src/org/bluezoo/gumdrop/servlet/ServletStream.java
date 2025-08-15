@@ -168,6 +168,11 @@ class ServletStream extends Stream {
     void commit(int statusCode, Collection<Header> headers) {
         this.statusCode = statusCode;
         this.headers = headers;
+
+        HitStatistics hitStatistics = request.context.hitStatistics;
+        synchronized (hitStatistics) {
+            hitStatistics.addHit(statusCode);
+        }
     }
 
     // Called by worker thread

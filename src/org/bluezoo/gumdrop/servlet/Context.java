@@ -120,6 +120,8 @@ public class Context implements ServletContext {
     String secureHost;
     String commonDir;
 
+    HitStatistics hitStatistics = new HitStatistics();
+
     // TODO session activation/passivation, distributed sessions
 
     public Context(Container container, String contextPath, URL rootUrl, File root, JarFile warFile) {
@@ -194,6 +196,8 @@ public class Context implements ServletContext {
             e2.initCause(e);
             throw e2;
         }
+
+        hitStatistics = new HitStatistics();
     }
 
     /**
