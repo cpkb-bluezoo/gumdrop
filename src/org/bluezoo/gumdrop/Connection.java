@@ -615,7 +615,7 @@ public abstract class Connection {
 
             public void run() {
                 try {
-                    System.err.println("Receiving bytes from client into rawIn:\n"+Server.hexdump(data));
+                    //System.err.println("Receiving bytes from client into rawIn:\n"+Server.hexdump(data));
                     if (rawIn.position() > 0) {
                         rawIn.compact(); // prepare for write
                     }
