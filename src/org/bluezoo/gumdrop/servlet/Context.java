@@ -67,7 +67,7 @@ public class Context implements ServletContext {
     private ContextClassLoader contextClassLoader;
     byte[] digest; // MD5 digest of web.xml
 
-    List<ResourceDef> resourceDefs;
+    List<ResourceDef> resourceDefs = new ArrayList<>();
     Map<String,Realm> realms = new LinkedHashMap<>();
 
     int major = 2;

@@ -28,6 +28,7 @@ import java.io.OutputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -106,13 +107,14 @@ class DefaultServlet extends HttpServlet {
             if (contentLength != -1) {
                 response.setContentLength(contentLength);
             }
-            Map headers = connection.getHeaderFields();
-            for (Iterator i = headers.entrySet().iterator(); i.hasNext(); ) {
-                Map.Entry entry = (Map.Entry) i.next();
-                String name = (String) entry.getKey();
-                String value = (String) entry.getValue();
+            Map<String,List<String>> headers = connection.getHeaderFields();
+            for (Map.Entry<String,List<String>> entry : headers.entrySet()) {
+                String name = entry.getKey();
+                List<String> values = entry.getValue();
                 if (name != null) {
-                    response.setHeader(name, value);
+                    for (String value : values) {
+                        response.addHeader(name, value);
+                    }
                 }
             }
         }
@@ -140,19 +142,20 @@ class DefaultServlet extends HttpServlet {
             if (contentLength != -1) {
                 response.setContentLength(contentLength);
             }
-            Map headers = connection.getHeaderFields();
-            for (Iterator i = headers.entrySet().iterator(); i.hasNext(); ) {
-                Map.Entry entry = (Map.Entry) i.next();
-                String name = (String) entry.getKey();
-                String value = (String) entry.getValue();
+            Map<String,List<String>> headers = connection.getHeaderFields();
+            for (Map.Entry<String,List<String>> entry : headers.entrySet()) {
+                String name = entry.getKey();
+                List<String> values = entry.getValue();
                 if (name != null) {
-                    response.setHeader(name, value);
+                    for (String value : values) {
+                        response.addHeader(name, value);
+                    }
                 }
             }
             // Stream content
             InputStream in = connection.getInputStream();
             OutputStream out = response.getOutputStream();
-            byte[] buf = new byte[4096];
+            byte[] buf = new byte[Math.max(4096, in.available())];
             for (int len = in.read(buf); len != -1; len = in.read(buf)) {
                 out.write(buf, 0, len);
             }
