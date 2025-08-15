@@ -349,7 +349,7 @@ public class Server extends Thread {
                 int len = sc.read(readBuffer);
                 if (len == -1) {
                     //connection.eof();
-                    throw new EOFException();
+                    //throw new EOFException();
                 } else if (len > 0) {
                     readBuffer.flip();
                     ByteBuffer data = ByteBuffer.allocate(len);

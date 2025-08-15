@@ -84,7 +84,7 @@ public class ManagerServlet extends HttpServlet {
         ThreadPoolExecutor threadPool = connector.getConnectorThreadPool();
 
         // Core pool size
-        buf.append("\t\t<div><form method='post' action='.'><label for='core-pool-size'>");
+        buf.append("\t\t<div><form method='post'><label for='core-pool-size'>");
         buf.append(resources.getString("corePoolSize"));
         buf.append(":</label>&nbsp;<input type='text' name='core-pool-size' value='");
         buf.append(threadPool.getCorePoolSize());
@@ -93,7 +93,7 @@ public class ManagerServlet extends HttpServlet {
         buf.append("'/></form></div>\r\n");
 
         // Maximum pool size
-        buf.append("\t\t<div><form method='post' action='.'><label for='maximum-pool-size'>");
+        buf.append("\t\t<div><form method='post'><label for='maximum-pool-size'>");
         buf.append(resources.getString("maximumPoolSize"));
         buf.append(":</label>&nbsp;<input type='text' name='maximum-pool-size' value='");
         buf.append(threadPool.getMaximumPoolSize());
@@ -102,7 +102,7 @@ public class ManagerServlet extends HttpServlet {
         buf.append("'/></form></div>\r\n");
 
         // Keep-alive time
-        buf.append("\t\t<div><form method='post' action='.'><label for='keep-alive-time'>");
+        buf.append("\t\t<div><form method='post'><label for='keep-alive-time'>");
         buf.append(resources.getString("keepAliveTime"));
         buf.append(":</label>&nbsp;<input type='text' name='keep-alive-time' value='");
         buf.append(connector.getKeepAlive());
@@ -165,7 +165,7 @@ public class ManagerServlet extends HttpServlet {
             buf.append(context.contextPath);
             buf.append("</td><td>");
             buf.append(context.root);
-            buf.append("</td><td><form method='post' action='.'><input type='hidden' name='reload' value='");
+            buf.append("</td><td><form method='post'><input type='hidden' name='reload' value='");
             buf.append(context.contextPath);
             buf.append("'><input type='submit' value='");
             buf.append(resources.getString("reload"));
@@ -292,8 +292,8 @@ public class ManagerServlet extends HttpServlet {
         out.flush();
     }
 
-    protected void doPost(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        System.err.println("doPost ");
         String path = request.getServletPath();
         Context ctx = (Context) getServletContext();
         Container container = ctx.container;

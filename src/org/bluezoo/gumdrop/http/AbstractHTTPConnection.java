@@ -490,7 +490,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                     in.limit(ip + available);
                     stream.appendRequestBody(in);
                     in.limit(il);
-                    in.compact();
                     if (stream.getRequestBodyBytesNeeded() == 0L) {
                         // body is complete
                         stream.streamEndRequest();

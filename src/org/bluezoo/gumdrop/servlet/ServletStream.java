@@ -151,6 +151,10 @@ class ServletStream extends Stream {
     // response-sending thread
 
     protected void sendError(int code) throws ProtocolException {
+        if (response == null) {
+            super.sendError(code);
+            return;
+        }
         response.reset();
         try {
             response.sendError(code);
