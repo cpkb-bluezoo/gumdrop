@@ -36,6 +36,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -57,9 +59,12 @@ public class ServletConnector extends AbstractHTTPConnector {
 
     private Container container;
     private Logger accessLogger;
-    private int numThreads = -1;
     private ExecutorService responseSender;
-    private ExecutorService workerThreadPool;
+    private ThreadPoolExecutor workerThreadPool;
+
+    public ServletConnector() {
+        workerThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new WorkerThreadFactory());
+    }
 
     public String getDescription() {
         return "servlet";
@@ -91,29 +96,73 @@ public class ServletConnector extends AbstractHTTPConnector {
         }
     }
 
-    public int getNumThreads() {
-        return numThreads;
+    public void setWorkerCorePoolSize(int corePoolSize) {
+        workerThreadPool.setCorePoolSize(corePoolSize);
     }
 
-    public void setNumThreads(int numThreads) {
-        if (numThreads < 1) {
-            throw new IllegalArgumentException();
+    public void setWorkerMaximumPoolSize(int maximumPoolSize) {
+        workerThreadPool.setMaximumPoolSize(maximumPoolSize);
+    }
+
+    public String getWorkerKeepAlive() {
+        TimeUnit timeUnit = TimeUnit.NANOSECONDS;
+        long t = workerThreadPool.getKeepAliveTime(timeUnit);
+        if (t == 0L) {
+            timeUnit = TimeUnit.MILLISECONDS;
+        } else {
+            if (t % 1000L == 0L) {
+                timeUnit = TimeUnit.MICROSECONDS;
+                t = t / 1000L;
+            }
+            if (t % 1000L == 0L) {
+                timeUnit = TimeUnit.MILLISECONDS;
+                t = t / 1000L;
+            }
+            if (t % 1000L == 0L) {
+                timeUnit = TimeUnit.SECONDS;
+                t = t / 1000L;
+            }
+            if (t % 60L == 0L) {
+                timeUnit = TimeUnit.MINUTES;
+                t = t / 60L;
+            }
+            if (t % 60L == 0L) {
+                timeUnit = TimeUnit.HOURS;
+                t = t / 60L;
+            }
+            if (t % 24L == 0L) {
+                timeUnit = TimeUnit.DAYS;
+                t = t / 24L;
+            }
         }
-        this.numThreads = numThreads;
-        if (workerThreadPool != null) {
-            workerThreadPool.shutdown();
-            workerThreadPool = Executors.newFixedThreadPool(numThreads, new WorkerThreadFactory());
+        return new StringBuilder().append(t).append(TIME_UNITS.get(timeUnit)).toString();
+    }
+
+    public void setWorkerKeepAlive(String keepAlive) {
+        String time = keepAlive;
+        TimeUnit timeUnit = null;
+        for (TimeUnit tu : TimeUnit.values()) {
+            String suffix = TIME_UNITS.get(tu);
+            if (time.endsWith(suffix)) {
+                timeUnit = tu;
+                time = time.substring(0, time.length() - suffix.length());
+                break;
+            }
         }
+        if (timeUnit != null) {
+            try {
+                long keepAliveTime = Long.parseLong(time);
+                workerThreadPool.setKeepAliveTime(keepAliveTime, timeUnit);
+            } catch (NumberFormatException e) {
+                // fall through
+            }
+        }
+        setKeepAlive(keepAlive); // This will throw an exception
     }
 
     public void start() {
         container.init();
         responseSender = Executors.newSingleThreadExecutor();
-        if (numThreads > 0) {
-            workerThreadPool = Executors.newFixedThreadPool(numThreads, new WorkerThreadFactory());
-        } else {
-            workerThreadPool = Executors.newCachedThreadPool(new WorkerThreadFactory());
-        }
         super.start();
     }
 

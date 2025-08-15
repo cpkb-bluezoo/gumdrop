@@ -91,7 +91,11 @@ them in an event-based fashion. The servlet connector additionally manages
 a pool of worker threads which are able to read from request body data
 delivered via a pipe. Thus, servlets can either block reading the request
 body, or use servlet 3.1 asynchronous methods via ReadListener to be
-informed when the data becomes available.
+informed when the data becomes available. The worker thread pool is
+configured separately from the application thread pool. The servlets'
+request servicing methods (e.g. doGet) will occur in the worker thread. The
+application thread pool for the servlet connector is used only for parsing
+the HTTP request and setting up the RequestDispatcher for execution.
 </p>
 
 <p>
@@ -166,14 +170,40 @@ attributes include:
   <li><code>addresses</code> - a space-separated list of IP addresses to
   which the connector should bind. If absent, all known local IP addresses
   will be bound to.</li>
+  <li><code>secure</code> - if specified as true, marks this connector as creating
+  TLS connections. You will additionally need to specify key store properties to
+  provide access to the server certificate.</li>
+  <li><code>keystore-file</code> - path to the file containing the server keystore.</li>
+  <li><code>keystore-pass</code> - password to the file containing the server keystore.</li>
+  <li><code>keystore-format</code> - format of the keystore, for instance PKCS12 or JKS.
+  Defaults to PKCS12.</li>
+  <li><code>need-client-auth</code> - set to true to require clients to provide their
+  certificates in the TLS handshake.</li>
+  <li><code>core-pool-size</code> - core size of the thread pool used for servicing
+  requests by connections for this connector.</li>
+  <li><code>maximum-pool-size</code> - maximum size of the thread pool used for servicing
+  requests by connections for this connector.</li>
+  <li><code>keep-alive</code> - keep-alive time for threads in the thread pool used for servicing
+  requests by connections for this connector. Specified as an integer immediately followed by the
+  time unit, e.g. 20ms, 100ns, 1h (one hour).</li>
   </ul>
 The servlet connector (<code>org.bluezoo.gumdrop.servlet.ServletConnector</code>)
 provides the following additional attributes:
   <ul>
-  <li><code>initial-thread-count</code> - the number of request-handling
-  threads to spawn initially.</li>
   <li><code>access-log</code> - the path to the log file for logging
   accesses (in W3C httpd format), if any.</li>
+  <li><code>worker-core-pool-size</code> - core size of the thread pool used for servicing
+  servlets.</li>
+  <li><code>worker-maximum-pool-size</code> - maximum size of the thread pool used for servicing
+  servlets.</li>
+  <li><code>worker-keep-alive</code> - keep-alive time for threads in the thread pool used for servicing
+  servlets. Specified as an integer immediately followed by the
+  time unit, e.g. 20ms, 100ns, 1h (one hour).</li>
+  </ul>
+The file-based HTTP connector (<code>org.bluezoo.gumdrop.http.FileBasedHTTPConnector</code>)
+provides the following additional attributes:
+  <ul>
+  <li><code>root</code> - the path to the directory in the filesystem that files will be served from.</li>
   </ul>
 </li>
 <li>A <code>context</code> element represents a web application context,

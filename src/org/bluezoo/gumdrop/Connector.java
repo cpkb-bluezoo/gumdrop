@@ -70,7 +70,7 @@ public abstract class Connector {
 
     private static final Logger LOGGER = Logger.getLogger(Connection.class.getName());
 
-    private static final Map<TimeUnit,String> TIME_UNITS;
+    protected static final Map<TimeUnit,String> TIME_UNITS;
     static {
         TIME_UNITS = new HashMap<>();
         TIME_UNITS.put(TimeUnit.DAYS, "d");
