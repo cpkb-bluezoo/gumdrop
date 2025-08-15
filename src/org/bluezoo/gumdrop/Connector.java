@@ -30,21 +30,30 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.net.UnknownHostException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
 import java.security.SecureRandom;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -59,20 +68,37 @@ import javax.net.ssl.TrustManager;
  */
 public abstract class Connector {
 
-    private List<ServerSocketChannel> serverChannels = new ArrayList<ServerSocketChannel>();
-    private Set<String> addresses = null;
+    private static final Logger LOGGER = Logger.getLogger(Connection.class.getName());
 
-    private ExecutorService connectorThreadPool;
-    private int threadPoolSize = -1;
+    private static final Map<TimeUnit,String> TIME_UNITS;
+    static {
+        TIME_UNITS = new HashMap<>();
+        TIME_UNITS.put(TimeUnit.DAYS, "d");
+        TIME_UNITS.put(TimeUnit.HOURS, "h");
+        TIME_UNITS.put(TimeUnit.MINUTES, "m");
+        TIME_UNITS.put(TimeUnit.SECONDS, "s");
+        TIME_UNITS.put(TimeUnit.MILLISECONDS, "ms");
+        TIME_UNITS.put(TimeUnit.MICROSECONDS, "us");
+        TIME_UNITS.put(TimeUnit.NANOSECONDS, "ns");
+    }
+
+    private List<ServerSocketChannel> serverChannels = new ArrayList<ServerSocketChannel>();
+    private Set<InetAddress> addresses = null;
+
+    private final ThreadPoolExecutor connectorThreadPool;
 
     protected boolean secure = false;
     protected SSLContext context;
     protected String keystoreFile, keystorePass, keystoreFormat = "PKCS12";
     protected boolean needClientAuth = false;
 
+    protected Connector() {
+        connectorThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new ConnectorThreadFactory());
+    }
+
     final Connection newConnection(SocketChannel sc, SelectionKey key) throws IOException {
         SSLEngine engine = null;
-        if (secure) {
+        if (context != null) {
             InetSocketAddress peerAddress = (InetSocketAddress) sc.getRemoteAddress();
             String peerHost = peerAddress.getHostName();
             int peerPort = peerAddress.getPort();
@@ -101,6 +127,14 @@ public abstract class Connector {
     protected abstract Connection newConnection(SocketChannel channel, SSLEngine engine);
 
     /**
+     * Returns the thread pool used by connections created by this connector
+     * to service incoming requests.
+     */
+    public ThreadPoolExecutor getConnectorThreadPool() {
+        return connectorThreadPool;
+    }
+
+    /**
      * Configures the addresses this connector should bind to.
      */
     public void setAddresses(String value) {
@@ -108,10 +142,17 @@ public abstract class Connector {
             addresses = null;
             return;
         }
-        addresses = new LinkedHashSet<String>();
+        addresses = new LinkedHashSet<>();
         StringTokenizer st = new StringTokenizer(value);
         while (st.hasMoreTokens()) {
-            addresses.add(st.nextToken());
+            String host = st.nextToken();
+            try {
+                addresses.add(InetAddress.getByName(host));
+            } catch (UnknownHostException e) {
+                String message = Server.L10N.getString("err.unknown_host");
+                message = MessageFormat.format(message, host);
+                LOGGER.log(Level.SEVERE, message, e);
+            }
         }
     }
 
@@ -129,10 +170,21 @@ public abstract class Connector {
         }
     }
 
+    /**
+     * Indicates whether connections created by this connector should use
+     * transport layer security.
+     */
     public boolean isSecure() {
         return secure;
     }
 
+    /**
+     * Sets whether connections created by this connector should use
+     * transport layer security.
+     * If you set this to true, you should also specify a key store for the
+     * server certificate.
+     * @param flag whether this connector should be secure
+     */
     public void setSecure(boolean flag) {
         secure = flag;
     }
@@ -149,12 +201,74 @@ public abstract class Connector {
         keystoreFormat = format;
     }
 
-    public boolean isNeedClientAuth() {
-        return needClientAuth;
-    }
-
     public void setNeedClientAuth(boolean flag) {
         needClientAuth = flag;
+    }
+
+    public void setCorePoolSize(int corePoolSize) {
+        connectorThreadPool.setCorePoolSize(corePoolSize);
+    }
+
+    public void setMaximumPoolSize(int maximumPoolSize) {
+        connectorThreadPool.setMaximumPoolSize(maximumPoolSize);
+    }
+
+    public String getKeepAlive() {
+        TimeUnit timeUnit = TimeUnit.NANOSECONDS;
+        long t = connectorThreadPool.getKeepAliveTime(timeUnit);
+        if (t == 0L) {
+            timeUnit = TimeUnit.MILLISECONDS;
+        } else {
+            if (t % 1000L == 0L) {
+                timeUnit = TimeUnit.MICROSECONDS;
+                t = t / 1000L;
+            }
+            if (t % 1000L == 0L) {
+                timeUnit = TimeUnit.MILLISECONDS;
+                t = t / 1000L;
+            }
+            if (t % 1000L == 0L) {
+                timeUnit = TimeUnit.SECONDS;
+                t = t / 1000L;
+            }
+            if (t % 60L == 0L) {
+                timeUnit = TimeUnit.MINUTES;
+                t = t / 60L;
+            }
+            if (t % 60L == 0L) {
+                timeUnit = TimeUnit.HOURS;
+                t = t / 60L;
+            }
+            if (t % 24L == 0L) {
+                timeUnit = TimeUnit.DAYS;
+                t = t / 24L;
+            }
+        }
+        return new StringBuilder().append(t).append(TIME_UNITS.get(timeUnit)).toString();
+    }
+
+    public void setKeepAlive(String keepAlive) {
+        String time = keepAlive;
+        TimeUnit timeUnit = null;
+        for (TimeUnit tu : TimeUnit.values()) {
+            String suffix = TIME_UNITS.get(tu);
+            if (time.endsWith(suffix)) {
+                timeUnit = tu;
+                time = time.substring(0, time.length() - suffix.length());
+                break;
+            }
+        }
+        if (timeUnit != null) {
+            try {
+                long keepAliveTime = Long.parseLong(time);
+                connectorThreadPool.setKeepAliveTime(keepAliveTime, timeUnit);
+            } catch (NumberFormatException e) {
+                // fall through
+            }
+        }
+        String message = Server.L10N.getString("err.bad_keepalive");
+        message = MessageFormat.format(message, keepAlive);
+        throw new IllegalArgumentException(message);
     }
 
     /**
@@ -186,22 +300,13 @@ public abstract class Connector {
                 throw e2;
             }
         }
-        // Thread pool
-        if (threadPoolSize > 0) {
-            connectorThreadPool = Executors.newFixedThreadPool(threadPoolSize, this.new ConnectorThreadFactory());
-        } else {
-            connectorThreadPool = Executors.newCachedThreadPool(this.new ConnectorThreadFactory());
-        }
     }
 
     /**
      * Stops this connector.
      */
     protected void stop() {
-        if (connectorThreadPool != null) {
-            connectorThreadPool.shutdown();
-            connectorThreadPool = null;
-        }
+        connectorThreadPool.shutdown();
     }
 
     /**
@@ -212,14 +317,13 @@ public abstract class Connector {
     /**
      * Returns the IP addresses this connector should be bound to.
      */
-    protected Set getAddresses() throws IOException {
+    protected Set<InetAddress> getAddresses() throws IOException {
         if (addresses == null) {
-            addresses = new LinkedHashSet();
-            for (Enumeration e1 = NetworkInterface.getNetworkInterfaces(); e1.hasMoreElements(); ) {
-                NetworkInterface ni = (NetworkInterface) e1.nextElement();
-                for (Enumeration e2 = ni.getInetAddresses(); e2.hasMoreElements(); ) {
-                    InetAddress address = (InetAddress) e2.nextElement();
-                    addresses.add(address.getHostAddress());
+            addresses = new LinkedHashSet<>();
+            for (Enumeration<NetworkInterface> e1 = NetworkInterface.getNetworkInterfaces(); e1.hasMoreElements(); ) {
+                NetworkInterface ni = e1.nextElement();
+                for (Enumeration<InetAddress> e2 = ni.getInetAddresses(); e2.hasMoreElements(); ) {
+                    addresses.add(e2.nextElement());
                 }
             }
         }
@@ -241,7 +345,7 @@ public abstract class Connector {
 
         @Override public Thread newThread(Runnable r) {
             Thread t = defaultFactory.newThread(r);
-            t.setName("connector-" + getPort() + "-" + (threadNum++));
+            t.setName(getDescription() + "-" + getPort() + "-" + (threadNum++));
             return t;
         }
 

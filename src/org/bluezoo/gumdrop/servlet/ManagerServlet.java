@@ -1,6 +1,6 @@
 /*
  * ManagerServlet.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -27,9 +27,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.text.MessageFormat;
+import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.ResourceBundle;
+import java.util.concurrent.ThreadPoolExecutor;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -79,20 +81,36 @@ public class ManagerServlet extends HttpServlet {
         buf.append(resources.getString("title"));
         buf.append("</h1>\r\n");
 
-        // Number of threads
-        buf.append("\t\t<div><form method='post' action='");
-        if (!"/".equals(contextPath)) {
-            buf.append(contextPath);
-        }
-        buf.append("/thread-count'><label for='thread-count'>");
-        buf.append(resources.getString("numberOfWorkerThreads"));
-        buf.append(":</label>&nbsp;<input type='text' name='thread-count' value='");
-        buf.append(connector.getNumThreads());
+        ThreadPoolExecutor threadPool = connector.getConnectorThreadPool();
+
+        // Core pool size
+        buf.append("\t\t<div><form method='post' action='.'><label for='core-pool-size'>");
+        buf.append(resources.getString("corePoolSize"));
+        buf.append(":</label>&nbsp;<input type='text' name='core-pool-size' value='");
+        buf.append(threadPool.getCorePoolSize());
         buf.append("'/>&nbsp;<input type='submit' value='");
         buf.append(resources.getString("set"));
         buf.append("'/></form></div>\r\n");
 
-        // Thread status
+        // Maximum pool size
+        buf.append("\t\t<div><form method='post' action='.'><label for='maximum-pool-size'>");
+        buf.append(resources.getString("maximumPoolSize"));
+        buf.append(":</label>&nbsp;<input type='text' name='maximum-pool-size' value='");
+        buf.append(threadPool.getMaximumPoolSize());
+        buf.append("'/>&nbsp;<input type='submit' value='");
+        buf.append(resources.getString("set"));
+        buf.append("'/></form></div>\r\n");
+
+        // Keep-alive time
+        buf.append("\t\t<div><form method='post' action='.'><label for='keep-alive-time'>");
+        buf.append(resources.getString("keepAliveTime"));
+        buf.append(":</label>&nbsp;<input type='text' name='keep-alive-time' value='");
+        buf.append(connector.getKeepAlive());
+        buf.append("'/>&nbsp;<input type='submit' value='");
+        buf.append(resources.getString("set"));
+        buf.append("'/></form></div>\r\n");
+
+        // Connector status TODO
         buf.append("\t\t<table summary='");
         buf.append(resources.getString("threads"));
         buf.append("'>\r\n");
@@ -129,8 +147,7 @@ public class ManagerServlet extends HttpServlet {
         buf.append("\t\t<table summary='");
         buf.append(resources.getString("contexts"));
         buf.append("'>\r\n");
-        for (Iterator i = container.contexts.iterator(); i.hasNext(); ) {
-            Context context = (Context) i.next();
+        for (Context context : container.contexts) {
             // Context name and description
             buf.append("\t\t\t<tr class='context'><td>");
             String icon = context.smallIcon;
@@ -148,11 +165,7 @@ public class ManagerServlet extends HttpServlet {
             buf.append(context.contextPath);
             buf.append("</td><td>");
             buf.append(context.root);
-            buf.append("</td><td><form method='post' action='");
-            if (!"/".equals(contextPath)) {
-                buf.append(contextPath);
-            }
-            buf.append("/reload'><input type='hidden' name='context' value='");
+            buf.append("</td><td><form method='post' action='.'><input type='hidden' name='reload' value='");
             buf.append(context.contextPath);
             buf.append("'><input type='submit' value='");
             buf.append(resources.getString("reload"));
@@ -210,7 +223,7 @@ public class ManagerServlet extends HttpServlet {
             // List servlets
             if (!context.servletDefs.isEmpty()) {
                 buf.append("\t\t<tr><td colspan='4'><h4>");
-                buf.append("Servlets"); // localise
+                buf.append(resources.getString("servlets"));
                 buf.append("</h4></td></tr>\r\n");
             }
             for (Iterator j = context.servletDefs.values().iterator(); j.hasNext(); ) {
@@ -285,55 +298,66 @@ public class ManagerServlet extends HttpServlet {
         Context ctx = (Context) getServletContext();
         Container container = ctx.container;
         ServletConnector connector = ctx.connector;
-        String contextPath = request.getContextPath();
-        if (path.endsWith("/reload")) {
-            String contextPathParam = request.getParameter("context");
-            for (Iterator i = container.contexts.iterator(); i.hasNext(); ) {
-                Context context = (Context) i.next();
-                if (context.contextPath.equals(contextPathParam)) {
-                    try {
-                        synchronized (context) {
-                            long t1 = System.currentTimeMillis();
-                            context.destroy();
-                            context.reload();
-                            context.init();
-                            long t2 = System.currentTimeMillis();
-                            Context.LOGGER.info(
-                                    "Redeployed context "
-                                            + context.contextPath
-                                            + " in "
-                                            + (t2 - t1)
-                                            + "ms");
-                        }
+        ThreadPoolExecutor threadPool = connector.getConnectorThreadPool();
 
-                        if ("/".equals(contextPath)) {
-                            response.sendRedirect(contextPath);
-                        } else {
-                            response.sendRedirect(contextPath + "/");
-                        }
+        for (Enumeration<String> names = request.getParameterNames(); names.hasMoreElements(); ) {
+            String name = names.nextElement();
+            String value = request.getParameter(name);
+            if (value != null) {
+                if ("core-pool-size".equals(name)) {
+                    try {
+                        threadPool.setCorePoolSize(Integer.parseInt(value));
                     } catch (Exception e) {
-                        if (!response.isCommitted()) {
-                            response.sendError(500, "Error redeploying context");
+                        response.sendError(400);
+                        return;
+                    }
+                } else if ("maximum-pool-size".equals(name)) {
+                    try {
+                        threadPool.setMaximumPoolSize(Integer.parseInt(value));
+                    } catch (Exception e) {
+                        response.sendError(400);
+                        return;
+                    }
+                } else if ("keep-alive-time".equals(name)) {
+                    try {
+                        connector.setKeepAlive(value);
+                    } catch (Exception e) {
+                        response.sendError(400);
+                        return;
+                    }
+                } else if ("reload".equals(name)) {
+                    for (Context context : container.contexts) {
+                        if (context.contextPath.equals(value)) {
+                            try {
+                                synchronized (context) {
+                                    long t1 = System.currentTimeMillis();
+                                    context.destroy();
+                                    context.reload();
+                                    context.init();
+                                    long t2 = System.currentTimeMillis();
+                                    Context.LOGGER.info(
+                                            "Redeployed context "
+                                                    + context.contextPath
+                                                    + " in "
+                                                    + (t2 - t1)
+                                                    + "ms");
+                                }
+                            } catch (Exception e) {
+                                response.sendError(500, "Error redeploying context");
+                                return;
+                            }
                         }
                     }
-                    return;
                 }
             }
-        } else if (path.endsWith("thread-count")) {
-            String rtc = request.getParameter("thread-count");
-            int tc = Integer.parseInt(rtc);
-            int len = connector.getNumThreads();
-            if (tc > 0 && tc != len) {
-                connector.setNumThreads(tc);
-            }
-            if ("/".equals(contextPath)) {
-                response.sendRedirect(contextPath);
-            } else {
-                response.sendRedirect(contextPath + "/");
-            }
-            return;
         }
-        response.sendError(HttpServletResponse.SC_NOT_FOUND);
+
+        String contextPath = ctx.contextPath;
+        if ("/".equals(contextPath)) {
+            response.sendRedirect(contextPath);
+        } else {
+            response.sendRedirect(contextPath + "/");
+        }
     }
 
 }

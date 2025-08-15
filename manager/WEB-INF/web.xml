@@ -30,21 +30,11 @@
   
   <servlet-mapping>
     <servlet-name>Manager</servlet-name>
-    <url-pattern>/index.html</url-pattern>
-  </servlet-mapping>
-
-  <servlet-mapping>
-    <servlet-name>Manager</servlet-name>
-    <url-pattern>/reload</url-pattern>
-  </servlet-mapping>
-
-  <servlet-mapping>
-    <servlet-name>Manager</servlet-name>
-    <url-pattern>/thread-count</url-pattern>
+    <url-pattern>/manager</url-pattern>
   </servlet-mapping>
 
   <welcome-file-list>
-    <welcome-file>index.html</welcome-file>
+    <welcome-file>manager</welcome-file>
   </welcome-file-list>
-  
+
 </web-app>

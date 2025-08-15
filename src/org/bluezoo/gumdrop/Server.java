@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop;
 import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.ByteBuffer;
@@ -46,6 +47,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -74,7 +77,7 @@ public class Server extends Thread {
 
     final File gumdroprc;
     final Executor sslMainExecutor; // for main SSL operations
-    final Executor sslTaskExecutor; // for SSLEngine delayed task operations
+    final ThreadPoolExecutor sslTaskThreadPool; // for SSLEngine delayed task operations
 
     private Collection<Connector> connectors;
     private Selector selector;
@@ -84,11 +87,12 @@ public class Server extends Thread {
     private volatile boolean active;
     private volatile boolean reload;
 
-    Server(File gumdroprc, Executor sslMainExecutor, Executor sslTaskExecutor) {
+    Server(File gumdroprc) {
         super("Server");
         this.gumdroprc = gumdroprc;
-        this.sslMainExecutor = sslMainExecutor;
-        this.sslTaskExecutor = sslTaskExecutor;
+        ThreadFactory factory = Executors.defaultThreadFactory();
+        sslMainExecutor = Executors.newSingleThreadExecutor(new GumdropThreadFactory(factory, "ssl-main"));
+        sslTaskThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new GumdropThreadFactory(factory, "ssl-task"));
         connectionsWithPendingWrites = ConcurrentHashMap.newKeySet();
         readBuffer = ByteBuffer.allocate(8192);
         Runtime.getRuntime().addShutdownHook(this.new Shutdown());
@@ -219,10 +223,10 @@ public class Server extends Thread {
      */
     public void registerConnector(Connector connector) throws IOException {
         long t1, t2;
-        Set<String> addresses = connector.getAddresses();
+        Set<InetAddress> addresses = connector.getAddresses();
         int port = connector.getPort();
 
-        for (String address : addresses) {
+        for (InetAddress address : addresses) {
             ServerSocketChannel ssc = ServerSocketChannel.open();
             ssc.configureBlocking(false);
             ServerSocket ss = ssc.socket();
@@ -263,12 +267,12 @@ public class Server extends Thread {
             SelectionKey skey = sc.register(selector, SelectionKey.OP_READ);
             Connection connection = connector.newConnection(sc, skey);
             skey.attach(connection);
-            //if (LOGGER.isLoggable(Level.FINEST)) {
+            if (LOGGER.isLoggable(Level.FINEST)) {
                 Object sa = sc.socket().getRemoteSocketAddress();
                 String message = L10N.getString("info.accepted");
                 message = MessageFormat.format(message, sa.toString());
                 LOGGER.finest(message);
-            //}
+            }
         }
         if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
             // client channel connect
@@ -430,43 +434,25 @@ public class Server extends Thread {
             System.out.println(L10N.getString("err.syntax"));
             System.exit(1);
         }
-        ThreadFactory factory = Executors.defaultThreadFactory();
-        Executor sslMainExecutor = Executors.newSingleThreadExecutor(new SSLMainThreadFactory(factory));
-        Executor sslTaskExecutor = Executors.newCachedThreadPool(new SSLTaskThreadFactory(factory));
-        instance = new Server(gumdroprc, sslMainExecutor, sslTaskExecutor);
+        instance = new Server(gumdroprc);
         System.out.println(L10N.getString("banner"));
         instance.run();
     }
 
-    private static final class SSLMainThreadFactory implements ThreadFactory {
+    private static final class GumdropThreadFactory implements ThreadFactory {
 
         final ThreadFactory factory;
+        final String name;
         long threadNum = 1L;
 
-        SSLMainThreadFactory(ThreadFactory factory) {
+        GumdropThreadFactory(ThreadFactory factory, String name) {
             this.factory = factory;
+            this.name = name;
         }
 
         public Thread newThread(Runnable r) {
             Thread t = factory.newThread(r);
-            t.setName("ssl-main-" + (threadNum++));
-            return t;
-        }
-    }
-
-    private static final class SSLTaskThreadFactory implements ThreadFactory {
-
-        final ThreadFactory factory;
-        long threadNum = 1L;
-
-        SSLTaskThreadFactory(ThreadFactory factory) {
-            this.factory = factory;
-        }
-
-        public Thread newThread(Runnable r) {
-            Thread t = factory.newThread(r);
-            t.setDaemon(true);
-            t.setName("ssl-task-" + (threadNum++));
+            t.setName(name + "-" + (threadNum++));
             return t;
         }
     }

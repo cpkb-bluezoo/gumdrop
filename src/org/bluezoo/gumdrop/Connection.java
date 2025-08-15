@@ -38,8 +38,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -73,7 +73,7 @@ public abstract class Connection {
     protected Connector connector;
     protected SocketChannel channel;
     protected SelectionKey key;
-    ExecutorService threadPool;
+    ThreadPoolExecutor threadPool;
     private AtomicBoolean hasOpWriteInterest = new AtomicBoolean(false);
     final BlockingQueue<ByteBuffer> outboundQueue = new LinkedBlockingQueue<>();
     protected int bufferSize;
@@ -455,7 +455,7 @@ public abstract class Connection {
                         delegatedTasks.set(tasks.size());
                         // Now submit them to SSL task thread
                         for (Runnable task : tasks) {
-                            Server.getInstance().sslTaskExecutor.execute(this.new DelegatedTask(task));
+                            Server.getInstance().sslTaskThreadPool.execute(this.new DelegatedTask(task));
                         }
                         return; // processSSLEvents will be invoked by sslResume
                 }
