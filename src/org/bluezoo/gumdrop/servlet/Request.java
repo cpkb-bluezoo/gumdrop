@@ -794,13 +794,11 @@ class Request implements HttpServletRequest {
     }
 
     @Override public Map<String,String> getTrailerFields() {
-        // TODO
-        return new HashMap<>();
+        return stream.getTrailerFields();
     }
 
     @Override public boolean isTrailerFieldsReady() {
-        // TODO
-        return false;
+        return stream.isTrailerFieldsReady();
     }
 
     public void setHeader(String name, String value) {

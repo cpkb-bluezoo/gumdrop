@@ -90,6 +90,7 @@ public class Stream {
 
     State state = State.IDLE;
     Collection<Header> headers; // NB these are the *request* headers
+    protected Collection<Header> trailerHeaders; // Trailer headers in chunked request
     ByteBuffer headerBlock; // raw HPACK-encoded header block
     boolean pushPromise;
     boolean closeConnection;
@@ -113,6 +114,7 @@ public class Stream {
     // The stream implementation won't see the encoding, only the data.
     boolean chunked;
     ChunkLineInput chunkLineInput;
+    boolean seenLastChunk; // we have seen the zero-length chunk marker
 
     long timestampCompleted = 0L; // when this stream entered the CLOSED state
 
@@ -246,6 +248,13 @@ public class Stream {
         }
     }
 
+    void addTrailerHeader(Header header) {
+        if (trailerHeaders == null) {
+            trailerHeaders = new ArrayList<>();
+        }
+        trailerHeaders.add(header);
+    }
+
     void appendHeaderBlockFragment(byte[] hbf) {
         if (headerBlock == null) {
             headerBlock = ByteBuffer.wrap(hbf);
@@ -360,36 +369,58 @@ public class Stream {
                     connection.sendStreamError(this, 400);
                     return;
                 }
-                if (line == null) {
-                    return; // not enough data to read chunk size
-                }
-                try {
-                    int chunkSize = Integer.parseInt(line, 16);
-                    if (!chunkLineInput.hasChunk(chunkSize)) { // underflow
-                        return;
+                if (seenLastChunk) {
+                    // We are now in trailer header mode or EOF
+                    if (line == null) {
+                        return; // not enough data to read header line
+                    } else if (line.length() == 0) { // end of request
+                    } else { // add header line
+                        // NB header values in trailer headers may not be
+                        // folded, so we don't have to worry about value
+                        // state management over multiple lines. The whole
+                        // header must be on one line.
+                        int ci = line.indexOf(':');
+                        if (ci < 1) {
+                            connection.sendStreamError(this, 400);
+                            return;
+                        }
+                        String name = line.substring(0, ci);
+                        String value = line.substring(ci + 1).trim();
+                        addTrailerHeader(new Header(name, value));
                     }
-                    byte[] chunk = null;
-                    if (chunkSize > 0) {
-                        chunk = new byte[chunkSize];
+                } else {
+                    if (line == null) {
+                        return; // not enough data to read chunk size
                     }
                     try {
-                        chunkLineInput.getChunk(chunk);
-                    } catch (IOException e) {
+                        int chunkSize = Integer.parseInt(line, 16);
+                        if (!chunkLineInput.hasChunk(chunkSize)) { // underflow
+                            return;
+                        }
+                        byte[] chunk = null;
+                        if (chunkSize > 0) {
+                            chunk = new byte[chunkSize];
+                        }
+                        try {
+                            chunkLineInput.getChunk(chunk);
+                        } catch (IOException e) {
+                            connection.sendStreamError(this, 400);
+                            return;
+                        }
+                        if (chunkSize == 0) { // end of chunks
+                            contentLength = requestBodyBytesReceived;
+                            chunkLineInput.compact(); // prepare for headers
+                            seenLastChunk = true;
+                            return;
+                        } else {
+                            chunkLineInput.compact(); // prepare for next chunk
+                            requestBodyBytesReceived += chunk.length;
+                            receiveRequestBody(chunk);
+                        }
+                    } catch (NumberFormatException e) {
                         connection.sendStreamError(this, 400);
                         return;
                     }
-                    if (chunkSize == 0) { // end of chunks
-                        contentLength = requestBodyBytesReceived;
-                        chunkLineInput.free();
-                        return;
-                    } else {
-                        chunkLineInput.compact(); // prepare for next chunk
-                        requestBodyBytesReceived += chunk.length;
-                        receiveRequestBody(chunk);
-                    }
-                } catch (NumberFormatException e) {
-                    connection.sendStreamError(this, 400);
-                    return;
                 }
             }
         } else {

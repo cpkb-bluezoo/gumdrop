@@ -32,6 +32,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -61,7 +62,7 @@ class ServletStream extends Stream {
     private long contentLength;
     private Collection<Header> headers;
     private List<ByteBuffer> responseBody;
-    private boolean responseComplete;
+    private boolean requestComplete, responseComplete;
 
     protected ServletStream(AbstractHTTPConnection connection, int streamId, int bufferSize) {
         super(connection, streamId);
@@ -144,7 +145,27 @@ class ServletStream extends Stream {
                 readListener.onError(e);
             }
         }
+        requestComplete = true;
         // System.err.println("endRequest");
+    }
+
+    boolean isTrailerFieldsReady() {
+        for (Header header : headers) {
+            if ("Transfer-Encoding".equalsIgnoreCase(header.getName())) {
+                return requestComplete;
+            }
+        }
+        return true;
+    }
+
+    Map<String,String> getTrailerFields() {
+        Map<String,String> trailerFields = new LinkedHashMap<>();
+        if (trailerHeaders != null) {
+            for (Header header : trailerHeaders) {
+                trailerFields.put(header.getName().toLowerCase(), header.getValue());
+            }
+        }
+        return trailerFields;
     }
 
     // Buffer responses until flush is called. Then notify
