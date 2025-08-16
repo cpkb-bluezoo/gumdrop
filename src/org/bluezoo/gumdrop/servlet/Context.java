@@ -1,6 +1,6 @@
 /*
  * Context.java
- * Copyright (C) 2005, 2013 Chris Burdess
+ * Copyright (C) 2005, 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -45,6 +45,7 @@ import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionAttributeListener;
 import javax.servlet.http.HttpSessionBindingListener;
 import javax.servlet.http.HttpSessionListener;
+import javax.servlet.http.MappingMatch;
 
 /**
  * The application context represents the single point of contact for all
@@ -641,6 +642,8 @@ public class Context implements ServletContext {
             match.servletDef = defaultServletDef;
             match.servletPath = "/";
             match.pathInfo = "/".equals(originalPath) ? null : originalPath.substring(1);
+            match.mappingMatch = MappingMatch.DEFAULT;
+            match.matchValue = originalPath;
             path = originalPath;
         }
         ServletDef servletDef = match.servletDef;
@@ -660,26 +663,23 @@ public class Context implements ServletContext {
                 }
             } else if (filterMapping.urlPattern != null) {
                 String pattern = filterMapping.urlPattern;
-                if (pattern.equals(path))
-                // 1. exact match
-                {
+                if (pattern.equals(path)) {
+                    // 1. exact match
                     FilterDef fd = filterDefs.get(filterName);
                     if (fd != null) {
                         FilterMatch fm = new FilterMatch(fd, filterMapping);
                         requestFilters.put(filterName, fm);
                     }
                 } else if (pattern.endsWith("/*")
-                        && path.startsWith(pattern.substring(0, pattern.length() - 1)))
-                // 2. match path prefix
-                {
+                        && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
+                    // 2. match path prefix
                     FilterDef fd = filterDefs.get(filterName);
                     if (fd != null) {
                         FilterMatch fm = new FilterMatch(fd, filterMapping);
                         requestFilters.put(filterName, fm);
                     }
-                } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1)))
-                // 3. extension
-                {
+                } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
+                    // 3. extension
                     FilterDef fd = filterDefs.get(filterName);
                     if (fd != null) {
                         FilterMatch fm = new FilterMatch(fd, filterMapping);
@@ -699,22 +699,22 @@ public class Context implements ServletContext {
         }
         // Add servlet def
         handlers.add(servletDef);
-        return new ContextRequestDispatcher(
-                this, servletPath, pathInfo, queryString, handlers, false);
+        return new ContextRequestDispatcher(this, match, queryString, handlers, false);
     }
 
     void matchServletMapping(String path, ServletMatch match) {
         for (ServletMapping servletMapping : servletMappings) {
             String servletName = servletMapping.name;
             String pattern = servletMapping.urlPattern;
-            if (pattern.equals(path))
-            // 1. exact match
-            {
+            if (pattern.equals(path)) {
+                // 1. exact match
                 ServletDef sd = servletDefs.get(servletName);
                 if (sd != null && sd != defaultServletDef) {
                     match.servletDef = sd;
                     match.servletPath = pattern;
                     match.pathInfo = null;
+                    match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
+                    match.matchValue = path;
                     break;
                 }
             } else if (pattern.endsWith("/*")) {
@@ -731,19 +731,22 @@ public class Context implements ServletContext {
                             if (match.pathInfo.length() == 0) {
                                 match.pathInfo = null;
                             }
+                            match.mappingMatch = MappingMatch.PATH;
+                            match.matchValue = path;
                         }
                     }
                 }
             } else if (match.servletDef == null
                     && pattern.startsWith("*.")
-                    && path.endsWith(pattern.substring(1)))
-            // 3. extension
-            {
+                    && path.endsWith(pattern.substring(1))) {
+                // 3. extension
                 ServletDef sd = servletDefs.get(servletName);
                 if (sd != null) {
                     match.servletDef = sd;
                     match.servletPath = path;
                     match.pathInfo = null;
+                    match.mappingMatch = MappingMatch.EXTENSION;
+                    match.matchValue = path;
                 }
             }
         }
@@ -755,7 +758,8 @@ public class Context implements ServletContext {
         ServletDef servletDef = servletDefs.get(name);
         if (servletDef != null) {
             List handlers = Collections.singletonList(servletDef);
-            return new ContextRequestDispatcher(this, null, null, null, handlers, true);
+            // TODO fabricate a ServletMatch
+            return new ContextRequestDispatcher(this, null, null, handlers, true);
         }
         return null;
     }

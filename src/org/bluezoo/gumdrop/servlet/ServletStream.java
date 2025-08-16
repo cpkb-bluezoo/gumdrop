@@ -157,6 +157,7 @@ class ServletStream extends Stream {
         }
         response.reset();
         try {
+            // This will invoke service on the error page if defined
             response.sendError(code);
         } catch (IOException e) {
             String message = ServletConnector.L10N.getString("error.send_error");

@@ -114,6 +114,8 @@ public class Stream {
     boolean chunked;
     ChunkLineInput chunkLineInput;
 
+    long timestampCompleted = 0L; // when this stream entered the CLOSED state
+
     /**
      * Handles reading the CRLF-delimited chunk sizes and terminators.
      */
@@ -219,6 +221,13 @@ public class Stream {
      */
     protected long getContentLength() {
         return contentLength;
+    }
+
+    /**
+     * Indicates whether this stream has been closed.
+     */
+    public boolean isClosed() {
+        return state == State.CLOSED;
     }
 
     long getRequestBodyBytesNeeded() {
@@ -447,6 +456,7 @@ public class Stream {
         if (endStream) {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED; // normal request termination
+                timestampCompleted = System.currentTimeMillis();
             } else {
                 state = State.HALF_CLOSED_LOCAL;
             }
@@ -471,6 +481,7 @@ public class Stream {
         if (endStream) {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED; // normal request termination
+                timestampCompleted = System.currentTimeMillis();
             } else {
                 state = State.HALF_CLOSED_LOCAL;
             }
@@ -495,6 +506,7 @@ public class Stream {
         if (endStream) {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED; // normal request termination
+                timestampCompleted = System.currentTimeMillis();
             } else {
                 state = State.HALF_CLOSED_LOCAL;
             }
@@ -516,6 +528,7 @@ public class Stream {
 
     void streamClose() {
         state = State.CLOSED;
+        timestampCompleted = System.currentTimeMillis();
         close();
         new Throwable().printStackTrace();
     }

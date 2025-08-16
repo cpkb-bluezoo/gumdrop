@@ -1,6 +1,6 @@
 /*
  * ErrorRequest.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.servlet;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.servlet.DispatcherType;
 import javax.servlet.http.HttpServletRequestWrapper;
 
 /**
@@ -62,20 +63,24 @@ class ErrorRequest extends HttpServletRequestWrapper {
         attrs.put(prefix + "servlet_name", servletName);
     }
 
-    public String getServletPath() {
+    @Override public String getServletPath() {
         return servletPath;
     }
 
-    public String getPathInfo() {
+    @Override public String getPathInfo() {
         return pathInfo;
     }
 
-    public Object getAttribute(String name) {
+    @Override public Object getAttribute(String name) {
         Object ret = super.getAttribute(name);
         if (ret == null) {
             ret = attrs.get(name);
         }
         return ret;
+    }
+
+    @Override public DispatcherType getDispatcherType() {
+        return DispatcherType.ERROR;
     }
 
 }

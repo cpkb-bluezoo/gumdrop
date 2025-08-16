@@ -189,8 +189,7 @@ class RequestHandler implements Runnable {
         }
         ContextRequestDispatcher crd =
             (ContextRequestDispatcher) context.getRequestDispatcher(path);
-        request.servletPath = crd.servletPath;
-        request.pathInfo = crd.pathInfo;
+        request.match = crd.match;
         request.queryString = crd.queryString;
         request.initSession();
         return crd;

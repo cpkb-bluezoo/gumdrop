@@ -30,6 +30,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import javax.servlet.DispatcherType;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 
@@ -42,52 +43,45 @@ class FilterRequest extends HttpServletRequestWrapper {
 
     final String uri;
     final String contextPath;
-    final String servletPath;
-    final String pathInfo;
+    final ServletMatch match;
     final String queryString;
     final Map<String,Object> attrs;
+    final DispatcherType dispatcherType;
     Map parameters;
     boolean parametersParsed;
 
-    FilterRequest(
-            HttpServletRequest request,
-            String uri,
-            String contextPath,
-            String servletPath,
-            String pathInfo,
-            String queryString,
-            Map<String,Object> attrs) {
+    FilterRequest(HttpServletRequest request, String uri, String contextPath, ServletMatch match, String queryString, Map<String,Object> attrs, DispatcherType dispatcherType) {
         super(request);
         this.uri = uri;
         this.contextPath = contextPath;
-        this.servletPath = servletPath;
-        this.pathInfo = pathInfo;
+        this.match = match;
         this.queryString = queryString;
         this.attrs = attrs;
         parameters = new LinkedHashMap();
+        this.dispatcherType = dispatcherType;
     }
 
-    public String getRequestURI() {
+    @Override public String getRequestURI() {
         return uri;
     }
 
-    public String getContextPath() {
+    @Override public String getContextPath() {
         return contextPath;
     }
 
-    public String getServletPath() {
-        return servletPath;
+    @Override public String getServletPath() {
+        return match.servletPath;
     }
 
-    public String getPathInfo() {
-        return pathInfo;
+    @Override public String getPathInfo() {
+        return match.pathInfo;
     }
 
-    public String getQueryString() {
+    @Override public String getQueryString() {
         return queryString;
     }
 
-    public Object getAttribute(String name) {
+    @Override public Object getAttribute(String name) {
         Object ret = super.getAttribute(name);
         if (ret == null) {
             ret = attrs.get(name);
@@ -95,7 +89,7 @@ class FilterRequest extends HttpServletRequestWrapper {
         return ret;
     }
 
-    public String getParameter(String name) {
+    @Override public String getParameter(String name) {
         if (!parametersParsed) {
             parseParameters();
         }
@@ -103,21 +97,21 @@ class FilterRequest extends HttpServletRequestWrapper {
         return (values == null || values.length == 0) ? null : values[0];
     }
 
-    public Enumeration getParameterNames() {
+    @Override public Enumeration getParameterNames() {
         if (!parametersParsed) {
             parseParameters();
         }
         return new IteratorEnumeration(parameters.keySet());
     }
 
-    public String[] getParameterValues(String name) {
+    @Override public String[] getParameterValues(String name) {
         if (!parametersParsed) {
             parseParameters();
         }
         return (String[]) parameters.get(name);
     }
 
-    public Map getParameterMap() {
+    @Override public Map getParameterMap() {
         if (!parametersParsed) {
             parseParameters();
         }
@@ -151,6 +145,10 @@ class FilterRequest extends HttpServletRequestWrapper {
         }
         parameters = Collections.unmodifiableMap(parameters);
         parametersParsed = true;
+    }
+
+    @Override public DispatcherType getDispatcherType() {
+        return dispatcherType;
     }
 
 }

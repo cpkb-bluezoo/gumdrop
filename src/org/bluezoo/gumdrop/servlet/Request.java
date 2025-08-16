@@ -1,6 +1,6 @@
 /*
  * Request.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -62,8 +62,8 @@ class Request implements HttpServletRequest {
     Collection<Header> headers;
     final PipedOutputStream pipe;
     final RequestInputStream in;
-    final Map attributes;
-    Map parameters;
+    final Map attributes = new HashMap();
+    Map<String,String[]> parameters = new LinkedHashMap<>();
     boolean parametersParsed;
     String encoding;
     Thread handlerThread;
@@ -72,47 +72,28 @@ class Request implements HttpServletRequest {
     // Determined during servlet resolution
     Context context;
     String contextPath;
-    String servletPath;
-    String pathInfo;
+    ServletMatch match;
     String queryString;
 
     String sessionId;
     Boolean sessionType;
     ServletPrincipal userPrincipal;
 
+    StreamAsyncContext asyncContext;
+
     /**
      * Constructor.
      */
     Request(ServletStream stream, int bufferSize, String method, String requestTarget, Collection<Header> headers) throws IOException {
         this.stream = stream;
-
-        attributes = new HashMap();
-        parameters = new LinkedHashMap();
-
         pipe = new PipedOutputStream();
         in = new RequestInputStream(new PipedInputStream(pipe, bufferSize));
-
         this.method = method;
         this.requestTarget = requestTarget;
         this.headers = headers;
         uri = "*".equals(requestTarget) ? null : URI.create(requestTarget);
         ServletConnection connection = stream.connection;
         this.secure = connection.isSecure();
-
-        attributes.clear();
-        parameters.clear();
-        parametersParsed = false;
-        cookies = null;
-
-        context = null;
-        contextPath = null;
-        servletPath = null;
-        pathInfo = null;
-        queryString = null;
-
-        sessionId = null;
-        sessionType = null;
-        userPrincipal = null;
 
         if (secure) {
             Certificate[] certificates = connection.getPeerCertificates();
@@ -169,17 +150,19 @@ class Request implements HttpServletRequest {
         return uri;
     }
 
-    public String getAuthType() {
+    // -- HttpServletRequest --
+
+    @Override public String getAuthType() {
         return (userPrincipal == null) ? null : context.authMethod;
     }
 
-    public Cookie[] getCookies() {
+    @Override public Cookie[] getCookies() {
         if (cookies != null) {
             return cookies;
         }
         String cookieHeader = getHeader("Cookie");
         if (cookieHeader != null) {
-            List tokens = new LinkedList();
+            List<String> tokens = new LinkedList<>();
             int start = 0, end = 0, len = cookieHeader.length();
             while (end < len) {
                 char c = cookieHeader.charAt(end);
@@ -195,10 +178,10 @@ class Request implements HttpServletRequest {
             if (start < len) {
                 tokens.add(cookieHeader.substring(start, len));
             }
-            List acc = new ArrayList();
+            List<Cookie> acc = new ArrayList<>();
             int version = -1;
-            for (Iterator i = tokens.iterator(); i.hasNext(); ) {
-                String token = ((String) i.next()).trim();
+            for (String token : tokens) {
+                token = token.trim();
                 if (token.length() == 0) {
                     continue;
                 }
@@ -251,7 +234,7 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-    public long getDateHeader(String name) {
+    @Override public long getDateHeader(String name) {
         String value = getHeader(name);
         if (value == null) {
             return -1L;
@@ -264,7 +247,7 @@ class Request implements HttpServletRequest {
         }
     }
 
-    public String getHeader(String name) {
+    @Override public String getHeader(String name) {
         for (Header header : headers) {
             if (header.getName().equalsIgnoreCase(name)) {
                 return header.getValue();
@@ -273,46 +256,25 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-    public void setHeader(String name, String value) {
-        removeHeaders(name);
-        addHeader(name, value);
-    }
-
-    private void removeHeaders(String name) {
-        for (Iterator<Header> i = headers.iterator(); i.hasNext(); ) {
-            Header header = i.next();
-            if (header.getName().equalsIgnoreCase(name)) {
-                i.remove();
-            }
-        }
-    }
-
-    public void addHeader(String name, String value) {
-        if (!Response.MULTIPLE_VALUE.contains(name.toLowerCase())) {
-            removeHeaders(name);
-        }
-        headers.add(new Header(name, value));
-    }
-
-    public Enumeration getHeaders(String name) {
+    @Override public Enumeration<String> getHeaders(String name) {
         Collection<String> acc = new ArrayList<>();
         for (Header header : headers) {
             if (header.getName().equalsIgnoreCase(name)) {
                 acc.add(header.getValue());
             }
         }
-        return new IteratorEnumeration(acc);
+        return new IteratorEnumeration<>(acc);
     }
 
-    public Enumeration getHeaderNames() {
+    @Override public Enumeration<String> getHeaderNames() {
         Collection<String> acc = new LinkedHashSet<>();
         for (Header header : headers) {
             acc.add(header.getName());
         }
-        return new IteratorEnumeration(acc);
+        return new IteratorEnumeration<>(acc);
     }
 
-    public int getIntHeader(String name) {
+    @Override public int getIntHeader(String name) {
         String value = getHeader(name);
         if (value == null) {
             return -1;
@@ -320,58 +282,57 @@ class Request implements HttpServletRequest {
         return Integer.parseInt(value);
     }
 
-    public long getLongHeader(String name) {
-        String value = getHeader(name);
-        if (value == null) {
-            return -1;
-        }
-        return Long.parseLong(value);
+    @Override public HttpServletMapping getHttpServletMapping() {
+        return match;
     }
 
-    public String getMethod() {
+    @Override public String getMethod() {
         return method;
     }
 
-    public String getPathInfo() {
-        return pathInfo;
+    @Override public String getPathInfo() {
+        return match.pathInfo;
     }
 
-    public String getPathTranslated() {
-        if (pathInfo != null) {
-            return context.getRealPath(pathInfo);
+    @Override public String getPathTranslated() {
+        if (match.pathInfo != null) {
+            return context.getRealPath(match.pathInfo);
         }
         return null;
     }
 
-    public String getContextPath() {
+    /* TODO @Override public PushBuilder newPushBuilder() {
+    }*/
+
+    @Override public String getContextPath() {
         return contextPath;
     }
 
-    public String getQueryString() {
+    @Override public String getQueryString() {
         return queryString;
     }
 
-    public String getRemoteUser() {
+    @Override public String getRemoteUser() {
         return (userPrincipal == null) ? null : userPrincipal.getName();
     }
 
-    public boolean isUserInRole(String role) {
+    @Override public boolean isUserInRole(String role) {
         return (userPrincipal == null) ? false : userPrincipal.hasRole(role);
     }
 
-    public Principal getUserPrincipal() {
+    @Override public Principal getUserPrincipal() {
         return userPrincipal;
     }
 
-    public String getRequestedSessionId() {
+    @Override public String getRequestedSessionId() {
         return sessionId;
     }
 
-    public String getRequestURI() {
+    @Override public String getRequestURI() {
         return uri == null ? null : uri.getRawPath();
     }
 
-    public StringBuffer getRequestURL() {
+    @Override public StringBuffer getRequestURL() {
         // TODO RequestDispatcher stuff
         String s = (uri == null) ? "" : uri.toString();
         int qi = s.indexOf('?');
@@ -381,13 +342,13 @@ class Request implements HttpServletRequest {
         return new StringBuffer(s);
     }
 
-    public String getServletPath() {
-        return servletPath;
+    @Override public String getServletPath() {
+        return match.servletPath;
     }
 
-    public HttpSession getSession(boolean create) {
+    @Override public HttpSession getSession(boolean create) {
         synchronized (context.sessions) {
-            Session session = (Session) context.sessions.get(sessionId);
+            Session session = context.sessions.get(sessionId);
             if (session == null) {
                 if (!create) {
                     return null;
@@ -423,7 +384,7 @@ class Request implements HttpServletRequest {
                 md5.update((byte) (random << i));
             }
             byte[] all = md5.digest();
-            StringBuffer buf = new StringBuffer();
+            StringBuilder buf = new StringBuilder();
             for (int i = 0; i < all.length; i++) {
                 int c = (int) all[i] & 0xff;
                 buf.append(Character.forDigit(c / 16, 16));
@@ -442,37 +403,117 @@ class Request implements HttpServletRequest {
         return off;
     }
 
-    public HttpSession getSession() {
+    @Override public HttpSession getSession() {
         return getSession(true);
     }
 
-    public boolean isRequestedSessionIdValid() {
+    @Override public String changeSessionId() { // @since 3.1
+        synchronized (context.sessions) {
+            Session session = (Session) context.sessions.remove(sessionId);
+            if (session == null) {
+                throw new IllegalStateException("No session associated with request");
+            }
+            sessionId = createSessionId();
+            context.sessions.put(sessionId, session);
+            return sessionId;
+        }
+    }
+
+    @Override public boolean isRequestedSessionIdValid() {
         synchronized (context.sessions) {
             return context.sessions.containsKey(sessionId);
         }
     }
 
-    public boolean isRequestedSessionIdFromCookie() {
+    @Override public boolean isRequestedSessionIdFromCookie() {
         return Boolean.TRUE == sessionType;
     }
 
-    public boolean isRequestedSessionIdFromURL() {
+    @Override public boolean isRequestedSessionIdFromURL() {
         return Boolean.FALSE == sessionType;
     }
 
-    public boolean isRequestedSessionIdFromUrl() {
+    @Override public boolean isRequestedSessionIdFromUrl() {
         return isRequestedSessionIdFromURL();
     }
 
-    public Object getAttribute(String name) {
+    @Override public boolean authenticate(HttpServletResponse response) throws IOException, ServletException {
+        // TODO
+        return false;
+    }
+
+    @Override public void login(String username, String password) throws ServletException {
+        // TODO
+    }
+
+    @Override public void logout() throws ServletException {
+        // TODO
+    }
+
+    @Override public Collection<Part> getParts() throws IOException, ServletException {
+        // TODO
+        return null;
+    }
+
+    @Override public Part getPart(java.lang.String name) throws IOException, ServletException {
+        // TODO
+        return null;
+    }
+
+    @Override public <T extends HttpUpgradeHandler> T upgrade(Class<T> handlerClass) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override public Map<String,String> getTrailerFields() {
+        // TODO
+        return new HashMap<>();
+    }
+
+    @Override public boolean isTrailerFieldsReady() {
+        // TODO
+        return false;
+    }
+
+    public void setHeader(String name, String value) {
+        removeHeaders(name);
+        addHeader(name, value);
+    }
+
+    private void removeHeaders(String name) {
+        for (Iterator<Header> i = headers.iterator(); i.hasNext(); ) {
+            Header header = i.next();
+            if (header.getName().equalsIgnoreCase(name)) {
+                i.remove();
+            }
+        }
+    }
+
+    public void addHeader(String name, String value) {
+        if (!Response.MULTIPLE_VALUE.contains(name.toLowerCase())) {
+            removeHeaders(name);
+        }
+        headers.add(new Header(name, value));
+    }
+
+    public long getLongHeader(String name) {
+        String value = getHeader(name);
+        if (value == null) {
+            return -1;
+        }
+        return Long.parseLong(value);
+    }
+
+    // -- ServletRequest --
+
+    @Override public Object getAttribute(String name) {
         return attributes.get(name);
     }
 
-    public Enumeration getAttributeNames() {
-        return new IteratorEnumeration(attributes.keySet());
+    @Override public Enumeration<String> getAttributeNames() {
+        return new IteratorEnumeration<>(attributes.keySet());
     }
 
-    public String getCharacterEncoding() {
+    @Override public String getCharacterEncoding() {
         if (encoding != null) {
             return encoding;
         }
@@ -496,7 +537,7 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-    public void setCharacterEncoding(String encoding) throws UnsupportedEncodingException {
+    @Override public void setCharacterEncoding(String encoding) throws UnsupportedEncodingException {
         if (encoding != null) {
             // Check that encoding is supported by InputStreamReader
             ByteArrayInputStream dummy = new ByteArrayInputStream(new byte[0]);
@@ -506,72 +547,45 @@ class Request implements HttpServletRequest {
         this.encoding = encoding;
     }
 
-    public int getContentLength() {
+    @Override public int getContentLength() {
         return getIntHeader("Content-Length");
     }
 
-    public long getContentLengthLong() {
+    @Override public long getContentLengthLong() {
         return getLongHeader("Content-Length");
     }
 
-    public String getContentType() {
+    @Override public String getContentType() {
         return getHeader("Content-Type");
     }
 
-    public ServletInputStream getInputStream() {
+    @Override public ServletInputStream getInputStream() {
         return in;
     }
 
-    public String getLocalAddr() {
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
-            return localAddress.getAddress().getHostAddress();
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    public String getLocalName() {
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
-            return localAddress.getHostName();
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    public int getLocalPort() {
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
-            return localAddress.getPort();
-        } catch (IOException e) {
-            return -1;
-        }
-    }
-
-    public String getParameter(String name) {
+    @Override public String getParameter(String name) {
         if (!parametersParsed) {
             parseParameters();
         }
-        String[] values = (String[]) parameters.get(name);
+        String[] values = parameters.get(name);
         return (values == null || values.length == 0) ? null : values[0];
     }
 
-    public Enumeration getParameterNames() {
+    @Override public Enumeration<String> getParameterNames() {
         if (!parametersParsed) {
             parseParameters();
         }
-        return new IteratorEnumeration(parameters.keySet());
+        return new IteratorEnumeration<>(parameters.keySet());
     }
 
-    public String[] getParameterValues(String name) {
+    @Override public String[] getParameterValues(String name) {
         if (!parametersParsed) {
             parseParameters();
         }
-        return (String[]) parameters.get(name);
+        return parameters.get(name);
     }
 
-    public Map getParameterMap() {
+    @Override public Map<String,String[]> getParameterMap() {
         if (!parametersParsed) {
             parseParameters();
         }
@@ -623,7 +637,7 @@ class Request implements HttpServletRequest {
         parametersParsed = true;
     }
 
-    static void addParameter(Map parameters, String param) {
+    static void addParameter(Map<String,String[]> parameters, String param) {
         try {
             param = URLDecoder.decode(param, "UTF-8");
         } catch (UnsupportedEncodingException e) {
@@ -644,8 +658,8 @@ class Request implements HttpServletRequest {
         addParameter(parameters, paramName, paramValue);
     }
 
-    static void addParameter(Map parameters, String name, String value) {
-        String[] values = (String[]) parameters.get(name);
+    static void addParameter(Map<String,String[]> parameters, String name, String value) {
+        String[] values = parameters.get(name);
         if (values == null) {
             values = new String[] {value};
         } else {
@@ -657,15 +671,15 @@ class Request implements HttpServletRequest {
         parameters.put(name, values);
     }
 
-    public String getProtocol() {
+    @Override public String getProtocol() {
         return stream.getVersion().toString();
     }
 
-    public String getScheme() {
+    @Override public String getScheme() {
         return stream.getScheme();
     }
 
-    public String getServerName() {
+    @Override public String getServerName() {
         String host = getHeader("Host");
         if (host == null) {
             host = getLocalName();
@@ -681,7 +695,7 @@ class Request implements HttpServletRequest {
         return host;
     }
 
-    public int getServerPort() {
+    @Override public int getServerPort() {
         String host = getHeader("Host");
         if (host != null) {
             int ci = host.indexOf(':');
@@ -692,7 +706,7 @@ class Request implements HttpServletRequest {
         return getLocalPort();
     }
 
-    public BufferedReader getReader() throws IOException {
+    @Override public BufferedReader getReader() throws IOException {
         // See SRV.4.9
         String charset = getCharacterEncoding();
         if (charset == null) {
@@ -701,7 +715,7 @@ class Request implements HttpServletRequest {
         return new BufferedReader(new InputStreamReader(in, charset));
     }
 
-    public String getRemoteAddr() {
+    @Override public String getRemoteAddr() {
         try {
             InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
             return remoteAddress.getAddress().getHostAddress();
@@ -710,7 +724,7 @@ class Request implements HttpServletRequest {
         }
     }
 
-    public String getRemoteHost() {
+    @Override public String getRemoteHost() {
         try {
             InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
             return remoteAddress.getHostName();
@@ -719,16 +733,7 @@ class Request implements HttpServletRequest {
         }
     }
 
-    public int getRemotePort() {
-        try {
-            InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
-            return remoteAddress.getPort();
-        } catch (IOException e) {
-            return -1;
-        }
-    }
-
-    public void setAttribute(String name, Object value) {
+    @Override public void setAttribute(String name, Object value) {
         Object oldValue = attributes.put(name, value);
         ServletRequestAttributeEvent event =
             new ServletRequestAttributeEvent(context, this, name, value);
@@ -741,7 +746,7 @@ class Request implements HttpServletRequest {
         }
     }
 
-    public void removeAttribute(String name) {
+    @Override public void removeAttribute(String name) {
         Object oldValue = attributes.remove(name);
         ServletRequestAttributeEvent event =
             new ServletRequestAttributeEvent(context, this, name, oldValue);
@@ -750,7 +755,7 @@ class Request implements HttpServletRequest {
         }
     }
 
-    public Locale getLocale() {
+    @Override public Locale getLocale() {
         String acceptLanguage = getHeader("Accept-Language");
         if (acceptLanguage != null) {
             List locales = getLocales(acceptLanguage);
@@ -762,24 +767,23 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-    public Enumeration getLocales() {
+    @Override public Enumeration<Locale> getLocales() {
         String acceptLanguage = getHeader("Accept-Language");
         if (acceptLanguage != null) {
-            List locales = getLocales(acceptLanguage);
+            List<AcceptLanguage> locales = getLocales(acceptLanguage);
             if (!locales.isEmpty()) {
-                List ret = new LinkedList();
-                Collections.sort(locales);
-                for (Iterator i = ret.iterator(); i.hasNext(); ) {
-                    ret.add(((AcceptLanguage) locales.get(0)).toLocale());
+                List<Locale> ret = new LinkedList<>();
+                for (AcceptLanguage al : locales) {
+                    ret.add(al.toLocale());
                 }
-                return new IteratorEnumeration(ret);
+                return new IteratorEnumeration<>(ret);
             }
         }
-        return null;
+        return new IteratorEnumeration<>(Collections.singleton(Locale.getDefault()));
     }
 
-    List getLocales(String acceptLanguage) {
-        List ret = new LinkedList();
+    List<AcceptLanguage> getLocales(String acceptLanguage) {
+        List<AcceptLanguage> ret = new LinkedList<>();
         StringTokenizer st = new StringTokenizer(acceptLanguage, ",");
         while (st.hasMoreTokens()) {
             String token = st.nextToken().trim();
@@ -820,14 +824,14 @@ class Request implements HttpServletRequest {
         }
     }
 
-    public boolean isSecure() {
+    @Override public boolean isSecure() {
         return secure;
     }
 
-    public RequestDispatcher getRequestDispatcher(String path) {
+    @Override public RequestDispatcher getRequestDispatcher(String path) {
         // Convert to absolute path
         if (!path.startsWith("/")) {
-            String ref = (pathInfo == null) ? servletPath : servletPath + pathInfo;
+            String ref = (match.pathInfo == null) ? match.servletPath : match.servletPath + match.pathInfo;
             int si = ref.lastIndexOf('/');
             if (si != -1) {
                 ref = ref.substring(0, si + 1);
@@ -837,10 +841,10 @@ class Request implements HttpServletRequest {
         return context.getRequestDispatcher(path);
     }
 
-    public String getRealPath(String path) {
+    @Override public String getRealPath(String path) {
         // Convert to absolute path
         if (!path.startsWith("/")) {
-            String ref = (pathInfo == null) ? servletPath : servletPath + pathInfo;
+            String ref = (match.pathInfo == null) ? match.servletPath : match.servletPath + match.pathInfo;
             int si = ref.lastIndexOf('/');
             if (si != -1) {
                 ref = ref.substring(0, si + 1);
@@ -850,76 +854,96 @@ class Request implements HttpServletRequest {
         return context.getRealPath(path);
     }
 
-    public String toString() {
-        return String.format("%s %s %s", method, requestTarget, getProtocol());
+    @Override public int getRemotePort() {
+        try {
+            InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
+            return remoteAddress.getPort();
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    @Override public String getLocalName() {
+        try {
+            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
+            return localAddress.getHostName();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    @Override public String getLocalAddr() {
+        try {
+            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
+            return localAddress.getAddress().getHostAddress();
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    @Override public int getLocalPort() {
+        try {
+            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
+            return localAddress.getPort();
+        } catch (IOException e) {
+            return -1;
+        }
     }
 
     // -- 3.0 --
 
-    public ServletContext getServletContext() {
+    @Override public ServletContext getServletContext() {
         return context;
     }
 
-    public AsyncContext startAsync() throws IllegalStateException {
-        // TODO
-        return null;
-    }
-
-    public AsyncContext startAsync(ServletRequest servletRequest, ServletResponse servletResponse)
-        throws IllegalStateException {
-            // TODO
-            return null;
+    @Override public synchronized AsyncContext startAsync() throws IllegalStateException {
+        // This mechanism is a bit redundant for the gumdrop architecture
+        // since we are already separating the connection-handling threads
+        // from the servlet processing and the servlet can't block any other
+        // connections.
+        if (asyncContext != null || stream.isClosed()) {
+            throw new IllegalStateException();
         }
-
-    public boolean isAsyncStarted() {
-        return false;
+        asyncContext = new StreamAsyncContext(stream);
+        return asyncContext;
     }
 
-    public boolean isAsyncSupported() {
-        return false;
+    @Override public AsyncContext startAsync(ServletRequest request, ServletResponse response) throws IllegalStateException {
+        while (request instanceof ServletRequestWrapper) {
+            request = ((ServletRequestWrapper) request).getRequest();
+        }
+        if (request != this) {
+            throw new IllegalStateException();
+        }
+        while (response instanceof ServletResponseWrapper) {
+            response = ((ServletResponseWrapper) response).getResponse();
+        }
+        if (response != this.stream.response) {
+            throw new IllegalStateException();
+        }
+        return startAsync();
     }
 
-    public AsyncContext getAsyncContext() {
-        // TODO
-        return null;
+    @Override public boolean isAsyncStarted() {
+        return (asyncContext != null);
     }
 
-    public DispatcherType getDispatcherType() {
-        // TODO
-        return null;
+    @Override public boolean isAsyncSupported() {
+        return false; // TODO make true when StreamAsyncContext is fully implemented
     }
 
-    public boolean authenticate(HttpServletResponse response) throws IOException, ServletException {
-        // TODO
-        return false;
+    @Override public AsyncContext getAsyncContext() {
+        return asyncContext;
     }
 
-    public void login(String username, String password) throws ServletException {
-        // TODO
+    @Override public DispatcherType getDispatcherType() {
+        return (asyncContext != null) ? DispatcherType.ASYNC : DispatcherType.REQUEST;
     }
 
-    public void logout() throws ServletException {
-        // TODO
-    }
+    // -- Debugging --
 
-    public Collection<Part> getParts() throws IOException, ServletException {
-        // TODO
-        return null;
-    }
-
-    public Part getPart(java.lang.String name) throws IOException, ServletException {
-        // TODO
-        return null;
-    }
-
-    // -- 4.0 --
-
-    public <T extends HttpUpgradeHandler> T upgrade(Class<T> handlerClass) {
-        throw new UnsupportedOperationException();
-    }
-
-    public String changeSessionId() {
-        return null;
+    public String toString() {
+        return String.format("%s %s %s", method, requestTarget, getProtocol());
     }
 
 }

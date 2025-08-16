@@ -1,6 +1,6 @@
 /*
  * IteratorEnumeration.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -32,19 +32,19 @@ import java.util.NoSuchElementException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class IteratorEnumeration implements Enumeration {
+public final class IteratorEnumeration<T> implements Enumeration<T> {
 
-    final Iterator i;
+    final Iterator<T> i;
 
     public IteratorEnumeration() {
         i = null;
     }
 
-    public IteratorEnumeration(Iterator i) {
+    public IteratorEnumeration(Iterator<T> i) {
         this.i = i;
     }
 
-    public IteratorEnumeration(Collection c) {
+    public IteratorEnumeration(Collection<T> c) {
         i = (c == null) ? null : c.iterator();
     }
 
@@ -52,7 +52,7 @@ public final class IteratorEnumeration implements Enumeration {
         return (i == null) ? false : i.hasNext();
     }
 
-    public Object nextElement() {
+    public T nextElement() {
         if (i == null) {
             throw new NoSuchElementException();
         }

@@ -39,12 +39,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 import javax.servlet.ServletRequest;
+import javax.servlet.ServletRequestWrapper;
 import javax.servlet.ServletResponse;
 import javax.servlet.UnavailableException;
 import javax.servlet.http.HttpServletRequest;
@@ -60,8 +62,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     private static final byte COLON = 0x3a;
 
     final Context context;
-    final String servletPath;
-    final String pathInfo;
+    final ServletMatch match;
     final String queryString;
     final List handlers;
     final boolean named;
@@ -71,16 +72,9 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     Request originalRequest;
     Response originalResponse;
 
-    ContextRequestDispatcher(
-            Context context,
-            String servletPath,
-            String pathInfo,
-            String queryString,
-            List handlers,
-            boolean named) {
+    ContextRequestDispatcher(Context context, ServletMatch match, String queryString, List handlers, boolean named) {
         this.context = context;
-        this.servletPath = servletPath;
-        this.pathInfo = pathInfo;
+        this.match = match;
         this.queryString = queryString;
         this.handlers = handlers;
         this.named = named;
@@ -88,8 +82,9 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         mode = FilterMapping.REQUEST;
     }
 
-    public void forward(ServletRequest request, ServletResponse response)
-            throws ServletException, IOException {
+    // -- RequestDispatcher --
+
+    @Override public void forward(ServletRequest request, ServletResponse response) throws ServletException, IOException {
         if (response.isCommitted()) {
             // SRV.8.4
             String message = Context.L10N.getString("err.committed");
@@ -105,11 +100,11 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             } else {
                 contextPath = "";
             }
-            if (servletPath != null) {
-                uri.append(servletPath);
+            if (match.servletPath != null) {
+                uri.append(match.servletPath);
             }
-            if (pathInfo != null) {
-                uri.append(pathInfo);
+            if (match.pathInfo != null) {
+                uri.append(match.pathInfo);
             }
             Map attrs = new HashMap();
             attrs.put("javax.servlet.forward.request_uri", hq.getRequestURI());
@@ -117,15 +112,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             attrs.put("javax.servlet.forward.servlet_path", hq.getServletPath());
             attrs.put("javax.servlet.forward.path_info", hq.getPathInfo());
             attrs.put("javax.servlet.forward.query_string", hq.getQueryString());
-            request =
-                    new FilterRequest(
-                            hq,
-                            uri.toString(),
-                            contextPath,
-                            servletPath,
-                            pathInfo,
-                            queryString,
-                            attrs);
+            request = new FilterRequest(hq, uri.toString(), contextPath, match, queryString, attrs, DispatcherType.FORWARD);
         }
         int oldMode = mode;
         mode = FilterMapping.FORWARD;
@@ -133,8 +120,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         mode = oldMode;
     }
 
-    public void include(ServletRequest request, ServletResponse response)
-            throws ServletException, IOException {
+    @Override public void include(ServletRequest request, ServletResponse response) throws ServletException, IOException {
         if (request instanceof HttpServletRequest) {
             HttpServletRequest hq = (HttpServletRequest) request;
             // SRV.8.3.1
@@ -145,11 +131,11 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             } else {
                 contextPath = "";
             }
-            if (servletPath != null) {
-                uri.append(servletPath);
+            if (match.servletPath != null) {
+                uri.append(match.servletPath);
             }
-            if (pathInfo != null) {
-                uri.append(pathInfo);
+            if (match.pathInfo != null) {
+                uri.append(match.pathInfo);
             }
             Map attrs = new HashMap();
             attrs.put("javax.servlet.include.request_uri", hq.getRequestURI());
@@ -157,15 +143,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             attrs.put("javax.servlet.include.servlet_path", hq.getServletPath());
             attrs.put("javax.servlet.include.path_info", hq.getPathInfo());
             attrs.put("javax.servlet.include.query_string", hq.getQueryString());
-            request =
-                    new FilterRequest(
-                            hq,
-                            uri.toString(),
-                            contextPath,
-                            servletPath,
-                            pathInfo,
-                            queryString,
-                            attrs);
+            request = new FilterRequest(hq, uri.toString(), contextPath, match, queryString, attrs, DispatcherType.INCLUDE);
         }
         if (response instanceof HttpServletResponse) {
             HttpServletResponse hr = (HttpServletResponse) response;
@@ -186,14 +164,21 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         }
     }
 
-    public void doFilter(ServletRequest request, ServletResponse response)
-            throws ServletException, IOException {
+    // -- FilterChain --
+
+    @Override public void doFilter(ServletRequest request, ServletResponse response) throws ServletException, IOException {
         ServletResponse filterResponse =
-                (response instanceof HttpServletResponse)
-                        ? new FilterResponse((HttpServletResponse) response)
-                        : response;
+            (response instanceof HttpServletResponse)
+            ? new FilterResponse((HttpServletResponse) response)
+            : response;
         String servletName = null;
         Servlet servlet = null;
+        // Get original request
+        ServletRequest cur = request;
+        while (cur != null && (cur instanceof ServletRequestWrapper)) {
+            cur = ((ServletRequestWrapper) cur).getRequest();
+        }
+        Request r = (Request) cur;
         try {
             int servletIndex = handlers.size() - 1;
             boolean handled = false;
@@ -228,7 +213,16 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                     servlet.service(request, filterResponse);
                 }
             }
+            // Check if startAsync was called
+            StreamAsyncContext async = r.asyncContext;
+            if (async != null) {
+                async.asyncStarted();
+            }
         } catch (Exception e) {
+            StreamAsyncContext async = r.asyncContext;
+            if (async != null) {
+                async.error(e);
+            }
             if (!errorSent) {
                 if (originalResponse != null && !originalResponse.committed) {
                     originalResponse.reset();
@@ -278,9 +272,9 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
 
     boolean authorize(Request request, Response response) throws ServletException, IOException {
         String path =
-                (request.pathInfo == null)
-                        ? request.servletPath
-                        : request.servletPath + request.pathInfo;
+            (request.match.pathInfo == null)
+            ? request.match.servletPath
+            : request.match.servletPath + request.match.pathInfo;
         boolean authenticated = false;
 
         // Authorize if necessary
@@ -472,7 +466,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                     // but this will affect servlet
                     throw new ProtocolException("auth-int not permitted");
                     /*md5.update(COLON);
-                    md5.update(hEntity);*/
+                      md5.update(hEntity);*/
                 }
                 byte[] ha2 = md.digest();
                 String ha2Hex = toHexString(ha2);
@@ -548,42 +542,42 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     }
 
     void requireAuthentication(Response response, String scheme)
-            throws ServletException, IOException {
-        String realm = context.realmName;
-        if ("Digest".equals(scheme)) {
-            // Digest
-            try {
-                // Create a suitable nonce value
-                MessageDigest md = MessageDigest.getInstance("MD5");
-                ByteArrayOutputStream bo = new ByteArrayOutputStream();
-                ObjectOutputStream oo = new ObjectOutputStream(bo);
-                oo.writeLong(System.currentTimeMillis());
-                md.update(bo.toByteArray());
-                bo.reset();
-                oo.writeDouble(Math.random());
-                md.update(bo.toByteArray());
-                String nonce = toHexString(BASE64.encode(md.digest()));
+        throws ServletException, IOException {
+            String realm = context.realmName;
+            if ("Digest".equals(scheme)) {
+                // Digest
+                try {
+                    // Create a suitable nonce value
+                    MessageDigest md = MessageDigest.getInstance("MD5");
+                    ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                    ObjectOutputStream oo = new ObjectOutputStream(bo);
+                    oo.writeLong(System.currentTimeMillis());
+                    md.update(bo.toByteArray());
+                    bo.reset();
+                    oo.writeDouble(Math.random());
+                    md.update(bo.toByteArray());
+                    String nonce = toHexString(BASE64.encode(md.digest()));
 
-                // TODO associate nonce with context to avoid replay attacks
+                    // TODO associate nonce with context to avoid replay attacks
 
-                // Send UNAUTHORIZED with the WWW-Authenticate header
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                String wwwAuthenticate =
+                    // Send UNAUTHORIZED with the WWW-Authenticate header
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    String wwwAuthenticate =
                         "Digest realm=\"" + realm + "\", nonce=\"" + nonce + "\", qop=\"auth\"";
-                response.setHeader("WWW-Authenticate", wwwAuthenticate);
-            } catch (NoSuchAlgorithmException e) {
-                throw new ServletException(e);
+                    response.setHeader("WWW-Authenticate", wwwAuthenticate);
+                } catch (NoSuchAlgorithmException e) {
+                    throw new ServletException(e);
+                }
+            } else if ("Basic".equals(scheme)) {
+                // Basic
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setHeader("WWW-Authenticate", "Basic realm=\"" + realm + "\"");
+            } else {
+                String message = Context.L10N.getString("http.unknown_auth_mechanism");
+                message = MessageFormat.format(message, scheme);
+                response.sendError(500, message);
             }
-        } else if ("Basic".equals(scheme)) {
-            // Basic
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setHeader("WWW-Authenticate", "Basic realm=\"" + realm + "\"");
-        } else {
-            String message = Context.L10N.getString("http.unknown_auth_mechanism");
-            message = MessageFormat.format(message, scheme);
-            response.sendError(500, message);
         }
-    }
 
     /**
      * Parse the specified text into an RFC 2617 digest-response.
@@ -663,10 +657,10 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     public String toString() {
         StringBuffer buf = new StringBuffer(getClass().getName());
         buf.append("[servletPath=");
-        buf.append(servletPath);
-        if (pathInfo != null) {
+        buf.append(match.servletPath);
+        if (match.pathInfo != null) {
             buf.append(",pathInfo=");
-            buf.append(pathInfo);
+            buf.append(match.pathInfo);
         }
         if (queryString != null) {
             buf.append(",queryString=");
