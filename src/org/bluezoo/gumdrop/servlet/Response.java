@@ -452,7 +452,7 @@ class Response implements HttpServletResponse {
                     String key = token.substring(0, ei);
                     if ("charset".equals(key)) {
                         String value = token.substring(ei + 1);
-                        return ContextRequestDispatcher.unq(value);
+                        return Request.unq(value);
                     }
                 }
             }
