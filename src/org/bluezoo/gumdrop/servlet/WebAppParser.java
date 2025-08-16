@@ -1,6 +1,6 @@
 /*
  * WebAppParser.java
- * Copyright (C) 2005, 2013 Chris Burdess
+ * Copyright (C) 2005, 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -132,6 +132,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
     static final int AUTH_CONSTRAINT = 69;
     static final int USER_DATA_CONSTRAINT = 70;
     static final int TRANSPORT_GUARANTEE = 71;
+    static final int MULTIPART_CONFIG = 72;
 
     static final int RES_REF_NAME = 101;
     static final int RES_TYPE = 102;
@@ -161,6 +162,10 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
     static final int MESSAGE_DESTINATION_USAGE = 126;
     static final int MESSAGE_DESTINATION_LINK = 127;
     static final int MESSAGE_DESTINATION_NAME = 128;
+    static final int MULTIPART_CONFIG_LOCATION = 129;
+    static final int MAX_FILE_SIZE = 130;
+    static final int MAX_REQUEST_SIZE = 131;
+    static final int FILE_SIZE_THRESHOLD = 132;
 
     static final int EL_IGNORED = 201;
     static final int PAGE_ENCODING = 202;
@@ -392,8 +397,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                 } else if (name == "locale-encoding-mapping-list") {
                     pushState(LOCALE_ENCODING_MAPPING_LIST);
                 } else {
-                    throw new SAXParseException(
-                            "expecting top-level element, " + "found " + name, loc);
+                    throw new SAXParseException("expecting top-level element, found " + name, loc);
                 }
                 break;
             case ICON:
@@ -415,8 +419,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(PARAM_VALUE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting context-param child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting context-param child, found: " + name, loc);
                 }
                 break;
             case FILTER:
@@ -452,8 +455,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(PARAM_VALUE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting init-param child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting init-param child, found: " + name, loc);
                 }
                 break;
             case FILTER_MAPPING:
@@ -470,8 +472,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(DISPATCHER);
                 } else {
-                    throw new SAXParseException(
-                            "expecting filter-mapping child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting filter-mapping child, found: " + name, loc);
                 }
                 break;
             case LISTENER:
@@ -487,8 +488,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(LISTENER_CLASS);
                 } else {
-                    throw new SAXParseException(
-                            "expecting listener child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting listener child, found: " + name, loc);
                 }
                 break;
             case SERVLET:
@@ -519,9 +519,11 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushState(RUN_AS);
                 } else if (name == "security-role-ref") {
                     pushState(SECURITY_ROLE_REF);
+                } else if (name == "multipart-config") {
+                    pushTarget(new MultipartConfigDef());
+                    pushState(MULTIPART_CONFIG);
                 } else {
-                    throw new SAXParseException(
-                            "expecting servlet child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting servlet child, found: " + name, loc);
                 }
                 break;
             case RUN_AS:
@@ -532,7 +534,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(ROLE_NAME);
                 } else {
-                    throw new SAXParseException("expecting run-as child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting run-as child, found: " + name, loc);
                 }
                 break;
             case SERVLET_MAPPING:
@@ -543,8 +545,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(URL_PATTERN);
                 } else {
-                    throw new SAXParseException(
-                            "expecting servlet-mapping child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting servlet-mapping child, found: " + name, loc);
                 }
                 break;
             case SESSION_CONFIG:
@@ -552,8 +553,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(SESSION_TIMEOUT);
                 } else {
-                    throw new SAXParseException(
-                            "expecting session-config child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting session-config child, found: " + name, loc);
                 }
                 break;
             case MIME_MAPPING:
@@ -564,8 +564,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(MIME_TYPE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting mime-mapping child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting mime-mapping child, found: " + name, loc);
                 }
                 break;
             case WELCOME_FILE_LIST:
@@ -573,8 +572,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(WELCOME_FILE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting welcome-file-list child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting welcome-file-list child, found: " + name, loc);
                 }
                 break;
             case ERROR_PAGE:
@@ -588,8 +586,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(LOCATION);
                 } else {
-                    throw new SAXParseException(
-                            "expecting welcome-file-list child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting welcome-file-list child, found: " + name, loc);
                 }
                 break;
             case JSP_CONFIG:
@@ -599,8 +596,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                 } else if (name == "jsp-property-group") {
                     pushState(JSP_PROPERTY_GROUP);
                 } else {
-                    throw new SAXParseException(
-                            "expecting jsp-config child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting jsp-config child, found: " + name, loc);
                 }
                 break;
             case TAGLIB:
@@ -611,7 +607,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(TAGLIB_LOCATION);
                 } else {
-                    throw new SAXParseException("expecting taglib child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting taglib child, found: " + name, loc);
                 }
                 break;
             case JSP_PROPERTY_GROUP:
@@ -640,8 +636,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(INCLUDE_CODA);
                 } else {
-                    throw new SAXParseException(
-                            "expecting jsp-property-group " + "child, found: " + name, loc);
+                    throw new SAXParseException("expecting jsp-property-group child, found: " + name, loc);
                 }
                 break;
             case SECURITY_CONSTRAINT:
@@ -656,8 +651,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                 } else if (name == "user-data-constraint") {
                     pushState(USER_DATA_CONSTRAINT);
                 } else {
-                    throw new SAXParseException(
-                            "expecting security-constraint " + "child, found: " + name, loc);
+                    throw new SAXParseException("expecting security-constraint child, found: " + name, loc);
                 }
                 break;
             case WEB_RESOURCE_COLLECTION:
@@ -674,8 +668,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(HTTP_METHOD);
                 } else {
-                    throw new SAXParseException(
-                            "expecting web-resource-collection " + "child, found: " + name, loc);
+                    throw new SAXParseException("expecting web-resource-collection child, found: " + name, loc);
                 }
                 break;
             case AUTH_CONSTRAINT:
@@ -686,8 +679,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(ROLE_NAME);
                 } else {
-                    throw new SAXParseException(
-                            "expecting auth-constraint " + "child, found: " + name, loc);
+                    throw new SAXParseException("expecting auth-constraint child, found: " + name, loc);
                 }
                 break;
             case USER_DATA_CONSTRAINT:
@@ -698,8 +690,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(TRANSPORT_GUARANTEE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting auth-constraint " + "child, found: " + name, loc);
+                    throw new SAXParseException("expecting auth-constraint child, found: " + name, loc);
                 }
                 break;
             case LOGIN_CONFIG:
@@ -712,8 +703,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                 } else if (name == "form-login-config") {
                     pushState(FORM_LOGIN_CONFIG);
                 } else {
-                    throw new SAXParseException(
-                            "expecting login-config child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting login-config child, found: " + name, loc);
                 }
                 break;
             case FORM_LOGIN_CONFIG:
@@ -724,8 +714,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(FORM_ERROR_PAGE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting form-login-config child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting form-login-config child, found: " + name, loc);
                 }
                 break;
             case SECURITY_ROLE:
@@ -736,8 +725,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(ROLE_NAME);
                 } else {
-                    throw new SAXParseException(
-                            "expecting form-login-config child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting form-login-config child, found: " + name, loc);
                 }
                 break;
             case ENV_ENTRY:
@@ -754,8 +742,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(ENV_ENTRY_VALUE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting env-entry child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting env-entry child, found: " + name, loc);
                 }
                 break;
             case EJB_REF:
@@ -778,8 +765,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(EJB_LINK);
                 } else {
-                    throw new SAXParseException(
-                            "expecting ejb-ref child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting ejb-ref child, found: " + name, loc);
                 }
                 break;
             case EJB_LOCAL_REF:
@@ -802,8 +788,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(EJB_LINK);
                 } else {
-                    throw new SAXParseException(
-                            "expecting ejb-local-ref child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting ejb-local-ref child, found: " + name, loc);
                 }
                 break;
             case SERVICE_REF:
@@ -837,8 +822,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(HANDLER);
                 } else {
-                    throw new SAXParseException(
-                            "expecting service-ref child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting service-ref child, found: " + name, loc);
                 }
                 break;
             case RESOURCE_REF:
@@ -858,8 +842,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(RES_SHARING_SCOPE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting resource-ref child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting resource-ref child, found: " + name, loc);
                 }
                 break;
             case RESOURCE_ENV_REF:
@@ -873,8 +856,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(RESOURCE_ENV_REF_TYPE);
                 } else {
-                    throw new SAXParseException(
-                            "expecting resource-env-ref child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting resource-env-ref child, found: " + name, loc);
                 }
                 break;
             case MESSAGE_DESTINATION_REF:
@@ -894,8 +876,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(MESSAGE_DESTINATION_LINK);
                 } else {
-                    throw new SAXParseException(
-                            "expecting message-destination-ref child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting message-destination-ref child, found: " + name, loc);
                 }
                 break;
             case MESSAGE_DESTINATION:
@@ -911,8 +892,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(MESSAGE_DESTINATION_NAME);
                 } else {
-                    throw new SAXParseException(
-                            "expecting message-destination child, " + "found: " + name, loc);
+                    throw new SAXParseException("expecting message-destination child, found: " + name, loc);
                 }
                 break;
             case LOCALE_ENCODING_MAPPING_LIST:
@@ -920,12 +900,7 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushState(LOCALE_ENCODING_MAPPING);
                     pushTarget(new LocaleEncodingMapping());
                 } else {
-                    throw new SAXParseException(
-                            "expecting "
-                                    + "locale-encoding-mapping-list child, "
-                                    + "found: "
-                                    + name,
-                            loc);
+                    throw new SAXParseException("expecting locale-encoding-mapping-list child, found: " + name, loc);
                 }
                 break;
             case LOCALE_ENCODING_MAPPING:
@@ -936,9 +911,24 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
                     pushText();
                     pushState(ENCODING);
                 } else {
-                    throw new SAXParseException(
-                            "expecting " + "locale-encoding-mapping child, " + "found: " + name,
-                            loc);
+                    throw new SAXParseException("expecting locale-encoding-mapping child, found: " + name, loc);
+                }
+                break;
+            case MULTIPART_CONFIG:
+                if (name == "location") {
+                    pushText();
+                    pushState(MULTIPART_CONFIG_LOCATION);
+                } else if (name == "max-file-size") {
+                    pushText();
+                    pushState(MAX_FILE_SIZE);
+                } else if (name == "max-request-size") {
+                    pushText();
+                    pushState(MAX_REQUEST_SIZE);
+                } else if (name == "file-size-threshold") {
+                    pushText();
+                    pushState(FILE_SIZE_THRESHOLD);
+                } else {
+                    throw new SAXParseException("expecting multipart-config child, found: " + name, loc);
                 }
                 break;
             default:
@@ -1386,6 +1376,22 @@ class WebAppParser extends DefaultHandler implements ErrorHandler {
             case ENCODING:
                 String encoding = popText();
                 ((LocaleEncodingMapping) peekTarget()).encoding = encoding;
+                break;
+            case MULTIPART_CONFIG:
+                MultipartConfigDef mc = (MultipartConfigDef) popTarget();
+                ((ServletDef) peekTarget()).multipartConfig = mc;
+                break;
+            case MULTIPART_CONFIG_LOCATION:
+                ((MultipartConfigDef) peekTarget()).location = popText();
+                break;
+            case MAX_FILE_SIZE:
+                ((MultipartConfigDef) peekTarget()).maxFileSize = Long.parseLong(popText());
+                break;
+            case MAX_REQUEST_SIZE:
+                ((MultipartConfigDef) peekTarget()).maxRequestSize = Long.parseLong(popText());
+                break;
+            case FILE_SIZE_THRESHOLD:
+                ((MultipartConfigDef) peekTarget()).fileSizeThreshold = Long.parseLong(popText());
                 break;
         }
     }

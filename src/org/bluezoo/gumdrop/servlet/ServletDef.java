@@ -1,6 +1,6 @@
 /*
  * ServletDef.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -55,6 +55,7 @@ final class ServletDef implements ServletConfig, Comparable {
     boolean singleThreadModel;
     private boolean singleThreadModelCheck;
     Map<String,InitParam> initParams = new LinkedHashMap<>();
+    MultipartConfigDef multipartConfig;
 
     ServletDef(Context context) {
         if (context == null) {
