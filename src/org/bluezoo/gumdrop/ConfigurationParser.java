@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.Context;
 import org.bluezoo.gumdrop.servlet.ResourceDef;
+import org.bluezoo.gumdrop.servlet.ResourceHandlerFactory;
 
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
@@ -200,6 +201,7 @@ public final class ConfigurationParser extends DefaultHandler {
                 String propValue = atts.getValue(i);
                 setValue(ret, propName, propValue, methods);
             }
+            URL.setURLStreamHandlerFactory(new ResourceHandlerFactory(container));
             return ret;
         } catch (Exception e) {
             String message = Server.L10N.getString("err.bad_container");

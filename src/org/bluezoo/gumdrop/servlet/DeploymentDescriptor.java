@@ -81,6 +81,53 @@ abstract class DeploymentDescriptor extends DescriptionGroup {
         authentication = false;
     }
 
+    /**
+     * Merge this deployment descriptor with the specified one.
+     */
+    void merge(DeploymentDescriptor other) {
+        for (InitParam contextParam : other.contextParams.values()) {
+            if (!contextParams.containsKey(contextParam.name)) {
+                contextParams.put(contextParam.name, contextParam);
+            }
+        }
+        for (FilterDef filterDef : other.filterDefs.values()) {
+            if (!filterDefs.containsKey(filterDef.name)) {
+                filterDefs.put(filterDef.name, filterDef);
+            }
+        }
+        for (ServletDef servletDef : other.servletDefs.values()) {
+            if (!servletDefs.containsKey(servletDef.name)) {
+                servletDefs.put(servletDef.name, servletDef);
+            }
+        }
+        filterMappings.addAll(other.filterMappings);
+        listenerDefs.addAll(other.listenerDefs);
+        servletMappings.addAll(other.servletMappings);
+        // TODO sessionConfig
+        mimeMappings.addAll(other.mimeMappings);
+        welcomeFiles.addAll(other.welcomeFiles);
+        errorPages.addAll(other.errorPages);
+        jspConfigs.addAll(other.jspConfigs);
+        securityConstraints.addAll(other.securityConstraints);
+        // TODO loginConfig
+        securityRoles.addAll(other.securityRoles);
+        for (String locale : other.localeEncodingMappings.keySet()) {
+            if (!localeEncodingMappings.containsKey(locale)) {
+                localeEncodingMappings.put(locale, other.localeEncodingMappings.get(locale));
+            }
+        }
+        // TODO dataSources and other jndi
+    }
+
+    boolean isSecurityConstraintTarget(String urlPattern) {
+        for (SecurityConstraint sc : securityConstraints) {
+            for (ResourceCollection rc : sc.resourceCollections) {
+                return rc.matchesExact(urlPattern);
+            }
+        }
+        return false;
+    }
+
     // Convenience methods for LoginConfig
 
     String getAuthMethod() {

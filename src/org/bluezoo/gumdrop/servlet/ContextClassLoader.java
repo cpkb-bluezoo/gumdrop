@@ -33,6 +33,7 @@ import java.io.InputStream;
 import java.net.URL;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -86,20 +87,25 @@ class ContextClassLoader extends ClassLoader {
                 return url;
             }
             // Resource in jar resource in /WEB-INF/lib
-            Set jars = context.getResourcePaths("/WEB-INF/lib");
+            Collection<String> jars = context.getResourcePaths("/WEB-INF/lib");
             if (jars != null) {
+                // Sort in alphabetical order
+                List<String> sorted = new ArrayList<>(jars);
+                Collections.sort(sorted);
+                jars = sorted;
                 // Check cache
                 url = jarResourceCache.get(name);
                 if (url != null) {
                     return url;
                 }
-                for (Iterator i = jars.iterator(); i.hasNext(); ) {
-                    String path = (String) i.next();
+                for (String path : jars) {
                     File file = jarCache.get(path);
                     if (file == null) {
                         if (context.warFile == null) {
                             file = new File(context.root, path.substring(1));
-                            if (file.isFile()) jarCache.put(path, file);
+                            if (file.isFile()) {
+                                jarCache.put(path, file);
+                            }
                         } else {
                             InputStream in = context.getResourceAsStream(path);
                             if (in != null) {

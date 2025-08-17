@@ -1,5 +1,5 @@
 /*
- * SessionConfig.java
+ * ResourceHandlerFactory.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -22,19 +22,27 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
-import javax.servlet.SessionTrackingMode;
+import java.net.URLStreamHandler;
+import java.net.URLStreamHandlerFactory;
 
 /**
- * Definition of a session-config.
+ * Factory for resource handlers.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class SessionConfig {
+public class ResourceHandlerFactory implements URLStreamHandlerFactory {
 
-    int sessionTimeout;
-    CookieConfig cookieConfig;
-    Set<SessionTrackingMode> trackingModes = new LinkedHashSet<>();
+    private final Container container;
+
+    public ResourceHandlerFactory(Container container) {
+        this.container = container;
+    }
+
+    @Override public URLStreamHandler createURLStreamHandler(String protocol) {
+        if ("resource".equals(protocol)) {
+            return new ResourceStreamHandler(container);
+        }
+        return null;
+    }
 
 }

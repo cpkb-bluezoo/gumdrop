@@ -29,7 +29,7 @@ package org.bluezoo.gumdrop.servlet;
  */
 class MultipartConfigDef {
 
-    String location;
+    String location = "";
     long maxFileSize = -1L;
     long maxRequestSize = -1L;
     long fileSizeThreshold = 0L;

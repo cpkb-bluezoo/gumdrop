@@ -46,20 +46,25 @@ final class ResourceCollection {
      * Does the specified request match a resource in this collection?
      */
     boolean matches(String method, String path) {
-        if (!httpMethods.isEmpty() && !httpMethods.contains(method)) {
-            return false;
-        }
-        for (Iterator i = urlPatterns.iterator(); i.hasNext(); ) {
-            String pattern = (String) i.next();
+        for (String pattern : urlPatterns) {
             if (pattern.equals(path)) {
                 // 1. exact match
-                return true;
+                return isCovered(method);
             } else if (pattern.endsWith("/*")
                     && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
                 // 2. longest path prefix
-                return true;
+                return isCovered(method);
             } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
                 // 3. extension
+                return isCovered(method);
+            }
+        }
+        return false;
+    }
+
+    boolean matchesExact(String path) {
+        for (String pattern : urlPatterns) {
+            if (pattern.equals(path)) {
                 return true;
             }
         }

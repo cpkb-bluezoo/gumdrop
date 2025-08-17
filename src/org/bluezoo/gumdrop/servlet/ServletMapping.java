@@ -25,6 +25,8 @@ package org.bluezoo.gumdrop.servlet;
 import java.util.LinkedList;
 import java.util.List;
 
+import javax.servlet.ServletSecurityElement;
+
 /**
  * A servlet mapping entry.
  *
@@ -36,5 +38,6 @@ final class ServletMapping {
     String urlPattern;
     String servletName;
     List dispatchers = new LinkedList(); // TODO
+    ServletSecurityElement constraint; // TODO
 
 }

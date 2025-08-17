@@ -25,14 +25,22 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 
 import java.text.MessageFormat;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
+import javax.servlet.MultipartConfigElement;
 import javax.servlet.Servlet;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
+import javax.servlet.ServletRegistration;
+import javax.servlet.ServletSecurityElement;
 import javax.servlet.SingleThreadModel;
 
 /**
@@ -40,7 +48,7 @@ import javax.servlet.SingleThreadModel;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ServletDef extends DescriptionGroup implements ServletConfig, Comparable {
+final class ServletDef extends DescriptionGroup implements ServletConfig, Comparable, ServletRegistration.Dynamic {
 
     Context context;
     String name;
@@ -51,11 +59,12 @@ final class ServletDef extends DescriptionGroup implements ServletConfig, Compar
     String runAs;
     SecurityRole securityRoleRef;
     MultipartConfigDef multipartConfig;
+    boolean asyncSupported;
 
     /**
      * Compare for sorting according to the value of loadOnStartup
      */
-    public int compareTo(Object other) {
+    @Override public int compareTo(Object other) {
         if (other instanceof ServletDef) {
             ServletDef servletDef = (ServletDef) other;
             return loadOnStartup - servletDef.loadOnStartup;
@@ -72,6 +81,8 @@ final class ServletDef extends DescriptionGroup implements ServletConfig, Compar
             servlet.init(this);
             return servlet;
         }
+        // TODO the servlet should only have access to the context
+        // classloader anyway
         Thread thread = Thread.currentThread();
         ClassLoader loader = thread.getContextClassLoader();
         ClassLoader contextLoader = context.getContextClassLoader();
@@ -92,22 +103,145 @@ final class ServletDef extends DescriptionGroup implements ServletConfig, Compar
         }
     }
 
-    public ServletContext getServletContext() {
+    // -- ServletConfig --
+
+    @Override public ServletContext getServletContext() {
         return context;
     }
 
-    public String getServletName() {
+    @Override public String getServletName() {
         return name;
     }
 
-    public String getInitParameter(String name) {
+    @Override public Enumeration<String> getInitParameterNames() {
+        return new IteratorEnumeration<>(initParams.keySet().iterator());
+    }
+
+    // -- ServletRegistration.Dynamic --
+
+    @Override public void setLoadOnStartup(int loadOnStartup) {
+        this.loadOnStartup = loadOnStartup;
+    }
+
+    @Override public Set<String> setServletSecurity(ServletSecurityElement constraint) {
+        Set<String> ret = new HashSet<>();
+        for (ServletMapping mapping : context.servletMappings) {
+            if (mapping.name.equals(name)) { // servlet mapping for this servlet
+                String urlPattern = mapping.urlPattern;
+                if (context.isSecurityConstraintTarget(urlPattern)) {
+                    ret.add(urlPattern);
+                } else {
+                    mapping.constraint = constraint;
+                }
+            }
+        }
+        return Collections.unmodifiableSet(ret);
+    }
+
+    @Override public void setMultipartConfig(MultipartConfigElement multipartConfig) {
+        if (this.multipartConfig == null) {
+            this.multipartConfig = new MultipartConfigDef();
+        }
+        this.multipartConfig.location = multipartConfig.getLocation();
+        this.multipartConfig.maxFileSize = multipartConfig.getMaxFileSize();
+        this.multipartConfig.maxRequestSize = multipartConfig.getMaxRequestSize();
+        this.multipartConfig.fileSizeThreshold = (long) multipartConfig.getFileSizeThreshold();
+    }
+
+    @Override public void setRunAsRole(String roleName) {
+        runAs = roleName;
+    }
+
+    @Override public Set<String> addMapping(String... urlPatterns) {
+        Set<String> ret = new HashSet<>();
+        for (String urlPattern : urlPatterns) {
+            boolean seen = false;
+            for (ServletMapping servletMapping : context.servletMappings) {
+                if (servletMapping.urlPattern.equals(urlPattern) && !servletMapping.name.equals(name)) {
+                    ret.add(urlPattern);
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                ServletMapping servletMapping = new ServletMapping();
+                servletMapping.name = name;
+                servletMapping.urlPattern = urlPattern;
+                context.servletMappings.add(servletMapping);
+            }
+        }
+        return Collections.unmodifiableSet(ret);
+    }
+
+    @Override public Collection<String> getMappings() {
+        Set<String> acc = new LinkedHashSet<>();
+        for (ServletMapping servletMapping : context.servletMappings) {
+            if (servletMapping.name.equals(name)) {
+                acc.add(servletMapping.urlPattern);
+            }
+        }
+        return Collections.unmodifiableSet(acc);
+    }
+
+    @Override public String getRunAsRole() {
+        return runAs;
+    }
+
+    @Override public String getName() {
+        return name;
+    }
+
+    @Override public String getClassName() {
+        return className;
+    }
+
+    @Override public boolean setInitParameter(String name, String value) {
+        if (name == null || value == null) {
+            throw new IllegalArgumentException();
+        }
+        if (context.initialized) {
+            throw new IllegalStateException();
+        }
+        InitParam initParam = initParams.get(name);
+        if (initParam != null) {
+            return false; // spec seems to say we should not update it
+        }
+        initParam = new InitParam();
+        initParam.name = name;
+        initParam.value = value;
+        initParams.put(name, initParam);
+        return true;
+    }
+
+    @Override public String getInitParameter(String name) {
         InitParam initParam = initParams.get(name);
         return (initParam == null) ? null : initParam.value;
     }
 
-    public Enumeration getInitParameterNames() {
-        return new IteratorEnumeration(initParams.keySet().iterator());
+    @Override public Set<String> setInitParameters(Map<String,String> initParameters) {
+        Set<String> ret = new HashSet<>();
+        for (Map.Entry<String,String> entry : initParameters.entrySet()) {
+            String name = entry.getKey();
+            if (!setInitParameter(name, entry.getValue())) {
+                ret.add(name);
+            }
+        }
+        return Collections.unmodifiableSet(ret);
     }
+
+    @Override public Map<String,String> getInitParameters() {
+        Map<String,String> ret = new LinkedHashMap<>();
+        for (InitParam initParam : initParams.values()) {
+            ret.put(initParam.name, initParam.value);
+        }
+        return Collections.unmodifiableMap(ret);
+    }
+
+    @Override public void setAsyncSupported(boolean flag) {
+        asyncSupported = flag;
+    }
+
+    // -- Debug --
 
     public String toString() {
         StringBuffer buf = new StringBuffer(getClass().getName());

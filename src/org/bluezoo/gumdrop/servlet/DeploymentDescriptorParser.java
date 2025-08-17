@@ -51,6 +51,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import javax.servlet.DispatcherType;
+import javax.servlet.SessionTrackingMode;
 
 /**
  * Parses a web application deployment descriptor, populating an application
@@ -1137,7 +1138,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((SessionConfig) peekTarget()).cookieConfig = cookieConfig;
                         break;
                     case TRACKING_MODE:
-                        SessionConfig.TrackingMode trackingMode = SessionConfig.TrackingMode.valueOf(popText());
+                        SessionTrackingMode trackingMode = SessionTrackingMode.valueOf(popText());
                         ((SessionConfig) peekTarget()).trackingModes.add(trackingMode);
                         break;
                 }

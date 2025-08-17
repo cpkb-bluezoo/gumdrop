@@ -71,7 +71,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     List<ResourceDef> resourceDefs = new ArrayList<>();
     Map<String,Realm> realms = new LinkedHashMap<>();
 
-    Map<String,String> initParams2 = new LinkedHashMap<>();
+    Map<String,String> initParams = new LinkedHashMap<>();
     Map<String,Object> attributes = new LinkedHashMap<>();
     Map<String,Filter> filters = new LinkedHashMap<>();
     Map<String,Servlet> servlets = new LinkedHashMap<>();
@@ -88,6 +88,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     Map<String,Session> sessions = new HashMap<>();
     int sessionTimeout = -1;
     long sessionsLastInvalidated;
+
     boolean distributable;
     boolean initialized;
     boolean metadataComplete;
@@ -97,6 +98,9 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     String requestCharacterEncoding; // TODO
     String responseCharacterEncoding; // TODO
     List<String> absoluteOrdering = new ArrayList<>();
+
+    Map<String,? extends ServletRegistration> servletRegistrations = new LinkedHashMap<>();
+    Map<String,? extends FilterRegistration> filterRegistrations = new LinkedHashMap<>();
 
     ServletDef defaultServletDef;
 
@@ -130,7 +134,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     void reset() {
         super.reset();
 
-        initParams2.clear();
+        initParams.clear();
         attributes.clear();
         filters.clear();
         servlets.clear();
@@ -363,14 +367,6 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         resourceDefs.add(resource);
     }
 
-    public boolean setInitParameter(String name, String value) {
-        if (initParams2.containsKey(name)) {
-            return false;
-        }
-        initParams2.put(name, value);
-        return true;
-    }
-
     public void addRealm(String name, Realm realm) {
         realms.put(name, realm);
     }
@@ -445,23 +441,23 @@ public class Context extends DeploymentDescriptor implements ServletContext {
 
     // -- ServletContext --
 
-    public ServletContext getContext(String uripath) {
+    @Override public ServletContext getContext(String uripath) {
         return container.getContext(uripath);
     }
 
-    public String getContextPath() {
+    @Override public String getContextPath() {
         return contextPath;
     }
 
-    public int getMajorVersion() {
-        return majorVersion;
+    @Override public int getMajorVersion() {
+        return 4;
     }
 
-    public int getMinorVersion() {
-        return minorVersion;
+    @Override public int getMinorVersion() {
+        return 0;
     }
 
-    public String getMimeType(String file) {
+    @Override public String getMimeType(String file) {
         for (MimeMapping mimeMapping : mimeMappings) {
             if (file.endsWith(mimeMapping.extension)) {
                 return mimeMapping.mimeType;
@@ -470,7 +466,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return null;
     }
 
-    public Set<String> getResourcePaths(String path) {
+    @Override public Set<String> getResourcePaths(String path) {
         Set<String> ret = null;
         if (warFile == null) {
             if (File.separatorChar != '/') {
@@ -508,17 +504,31 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return ret;
     }
 
-    public URL getResource(String path) throws MalformedURLException {
+    /**
+     * This will return a <code>resource:</code> URL. You can open a
+     * connection to this URL to see its size and date and read its
+     * contents. If you just want to read the contents, use @link
+     * #getResourceAsStream(String) as this is more efficient.
+     * @param path the path to the resource within this context
+     */
+    @Override public URL getResource(String path) throws MalformedURLException {
         path = getResourcePath(path);
-        URL ret = null;
-        if (path != null) {
-            if (path.length() > 0) ret = new URL(rootUrl, path);
-            else ret = rootUrl;
+        if (path == null) {
+            return null;
         }
-        return ret;
+        String host = contextPath;
+        if (host.startsWith("/")) {
+            host = host.substring(1);
+        }
+        return new URL("resource", host, path);
     }
 
-    public InputStream getResourceAsStream(String path) {
+    /**
+     * Returns an InputStream from which the given resource's contents can
+     * be read, or null if the resource is not valid in this context.
+     * @param path the path to the resource within this context
+     */
+    @Override public InputStream getResourceAsStream(String path) {
         path = getResourcePath(path);
         if (path == null) {
             return null;
@@ -529,9 +539,15 @@ public class Context extends DeploymentDescriptor implements ServletContext {
                     path = path.replace('/', File.separatorChar);
                 }
                 File file = new File(root, path);
+                if (!file.exists() || !file.isFile()) {
+                    return null;
+                }
                 return new FileInputStream(file);
             } else {
                 JarEntry jarEntry = warFile.getJarEntry(path);
+                if (jarEntry == null) {
+                    return null;
+                }
                 return warFile.getInputStream(jarEntry);
             }
         } catch (IOException e) {
@@ -618,7 +634,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return buf.toString();
     }
 
-    public synchronized RequestDispatcher getRequestDispatcher(String path) {
+    @Override public synchronized RequestDispatcher getRequestDispatcher(String path) {
         invalidateSessions(false);
         // Strip anchor
         int hi = path.indexOf('#');
@@ -760,7 +776,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public synchronized RequestDispatcher getNamedDispatcher(String name) {
+    @Override public synchronized RequestDispatcher getNamedDispatcher(String name) {
         // This method cannot return a filter chain because the path by with the
         // servlet is accessed is not specified, only its name.
         ServletDef servletDef = servletDefs.get(name);
@@ -772,27 +788,27 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return null;
     }
 
-    public Servlet getServlet(String name) throws ServletException {
+    @Override public Servlet getServlet(String name) throws ServletException {
         return null; // deprecated
     }
 
-    public Enumeration getServlets() {
+    @Override public Enumeration<Servlet> getServlets() {
         return new IteratorEnumeration(); // deprecated
     }
 
-    public Enumeration getServletNames() {
+    @Override public Enumeration<String> getServletNames() {
         return new IteratorEnumeration(); // deprecated
     }
 
-    public void log(String msg) {
+    @Override public void log(String msg) {
         log(msg, null);
     }
 
-    public void log(Exception e, String msg) {
+    @Override public void log(Exception e, String msg) {
         log(msg, e);
     }
 
-    public void log(String msg, Throwable e) {
+    @Override public void log(String msg, Throwable e) {
         if (e != null) {
             LOGGER.log(Level.WARNING, msg, e);
         } else {
@@ -800,44 +816,16 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public String getRealPath(String path) {
-        if (warFile == null) {
-            if (File.separatorChar != '/') {
-                path = path.replace('/', File.separatorChar);
-            }
-            File file = new File(root, path);
-            return file.getAbsolutePath();
-        }
-        path = getResourcePath(path);
-        if (path != null) {
-            // check context classloader to see if file is cached
-            File file = contextClassLoader.jarCache.get(path);
-            if (file == null) {
-                // expand jar entry into temporary file resource
-                String fileName = path.replace('/', '_');
-                try {
-                    JarEntry jarEntry = warFile.getJarEntry(path);
-                    InputStream in = warFile.getInputStream(jarEntry);
-                    file = File.createTempFile("gumdrop", fileName);
-                    ContextClassLoader.copy(in, file);
-                    in.close();
-                    file.deleteOnExit();
-                } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
-                    return null;
-                }
-            }
-            return file.getAbsolutePath();
-        }
-        return null;
+    @Override public String getRealPath(String path) {
+        throw new UnsupportedOperationException("ServletContext.getRealPath is a security vulnerability, do not use it");
     }
 
-    public String getServerInfo() {
+    @Override public String getServerInfo() {
         return "gumdrop/" + Server.VERSION;
     }
 
-    public synchronized String getInitParameter(String name) {
-        String ret = initParams2.get(name);
+    @Override public synchronized String getInitParameter(String name) {
+        String ret = initParams.get(name);
         if (ret != null) {
             return ret;
         }
@@ -845,22 +833,30 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return (initParam != null) ? initParam.value : null;
     }
 
-    public synchronized Enumeration getInitParameterNames() {
-        Set ret = new LinkedHashSet();
+    @Override public synchronized Enumeration<String> getInitParameterNames() {
+        Set<String> ret = new LinkedHashSet<>();
         ret.addAll(contextParams.keySet());
-        ret.addAll(initParams2.keySet());
+        ret.addAll(initParams.keySet());
         return new IteratorEnumeration(ret);
     }
 
-    public synchronized Object getAttribute(String name) {
+    @Override public boolean setInitParameter(String name, String value) {
+        if (initParams.containsKey(name) || contextParams.containsKey(name)) {
+            return false;
+        }
+        initParams.put(name, value);
+        return true;
+    }
+
+    @Override public synchronized Object getAttribute(String name) {
         return attributes.get(name);
     }
 
-    public synchronized Enumeration getAttributeNames() {
+    @Override public synchronized Enumeration<String> getAttributeNames() {
         return new IteratorEnumeration(attributes.keySet());
     }
 
-    public void setAttribute(String name, Object value) {
+    @Override public void setAttribute(String name, Object value) {
         if (value == null) {
             removeAttribute(name);
         } else {
@@ -878,7 +874,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public synchronized void removeAttribute(String name) {
+    @Override public synchronized void removeAttribute(String name) {
         Object oldValue = attributes.remove(name);
         ServletContextAttributeEvent event = new ServletContextAttributeEvent(this, name, oldValue);
         for (ServletContextAttributeListener l : servletContextAttributeListeners) {
@@ -886,7 +882,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public String getServletContextName() {
+    @Override public String getServletContextName() {
         return displayName;
     }
 
@@ -903,18 +899,24 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     // -- 3.0 --
 
     public int getEffectiveMajorVersion() {
-        return 2;
+        return majorVersion;
     }
 
     public int getEffectiveMinorVersion() {
-        return 4;
+        return minorVersion;
     }
 
     public ServletRegistration.Dynamic addServlet(String servletName, String className) {
+        if (initialized) {
+            throw new IllegalStateException();
+        }
         return null; // TODO
     }
 
     public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
+        if (initialized) {
+            throw new IllegalStateException();
+        }
         return null; // TODO
     }
 
@@ -958,23 +960,33 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return null; // TODO
     }
 
-    public SessionCookieConfig getSessionCookieConfig() {
-        return null; // TODO
+    @Override public SessionCookieConfig getSessionCookieConfig() {
+        if (sessionConfig == null) {
+            sessionConfig = new SessionConfig();
+        }
+        if (sessionConfig.cookieConfig == null) {
+            sessionConfig.cookieConfig = new CookieConfig();
+        }
+        return sessionConfig.cookieConfig;
     }
 
-    public void setSessionTrackingModes(Set<SessionTrackingMode> set) {
-        // TODO
+    @Override public void setSessionTrackingModes(Set<SessionTrackingMode> set) {
+        if (sessionConfig == null) {
+            sessionConfig = new SessionConfig();
+        }
+        sessionConfig.trackingModes.clear();
+        sessionConfig.trackingModes.addAll(set);
     }
 
-    public Set<SessionTrackingMode> getDefaultSessionTrackingModes() {
-        return null; // TODO
+    @Override public Set<SessionTrackingMode> getDefaultSessionTrackingModes() {
+        return Collections.<SessionTrackingMode>emptySet();
     }
 
-    public Set<SessionTrackingMode> getEffectiveSessionTrackingModes() {
-        return null; // TODO
+    @Override public Set<SessionTrackingMode> getEffectiveSessionTrackingModes() {
+        return Collections.<SessionTrackingMode>emptySet();
     }
 
-    public void addListener(String className) {
+    @Override public void addListener(String className) {
         try {
             addListener((Class<? extends EventListener>) Class.forName(className));
         } catch (ClassNotFoundException e) {
@@ -982,7 +994,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public void addListener(EventListener listener) {
+    @Override public void addListener(EventListener listener) {
         if (initialized) {
             throw new IllegalStateException();
         }
@@ -1024,7 +1036,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public void addListener(Class<? extends EventListener> t) {
+    @Override public void addListener(Class<? extends EventListener> t) {
         try {
             addListener(createListener(t));
         } catch (ServletException e) {
@@ -1032,9 +1044,24 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
     }
 
-    public <T extends EventListener> T createListener(Class<T> listenerClass) throws ServletException {
+    @Override public <T extends EventListener> T createListener(Class<T> listenerClass) throws ServletException {
         try {
+            // Check that listenerClass has been loaded by the
+            // ContextClassLoader. If not, reload it
+            ClassLoader lcl = listenerClass.getClassLoader();
+            if (lcl != contextClassLoader) {
+                String name = listenerClass.getName();
+                Class<?> loadedClass = contextClassLoader.loadClass(name);
+                if (!listenerClass.isAssignableFrom(loadedClass)) {
+                    String message = L10N.getString("err.class_not_assignable");
+                    message = MessageFormat.format(message, loadedClass.getName(), name);
+                    throw new ServletException(message);
+                }
+                listenerClass = (Class<T>) loadedClass;
+            }
             return listenerClass.newInstance();
+        } catch (ClassNotFoundException e) {
+            throw (ServletException) new ServletException().initCause(e);
         } catch (InstantiationException e) {
             throw (ServletException) new ServletException().initCause(e);
         } catch (IllegalAccessException e) {
@@ -1046,11 +1073,11 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         return null; // TODO
     }
 
-    public ClassLoader getClassLoader() {
+    @Override public ClassLoader getClassLoader() {
         return contextClassLoader;
     }
 
-    public void declareRoles(String... roleNames) {
+    @Override public void declareRoles(String... roleNames) {
         if (roleNames != null) {
             for (int i = 0; i < roleNames.length; i++) {
                 SecurityRole role = new SecurityRole();
@@ -1062,36 +1089,36 @@ public class Context extends DeploymentDescriptor implements ServletContext {
 
     // -- 4.0 --
 
-    public void setRequestCharacterEncoding(String s) {
-        // TODO ?
+    @Override public void setRequestCharacterEncoding(String s) {
+        requestCharacterEncoding = s;
     }
 
-    public String getRequestCharacterEncoding() {
-        return null; // TODO ?
+    @Override public String getRequestCharacterEncoding() {
+        return requestCharacterEncoding;
     }
 
-    public void setResponseCharacterEncoding(String s) {
-        // TODO ?
+    @Override public void setResponseCharacterEncoding(String s) {
+        responseCharacterEncoding = s;
     }
 
-    public String getResponseCharacterEncoding() {
-        return null; // TODO ?
+    @Override public String getResponseCharacterEncoding() {
+        return responseCharacterEncoding;
     }
 
-    public void setSessionTimeout(int timeout) {
-        // TODO ?
+    @Override public void setSessionTimeout(int timeout) {
+        sessionTimeout = timeout;
     }
 
-    public int getSessionTimeout() {
-        return 0; // TODO ?
+    @Override public int getSessionTimeout() {
+        return sessionTimeout;
     }
 
-    public String getVirtualServerName() {
-        return null;
+    @Override public String getVirtualServerName() {
+        return null; // TODO
     }
 
-    public ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {
-        return null;
+    @Override public ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {
+        return null; // TODO
     }
 
 }
