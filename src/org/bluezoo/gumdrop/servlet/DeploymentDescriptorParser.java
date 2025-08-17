@@ -344,14 +344,12 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         }
     }
 
-    public void parse(DeploymentDescriptor descriptor, URL url) throws IOException, SAXException {
+    public void parse(DeploymentDescriptor descriptor, InputStream in) throws IOException, SAXException {
         this.descriptor = descriptor;
-        try (InputStream in = url.openStream()) {
-            DigestInputStream di = new DigestInputStream(in, digest);
-            InputSource source = new InputSource(di);
-            source.setSystemId(url.toString());
-            parse(source);
-        }
+        DigestInputStream di = new DigestInputStream(in, digest);
+        InputSource source = new InputSource(di);
+        //source.setSystemId(url.toString());
+        parse(source);
     }
 
     /**

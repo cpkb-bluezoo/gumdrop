@@ -193,16 +193,18 @@ public final class ConfigurationParser extends DefaultHandler {
 
     Container createContainer(Attributes atts) throws SAXException {
         try {
-            Container ret = new Container();
+            Container container = new Container();
             Method[] methods = Container.class.getMethods();
             int len = atts.getLength();
             for (int i = 0; i < len; i++) {
                 String propName = atts.getQName(i);
                 String propValue = atts.getValue(i);
-                setValue(ret, propName, propValue, methods);
+                setValue(container, propName, propValue, methods);
             }
+            // NB this can only be done once, so only one container can
+            // exist
             URL.setURLStreamHandlerFactory(new ResourceHandlerFactory(container));
-            return ret;
+            return container;
         } catch (Exception e) {
             String message = Server.L10N.getString("err.bad_container");
             throw new SAXParseException(message, loc, e);

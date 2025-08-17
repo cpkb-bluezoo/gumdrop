@@ -117,6 +117,9 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         this.rootUrl = rootUrl;
         this.root = root;
         this.warFile = warFile;
+        if (contextPath.endsWith("/")) {
+            throw new IllegalArgumentException("Illegal context path: "+contextPath);
+        }
 
         sessionsLastInvalidated = System.currentTimeMillis();
 
@@ -172,7 +175,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
      * Loads this context from the deployment descriptor.
      */
     public void load() throws IOException, SAXException {
-        URL webXml = getResource("/WEB-INF/web.xml");
+        InputStream webXml = getResourceAsStream("/WEB-INF/web.xml");
         DeploymentDescriptorParser parser = new DeploymentDescriptorParser();
         if (webXml != null) {
             parser.parse(this, webXml);

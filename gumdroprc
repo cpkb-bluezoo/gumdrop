@@ -3,7 +3,7 @@
   <container>
     <realm name='myRealm' type='org.bluezoo.gumdrop.BasicRealm'
       href='myRealm.xml'/>
-    <context path='/' root='web'/>
+    <context path='' root='web'/>
     <context path='/manager' root='manager.war'/>
     <connector class='org.bluezoo.gumdrop.servlet.ServletConnector'
       port='8080'/>
