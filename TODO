@@ -10,9 +10,10 @@ Before 1.0 release
   - Allow user to specify padding
 - Implement servlet 4.0 methods in servlet package
   - HttpServletMapping
-  - Trailer (ugh, chunked)
-- @WebServlet annotations etc (also @MultipartConfig)
-- web fragments
+  - web fragments and ordering
+  - @WebServlet annotations etc
+  - various JNDI resources in deployment descriptor
+  - sandbox context classloader
 - server push
 - Redo cluster management (distributable contexts) to use NIO
 - Redo HotDeploymentThread to use nio.file.WatchService

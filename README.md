@@ -14,7 +14,7 @@ The gumdroprc file is used to configure gumdrop.
 The gumdrop server provides a complete 2.4 servlet container. An example
 web application and configuration is provided in the web directory. There
 is also a Manager web application that can be used to administer the
-container. Complete support for later version of the servlet specification
+container. Complete support for version 4.0 of the servlet specification
 is under development.
 
 The gumdrop logo is a gumdrop torus, generated using [POV-Ray](http://www.povray.org/).
@@ -67,5 +67,19 @@ by standard Java system properties, e.g. the logging subsystem which uses
 the `java.util.logging` package. There are no external dependencies beyond
 J2EE.
 
+## Installation
 
--- Chris Burdess, June 2005
+You can currently use `ant` to build the project, and run the server from
+the current directory using `./start gumdroprc`
+
+You should then be able to point a browser at
+[http://localhost:8080/](http://localhost:8080/) or
+[https://localhost:8443/](https://localhost:8443/) to see the example web
+application included, or configure `gumdroprc` to serve your own web
+application.
+
+## Ongoing work
+
+The list of current tasks is in the TODO file in the project.
+
+-- Chris Burdess
