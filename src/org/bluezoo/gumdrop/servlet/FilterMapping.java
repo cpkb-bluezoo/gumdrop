@@ -22,6 +22,10 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+import javax.servlet.DispatcherType;
+
 /**
  * A filter mapping entry.
  *
@@ -29,14 +33,17 @@ package org.bluezoo.gumdrop.servlet;
  */
 final class FilterMapping {
 
-    static final int REQUEST = 1;
-    static final int FORWARD = 2;
-    static final int INCLUDE = 4;
-    static final int ERROR = 8;
-
     String name;
     String urlPattern;
     String servletName;
-    int dispatcher = REQUEST;
+    Set<DispatcherType> dispatchers = new LinkedHashSet<>();
+
+    boolean matches(DispatcherType dispatcher) {
+        if (dispatchers.isEmpty()) {
+            // match REQUEST
+            return dispatcher == DispatcherType.REQUEST;
+        }
+        return dispatchers.contains(dispatcher);
+    }
 
 }

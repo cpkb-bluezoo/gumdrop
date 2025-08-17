@@ -22,7 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -33,12 +33,13 @@ import java.util.List;
 public class JspPropertyGroup {
 
     String description;
-    List urlPatterns = new LinkedList();
+    List<String> urlPatterns = new ArrayList<>();
     boolean elIgnored;
     String pageEncoding;
     boolean scriptingInvalid;
-    boolean isXml;
     String includePrelude;
     String includeCoda;
+    long buffer;
+    boolean trimDirectiveWhitespaces;
 
 }

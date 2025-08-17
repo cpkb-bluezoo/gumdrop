@@ -1,6 +1,6 @@
 /*
- * JspConfig.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * LocaleEncodingMapping.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -19,20 +19,22 @@
  * along with gumdrop.
  * If not, see <http://www.gnu.org/licenses/>.
  */
-
 package org.bluezoo.gumdrop.servlet;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * A <code>jsp-config</code> deployment descriptor definition.
+ * This corresponds to the <code>locale-encoding-mapping</code> element
+ * in the servlet 4.0 specification.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+final class LocaleEncodingMapping {
 
-    List<Taglib> taglibs = new ArrayList<>();
-    List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
+    String locale;
+    String encoding;
 
 }

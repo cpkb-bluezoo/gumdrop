@@ -1,6 +1,6 @@
 /*
- * JspConfig.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * CookieConfig.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,17 +22,27 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * A <code>jsp-config</code> deployment descriptor definition.
+ * Definition of a cookie-config.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+final class CookieConfig {
 
-    List<Taglib> taglibs = new ArrayList<>();
-    List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
+    enum SameSite {
+        Strict,
+        Lax,
+        None;
+    }
+
+    String name = "JSESSIONID";
+    String domain;
+    String path;
+    String comment;
+    boolean httpOnly = false;
+    boolean secure = false;
+    long maxAge = -1;
+    SameSite sameSite = SameSite.Lax;
 
 }
+

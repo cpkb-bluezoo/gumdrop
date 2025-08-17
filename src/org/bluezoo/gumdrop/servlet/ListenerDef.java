@@ -26,21 +26,15 @@ import java.util.EventListener;
 
 /**
  * Context listener definition.
+ * This corresponds to a <code>listener</code> element in the deployment
+ * descriptor.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ListenerDef {
+final class ListenerDef extends DescriptionGroup {
 
-    final Context context;
-    String description;
-    String displayName;
-    String smallIcon;
-    String largeIcon;
-    String className;
-
-    ListenerDef(Context context) {
-        this.context = context;
-    }
+    Context context;
+    String className; // listener-class
 
     EventListener newInstance() {
         Thread thread = Thread.currentThread();

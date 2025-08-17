@@ -1,6 +1,6 @@
 /*
- * JspConfig.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * WebFragment.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -19,20 +19,22 @@
  * along with gumdrop.
  * If not, see <http://www.gnu.org/licenses/>.
  */
-
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A <code>jsp-config</code> deployment descriptor definition.
+ * Represents a web-fragment.xml file.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+class WebFragment extends DeploymentDescriptor {
 
-    List<Taglib> taglibs = new ArrayList<>();
-    List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
+    // Represents the <others> element.
+    static final String OTHERS = "";
+
+    String name;
+    List<String> before;
+    List<String> after;
 
 }

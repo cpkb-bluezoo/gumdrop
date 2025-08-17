@@ -1,6 +1,6 @@
 /*
  * SecurityRole.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -25,11 +25,12 @@ package org.bluezoo.gumdrop.servlet;
 /**
  * Definition of a security role.
  *
- * @author <a href='amilto:dog@gnu.org'>Chris Burdess</a>
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class SecurityRole {
 
     String description;
     String roleName;
+    String roleLink;
 
 }

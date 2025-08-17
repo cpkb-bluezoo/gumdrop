@@ -60,7 +60,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     final boolean named;
     int index;
     boolean errorSent;
-    int mode;
+    DispatcherType mode;
     Request originalRequest;
     Response originalResponse;
 
@@ -71,7 +71,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         this.handlers = handlers;
         this.named = named;
         index = 0;
-        mode = FilterMapping.REQUEST;
+        mode = DispatcherType.REQUEST;
     }
 
     @Override public void forward(ServletRequest request, ServletResponse response) throws ServletException, IOException {
@@ -104,8 +104,8 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             attrs.put("javax.servlet.forward.query_string", hq.getQueryString());
             request = new FilterRequest(hq, uri.toString(), contextPath, match, queryString, attrs, DispatcherType.FORWARD);
         }
-        int oldMode = mode;
-        mode = FilterMapping.FORWARD;
+        DispatcherType oldMode = mode;
+        mode = DispatcherType.FORWARD;
         doFilter(request, response);
         mode = oldMode;
     }
@@ -140,8 +140,8 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             // SRV.8.3
             response = new FilterResponse(hr, true);
         }
-        int oldMode = mode;
-        mode = FilterMapping.INCLUDE;
+        DispatcherType oldMode = mode;
+        mode = DispatcherType.INCLUDE;
         doFilter(request, response);
         mode = oldMode;
     }
@@ -177,7 +177,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                 // Get next filter matching mode
                 do {
                     filterMatch = (FilterMatch) handlers.get(index++);
-                    handled = (filterMatch.filterMapping.dispatcher | mode) != 0;
+                    handled = filterMatch.filterMapping.matches(mode);
                 } while (!handled && index < servletIndex);
                 if (handled) {
                     // apply matching filter
@@ -195,13 +195,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                 servletName = servletDef.name;
                 // Servlet may be loaded or not
                 servlet = context.loadServlet(servletDef.name);
-                if (servletDef.singleThreadModel) {
-                    synchronized (servlet) {
-                        servlet.service(request, filterResponse);
-                    }
-                } else {
-                    servlet.service(request, filterResponse);
-                }
+                servlet.service(request, filterResponse);
             }
             // Check if startAsync was called
             StreamAsyncContext async = r.asyncContext;
@@ -271,7 +265,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         for (Iterator i = context.securityConstraints.iterator(); i.hasNext(); ) {
             SecurityConstraint sc = (SecurityConstraint) i.next();
             // Check if HTTPS is required
-            if (sc.transportGuarantee != SecurityConstraint.NONE && !request.isSecure()) {
+            if (sc.transportGuarantee != SecurityConstraint.TransportGuarantee.NONE && !request.isSecure()) {
                 // Redirect to the secure host and port
                 if (context.secureHost == null) {
                     String message = Context.L10N.getString("http.no_secure_host");

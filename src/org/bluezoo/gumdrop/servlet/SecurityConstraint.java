@@ -22,24 +22,26 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.Collection;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * An authorization constraint.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class SecurityConstraint {
+final class SecurityConstraint {
 
-    static final int NONE = 0;
-    static final int INTEGRAL = 1;
-    static final int CONFIDENTIAL = 2;
+    enum TransportGuarantee {
+        NONE,
+        INTEGRAL,
+        CONFIDENTIAL;
+    }
 
     String displayName;
-    Collection<ResourceCollection> resourceCollections = new ConcurrentLinkedDeque<>();
-    Collection<String> authConstraints = new ConcurrentLinkedDeque<>();
-    int transportGuarantee = NONE;
+    List<ResourceCollection> resourceCollections = new ArrayList<>();
+    List<String> authConstraints = new ArrayList<>();
+    TransportGuarantee transportGuarantee = TransportGuarantee.NONE;
 
     boolean matches(String method, String path) {
         for (ResourceCollection rc : resourceCollections ) {

@@ -1,6 +1,6 @@
 /*
  * ResourceCollection.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,9 +22,9 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
@@ -38,8 +38,9 @@ final class ResourceCollection {
 
     String name;
     String description;
-    List urlPatterns = new LinkedList();
-    Set httpMethods = new LinkedHashSet();
+    List<String> urlPatterns = new ArrayList<>();
+    Set<String> httpMethods = new LinkedHashSet<>();
+    Set<String> httpMethodOmissions = new LinkedHashSet<>();
 
     /**
      * Does the specified request match a resource in this collection?
@@ -50,22 +51,36 @@ final class ResourceCollection {
         }
         for (Iterator i = urlPatterns.iterator(); i.hasNext(); ) {
             String pattern = (String) i.next();
-            if (pattern.equals(path))
-            // 1. exact match
-            {
+            if (pattern.equals(path)) {
+                // 1. exact match
                 return true;
             } else if (pattern.endsWith("/*")
-                    && path.startsWith(pattern.substring(0, pattern.length() - 1)))
-            // 2. longest path prefix
-            {
+                    && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
+                // 2. longest path prefix
                 return true;
-            } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1)))
-            // 3. extension
-            {
+            } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
+                // 3. extension
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Is the specified method covered by this constraint?
+     */
+    boolean isCovered(String method) {
+        for (String s : httpMethodOmissions) {
+            if (s.equals(method)) {
+                return false;
+            }
+        }
+        for (String s : httpMethods) {
+            if (s.equals(method)) {
+                return true;
+            }
+        }
+        return httpMethods.isEmpty();
     }
 
 }

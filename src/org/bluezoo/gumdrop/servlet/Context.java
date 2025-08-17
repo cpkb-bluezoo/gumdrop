@@ -53,7 +53,7 @@ import javax.servlet.http.MappingMatch;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Context implements ServletContext {
+public class Context extends DeploymentDescriptor implements ServletContext {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -71,27 +71,10 @@ public class Context implements ServletContext {
     List<ResourceDef> resourceDefs = new ArrayList<>();
     Map<String,Realm> realms = new LinkedHashMap<>();
 
-    int major = 2;
-    int minor = 4;
-    String description;
-    String displayName;
-    String smallIcon;
-    String largeIcon;
-    Map<String,InitParam> initParams = new LinkedHashMap<>();
     Map<String,String> initParams2 = new LinkedHashMap<>();
     Map<String,Object> attributes = new LinkedHashMap<>();
-    Map<String,FilterDef> filterDefs = new LinkedHashMap<>();
-    List<FilterMapping> filterMappings = new ArrayList<>();
     Map<String,Filter> filters = new LinkedHashMap<>();
-    List<ListenerDef> listenerDefs = new ArrayList<>();
-    Map<String,ServletDef> servletDefs = new LinkedHashMap<>();
-    List<ServletMapping> servletMappings = new ArrayList<>();
     Map<String,Servlet> servlets = new LinkedHashMap<>();
-    List<MimeMapping> mimeMappings = new ArrayList<>();
-    List<String> welcomeFiles = new ArrayList<>();
-    List<ErrorPage> errorPages = new ArrayList<>();
-    List<JspConfig> jspConfigs = new ArrayList<>();
-    List<SecurityConstraint> securityConstraints = new ArrayList<>();
 
     Collection<ServletContextListener> servletContextListeners = new ConcurrentLinkedDeque<>();
     Collection<ServletContextAttributeListener> servletContextAttributeListeners = new ConcurrentLinkedDeque<>();
@@ -102,19 +85,18 @@ public class Context implements ServletContext {
     Collection<ServletRequestListener> servletRequestListeners = new ConcurrentLinkedDeque<>();
     Collection<ServletRequestAttributeListener> servletRequestAttributeListeners = new ConcurrentLinkedDeque<>();
 
-    boolean authentication;
-    String authMethod;
-    String realmName;
-    String formLoginPage;
-    String formErrorPage;
-    List<SecurityRole> securityRoles = new ArrayList<>();
-    Map<String,String> localeEncodingMappings = new HashMap<>();
-    List<ServletDataSource> dataSources = new ArrayList<>();
     Map<String,Session> sessions = new HashMap<>();
     int sessionTimeout = -1;
     long sessionsLastInvalidated;
     boolean distributable;
     boolean initialized;
+    boolean metadataComplete;
+
+    String moduleName; // TODO
+    String defaultContextPath; // TODO
+    String requestCharacterEncoding; // TODO
+    String responseCharacterEncoding; // TODO
+    List<String> absoluteOrdering = new ArrayList<>();
 
     ServletDef defaultServletDef;
 
@@ -146,16 +128,15 @@ public class Context implements ServletContext {
     }
 
     void reset() {
-        description = null;
-        displayName = null;
-        smallIcon = null;
-        largeIcon = null;
-        initParams.clear();
+        super.reset();
+
+        initParams2.clear();
         attributes.clear();
-        filterDefs.clear();
-        filterMappings.clear();
         filters.clear();
-        listenerDefs.clear();
+        servlets.clear();
+        distributable = false;
+        initialized = false;
+
         servletContextListeners.clear();
         servletContextAttributeListeners.clear();
         sessionListeners.clear();
@@ -164,25 +145,7 @@ public class Context implements ServletContext {
         sessionBindingListeners.clear();
         servletRequestListeners.clear();
         servletRequestAttributeListeners.clear();
-        servletDefs.clear();
-        servletMappings.clear();
-        servlets.clear();
-        mimeMappings.clear();
-        welcomeFiles.clear();
-        errorPages.clear();
-        jspConfigs.clear();
-        authentication = false;
-        authMethod = null;
-        realmName = null;
-        formLoginPage = null;
-        formErrorPage = null;
-        securityConstraints.clear();
-        securityRoles.clear();
-        localeEncodingMappings.clear();
-        distributable = false;
-        initialized = false;
 
-        dataSources.clear();
         contextClassLoader = null;
 
         // Temporary working directory (SRV.3.7.1)
@@ -206,10 +169,26 @@ public class Context implements ServletContext {
      */
     public void load() throws IOException, SAXException {
         URL webXml = getResource("/WEB-INF/web.xml");
+        DeploymentDescriptorParser parser = new DeploymentDescriptorParser();
         if (webXml != null) {
-            WebAppParser parser = new WebAppParser(this);
-            parser.parse(webXml);
+            parser.parse(this, webXml);
         }
+        if (!metadataComplete) {
+            scan(parser);
+        }
+        // digest
+        this.digest = parser.getDigest();
+        // Set context on filterdefs, servletdefs, listenerdefs
+        for (FilterDef fd : filterDefs.values()) {
+            fd.context = this;
+        }
+        for (ServletDef sd : servletDefs.values()) {
+            sd.context = this;
+        }
+        for (ListenerDef ld : listenerDefs) {
+            ld.context = this;
+        }
+
         // Default servlet
         defaultServletDef = null;
         for (ServletMapping sm : servletMappings) {
@@ -219,7 +198,8 @@ public class Context implements ServletContext {
             }
         }
         if (defaultServletDef == null) {
-            defaultServletDef = new ServletDef(this);
+            defaultServletDef = new ServletDef();
+            defaultServletDef.context = this;
             defaultServletDef.displayName = "(default servlet)";
             defaultServletDef.name = null;
             defaultServletDef.className = DefaultServlet.class.getName();
@@ -230,8 +210,36 @@ public class Context implements ServletContext {
             defaultServletMapping.urlPattern = "/";
             servletMappings.add(defaultServletMapping);
         }
+
     }
 
+    /**
+     * Scan the web application and add any web fragments or annotations.
+     */
+    void scan(DeploymentDescriptorParser parser) throws IOException, SAXException {
+        Set<String> resourcePaths = getResourcePaths("/WEB-INF/");
+        for (String resourcePath : resourcePaths) {
+            if (resourcePath.startsWith("/WEB-INF/lib/") && resourcePath.toLowerCase().endsWith(".jar")) {
+                scanJar(parser, resourcePath);
+            } else if (resourcePath.startsWith("/WEB-INF/classes/") && resourcePath.toLowerCase().endsWith(".class")) {
+                scanClass(resourcePath);
+            }
+        }
+    }
+
+    void scanJar(DeploymentDescriptorParser parser, String path) throws IOException, SAXException {
+        String webFragmentPath = "/META-INF/web-fragment.xml";
+        // TODO
+    }
+    
+    /**
+     * Scan a class for @WebServlet, @WebFilter annotations
+     */
+    void scanClass(String path) throws IOException, SAXException {
+        ContextClassLoader cl = (ContextClassLoader) getContextClassLoader();
+        // TODO
+    }
+    
     /**
      * Reloads this context.
      */
@@ -446,11 +454,11 @@ public class Context implements ServletContext {
     }
 
     public int getMajorVersion() {
-        return major;
+        return majorVersion;
     }
 
     public int getMinorVersion() {
-        return minor;
+        return minorVersion;
     }
 
     public String getMimeType(String file) {
@@ -462,8 +470,8 @@ public class Context implements ServletContext {
         return null;
     }
 
-    public Set getResourcePaths(String path) {
-        Set ret = null;
+    public Set<String> getResourcePaths(String path) {
+        Set<String> ret = null;
         if (warFile == null) {
             if (File.separatorChar != '/') {
                 path = path.replace('/', File.separatorChar);
@@ -476,7 +484,7 @@ public class Context implements ServletContext {
             if (entries == null) {
                 return null;
             }
-            ret = new LinkedHashSet();
+            ret = new LinkedHashSet<>();
             for (int i = 0; i < entries.length; i++) {
                 ret.add(path + entries[i]);
             }
@@ -484,13 +492,13 @@ public class Context implements ServletContext {
             if (path.startsWith("/")) {
                 path = path.substring(1);
             }
-            Enumeration i = warFile.entries();
+            Enumeration<JarEntry> i = warFile.entries();
             if (i == null) {
                 return null;
             }
-            ret = new LinkedHashSet();
+            ret = new LinkedHashSet<>();
             while (i.hasMoreElements()) {
-                JarEntry jarEntry = (JarEntry) i.nextElement();
+                JarEntry jarEntry = i.nextElement();
                 String entry = jarEntry.getName();
                 if (entry.startsWith(path) && !entry.equals(path)) {
                     ret.add(entry);
@@ -833,13 +841,13 @@ public class Context implements ServletContext {
         if (ret != null) {
             return ret;
         }
-        InitParam initParam = initParams.get(name);
+        InitParam initParam = contextParams.get(name);
         return (initParam != null) ? initParam.value : null;
     }
 
     public synchronized Enumeration getInitParameterNames() {
         Set ret = new LinkedHashSet();
-        ret.addAll(initParams.keySet());
+        ret.addAll(contextParams.keySet());
         ret.addAll(initParams2.keySet());
         return new IteratorEnumeration(ret);
     }

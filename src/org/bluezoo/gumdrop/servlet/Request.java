@@ -157,7 +157,7 @@ class Request implements HttpServletRequest {
     // -- HttpServletRequest --
 
     @Override public String getAuthType() {
-        return (userPrincipal == null) ? null : context.authMethod;
+        return (userPrincipal == null) ? null : context.getAuthMethod();
     }
 
     @Override public Cookie[] getCookies() {
@@ -444,8 +444,9 @@ class Request implements HttpServletRequest {
     @Override public boolean authenticate(HttpServletResponse response) throws IOException, ServletException {
         // Authentication required
         String username = null;
-        String realm = context.realmName;
-        if (HttpServletRequest.BASIC_AUTH.equals(context.authMethod)) {
+        String realm = context.getRealmName();
+        String authMethod = context.getAuthMethod();
+        if (HttpServletRequest.BASIC_AUTH.equals(authMethod)) {
             String authorization = getHeader("Authorization");
             if (authorization == null) {
                 // Authorization required
@@ -486,7 +487,7 @@ class Request implements HttpServletRequest {
                 requireAuthentication(response, "Basic");
                 return false;
             }
-        } else if (HttpServletRequest.DIGEST_AUTH.equals(context.authMethod)) {
+        } else if (HttpServletRequest.DIGEST_AUTH.equals(authMethod)) {
             String authorization = getHeader("Authorization");
             if (authorization == null) {
                 // Authorization required
@@ -623,11 +624,11 @@ class Request implements HttpServletRequest {
             } catch (NoSuchAlgorithmException e) {
                 throw new ServletException(e);
             }
-        } else if (HttpServletRequest.FORM_AUTH.equals(context.authMethod)) {
+        } else if (HttpServletRequest.FORM_AUTH.equals(authMethod)) {
             username = getParameter("j_username");
             String requestPassword = getParameter("j_password");
             if (username == null) {
-                response.sendRedirect(context.formLoginPage);
+                response.sendRedirect(context.getFormLoginPage());
                 return false;
             } else {
                 String password = context.getPassword(realm, username);
@@ -635,16 +636,16 @@ class Request implements HttpServletRequest {
                     String message = Context.L10N.getString("err.auth_fail");
                     message = MessageFormat.format(message, username, requestPassword);
                     Context.LOGGER.warning(message);
-                    response.sendRedirect(context.formErrorPage);
+                    response.sendRedirect(context.getFormErrorPage());
                     return false;
                 }
             }
-        } else if (HttpServletRequest.CLIENT_CERT_AUTH.equals(context.authMethod)) {
+        } else if (HttpServletRequest.CLIENT_CERT_AUTH.equals(authMethod)) {
             // TODO HTTP client cert
             return false;
         } else {
             String message = Context.L10N.getString("http.unknown_auth_mechanism");
-            message = MessageFormat.format(message, context.authMethod);
+            message = MessageFormat.format(message, authMethod);
             response.sendError(500, message);
             return false;
         }
@@ -654,7 +655,7 @@ class Request implements HttpServletRequest {
     }
 
     void requireAuthentication(HttpServletResponse response, String scheme) throws ServletException, IOException {
-        String realm = context.realmName;
+        String realm = context.getRealmName();
         if ("Digest".equals(scheme)) {
             // Digest
             try {
@@ -765,7 +766,7 @@ class Request implements HttpServletRequest {
     }
 
     @Override public void login(String username, String password) throws ServletException {
-        String realm = context.realmName;
+        String realm = context.getRealmName();
         String realmPassword = context.getPassword(realm, username);
         if (userPrincipal != null || password == null || !password.equals(realmPassword)) {
             String message = Context.L10N.getString("err.auth_fail");

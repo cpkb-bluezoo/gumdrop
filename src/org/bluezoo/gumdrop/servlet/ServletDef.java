@@ -40,29 +40,17 @@ import javax.servlet.SingleThreadModel;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ServletDef implements ServletConfig, Comparable {
+final class ServletDef extends DescriptionGroup implements ServletConfig, Comparable {
 
-    final Context context;
-    String description;
-    String displayName;
-    String smallIcon;
-    String largeIcon;
+    Context context;
     String name;
     String className;
     String jspFile;
     int loadOnStartup = -1;
-    String runAs;
-    boolean singleThreadModel;
-    private boolean singleThreadModelCheck;
     Map<String,InitParam> initParams = new LinkedHashMap<>();
+    String runAs;
+    SecurityRole securityRoleRef;
     MultipartConfigDef multipartConfig;
-
-    ServletDef(Context context) {
-        if (context == null) {
-            throw new NullPointerException();
-        }
-        this.context = context;
-    }
 
     /**
      * Compare for sorting according to the value of loadOnStartup
@@ -90,12 +78,6 @@ final class ServletDef implements ServletConfig, Comparable {
         try {
             thread.setContextClassLoader(contextLoader);
             Class t = contextLoader.loadClass(className);
-            if (!singleThreadModelCheck) {
-                if (SingleThreadModel.class.isAssignableFrom(t)) {
-                    singleThreadModel = true;
-                }
-                singleThreadModelCheck = true;
-            }
             Servlet servlet = (Servlet) t.newInstance();
             servlet.init(this);
             return servlet;

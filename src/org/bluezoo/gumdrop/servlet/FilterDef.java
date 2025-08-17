@@ -36,26 +36,17 @@ import javax.servlet.ServletException;
 
 /**
  * Filter definition.
+ * This corresponds to a <code>filter</code> element in the web deployment
+ * descriptor.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FilterDef implements FilterConfig {
+final class FilterDef extends DescriptionGroup implements FilterConfig {
 
-    final Context context;
-    String description;
-    String displayName;
-    String smallIcon;
-    String largeIcon;
-    String name;
-    String className;
+    Context context;
+    String name; // filter-name
+    String className; // filter-class
     Map<String,InitParam> initParams = new LinkedHashMap<>();
-
-    FilterDef(Context context) {
-        if (context == null) {
-            throw new NullPointerException();
-        }
-        this.context = context;
-    }
 
     Filter newInstance() throws ServletException {
         Thread thread = Thread.currentThread();

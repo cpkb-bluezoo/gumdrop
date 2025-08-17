@@ -1,6 +1,6 @@
 /*
- * JspConfig.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * SessionConfig.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -26,13 +26,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A <code>jsp-config</code> deployment descriptor definition.
+ * Definition of a session-config.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+final class SessionConfig {
 
-    List<Taglib> taglibs = new ArrayList<>();
-    List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
+    enum TrackingMode {
+        COOKIE,
+        URL,
+        SSL;
+    }
+
+    int sessionTimeout;
+    CookieConfig cookieConfig;
+    List<TrackingMode> trackingModes = new ArrayList<>();
 
 }
