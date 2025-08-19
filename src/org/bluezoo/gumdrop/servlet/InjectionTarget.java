@@ -1,6 +1,6 @@
 /*
- * JspConfig.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * InjectionTarget.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,25 +22,14 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * A <code>jsp-config</code> deployment descriptor definition.
+ * An injection target for the value of a JNDI resource.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+final class InjectionTarget {
 
-    List<Taglib> taglibs = new ArrayList<>();
-    List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
-
-    void addTaglib(Taglib taglib) {
-        taglibs.add(taglib);
-    }
-
-    void addJspPropertyGroup(JspPropertyGroup jspPropertyGroup) {
-        jspPropertyGroups.add(jspPropertyGroup);
-    }
+    String name; // injection-target-name
+    String className; // injection-target-class
 
 }

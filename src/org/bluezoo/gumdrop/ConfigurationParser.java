@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.Context;
-import org.bluezoo.gumdrop.servlet.ResourceDef;
 import org.bluezoo.gumdrop.servlet.ResourceHandlerFactory;
 
 import org.xml.sax.Attributes;
@@ -264,34 +263,6 @@ public final class ConfigurationParser extends DefaultHandler {
         }
     }
 
-    ResourceDef createResourceDef(Attributes atts) throws SAXException {
-        String name = atts.getValue("name");
-        String type = atts.getValue("type");
-        String value = atts.getValue("value");
-        if (name == null) {
-            String message = Server.L10N.getString("err.missing_attribute");
-            message = MessageFormat.format(message, "name");
-            throw new SAXParseException(message, loc);
-        }
-        if (type == null) {
-            type = "java.lang.String";
-        }
-        ResourceDef resourceDef = new ResourceDef(name, type);
-        if (value != null) {
-            resourceDef.setProperty("", value);
-        }
-        int len = atts.getLength();
-        for (int i = 0; i < len; i++) {
-            String propName = atts.getQName(i);
-            if ("name".equals(propName) || "type".equals(propName) || "value".equals(propName)) {
-                continue;
-            }
-            String propValue = atts.getValue(i);
-            resourceDef.setProperty(propName, propValue);
-        }
-        return resourceDef;
-    }
-
     Realm createRealm(Attributes atts) throws SAXException {
         String type = atts.getValue("type");
         if (type == null) {
@@ -370,9 +341,6 @@ public final class ConfigurationParser extends DefaultHandler {
                 } else if (name == "connector") {
                     connectors.add(createConnector(atts));
                     pushState(CONNECTOR);
-                } else if (name == "resource") {
-                    container.addResource(createResourceDef(atts));
-                    pushState(RESOURCE);
                 } else if (name == "realm") {
                     String realmName = atts.getValue("name");
                     if (realmName == null) {
@@ -382,6 +350,9 @@ public final class ConfigurationParser extends DefaultHandler {
                     }
                     container.addRealm(realmName, createRealm(atts));
                     pushState(REALM);
+                } else if (name == "resource") {
+                    // TODO new mechanism for JNDI resources
+                    pushState(RESOURCE);
                 } else {
                     String message = Server.L10N.getString("err.expected_child");
                     message = MessageFormat.format(message, "container");
@@ -389,10 +360,7 @@ public final class ConfigurationParser extends DefaultHandler {
                 }
                 break;
             case CONTEXT:
-                if (name == "resource") {
-                    context.addResource(createResourceDef(atts));
-                    pushState(RESOURCE);
-                } else if (name == "parameter") {
+                if (name == "parameter") {
                     String paramName = atts.getValue("name");
                     String paramValue = atts.getValue("value");
                     if (paramName == null) {
@@ -411,6 +379,9 @@ public final class ConfigurationParser extends DefaultHandler {
                     }
                     container.addRealm(realmName, createRealm(atts));
                     pushState(REALM);
+                } else if (name == "resource") {
+                    // TODO new mechanism for JNDI resources
+                    pushState(RESOURCE);
                 } else {
                     String message = Server.L10N.getString("err.expected_child");
                     message = MessageFormat.format(message, "context");

@@ -1,6 +1,6 @@
 /*
- * ListenerDef.java
- * Copyright (C) 2005 Chris Burdess
+ * ServiceRef.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,18 +22,12 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.EventListener;
-
 /**
- * Context listener definition.
- * This corresponds to a <code>listener</code> element in the deployment
- * descriptor.
+ * A reference to a web service.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ListenerDef implements Description {
-
-    Context context;
+final class ServiceRef implements Description, JNDIResource {
 
     // Description
     String description;
@@ -41,27 +35,20 @@ final class ListenerDef implements Description {
     String smallIcon;
     String largeIcon;
 
-    String className; // listener-class
+    String name; // service-ref-name
+    String serviceInterface;
+    String className; // service-ref-type
+    String wdslFile;
+    String jaxrpcMappingFile;
+    String serviceQname;
+    String portComponentRef;
+    // TODO handler
+    // TODO handlerChains
 
-    EventListener newInstance() {
-        Thread thread = Thread.currentThread();
-        ClassLoader loader = thread.getContextClassLoader();
-        ClassLoader contextLoader = context.getContextClassLoader();
-        try {
-            thread.setContextClassLoader(contextLoader);
-            Class t = contextLoader.loadClass(className);
-            return (EventListener) t.newInstance();
-        } catch (Exception e) {
-            if (e instanceof RuntimeException) {
-                throw (RuntimeException) e;
-            }
-            RuntimeException e2 = new RuntimeException("error instantiating " + className);
-            e2.initCause(e);
-            throw e2;
-        } finally {
-            thread.setContextClassLoader(loader);
-        }
-    }
+    // JNDIResource
+    String lookupName; // TODO
+    InjectionTarget injectionTarget; // TODO
+    String mappedName; // TODO
 
     // -- Description --
 
@@ -95,6 +82,32 @@ final class ListenerDef implements Description {
 
     @Override public void setLargeIcon(String largeIcon) {
         this.largeIcon = largeIcon;
+    }
+
+    // -- JNDIResource --
+
+    @Override public String getLookupName() {
+        return lookupName;
+    }
+
+    @Override public void setLookupName(String lookupName) {
+        this.lookupName = lookupName;
+    }
+
+    @Override public InjectionTarget getInjectionTarget() {
+        return injectionTarget;
+    }
+
+    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
+        this.injectionTarget = injectionTarget;
+    }
+
+    @Override public String getMappedName() {
+        return mappedName;
+    }
+
+    @Override public void setMappedName(String mappedName) {
+        this.mappedName = mappedName;
     }
 
 }

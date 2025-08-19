@@ -1,6 +1,6 @@
 /*
- * JspConfig.java
- * Copyright (C) 2005, 2025 Chris Burdess
+ * JNDIResource.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,25 +22,19 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
- * A <code>jsp-config</code> deployment descriptor definition.
+ * A JNDI resource in a web application.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+interface JNDIResource {
 
-    List<Taglib> taglibs = new ArrayList<>();
-    List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
-
-    void addTaglib(Taglib taglib) {
-        taglibs.add(taglib);
-    }
-
-    void addJspPropertyGroup(JspPropertyGroup jspPropertyGroup) {
-        jspPropertyGroups.add(jspPropertyGroup);
-    }
+    String getLookupName();
+    void setLookupName(String lookupName);
+    InjectionTarget getInjectionTarget();
+    void setInjectionTarget(InjectionTarget injectionTarget);
+    String getMappedName();
+    void setMappedName(String mappedName);
 
 }
+

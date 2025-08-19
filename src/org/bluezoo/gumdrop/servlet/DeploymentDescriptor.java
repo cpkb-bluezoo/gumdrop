@@ -22,9 +22,12 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A deployment descriptor contains the definitions of various entities in
@@ -35,10 +38,16 @@ import java.util.Map;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-abstract class DeploymentDescriptor extends DescriptionGroup {
+abstract class DeploymentDescriptor implements Description {
 
     int majorVersion = 2;
     int minorVersion = 4;
+
+    // Description
+    String description;
+    String displayName;
+    String smallIcon;
+    String largeIcon;
 
     Map<String,InitParam> contextParams = new LinkedHashMap<>();
     Map<String,FilterDef> filterDefs = new LinkedHashMap<>();
@@ -54,13 +63,33 @@ abstract class DeploymentDescriptor extends DescriptionGroup {
     List<SecurityConstraint> securityConstraints = new ArrayList<>();
     LoginConfig loginConfig;
     List<SecurityRole> securityRoles = new ArrayList<>();
+    List<EnvEntry> envEntries = new ArrayList<>();
+    List<EjbRef> ejbRefs = new ArrayList<>();
+    List<EjbLocalRef> ejbLocalRefs = new ArrayList<>();
+    List<ServiceRef> serviceRefs = new ArrayList<>();
+    List<ResourceRef> resourceRefs = new ArrayList<>();
+    List<ResourceEnvRef> resourceEnvRefs = new ArrayList<>();
+    List<MessageDestinationRef> messageDestinationRefs = new ArrayList<>();
+    List<PersistenceContextRef> persistenceContextRefs = new ArrayList<>();
+    List<PersistenceUnitRef> persistenceUnitRefs = new ArrayList<>();
+    List<LifecycleCallback> postConstructs = new ArrayList<>();
+    List<LifecycleCallback> preDestroys = new ArrayList<>();
+    List<DataSourceDef> dataSourceDefs = new ArrayList<>();
+    List<JmsConnectionFactory> jmsConnectionFactories = new ArrayList<>();
+    List<JmsDestination> jmsDestinations = new ArrayList<>();
+    List<MessageDestination> messageDestinations = new ArrayList<>();
+    List<MailSession> mailSessions = new ArrayList<>();
+    List<ConnectionFactory> connectionFactories = new ArrayList<>();
+    List<AdministeredObject> administeredObjects = new ArrayList<>();
     Map<String,String> localeEncodingMappings = new LinkedHashMap<>();
-    List<ServletDataSource> dataSources = new ArrayList<>();
 
     boolean authentication;
 
     void reset() {
-        super.reset();
+        description = null;
+        displayName = null;
+        smallIcon = null;
+        largeIcon = null;
 
         contextParams.clear();
         filterDefs.clear();
@@ -75,8 +104,25 @@ abstract class DeploymentDescriptor extends DescriptionGroup {
         securityConstraints.clear();
         loginConfig = null;
         securityRoles.clear();
+        envEntries.clear();
+        ejbRefs.clear();
+        ejbLocalRefs.clear();
+        serviceRefs.clear();
+        resourceRefs.clear();
+        resourceEnvRefs.clear();
+        messageDestinationRefs.clear();
+        persistenceContextRefs.clear();
+        persistenceUnitRefs.clear();
+        postConstructs.clear();
+        preDestroys.clear();
+        dataSourceDefs.clear();
+        jmsConnectionFactories.clear();
+        jmsDestinations.clear();
+        mailSessions.clear();
+        connectionFactories.clear();
+        administeredObjects.clear();
+        messageDestinations.clear();
         localeEncodingMappings.clear();
-        dataSources.clear();
 
         authentication = false;
     }
@@ -103,20 +149,59 @@ abstract class DeploymentDescriptor extends DescriptionGroup {
         filterMappings.addAll(other.filterMappings);
         listenerDefs.addAll(other.listenerDefs);
         servletMappings.addAll(other.servletMappings);
-        // TODO sessionConfig
+        if (sessionConfig == null) {
+            sessionConfig = other.sessionConfig; // XXX check
+        }
         mimeMappings.addAll(other.mimeMappings);
         welcomeFiles.addAll(other.welcomeFiles);
         errorPages.addAll(other.errorPages);
         jspConfigs.addAll(other.jspConfigs);
         securityConstraints.addAll(other.securityConstraints);
-        // TODO loginConfig
+        if (loginConfig == null) {
+            loginConfig = other.loginConfig; // XXX check
+        }
         securityRoles.addAll(other.securityRoles);
+
+        // resources and references
+        envEntries.addAll(other.envEntries);
+        ejbRefs.addAll(other.ejbRefs);
+        ejbLocalRefs.addAll(other.ejbLocalRefs);
+        serviceRefs.addAll(other.serviceRefs);
+        resourceRefs.addAll(other.resourceRefs);
+        resourceEnvRefs.addAll(other.resourceEnvRefs);
+        messageDestinationRefs.addAll(other.messageDestinationRefs);
+        persistenceContextRefs.addAll(other.persistenceContextRefs);
+        persistenceUnitRefs.addAll(other.persistenceUnitRefs);
+        postConstructs.addAll(other.postConstructs);
+        preDestroys.addAll(other.preDestroys);
+        dataSourceDefs.addAll(other.dataSourceDefs);
+        jmsConnectionFactories.addAll(other.jmsConnectionFactories);
+        jmsDestinations.addAll(other.jmsDestinations);
+        mailSessions.addAll(other.mailSessions);
+        connectionFactories.addAll(other.connectionFactories);
+        administeredObjects.addAll(other.administeredObjects);
+        messageDestinations.addAll(other.messageDestinations);
+
         for (String locale : other.localeEncodingMappings.keySet()) {
             if (!localeEncodingMappings.containsKey(locale)) {
                 localeEncodingMappings.put(locale, other.localeEncodingMappings.get(locale));
             }
         }
-        // TODO dataSources and other jndi
+    }
+
+    /**
+     * Return all the resources that need to be instantiated and bound in
+     * JNDI.
+     */
+    Collection<Resource> getResources() {
+        Set<Resource> resources = new LinkedHashSet<>();
+        resources.addAll(dataSourceDefs);
+        resources.addAll(jmsConnectionFactories);
+        resources.addAll(jmsDestinations);
+        resources.addAll(mailSessions);
+        resources.addAll(connectionFactories);
+        resources.addAll(administeredObjects);
+        return resources;
     }
 
     boolean isSecurityConstraintTarget(String urlPattern) {
@@ -126,6 +211,172 @@ abstract class DeploymentDescriptor extends DescriptionGroup {
             }
         }
         return false;
+    }
+
+    // -- Description --
+
+    @Override public String getDescription() {
+        return description;
+    }
+
+    @Override public void setDescription(String description) {
+        this.description = description;
+    }
+
+    @Override public String getDisplayName() {
+        return displayName;
+    }
+
+    @Override public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    @Override public String getSmallIcon() {
+        return smallIcon;
+    }
+
+    @Override public void setSmallIcon(String smallIcon) {
+        this.smallIcon = smallIcon;
+    }
+
+    @Override public String getLargeIcon() {
+        return largeIcon;
+    }
+
+    @Override public void setLargeIcon(String largeIcon) {
+        this.largeIcon = largeIcon;
+    }
+
+    // -- Setters --
+    
+    void addContextParam(InitParam contextParam) {
+        contextParams.put(contextParam.name, contextParam);
+    }
+
+    void addFilterDef(FilterDef filterDef) {
+        filterDefs.put(filterDef.name, filterDef);
+    }
+
+    void addFilterMapping(FilterMapping filterMapping) {
+        filterMappings.add(filterMapping);
+    }
+
+    void addListenerDef(ListenerDef listenerDef) {
+        listenerDefs.add(listenerDef);
+    }
+
+    void addServletDef(ServletDef servletDef) {
+        servletDefs.put(servletDef.name, servletDef);
+    }
+
+    void addServletMapping(ServletMapping servletMapping) {
+        servletMappings.add(servletMapping);
+    }
+
+    void setSessionConfig(SessionConfig sessionConfig) {
+        this.sessionConfig = sessionConfig;
+    }
+
+    void addMimeMapping(MimeMapping mimeMapping) {
+        mimeMappings.add(mimeMapping);
+    }
+
+    void addErrorPage(ErrorPage errorPage) {
+        errorPages.add(errorPage);
+    }
+
+    void addJspConfig(JspConfig jspConfig) {
+        jspConfigs.add(jspConfig);
+    }
+
+    void addSecurityConstraint(SecurityConstraint securityConstraint) {
+        securityConstraints.add(securityConstraint);
+        authentication = true;
+    }
+
+    void setLoginConfig(LoginConfig loginConfig) {
+        this.loginConfig = loginConfig;
+        authentication = true;
+    }
+
+    void addSecurityRole(SecurityRole securityRole) {
+        securityRoles.add(securityRole);
+    }
+
+    void addEnvEntry(EnvEntry envEntry) {
+        envEntries.add(envEntry);
+    }
+
+    void addEjbRef(EjbRef ejbRef) {
+        ejbRefs.add(ejbRef);
+    }
+
+    void addEjbLocalRef(EjbLocalRef ejbLocalRef) {
+        ejbLocalRefs.add(ejbLocalRef);
+    }
+
+    void addServiceRef(ServiceRef serviceRef) {
+        serviceRefs.add(serviceRef);
+    }
+
+    void addResourceRef(ResourceRef resourceRef) {
+        resourceRefs.add(resourceRef);
+    }
+
+    void addResourceEnvRef(ResourceEnvRef resourceEnvRef) {
+        resourceEnvRefs.add(resourceEnvRef);
+    }
+
+    void addMessageDestinationRef(MessageDestinationRef messageDestinationRef) {
+        messageDestinationRefs.add(messageDestinationRef);
+    }
+
+    void addPersistenceContextRef(PersistenceContextRef persistenceContextRef) {
+        persistenceContextRefs.add(persistenceContextRef);
+    }
+
+    void addPersistenceUnitRef(PersistenceUnitRef persistenceUnitRef) {
+        persistenceUnitRefs.add(persistenceUnitRef);
+    }
+
+    void addPostConstruct(LifecycleCallback postConstruct) {
+        postConstructs.add(postConstruct);
+    }
+
+    void addPreDestroy(LifecycleCallback preDestroy) {
+        preDestroys.add(preDestroy);
+    }
+
+    void addDataSourceDef(DataSourceDef dataSourceDef) {
+        dataSourceDefs.add(dataSourceDef);
+    }
+
+    void addJmsConnectionFactory(JmsConnectionFactory jmsConnectionFactory) {
+        jmsConnectionFactories.add(jmsConnectionFactory);
+    }
+
+    void addJmsDestination(JmsDestination jmsDestination) {
+        jmsDestinations.add(jmsDestination);
+    }
+
+    void addMailSession(MailSession mailSession) {
+        mailSessions.add(mailSession);
+    }
+
+    void addConnectionFactory(ConnectionFactory connectionFactory) {
+        connectionFactories.add(connectionFactory);
+    }
+
+    void addAdministeredObject(AdministeredObject administeredObject) {
+        administeredObjects.add(administeredObject);
+    }
+
+    void addMessageDestination(MessageDestination messageDestination) {
+        messageDestinations.add(messageDestination);
+    }
+
+    void addLocaleEncodingMapping(String locale, String encoding) {
+        localeEncodingMappings.put(locale, encoding);
     }
 
     // Convenience methods for LoginConfig

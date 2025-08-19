@@ -37,4 +37,8 @@ final class SessionConfig {
     CookieConfig cookieConfig;
     Set<SessionTrackingMode> trackingModes = new LinkedHashSet<>();
 
+    void addTrackingMode(SessionTrackingMode trackingMode) {
+        trackingModes.add(trackingMode);
+    }
+
 }

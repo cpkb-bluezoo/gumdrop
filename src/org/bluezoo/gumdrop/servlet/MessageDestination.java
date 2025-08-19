@@ -1,6 +1,6 @@
 /*
- * ListenerDef.java
- * Copyright (C) 2005 Chris Burdess
+ * MessageDestination.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,18 +22,14 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.EventListener;
-
 /**
- * Context listener definition.
- * This corresponds to a <code>listener</code> element in the deployment
- * descriptor.
+ * A message destination. This simply represents a logical name for a queue
+ * or topic. The actual message destination will be looked up via JNDI using
+ * the mapped-name or lookup-name.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ListenerDef implements Description {
-
-    Context context;
+final class MessageDestination implements Description {
 
     // Description
     String description;
@@ -41,27 +37,9 @@ final class ListenerDef implements Description {
     String smallIcon;
     String largeIcon;
 
-    String className; // listener-class
-
-    EventListener newInstance() {
-        Thread thread = Thread.currentThread();
-        ClassLoader loader = thread.getContextClassLoader();
-        ClassLoader contextLoader = context.getContextClassLoader();
-        try {
-            thread.setContextClassLoader(contextLoader);
-            Class t = contextLoader.loadClass(className);
-            return (EventListener) t.newInstance();
-        } catch (Exception e) {
-            if (e instanceof RuntimeException) {
-                throw (RuntimeException) e;
-            }
-            RuntimeException e2 = new RuntimeException("error instantiating " + className);
-            e2.initCause(e);
-            throw e2;
-        } finally {
-            thread.setContextClassLoader(loader);
-        }
-    }
+    String messageDestinationName;
+    String mappedName; // TODO JNDI
+    String lookupName; // TODO JNDI
 
     // -- Description --
 

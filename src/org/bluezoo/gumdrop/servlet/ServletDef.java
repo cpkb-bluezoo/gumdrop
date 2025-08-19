@@ -48,9 +48,16 @@ import javax.servlet.SingleThreadModel;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ServletDef extends DescriptionGroup implements ServletConfig, Comparable, ServletRegistration.Dynamic {
+final class ServletDef implements Description, ServletConfig, Comparable, ServletRegistration.Dynamic {
 
     Context context;
+
+    // Description
+    String description;
+    String displayName;
+    String smallIcon;
+    String largeIcon;
+
     String name;
     String className;
     String jspFile;
@@ -101,6 +108,40 @@ final class ServletDef extends DescriptionGroup implements ServletConfig, Compar
         } finally {
             thread.setContextClassLoader(loader);
         }
+    }
+
+    // -- Description --
+
+    @Override public String getDescription() {
+        return description;
+    }
+
+    @Override public void setDescription(String description) {
+        this.description = description;
+    }
+
+    @Override public String getDisplayName() {
+        return displayName;
+    }
+
+    @Override public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    @Override public String getSmallIcon() {
+        return smallIcon;
+    }
+
+    @Override public void setSmallIcon(String smallIcon) {
+        this.smallIcon = smallIcon;
+    }
+
+    @Override public String getLargeIcon() {
+        return largeIcon;
+    }
+
+    @Override public void setLargeIcon(String largeIcon) {
+        this.largeIcon = largeIcon;
     }
 
     // -- ServletConfig --
@@ -239,6 +280,10 @@ final class ServletDef extends DescriptionGroup implements ServletConfig, Compar
 
     @Override public void setAsyncSupported(boolean flag) {
         asyncSupported = flag;
+    }
+
+    void addInitParam(InitParam initParam) {
+        initParams.put(initParam.name, initParam);
     }
 
     // -- Debug --

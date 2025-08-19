@@ -52,4 +52,12 @@ final class SecurityConstraint {
         return false;
     }
 
+    void addResourceCollection(ResourceCollection resourceCollection) {
+        resourceCollections.add(resourceCollection);
+    }
+
+    void addAuthConstraint(String roleName) {
+        authConstraints.add(roleName);
+    }
+
 }

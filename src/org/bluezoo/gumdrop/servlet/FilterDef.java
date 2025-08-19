@@ -41,9 +41,16 @@ import javax.servlet.ServletException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FilterDef extends DescriptionGroup implements FilterConfig {
+final class FilterDef implements Description, FilterConfig {
 
     Context context;
+
+    // Description
+    String description;
+    String displayName;
+    String smallIcon;
+    String largeIcon;
+
     String name; // filter-name
     String className; // filter-class
     Map<String,InitParam> initParams = new LinkedHashMap<>();
@@ -69,21 +76,61 @@ final class FilterDef extends DescriptionGroup implements FilterConfig {
         }
     }
 
-    public ServletContext getServletContext() {
+    // -- Description --
+
+    @Override public String getDescription() {
+        return description;
+    }
+
+    @Override public void setDescription(String description) {
+        this.description = description;
+    }
+
+    @Override public String getDisplayName() {
+        return displayName;
+    }
+
+    @Override public void setDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
+    @Override public String getSmallIcon() {
+        return smallIcon;
+    }
+
+    @Override public void setSmallIcon(String smallIcon) {
+        this.smallIcon = smallIcon;
+    }
+
+    @Override public String getLargeIcon() {
+        return largeIcon;
+    }
+
+    @Override public void setLargeIcon(String largeIcon) {
+        this.largeIcon = largeIcon;
+    }
+
+    // -- FilterConfig --
+
+    @Override public ServletContext getServletContext() {
         return context;
     }
 
-    public String getFilterName() {
+    @Override public String getFilterName() {
         return name;
     }
 
-    public String getInitParameter(String name) {
+    @Override public String getInitParameter(String name) {
         InitParam initParam = initParams.get(name);
         return (initParam == null) ? null : initParam.value;
     }
 
-    public Enumeration getInitParameterNames() {
+    @Override public Enumeration<String> getInitParameterNames() {
         return new IteratorEnumeration(initParams.keySet());
+    }
+
+    void addInitParam(InitParam initParam) {
+        initParams.put(initParam.name, initParam);
     }
 
     public String toString() {

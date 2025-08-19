@@ -44,9 +44,7 @@ import javax.naming.NamingException;
 public class Container {
 
     final List<Context> contexts = new ArrayList<>();
-    final List<ResourceDef> resourceDefs = new ArrayList<>();
     final Map<String,Realm> realms = new LinkedHashMap<>();
-    List<ServletDataSource> dataSources = new ArrayList<>();
     boolean started = false;
 
     boolean hotDeploy = true;
@@ -59,10 +57,6 @@ public class Container {
 
     public void addContext(Context context) {
         contexts.add(context);
-    }
-
-    public void addResource(ResourceDef resource) {
-        resourceDefs.add(resource);
     }
 
     public void addRealm(String name, Realm realm) {
@@ -89,19 +83,6 @@ public class Container {
             // Init resources
             String className = ServletInitialContextFactory.class.getName();
             System.getProperties().put("java.naming.factory.initial", className);
-            try {
-                ServletInitialContext ctx = (ServletInitialContext) new InitialContext().lookup("");
-                for (ResourceDef resourceDef : resourceDefs) {
-                    Object resource = resourceDef.newInstance();
-                    if (resource instanceof ServletDataSource) {
-                        dataSources.add((ServletDataSource) resource);
-                    }
-                    ctx.bind("java:comp/env/" + resourceDef.name, resourceDef.type, resource);
-                }
-            } catch (NamingException e) {
-                String message = Context.L10N.getString("err.init_resource");
-                Context.LOGGER.log(Level.SEVERE, message, e);
-            }
             boolean distributable = false;
             for (Context context : contexts) {
                 context.init();
@@ -139,9 +120,6 @@ public class Container {
             for (Context context : contexts) {
                 context.invalidateSessions(true);
                 context.destroy();
-            }
-            for (ServletDataSource ds : dataSources) {
-                ds.close();
             }
             started = false;
         }

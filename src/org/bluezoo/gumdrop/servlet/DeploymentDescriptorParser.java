@@ -214,6 +214,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         ENV_ENTRY_NAME("env-entry-name"),
         ENV_ENTRY_TYPE("env-entry-type"),
         ENV_ENTRY_VALUE("env-entry-value"),
+
+        // JNDIResource
         MAPPED_NAME("mapped-name"),
         INJECTION_TARGET("injection-target"),
         INJECTION_TARGET_CLASS("injection-target-class"),
@@ -284,6 +286,57 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         ORDERING("ordering"),
         BEFORE("before"),
         AFTER("after"),
+
+        // poorly documented JNDI and reflection stuff
+        // JPA
+        PERSISTENCE_CONTEXT_REF_NAME("persistence-context-ref-name"),
+        PERSISTENCE_UNIT_REF_NAME("persistence-unit-ref-name"),
+        PERSISTENCE_UNIT_NAME("persistence-unit-name"),
+        PERSISTENCE_CONTEXT_TYPE("persistence-context-type"),
+        // lifecycle callbacks
+        LIFECYCLE_CALLBACK_CLASS("lifecycle-callback-class"),
+        LIFECYCLE_CALLBACK_METHOD("lifecycle-callback-method"),
+        // data-source
+        CLASS_NAME("class-name"),
+        SERVER_NAME("server-name"),
+        PORT_NUMBER("port-number"),
+        DATABASE_NAME("database-name"),
+        USER("user"),
+        PASSWORD("password"),
+        URL("url"),
+        ISOLATION_LEVEL("isolation-level"),
+        INITIAL_POOL_SIZE("initial-pool-size"),
+        MAX_POOL_SIZE("max-pool-size"),
+        MIN_POOL_SIZE("min-pool-size"),
+        MAX_IDLE_TIME("max-idle-time"),
+        MAX_STATEMENTS("max-statements"),
+        TRANSACTION_ISOLATION("transaction-isolation"),
+        PROPERTY("property"),
+        VALUE("value"),
+        // jms-connection-factory
+        INTERFACE_NAME("interface-name"),
+        CLIENT_ID("client-id"),
+        TRANSACTIONAL("transactional"),
+        POOL("pool"),
+        CONNECTION_TIMEOUT_IN_SECONDS("connection-timeout-in-seconds"),
+        RESOURCE_ADAPTER("resource-adapter"),
+        // mail-session
+        STORE_PROTOCOL("store-protocol"),
+        STORE_PROTOCOL_CLASS("store-protocol-class"),
+        TRANSPORT_PROTOCOL("transport-protocol"),
+        TRANSPORT_PROTOCOL_CLASS("transport-protocol-class"),
+        HOST("host"),
+        FROM("from"),
+        // connection-factory
+        JNDI_NAME("jndi-name"),
+        CONNECTION_DEFINITION("connection-definition"),
+        CONNECTION_DEFINITION_ID("connection-definition-id"),
+        CONFIG_PROPERTY("config-property"),
+        CONFIG_PROPERTY_NAME("config-property-name"),
+        CONFIG_PROPERTY_VALUE("config-property-value"),
+        // administered-object
+        ADMINISTERED_OBJECT_INTERFACE("administered-object-interface"),
+        ADMINISTERED_OBJECT_CLASS("administered-object-class"),
 
         // Other
         UNKNOWN(null);
@@ -524,24 +577,56 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         pushTarget(new SecurityRole());
                         break;
                     case ENV_ENTRY:
+                        pushTarget(new EnvEntry());
+                        break;
                     case EJB_REF:
+                        pushTarget(new EjbRef());
+                        break;
                     case EJB_LOCAL_REF:
+                        pushTarget(new EjbLocalRef());
+                        break;
                     case SERVICE_REF:
+                        pushTarget(new ServiceRef());
+                        break;
                     case RESOURCE_REF:
+                        pushTarget(new ResourceRef());
+                        break;
                     case RESOURCE_ENV_REF:
+                        pushTarget(new ResourceEnvRef());
+                        break;
                     case MESSAGE_DESTINATION_REF:
+                        pushTarget(new MessageDestinationRef());
+                        break;
                     case PERSISTENCE_CONTEXT_REF:
+                        pushTarget(new PersistenceContextRef());
+                        break;
                     case PERSISTENCE_UNIT_REF:
+                        pushTarget(new PersistenceUnitRef());
+                        break;
                     case POST_CONSTRUCT:
                     case PRE_DESTROY:
+                        pushTarget(new LifecycleCallback());
+                        break;
                     case DATA_SOURCE:
+                        pushTarget(new DataSourceDef());
+                        break;
                     case JMS_CONNECTION_FACTORY:
+                        pushTarget(new JmsConnectionFactory());
+                        break;
                     case JMS_DESTINATION:
+                        pushTarget(new JmsDestination());
+                        break;
                     case MAIL_SESSION:
+                        pushTarget(new MailSession());
+                        break;
                     case CONNECTION_FACTORY:
+                        pushTarget(new ConnectionFactory());
+                        break;
                     case ADMINISTERED_OBJECT:
+                        pushTarget(new AdministeredObject());
+                        break;
                     case MESSAGE_DESTINATION:
-                        //pushTarget(new HashMap());
+                        pushTarget(new MessageDestination());
                         break;
                 }
                 // WEB_FRAGMENT only
@@ -770,12 +855,25 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         pushText();
                 }
                 break;
-            /*case ENV_ENTRY:
+            case ENV_ENTRY:
                 switch (state) {
                     case DESCRIPTION:
                     case ENV_ENTRY_NAME:
                     case ENV_ENTRY_TYPE:
                     case ENV_ENTRY_VALUE:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
+                        pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
+                }
+                break;
+            case INJECTION_TARGET:
+                switch (state) {
+                    case INJECTION_TARGET_CLASS:
+                    case INJECTION_TARGET_NAME:
                         pushText();
                 }
                 break;
@@ -787,7 +885,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case HOME:
                     case REMOTE:
                     case EJB_LINK:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
                 }
                 break;
             case EJB_LOCAL_REF:
@@ -798,7 +902,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case LOCAL_HOME:
                     case LOCAL:
                     case EJB_LINK:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
                 }
                 break;
             case SERVICE_REF:
@@ -812,7 +922,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case SERVICE_QNAME:
                     case PORT_COMPONENT_REF:
                     case HANDLER:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
                 }
                 break;
             case RESOURCE_REF:
@@ -822,7 +938,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case RES_TYPE:
                     case RES_AUTH:
                     case RES_SHARING_SCOPE:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
                 }
                 break;
             case RESOURCE_ENV_REF:
@@ -830,7 +952,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case DESCRIPTION:
                     case RESOURCE_ENV_REF_NAME:
                     case RESOURCE_ENV_REF_TYPE:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
                 }
                 break;
             case MESSAGE_DESTINATION_REF:
@@ -840,7 +968,180 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MESSAGE_DESTINATION_TYPE:
                     case MESSAGE_DESTINATION_USAGE:
                     case MESSAGE_DESTINATION_LINK:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
+                }
+                break;
+            case PERSISTENCE_CONTEXT_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                    case PERSISTENCE_CONTEXT_REF_NAME:
+                    case PERSISTENCE_CONTEXT_TYPE:
+                    case PERSISTENCE_UNIT_NAME:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
+                        pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
+                }
+                break;
+            case PERSISTENCE_UNIT_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                    case PERSISTENCE_UNIT_REF_NAME:
+                    case PERSISTENCE_UNIT_NAME:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
+                        pushText();
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
+                }
+                break;
+            case POST_CONSTRUCT:
+            case PRE_DESTROY:
+                switch (state) {
+                    case LIFECYCLE_CALLBACK_CLASS:
+                    case LIFECYCLE_CALLBACK_METHOD:
+                        pushText();
+                }
+                break;
+            case DATA_SOURCE:
+                switch (state) {
+                    case DESCRIPTION:
+                    case NAME:
+                    case CLASS_NAME:
+                    case SERVER_NAME:
+                    case PORT_NUMBER:
+                    case DATABASE_NAME:
+                    case USER:
+                    case PASSWORD:
+                    case URL:
+                    case ISOLATION_LEVEL:
+                    case INITIAL_POOL_SIZE:
+                    case MAX_POOL_SIZE:
+                    case MIN_POOL_SIZE:
+                    case MAX_IDLE_TIME:
+                    case MAX_STATEMENTS:
+                    case TRANSACTION_ISOLATION:
+                        pushText();
+                        break;
+                    case PROPERTY:
+                        pushTarget(new InitParam());
+                        break;
+                }
+                break;
+            case JMS_CONNECTION_FACTORY:
+                switch (state) {
+                    case DESCRIPTION:
+                    case NAME:
+                    case INTERFACE_NAME:
+                    case CLASS_NAME:
+                    case USER:
+                    case PASSWORD:
+                    case CLIENT_ID:
+                    case TRANSACTIONAL:
+                    case RESOURCE_ADAPTER:
+                        pushText();
+                        break;
+                    case POOL:
+                        pushTarget(new JmsConnectionFactory.Pool());
+                        break;
+                    case PROPERTY:
+                        pushTarget(new InitParam());
+                        break;
+                }
+                break;
+            case POOL:
+                switch (state) {
+                    case MAX_POOL_SIZE:
+                    case MIN_POOL_SIZE:
+                    case CONNECTION_TIMEOUT_IN_SECONDS:
+                        pushText();
+                        break;
+                }
+                break;
+            case JMS_DESTINATION:
+                switch (state) {
+                    case DESCRIPTION:
+                    case NAME:
+                    case INTERFACE_NAME:
+                    case CLASS_NAME:
+                        pushText();
+                        break;
+                    case PROPERTY:
+                        pushTarget(new InitParam());
+                        break;
+                }
+                break;
+            case MAIL_SESSION:
+                switch (state) {
+                    case DESCRIPTION:
+                    case NAME:
+                    case STORE_PROTOCOL:
+                    case STORE_PROTOCOL_CLASS:
+                    case TRANSPORT_PROTOCOL:
+                    case TRANSPORT_PROTOCOL_CLASS:
+                    case HOST:
+                    case USER:
+                    case PASSWORD:
+                    case FROM:
+                        pushText();
+                        break;
+                    case PROPERTY:
+                        pushTarget(new InitParam());
+                        break;
+                }
+                break;
+            case CONNECTION_FACTORY:
+                switch (state) {
+                    case JNDI_NAME:
+                        pushText();
+                        break;
+                }
+                break;
+            case CONNECTION_DEFINITION:
+                switch (state) {
+                    case CONNECTION_DEFINITION_ID:
+                        pushText();
+                        break;
+                    case CONFIG_PROPERTY:
+                        pushTarget(new InitParam());
+                        break;
+                }
+                break;
+            case CONFIG_PROPERTY:
+                switch (state) {
+                    case CONFIG_PROPERTY_NAME:
+                    case CONFIG_PROPERTY_VALUE:
+                        pushText();
+                        break;
+                }
+                break;
+            case ADMINISTERED_OBJECT:
+                switch (state) {
+                    case DESCRIPTION:
+                    case JNDI_NAME:
+                    case ADMINISTERED_OBJECT_INTERFACE:
+                    case ADMINISTERED_OBJECT_CLASS:
+                    case LOOKUP_NAME:
+                    case MAPPED_NAME:
+                        pushText();
+                        break;
+                    case CONFIG_PROPERTY:
+                        pushTarget(new InitParam());
+                        break;
+                    case INJECTION_TARGET:
+                        pushTarget(new InjectionTarget());
+                        break;
                 }
                 break;
             case MESSAGE_DESTINATION:
@@ -848,9 +1149,11 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case DESCRIPTION:
                     case DISPLAY_NAME:
                     case MESSAGE_DESTINATION_NAME:
+                    case MAPPED_NAME:
+                    case LOOKUP_NAME:
                         pushText();
                 }
-                break;*/
+                break;
             case LOCALE_ENCODING_MAPPING_LIST:
                 switch (state) {
                     case LOCALE_ENCODING_MAPPING:
@@ -896,6 +1199,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         State parentState = peekState();
 
         WebFragment fragment;
+        String text;
 
         switch (parentState) {
             case WEB_APP:
@@ -920,67 +1224,135 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case WEB_FRAGMENT:
                 switch (state) {
                     case DESCRIPTION:
-                        ((DeploymentDescriptor) peekTarget()).description = popText();
+                        ((Description) peekTarget()).setDescription(popText());
                         break;
                     case DISPLAY_NAME:
-                        ((DeploymentDescriptor) peekTarget()).displayName = popText();
+                        ((Description) peekTarget()).setDisplayName(popText());
                         break;
                     case CONTEXT_PARAM:
                         InitParam contextParam = (InitParam) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).contextParams.put(contextParam.name, contextParam);
+                        ((DeploymentDescriptor) peekTarget()).addContextParam(contextParam);
                         break;
                     case FILTER:
                         FilterDef filterDef = (FilterDef) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).filterDefs.put(filterDef.name, filterDef);
+                        ((DeploymentDescriptor) peekTarget()).addFilterDef(filterDef);
                         break;
                     case FILTER_MAPPING:
                         FilterMapping filterMapping = (FilterMapping) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).filterMappings.add(filterMapping);
+                        ((DeploymentDescriptor) peekTarget()).addFilterMapping(filterMapping);
                         break;
                     case LISTENER:
                         ListenerDef listenerDef = (ListenerDef) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).listenerDefs.add(listenerDef);
+                        ((DeploymentDescriptor) peekTarget()).addListenerDef(listenerDef);
                         break;
                     case SERVLET:
                         ServletDef servletDef = (ServletDef) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).servletDefs.put(servletDef.name, servletDef);
+                        ((DeploymentDescriptor) peekTarget()).addServletDef(servletDef);
                         break;
                     case SERVLET_MAPPING:
                         ServletMapping servletMapping = (ServletMapping) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).servletMappings.add(servletMapping);
+                        ((DeploymentDescriptor) peekTarget()).addServletMapping(servletMapping);
                         break;
                     case SESSION_CONFIG:
                         SessionConfig sessionConfig = (SessionConfig) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).sessionConfig = sessionConfig;
+                        ((DeploymentDescriptor) peekTarget()).setSessionConfig(sessionConfig);
                         break;
                     case MIME_MAPPING:
                         MimeMapping mimeMapping = (MimeMapping) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).mimeMappings.add(mimeMapping);
+                        ((DeploymentDescriptor) peekTarget()).addMimeMapping(mimeMapping);
                         break;
                     case ERROR_PAGE:
                         ErrorPage errorPage = (ErrorPage) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).errorPages.add(errorPage);
+                        ((DeploymentDescriptor) peekTarget()).addErrorPage(errorPage);
                         break;
                     case JSP_CONFIG:
                         JspConfig jspConfig = (JspConfig) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).jspConfigs.add(jspConfig);
+                        ((DeploymentDescriptor) peekTarget()).addJspConfig(jspConfig);
                         break;
                     case SECURITY_CONSTRAINT:
                         SecurityConstraint securityConstraint = (SecurityConstraint) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).securityConstraints.add(securityConstraint);
-                        ((DeploymentDescriptor) peekTarget()).authentication = true;
+                        ((DeploymentDescriptor) peekTarget()).addSecurityConstraint(securityConstraint);
                         break;
                     case LOGIN_CONFIG:
                         LoginConfig loginConfig = (LoginConfig) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).loginConfig = loginConfig;
-                        ((DeploymentDescriptor) peekTarget()).authentication = true;
+                        ((DeploymentDescriptor) peekTarget()).setLoginConfig(loginConfig);
                         break;
                     case SECURITY_ROLE:
                         SecurityRole securityRole = (SecurityRole) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).securityRoles.add(securityRole);
+                        ((DeploymentDescriptor) peekTarget()).addSecurityRole(securityRole);
                         break;
-                    // TODO jndiEnvironmentRefsGroup
-                    // TODO message-destimation
+                    case ENV_ENTRY:
+                        EnvEntry envEntry = (EnvEntry) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addEnvEntry(envEntry);
+                        break;
+                    case EJB_REF:
+                        EjbRef ejbRef = (EjbRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addEjbRef(ejbRef);
+                        break;
+                    case EJB_LOCAL_REF:
+                        EjbLocalRef ejbLocalRef = (EjbLocalRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addEjbLocalRef(ejbLocalRef);
+                        break;
+                    case SERVICE_REF:
+                        ServiceRef serviceRef = (ServiceRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addServiceRef(serviceRef);
+                        break;
+                    case RESOURCE_REF:
+                        ResourceRef resourceRef = (ResourceRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addResourceRef(resourceRef);
+                        break;
+                    case RESOURCE_ENV_REF:
+                        ResourceEnvRef resourceEnvRef = (ResourceEnvRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addResourceEnvRef(resourceEnvRef);
+                        break;
+                    case MESSAGE_DESTINATION_REF:
+                        MessageDestinationRef messageDestinationRef = (MessageDestinationRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addMessageDestinationRef(messageDestinationRef);
+                        break;
+                    case PERSISTENCE_CONTEXT_REF:
+                        PersistenceContextRef persistenceContextRef = (PersistenceContextRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addPersistenceContextRef(persistenceContextRef);
+                        break;
+                    case PERSISTENCE_UNIT_REF:
+                        PersistenceUnitRef persistenceUnitRef = (PersistenceUnitRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addPersistenceUnitRef(persistenceUnitRef);
+                        break;
+                    case POST_CONSTRUCT:
+                        LifecycleCallback postConstruct = (LifecycleCallback) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addPostConstruct(postConstruct);
+                        break;
+                    case PRE_DESTROY:
+                        LifecycleCallback preDestroy = (LifecycleCallback) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addPreDestroy(preDestroy);
+                        break;
+                    case DATA_SOURCE:
+                        DataSourceDef dataSourceDef = (DataSourceDef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addDataSourceDef(dataSourceDef);
+                        break;
+                    case JMS_CONNECTION_FACTORY:
+                        JmsConnectionFactory jmsConnectionFactory = (JmsConnectionFactory) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addJmsConnectionFactory(jmsConnectionFactory);
+                        break;
+                    case JMS_DESTINATION:
+                        JmsDestination jmsDestination = (JmsDestination) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addJmsDestination(jmsDestination);
+                        break;
+                    case MAIL_SESSION:
+                        MailSession mailSession = (MailSession) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addMailSession(mailSession);
+                        break;
+                    case CONNECTION_FACTORY:
+                        ConnectionFactory connectionFactory = (ConnectionFactory) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addConnectionFactory(connectionFactory);
+                        break;
+                    case ADMINISTERED_OBJECT:
+                        AdministeredObject administeredObject = (AdministeredObject) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addAdministeredObject(administeredObject);
+                        break;
+                    case MESSAGE_DESTINATION:
+                        MessageDestination messageDestination = (MessageDestination) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addMessageDestination(messageDestination);
+                        break;
                 }
                 // WEB_FRAGMENT ONLY
                 if (parentState == State.WEB_FRAGMENT) {
@@ -988,17 +1360,17 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         case NAME:
                             ((WebFragment) peekTarget()).name = popText();
                             break;
-                        // TODO ordering
+                            // TODO ordering
                     }
                 }
                 break;
             case ICON:
                 switch (state) {
                     case SMALL_ICON:
-                        ((DescriptionGroup) peekTarget()).smallIcon = popText();
+                        ((Description) peekTarget()).setSmallIcon(popText());
                         break;
                     case LARGE_ICON:
-                        ((DescriptionGroup) peekTarget()).largeIcon = popText();
+                        ((Description) peekTarget()).setLargeIcon(popText());
                         break;
                 }
                 break;
@@ -1019,9 +1391,9 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case FILTER:
                 switch (state) {
                     case DESCRIPTION:
-                        ((FilterDef) peekTarget()).description = popText();
+                        ((Description) peekTarget()).setDescription(popText());
                     case DISPLAY_NAME:
-                        ((FilterDef) peekTarget()).displayName = popText();
+                        ((Description) peekTarget()).setDisplayName(popText());
                     case FILTER_NAME:
                         ((FilterDef) peekTarget()).name = popText();
                     case FILTER_CLASS:
@@ -1029,7 +1401,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case INIT_PARAM:
                         InitParam initParam = (InitParam) popTarget();
-                        ((FilterDef) peekTarget()).initParams.put(initParam.name, initParam);
+                        ((FilterDef) peekTarget()).addInitParam(initParam);
                         break;
                 }
                 break;
@@ -1052,10 +1424,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case LISTENER:
                 switch (state) {
                     case DESCRIPTION:
-                        ((ListenerDef) peekTarget()).description = popText();
+                        ((Description) peekTarget()).setDescription(popText());
                         break;
                     case DISPLAY_NAME:
-                        ((ListenerDef) peekTarget()).displayName = popText();
+                        ((Description) peekTarget()).setDisplayName(popText());
                         break;
                     case LISTENER_CLASS:
                         ((ListenerDef) peekTarget()).className = popText();
@@ -1065,10 +1437,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case SERVLET:
                 switch (state) {
                     case DESCRIPTION:
-                        ((ServletDef) peekTarget()).description = popText();
+                        ((Description) peekTarget()).setDescription(popText());
                         break;
                     case DISPLAY_NAME:
-                        ((ServletDef) peekTarget()).displayName = popText();
+                        ((Description) peekTarget()).setDisplayName(popText());
                         break;
                     case SERVLET_NAME:
                         ((ServletDef) peekTarget()).name = popText();
@@ -1080,7 +1452,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((ServletDef) peekTarget()).jspFile = popText();
                         break;
                     case LOAD_ON_STARTUP:
-                        String text = popText();
+                        text = popText();
                         try {
                             ((ServletDef) peekTarget()).loadOnStartup = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
@@ -1092,11 +1464,11 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case INIT_PARAM:
                         InitParam initParam = (InitParam) popTarget();
-                        ((ServletDef) peekTarget()).initParams.put(initParam.name, initParam);
+                        ((ServletDef) peekTarget()).addInitParam(initParam);
                         break;
                     case RUN_AS:
-                        SecurityRole runAs = (SecurityRole) popTarget();
-                        ((ServletDef) peekTarget()).runAs = runAs.roleName;
+                        String runAs = ((SecurityRole) popTarget()).roleName;
+                        ((ServletDef) peekTarget()).runAs = runAs;
                         break;
                     case SECURITY_ROLE_REF:
                         SecurityRole securityRoleRef = (SecurityRole) popTarget();
@@ -1121,7 +1493,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case SESSION_CONFIG:
                 switch (state) {
                     case SESSION_TIMEOUT:
-                        String text = popText();
+                        text = popText();
                         try {
                             ((SessionConfig) peekTarget()).sessionTimeout = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
@@ -1136,8 +1508,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((SessionConfig) peekTarget()).cookieConfig = cookieConfig;
                         break;
                     case TRACKING_MODE:
-                        SessionTrackingMode trackingMode = SessionTrackingMode.valueOf(popText());
-                        ((SessionConfig) peekTarget()).trackingModes.add(trackingMode);
+                        ((SessionConfig) peekTarget()).addTrackingMode(SessionTrackingMode.valueOf(popText()));
                         break;
                 }
                 break;
@@ -1162,7 +1533,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((CookieConfig) peekTarget()).secure = popBoolean();
                         break;
                     case MAX_AGE:
-                        String text = popText();
+                        text = popText();
                         try {
                             ((CookieConfig) peekTarget()).maxAge = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
@@ -1197,7 +1568,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case ERROR_PAGE:
                 switch (state) {
                     case ERROR_CODE:
-                        String text = popText();
+                        text = popText();
                         try {
                             ((ErrorPage) peekTarget()).errorCode = Integer.parseInt(text);
                         } catch (NumberFormatException e) {
@@ -1219,11 +1590,11 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                 switch (state) {
                     case TAGLIB:
                         Taglib taglib = (Taglib) popTarget();
-                        ((JspConfig) peekTarget()).taglibs.add(taglib);
+                        ((JspConfig) peekTarget()).addTaglib(taglib);
                         break;
                     case JSP_PROPERTY_GROUP:
                         JspPropertyGroup jspPropertyGroup = (JspPropertyGroup) popTarget();
-                        ((JspConfig) peekTarget()).jspPropertyGroups.add(jspPropertyGroup);
+                        ((JspConfig) peekTarget()).addJspPropertyGroup(jspPropertyGroup);
                         break;
                 }
                 break;
@@ -1261,7 +1632,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((JspPropertyGroup) peekTarget()).includeCoda = popText();
                         break;
                     case BUFFER:
-                        String text = popText();
+                        text = popText();
                         try {
                             ((JspPropertyGroup) peekTarget()).buffer = Long.parseLong(text);
                         } catch (NumberFormatException e) {
@@ -1283,11 +1654,11 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case WEB_RESOURCE_COLLECTION:
                         ResourceCollection resourceCollection = (ResourceCollection) popTarget();
-                        ((SecurityConstraint) peekTarget()).resourceCollections.add(resourceCollection);
+                        ((SecurityConstraint) peekTarget()).addResourceCollection(resourceCollection);
                         break;
                     case AUTH_CONSTRAINT:
-                        SecurityRole securityRole = (SecurityRole) popTarget();
-                        ((SecurityConstraint) peekTarget()).authConstraints.add(securityRole.roleName);
+                        String authConstraint = ((SecurityRole) popTarget()).roleName;
+                        ((SecurityConstraint) peekTarget()).addAuthConstraint(authConstraint);
                         break;
                 }
                 break;
@@ -1354,12 +1725,607 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                 }
                 break;
-// TODO jndi elements
+            case ENV_ENTRY:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((EnvEntry) peekTarget()).description = popText();
+                        break;
+                    case ENV_ENTRY_NAME:
+                        ((EnvEntry) peekTarget()).name = popText();
+                        break;
+                    case ENV_ENTRY_TYPE:
+                        ((EnvEntry) peekTarget()).className = popText();
+                        break;
+                    case ENV_ENTRY_VALUE:
+                        ((EnvEntry) peekTarget()).value = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case INJECTION_TARGET:
+                switch (state) {
+                    case INJECTION_TARGET_CLASS:
+                        ((InjectionTarget) peekTarget()).className = popText();
+                        break;
+                    case INJECTION_TARGET_NAME:
+                        ((InjectionTarget) peekTarget()).name = popText();
+                        break;
+                }
+                break;
+            case EJB_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((EjbRef) peekTarget()).description = popText();
+                        break;
+                    case EJB_REF_NAME:
+                        ((EjbRef) peekTarget()).name = popText();
+                        break;
+                    case EJB_REF_TYPE:
+                        ((EjbRef) peekTarget()).className = popText();
+                        break;
+                    case HOME:
+                        ((EjbRef) peekTarget()).home = popText();
+                        break;
+                    case REMOTE:
+                        ((EjbRef) peekTarget()).remote = popText();
+                        break;
+                    case EJB_LINK:
+                        ((EjbRef) peekTarget()).ejbLink = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case EJB_LOCAL_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((EjbLocalRef) peekTarget()).description = popText();
+                        break;
+                    case EJB_REF_NAME:
+                        ((EjbLocalRef) peekTarget()).name = popText();
+                        break;
+                    case EJB_REF_TYPE:
+                        ((EjbLocalRef) peekTarget()).className = popText();
+                        break;
+                    case LOCAL_HOME:
+                        ((EjbLocalRef) peekTarget()).localHome = popText();
+                        break;
+                    case LOCAL:
+                        ((EjbLocalRef) peekTarget()).local = popText();
+                        break;
+                    case EJB_LINK:
+                        ((EjbLocalRef) peekTarget()).ejbLink = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case SERVICE_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((Description) peekTarget()).setDescription(popText());
+                        break;
+                    case DISPLAY_NAME:
+                        ((Description) peekTarget()).setDisplayName(popText());
+                        break;
+                    case SERVICE_REF_NAME:
+                        ((ServiceRef) peekTarget()).name = popText();
+                        break;
+                    case SERVICE_REF_TYPE:
+                        ((ServiceRef) peekTarget()).className = popText();
+                        break;
+                    case WDSL_FILE:
+                        ((ServiceRef) peekTarget()).wdslFile = popText();
+                        break;
+                    case JAXRPC_MAPPING_FILE:
+                        ((ServiceRef) peekTarget()).jaxrpcMappingFile = popText();
+                        break;
+                    case SERVICE_QNAME:
+                        ((ServiceRef) peekTarget()).serviceQname = popText();
+                        break;
+                    case PORT_COMPONENT_REF:
+                        ((ServiceRef) peekTarget()).portComponentRef = popText();
+                        break;
+                    case HANDLER:
+                    case HANDLER_CHAINS:
+                        // TODO
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case RESOURCE_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((ResourceRef) peekTarget()).description = popText();
+                        break;
+                    case RES_REF_NAME:
+                        ((ResourceRef) peekTarget()).name = popText();
+                        break;
+                    case RES_TYPE:
+                        ((ResourceRef) peekTarget()).className = popText();
+                        break;
+                    case RES_AUTH:
+                        ((ResourceRef) peekTarget()).resAuth = popText();
+                        break;
+                    case RES_SHARING_SCOPE:
+                        ((ResourceRef) peekTarget()).resSharingScope = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case RESOURCE_ENV_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((ResourceEnvRef) peekTarget()).description = popText();
+                        break;
+                    case RESOURCE_ENV_REF_NAME:
+                        ((ResourceEnvRef) peekTarget()).name = popText();
+                        break;
+                    case RESOURCE_ENV_REF_TYPE:
+                        ((ResourceEnvRef) peekTarget()).className = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case MESSAGE_DESTINATION_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((MessageDestinationRef) peekTarget()).description = popText();
+                        break;
+                    case MESSAGE_DESTINATION_REF_NAME:
+                        ((MessageDestinationRef) peekTarget()).name = popText();
+                        break;
+                    case MESSAGE_DESTINATION_TYPE:
+                        ((MessageDestinationRef) peekTarget()).className = popText();
+                        break;
+                    case MESSAGE_DESTINATION_USAGE:
+                        ((MessageDestinationRef) peekTarget()).messageDestinationUsage = popText();
+                        break;
+                    case MESSAGE_DESTINATION_LINK:
+                        ((MessageDestinationRef) peekTarget()).messageDestinationLink = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case PERSISTENCE_CONTEXT_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((PersistenceContextRef) peekTarget()).description = popText();
+                        break;
+                    case PERSISTENCE_CONTEXT_REF_NAME:
+                        ((PersistenceContextRef) peekTarget()).name = popText();
+                        break;
+                    case PERSISTENCE_CONTEXT_TYPE:
+                        ((PersistenceContextRef) peekTarget()).type = PersistenceContextRef.Type.valueOf(popText());
+                        break;
+                    case PERSISTENCE_UNIT_NAME:
+                        ((PersistenceContextRef) peekTarget()).persistenceUnitName = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case PERSISTENCE_UNIT_REF:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((PersistenceUnitRef) peekTarget()).description = popText();
+                        break;
+                    case PERSISTENCE_UNIT_REF_NAME:
+                        ((PersistenceUnitRef) peekTarget()).name = popText();
+                        break;
+                    case PERSISTENCE_UNIT_NAME:
+                        ((PersistenceUnitRef) peekTarget()).persistenceUnitName = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        break;
+                    case LOOKUP_NAME:
+                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case POST_CONSTRUCT:
+            case PRE_DESTROY:
+                switch (state) {
+                    case LIFECYCLE_CALLBACK_CLASS:
+                        ((LifecycleCallback) peekTarget()).className = popText();
+                        break;
+                    case LIFECYCLE_CALLBACK_METHOD:
+                        ((LifecycleCallback) peekTarget()).methodName = popText();
+                        break;
+                }
+                break;
+            case DATA_SOURCE:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((DataSourceDef) peekTarget()).description = popText();
+                        break;
+                    case NAME:
+                        ((DataSourceDef) peekTarget()).name = popText();
+                        break;
+                    case CLASS_NAME:
+                        ((DataSourceDef) peekTarget()).className = popText();
+                        break;
+                    case SERVER_NAME:
+                        ((DataSourceDef) peekTarget()).serverName = popText();
+                        break;
+                    case PORT_NUMBER:
+                        text = popText();
+                        try {
+                            ((DataSourceDef) peekTarget()).portNumber = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case DATABASE_NAME:
+                        ((DataSourceDef) peekTarget()).databaseName = popText();
+                        break;
+                    case USER:
+                        ((DataSourceDef) peekTarget()).user = popText();
+                        break;
+                    case PASSWORD:
+                        ((DataSourceDef) peekTarget()).password = popText();
+                        break;
+                    case ISOLATION_LEVEL:
+                        ((DataSourceDef) peekTarget()).isolationLevel = DataSourceDef.getIsolationLevel(popText());
+                        break;
+                    case INITIAL_POOL_SIZE:
+                        text = popText();
+                        try {
+                            ((DataSourceDef) peekTarget()).initialPoolSize = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case MAX_POOL_SIZE:
+                        text = popText();
+                        try {
+                            ((DataSourceDef) peekTarget()).maxPoolSize = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case MIN_POOL_SIZE:
+                        text = popText();
+                        try {
+                            ((DataSourceDef) peekTarget()).minPoolSize = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case MAX_IDLE_TIME:
+                        text = popText();
+                        try {
+                            ((DataSourceDef) peekTarget()).maxIdleTime = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case MAX_STATEMENTS:
+                        text = popText();
+                        try {
+                            ((DataSourceDef) peekTarget()).maxStatements = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case TRANSACTION_ISOLATION:
+                        ((DataSourceDef) peekTarget()).transactionIsolation = DataSourceDef.getIsolationLevel(popText());
+                        break;
+                    case PROPERTY:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((DataSourceDef) peekTarget()).addProperty(initParam.name, initParam.value);
+                        break;
+                }
+                break;
+            case PROPERTY:
+                switch (state) {
+                    case NAME:
+                        ((InitParam) peekTarget()).name = popText();
+                        break;
+                    case VALUE:
+                        ((InitParam) peekTarget()).value = popText();
+                        break;
+                }
+                break;
+            case JMS_CONNECTION_FACTORY:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((JmsConnectionFactory) peekTarget()).description = popText();
+                        break;
+                    case NAME:
+                        ((JmsConnectionFactory) peekTarget()).name = popText();
+                        break;
+                    case INTERFACE_NAME:
+                        ((JmsConnectionFactory) peekTarget()).interfaceName = popText();
+                        break;
+                    case CLASS_NAME:
+                        ((JmsConnectionFactory) peekTarget()).className = popText();
+                        break;
+                    case USER:
+                        ((JmsConnectionFactory) peekTarget()).user = popText();
+                        break;
+                    case PASSWORD:
+                        ((JmsConnectionFactory) peekTarget()).password = popText();
+                        break;
+                    case CLIENT_ID:
+                        ((JmsConnectionFactory) peekTarget()).clientId = popText();
+                        break;
+                    case TRANSACTIONAL:
+                        ((JmsConnectionFactory) peekTarget()).transactional = popBoolean();
+                        break;
+                    case POOL:
+                        JmsConnectionFactory.Pool pool = (JmsConnectionFactory.Pool) popTarget();
+                        ((JmsConnectionFactory) peekTarget()).pool = pool;
+                        break;
+                    case PROPERTY:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((JmsConnectionFactory) peekTarget()).addProperty(initParam.name, initParam.value);
+                        break;
+                    case RESOURCE_ADAPTER:
+                        ((JmsConnectionFactory) peekTarget()).resourceAdapter = popText();
+                        break;
+                }
+                break;
+            case POOL:
+                switch (state) {
+                    case MAX_POOL_SIZE:
+                        text = popText();
+                        try {
+                            ((JmsConnectionFactory.Pool) peekTarget()).maxPoolSize = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case MIN_POOL_SIZE:
+                        text = popText();
+                        try {
+                            ((JmsConnectionFactory.Pool) peekTarget()).minPoolSize = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                    case CONNECTION_TIMEOUT_IN_SECONDS:
+                        text = popText();
+                        try {
+                            ((JmsConnectionFactory.Pool) peekTarget()).connectionTimeoutInSeconds = Integer.parseInt(text);
+                        } catch (NumberFormatException e) {
+                            String message = L10N.getString("warn.invalid_number");
+                            message = MessageFormat.format(message, text);
+                            LOGGER.warning(message);
+                        }
+                        break;
+                }
+                break;
+            case JMS_DESTINATION:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((JmsConnectionFactory) peekTarget()).description = popText();
+                        break;
+                    case NAME:
+                        ((JmsConnectionFactory) peekTarget()).name = popText();
+                        break;
+                    case INTERFACE_NAME:
+                        ((JmsConnectionFactory) peekTarget()).interfaceName = popText();
+                        break;
+                    case CLASS_NAME:
+                        ((JmsConnectionFactory) peekTarget()).className = popText();
+                        break;
+                    case PROPERTY:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((JmsConnectionFactory) peekTarget()).addProperty(initParam.name, initParam.value);
+                        break;
+                }
+                break;
+            case MAIL_SESSION:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((MailSession) peekTarget()).description = popText();
+                        break;
+                    case NAME:
+                        ((MailSession) peekTarget()).name = popText();
+                        break;
+                    case STORE_PROTOCOL:
+                        ((MailSession) peekTarget()).storeProtocol = popText();
+                        break;
+                    case STORE_PROTOCOL_CLASS:
+                        ((MailSession) peekTarget()).storeProtocolClass = popText();
+                        break;
+                    case TRANSPORT_PROTOCOL:
+                        ((MailSession) peekTarget()).transportProtocol = popText();
+                        break;
+                    case TRANSPORT_PROTOCOL_CLASS:
+                        ((MailSession) peekTarget()).transportProtocolClass = popText();
+                        break;
+                    case HOST:
+                        ((MailSession) peekTarget()).host = popText();
+                        break;
+                    case USER:
+                        ((MailSession) peekTarget()).user = popText();
+                        break;
+                    case PASSWORD:
+                        ((MailSession) peekTarget()).password = popText();
+                        break;
+                    case FROM:
+                        ((MailSession) peekTarget()).from = popText();
+                        break;
+                    case PROPERTY:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((MailSession) peekTarget()).addProperty(initParam.name, initParam.value);
+                        break;
+                }
+                break;
+            case CONNECTION_FACTORY:
+                switch (state) {
+                    case JNDI_NAME:
+                        ((ConnectionFactory) peekTarget()).jndiName = popText();
+                        break;
+                }
+                break;
+            case CONNECTION_DEFINITION:
+                switch (state) {
+                    case CONNECTION_DEFINITION_ID:
+                        ((ConnectionFactory) peekTarget()).connectionDefinitionId = popText();
+                        break;
+                    case CONFIG_PROPERTY:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((ConnectionFactory) peekTarget()).addProperty(initParam.name, initParam.value);
+                        break;
+                }
+                break;
+            case CONFIG_PROPERTY:
+                switch (state) {
+                    case CONFIG_PROPERTY_NAME:
+                        ((InitParam) peekTarget()).name = popText();
+                        break;
+                    case CONFIG_PROPERTY_VALUE:
+                        ((InitParam) peekTarget()).value = popText();
+                        break;
+                }
+                break;
+            case ADMINISTERED_OBJECT:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((AdministeredObject) peekTarget()).description = popText();
+                        break;
+                    case JNDI_NAME:
+                        ((AdministeredObject) peekTarget()).jndiName = popText();
+                        break;
+                    case ADMINISTERED_OBJECT_INTERFACE:
+                        ((AdministeredObject) peekTarget()).administeredObjectInterface = popText();
+                        break;
+                    case ADMINISTERED_OBJECT_CLASS:
+                        ((AdministeredObject) peekTarget()).administeredObjectClass = popText();
+                        break;
+                    case LOOKUP_NAME:
+                        ((AdministeredObject) peekTarget()).lookupName = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((AdministeredObject) peekTarget()).mappedName = popText();
+                        break;
+                    case CONFIG_PROPERTY:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((AdministeredObject) peekTarget()).addProperty(initParam.name, initParam.value);
+                        break;
+                    case INJECTION_TARGET:
+                        InjectionTarget injectionTarget = (InjectionTarget) popTarget();
+                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case MESSAGE_DESTINATION:
+                switch (state) {
+                    case DESCRIPTION:
+                        ((Description) peekTarget()).setDescription(popText());
+                        break;
+                    case DISPLAY_NAME:
+                        ((Description) peekTarget()).setDisplayName(popText());
+                        break;
+                    case MESSAGE_DESTINATION_NAME:
+                        ((MessageDestination) peekTarget()).messageDestinationName = popText();
+                        break;
+                    case MAPPED_NAME:
+                        ((MessageDestination) peekTarget()).mappedName = popText();
+                        break;
+                    case LOOKUP_NAME:
+                        ((MessageDestination) peekTarget()).lookupName = popText();
+                        break;
+                }
+                break;
             case LOCALE_ENCODING_MAPPING_LIST:
                 switch (state) {
                     case LOCALE_ENCODING_MAPPING:
                         LocaleEncodingMapping lem = (LocaleEncodingMapping) popTarget();
-                        descriptor.localeEncodingMappings.put(lem.locale, lem.encoding);
+                        descriptor.addLocaleEncodingMapping(lem.locale, lem.encoding);
                         break;
                 }
                 break;

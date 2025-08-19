@@ -68,7 +68,6 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     private ContextClassLoader contextClassLoader;
     byte[] digest; // MD5 digest of web.xml
 
-    List<ResourceDef> resourceDefs = new ArrayList<>();
     Map<String,Realm> realms = new LinkedHashMap<>();
 
     Map<String,String> initParams = new LinkedHashMap<>();
@@ -260,23 +259,27 @@ public class Context extends DeploymentDescriptor implements ServletContext {
      * @see SRV.9.12
      */
     public synchronized void init() {
-        // Init resources
-        try {
-            ServletInitialContext ctx = (ServletInitialContext) new InitialContext().lookup("");
-            for (ResourceDef resourceDef : resourceDefs) {
-                Object resource = resourceDef.newInstance();
-                if (resource instanceof ServletDataSource) {
-                    dataSources.add((ServletDataSource) resource);
-                }
-                ctx.bind("java:comp/env/" + resourceDef.name, resourceDef.type, resource);
-            }
-        } catch (NamingException e) {
-            String message = L10N.getString("err.init_resource");
-            LOGGER.log(Level.SEVERE, message, e);
-        }
         Thread thread = Thread.currentThread();
         ClassLoader loader = thread.getContextClassLoader();
         thread.setContextClassLoader(getContextClassLoader());
+
+        // JNDI
+        // The InitialContext is established by the Container
+        try {
+            ServletInitialContext ctx = (ServletInitialContext) new InitialContext().lookup("");
+            for (Resource resource : getResources()) {
+                String name = stripCompEnv(resource.getName());
+                String interfaceName = resource.getInterfaceName();
+                Object instance = resource.newInstance();
+                if (instance != null) {
+                    ctx.bind("java:comp/env/" + name, interfaceName, instance);
+                }
+            }
+        } catch (NamingException e) {
+            String message = Context.L10N.getString("err.init_resource");
+            Context.LOGGER.log(Level.SEVERE, message, e);
+        }
+
         // Init listeners
         for (ListenerDef listenerDef : listenerDefs) {
             EventListener listener = listenerDef.newInstance();
@@ -315,8 +318,25 @@ public class Context extends DeploymentDescriptor implements ServletContext {
                 }
             }
         }
+
+        // Post-construct
+        for (LifecycleCallback postConstruct : postConstructs) {
+            postConstruct.execute();
+        }
+
         thread.setContextClassLoader(loader);
         initialized = true;
+    }
+
+    /**
+     * This is necessary because all JNDI names are supposed to be relative
+     * to java:comp/env/
+     * However some deployment descriptor authors like to put the absolute
+     * java: name for resources when defining them. So make it relative
+     * here.
+     */
+    static String stripCompEnv(String jndiName) {
+        return jndiName.startsWith("java:comp/env/") ? jndiName.substring(14) : jndiName;
     }
 
     /**
@@ -327,6 +347,12 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         ClassLoader loader = thread.getContextClassLoader();
         thread.setContextClassLoader(getContextClassLoader());
         invalidateSessions(true);
+
+        // Pre-destroy
+        for (LifecycleCallback preDestroy : preDestroys) {
+            preDestroy.execute();
+        }
+
         // Destroy servlets
         for (Servlet servlet : servlets.values()) {
             servlet.destroy();
@@ -335,15 +361,18 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         for (Filter filter : filters.values()) {
             filter.destroy();
         }
-        // Close data sources
-        for (ServletDataSource ds : dataSources) {
-            ds.close();
-        }
         // Inform servlet context listeners
         ServletContextEvent event = new ServletContextEvent(this);
         for (ServletContextListener l : servletContextListeners) {
             l.contextDestroyed(event);
         }
+
+        // Close JNDI resources
+        // TODO
+        for (DataSourceDef dataSourceDef : dataSourceDefs) {
+            dataSourceDef.close();
+        }
+
         thread.setContextClassLoader(loader);
         initialized = false;
     }
@@ -364,10 +393,6 @@ public class Context extends DeploymentDescriptor implements ServletContext {
                 }
             }
         }
-    }
-
-    public void addResource(ResourceDef resource) {
-        resourceDefs.add(resource);
     }
 
     public void addRealm(String name, Realm realm) {
