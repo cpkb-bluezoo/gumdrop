@@ -1,6 +1,6 @@
 <?xml version='1.0' standalone='yes'?>
 <!--
-  Copyright (C) 2005 Chris Burdess
+  Copyright (C) 2005, 2025 Chris Burdess
 
   This file is part of gumdrop.
 
@@ -21,42 +21,99 @@
 <project name='gumdrop' default='dist'>
 
   <property name='src' location='src'/>
-  <property name='dst' location='dist'/>
+  <property name='lib' location='lib'/>
+  <property name='build' location='build'/>
+  <property name='build-bootstrap' location='build-bootstrap'/>
+  <property name='manager' location='manager'/>
+  <property name='dist' location='dist'/>
+  <property name='server.jar' location='${dist}/server.jar'/>
+  <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
+  <property name='manager.war' location='${dist}/manager.war'/>
   
-  <property name='servlet'  location='lib/javax.servlet-api-4.0.1.jar'/>
-  <property name='javamail'  location='lib/javax.mail-1.6.2.jar'/>
+  <property name='servlet' value='javax.servlet-api-4.0.1.jar'/>
+  <property name='javamail' value='javax.mail-1.6.2.jar'/>
 
+  <!-- Remove compiled classes and build directories -->
+  <target name='clean'>
+    <delete dir='${build-bootstrap}'/>
+    <delete dir='${build}'/>
+    <delete dir='${manager}/WEB-INF/classes'/>
+    <delete dir='${dist}'/>
+  </target>
+
+  <!-- Target for the server/servlet container and all its resources -->
   <target name='build'>
-    <mkdir dir='${dst}'/>
-    <javac srcdir='${src}' destdir='${dst}' debug='true'>
+    <mkdir dir='${build}'/>
+    <javac srcdir='${src}' destdir='${build}' debug='true'>
       <classpath>
-        <pathelement location='${servlet}'/>
-        <pathelement location='${javamail}'/>
+        <pathelement location='${lib}/${servlet}'/>
+        <pathelement location='${lib}/${javamail}'/>
       </classpath>
+      <include name="**/*.java"/>
+      <exclude name="org/bluezoo/gumdrop/Bootstrap.java"/>
+      <exclude name="org/bluezoo/gumdrop/servlet/ManagerServlet.java"/>
     </javac>
-    <copy todir='${dst}'>
+    <copy todir='${build}'>
       <fileset dir='${src}'>
         <include name='**/*.properties'/>
       </fileset>
     </copy>
   </target>
 
-  <target name='compile' depends='build'/><!-- alias -->
+  <!-- server.jar contains the server and servlet container -->
+  <target name='jar' depends='build'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${server.jar}' basedir='${build}'/>
+  </target>
 
-  <target name='dist' depends='compile'>
-    <jar destfile='gumdrop.jar' basedir='${dst}'>
+  <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
+  <!-- the server.jar, and the J2EE dependencies for the server and container. -->
+  <!-- Bootstrap will create a new classloader to load these jars -->
+  <target name='build-bootstrap' depends='jar'>
+    <mkdir dir='${build-bootstrap}'/>
+    <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'>
+      <include name="org/bluezoo/gumdrop/Bootstrap.java"/>
+      <include name="org/bluezoo/gumdrop/ContainerClassLoader.java"/>
+    </javac>
+    <copy todir='${build-bootstrap}' file='${server.jar}'/>
+    <copy todir='${build-bootstrap}'>
+      <fileset dir='${lib}'>
+        <include name='${servlet}'/>
+        <include name='${javamail}'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <!-- The bootstrap jar contains the only class loaded by the bootstrap classloader -->
+  <target name='bootstrap-jar' depends='build-bootstrap'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.jar}' basedir='build-bootstrap'>
       <manifest>
-        <attribute name='Main-Class' value='gnu.gumdrop.Server'/>
-        <attribute name='Class-Path' value='${servlet}'/>
+        <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
+        <attribute name='Container-Jar' value='server.jar'/>
+        <attribute name='Container-Dependencies' value='${servlet} ${javamail}'/>
       </manifest>
     </jar>
-    <jar destfile='manager.war' basedir='manager'/>
   </target>
 
-  <target name='clean'>
-    <delete dir='${dst}'/>
-    <delete file='gumdrop.jar'/>
-    <delete file='manager.war'/>
+  <!-- Target for the manager servlet -->
+  <target name='build-manager'>
+    <mkdir dir='${manager}/WEB-INF/classes'/>
+    <javac srcdir='${src}' destdir='${manager}/WEB-INF/classes' debug='true'>
+      <classpath>
+        <pathelement location='${lib}/${servlet}'/>
+        <pathelement location='${lib}/${javamail}'/>
+      </classpath>
+      <include name="org/bluezoo/gumdrop/servlet/ManagerServlet.java"/>
+    </javac>
   </target>
+
+  <!-- manager.war contains the manager web application -->
+  <target name='manager-war' depends='build-manager'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${manager.war}' basedir='${manager}'/>
+  </target>
+
+  <target name='dist' depends='bootstrap-jar,manager-war'/>
 
 </project>

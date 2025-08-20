@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.text.MessageFormat;
 import java.util.logging.Level;
+import javax.servlet.ServletException;
 
 /**
  * Definition of a resource that will be instantiated and bound in the JNDI
@@ -67,6 +68,18 @@ abstract class Resource {
             Context.LOGGER.log(Level.SEVERE, message, e);
         }
         return null;
+    }
+
+    /**
+     * Informs this resource that it is being put into service.
+     */
+    void init() throws ServletException {
+    }
+
+    /**
+     * Informs this resource that it is being removed from service.
+     */
+    void close() {
     }
 
 }

@@ -39,6 +39,9 @@ Each connector manages a pool of threads to service the connection-specific
 parsing of requests and responses. The size of the thread pool can be
 configured and is always independent of the main server I/O processing loop.
 
+There is an example file-based HTTP connector included in the project, you
+can just point it at a directory.
+
 The servlet container is a slightly special case because servlets use an
 InputStream to read request body data instead of having it being delivered
 them in an event-based fashion. So the servlet connector additionally manages

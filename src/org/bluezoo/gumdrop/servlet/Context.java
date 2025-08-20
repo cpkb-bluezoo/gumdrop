@@ -21,6 +21,7 @@
  */
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.Realm;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
@@ -64,8 +65,8 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     final URL rootUrl;
     final File root;
     final JarFile warFile;
+    private final ContextClassLoader contextClassLoader;
     ServletConnector connector;
-    private ContextClassLoader contextClassLoader;
     byte[] digest; // MD5 digest of web.xml
 
     Map<String,Realm> realms = new LinkedHashMap<>();
@@ -122,6 +123,9 @@ public class Context extends DeploymentDescriptor implements ServletContext {
 
         sessionsLastInvalidated = System.currentTimeMillis();
 
+        ContainerClassLoader containerClassLoader = (ContainerClassLoader) Context.class.getClassLoader();
+        contextClassLoader = new ContextClassLoader(containerClassLoader, this);
+
         reset();
     }
 
@@ -152,7 +156,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         servletRequestListeners.clear();
         servletRequestAttributeListeners.clear();
 
-        contextClassLoader = null;
+        contextClassLoader.reset();
 
         // Temporary working directory (SRV.3.7.1)
         try {
@@ -260,25 +264,39 @@ public class Context extends DeploymentDescriptor implements ServletContext {
      */
     public synchronized void init() {
         Thread thread = Thread.currentThread();
-        ClassLoader loader = thread.getContextClassLoader();
-        thread.setContextClassLoader(getContextClassLoader());
+        ClassLoader originalClassLoader = thread.getContextClassLoader();
+        ClassLoader containerClassLoader = Context.class.getClassLoader();
+        ClassLoader contextClassLoader = getContextClassLoader();
+
+        // Binding to JNDI must be done in the container classloader
+        thread.setContextClassLoader(containerClassLoader);
 
         // JNDI
         // The InitialContext is established by the Container
         try {
             ServletInitialContext ctx = (ServletInitialContext) new InitialContext().lookup("");
             for (Resource resource : getResources()) {
-                String name = stripCompEnv(resource.getName());
-                String interfaceName = resource.getInterfaceName();
-                Object instance = resource.newInstance();
-                if (instance != null) {
-                    ctx.bind("java:comp/env/" + name, interfaceName, instance);
+                try {
+                    resource.init();
+                    String name = stripCompEnv(resource.getName());
+                    String interfaceName = resource.getInterfaceName();
+                    Object instance = resource.newInstance();
+                    if (instance != null) {
+                        ctx.bind("java:comp/env/" + name, interfaceName, instance);
+                    }
+                } catch (ServletException e) {
+                    String message = Context.L10N.getString("err.init_resource");
+                    Context.LOGGER.log(Level.SEVERE, message, e);
                 }
             }
         } catch (NamingException e) {
-            String message = Context.L10N.getString("err.init_resource");
+            String message = Context.L10N.getString("err.bind_resource");
             Context.LOGGER.log(Level.SEVERE, message, e);
         }
+
+        // Ensure that listener, filter, servlets, and lifecycle callbacks
+        // operate in the context classloader
+        thread.setContextClassLoader(contextClassLoader);
 
         // Init listeners
         for (ListenerDef listenerDef : listenerDefs) {
@@ -324,7 +342,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
             postConstruct.execute();
         }
 
-        thread.setContextClassLoader(loader);
+        thread.setContextClassLoader(originalClassLoader);
         initialized = true;
     }
 
@@ -368,9 +386,8 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         }
 
         // Close JNDI resources
-        // TODO
-        for (DataSourceDef dataSourceDef : dataSourceDefs) {
-            dataSourceDef.close();
+        for (Resource resource : getResources()) {
+            resource.close();
         }
 
         thread.setContextClassLoader(loader);
@@ -434,9 +451,6 @@ public class Context extends DeploymentDescriptor implements ServletContext {
      * servlets and the classes they reference (SRV.3.7).
      */
     ClassLoader getContextClassLoader() {
-        if (contextClassLoader == null) {
-            contextClassLoader = new ContextClassLoader(this);
-        }
         return contextClassLoader;
     }
 
@@ -495,6 +509,15 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     }
 
     @Override public Set<String> getResourcePaths(String path) {
+        return getResourcePaths(path, true);
+    }
+
+    /**
+     * @param searchJars if false, ignore resources in
+     * /META-INF/lib/resources subdirectory of jars in the /WEB-INF/lib
+     * directory
+     */
+    Set<String> getResourcePaths(String path, boolean searchJars) {
         Set<String> ret = null;
         if (warFile == null) {
             if (File.separatorChar != '/') {
@@ -504,6 +527,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
             if (!path.endsWith("/")) {
                 path = path + "/";
             }
+            // Check file entries in directory
             String[] entries = dir.list();
             if (entries == null) {
                 return null;
@@ -511,6 +535,35 @@ public class Context extends DeploymentDescriptor implements ServletContext {
             ret = new LinkedHashSet<>();
             for (int i = 0; i < entries.length; i++) {
                 ret.add(path + entries[i]);
+            }
+            // Check entries in jars in WEB-INF/lib
+            dir = new File(root, "WEB-INF/lib");
+            if (dir.exists() && dir.isDirectory()) {
+                File[] files = dir.listFiles(new FilenameFilter() {
+                    public boolean accept(File dir, String name) {
+                        return name.toLowerCase().endsWith(".jar");
+                    }
+                });
+                for (File file : files) {
+                    try (JarFile jarFile = new JarFile(file)) {
+                        Enumeration<JarEntry> jarEntries = jarFile.entries();
+                        String prefix = "WEB-INF/resources/" + path;
+                        while (jarEntries.hasMoreElements()) {
+                            JarEntry jarEntry = jarEntries.nextElement();
+                            String entryName = jarEntry.getName();
+                            if (entryName.startsWith(prefix)) {
+                                String tail = entryName.substring(prefix.length());
+                                int si = tail.indexOf('/');
+                                if (si != -1) {
+                                    tail = tail.substring(0, si);
+                                }
+                                ret.add(path + tail);
+                            }
+                        }
+                    } catch (IOException e) {
+                        // TODO log
+                    }
+                }
             }
         } else {
             if (path.startsWith("/")) {
@@ -528,6 +581,9 @@ public class Context extends DeploymentDescriptor implements ServletContext {
                     ret.add(entry);
                 }
             }
+            // TODO entries in jar in WEB-INF/lib
+            // We need to unpack them into temporary files.
+            // Use ContextClassLoader for this since it's doing it already?
         }
         return ret;
     }

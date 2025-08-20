@@ -1,12 +1,8 @@
 #!/bin/bash
 java=java
-CLASSPATH=./gumdrop.jar
-for f in `find ./lib -name "*.jar"`; do
-	CLASSPATH=$CLASSPATH:$f
-done
-export CLASSPATH
 LOGGING_PROPERTIES=logging.properties
 if [[ -n "$LOGGING_PROPERTIES" ]]; then
 	logging=-Djava.util.logging.config.file=$LOGGING_PROPERTIES
 fi
-$java $logging org.bluezoo.gumdrop.Server $*
+GUMDROP_JAR=./dist/gumdrop.jar
+$java $logging -jar $GUMDROP_JAR $*

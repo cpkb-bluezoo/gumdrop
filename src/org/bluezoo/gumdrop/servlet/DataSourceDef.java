@@ -131,9 +131,9 @@ final class DataSourceDef extends Resource implements DataSource {
     }
 
     /**
-     * Initialize the connection pool(s).
+     * Initialize the connection pool(s). TODO
      */
-    synchronized void init() throws ServletException {
+    @Override synchronized void init() throws ServletException {
         if (minPoolSize < 0) {
             minPoolSize = 0;
         }
@@ -160,7 +160,7 @@ final class DataSourceDef extends Resource implements DataSource {
         }
     }
 
-    synchronized void close() {
+    @Override synchronized void close() {
         if (idleTask != null) {
             idleTask.cancel(false);
             idleTask = null;

@@ -1,6 +1,6 @@
 /*
  * ContextClassLoader.java
- * Copyright (C) 2005, 2013 Chris Burdess
+ * Copyright (C) 2005, 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,7 +22,9 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
+import org.bluezoo.gumdrop.util.JarInputStream;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
@@ -31,6 +33,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.net.MalformedURLException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -43,255 +46,236 @@ import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * Class loader that loads classes in a web application.
+ * Class loader that loads classes inside a web application.
+ * The parent of this classloader is a ContainerClassLoader. We can use this
+ * to load J2EE dependency jars without the web application classes cloaded
+ * by this loader being able to access the container classes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class ContextClassLoader extends ClassLoader {
+final class ContextClassLoader extends ClassLoader {
 
-    final Context context;
-    Map<String,URL> resourceCache;
-    Map<String,URL> jarResourceCache;
-    Map<String,URL> commonResourceCache;
-    Map<String,File> jarCache;
+    private final ContainerClassLoader parent;
+    private final Context context;
 
-    ContextClassLoader(Context context) {
+    private Map<String,File> files = new ConcurrentHashMap<>();
+
+    ContextClassLoader(ContainerClassLoader parent, Context context) {
+        super(parent);
+        this.parent = parent;
         this.context = context;
-        resourceCache = new HashMap<>();
-        jarResourceCache = new HashMap<>();
-        commonResourceCache = new HashMap<>();
-        jarCache = new HashMap<>();
     }
 
-    protected Class findClass(String name) throws ClassNotFoundException {
-        byte[] bytes = loadClassData(name);
-        return (bytes != null) ? defineClass(name, bytes, 0, bytes.length) : findSystemClass(name);
-    }
-
-    protected URL findResource(String name) {
-        if (name.startsWith("/")) {
-            name = name.substring(1);
+    @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+        // Check if class has already been loaded
+        Class<?> t = findLoadedClass(name);
+        if (t != null) {
+            return t;
         }
+        // Check if it is in the context
+        t = findContextClass(name);
+        if (t != null) {
+            return t;
+        }
+        if (!parent.isContainerClass(name)) {
+            return super.loadClass(name, resolve);
+        }
+        throw new ClassNotFoundException(name);
+    }
+
+    void reset() {
+        files.clear();
+    }
+
+    private Class<?> findContextClass(String name) throws ClassNotFoundException {
+        // Try to load the class from the context
+        String entryName = name.replace('.', '/') + ".class";
+        // First try /WEB-INF/classes
+        InputStream in = context.getResourceAsStream("/WEB-INF/classes/" + entryName);
+        if (in != null) {
+            byte[] data = loadClassData(in, name);
+            return defineClass(name, data, 0, data.length);
+            // XXX ProtectionDomain?
+        }
+        // Class inside jar resource in /WEB-INF/lib
+        Collection<String> jars = context.getResourcePaths("/WEB-INF/lib", false);
+        if (jars != null) {
+            // Sort in alphabetical order: important!
+            List<String> sorted = new ArrayList<>(jars);
+            Collections.sort(sorted);
+            jars = sorted;
+            for (String jar : jars) {
+                try {
+                    File file = getFile(jar);
+                    JarFile jarFile = new JarFile(file); // NB cannot close yet, use JarInputStream
+                    JarEntry jarEntry = jarFile.getJarEntry(entryName);
+                    if (jarEntry != null) {
+                        try (InputStream in2 = new JarInputStream(jarFile, jarEntry)) {
+                            byte[] data = loadClassData(in2, name);
+                            return defineClass(name, data, 0, data.length);
+                            // XXX ProtectionDomain?
+                        }
+                    } else {
+                        jarFile.close();
+                    }
+                } catch (IOException e) {
+                    ClassNotFoundException e2 = new ClassNotFoundException(name);
+                    e2.initCause(e);
+                    throw e2;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static byte[] loadClassData(InputStream in, String className) throws ClassNotFoundException {
         try {
-            // Resource in WEB-INF/classes
-            URL url = resourceCache.get(name);
-            if (url != null) {
-                return url;
+            ByteArrayOutputStream sink = new ByteArrayOutputStream();
+            byte[] buf = new byte[Math.max(4096, in.available())];
+            for (int len = in.read(buf); len > -1; len = in.read(buf)) {
+                sink.write(buf, 0, len);
             }
-            url = context.getResource("/WEB-INF/classes/" + name);
-            if (url != null) {
-                resourceCache.put(name, url);
-                return url;
-            }
-            // Resource in jar resource in /WEB-INF/lib
-            Collection<String> jars = context.getResourcePaths("/WEB-INF/lib");
-            if (jars != null) {
-                // Sort in alphabetical order
-                List<String> sorted = new ArrayList<>(jars);
-                Collections.sort(sorted);
-                jars = sorted;
-                // Check cache
-                url = jarResourceCache.get(name);
-                if (url != null) {
-                    return url;
-                }
-                for (String path : jars) {
-                    File file = jarCache.get(path);
-                    if (file == null) {
-                        if (context.warFile == null) {
-                            file = new File(context.root, path.substring(1));
-                            if (file.isFile()) {
-                                jarCache.put(path, file);
-                            }
-                        } else {
-                            InputStream in = context.getResourceAsStream(path);
-                            if (in != null) {
-                                String fileName = path.replace('/', '_');
-                                file = File.createTempFile("gumdrop", fileName);
-                                copy(in, file);
-                                in.close();
-                                file.deleteOnExit();
-                                jarCache.put(path, file);
-                            }
-                        }
-                    }
-                    if (file != null) {
-                        JarFile jarFile = new JarFile(file);
-                        // Cache each entry in the jar file
-                        try {
-                            for (Enumeration e = jarFile.entries(); e.hasMoreElements(); ) {
-                                JarEntry entry = (JarEntry) e.nextElement();
-                                URL entryUrl =
-                                        new URL("jar:" + file.toURL().toString() + "!/" + entry);
-                                jarResourceCache.put(name, entryUrl);
-                                if (entry.getName().equals(name)) url = entryUrl;
-                            }
-                            if (url != null) return url;
-                        } finally {
-                            jarFile.close();
-                        }
-                    }
-                }
-            }
-            // Resource in common lib
-            if (context.commonDir != null) {
-                // Check cache
-                url = commonResourceCache.get(name);
-                if (url != null) {
-                    return url;
-                }
-                File commonDir = new File(context.commonDir);
-                if (commonDir.exists() && commonDir.isDirectory()) {
-                    File[] commonJars = commonDir.listFiles();
-                    for (int i = 0; i < commonJars.length; i++) {
-                        try {
-                            JarFile jarFile = new JarFile(commonJars[i]);
-                            String jarFileUrl = commonJars[i].toURL().toString();
-                            try {
-                                for (Enumeration e = jarFile.entries(); e.hasMoreElements(); ) {
-                                    JarEntry entry = (JarEntry) e.nextElement();
-                                    URL entryUrl = new URL(String.format("jar:%s!/%s", jarFileUrl, entry));
-                                    commonResourceCache.put(name, entryUrl);
-                                    if (entry.getName().equals(name)) {
-                                        url = entryUrl;
-                                    }
-                                }
-                                if (url != null) {
-                                    return url;
-                                }
-                            } finally {
-                                jarFile.close();
-                            }
-                        } catch (IOException e) {
-                            // NOOP
-                        }
-                    }
-                }
-            }
-            return super.findResource(name);
+            return sink.toByteArray();
         } catch (IOException e) {
-            Context.LOGGER.log(Level.FINER, e.getMessage(), e);
+            ClassNotFoundException e2 = new ClassNotFoundException(className);
+            e2.initCause(e);
+            throw e2;
+        }
+    }
+
+    /**
+     * Return a File object that can be used to access the contents of the
+     * jar file denoted by the specified path.
+     * If the context is based in the filesystem, this can return a File
+     * directly. If the context is in a war file, we will extract the
+     * content of the jar to a temporary file and return that.
+     * @param path the resource path, prefixed with '/'
+     */
+    private synchronized File getFile(String path) {
+        File file = files.get(path);
+        if (file == null) {
+            if (context.warFile == null) {
+                file = new File(context.root, path.substring(1));
+                if (file.isFile()) {
+                    files.put(path, file);
+                }
+            } else {
+                try (InputStream in = context.getResourceAsStream(path)) {
+                    if (in != null) {
+                        String fileName = (context.getContextPath() + path).replace('/', '_');
+                        file = File.createTempFile("gumdrop", fileName);
+                        file.deleteOnExit();
+                        try (FileOutputStream out = new FileOutputStream(file)) {
+                            byte[] buf = new byte[Math.max(4096, in.available())];
+                            for (int len = in.read(buf); len != -1; len = in.read(buf)) {
+                                out.write(buf, 0, len);
+                            }
+                            files.put(path, file);
+                        }
+                    }
+                } catch (IOException e) {
+                    // Error writing or temporary file or closing resource.
+                    RuntimeException e2 = new RuntimeException();
+                    e2.initCause(e);
+                    throw e2;
+                }
+            }
+        }
+        return file;
+    }
+
+    @Override public URL getResource(String name) {
+        // In classloader, names should always be absolute
+        name = (name.charAt(0) == '/') ? name.substring(1) : name;
+        // Look in context
+        URL resourceUrl = findResource(name);
+        if (resourceUrl != null) {
+            return resourceUrl;
+        }
+        // Resource is not in context. Delegate to parent
+        for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
+            resourceUrl = parent.findResource(url, name);
+            if (resourceUrl != null) {
+                return resourceUrl;
+            }
+        }
+        // Resource is not in dependency jars
+        ClassLoader bootstrapClassLoader = parent.getParent();
+        return bootstrapClassLoader.getResource(name);
+    }
+
+    @Override protected URL findResource(String name) {
+        try {
+            return context.getResource("/" + name);
+        } catch (MalformedURLException e) {
+            String message = Context.L10N.getString("err.load_resource");
+            message = MessageFormat.format(message, name);
+            Context.LOGGER.warning(message);
             return null;
         }
     }
 
-    protected Enumeration findResources(String name) throws IOException {
-        if (!name.startsWith("/")) {
-            name = "/" + name;
+    @Override public InputStream getResourceAsStream(String name) {
+        // In classloader, names should always be absolute
+        name = (name.charAt(0) == '/') ? name.substring(1) : name;
+        // Look in context
+        InputStream in = findResourceAsStream(name);
+        if (in != null) {
+            return in;
         }
-        Set resources = context.getResourcePaths("/WEB-INF/classes" + name);
-        List acc;
-        if (resources == null) {
-            acc = Collections.EMPTY_LIST;
-        } else {
-            acc = new ArrayList(resources.size());
-            for (Iterator i = resources.iterator(); i.hasNext(); ) {
-                String resourceName = (String) i.next();
-                URL resource = context.getResource(resourceName);
-                if (resource == null) {
-                    String message = Context.L10N.getString("err.load_resource");
-                    message = MessageFormat.format(message, resourceName);
-                    throw new IOException(message);
-                }
-                acc.add(resource);
-            }
-        }
-        return new IteratorEnumeration(acc.iterator());
-    }
-
-    byte[] loadClassData(final String name) throws ClassNotFoundException {
-        try {
-            // Class resource in /WEB-INF/classes
-            String path = "/WEB-INF/classes/" + name.replace('.', '/') + ".class";
-            InputStream in = context.getResourceAsStream(path);
+        // Resource is not in context. Delegate to parent
+        for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
+            in = parent.findResourceAsStream(url, name);
             if (in != null) {
-                return toByteArray(in);
+                return in;
             }
-            // Class in jar resource in /WEB-INF/lib
-            Set jars = context.getResourcePaths("/WEB-INF/lib");
-            if (jars != null && !jars.isEmpty()) {
-                String entryName = name.replace('.', '/') + ".class";
-                for (Iterator i = jars.iterator(); i.hasNext(); ) {
-                    path = (String) i.next();
-                    File file = (File) jarCache.get(path);
-                    if (file == null) {
-                        if (context.warFile == null) {
-                            file = new File(context.root, path.substring(1));
-                        } else {
-                            in = context.getResourceAsStream(path);
-                            if (in != null) {
-                                String fileName = path.replace('/', '_');
-                                file = File.createTempFile("gumdrop", fileName);
-                                copy(in, file);
-                                in.close();
-                                file.deleteOnExit();
-                            }
-                        }
-                    }
-                    if (file != null && file.isFile()) {
-                        JarFile jarFile = new JarFile(file);
-                        try {
-                            jarCache.put(path, file);
-                            JarEntry entry = jarFile.getJarEntry(entryName);
-                            if (entry != null) {
-                                in = jarFile.getInputStream(entry);
-                                byte[] ret = toByteArray(in);
-                                return ret;
-                            }
-                        } finally {
-                            jarFile.close();
-                        }
-                    }
-                }
-            }
-            // Class in common jar
-            if (context.commonDir != null) {
-                File commonDir = new File(context.commonDir);
-                if (commonDir.exists() && commonDir.isDirectory()) {
-                    String entryName = name.replace('.', '/') + ".class";
-                    File[] commonJars = commonDir.listFiles();
-                    for (int i = 0; i < commonJars.length; i++) {
-                        JarFile jarFile = new JarFile(commonJars[i]);
-                        JarEntry entry = jarFile.getJarEntry(entryName);
-                        if (entry != null) {
-                            in = jarFile.getInputStream(entry);
-                            return toByteArray(in);
-                        }
-                    }
-                }
-            }
-        } catch (IOException e) {
-            ClassNotFoundException e2 = new ClassNotFoundException(name);
-            e2.initCause(e);
-            throw e2;
         }
-        // Context.LOGGER.log(Level.SEVERE, "Can't load class data: " + name,
-        //                   new ClassNotFoundException(name));
-        return null;
+        // Resource is not in dependency jars
+        ClassLoader bootstrapClassLoader = parent.getParent();
+        return bootstrapClassLoader.getResourceAsStream(name);
     }
 
-    byte[] toByteArray(InputStream in) throws IOException {
-        in = new BufferedInputStream(in);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        for (int len = in.read(buf); len != -1; len = in.read(buf)) {
-            out.write(buf, 0, len);
-        }
-        in.close();
-        return out.toByteArray();
+    private InputStream findResourceAsStream(String name) {
+        return context.getResourceAsStream("/" + name);
     }
 
-    static void copy(InputStream in, File dst) throws IOException {
-        in = new BufferedInputStream(in);
-        FileOutputStream out = new FileOutputStream(dst);
-        byte[] buf = new byte[4096];
-        for (int len = in.read(buf); len != -1; len = in.read(buf)) {
-            out.write(buf, 0, len);
+    @Override public Enumeration<URL> getResources(String name) throws IOException {
+        // In classloader, names should always be absolute
+        name = (name.charAt(0) == '/') ? name.substring(1) : name;
+        List<URL> acc = new ArrayList<>();
+        URL contextResource = findResource(name);
+        if (contextResource != null) {
+            acc.add(contextResource);
         }
-        out.close();
+        for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
+            acc.add(parent.findResource(url, name));
+        }
+        ClassLoader bootstrapClassLoader = parent.getParent();
+        addResources(acc, bootstrapClassLoader.getResources(name));
+        return new IteratorEnumeration<URL>(acc.iterator());
+    }
+
+    static void addResources(List<URL> acc, Enumeration<URL> e) {
+        while (e.hasMoreElements()) {
+            acc.add(e.nextElement());
+        }
+    }
+
+    @Override protected Enumeration<URL> findResources(String name) throws IOException {
+        String targetName = "/" + name;
+        List<URL> acc = new ArrayList<>();
+        // Note that this is only an exact name match
+        // ServletContext may be referring to multiple resources under the
+        // hood with this, but doesn't provide different URLs for them.
+        URL resourceUrl = context.getResource(targetName);
+        if (resourceUrl != null) {
+            acc.add(resourceUrl);
+        }
+        return new IteratorEnumeration<URL>(acc.iterator());
     }
 
 }

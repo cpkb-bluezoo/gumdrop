@@ -44,7 +44,7 @@ import javax.servlet.http.HttpServletResponse;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class DefaultServlet extends HttpServlet {
+public class DefaultServlet extends HttpServlet {
 
     public String getServletName() {
         return "DefaultServlet";
