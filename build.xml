@@ -51,7 +51,6 @@
       </classpath>
       <include name="**/*.java"/>
       <exclude name="org/bluezoo/gumdrop/Bootstrap.java"/>
-      <exclude name="org/bluezoo/gumdrop/servlet/ManagerServlet.java"/>
     </javac>
     <copy todir='${build}'>
       <fileset dir='${src}'>
@@ -96,20 +95,8 @@
     </jar>
   </target>
 
-  <!-- Target for the manager servlet -->
-  <target name='build-manager'>
-    <mkdir dir='${manager}/WEB-INF/classes'/>
-    <javac srcdir='${src}' destdir='${manager}/WEB-INF/classes' debug='true'>
-      <classpath>
-        <pathelement location='${lib}/${servlet}'/>
-        <pathelement location='${lib}/${javamail}'/>
-      </classpath>
-      <include name="org/bluezoo/gumdrop/servlet/ManagerServlet.java"/>
-    </javac>
-  </target>
-
   <!-- manager.war contains the manager web application -->
-  <target name='manager-war' depends='build-manager'>
+  <target name='manager-war'>
     <mkdir dir='${dist}'/>
     <jar destfile='${manager.war}' basedir='${manager}'/>
   </target>

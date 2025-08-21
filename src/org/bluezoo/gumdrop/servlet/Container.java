@@ -23,9 +23,13 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.servlet.manager.ContainerService;
+import org.bluezoo.gumdrop.servlet.manager.ContextService;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +45,7 @@ import javax.naming.NamingException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Container {
+public class Container implements ContainerService {
 
     final List<Context> contexts = new ArrayList<>();
     final Map<String,Realm> realms = new LinkedHashMap<>();
@@ -54,6 +58,10 @@ public class Container {
     Cluster cluster;
     int clusterPort = 8080;
     String clusterGroupAddress = "224.0.80.80";
+
+    @Override public Collection<ContextService> getContexts() {
+        return Collections.unmodifiableList(contexts);
+    }
 
     public void addContext(Context context) {
         contexts.add(context);

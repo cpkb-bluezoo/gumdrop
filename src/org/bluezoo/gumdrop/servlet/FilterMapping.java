@@ -22,8 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.EnumSet;
 import javax.servlet.DispatcherType;
 
 /**
@@ -36,7 +35,7 @@ final class FilterMapping {
     String name;
     String urlPattern;
     String servletName;
-    Set<DispatcherType> dispatchers = new LinkedHashSet<>();
+    EnumSet<DispatcherType> dispatchers = EnumSet.noneOf(DispatcherType.class);
 
     boolean matches(DispatcherType dispatcher) {
         if (dispatchers.isEmpty()) {

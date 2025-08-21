@@ -1,5 +1,5 @@
 /*
- * Description.java
+ * HitStatistics.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,29 +19,23 @@
  * along with gumdrop.
  * If not, see <http://www.gnu.org/licenses/>.
  */
-package org.bluezoo.gumdrop.servlet;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+package org.bluezoo.gumdrop.servlet.manager;
 
 /**
- * Interface implemented by servlet and filter definitions.
- * This corresponds to the "javaee:descriptionGroup" in the servlet 4.0
- * specification.
+ * Hit statistics for a context.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface Description {
+public abstract class HitStatistics {
 
-    String getDescription();
-    void setDescription(String description);
-    String getDisplayName();
-    void setDisplayName(String displayName);
-    String getSmallIcon();
-    void setSmallIcon(String smallIcon);
-    String getLargeIcon();
-    void setLargeIcon(String largeIcon);
+    static final int INFORMATIONAL = 1;
+    static final int SUCCESS = 2;
+    static final int REDIRECT = 3;
+    static final int CLIENT_ERROR = 4;
+    static final int SERVER_ERROR = 5;
+
+    public abstract long getTotal();
+
+    public abstract long getHits(int type);
 
 }

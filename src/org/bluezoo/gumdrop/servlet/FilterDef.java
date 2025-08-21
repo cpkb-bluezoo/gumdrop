@@ -25,14 +25,24 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 
 import java.text.MessageFormat;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
+import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.FilterConfig;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
+
+import org.bluezoo.gumdrop.servlet.manager.FilterReg;
 
 /**
  * Filter definition.
@@ -41,7 +51,7 @@ import javax.servlet.ServletException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FilterDef implements Description, FilterConfig {
+final class FilterDef implements FilterConfig, FilterReg {
 
     Context context;
 
@@ -54,6 +64,7 @@ final class FilterDef implements Description, FilterConfig {
     String name; // filter-name
     String className; // filter-class
     Map<String,InitParam> initParams = new LinkedHashMap<>();
+    boolean asyncSupported;
 
     Filter newInstance() throws ServletException {
         Thread thread = Thread.currentThread();
@@ -128,6 +139,135 @@ final class FilterDef implements Description, FilterConfig {
     @Override public Enumeration<String> getInitParameterNames() {
         return new IteratorEnumeration(initParams.keySet());
     }
+
+    // -- FilterRegistration.Dynamic --
+
+    @Override public String getName() {
+        return name;
+    }
+
+    @Override public String getClassName() {
+        return className;
+    }
+
+    @Override public void addMappingForServletNames(EnumSet<DispatcherType> dispatcherTypes, boolean isMatchAfter, String... servletNames) {
+        for (String servletName : servletNames) {
+            FilterMapping filterMapping = new FilterMapping();
+            filterMapping.name = name;
+            filterMapping.servletName = servletName;
+            filterMapping.dispatchers = dispatcherTypes.clone();
+            int index = indexOfFilterMapping(context.filterMappings, servletName, true);
+            if (index != -1) {
+                if (isMatchAfter) {
+                    index = lastIndexOfFilterMapping(context.filterMappings, servletName, true);
+                }
+                context.filterMappings.add(index, filterMapping);
+            } else {
+                context.filterMappings.add(filterMapping);
+            }
+        }
+    }
+
+    private int indexOfFilterMapping(List<FilterMapping> filterMappings, String name, boolean servlet) {
+        for (int i = 0; i < filterMappings.size(); i++) {
+            FilterMapping filterMapping = filterMappings.get(i);
+            if (name.equals(servlet ? filterMapping.servletName : filterMapping.urlPattern)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int lastIndexOfFilterMapping(List<FilterMapping> filterMappings, String name, boolean servlet) {
+        for (int i = filterMappings.size(); i >= 0; i--) {
+            FilterMapping filterMapping = filterMappings.get(i);
+            if (name.equals(servlet ? filterMapping.servletName : filterMapping.urlPattern)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    @Override public Collection<String> getServletNameMappings() {
+        Collection<String> ret = new LinkedHashSet<>();
+        for (FilterMapping filterMapping : context.filterMappings) {
+            if (filterMapping.servletName != null) {
+                ret.add(filterMapping.servletName);
+            }
+        }
+        return ret;
+    }
+
+    @Override public void addMappingForUrlPatterns(EnumSet<DispatcherType> dispatcherTypes, boolean isMatchAfter, String... urlPatterns) {
+        for (String urlPattern : urlPatterns) {
+            FilterMapping filterMapping = new FilterMapping();
+            filterMapping.name = name;
+            filterMapping.urlPattern = urlPattern;
+            filterMapping.dispatchers = dispatcherTypes.clone();
+            int index = indexOfFilterMapping(context.filterMappings, urlPattern, false);
+            if (index != -1) {
+                if (isMatchAfter) {
+                    index = lastIndexOfFilterMapping(context.filterMappings, urlPattern, false);
+                }
+                context.filterMappings.add(index, filterMapping);
+            } else {
+                context.filterMappings.add(filterMapping);
+            }
+        }
+    }
+
+    @Override public Collection<String> getUrlPatternMappings() {
+        Collection<String> ret = new LinkedHashSet<>();
+        for (FilterMapping filterMapping : context.filterMappings) {
+            if (filterMapping.urlPattern != null) {
+                ret.add(filterMapping.urlPattern);
+            }
+        }
+        return ret;
+    }
+
+    @Override public boolean setInitParameter(String name, String value) {
+        if (name == null || value == null) {
+            throw new IllegalArgumentException();
+        }
+        if (context.initialized) {
+            throw new IllegalStateException();
+        }
+        InitParam initParam = initParams.get(name);
+        if (initParam != null) {
+            return false; // spec seems to say we should not update it
+        }
+        initParam = new InitParam();
+        initParam.name = name;
+        initParam.value = value;
+        initParams.put(name, initParam);
+        return true;
+    }
+
+    @Override public Set<String> setInitParameters(Map<String,String> initParameters) {
+        Set<String> ret = new HashSet<>();
+        for (Map.Entry<String,String> entry : initParameters.entrySet()) {
+            String name = entry.getKey();
+            if (!setInitParameter(name, entry.getValue())) {
+                ret.add(name);
+            }
+        }
+        return Collections.unmodifiableSet(ret);
+    }
+
+    @Override public Map<String,String> getInitParameters() {
+        Map<String,String> ret = new LinkedHashMap<>();
+        for (InitParam initParam : initParams.values()) {
+            ret.put(initParam.name, initParam.value);
+        }
+        return Collections.unmodifiableMap(ret);
+    }
+
+    @Override public void setAsyncSupported(boolean flag) {
+        asyncSupported = flag;
+    }
+
+    // -- internal --
 
     void addInitParam(InitParam initParam) {
         initParams.put(initParam.name, initParam);

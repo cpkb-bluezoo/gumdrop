@@ -30,6 +30,7 @@ import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 /**
  * URLConnection for a <code>resource:</code> URL identifying a resource in a context.
@@ -42,7 +43,7 @@ public class ResourceURLConnection extends URLConnection {
     private final String resourcePath;
     private boolean connected = false;
     private File file;
-    private JarEntry jarEntry;
+    private String jarEntryName;
 
     protected ResourceURLConnection(URL url, Context context, String resourcePath) {
         super(url);
@@ -50,11 +51,14 @@ public class ResourceURLConnection extends URLConnection {
         this.resourcePath = resourcePath;
     }
 
+    // TODO it's more complex than this because we can have resources inside
+    // the WEB-INF/resources directory of a jar in the WEB-INF/lib
+    // directory. Deal with this
+
     @Override public void connect() throws IOException {
         if (!connected) {
             String path = resourcePath;
-            // The context has either a warFile or a root
-            if (context.warFile == null) { // file-based
+            if (context.root.isDirectory()) { // file-based
                 if (File.separatorChar != '/') {
                     path = path.replace('/', File.separatorChar);
                 }
@@ -66,9 +70,13 @@ public class ResourceURLConnection extends URLConnection {
                 if (path.startsWith("/")) {
                     path = path.substring(1);
                 }
-                jarEntry = context.warFile.getJarEntry(path);
-                if (jarEntry == null) {
-                    throw new FileNotFoundException(url.toString());
+                try (JarFile warFile = new JarFile(context.root)) {
+                    JarEntry jarEntry = warFile.getJarEntry(path);
+                    if (jarEntry != null) {
+                        jarEntryName = path;
+                    } else {
+                        throw new FileNotFoundException(url.toString());
+                    }
                 }
             }
             connected = true;
@@ -83,10 +91,16 @@ public class ResourceURLConnection extends URLConnection {
         if (!connected) {
             return -1L;
         }
-        if (jarEntry == null) { // file
+        if (file != null) { // file
             return file.length();
-        } else { // jarEntry
-            return jarEntry.getSize();
+        } else { // jar
+            try (JarFile warFile = new JarFile(context.root)) {
+                JarEntry jarEntry = warFile.getJarEntry(resourcePath);
+                return jarEntry.getSize();
+            } catch (IOException e) {
+                // log
+                return -1L;
+            }
         }
     }
 
@@ -94,10 +108,16 @@ public class ResourceURLConnection extends URLConnection {
         if (!connected) {
             return -1L;
         }
-        if (jarEntry == null) { // file
+        if (file != null) { // file
             return file.lastModified();
-        } else { // jarEntry
-            return jarEntry.getTime();
+        } else { // jar
+            try (JarFile warFile = new JarFile(context.root)) {
+                JarEntry jarEntry = warFile.getJarEntry(resourcePath);
+                return jarEntry.getTime();
+            } catch (IOException e) {
+                // log
+                return -1L;
+            }
         }
     }
 
@@ -107,11 +127,7 @@ public class ResourceURLConnection extends URLConnection {
 
     @Override public InputStream getInputStream() throws IOException {
         connect();
-        if (jarEntry == null) { // file
-            return new FileInputStream(file);
-        } else { // jarEntry
-            return context.warFile.getInputStream(jarEntry);
-        }
+        return context.getResourceAsStream(resourcePath);
     }
 
 }

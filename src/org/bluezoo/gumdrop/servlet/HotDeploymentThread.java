@@ -79,7 +79,7 @@ class HotDeploymentThread extends Thread {
             state = new HashMap();
             contextStates.put(context, state);
         }
-        if (context.warFile == null) {
+        if (context.root.isDirectory()) {
             File webInf = new File(context.root, "WEB-INF");
             processFile(context, state, webInf, update);
         } else {

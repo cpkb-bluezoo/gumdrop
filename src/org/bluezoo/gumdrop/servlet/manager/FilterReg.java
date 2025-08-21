@@ -1,5 +1,5 @@
 /*
- * Description.java
+ * FilterReg.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,29 +19,17 @@
  * along with gumdrop.
  * If not, see <http://www.gnu.org/licenses/>.
  */
-package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+package org.bluezoo.gumdrop.servlet.manager;
+
+import javax.servlet.FilterRegistration;
+import org.bluezoo.gumdrop.servlet.Description;
 
 /**
- * Interface implemented by servlet and filter definitions.
- * This corresponds to the "javaee:descriptionGroup" in the servlet 4.0
- * specification.
+ * Extension to FilterRegistration.Dynamic to additionally provide
+ * Description interface.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface Description {
-
-    String getDescription();
-    void setDescription(String description);
-    String getDisplayName();
-    void setDisplayName(String displayName);
-    String getSmallIcon();
-    void setSmallIcon(String smallIcon);
-    String getLargeIcon();
-    void setLargeIcon(String largeIcon);
-
+public interface FilterReg extends FilterRegistration.Dynamic, Description {
 }

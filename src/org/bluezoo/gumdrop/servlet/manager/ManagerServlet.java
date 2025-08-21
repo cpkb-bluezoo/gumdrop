@@ -20,20 +20,24 @@
  * If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.servlet;
+package org.bluezoo.gumdrop.servlet.manager;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.text.MessageFormat;
+import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ThreadPoolExecutor;
 
+import javax.servlet.FilterRegistration;
 import javax.servlet.ServletException;
+import javax.servlet.ServletRegistration;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -41,26 +45,25 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * Gumdrop servlet context manager servlet.
  * This servlet can be used in a web application to query and control the
- * web application context.
+ * web application container.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ManagerServlet extends HttpServlet {
 
-    protected void doGet(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         Locale locale = request.getLocale();
-        ResourceBundle resources =
-                (locale == null)
+        ResourceBundle resources = (locale == null)
                         ? ResourceBundle.getBundle(ManagerServlet.class.getName())
                         : ResourceBundle.getBundle(ManagerServlet.class.getName(), locale);
 
         String pathInfo = request.getPathInfo();
-        Context ctx = (Context) getServletContext();
-        Container container = ctx.container;
-        ServletConnector connector = ctx.connector;
+        ContextService ctx = (ContextService) getServletContext();
+        ContainerService container = ctx.getContainer();
+        ThreadPoolExecutor threadPool = ctx.getConnectorThreadPool();
+
         String contextPath = request.getContextPath();
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("<html>\r\n");
         buf.append("\t<head>\r\n");
         buf.append("\t\t<title>");
@@ -81,7 +84,6 @@ public class ManagerServlet extends HttpServlet {
         buf.append(resources.getString("title"));
         buf.append("</h1>\r\n");
 
-        ThreadPoolExecutor threadPool = connector.getConnectorThreadPool();
 
         // Core pool size
         buf.append("\t\t<div><form method='post'><label for='core-pool-size'>");
@@ -105,7 +107,7 @@ public class ManagerServlet extends HttpServlet {
         buf.append("\t\t<div><form method='post'><label for='keep-alive-time'>");
         buf.append(resources.getString("keepAliveTime"));
         buf.append(":</label>&nbsp;<input type='text' name='keep-alive-time' value='");
-        buf.append(connector.getKeepAlive());
+        buf.append(ctx.getConnectorKeepAlive());
         buf.append("'/>&nbsp;<input type='submit' value='");
         buf.append(resources.getString("set"));
         buf.append("'/></form></div>\r\n");
@@ -138,11 +140,11 @@ public class ManagerServlet extends HttpServlet {
         buf.append(resources.getString("serverError"));
         buf.append("</th><th></th></tr>\r\n"); // nb reload button
 
-        for (Context context : container.contexts) {
-            HitStatistics hitStatistics = context.hitStatistics;
+        for (ContextService context : container.getContexts()) {
+            HitStatistics hitStatistics = context.getHitStatistics();
             // Context name and description
             buf.append("\t\t\t<tr class='context'><td>");
-            String icon = context.smallIcon;
+            String icon = context.getSmallIcon();
             if (icon == null) {
                 icon = contextPath + "/gumdrop_green_16x16.png";
             }
@@ -150,13 +152,13 @@ public class ManagerServlet extends HttpServlet {
             buf.append(icon);
             buf.append("'/>");
             buf.append("</td><td colspan='3'>");
-            if (context.displayName != null) {
-                buf.append(context.displayName);
+            if (context.getDisplayName() != null) {
+                buf.append(context.getDisplayName());
             }
             buf.append("</td><td>");
-            buf.append(context.contextPath);
+            buf.append(context.getContextPath());
             buf.append("</td><td>");
-            buf.append(context.root);
+            buf.append(context.getRoot());
             buf.append("</td><td>");
             synchronized (hitStatistics) {
                 buf.append(hitStatistics.getTotal());
@@ -172,26 +174,27 @@ public class ManagerServlet extends HttpServlet {
                 buf.append(hitStatistics.getHits(HitStatistics.SERVER_ERROR));
             }
             buf.append("</td><td><form method='post'><input type='hidden' name='reload' value='");
-            buf.append(context.contextPath);
+            buf.append(context.getContextPath());
             buf.append("'><input type='submit' value='");
             buf.append(resources.getString("reload"));
             buf.append("'/></form>");
             buf.append("</td></tr>\r\n");
-            if (context.description != null) {
+            if (context.getDescription() != null) {
                 buf.append("\t\t<tr><td></td><td colspan='10'>");
-                buf.append(context.description);
+                buf.append(context.getDescription());
                 buf.append("</td></tr>\r\n");
             }
             // List filters
-            if (!context.filterDefs.isEmpty()) {
+            Map<String,? extends FilterRegistration> filterRegistrations = context.getFilterRegistrations();
+            if (!filterRegistrations.isEmpty()) {
                 buf.append("\t\t<tr><td colspan='10'><h4>");
                 buf.append(resources.getString("filters"));
                 buf.append("</h4></td></tr>\r\n");
             }
-            for (Iterator j = context.filterDefs.values().iterator(); j.hasNext(); ) {
-                FilterDef fd = (FilterDef) j.next();
+            for (Iterator j = filterRegistrations.values().iterator(); j.hasNext(); ) {
+                FilterReg fd = (FilterReg) j.next();
                 buf.append("\t\t<tr><td></td><td>");
-                icon = fd.smallIcon;
+                icon = fd.getSmallIcon();
                 if (icon == null) {
                     icon = contextPath + "/gumdrop_yellow_16x16.png";
                 }
@@ -199,43 +202,42 @@ public class ManagerServlet extends HttpServlet {
                 buf.append(icon);
                 buf.append("'/>");
                 buf.append("</td><td>");
-                if (fd.displayName != null) {
-                    buf.append(fd.displayName);
+                if (fd.getDisplayName() != null) {
+                    buf.append(fd.getDisplayName());
                 }
                 buf.append("</td><td>");
-                buf.append(fd.name);
+                buf.append(fd.getName());
                 buf.append("</td><td>");
-                for (Iterator k = context.filterMappings.iterator(); k.hasNext(); ) {
-                    FilterMapping fm = (FilterMapping) k.next();
-                    if (!fm.name.equals(fd.name)) {
-                        continue;
-                    }
-                    if (fm.servletName != null) {
-                        buf.append("<i>");
-                        buf.append(fm.servletName);
-                        buf.append("</i>");
-                    } else {
-                        buf.append(fm.urlPattern);
-                    }
+                Collection<String> servletNameMappings = fd.getServletNameMappings();
+                Collection<String> urlPatternMappings = fd.getUrlPatternMappings();
+                for (String servletName : servletNameMappings) {
+                    buf.append("<i>");
+                    buf.append(servletName);
+                    buf.append("</i>");
+                    buf.append(' ');
+                }
+                for (String urlPattern : urlPatternMappings) {
+                    buf.append(urlPattern);
                     buf.append(' ');
                 }
                 buf.append("</td></tr>\r\n");
-                if (fd.description != null) {
+                if (fd.getDescription() != null) {
                     buf.append("\t\t<tr><td></td><td></td><td colspan='2'>");
-                    buf.append(fd.description);
+                    buf.append(fd.getDescription());
                     buf.append("</td></tr>\r\n");
                 }
             }
             // List servlets
-            if (!context.servletDefs.isEmpty()) {
+            Map<String,? extends ServletRegistration> servletRegistrations = context.getServletRegistrations();
+            if (!servletRegistrations.isEmpty()) {
                 buf.append("\t\t<tr><td colspan='4'><h4>");
                 buf.append(resources.getString("servlets"));
                 buf.append("</h4></td></tr>\r\n");
             }
-            for (Iterator j = context.servletDefs.values().iterator(); j.hasNext(); ) {
-                ServletDef sd = (ServletDef) j.next();
+            for (Iterator j = servletRegistrations.values().iterator(); j.hasNext(); ) {
+                ServletReg sd = (ServletReg) j.next();
                 buf.append("\t\t<tr><td></td><td>");
-                icon = sd.smallIcon;
+                icon = sd.getSmallIcon();
                 if (icon == null) {
                     icon = contextPath + "/gumdrop_purple_16x16.png";
                 }
@@ -243,26 +245,23 @@ public class ManagerServlet extends HttpServlet {
                 buf.append(icon);
                 buf.append("'/>");
                 buf.append("</td><td>");
-                if (sd.displayName != null) {
-                    buf.append(sd.displayName);
+                if (sd.getDisplayName() != null) {
+                    buf.append(sd.getDisplayName());
                 }
                 buf.append("</td><td>");
-                if (sd.name != null) {
-                    buf.append(sd.name);
+                if (sd.getName() != null) {
+                    buf.append(sd.getName());
                 }
                 buf.append("</td><td>");
-                for (Iterator k = context.servletMappings.iterator(); k.hasNext(); ) {
-                    ServletMapping sm = (ServletMapping) k.next();
-                    if ((sm.name == null && sd.name == null)
-                            || (sm.name != null && sm.name.equals(sd.name))) {
-                        buf.append(sm.urlPattern);
-                        buf.append(' ');
-                    }
+                Collection<String> urlPatterns = sd.getMappings();
+                for (String urlPattern : urlPatterns) {
+                    buf.append(urlPattern);
+                    buf.append(' ');
                 }
                 buf.append("</td></tr>\r\n");
-                if (sd.description != null) {
+                if (sd.getDescription() != null) {
                     buf.append("\t\t<tr><td></td><td></td><td colspan='2'>");
-                    buf.append(sd.description);
+                    buf.append(sd.getDescription());
                     buf.append("</td></tr>\r\n");
                 }
             }
@@ -296,15 +295,14 @@ public class ManagerServlet extends HttpServlet {
         OutputStream out = response.getOutputStream();
         out.write(bytes);
         out.flush();
-            }
+    }
 
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-        System.err.println("doPost ");
         String path = request.getServletPath();
-        Context ctx = (Context) getServletContext();
-        Container container = ctx.container;
-        ServletConnector connector = ctx.connector;
-        ThreadPoolExecutor threadPool = connector.getConnectorThreadPool();
+        String contextPath = request.getContextPath();
+        ContextService ctx = (ContextService) getServletContext();
+        ContainerService container = ctx.getContainer();
+        ThreadPoolExecutor threadPool = ctx.getConnectorThreadPool();
 
         for (Enumeration<String> names = request.getParameterNames(); names.hasMoreElements(); ) {
             String name = names.nextElement();
@@ -326,13 +324,13 @@ public class ManagerServlet extends HttpServlet {
                     }
                 } else if ("keep-alive-time".equals(name)) {
                     try {
-                        connector.setKeepAlive(value);
+                        ctx.setConnectorKeepAlive(value);
                     } catch (Exception e) {
                         response.sendError(400);
                         return;
                     }
                 } else if ("reload".equals(name)) {
-                    for (Context context : container.contexts) {
+                    /*for (Context context : container.contexts) {
                         if (context.contextPath.equals(value)) {
                             try {
                                 synchronized (context) {
@@ -353,17 +351,12 @@ public class ManagerServlet extends HttpServlet {
                                 return;
                             }
                         }
-                    }
+                    }*/
                 }
             }
         }
 
-        String contextPath = ctx.contextPath;
-        if ("/".equals(contextPath)) {
-            response.sendRedirect(contextPath);
-        } else {
-            response.sendRedirect(contextPath + "/");
-        }
+        response.sendRedirect(contextPath + "/");
     }
 
 }

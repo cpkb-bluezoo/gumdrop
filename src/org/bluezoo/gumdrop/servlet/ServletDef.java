@@ -43,12 +43,14 @@ import javax.servlet.ServletRegistration;
 import javax.servlet.ServletSecurityElement;
 import javax.servlet.SingleThreadModel;
 
+import org.bluezoo.gumdrop.servlet.manager.ServletReg;
+
 /**
  * Servlet definition.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ServletDef implements Description, ServletConfig, Comparable, ServletRegistration.Dynamic {
+final class ServletDef implements ServletConfig, Comparable, ServletReg {
 
     Context context;
 
@@ -217,7 +219,7 @@ final class ServletDef implements Description, ServletConfig, Comparable, Servle
     @Override public Collection<String> getMappings() {
         Set<String> acc = new LinkedHashSet<>();
         for (ServletMapping servletMapping : context.servletMappings) {
-            if (servletMapping.name.equals(name)) {
+            if (name.equals(servletMapping.name)) {
                 acc.add(servletMapping.urlPattern);
             }
         }

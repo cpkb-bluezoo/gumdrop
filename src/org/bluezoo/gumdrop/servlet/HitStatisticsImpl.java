@@ -1,5 +1,5 @@
 /*
- * Description.java
+ * HitStatisticsImpl.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,27 +21,34 @@
  */
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 
 /**
- * Interface implemented by servlet and filter definitions.
- * This corresponds to the "javaee:descriptionGroup" in the servlet 4.0
- * specification.
+ * Hit statistics for a context.
+ * We have to synchronize against this object when updating or retrieving
+ * values.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface Description {
+class HitStatisticsImpl extends HitStatistics {
 
-    String getDescription();
-    void setDescription(String description);
-    String getDisplayName();
-    void setDisplayName(String displayName);
-    String getSmallIcon();
-    void setSmallIcon(String smallIcon);
-    String getLargeIcon();
-    void setLargeIcon(String largeIcon);
+    private long[] hits = new long[6];
+
+    @Override public long getTotal() {
+        long acc = 0L;
+        for (long hit : hits) {
+            acc += hit;
+        }
+        return acc;
+    }
+
+    @Override public long getHits(int type) {
+        return hits[type];
+    }
+
+    void addHit(int status) {
+        int type = status / 100;
+        hits[type]++;
+    }
 
 }

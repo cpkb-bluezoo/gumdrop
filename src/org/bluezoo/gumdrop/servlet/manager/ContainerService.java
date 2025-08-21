@@ -1,5 +1,5 @@
 /*
- * HitStatistics.java
+ * ContainerService.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,40 +19,22 @@
  * along with gumdrop.
  * If not, see <http://www.gnu.org/licenses/>.
  */
-package org.bluezoo.gumdrop.servlet;
+
+package org.bluezoo.gumdrop.servlet.manager;
+
+import java.util.Collection;
 
 /**
- * Hit statistics for a context.
- * We have to synchronize against this object when updating or retrieving
- * values.
+ * Remote interface to access a web application container and list its
+ * contexts.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class HitStatistics {
+public interface ContainerService {
 
-    static final int INFORMATIONAL = 1;
-    static final int SUCCESS = 2;
-    static final int REDIRECT = 3;
-    static final int CLIENT_ERROR = 4;
-    static final int SERVER_ERROR = 5;
-
-    private long[] hits = new long[6];
-
-    long getTotal() {
-        long acc = 0L;
-        for (long hit : hits) {
-            acc += hit;
-        }
-        return acc;
-    }
-
-    long getHits(int type) {
-        return hits[type];
-    }
-
-    void addHit(int status) {
-        int type = status / 100;
-        hits[type]++;
-    }
+    /**
+     * Returns a collection of the contexts in this container.
+     */
+    Collection<ContextService> getContexts();
 
 }

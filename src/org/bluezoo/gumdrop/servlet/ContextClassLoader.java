@@ -61,13 +61,15 @@ final class ContextClassLoader extends ClassLoader {
 
     private final ContainerClassLoader parent;
     private final Context context;
+    private final boolean manager; // if this is the manager webapp
 
     private Map<String,File> files = new ConcurrentHashMap<>();
 
-    ContextClassLoader(ContainerClassLoader parent, Context context) {
+    ContextClassLoader(ContainerClassLoader parent, Context context, boolean manager) {
         super(parent);
         this.parent = parent;
         this.context = context;
+        this.manager = manager;
     }
 
     @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
@@ -76,15 +78,25 @@ final class ContextClassLoader extends ClassLoader {
         if (t != null) {
             return t;
         }
-        // Check if it is in the context
-        t = findContextClass(name);
-        if (t != null) {
-            return t;
-        }
-        if (!parent.isContainerClass(name)) {
+        if (manager) {
+            // Use container classloader
             return super.loadClass(name, resolve);
+        } else {
+            // DefaultServlet is loaded by container classloader
+            if (DefaultServlet.class.getName().equals(name)) {
+                return DefaultServlet.class;
+            }
+            // Check if class is located in the context
+            t = findContextClass(name);
+            if (t != null) {
+                return t;
+            }
+            // Dependency or JRE bootstrap class
+            if (!parent.isContainerClass(name)) {
+                return super.loadClass(name, resolve);
+            }
+            throw new ClassNotFoundException(name);
         }
-        throw new ClassNotFoundException(name);
     }
 
     void reset() {
@@ -158,12 +170,12 @@ final class ContextClassLoader extends ClassLoader {
     private synchronized File getFile(String path) {
         File file = files.get(path);
         if (file == null) {
-            if (context.warFile == null) {
+            if (context.root.isDirectory()) {
                 file = new File(context.root, path.substring(1));
                 if (file.isFile()) {
                     files.put(path, file);
                 }
-            } else {
+            } else { // war file
                 try (InputStream in = context.getResourceAsStream(path)) {
                     if (in != null) {
                         String fileName = (context.getContextPath() + path).replace('/', '_');
@@ -210,7 +222,8 @@ final class ContextClassLoader extends ClassLoader {
 
     @Override protected URL findResource(String name) {
         try {
-            return context.getResource("/" + name);
+            return context.getResource("/WEB-INF/classes/" + name);
+            // TODO WEB-INF/resources inside WEB_INF/lib
         } catch (MalformedURLException e) {
             String message = Context.L10N.getString("err.load_resource");
             message = MessageFormat.format(message, name);

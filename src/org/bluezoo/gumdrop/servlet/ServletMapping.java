@@ -22,8 +22,9 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.LinkedList;
-import java.util.List;
+import java.util.EnumSet;
+import javax.servlet.DispatcherType;
+
 
 import javax.servlet.ServletSecurityElement;
 
@@ -34,10 +35,9 @@ import javax.servlet.ServletSecurityElement;
  */
 final class ServletMapping {
 
-    String name;
+    String name; // servlet-name
     String urlPattern;
-    String servletName;
-    List dispatchers = new LinkedList(); // TODO
+    //List dispatchers = new LinkedList(); // TODO
     ServletSecurityElement constraint; // TODO
 
 }

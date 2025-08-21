@@ -191,7 +191,7 @@ class ServletStream extends Stream {
         this.statusCode = statusCode;
         this.headers = headers;
 
-        HitStatistics hitStatistics = request.context.hitStatistics;
+        HitStatisticsImpl hitStatistics = request.context.hitStatistics;
         synchronized (hitStatistics) {
             hitStatistics.addHit(statusCode);
         }

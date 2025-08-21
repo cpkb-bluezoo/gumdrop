@@ -24,7 +24,11 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.Realm;
 import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.servlet.manager.ContainerService;
+import org.bluezoo.gumdrop.servlet.manager.ContextService;
+import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
+import org.bluezoo.gumdrop.util.JarInputStream;
 
 import org.xml.sax.SAXException;
 
@@ -33,6 +37,7 @@ import java.net.*;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
@@ -54,7 +59,7 @@ import javax.servlet.http.MappingMatch;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Context extends DeploymentDescriptor implements ServletContext {
+public class Context extends DeploymentDescriptor implements ContextService {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -62,9 +67,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
 
     final Container container;
     final String contextPath;
-    final URL rootUrl;
     final File root;
-    final JarFile warFile;
     private final ContextClassLoader contextClassLoader;
     ServletConnector connector;
     byte[] digest; // MD5 digest of web.xml
@@ -107,26 +110,56 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     String secureHost;
     String commonDir;
 
-    HitStatistics hitStatistics = new HitStatistics();
+    HitStatisticsImpl hitStatistics = new HitStatisticsImpl();
 
     // TODO session activation/passivation, distributed sessions
 
-    public Context(Container container, String contextPath, URL rootUrl, File root, JarFile warFile) {
+    public Context(Container container, String contextPath, File root) {
         this.container = container;
         this.contextPath = contextPath;
-        this.rootUrl = rootUrl;
         this.root = root;
-        this.warFile = warFile;
         if (contextPath.endsWith("/")) {
             throw new IllegalArgumentException("Illegal context path: "+contextPath);
+        }
+
+        // Work out if this context is the manager webapp
+        boolean manager = false;
+        if (root.isFile() && root.getName().equals("manager.war")) {
+            // TODO compute checksum of the file and compare to correct
+            // version
+            manager = true;
         }
 
         sessionsLastInvalidated = System.currentTimeMillis();
 
         ContainerClassLoader containerClassLoader = (ContainerClassLoader) Context.class.getClassLoader();
-        contextClassLoader = new ContextClassLoader(containerClassLoader, this);
+        contextClassLoader = new ContextClassLoader(containerClassLoader, this, manager);
 
         reset();
+    }
+
+    @Override public ContainerService getContainer() {
+        return container;
+    }
+
+    @Override public ThreadPoolExecutor getConnectorThreadPool() {
+        return connector.getConnectorThreadPool();
+    }
+
+    @Override public String getConnectorKeepAlive() {
+        return connector.getKeepAlive();
+    }
+
+    @Override public void setConnectorKeepAlive(String val) {
+        connector.setKeepAlive(val);
+    }
+
+    @Override public HitStatistics getHitStatistics() {
+        return hitStatistics;
+    }
+
+    @Override public String getRoot() {
+        return root.toString();
     }
 
     public void setSecureHost(String value) {
@@ -171,7 +204,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
             throw e2;
         }
 
-        hitStatistics = new HitStatistics();
+        hitStatistics = new HitStatisticsImpl();
     }
 
     /**
@@ -447,7 +480,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     }
 
     /**
-     * Ensure that one and only one conext classloader is used to load all
+     * Ensure that one and only one context classloader is used to load all
      * servlets and the classes they reference (SRV.3.7).
      */
     ClassLoader getContextClassLoader() {
@@ -519,7 +552,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
      */
     Set<String> getResourcePaths(String path, boolean searchJars) {
         Set<String> ret = null;
-        if (warFile == null) {
+        if (root.isDirectory()) {
             if (File.separatorChar != '/') {
                 path = path.replace('/', File.separatorChar);
             }
@@ -565,25 +598,29 @@ public class Context extends DeploymentDescriptor implements ServletContext {
                     }
                 }
             }
-        } else {
+        } else { // war file
             if (path.startsWith("/")) {
                 path = path.substring(1);
             }
-            Enumeration<JarEntry> i = warFile.entries();
-            if (i == null) {
-                return null;
-            }
-            ret = new LinkedHashSet<>();
-            while (i.hasMoreElements()) {
-                JarEntry jarEntry = i.nextElement();
-                String entry = jarEntry.getName();
-                if (entry.startsWith(path) && !entry.equals(path)) {
-                    ret.add(entry);
+            try (JarFile warFile = new JarFile(root)) {
+                Enumeration<JarEntry> i = warFile.entries();
+                if (i == null) {
+                    return null;
                 }
+                ret = new LinkedHashSet<>();
+                while (i.hasMoreElements()) {
+                    JarEntry jarEntry = i.nextElement();
+                    String entry = jarEntry.getName();
+                    if (entry.startsWith(path) && !entry.equals(path)) {
+                        ret.add(entry);
+                    }
+                }
+                // TODO entries in jar in WEB-INF/lib
+                // We need to unpack them into temporary files.
+                // Use ContextClassLoader for this since it's doing it already?
+            } catch (IOException e) {
+                // TODO log
             }
-            // TODO entries in jar in WEB-INF/lib
-            // We need to unpack them into temporary files.
-            // Use ContextClassLoader for this since it's doing it already?
         }
         return ret;
     }
@@ -618,7 +655,7 @@ public class Context extends DeploymentDescriptor implements ServletContext {
             return null;
         }
         try {
-            if (warFile == null) {
+            if (root.isDirectory()) {
                 if (File.separatorChar != '/') {
                     path = path.replace('/', File.separatorChar);
                 }
@@ -627,12 +664,15 @@ public class Context extends DeploymentDescriptor implements ServletContext {
                     return null;
                 }
                 return new FileInputStream(file);
-            } else {
+            } else { // war file
+                JarFile warFile = new JarFile(root); // NB we cannot auto-close
                 JarEntry jarEntry = warFile.getJarEntry(path);
-                if (jarEntry == null) {
+                if (jarEntry != null) {
+                    return new JarInputStream(warFile, jarEntry);
+                } else {
+                    warFile.close();
                     return null;
                 }
-                return warFile.getInputStream(jarEntry);
             }
         } catch (IOException e) {
             log(path, e);
@@ -667,15 +707,20 @@ public class Context extends DeploymentDescriptor implements ServletContext {
 
     boolean exists(String path) {
         // Check for a static resource
-        if (warFile == null) {
+        if (root.isDirectory()) {
             if (File.separatorChar != '/') {
                 path = path.replace('/', File.separatorChar);
             }
             File file = new File(root, path);
             return file.exists() && !file.isDirectory();
-        } else {
-            JarEntry entry = warFile.getJarEntry(path);
-            return (entry != null);
+        } else { // war file
+            try (JarFile warFile = new JarFile(root)) {
+                JarEntry entry = warFile.getJarEntry(path);
+                return (entry != null);
+            } catch (IOException e) {
+                // TODO log
+                return false;
+            }
         }
     }
 
@@ -994,54 +1039,129 @@ public class Context extends DeploymentDescriptor implements ServletContext {
         if (initialized) {
             throw new IllegalStateException();
         }
-        return null; // TODO
+        ServletDef servletDef = new ServletDef();
+        servletDef.name = servletName;
+        servletDef.className = className;
+        addServletDef(servletDef);
+        return servletDef;
     }
 
     public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
-        if (initialized) {
-            throw new IllegalStateException();
-        }
-        return null; // TODO
+        return addServlet(servletName, servlet.getClass());
     }
 
     public ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> t) {
-        return null; // TODO
+        if (t.getClassLoader() == contextClassLoader) {
+            return addServlet(servletName, t.getName());
+        } else {
+            String message = L10N.getString("err.bad_servlet");
+            message = MessageFormat.format(message, t.getName());
+            throw new SecurityException(message);
+        }
     }
 
     public <T extends Servlet> T createServlet(Class<T> t) throws ServletException {
-        return null; // TODO
+        if (t.getClassLoader() == contextClassLoader) {
+            // Find ServletDef by className
+            ServletDef servletDef = null;
+            for (ServletDef fd : servletDefs.values()) {
+                if (fd.className.equals(t.getName())) {
+                    servletDef = fd;
+                    break;
+                }
+            }
+            if (servletDef == null) {
+                String message = L10N.getString("err.servlet_not_registered");
+                message = MessageFormat.format(message, t.getName());
+                throw new SecurityException(message);
+            }
+            Servlet servlet = servlets.get(servletDef.name);
+            if (servlet == null) {
+                servlet = servletDef.newInstance();
+                servlets.put(servletDef.name, servlet);
+            }
+            return (T) servlet;
+        } else {
+            String message = L10N.getString("err.bad_servlet");
+            message = MessageFormat.format(message, t.getName());
+            throw new SecurityException(message);
+        }
     }
 
     public ServletRegistration getServletRegistration(String servletName) {
-        return null; // TODO
+        return servletDefs.get(servletName);
     }
 
     public Map<String, ? extends ServletRegistration> getServletRegistrations() {
-        return null; // TODO
+        // Do not include defaultServlet
+        Map<String,ServletDef> ret = new LinkedHashMap<>();
+        for (ServletDef servletDef : servletDefs.values()) {
+            if (servletDef.name != null) {
+                ret.put(servletDef.name, servletDef);
+            }
+        }
+        return Collections.unmodifiableMap(ret);
     }
 
     public FilterRegistration.Dynamic addFilter(String filterName, String className) {
-        return null; // TODO
+        if (initialized) {
+            throw new IllegalStateException();
+        }
+        FilterDef filterDef = new FilterDef();
+        filterDef.name = filterName;
+        filterDef.className = className;
+        addFilterDef(filterDef);
+        return filterDef;
     }
 
     public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
-        return null; // TODO
+        return addFilter(filterName, filter.getClass());
     }
 
     public FilterRegistration.Dynamic addFilter(String filterName, Class<? extends Filter> t) {
-        return null; // TODO
+        if (t.getClassLoader() == contextClassLoader) {
+            return addFilter(filterName, t.getName());
+        } else {
+            String message = L10N.getString("err.bad_filter");
+            message = MessageFormat.format(message, t.getName());
+            throw new SecurityException(message);
+        }
     }
 
     public <T extends Filter> T createFilter(Class<T> t) throws ServletException {
-        return null; // TODO
+        if (t.getClassLoader() == contextClassLoader) {
+            // Find FilterDef by className
+            FilterDef filterDef = null;
+            for (FilterDef fd : filterDefs.values()) {
+                if (fd.className.equals(t.getName())) {
+                    filterDef = fd;
+                    break;
+                }
+            }
+            if (filterDef == null) {
+                String message = L10N.getString("err.filter_not_registered");
+                message = MessageFormat.format(message, t.getName());
+                throw new SecurityException(message);
+            }
+            Filter filter = filters.get(filterDef.name);
+            if (filter == null) {
+                filter = filterDef.newInstance();
+                filters.put(filterDef.name, filter);
+            }
+            return (T) filter;
+        } else {
+            String message = L10N.getString("err.bad_filter");
+            message = MessageFormat.format(message, t.getName());
+            throw new SecurityException(message);
+        }
     }
 
     public FilterRegistration getFilterRegistration(String filterName) {
-        return null; // TODO
+        return filterDefs.get(filterName);
     }
 
     public Map<String, ? extends FilterRegistration> getFilterRegistrations() {
-        return null; // TODO
+        return Collections.unmodifiableMap(filterDefs);
     }
 
     @Override public SessionCookieConfig getSessionCookieConfig() {
@@ -1081,6 +1201,13 @@ public class Context extends DeploymentDescriptor implements ServletContext {
     @Override public void addListener(EventListener listener) {
         if (initialized) {
             throw new IllegalStateException();
+        }
+        // check classloader
+        Class t = listener.getClass();
+        if (t.getClassLoader() != contextClassLoader) {
+            String message = L10N.getString("err.bad_listener");
+            message = MessageFormat.format(message, t.getName());
+            throw new SecurityException(message);
         }
         boolean match = false;
         if (listener instanceof ServletContextListener) {

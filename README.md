@@ -11,7 +11,7 @@ file COPYING for details.
 
 The gumdroprc file is used to configure gumdrop.
 
-The gumdrop server provides a complete 2.4 servlet container. An example
+The gumdrop server provides a functional J2EE servlet container. An example
 web application and configuration is provided in the web directory. There
 is also a Manager web application that can be used to administer the
 container. Complete support for version 4.0 of the servlet specification

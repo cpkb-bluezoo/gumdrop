@@ -213,32 +213,19 @@ public final class ConfigurationParser extends DefaultHandler {
     Context createContext(Attributes atts) throws SAXException {
         String path = atts.getValue("path");
         String root = atts.getValue("root");
-        JarFile warFile = null;
-        URL contextRootUrl = null;
         if (root.length() > 0 && root.charAt(0) == '~') {
             root = System.getProperty("user.home") + root.substring(1);
         }
         File file = new File(root);
         if (file.exists() && file.canRead()) {
             try {
-                if (file.isDirectory()) {
-                    contextRootUrl = file.toURL();
-                } else if (file.isFile()) {
-                    warFile = new JarFile(file);
-                    contextRootUrl = file.toURL();
-                    contextRootUrl = new URL("jar", null, -1, contextRootUrl.toString() + "!/");
-                } else {
-                    String message = Server.L10N.getString("err.bad_root");
-                    message = MessageFormat.format(message, root);
-                    throw new IOException(message);
-                }
                 if (Server.LOGGER.isLoggable(Level.FINE)) {
                     String message = Server.L10N.getString("info.load_context");
                     String pathDesc = "".equals(path) ? Server.L10N.getString("root") : path;
                     message = MessageFormat.format(message, file, pathDesc);
                     Server.LOGGER.fine(message);
                 }
-                context = new Context(container, path, contextRootUrl, file, warFile);
+                context = new Context(container, path, file);
                 Method[] methods = Context.class.getMethods();
                 int len = atts.getLength();
                 for (int i = 0; i < len; i++) {
