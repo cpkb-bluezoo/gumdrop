@@ -54,7 +54,7 @@ public class ResourceStreamHandler extends URLStreamHandler {
         if (!resourcePath.startsWith("/")) {
             resourcePath = "/" + resourcePath;
         }
-        Context context = container.getContext(contextPath);
+        Context context = container.getContextByPath(contextPath);
         if (context == null) {
             throw new IOException("No context for '"+contextPath+"', url="+url);
         }

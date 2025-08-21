@@ -37,4 +37,9 @@ public interface ContainerService {
      */
     Collection<ContextService> getContexts();
 
+    /**
+     * Returns the context with the given context path.
+     */
+    ContextService getContext(String contextPath);
+
 }

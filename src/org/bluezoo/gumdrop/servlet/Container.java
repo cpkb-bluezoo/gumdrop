@@ -1,6 +1,6 @@
 /*
  * Container.java
- * Copyright (C) 2005, 2013 Chris Burdess
+ * Copyright (C) 2005, 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -61,6 +61,16 @@ public class Container implements ContainerService {
 
     @Override public Collection<ContextService> getContexts() {
         return Collections.unmodifiableList(contexts);
+    }
+
+    @Override public ContextService getContext(String contextPath) {
+        // Don't need lookup as this is a rarely used admin function
+        for (Context context : contexts) {
+            if (contextPath.equals(context.contextPath)) {
+                return context;
+            }
+        }
+        return null;
     }
 
     public void addContext(Context context) {
@@ -133,7 +143,7 @@ public class Container implements ContainerService {
         }
     }
 
-    Context getContext(String path) {
+    Context getContextByPath(String path) {
         // locate context with longest matching context path
         int longest = -1;
         Context match = null;

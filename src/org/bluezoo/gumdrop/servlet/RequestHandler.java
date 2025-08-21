@@ -170,7 +170,7 @@ class RequestHandler implements Runnable {
         ServletConnector connector = stream.connection.connector;
 
         // Lookup context
-        Context context = connector.getContainer().getContext(path);
+        Context context = connector.getContainer().getContextByPath(path);
         // Lookup request dispatcher
         if (context == null) {
             return null;

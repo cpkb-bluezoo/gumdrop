@@ -34,6 +34,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import javax.servlet.FilterRegistration;
 import javax.servlet.ServletException;
@@ -50,6 +52,8 @@ import javax.servlet.http.HttpServletResponse;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ManagerServlet extends HttpServlet {
+
+    static final Logger LOGGER = Logger.getLogger(ManagerServlet.class.getName());
 
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         Locale locale = request.getLocale();
@@ -298,6 +302,11 @@ public class ManagerServlet extends HttpServlet {
     }
 
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        Locale locale = request.getLocale();
+        ResourceBundle resources = (locale == null)
+                        ? ResourceBundle.getBundle(ManagerServlet.class.getName())
+                        : ResourceBundle.getBundle(ManagerServlet.class.getName(), locale);
+
         String path = request.getServletPath();
         String contextPath = request.getContextPath();
         ContextService ctx = (ContextService) getServletContext();
@@ -330,28 +339,15 @@ public class ManagerServlet extends HttpServlet {
                         return;
                     }
                 } else if ("reload".equals(name)) {
-                    /*for (Context context : container.contexts) {
-                        if (context.contextPath.equals(value)) {
-                            try {
-                                synchronized (context) {
-                                    long t1 = System.currentTimeMillis();
-                                    context.destroy();
-                                    context.reload();
-                                    context.init();
-                                    long t2 = System.currentTimeMillis();
-                                    Context.LOGGER.info(
-                                            "Redeployed context "
-                                            + context.contextPath
-                                            + " in "
-                                            + (t2 - t1)
-                                            + "ms");
-                                }
-                            } catch (Exception e) {
-                                response.sendError(500, "Error redeploying context");
-                                return;
-                            }
-                        }
-                    }*/
+                    ContextService context = container.getContext(value);
+                    try {
+                        context.reload();
+                    } catch (Exception e) {
+                        String message = resources.getString("err.reload");
+                        LOGGER.log(Level.SEVERE, message, e);
+                        response.sendError(500, message);
+                        return;
+                    }
                 }
             }
         }

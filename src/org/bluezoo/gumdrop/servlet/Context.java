@@ -68,6 +68,7 @@ public class Context extends DeploymentDescriptor implements ContextService {
     final Container container;
     final String contextPath;
     final File root;
+    private final ContainerClassLoader containerClassLoader;
     private final ContextClassLoader contextClassLoader;
     ServletConnector connector;
     byte[] digest; // MD5 digest of web.xml
@@ -132,7 +133,7 @@ public class Context extends DeploymentDescriptor implements ContextService {
 
         sessionsLastInvalidated = System.currentTimeMillis();
 
-        ContainerClassLoader containerClassLoader = (ContainerClassLoader) Context.class.getClassLoader();
+        containerClassLoader = (ContainerClassLoader) Context.class.getClassLoader();
         contextClassLoader = new ContextClassLoader(containerClassLoader, this, manager);
 
         reset();
@@ -286,9 +287,23 @@ public class Context extends DeploymentDescriptor implements ContextService {
     /**
      * Reloads this context.
      */
-    public void reload() throws IOException, SAXException {
-        reset();
-        load();
+    @Override public synchronized void reload() throws IOException, SAXException {
+        Thread thread = Thread.currentThread();
+        ClassLoader originalClassLoader = thread.getContextClassLoader();
+        thread.setContextClassLoader(containerClassLoader);
+        try {
+            long t1 = System.currentTimeMillis();
+            destroy();
+            reset();
+            load();
+            init();
+            long t2 = System.currentTimeMillis();
+            String message = L10N.getString("info.reloaded_context");
+            message = MessageFormat.format(message, contextPath, (t2 - t1));
+            LOGGER.info(message);
+        } finally {
+            thread.setContextClassLoader(originalClassLoader);
+        }
     }
 
     /**
@@ -573,10 +588,10 @@ public class Context extends DeploymentDescriptor implements ContextService {
             dir = new File(root, "WEB-INF/lib");
             if (dir.exists() && dir.isDirectory()) {
                 File[] files = dir.listFiles(new FilenameFilter() {
-                    public boolean accept(File dir, String name) {
+                        public boolean accept(File dir, String name) {
                         return name.toLowerCase().endsWith(".jar");
-                    }
-                });
+                        }
+                        });
                 for (File file : files) {
                     try (JarFile jarFile = new JarFile(file)) {
                         Enumeration<JarEntry> jarEntries = jarFile.entries();
