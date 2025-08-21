@@ -92,6 +92,10 @@ class Response implements HttpServletResponse {
         this.request = request;
         this.bufferSize = bufferSize;
         headers = new ArrayList<>();
+        locale = request.getLocale();
+        if (locale == null) {
+            locale = Locale.getDefault();
+        }
     }
 
     public void addCookie(Cookie cookie) {

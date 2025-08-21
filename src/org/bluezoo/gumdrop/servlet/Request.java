@@ -677,6 +677,7 @@ class Request implements HttpServletRequest {
                 String wwwAuthenticate =
                     "Digest realm=\"" + realm + "\", nonce=\"" + nonce + "\", qop=\"auth\"";
                 response.setHeader("WWW-Authenticate", wwwAuthenticate);
+                response.setContentLength(0);
             } catch (NoSuchAlgorithmException e) {
                 throw new ServletException(e);
             }
@@ -684,6 +685,7 @@ class Request implements HttpServletRequest {
             // Basic
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setHeader("WWW-Authenticate", "Basic realm=\"" + realm + "\"");
+            response.setContentLength(0);
         } else {
             String message = Context.L10N.getString("http.unknown_auth_mechanism");
             message = MessageFormat.format(message, scheme);

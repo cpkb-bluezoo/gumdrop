@@ -570,4 +570,11 @@ public class Stream {
     protected void close() {
     }
 
+    /**
+     * Close the connection after writing all pending data.
+     */
+    public void sendCloseConnection() {
+        connection.send(null);
+    }
+
 }

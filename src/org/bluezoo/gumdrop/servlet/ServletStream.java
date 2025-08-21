@@ -210,6 +210,9 @@ class ServletStream extends Stream {
     void endResponse() {
         responseComplete = true;
         connection.responseFlushed();
+        if (explicitCloseConnection) {
+            sendCloseConnection();
+        }
     }
 
     /// Called by ResponseSender thread

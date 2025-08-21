@@ -76,6 +76,7 @@ public abstract class Connection {
     ThreadPoolExecutor threadPool;
     private AtomicBoolean hasOpWriteInterest = new AtomicBoolean(false);
     final BlockingQueue<ByteBuffer> outboundQueue = new LinkedBlockingQueue<>();
+    boolean closeAfterSend;
     protected int bufferSize;
 
     protected boolean secure; // TLS applied
@@ -256,6 +257,10 @@ public abstract class Connection {
      * @param buf the application data to send to the client
      */
     public void send(ByteBuffer buf) {
+        if (buf == null) {
+            closeAfterSend = true;
+            return;
+        }
         if (!channel.isOpen()) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 String message = Server.L10N.getString("err.channel_closed");

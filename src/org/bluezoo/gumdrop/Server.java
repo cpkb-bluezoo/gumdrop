@@ -323,6 +323,9 @@ public class Server extends Thread {
                 key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
                 connection.setHasOpWriteInterest(false);
                 connectionsWithPendingWrites.remove(connection);
+                if (connection.closeAfterSend) {
+                    connection.close();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 String message = L10N.getString("err.write");
