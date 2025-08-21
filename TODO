@@ -8,12 +8,24 @@ Before 1.0 release
   - Implement stream priority (dependency trees)
   - Stream housekeeping after they have entered CLOSED state
   - Allow user to specify padding
+- HTTP authorisation using SSL client certs
+  - servlet
+  - more generic
+- Timeout for StreamAsyncContext
+- Add new mechanism in ConfigurationParser to add JNDI resources like
+  context.xml
+- Finish and test servlet resource loading: resources in WEB-INF/resources
+  - Context
+  - ResourceURLConnection
 - Implement servlet 4.0 methods in servlet package
   - HttpServletMapping
   - web fragments and ordering
   - @WebServlet annotations etc
-  - various JNDI resources in deployment descriptor
-  - sandbox context classloader
+  - JNDI resource reference value injection
+  - service handler
+  - servlet mapping security constraint
+  - check lifecycle management for resources e.g. DataSourceDef
+  - JCA connection factories and administered objects
 - server push
 - Redo cluster management (distributable contexts) to use NIO
 - Redo HotDeploymentThread to use nio.file.WatchService

@@ -90,8 +90,6 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
             servlet.init(this);
             return servlet;
         }
-        // TODO the servlet should only have access to the context
-        // classloader anyway
         Thread thread = Thread.currentThread();
         ClassLoader loader = thread.getContextClassLoader();
         ClassLoader contextLoader = context.getContextClassLoader();
