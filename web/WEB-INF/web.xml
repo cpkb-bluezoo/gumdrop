@@ -45,6 +45,11 @@
     <extension>.css</extension>
   </mime-mapping>
 
+  <mime-mapping>
+    <mime-type>text/x-java-source</mime-type>
+    <extension>.java</extension>
+  </mime-mapping>
+
   <login-config>
     <auth-method>BASIC</auth-method>
     <realm-name>myRealm</realm-name>

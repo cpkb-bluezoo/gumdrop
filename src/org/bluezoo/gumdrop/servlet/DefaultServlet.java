@@ -1,6 +1,6 @@
 /*
  * DefaultServlet.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -50,8 +50,7 @@ public class DefaultServlet extends HttpServlet {
         return "DefaultServlet";
     }
 
-    protected void service(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String path = getPath(request);
         // Ensure that collections terminate in "/"
         if (!path.endsWith("/") && isCollection(path)) {
@@ -68,16 +67,15 @@ public class DefaultServlet extends HttpServlet {
         super.service(request, response);
     }
 
-    protected void doOptions(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    protected void doOptions(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String path = getPath(request);
         if ("*".equals(path)) {
             response.setStatus(HttpServletResponse.SC_NO_CONTENT);
             response.setHeader("Allow", "OPTIONS, GET, HEAD");
             return;
         }
-        InputStream in = getServletContext().getResourceAsStream(path);
-        if (in == null || isWebInf(path)) {
+        URL url = getServletContext().getResource(path);
+        if (url == null || isWebInf(path)) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         } else {
             response.setStatus(HttpServletResponse.SC_NO_CONTENT);
@@ -85,8 +83,7 @@ public class DefaultServlet extends HttpServlet {
         }
     }
 
-    protected void doHead(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    protected void doHead(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String path = getPath(request);
         ServletContext context = getServletContext();
         URL resource = getResource(request, path, context);
@@ -120,8 +117,7 @@ public class DefaultServlet extends HttpServlet {
         }
     }
 
-    protected void doGet(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String path = getPath(request);
         ServletContext context = getServletContext();
         URL resource = getResource(request, path, context);
@@ -184,8 +180,7 @@ public class DefaultServlet extends HttpServlet {
     /**
      * Returns the resource URL for the given request.
      */
-    protected URL getResource(HttpServletRequest request, String path, ServletContext context)
-            throws IOException {
+    protected URL getResource(HttpServletRequest request, String path, ServletContext context) throws IOException {
         URL resource = (URL) request.getAttribute("DefaultServlet.resource");
         if (resource == null) {
             resource = context.getResource(path);
@@ -201,7 +196,13 @@ public class DefaultServlet extends HttpServlet {
     protected final String getPath(HttpServletRequest request) {
         String servletPath = request.getServletPath();
         String pathInfo = request.getPathInfo();
-        return (pathInfo == null) ? servletPath : servletPath + pathInfo;
+        if (pathInfo == null) {
+            return servletPath;
+        }
+        if (servletPath.endsWith("/") && pathInfo.startsWith("/")) {
+            pathInfo = pathInfo.substring(1);
+        }
+        return servletPath + pathInfo;
     }
 
     /**
@@ -210,8 +211,8 @@ public class DefaultServlet extends HttpServlet {
      */
     protected final boolean isCollection(String path) {
         ServletContext ctx = getServletContext();
-        Set resourcePaths = ctx.getResourcePaths(path);
-        return (resourcePaths != null && resourcePaths.size() > 0);
+        Set<String> resourcePaths = ctx.getResourcePaths(path);
+        return (resourcePaths != null && !resourcePaths.isEmpty());
     }
 
     /**

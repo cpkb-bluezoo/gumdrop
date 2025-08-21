@@ -566,78 +566,107 @@ public class Context extends DeploymentDescriptor implements ContextService {
      * directory
      */
     Set<String> getResourcePaths(String path, boolean searchJars) {
-        Set<String> ret = null;
+        if (path == null || "".equals(path)) {
+            return null;
+        }
+        if (path.charAt(0) != '/') {
+            // it must start with /
+            path = "/" + path;
+        }
+        if (!path.endsWith("/")) {
+            // this is a "directory"
+            path = path + "/";
+        }
+        String entryPath = path.substring(1); // without leading /
+        String libPath = "WEB-INF/lib/";
+        Set<String> ret = new LinkedHashSet();
+        List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
         if (root.isDirectory()) {
             if (File.separatorChar != '/') {
-                path = path.replace('/', File.separatorChar);
+                entryPath = entryPath.replace('/', File.separatorChar);
+                libPath = libPath.replace('/', File.separatorChar);
             }
-            File dir = new File(root, path);
-            if (!path.endsWith("/")) {
-                path = path + "/";
-            }
-            // Check file entries in directory
+            File dir = new File(root, entryPath);
+            // Check file entries in root
             String[] entries = dir.list();
-            if (entries == null) {
-                return null;
-            }
-            ret = new LinkedHashSet<>();
-            for (int i = 0; i < entries.length; i++) {
-                ret.add(path + entries[i]);
+            if (entries != null) { // may not be a directory
+                for (String entry : entries) {
+                    ret.add(path + entry);
+                }
             }
             // Check entries in jars in WEB-INF/lib
-            dir = new File(root, "WEB-INF/lib");
+            dir = new File(root, libPath);
             if (dir.exists() && dir.isDirectory()) {
-                File[] files = dir.listFiles(new FilenameFilter() {
-                        public boolean accept(File dir, String name) {
+                FilenameFilter filenameFilter = new FilenameFilter() {
+                    public boolean accept(File dir, String name) {
                         return name.toLowerCase().endsWith(".jar");
-                        }
-                        });
-                for (File file : files) {
-                    try (JarFile jarFile = new JarFile(file)) {
-                        Enumeration<JarEntry> jarEntries = jarFile.entries();
-                        String prefix = "WEB-INF/resources/" + path;
-                        while (jarEntries.hasMoreElements()) {
-                            JarEntry jarEntry = jarEntries.nextElement();
-                            String entryName = jarEntry.getName();
-                            if (entryName.startsWith(prefix)) {
-                                String tail = entryName.substring(prefix.length());
-                                int si = tail.indexOf('/');
-                                if (si != -1) {
-                                    tail = tail.substring(0, si);
-                                }
-                                ret.add(path + tail);
-                            }
-                        }
-                    } catch (IOException e) {
-                        // TODO log
+                    }
+                };
+                entries = dir.list(filenameFilter);
+                if (entries != null) {
+                    for (String entry : entries) {
+                        libJarFiles.add(contextClassLoader.getFile(libPath + entry));
                     }
                 }
             }
         } else { // war file
-            if (path.startsWith("/")) {
-                path = path.substring(1);
-            }
             try (JarFile warFile = new JarFile(root)) {
                 Enumeration<JarEntry> i = warFile.entries();
-                if (i == null) {
-                    return null;
-                }
-                ret = new LinkedHashSet<>();
-                while (i.hasMoreElements()) {
-                    JarEntry jarEntry = i.nextElement();
-                    String entry = jarEntry.getName();
-                    if (entry.startsWith(path) && !entry.equals(path)) {
-                        ret.add(entry);
+                if (i != null) {
+                    while (i.hasMoreElements()) {
+                        JarEntry jarEntry = i.nextElement();
+                        String entry = jarEntry.getName();
+                        // entries in root
+                        if (entry.startsWith(entryPath) && !entry.equals(entryPath)) {
+                            // check that it is directly contained in entryPath
+                            if (entry.indexOf('/', entryPath.length()) == -1) {
+                                ret.add(entry);
+                            }
+                        }
+                        // entries in jar in WEB-INF/lib
+                        if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")) {
+                            // Check that jar is directly contained in lib
+                            if (entry.indexOf('/', libPath.length()) == -1) {
+                                libJarFiles.add(contextClassLoader.getFile(entry));
+                            }
+                        }
                     }
                 }
-                // TODO entries in jar in WEB-INF/lib
-                // We need to unpack them into temporary files.
-                // Use ContextClassLoader for this since it's doing it already?
             } catch (IOException e) {
                 // TODO log
             }
         }
-        return ret;
+        if (searchJars) {
+            // Search resources in lib jar files
+            String prefix = "WEB-INF/resources/" + path;
+            for (File file : libJarFiles) {
+                try (JarFile jarFile = new JarFile(file)) {
+                    Enumeration<JarEntry> jarEntries = jarFile.entries();
+                    while (jarEntries.hasMoreElements()) {
+                        JarEntry jarEntry = jarEntries.nextElement();
+                        String entryName = jarEntry.getName();
+                        if (entryName.startsWith(prefix)) {
+                            String tail = entryName.substring(prefix.length());
+                            int si = tail.indexOf('/');
+                            if (si != -1) {
+                                tail = tail.substring(0, si);
+                            }
+                            ret.add(path + tail);
+                        }
+                    }
+                } catch (IOException e) {
+                    // TODO log
+                }
+            }
+        }
+        return ret.isEmpty() ? null : ret;
+    }
+
+    /**
+     * Search the given lib jar files and add any entries in their
+     * WEB/INF/resources/ directory to the given collection.
+     */
+    private void searchJars(Collection<String> acc, List<File> libJarFiles, String path) {
     }
 
     /**
@@ -648,14 +677,91 @@ public class Context extends DeploymentDescriptor implements ContextService {
      * @param path the path to the resource within this context
      */
     @Override public URL getResource(String path) throws MalformedURLException {
-        path = getResourcePath(path);
-        if (path == null) {
+        boolean found = false;
+        if (path == null || "".equals(path)) {
             return null;
         }
-        String host = contextPath;
-        if (host.startsWith("/")) {
-            host = host.substring(1);
+        if (path.charAt(0) != '/') {
+            // it must start with /
+            path = "/" + path;
         }
+        if (path.endsWith("/")) {
+            // it can't end with /
+            return null;
+        }
+        String entryPath = path.substring(1); // without leading /
+        String libPath = "WEB-INF/lib/";
+        List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
+        if (root.isDirectory()) {
+            if (File.separatorChar != '/') {
+                entryPath = entryPath.replace('/', File.separatorChar);
+                libPath = libPath.replace('/', File.separatorChar);
+            }
+            File file = new File(root, entryPath);
+            if (file.exists() && file.isFile()) {
+                found = true;
+            } else {
+                // Check entries in jars in WEB-INF/lib
+                File dir = new File(root, libPath);
+                if (dir.exists() && dir.isDirectory()) {
+                    FilenameFilter filenameFilter = new FilenameFilter() {
+                        public boolean accept(File dir, String name) {
+                            return name.toLowerCase().endsWith(".jar");
+                        }
+                    };
+                    String[] entries = dir.list(filenameFilter);
+                    if (entries != null) {
+                        for (String entry : entries) {
+                            libJarFiles.add(contextClassLoader.getFile(libPath + entry));
+                        }
+                    }
+                }
+            }
+        } else { // war file
+            try (JarFile warFile = new JarFile(root)) {
+                JarEntry jarEntry = warFile.getJarEntry(entryPath);
+                if (jarEntry != null) {
+                    // entry in root
+                    found = true;
+                } else {
+                    Enumeration<JarEntry> i = warFile.entries();
+                    if (i != null) {
+                        while (i.hasMoreElements()) {
+                            jarEntry = i.nextElement();
+                            String entry = jarEntry.getName();
+                            // entries in jar in WEB-INF/lib
+                            if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")) {
+                                // Check that jar is directly contained in lib
+                                if (entry.indexOf('/', libPath.length()) == -1) {
+                                    libJarFiles.add(contextClassLoader.getFile(entry));
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                // TODO log
+            }
+        }
+        if (!found) {
+            // Search resources in lib jar files
+            entryPath = "WEB-INF/resources/" + entryPath;
+            for (File file : libJarFiles) {
+                try (JarFile jarFile = new JarFile(file)) {
+                    JarEntry jarEntry = jarFile.getJarEntry(entryPath);
+                    if (jarEntry != null) {
+                        found = true;
+                        break;
+                    }
+                } catch (IOException e) {
+                    // TODO log
+                }
+            }
+            if (!found) {
+                return null;
+            }
+        }
+        String host = contextPath;
         return new URL("resource", host, path);
     }
 
@@ -665,117 +771,87 @@ public class Context extends DeploymentDescriptor implements ContextService {
      * @param path the path to the resource within this context
      */
     @Override public InputStream getResourceAsStream(String path) {
-        path = getResourcePath(path);
-        if (path == null) {
+        if (path == null || "".equals(path)) {
             return null;
         }
+        if (path.charAt(0) != '/') {
+            // it must start with /
+            path = "/" + path;
+        }
+        if (path.endsWith("/")) {
+            // it can't end with /
+            return null;
+        }
+        String entryPath = path.substring(1); // without leading /
+        String libPath = "WEB-INF/lib/";
+        List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
         try {
             if (root.isDirectory()) {
                 if (File.separatorChar != '/') {
-                    path = path.replace('/', File.separatorChar);
+                    entryPath = entryPath.replace('/', File.separatorChar);
+                    libPath = libPath.replace('/', File.separatorChar);
                 }
-                File file = new File(root, path);
-                if (!file.exists() || !file.isFile()) {
-                    return null;
+                File file = new File(root, entryPath);
+                if (file.exists() && file.isFile()) {
+                    return new FileInputStream(file);
+                } else {
+                    // Check entries in jars in WEB-INF/lib
+                    File dir = new File(root, libPath);
+                    if (dir.exists() && dir.isDirectory()) {
+                        FilenameFilter filenameFilter = new FilenameFilter() {
+                            public boolean accept(File dir, String name) {
+                                return name.toLowerCase().endsWith(".jar");
+                            }
+                        };
+                        String[] entries = dir.list(filenameFilter);
+                        if (entries != null) {
+                            for (String entry : entries) {
+                                libJarFiles.add(contextClassLoader.getFile(libPath + entry));
+                            }
+                        }
+                    }
                 }
-                return new FileInputStream(file);
             } else { // war file
-                JarFile warFile = new JarFile(root); // NB we cannot auto-close
-                JarEntry jarEntry = warFile.getJarEntry(path);
+                JarFile warFile = new JarFile(root); // NB we cannot auto-close the jarfile, use JarInputStream
+                JarEntry jarEntry = warFile.getJarEntry(entryPath);
                 if (jarEntry != null) {
+                    // entry in war file
                     return new JarInputStream(warFile, jarEntry);
                 } else {
+                    Enumeration<JarEntry> i = warFile.entries();
+                    if (i != null) {
+                        while (i.hasMoreElements()) {
+                            jarEntry = i.nextElement();
+                            String entry = jarEntry.getName();
+                            // entries in jar in WEB-INF/lib
+                            if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")) {
+                                // Check that jar is directly contained in lib
+                                if (entry.indexOf('/', libPath.length()) == -1) {
+                                    libJarFiles.add(contextClassLoader.getFile(entry));
+                                }
+                            }
+                        }
+                    }
+                    // now close it
                     warFile.close();
-                    return null;
+                }
+            }
+            // Nothing matched so far
+            // Search resources in lib jar files
+            entryPath = "WEB-INF/resources/" + entryPath;
+            for (File file : libJarFiles) {
+                JarFile jarFile = new JarFile(file); // NB we cannot auto-close it, use JarInputStream
+                JarEntry jarEntry = jarFile.getJarEntry(entryPath);
+                if (jarEntry != null) {
+                    return new JarInputStream(jarFile, jarEntry);
+                } else {
+                    jarFile.close();
                 }
             }
         } catch (IOException e) {
-            log(path, e);
+            // TODO log
         }
         return null;
-    }
-
-    /**
-     * Returns a valid path to the specified resource, or null.
-     */
-    String getResourcePath(String path) {
-        while (path.length() > 0 && path.charAt(0) == '/') {
-            path = path.substring(1);
-        }
-        path = canonicalize(path);
-        // Locate resource
-        if (!exists(path)) {
-            // Look for welcome-file
-            if (path.length() > 0 && !path.endsWith("/")) {
-                path = path + "/";
-            }
-            for (String s : welcomeFiles) {
-                String welcomeFile = path + s;
-                if (exists(welcomeFile)) {
-                    return welcomeFile;
-                }
-            }
-            return null;
-        }
-        return path;
-    }
-
-    boolean exists(String path) {
-        // Check for a static resource
-        if (root.isDirectory()) {
-            if (File.separatorChar != '/') {
-                path = path.replace('/', File.separatorChar);
-            }
-            File file = new File(root, path);
-            return file.exists() && !file.isDirectory();
-        } else { // war file
-            try (JarFile warFile = new JarFile(root)) {
-                JarEntry entry = warFile.getJarEntry(path);
-                return (entry != null);
-            } catch (IOException e) {
-                // TODO log
-                return false;
-            }
-        }
-    }
-
-    /**
-     * Canonicalize a URI-path.
-     * This removes any ".." or "." components in the path.
-     * It raises an error if an attempt was made to reference a resource
-     * above the root of the hierarchy.
-     */
-    String canonicalize(String path) {
-        int start = 0, end = -1;
-        boolean modified = false;
-        int count = 0;
-        Deque<String> stack = new ArrayDeque<String>();
-        for (end = path.indexOf('/'); end > start; end = path.indexOf('/', start)) {
-            String comp = path.substring(start, end);
-            if ("..".equals(comp)) {
-                stack.removeLast();
-                count--;
-                modified = true;
-            } else if (".".equals(comp)) {
-                modified = true;
-            } else {
-                stack.addLast(comp);
-                count++;
-            }
-            start = end + 1;
-        }
-        if (!modified) {
-            return path;
-        }
-        StringBuilder buf = new StringBuilder();
-        for (String s : stack) {
-            buf.append(s);
-            count--;
-            if (count > 0) {
-                buf.append('/');
-            }
-        }
-        return buf.toString();
     }
 
     @Override public synchronized RequestDispatcher getRequestDispatcher(String path) {
@@ -792,27 +868,48 @@ public class Context extends DeploymentDescriptor implements ContextService {
             queryString = path.substring(qi + 1);
             path = path.substring(0, qi);
         }
-        String originalPath = path;
         // Locate the target servlet
         ServletMatch match = new ServletMatch();
         matchServletMapping(path, match);
         if (match.servletDef == null) {
-            Iterator i = welcomeFiles.iterator();
-            while (match.servletDef == null && i.hasNext()) {
-                String welcomeFile = (String) i.next();
-                path = originalPath + welcomeFile;
-                matchServletMapping(path, match);
+            for (String welcomeFile : welcomeFiles) {
+                String welcomePath = path + welcomeFile;
+                matchServletMapping(welcomePath, match);
+                if (match.servletDef != null) {
+                    break;
+                }
             }
         }
 
         // 4. default servlet if none match
         if (match.servletDef == null) {
             match.servletDef = defaultServletDef;
-            match.servletPath = "/";
-            match.pathInfo = "/".equals(originalPath) ? null : originalPath.substring(1);
             match.mappingMatch = MappingMatch.DEFAULT;
-            match.matchValue = originalPath;
-            path = originalPath;
+            match.matchValue = path;
+            match.servletPath = "/";
+            match.pathInfo = "/".equals(path) ? null : path;
+            // DefaultServlet will just look for resources via getResource.
+            // Ensure that if the resource doesn't exist we try welcome
+            // files.
+            try {
+                URL resource = getResource(path);
+                if (resource == null) {
+                    String pathDir = path.endsWith("/") ? path : path + "/";
+                    for (String welcomeFile : welcomeFiles) {
+                        String welcomePath = pathDir + welcomeFile;
+                        resource = getResource(welcomePath);
+                        if (resource != null) {
+                            path = match.matchValue = welcomePath;
+                            match.pathInfo = path;
+                            break;
+                        }
+                    }
+                }
+            } catch (MalformedURLException e) {
+                RuntimeException e2 = new RuntimeException();
+                e2.initCause(e);
+                throw e2;
+            }
         }
         ServletDef servletDef = match.servletDef;
         String servletPath = match.servletPath;

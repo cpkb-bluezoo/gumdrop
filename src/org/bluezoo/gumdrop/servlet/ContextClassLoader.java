@@ -167,7 +167,7 @@ final class ContextClassLoader extends ClassLoader {
      * content of the jar to a temporary file and return that.
      * @param path the resource path, prefixed with '/'
      */
-    private synchronized File getFile(String path) {
+    synchronized File getFile(String path) {
         File file = files.get(path);
         if (file == null) {
             if (context.root.isDirectory()) {
