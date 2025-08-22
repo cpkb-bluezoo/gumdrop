@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 
 import java.text.MessageFormat;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -166,76 +167,97 @@ final class FilterDef implements FilterConfig, FilterReg {
     }
 
     @Override public void addMappingForServletNames(EnumSet<DispatcherType> dispatcherTypes, boolean isMatchAfter, String... servletNames) {
-        for (String servletName : servletNames) {
-            FilterMapping filterMapping = new FilterMapping();
-            filterMapping.name = name;
-            filterMapping.servletName = servletName;
-            filterMapping.dispatchers = dispatcherTypes.clone();
-            int index = indexOfFilterMapping(context.filterMappings, servletName, true);
-            if (index != -1) {
-                if (isMatchAfter) {
-                    index = lastIndexOfFilterMapping(context.filterMappings, servletName, true);
-                }
-                context.filterMappings.add(index, filterMapping);
-            } else {
-                context.filterMappings.add(filterMapping);
+        if (servletNames == null || servletNames.length == 0) {
+            throw new IllegalArgumentException();
+        }
+        if (context.initialized) {
+            throw new IllegalStateException();
+        }
+        // Can't use Set.of since we want to preserve order
+        Set<String> unmapped = new LinkedHashSet<>(Arrays.asList(servletNames));
+        FilterMapping filterMapping = new FilterMapping();
+        filterMapping.name = name;
+        filterMapping.servletNames = unmapped;
+        filterMapping.dispatchers = dispatcherTypes.clone();
+        int index = indexOfFilterMapping(context.filterMappings, unmapped, true);
+        if (index != -1) {
+            if (isMatchAfter) {
+                index = lastIndexOfFilterMapping(context.filterMappings, unmapped, true) + 1;
             }
+            context.filterMappings.add(index, filterMapping);
+        } else {
+            context.filterMappings.add(filterMapping);
         }
     }
 
-    private int indexOfFilterMapping(List<FilterMapping> filterMappings, String name, boolean servlet) {
+    @Override public void addMappingForUrlPatterns(EnumSet<DispatcherType> dispatcherTypes, boolean isMatchAfter, String... urlPatterns) {
+        if (urlPatterns == null || urlPatterns.length == 0) {
+            throw new IllegalArgumentException();
+        }
+        if (context.initialized) {
+            throw new IllegalStateException();
+        }
+        // Can't use Set.of since we want to preserve order
+        Set<String> unmapped = new LinkedHashSet<>(Arrays.asList(urlPatterns));
+        FilterMapping filterMapping = new FilterMapping();
+        filterMapping.name = name;
+        filterMapping.urlPatterns = unmapped;
+        filterMapping.dispatchers = dispatcherTypes.clone();
+        int index = indexOfFilterMapping(context.filterMappings, unmapped, false);
+        if (index != -1) {
+            if (isMatchAfter) {
+                index = lastIndexOfFilterMapping(context.filterMappings, unmapped, false) + 1;
+            }
+            context.filterMappings.add(index, filterMapping);
+        } else {
+            context.filterMappings.add(filterMapping);
+        }
+    }
+
+    private int indexOfFilterMapping(List<FilterMapping> filterMappings, Collection<String> values, boolean matchServletName) {
         for (int i = 0; i < filterMappings.size(); i++) {
             FilterMapping filterMapping = filterMappings.get(i);
-            if (name.equals(servlet ? filterMapping.servletName : filterMapping.urlPattern)) {
+            if (containsAny(matchServletName ? filterMapping.servletNames : filterMapping.urlPatterns, values)) {
                 return i;
             }
         }
         return -1;
     }
 
-    private int lastIndexOfFilterMapping(List<FilterMapping> filterMappings, String name, boolean servlet) {
+    private int lastIndexOfFilterMapping(List<FilterMapping> filterMappings, Collection<String> values, boolean matchServletName) {
         for (int i = filterMappings.size(); i >= 0; i--) {
             FilterMapping filterMapping = filterMappings.get(i);
-            if (name.equals(servlet ? filterMapping.servletName : filterMapping.urlPattern)) {
+            if (containsAny(matchServletName ? filterMapping.servletNames : filterMapping.urlPatterns, values)) {
                 return i;
             }
         }
         return -1;
+    }
+
+    private boolean containsAny(Collection<String> collection, Collection<String> candidates) {
+        for (String candidate : candidates) {
+            if (collection.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override public Collection<String> getServletNameMappings() {
         Collection<String> ret = new LinkedHashSet<>();
         for (FilterMapping filterMapping : context.filterMappings) {
-            if (filterMapping.servletName != null) {
-                ret.add(filterMapping.servletName);
+            if (filterMapping.name.equals(name)) {
+                ret.addAll(filterMapping.servletNames);
             }
         }
         return ret;
     }
 
-    @Override public void addMappingForUrlPatterns(EnumSet<DispatcherType> dispatcherTypes, boolean isMatchAfter, String... urlPatterns) {
-        for (String urlPattern : urlPatterns) {
-            FilterMapping filterMapping = new FilterMapping();
-            filterMapping.name = name;
-            filterMapping.urlPattern = urlPattern;
-            filterMapping.dispatchers = dispatcherTypes.clone();
-            int index = indexOfFilterMapping(context.filterMappings, urlPattern, false);
-            if (index != -1) {
-                if (isMatchAfter) {
-                    index = lastIndexOfFilterMapping(context.filterMappings, urlPattern, false);
-                }
-                context.filterMappings.add(index, filterMapping);
-            } else {
-                context.filterMappings.add(filterMapping);
-            }
-        }
-    }
-
     @Override public Collection<String> getUrlPatternMappings() {
         Collection<String> ret = new LinkedHashSet<>();
         for (FilterMapping filterMapping : context.filterMappings) {
-            if (filterMapping.urlPattern != null) {
-                ret.add(filterMapping.urlPattern);
+            if (filterMapping.name.equals(name)) {
+                ret.addAll(filterMapping.urlPatterns);
             }
         }
         return ret;

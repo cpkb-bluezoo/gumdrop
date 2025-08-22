@@ -194,11 +194,12 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
         Set<String> ret = new HashSet<>();
         for (ServletMapping mapping : context.servletMappings) {
             if (mapping.name.equals(name)) { // servlet mapping for this servlet
-                String urlPattern = mapping.urlPattern;
-                if (context.isSecurityConstraintTarget(urlPattern)) {
-                    ret.add(urlPattern);
-                } else {
-                    mapping.constraint = constraint;
+                for (String urlPattern : mapping.urlPatterns) {
+                    if (context.isSecurityConstraintTarget(urlPattern)) {
+                        ret.add(urlPattern);
+                    } else {
+                        mapping.constraint = constraint;
+                    }
                 }
             }
         }
@@ -220,31 +221,37 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     }
 
     @Override public Set<String> addMapping(String... urlPatterns) {
-        Set<String> ret = new HashSet<>();
+        if (urlPatterns == null || urlPatterns.length == 0) {
+            throw new IllegalArgumentException();
+        }
+        if (context.initialized) {
+            throw new IllegalStateException();
+        }
+        Set<String> mapped = new HashSet<>();
+        Set<String> unmapped = new LinkedHashSet<>();
         for (String urlPattern : urlPatterns) {
-            boolean seen = false;
+            unmapped.add(urlPattern);
             for (ServletMapping servletMapping : context.servletMappings) {
-                if (servletMapping.urlPattern.equals(urlPattern) && !servletMapping.name.equals(name)) {
-                    ret.add(urlPattern);
-                    seen = true;
+                if (servletMapping.urlPatterns.contains(urlPattern) && !servletMapping.name.equals(name)) {
+                    mapped.add(urlPattern);
                     break;
                 }
             }
-            if (!seen) {
-                ServletMapping servletMapping = new ServletMapping();
-                servletMapping.name = name;
-                servletMapping.urlPattern = urlPattern;
-                context.servletMappings.add(servletMapping);
-            }
         }
-        return Collections.unmodifiableSet(ret);
+        if (mapped.isEmpty()) {
+            ServletMapping servletMapping = new ServletMapping();
+            servletMapping.name = name;
+            servletMapping.urlPatterns = unmapped;
+            context.servletMappings.add(servletMapping);
+        }
+        return Collections.unmodifiableSet(mapped);
     }
 
     @Override public Collection<String> getMappings() {
         Set<String> acc = new LinkedHashSet<>();
         for (ServletMapping servletMapping : context.servletMappings) {
             if (name.equals(servletMapping.name)) {
-                acc.add(servletMapping.urlPattern);
+                acc.addAll(servletMapping.urlPatterns);
             }
         }
         return Collections.unmodifiableSet(acc);

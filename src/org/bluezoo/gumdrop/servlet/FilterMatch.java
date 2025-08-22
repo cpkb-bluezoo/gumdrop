@@ -1,6 +1,6 @@
 /*
  * FilterMatch.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.servlet.http.MappingMatch;
+
 /**
  * A filter definition/mapping pair.
  *
@@ -31,10 +33,12 @@ final class FilterMatch {
 
     final FilterDef filterDef;
     final FilterMapping filterMapping;
+    final MappingMatch mappingMatch;
 
-    FilterMatch(FilterDef filterDef, FilterMapping filterMapping) {
+    FilterMatch(FilterDef filterDef, FilterMapping filterMapping, MappingMatch mappingMatch) {
         this.filterDef = filterDef;
         this.filterMapping = filterMapping;
+        this.mappingMatch = mappingMatch;
     }
 
     public String toString() {
@@ -43,6 +47,8 @@ final class FilterMatch {
         buf.append(filterDef);
         buf.append(",filterMapping=");
         buf.append(filterMapping);
+        buf.append(",mappingMatch=");
+        buf.append(mappingMatch);
         buf.append("]");
         return buf.toString();
     }

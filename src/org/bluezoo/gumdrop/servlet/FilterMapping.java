@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import javax.servlet.DispatcherType;
 
 /**
@@ -34,8 +36,8 @@ import javax.servlet.DispatcherType;
 final class FilterMapping {
 
     String name;
-    String urlPattern;
-    String servletName;
+    Set<String> urlPatterns = new LinkedHashSet<>();
+    Set<String> servletNames = new LinkedHashSet<>();
     EnumSet<DispatcherType> dispatchers;
 
     FilterMapping() {
@@ -44,6 +46,14 @@ final class FilterMapping {
 
     FilterMapping(DispatcherType[] dispatcherTypes) {
         dispatchers = EnumSet.copyOf(Arrays.asList(dispatcherTypes));
+    }
+
+    void addUrlPattern(String urlPattern) {
+        urlPatterns.add(urlPattern);
+    }
+
+    void addServletName(String servletName) {
+        servletNames.add(servletName);
     }
 
     boolean matches(DispatcherType dispatcher) {

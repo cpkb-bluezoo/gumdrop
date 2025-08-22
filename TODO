@@ -15,7 +15,6 @@ Before 1.0 release
 - Add new mechanism in ConfigurationParser to add JNDI resources like
   context.xml
 - Implement servlet 4.0 methods in servlet package
-  - HttpServletMapping
   - JNDI resource reference value injection
   - service handler
   - servlet mapping security constraint

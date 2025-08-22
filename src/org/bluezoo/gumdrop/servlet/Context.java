@@ -242,7 +242,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         // Default servlet
         defaultServletDef = null;
         for (ServletMapping sm : servletMappings) {
-            if ("/".equals(sm.urlPattern)) {
+            if (sm.urlPatterns.contains("/")) {
                 defaultServletDef = (ServletDef) servletDefs.get(sm.name);
                 break;
             }
@@ -250,14 +250,14 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         if (defaultServletDef == null) {
             defaultServletDef = new ServletDef();
             defaultServletDef.context = this;
-            defaultServletDef.displayName = "(default servlet)";
+            defaultServletDef.displayName = L10N.getString("default_servlet_display_name");
             defaultServletDef.name = null;
             defaultServletDef.className = DefaultServlet.class.getName();
             defaultServletDef.loadOnStartup = 0;
             servletDefs.put(null, defaultServletDef);
             ServletMapping defaultServletMapping = new ServletMapping();
             defaultServletMapping.name = null;
-            defaultServletMapping.urlPattern = "/";
+            defaultServletMapping.addUrlPattern("/");
             servletMappings.add(defaultServletMapping);
         }
 
@@ -404,16 +404,22 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         filterDef = (FilterDef) target;
                     }
                     filterDef.init(webFilter, className);
-                    for (String urlPattern : webFilter.urlPatterns()) {
+                    String[] urlPatterns = webFilter.urlPatterns();
+                    if (urlPatterns.length > 0) {
                         FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
                         filterMapping.name = filterDef.name;
-                        filterMapping.urlPattern = urlPattern;
+                        for (String urlPattern : urlPatterns) {
+                            filterMapping.addUrlPattern(urlPattern);
+                        }
                         descriptor.addFilterMapping(filterMapping);
                     }
-                    for (String servletName : webFilter.servletNames()) {
+                    String[] servletNames = webFilter.urlPatterns();
+                    if (servletNames.length > 0) {
                         FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
                         filterMapping.name = filterDef.name;
-                        filterMapping.servletName = servletName;
+                        for (String servletName : servletNames) {
+                            filterMapping.addServletName(servletName);
+                        }
                         descriptor.addFilterMapping(filterMapping);
                     }
                 } else if (annotation instanceof WebListener) {
@@ -453,10 +459,13 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(webServlet, className);
-                    for (String urlPattern : webServlet.urlPatterns()) {
+                    String[] urlPatterns = webServlet.urlPatterns();
+                    if (urlPatterns.length > 0) {
                         ServletMapping servletMapping = new ServletMapping();
                         servletMapping.name = servletDef.name;
-                        servletMapping.urlPattern = urlPattern;
+                        for (String urlPattern : urlPatterns) {
+                            servletMapping.addUrlPattern(urlPattern);
+                        }
                         descriptor.addServletMapping(servletMapping);
                     }
                 } else if (annotation instanceof MultipartConfig) {
@@ -1137,35 +1146,26 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         Map<String,FilterMatch> requestFilters = new LinkedHashMap<>();
         for (FilterMapping filterMapping : filterMappings) {
             String filterName = filterMapping.name;
-            if (filterMapping.servletName != null
-                    && filterMapping.servletName.equals(servletDef.name)) {
-                FilterDef fd = filterDefs.get(filterName);
-                if (fd != null) {
-                    FilterMatch fm = new FilterMatch(fd, filterMapping);
-                    requestFilters.put(filterName, fm);
-                }
-            } else if (filterMapping.urlPattern != null) {
-                String pattern = filterMapping.urlPattern;
-                if (pattern.equals(path)) {
-                    // 1. exact match
-                    FilterDef fd = filterDefs.get(filterName);
-                    if (fd != null) {
-                        FilterMatch fm = new FilterMatch(fd, filterMapping);
+            FilterDef fd = filterDefs.get(filterName);
+            if (fd == null) {
+                continue;
+            }
+            if (!filterMapping.servletNames.isEmpty() && filterMapping.servletNames.contains(servletDef.name)) {
+                FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXACT);
+                requestFilters.put(filterName, fm);
+            } else {
+                for (String pattern : filterMapping.urlPatterns) {
+                    if (pattern.equals(path)) {
+                        // 1. exact match
+                        FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXACT);
                         requestFilters.put(filterName, fm);
-                    }
-                } else if (pattern.endsWith("/*")
-                        && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
-                    // 2. match path prefix
-                    FilterDef fd = filterDefs.get(filterName);
-                    if (fd != null) {
-                        FilterMatch fm = new FilterMatch(fd, filterMapping);
+                    } else if (pattern.endsWith("/*") && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
+                        // 2. match path prefix
+                        FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.PATH);
                         requestFilters.put(filterName, fm);
-                    }
-                } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
-                    // 3. extension
-                    FilterDef fd = filterDefs.get(filterName);
-                    if (fd != null) {
-                        FilterMatch fm = new FilterMatch(fd, filterMapping);
+                    } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
+                        // 3. extension
+                        FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXTENSION);
                         requestFilters.put(filterName, fm);
                     }
                 }
@@ -1188,48 +1188,49 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     void matchServletMapping(String path, ServletMatch match) {
         for (ServletMapping servletMapping : servletMappings) {
             String servletName = servletMapping.name;
-            String pattern = servletMapping.urlPattern;
-            if (pattern.equals(path)) {
-                // 1. exact match
-                ServletDef sd = servletDefs.get(servletName);
-                if (sd != null && sd != defaultServletDef) {
-                    match.servletDef = sd;
-                    match.servletPath = pattern;
-                    match.pathInfo = null;
-                    match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
-                    match.matchValue = path;
-                    break;
-                }
-            } else if (pattern.endsWith("/*")) {
-                pattern = pattern.substring(0, pattern.length() - 2);
-                if (path.startsWith(pattern)) {
-                    // 2. longest path prefix
-                    if (match.servletPath == null
-                            || pattern.length() > match.servletPath.length()) {
-                        ServletDef sd = servletDefs.get(servletName);
-                        if (sd != null) {
-                            match.servletDef = sd;
-                            match.servletPath = pattern;
-                            match.pathInfo = path.substring(pattern.length());
-                            if (match.pathInfo.length() == 0) {
-                                match.pathInfo = null;
+            for (String pattern : servletMapping.urlPatterns) {
+                if (pattern.equals(path)) {
+                    // 1. exact match
+                    ServletDef sd = servletDefs.get(servletName);
+                    if (sd != null && sd != defaultServletDef) {
+                        match.servletDef = sd;
+                        match.servletPath = pattern;
+                        match.pathInfo = null;
+                        match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
+                        match.matchValue = path;
+                        break;
+                    }
+                } else if (pattern.endsWith("/*")) {
+                    pattern = pattern.substring(0, pattern.length() - 2);
+                    if (path.startsWith(pattern)) {
+                        // 2. longest path prefix
+                        if (match.servletPath == null
+                                || pattern.length() > match.servletPath.length()) {
+                            ServletDef sd = servletDefs.get(servletName);
+                            if (sd != null) {
+                                match.servletDef = sd;
+                                match.servletPath = pattern;
+                                match.pathInfo = path.substring(pattern.length());
+                                if (match.pathInfo.length() == 0) {
+                                    match.pathInfo = null;
+                                }
+                                match.mappingMatch = MappingMatch.PATH;
+                                match.matchValue = path;
                             }
-                            match.mappingMatch = MappingMatch.PATH;
-                            match.matchValue = path;
                         }
                     }
-                }
-            } else if (match.servletDef == null
-                    && pattern.startsWith("*.")
-                    && path.endsWith(pattern.substring(1))) {
-                // 3. extension
-                ServletDef sd = servletDefs.get(servletName);
-                if (sd != null) {
-                    match.servletDef = sd;
-                    match.servletPath = path;
-                    match.pathInfo = null;
-                    match.mappingMatch = MappingMatch.EXTENSION;
-                    match.matchValue = path;
+                } else if (match.servletDef == null
+                        && pattern.startsWith("*.")
+                        && path.endsWith(pattern.substring(1))) {
+                    // 3. extension
+                    ServletDef sd = servletDefs.get(servletName);
+                    if (sd != null) {
+                        match.servletDef = sd;
+                        match.servletPath = path;
+                        match.pathInfo = null;
+                        match.mappingMatch = MappingMatch.EXTENSION;
+                        match.matchValue = path;
+                    }
                 }
             }
         }

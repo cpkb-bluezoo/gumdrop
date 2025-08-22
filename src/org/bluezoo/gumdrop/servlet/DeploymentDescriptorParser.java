@@ -1411,10 +1411,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((FilterMapping) peekTarget()).name = popText();
                         break;
                     case URL_PATTERN:
-                        ((FilterMapping) peekTarget()).urlPattern = popText();
+                        ((FilterMapping) peekTarget()).addUrlPattern(popText());
                         break;
                     case SERVLET_NAME:
-                        ((FilterMapping) peekTarget()).servletName = popText();
+                        ((FilterMapping) peekTarget()).addServletName(popText());
                         break;
                     case DISPATCHER:
                         ((FilterMapping) peekTarget()).dispatchers.add(DispatcherType.valueOf(popText()));
@@ -1486,7 +1486,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((ServletMapping) peekTarget()).name = popText();
                         break;
                     case URL_PATTERN:
-                        ((ServletMapping) peekTarget()).urlPattern = popText();
+                        ((ServletMapping) peekTarget()).addUrlPattern(popText());
                         break;
                 }
                 break;
