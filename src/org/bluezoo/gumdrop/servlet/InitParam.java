@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.servlet.annotation.WebInitParam;
+
 /**
  * A context initialisation parameter in a web application deployment
  * descriptor.
@@ -33,5 +35,14 @@ final class InitParam {
     String description;
     String name;
     String value;
+
+    InitParam() {
+    }
+
+    InitParam(WebInitParam config) {
+        description = config.description();
+        name = config.name();
+        value = config.value();
+    }
 
 }

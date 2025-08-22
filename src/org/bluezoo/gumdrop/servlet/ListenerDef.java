@@ -43,6 +43,10 @@ final class ListenerDef implements Description {
 
     String className; // listener-class
 
+    void init(String className) {
+        this.className = className;
+    }
+
     EventListener newInstance() {
         Thread thread = Thread.currentThread();
         ClassLoader loader = thread.getContextClassLoader();

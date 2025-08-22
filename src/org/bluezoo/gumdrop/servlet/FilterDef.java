@@ -41,6 +41,8 @@ import javax.servlet.Filter;
 import javax.servlet.FilterConfig;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
+import javax.servlet.annotation.WebFilter;
+import javax.servlet.annotation.WebInitParam;
 
 import org.bluezoo.gumdrop.servlet.manager.FilterReg;
 
@@ -65,6 +67,19 @@ final class FilterDef implements FilterConfig, FilterReg {
     String className; // filter-class
     Map<String,InitParam> initParams = new LinkedHashMap<>();
     boolean asyncSupported;
+
+    void init(WebFilter config, String className) {
+        this.className = className;
+        description = config.description();
+        displayName = config.displayName();
+        smallIcon = config.smallIcon();
+        largeIcon = config.largeIcon();
+        name = config.filterName();
+        for (WebInitParam configInitParam : config.initParams()) {
+            addInitParam(new InitParam(configInitParam));
+        }
+        asyncSupported = config.asyncSupported();
+    }
 
     Filter newInstance() throws ServletException {
         Thread thread = Thread.currentThread();

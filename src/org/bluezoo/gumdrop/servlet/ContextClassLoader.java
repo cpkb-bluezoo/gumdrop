@@ -64,12 +64,17 @@ final class ContextClassLoader extends ClassLoader {
     private final boolean manager; // if this is the manager webapp
 
     private Map<String,File> files = new ConcurrentHashMap<>();
+    private Map<String,InputStream> assignments = new HashMap<>();
 
     ContextClassLoader(ContainerClassLoader parent, Context context, boolean manager) {
         super(parent);
         this.parent = parent;
         this.context = context;
         this.manager = manager;
+    }
+
+    void assign(String className, InputStream in) {
+        assignments.put(className, in);
     }
 
     @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
@@ -85,6 +90,14 @@ final class ContextClassLoader extends ClassLoader {
             // DefaultServlet is loaded by container classloader
             if (DefaultServlet.class.getName().equals(name)) {
                 return DefaultServlet.class;
+            }
+            // Check if this is an assignment loaded during introspection
+            // scanning. These are classes found in the context
+            InputStream in = assignments.remove(name);
+            if (in != null) {
+                byte[] data = loadClassData(in, name);
+                return defineClass(name, data, 0, data.length);
+                // XXX ProtectionDomain?
             }
             // Check if class is located in the context
             t = findContextClass(name);

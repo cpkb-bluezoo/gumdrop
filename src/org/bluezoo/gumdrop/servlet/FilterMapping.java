@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.util.Arrays;
 import java.util.EnumSet;
 import javax.servlet.DispatcherType;
 
@@ -35,7 +36,15 @@ final class FilterMapping {
     String name;
     String urlPattern;
     String servletName;
-    EnumSet<DispatcherType> dispatchers = EnumSet.noneOf(DispatcherType.class);
+    EnumSet<DispatcherType> dispatchers;
+
+    FilterMapping() {
+        dispatchers = EnumSet.noneOf(DispatcherType.class);
+    }
+
+    FilterMapping(DispatcherType[] dispatcherTypes) {
+        dispatchers = EnumSet.copyOf(Arrays.asList(dispatcherTypes));
+    }
 
     boolean matches(DispatcherType dispatcher) {
         if (dispatchers.isEmpty()) {

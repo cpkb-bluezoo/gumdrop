@@ -14,13 +14,8 @@ Before 1.0 release
 - Timeout for StreamAsyncContext
 - Add new mechanism in ConfigurationParser to add JNDI resources like
   context.xml
-- Finish and test servlet resource loading: resources in WEB-INF/resources
-  - Context
-  - ResourceURLConnection
 - Implement servlet 4.0 methods in servlet package
   - HttpServletMapping
-  - web fragments and ordering
-  - @WebServlet annotations etc
   - JNDI resource reference value injection
   - service handler
   - servlet mapping security constraint

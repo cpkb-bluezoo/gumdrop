@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.util.JarInputStream;
 import org.xml.sax.SAXException;
 
 import java.io.*;
+import java.lang.annotation.Annotation;
 import java.net.*;
 import java.text.MessageFormat;
 import java.util.*;
@@ -46,6 +47,11 @@ import java.util.logging.Logger;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.servlet.*;
+import javax.servlet.annotation.MultipartConfig;
+import javax.servlet.annotation.ServletSecurity;
+import javax.servlet.annotation.WebFilter;
+import javax.servlet.annotation.WebListener;
+import javax.servlet.annotation.WebServlet;
 import javax.servlet.descriptor.JspConfigDescriptor;
 import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionAttributeListener;
@@ -59,7 +65,7 @@ import javax.servlet.http.MappingMatch;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Context extends DeploymentDescriptor implements ContextService {
+public class Context extends DeploymentDescriptor implements ContextService, Comparator<WebFragment> {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -261,27 +267,239 @@ public class Context extends DeploymentDescriptor implements ContextService {
      * Scan the web application and add any web fragments or annotations.
      */
     void scan(DeploymentDescriptorParser parser) throws IOException, SAXException {
-        Set<String> resourcePaths = getResourcePaths("/WEB-INF/");
+        Set<String> resourcePaths = getResourcePaths("/WEB-INF/", false);
+        // Process WEB-INF/classes and build a list of jars to process
+        List<String> jarPaths = new ArrayList<>();
         for (String resourcePath : resourcePaths) {
             if (resourcePath.startsWith("/WEB-INF/lib/") && resourcePath.toLowerCase().endsWith(".jar")) {
-                scanJar(parser, resourcePath);
+                jarPaths.add(resourcePath);
             } else if (resourcePath.startsWith("/WEB-INF/classes/") && resourcePath.toLowerCase().endsWith(".class")) {
-                scanClass(resourcePath);
+                // classes in WEB-INF/classes must be processed before any
+                // jars. See rule 2b
+                String className = resourcePath.substring(17, resourcePath.length() - 6).replace('/', '.');
+                InputStream in = getResourceAsStream(resourcePath);
+                scanClass(this, className, in);
             }
+        }
+        // Process the jars
+        List<WebFragment> webFragments = new ArrayList<>();
+        for (String jarPath : jarPaths) {
+            scanJar(parser, jarPath, webFragments);
+        }
+        // Order web fragments
+        Collections.sort(webFragments, this);
+        // Merge them into context
+        for (WebFragment webFragment : webFragments) {
+            merge(webFragment);
         }
     }
 
-    void scanJar(DeploymentDescriptorParser parser, String path) throws IOException, SAXException {
+    public int compare(WebFragment frag1, WebFragment frag2) {
+        String name1 = frag1.name;
+        String name2 = frag2.name;
+        // 8.2.2 case 1
+        int name1Index = absoluteOrdering.indexOf(frag1.name);
+        int name2Index = absoluteOrdering.indexOf(frag2.name);
+        int othersIndex = absoluteOrdering.indexOf(WebFragment.OTHERS);
+        if (name1Index == -1) {
+            name1Index = (othersIndex != -1) ? othersIndex : Integer.MAX_VALUE;
+        }
+        if (name2Index == -1) {
+            name2Index = (othersIndex != -1) ? othersIndex : Integer.MAX_VALUE;
+        }
+        if (name1Index != name2Index) {
+            return name1Index - name2Index;
+        }
+        // 8.2.2 case 2
+        if (frag1.isBefore(frag2) && !frag2.isBefore(frag1)) {
+            return -1;
+        }
+        if (frag2.isBefore(frag2) && !frag1.isBefore(frag1)) {
+            return 1;
+        }
+        if (frag1.isAfter(frag2) && !frag2.isAfter(frag1)) {
+            return 1;
+        }
+        if (frag2.isAfter(frag2) && !frag1.isAfter(frag1)) {
+            return -1;
+        }
+        if (frag1.isBeforeOthers() && !frag2.isBeforeOthers()) {
+            return -1;
+        }
+        if (frag2.isBeforeOthers() && !frag1.isBeforeOthers()) {
+            return 1;
+        }
+        if (frag1.isAfterOthers() && !frag2.isAfterOthers()) {
+            return 1;
+        }
+        if (frag2.isAfterOthers() && !frag1.isAfterOthers()) {
+            return -1;
+        }
+        return 0;
+    }
+
+    void scanJar(DeploymentDescriptorParser parser, String path, List<WebFragment> webFragments) throws IOException, SAXException {
         String webFragmentPath = "/META-INF/web-fragment.xml";
-        // TODO
+        File file = contextClassLoader.getFile(path);
+        try (JarFile jarFile = new JarFile(file)) {
+            WebFragment webFragment = new WebFragment();
+            // load web fragment
+            JarEntry jarEntry = jarFile.getJarEntry(webFragmentPath);
+            if (jarEntry != null) {
+                InputStream in = jarFile.getInputStream(jarEntry);
+                parser.parse(webFragment, in);
+            }
+            // 8.2.2 rule 1d
+            boolean noOthers = !absoluteOrdering.isEmpty() && absoluteOrdering.contains(WebFragment.OTHERS);
+            boolean exclude = (noOthers && !absoluteOrdering.contains(webFragment.name));
+            if (!exclude) {
+                // scan classes in jar for annotations
+                Enumeration<JarEntry> i = jarFile.entries();
+                if (i != null) {
+                    while (i.hasMoreElements()) {
+                        jarEntry = i.nextElement();
+                        String entry = jarEntry.getName();
+                        if (entry.endsWith(".class")) {
+                            String className = entry.substring(0, entry.length() - 6).replace('/', '.');
+                            InputStream in = jarFile.getInputStream(jarEntry);
+                            scanClass(webFragment, className, in);
+                        }
+                    }
+                }
+            }
+            if (!exclude && !webFragment.isEmpty()) {
+                webFragments.add(webFragment);
+            }
+        } catch (IOException e) {
+            String message = L10N.getString("err.load_resource");
+            message = MessageFormat.format(message, path);
+            LOGGER.log(Level.SEVERE, message, e);
+        }
     }
     
     /**
-     * Scan a class for @WebServlet, @WebFilter annotations
+     * Scan a class for @WebServlet, @WebFilter annotations.
+     * The class will be loaded by the context classloader.
      */
-    void scanClass(String path) throws IOException, SAXException {
-        ContextClassLoader cl = (ContextClassLoader) getContextClassLoader();
-        // TODO
+    void scanClass(DeploymentDescriptor descriptor, String className, InputStream in) throws IOException, SAXException {
+        contextClassLoader.assign(className, in);
+        try {
+            Class<?> t = contextClassLoader.loadClass(className);
+            Object target = null;
+            for (Annotation annotation : t.getAnnotations()) {
+                if (annotation instanceof WebFilter) {
+                    WebFilter webFilter = (WebFilter) annotation;
+                    if (!Filter.class.isAssignableFrom(t)) {
+                        String message = L10N.getString("err.bad_annotation");
+                        message = MessageFormat.format(message, className);
+                        LOGGER.log(Level.SEVERE, message);
+                        return;
+                    }
+                    FilterDef filterDef;
+                    if (target == null) {
+                        filterDef = new FilterDef();
+                        descriptor.addFilterDef(filterDef);
+                        target = filterDef;
+                    } else {
+                        filterDef = (FilterDef) target;
+                    }
+                    filterDef.init(webFilter, className);
+                    for (String urlPattern : webFilter.urlPatterns()) {
+                        FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
+                        filterMapping.name = filterDef.name;
+                        filterMapping.urlPattern = urlPattern;
+                        descriptor.addFilterMapping(filterMapping);
+                    }
+                    for (String servletName : webFilter.servletNames()) {
+                        FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
+                        filterMapping.name = filterDef.name;
+                        filterMapping.servletName = servletName;
+                        descriptor.addFilterMapping(filterMapping);
+                    }
+                } else if (annotation instanceof WebListener) {
+                    WebListener webListener = (WebListener) annotation;
+                    if (!EventListener.class.isAssignableFrom(t)) {
+                        String message = L10N.getString("err.bad_annotation");
+                        message = MessageFormat.format(message, className);
+                        LOGGER.log(Level.SEVERE, message);
+                        return;
+                    }
+                    ListenerDef listenerDef;
+                    if (target == null) {
+                        listenerDef = new ListenerDef();
+                        descriptor.addListenerDef(listenerDef);
+                        target = listenerDef;
+                    } else {
+                        listenerDef = (ListenerDef) target;
+                    }
+                    listenerDef.init(className);
+                    // listener is actually in descriptionGroup so should be
+                    // able to have description, icon etc but WebListener
+                    // doesn't support that.
+                } else if (annotation instanceof WebServlet) {
+                    WebServlet webServlet = (WebServlet) annotation;
+                    if (!Servlet.class.isAssignableFrom(t)) {
+                        String message = L10N.getString("err.bad_annotation");
+                        message = MessageFormat.format(message, className);
+                        LOGGER.log(Level.SEVERE, message);
+                        return;
+                    }
+                    ServletDef servletDef;
+                    if (target == null) {
+                        servletDef = new ServletDef();
+                        descriptor.addServletDef(servletDef);
+                        target = servletDef;
+                    } else {
+                        servletDef = (ServletDef) target;
+                    }
+                    servletDef.init(webServlet, className);
+                    for (String urlPattern : webServlet.urlPatterns()) {
+                        ServletMapping servletMapping = new ServletMapping();
+                        servletMapping.name = servletDef.name;
+                        servletMapping.urlPattern = urlPattern;
+                        descriptor.addServletMapping(servletMapping);
+                    }
+                } else if (annotation instanceof MultipartConfig) {
+                    MultipartConfig multipartConfig = (MultipartConfig) annotation;
+                    if (!Servlet.class.isAssignableFrom(t)) {
+                        String message = L10N.getString("err.bad_annotation");
+                        message = MessageFormat.format(message, className);
+                        LOGGER.log(Level.SEVERE, message);
+                        return;
+                    }
+                    ServletDef servletDef;
+                    if (target == null) {
+                        servletDef = new ServletDef();
+                        descriptor.addServletDef(servletDef);
+                        target = servletDef;
+                    } else {
+                        servletDef = (ServletDef) target;
+                    }
+                    servletDef.init(multipartConfig);
+                } else if (annotation instanceof ServletSecurity) {
+                    ServletSecurity servletSecurity = (ServletSecurity) annotation;
+                    if (!Servlet.class.isAssignableFrom(t)) {
+                        String message = L10N.getString("err.bad_annotation");
+                        message = MessageFormat.format(message, className);
+                        LOGGER.log(Level.SEVERE, message);
+                        return;
+                    }
+                    ServletDef servletDef;
+                    if (target == null) {
+                        servletDef = new ServletDef();
+                        descriptor.addServletDef(servletDef);
+                        target = servletDef;
+                    } else {
+                        servletDef = (ServletDef) target;
+                    }
+                    servletDef.init(servletSecurity);
+                }
+            }
+        } catch (ClassNotFoundException e) {
+            String message = L10N.getString("err.load_resource");
+            message = MessageFormat.format(message, className);
+            LOGGER.log(Level.SEVERE, message, e);
+        }
     }
     
     /**

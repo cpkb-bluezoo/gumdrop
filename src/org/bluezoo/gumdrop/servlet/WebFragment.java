@@ -30,11 +30,31 @@ import java.util.List;
  */
 class WebFragment extends DeploymentDescriptor {
 
-    // Represents the <others> element.
-    static final String OTHERS = "";
+    // Represents the <others> element. This value cannot exist in XML
+    static final String OTHERS = "\u0000";
 
     String name;
     List<String> before;
     List<String> after;
+
+    boolean isEmpty() {
+        return name != null && super.isEmpty();
+    }
+
+    boolean isBefore(WebFragment webFragment) {
+        return before != null && before.contains(webFragment.name);
+    }
+
+    boolean isBeforeOthers() {
+        return before != null && before.contains(OTHERS);
+    }
+
+    boolean isAfter(WebFragment webFragment) {
+        return after != null && after.contains(webFragment.name);
+    }
+
+    boolean isAfterOthers() {
+        return after != null && after.contains(OTHERS);
+    }
 
 }

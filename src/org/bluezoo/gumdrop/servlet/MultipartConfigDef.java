@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.servlet.annotation.MultipartConfig;
+
 /**
  * A multipart-config element in a servlet deployment descriptor.
  *
@@ -33,5 +35,12 @@ class MultipartConfigDef {
     long maxFileSize = -1L;
     long maxRequestSize = -1L;
     long fileSizeThreshold = 0L;
+
+    void init(MultipartConfig config) {
+        location = config.location();
+        maxFileSize = config.maxFileSize();
+        maxRequestSize = config.maxRequestSize();
+        fileSizeThreshold = config.fileSizeThreshold();
+    }
 
 }

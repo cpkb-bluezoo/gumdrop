@@ -42,6 +42,10 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRegistration;
 import javax.servlet.ServletSecurityElement;
 import javax.servlet.SingleThreadModel;
+import javax.servlet.annotation.MultipartConfig;
+import javax.servlet.annotation.ServletSecurity;
+import javax.servlet.annotation.WebInitParam;
+import javax.servlet.annotation.WebServlet;
 
 import org.bluezoo.gumdrop.servlet.manager.ServletReg;
 
@@ -69,6 +73,28 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     SecurityRole securityRoleRef;
     MultipartConfigDef multipartConfig;
     boolean asyncSupported;
+
+    void init(WebServlet config, String className) {
+        this.className = className;
+        description = config.description();
+        displayName = config.displayName();
+        smallIcon = config.smallIcon();
+        largeIcon = config.largeIcon();
+        name = config.name();
+        loadOnStartup = config.loadOnStartup();
+        for (WebInitParam configInitParam : config.initParams()) {
+            addInitParam(new InitParam(configInitParam));
+        }
+        asyncSupported = config.asyncSupported();
+    }
+
+    void init(MultipartConfig config) {
+        multipartConfig = new MultipartConfigDef();
+        multipartConfig.init(config);
+    }
+
+    void init(ServletSecurity config) {
+    }
 
     /**
      * Compare for sorting according to the value of loadOnStartup

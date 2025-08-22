@@ -85,6 +85,46 @@ abstract class DeploymentDescriptor implements Description {
 
     boolean authentication;
 
+    boolean isEmpty() {
+        return description == null &&
+            displayName == null &&
+            smallIcon == null &&
+            largeIcon == null &&
+            contextParams.isEmpty() &&
+            filterDefs.isEmpty() &&
+            filterMappings.isEmpty() &&
+            listenerDefs.isEmpty() &&
+            servletDefs.isEmpty() &&
+            servletMappings.isEmpty() &&
+            sessionConfig == null &&
+            mimeMappings.isEmpty() &&
+            welcomeFiles.isEmpty() &&
+            errorPages.isEmpty() &&
+            jspConfigs.isEmpty() &&
+            securityConstraints.isEmpty() &&
+            loginConfig == null &&
+            securityRoles.isEmpty() &&
+            envEntries.isEmpty() &&
+            ejbRefs.isEmpty() &&
+            ejbLocalRefs.isEmpty() &&
+            serviceRefs.isEmpty() &&
+            resourceRefs.isEmpty() &&
+            resourceEnvRefs.isEmpty() &&
+            messageDestinationRefs.isEmpty() &&
+            persistenceContextRefs.isEmpty() &&
+            persistenceUnitRefs.isEmpty() &&
+            postConstructs.isEmpty() &&
+            preDestroys.isEmpty() &&
+            dataSourceDefs.isEmpty() &&
+            jmsConnectionFactories.isEmpty() &&
+            jmsDestinations.isEmpty() &&
+            messageDestinations.isEmpty() &&
+            mailSessions.isEmpty() &&
+            connectionFactories.isEmpty() &&
+            administeredObjects.isEmpty() &&
+            localeEncodingMappings.isEmpty();
+    }
+
     void reset() {
         description = null;
         displayName = null;
