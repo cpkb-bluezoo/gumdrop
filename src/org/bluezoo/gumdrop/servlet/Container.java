@@ -134,8 +134,13 @@ public class Container implements ContainerService {
                 distributable = distributable || context.distributable;
             }
             if (hotDeploy) {
-                hotDeploymentThread = new HotDeploymentThread(this);
-                hotDeploymentThread.start();
+                try {
+                    hotDeploymentThread = new HotDeploymentThread(this);
+                    hotDeploymentThread.start();
+                } catch (IOException e) {
+                    String message = Context.L10N.getString("err.hot_deploy");
+                    Context.LOGGER.log(Level.SEVERE, message, e);
+                }
             }
             if (distributable) {
                 try {

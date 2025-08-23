@@ -23,10 +23,25 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.FileSystems;
+import java.nio.file.FileVisitor;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
+import org.xml.sax.SAXException;
 
 /**
  * This thread is used to monitor the state of various critical resources in
@@ -41,91 +56,133 @@ import java.util.logging.Level;
 class HotDeploymentThread extends Thread {
 
     final Container container;
-    Map contextStates;
+    final Map<Context,Long> warLastModified;
+    final WatchService watchService;
+    final Map<WatchKey,Context> watchKeys;
 
-    HotDeploymentThread(Container container) {
+    HotDeploymentThread(Container container) throws IOException {
         super("hot-deploy");
         this.container = container;
         setDaemon(true);
         setPriority(Thread.MIN_PRIORITY);
-        contextStates = new HashMap();
+        warLastModified = new HashMap<>();
+        watchService = FileSystems.getDefault().newWatchService();
+        watchKeys = new HashMap<>();
     }
 
     public void run() {
-        // Build representation of context states
-        for (Iterator i = container.contexts.iterator(); i.hasNext(); ) {
-            process((Context) i.next(), false);
+        // Set up watch keys or warLastModified for contexts
+        for (Context context : container.contexts) {
+            init(context);
         }
+
         while (!isInterrupted()) {
-            // Determine changes
-            for (Iterator i = container.contexts.iterator(); i.hasNext(); ) {
-                process((Context) i.next(), true);
-            }
-
-            // Wait
             try {
-                synchronized (this) {
-                    wait(1000);
-                }
-            } catch (InterruptedException e) {
-                // Context.LOGGER.log(Level.WARNING, e.getMessage(), e);
-            }
-        }
-    }
-
-    void process(Context context, boolean update) {
-        Map state = (Map) contextStates.get(context);
-        if (state == null) {
-            state = new HashMap();
-            contextStates.put(context, state);
-        }
-        if (context.root.isDirectory()) {
-            File webInf = new File(context.root, "WEB-INF");
-            processFile(context, state, webInf, update);
-        } else {
-            // entire WAR file
-            processFile(context, state, context.root, update);
-        }
-    }
-
-    boolean processFile(Context context, Map state, File file, boolean update) {
-        if (file.isDirectory()) {
-            File[] files = file.listFiles();
-            if (files != null) {
-                for (int i = 0; i < files.length; i++) {
-                    if (processFile(context, state, files[i], update)) {
-                        return true;
+                WatchKey key = watchService.poll(1000, TimeUnit.MILLISECONDS);
+                if (key != null) { // filesystem change
+                    Context context = watchKeys.get(key);
+                    if (context != null) {
+                        for (WatchEvent<?> event : key.pollEvents()) {
+                            WatchEvent.Kind<?> kind = event.kind();
+                            if (kind == StandardWatchEventKinds.OVERFLOW) {
+                                continue;
+                            }
+                            Path changed = (Path) event.context();
+                            if (key.watchable().equals(context.root.toPath())) {
+                                // Only check for WEB-INF lifecycle events
+                                if (!changed.getFileName().toString().equals("WEB-INF")) {
+                                    break;
+                                }
+                            }
+                            Path changedPath = ((Path) key.watchable()).resolve(changed);
+                            if (kind == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(changedPath)) {
+                                try {
+                                    registerAll(changedPath, context);
+                                } catch (IOException e) {
+                                    String message = Context.L10N.getString("err.watch_new_directory");
+                                    message = MessageFormat.format(message, context.getContextPath());
+                                    Context.LOGGER.log(Level.SEVERE, message, e);
+                                }
+                            }
+                            redeploy(context);
+                            break;
+                        }
+                    }
+                    if (!key.reset()) {
+                        watchKeys.remove(key);
                     }
                 }
-            }
-        } else if (file.exists()) {
-            long lm = file.lastModified();
-            Long llm = (Long) state.get(file);
-            if (update && (llm == null || lm > llm.longValue())) {
-                state.put(file, Long.valueOf(lm));
-                return redeploy(context);
-            } else {
-                state.put(file, Long.valueOf(lm));
+                // Check contexts with WAR files for changes
+                for (Context context : warLastModified.keySet()) {
+                    long registeredLastModified = warLastModified.get(context);
+                    long lastModified = context.root.lastModified();
+                    if (lastModified != registeredLastModified) {
+                        warLastModified.put(context, lastModified);
+                        redeploy(context);
+                    }
+                }
+            } catch (InterruptedException e) {
+                try {
+                    watchService.close();
+                } catch (IOException e2) {
+                    String message = Context.L10N.getString("err.watch");
+                    Context.LOGGER.log(Level.SEVERE, message, e2);
+                }
+                return;
             }
         }
-        return false;
+    }
+
+    void init(Context context) {
+        if (context.root.isDirectory()) { // file based, use watch key
+            try {
+                // Always watch the context root for WEB-INF
+                // creation/deletion
+                WatchKey key = context.root.toPath().register(watchService,
+                        StandardWatchEventKinds.ENTRY_CREATE,
+                        StandardWatchEventKinds.ENTRY_DELETE);
+                watchKeys.put(key, context);
+                // If WEB-INF exists, also register it and all
+                // of its subdirectories
+                File webInf = new File(context.root, "WEB-INF");
+                if (webInf.exists() && webInf.isDirectory()) {
+                    registerAll(webInf.toPath(), context);
+                }
+            } catch (IOException e) {
+                String message = Context.L10N.getString("err.watch_web_inf");
+                message = MessageFormat.format(message, context.getContextPath());
+                Context.LOGGER.log(Level.SEVERE, message, e);
+            }
+        } else { // WAR based, just store last-modified of war file
+            long lastModified = context.root.lastModified();
+            warLastModified.put(context, lastModified);
+        }
+    }
+
+    void registerAll(Path start, final Context context) throws IOException {
+        FileVisitor<Path> visitor = new SimpleFileVisitor<Path>() {
+            @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                WatchKey key = dir.register(watchService,
+                        StandardWatchEventKinds.ENTRY_CREATE,
+                        StandardWatchEventKinds.ENTRY_DELETE,
+                        StandardWatchEventKinds.ENTRY_MODIFY);
+                watchKeys.put(key, context);
+                return FileVisitResult.CONTINUE;
+            }
+        };
+        Files.walkFileTree(start, visitor);
     }
 
     boolean redeploy(Context context) {
         try {
-            process(context, false);
             synchronized (context) {
-                long t1 = System.currentTimeMillis();
-                context.destroy();
                 context.reload();
-                context.init();
-                long t2 = System.currentTimeMillis();
-                Context.LOGGER.info(
-                        "Redeployed context " + context.contextPath + " in " + (t2 - t1) + "ms");
             }
             return true;
-        } catch (Exception e) {
-            Context.LOGGER.log(Level.SEVERE, "Unable to redeploy context", e);
+        } catch (IOException | SAXException e) {
+            String message = Context.L10N.getString("err.reload");
+            message = MessageFormat.format(message, context.getContextPath());
+            Context.LOGGER.log(Level.SEVERE, message, e);
             return false;
         }
     }
