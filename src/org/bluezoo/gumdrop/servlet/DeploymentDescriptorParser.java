@@ -291,6 +291,12 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         AFTER("after"),
 
         // poorly documented JNDI and reflection stuff
+        // JAX-WS
+        HANDLER_NAME("handler-name"),
+        HANDLER_CLASS("handler-class"),
+        HANDLER_CHAIN("handler-chain"),
+        PROTOCOL_BINDINGS("protocol-bindings"),
+        PORT_NAME_PATTERN("port-name-pattern"),
         // JPA
         PERSISTENCE_CONTEXT_REF_NAME("persistence-context-ref-name"),
         PERSISTENCE_UNIT_REF_NAME("persistence-unit-ref-name"),
@@ -525,9 +531,6 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case RESPONSE_CHARACTER_ENCODING:
                         pushText();
                         break;
-                    case ABSOLUTE_ORDERING:
-                        // TODO
-                        break;
                 }
                 // fall through
             case WEB_FRAGMENT:
@@ -638,7 +641,6 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         case NAME:
                             pushText();
                             break;
-                        // TODO relative ordering
                     }
                 }
                 break;
@@ -924,13 +926,44 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case JAXRPC_MAPPING_FILE:
                     case SERVICE_QNAME:
                     case PORT_COMPONENT_REF:
-                    case HANDLER:
                     case MAPPED_NAME:
                     case LOOKUP_NAME:
                         pushText();
                         break;
+                    case HANDLER:
+                        pushTarget(new HandlerDef());
+                        break;
                     case INJECTION_TARGET:
                         pushTarget(new InjectionTarget());
+                        break;
+                }
+                break;
+            case HANDLER:
+                switch (state) {
+                    case HANDLER_NAME:
+                    case HANDLER_CLASS:
+                        pushText();
+                        break;
+                    case INIT_PARAM:
+                        pushTarget(new InitParam());
+                        break;
+                }
+                break;
+            case HANDLER_CHAINS:
+                switch (state) {
+                    case HANDLER_CHAIN:
+                        pushTarget(new HandlerChainDef());
+                        break;
+                }
+                break;
+            case HANDLER_CHAIN:
+                switch (state) {
+                    case PROTOCOL_BINDINGS:
+                    case PORT_NAME_PATTERN:
+                        pushText();
+                        break;
+                    case HANDLER:
+                        pushTarget(new HandlerDef());
                         break;
                 }
                 break;
@@ -1363,7 +1396,6 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         case NAME:
                             ((WebFragment) peekTarget()).name = popText();
                             break;
-                            // TODO ordering
                     }
                 }
                 break;
@@ -1859,9 +1891,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((ServiceRef) peekTarget()).portComponentRef = popText();
                         break;
                     case HANDLER:
-                    case HANDLER_CHAINS:
-                        // TODO
-                        break;
+                        HandlerDef handlerDef = (HandlerDef) popTarget();
+                        ((ServiceRef) peekTarget()).handler = handlerDef;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
                         break;
@@ -1871,6 +1902,42 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
                         ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
+                        break;
+                }
+                break;
+            case HANDLER:
+                switch (state) {
+                    case HANDLER_NAME:
+                        ((HandlerDef) peekTarget()).name = popText();
+                        break;
+                    case HANDLER_CLASS:
+                        ((HandlerDef) peekTarget()).className = popText();
+                        break;
+                    case INIT_PARAM:
+                        InitParam initParam = (InitParam) popTarget();
+                        ((HandlerDef) peekTarget()).addInitParam(initParam);
+                        break;
+                }
+                break;
+            case HANDLER_CHAINS:
+                switch (state) {
+                    case HANDLER_CHAIN:
+                        HandlerChainDef handlerChain = (HandlerChainDef) popTarget();
+                        ((ServiceRef) peekTarget()).addHandlerChain(handlerChain);
+                        break;
+                }
+                break;
+            case HANDLER_CHAIN:
+                switch (state) {
+                    case PROTOCOL_BINDINGS:
+                        ((HandlerChainDef) peekTarget()).protocolBindings = popText();
+                        break;
+                    case PORT_NAME_PATTERN:
+                        ((HandlerChainDef) peekTarget()).portNamePattern = popText();
+                        break;
+                    case HANDLER:
+                        HandlerDef handler = (HandlerDef) popTarget();
+                        ((HandlerChainDef) peekTarget()).addHandler(handler);
                         break;
                 }
                 break;

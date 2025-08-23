@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.util.ArrayList;
+import java.util.List;
 import javax.xml.ws.WebServiceRef;
 
 /**
@@ -44,8 +46,8 @@ final class ServiceRef implements Description, Injectable {
     String jaxrpcMappingFile;
     String serviceQname;
     String portComponentRef;
-    // TODO handler
-    // TODO handlerChains
+    HandlerDef handler;
+    List<HandlerChainDef> handlerChains;
 
     // Injectable
     String lookupName;
@@ -59,6 +61,10 @@ final class ServiceRef implements Description, Injectable {
         wsdlFile = config.wsdlLocation();
         lookupName = config.lookup();
         mappedName = config.mappedName();
+    }
+
+    void addHandlerChain(HandlerChainDef handlerChain) {
+        handlerChains.add(handlerChain);
     }
 
     // -- Description --
