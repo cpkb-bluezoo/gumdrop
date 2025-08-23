@@ -42,6 +42,7 @@ abstract class DeploymentDescriptor implements Description {
 
     int majorVersion = 2;
     int minorVersion = 4;
+    boolean metadataComplete;
 
     // Description
     String description;
@@ -242,6 +243,25 @@ abstract class DeploymentDescriptor implements Description {
         resources.addAll(connectionFactories);
         resources.addAll(administeredObjects);
         return resources;
+    }
+
+    /**
+     * Returns all the resource references that need to have injection
+     * target handling.
+     */
+    Collection<Injectable> getInjectables() {
+        Set<Injectable> injectables = new LinkedHashSet<>();
+        injectables.addAll(envEntries);
+        injectables.addAll(ejbRefs);
+        injectables.addAll(ejbLocalRefs);
+        injectables.addAll(serviceRefs);
+        injectables.addAll(resourceRefs);
+        injectables.addAll(resourceEnvRefs);
+        injectables.addAll(messageDestinationRefs);
+        injectables.addAll(persistenceContextRefs);
+        injectables.addAll(persistenceUnitRefs);
+        injectables.addAll(administeredObjects);
+        return injectables;
     }
 
     boolean isSecurityConstraintTarget(String urlPattern) {

@@ -22,12 +22,15 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.ejb.EJB;
+import javax.naming.NamingException;
+
 /**
  * A reference to an enterprise bean's home.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class EjbRef implements JNDIResource {
+final class EjbRef implements Injectable {
 
     String description;
     String name; // ejb-ref-name
@@ -36,12 +39,21 @@ final class EjbRef implements JNDIResource {
     String remote;
     String ejbLink;
 
-    // JNDIResource
-    String lookupName; // TODO
-    InjectionTarget injectionTarget; // TODO
-    String mappedName; // TODO
+    // Injectable
+    String lookupName;
+    InjectionTarget injectionTarget;
+    String mappedName;
 
-    // -- JNDIResource --
+    void init(EJB config) {
+        description = config.description();
+        name = config.name();
+        className = config.beanInterface().getName();
+        ejbLink = config.beanName();
+        lookupName = config.lookup();
+        mappedName = config.mappedName();
+    }
+
+    // -- Injectable --
 
     @Override public String getLookupName() {
         return lookupName;
@@ -67,5 +79,25 @@ final class EjbRef implements JNDIResource {
         this.mappedName = mappedName;
     }
 
-}
+    @Override public String getDefaultName() {
+        return ejbLink;
+    }
 
+    @Override public Object resolve(javax.naming.Context ctx) throws NamingException {
+        // Note that the order for resolution is different for EJBs
+        Object resolved = ctx.lookup(lookupName);
+        if (resolved != null) {
+            return resolved;
+        }
+        resolved = ctx.lookup(ejbLink);
+        if (resolved != null) {                                                                                                     return resolved;
+        }
+        String defaultName = getDefaultName();
+        resolved = ctx.lookup("java:comp/env/" + mappedName);
+        if (resolved != null) {                                                                                                     return resolved;
+        }
+        // TODO try some other shenanigans
+        return resolved;
+    }
+
+}

@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
+import javax.annotation.Resource;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
@@ -215,7 +216,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         ENV_ENTRY_TYPE("env-entry-type"),
         ENV_ENTRY_VALUE("env-entry-value"),
 
-        // JNDIResource
+        // Injectable
         MAPPED_NAME("mapped-name"),
         INJECTION_TARGET("injection-target"),
         INJECTION_TARGET_CLASS("injection-target-class"),
@@ -509,8 +510,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         }
                     }
                     String metadataComplete = atts.getValue("metadata-complete");
-                    if (state == State.WEB_APP && "true".equals(metadataComplete) && descriptor instanceof Context) {
-                        ((Context) peekTarget()).metadataComplete = true;
+                    if ("true".equals(metadataComplete)) {
+                        descriptor.metadataComplete = true;
                     }
                 }
                 break;
@@ -1740,14 +1741,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((EnvEntry) peekTarget()).value = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1782,14 +1783,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((EjbRef) peekTarget()).ejbLink = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1814,14 +1815,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((EjbLocalRef) peekTarget()).ejbLink = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1856,14 +1857,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         // TODO
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1879,20 +1880,20 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((ResourceRef) peekTarget()).className = popText();
                         break;
                     case RES_AUTH:
-                        ((ResourceRef) peekTarget()).resAuth = popText();
+                        ((ResourceRef) peekTarget()).resAuth = Resource.AuthenticationType.valueOf(popText());
                         break;
                     case RES_SHARING_SCOPE:
                         ((ResourceRef) peekTarget()).resSharingScope = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1908,14 +1909,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((ResourceEnvRef) peekTarget()).className = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1937,14 +1938,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((MessageDestinationRef) peekTarget()).messageDestinationLink = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1963,14 +1964,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((PersistenceContextRef) peekTarget()).persistenceUnitName = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -1986,14 +1987,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((PersistenceUnitRef) peekTarget()).persistenceUnitName = popText();
                         break;
                     case MAPPED_NAME:
-                        ((JNDIResource) peekTarget()).setMappedName(popText());
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((JNDIResource) peekTarget()).setLookupName(popText());
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;
@@ -2298,7 +2299,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case INJECTION_TARGET:
                         InjectionTarget injectionTarget = (InjectionTarget) popTarget();
-                        ((JNDIResource) peekTarget()).setInjectionTarget(injectionTarget);
+                        ((Injectable) peekTarget()).setInjectionTarget(injectionTarget);
                         break;
                 }
                 break;

@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 import javax.mail.Authenticator;
+import javax.mail.MailSessionDefinition;
 import javax.mail.PasswordAuthentication;
 import javax.mail.Provider;
 import javax.mail.Session;
@@ -52,6 +53,17 @@ final class MailSession extends Resource {
     String password;
     String from;
     Map<String,String> properties = new LinkedHashMap<>();
+
+    void init(MailSessionDefinition config) {
+        description = config.description();
+        name = config.name();
+        storeProtocol = config.storeProtocol();
+        transportProtocol = config.transportProtocol();
+        host = config.host();
+        user = config.user();
+        password = config.password();
+        from = config.from();
+    }
 
     void addProperty(String name, String value) {
         properties.put(name, value);

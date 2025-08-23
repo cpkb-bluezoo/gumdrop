@@ -34,6 +34,9 @@ import org.xml.sax.SAXException;
 
 import java.io.*;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.*;
 import java.text.MessageFormat;
 import java.util.*;
@@ -44,6 +47,8 @@ import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.annotation.security.DeclareRoles;
+import javax.annotation.security.RunAs;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.servlet.*;
@@ -101,7 +106,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     boolean distributable;
     boolean initialized;
-    boolean metadataComplete;
 
     String moduleName; // TODO
     String defaultContextPath; // TODO
@@ -352,7 +356,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             // 8.2.2 rule 1d
             boolean noOthers = !absoluteOrdering.isEmpty() && absoluteOrdering.contains(WebFragment.OTHERS);
             boolean exclude = (noOthers && !absoluteOrdering.contains(webFragment.name));
-            if (!exclude) {
+            if (!exclude && !webFragment.metadataComplete) {
                 // scan classes in jar for annotations
                 Enumeration<JarEntry> i = jarFile.entries();
                 if (i != null) {
@@ -502,6 +506,24 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(servletSecurity);
+                } else if (annotation instanceof DeclareRoles) {
+                    DeclareRoles declareRoles = (DeclareRoles) annotation;
+                    for (String roleName : declareRoles.value()) {
+                        SecurityRole securityRole = new SecurityRole();
+                        securityRole.roleName = roleName;
+                        descriptor.addSecurityRole(securityRole);
+                    }
+                } else if (annotation instanceof RunAs) {
+                    RunAs runAs = (RunAs) annotation;
+                    ServletDef servletDef;
+                    if (target == null) {
+                        servletDef = new ServletDef();
+                        descriptor.addServletDef(servletDef);
+                        target = servletDef;
+                    } else {
+                        servletDef = (ServletDef) target;
+                    }
+                    servletDef.init(runAs);
                 }
             }
         } catch (ClassNotFoundException e) {
@@ -562,6 +584,40 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                 } catch (ServletException e) {
                     String message = Context.L10N.getString("err.init_resource");
                     Context.LOGGER.log(Level.SEVERE, message, e);
+                }
+            }
+            for (Injectable injectable : getInjectables()) {
+                InjectionTarget it = injectable.getInjectionTarget();
+                if (it != null) {
+                    // Discover source for injection
+                    Object source = injectable.resolve(ctx);
+                    if (source != null) {
+                        // Perform injection
+                        String className = it.className;
+                        String name = it.name;
+                        try {
+                            Class<?> t = contextClassLoader.loadClass(className);
+                            Object target = t.newInstance();
+                            try {
+                                Field field = t.getField(name);
+                                field.set(target, source);
+                            } catch (NoSuchFieldException e) {
+                                Method[] methods = t.getMethods();
+                                for (Method method : methods) {
+                                    if (method.getName().equals(name)) {
+                                        Class<?>[] mt = method.getParameterTypes();
+                                        if (mt.length == 1 && mt[0].isAssignableFrom(source.getClass())) {
+                                            method.invoke(target, source);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+                            String message = Context.L10N.getString("err.init_resource");
+                            Context.LOGGER.log(Level.SEVERE, message, e);
+                        }
+                    }
                 }
             }
         } catch (NamingException e) {

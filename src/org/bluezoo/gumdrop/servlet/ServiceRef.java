@@ -27,7 +27,7 @@ package org.bluezoo.gumdrop.servlet;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ServiceRef implements Description, JNDIResource {
+final class ServiceRef implements Description, Injectable {
 
     // Description
     String description;
@@ -45,10 +45,10 @@ final class ServiceRef implements Description, JNDIResource {
     // TODO handler
     // TODO handlerChains
 
-    // JNDIResource
-    String lookupName; // TODO
-    InjectionTarget injectionTarget; // TODO
-    String mappedName; // TODO
+    // Injectable
+    String lookupName;
+    InjectionTarget injectionTarget;
+    String mappedName;
 
     // -- Description --
 
@@ -84,7 +84,7 @@ final class ServiceRef implements Description, JNDIResource {
         this.largeIcon = largeIcon;
     }
 
-    // -- JNDIResource --
+    // -- Injectable --
 
     @Override public String getLookupName() {
         return lookupName;
@@ -94,20 +94,20 @@ final class ServiceRef implements Description, JNDIResource {
         this.lookupName = lookupName;
     }
 
-    @Override public InjectionTarget getInjectionTarget() {
-        return injectionTarget;
-    }
-
-    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
-        this.injectionTarget = injectionTarget;
-    }
-
     @Override public String getMappedName() {
         return mappedName;
     }
 
     @Override public void setMappedName(String mappedName) {
         this.mappedName = mappedName;
+    }
+
+    @Override public InjectionTarget getInjectionTarget() {
+        return injectionTarget;
+    }
+
+    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
+        this.injectionTarget = injectionTarget;
     }
 
 }

@@ -34,7 +34,7 @@ import java.util.logging.Level;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class AdministeredObject extends Resource implements JNDIResource {
+final class AdministeredObject extends Resource implements Injectable {
 
     String description;
     String jndiName;
@@ -42,12 +42,16 @@ final class AdministeredObject extends Resource implements JNDIResource {
     String administeredObjectClass;
     Map<String,String> properties = new LinkedHashMap<>();
 
-    // JNDIResource
-    String lookupName; // TODO
-    InjectionTarget injectionTarget; // TODO
-    String mappedName; // TODO
+    // Injectable
+    String lookupName;
+    InjectionTarget injectionTarget;
+    String mappedName;
 
-    // -- JNDIResource --
+    void addProperty(String name, String value) {
+        properties.put(name, value);
+    }
+
+    // -- Injectable --
 
     @Override public String getLookupName() {
         return lookupName;
@@ -55,14 +59,6 @@ final class AdministeredObject extends Resource implements JNDIResource {
 
     @Override public void setLookupName(String lookupName) {
         this.lookupName = lookupName;
-    }
-
-    @Override public InjectionTarget getInjectionTarget() {
-        return injectionTarget;
-    }
-
-    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
-        this.injectionTarget = injectionTarget;
     }
 
     @Override public String getMappedName() {
@@ -73,8 +69,12 @@ final class AdministeredObject extends Resource implements JNDIResource {
         this.mappedName = mappedName;
     }
 
-    void addProperty(String name, String value) {
-        properties.put(name, value);
+    @Override public InjectionTarget getInjectionTarget() {
+        return injectionTarget;
+    }
+
+    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
+        this.injectionTarget = injectionTarget;
     }
 
     // -- Resource --

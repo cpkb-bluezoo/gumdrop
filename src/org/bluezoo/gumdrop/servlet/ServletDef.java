@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.security.RunAs;
 import javax.servlet.MultipartConfigElement;
 import javax.servlet.Servlet;
 import javax.servlet.ServletConfig;
@@ -94,6 +95,11 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     }
 
     void init(ServletSecurity config) {
+        // TODO
+    }
+
+    void init(RunAs config) {
+        runAs = config.value();
     }
 
     /**

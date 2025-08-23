@@ -29,19 +29,19 @@ package org.bluezoo.gumdrop.servlet;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class EnvEntry implements JNDIResource {
+final class EnvEntry implements Injectable {
 
     String description;
     String name; // env-entry-name
     String className; // env-entry-type
     String value; // env-entry-value
 
-    // JNDIResource
-    String lookupName; // TODO
-    InjectionTarget injectionTarget; // TODO
-    String mappedName; // TODO
+    // Injectable
+    String lookupName;
+    InjectionTarget injectionTarget;
+    String mappedName;
 
-    // -- JNDIResource --
+    // -- Injectable --
 
     @Override public String getLookupName() {
         return lookupName;
@@ -51,20 +51,20 @@ final class EnvEntry implements JNDIResource {
         this.lookupName = lookupName;
     }
 
-    @Override public InjectionTarget getInjectionTarget() {
-        return injectionTarget;
-    }
-
-    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
-        this.injectionTarget = injectionTarget;
-    }
-
     @Override public String getMappedName() {
         return mappedName;
     }
 
     @Override public void setMappedName(String mappedName) {
         this.mappedName = mappedName;
+    }
+
+    @Override public InjectionTarget getInjectionTarget() {
+        return injectionTarget;
+    }
+
+    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
+        this.injectionTarget = injectionTarget;
     }
 
 }

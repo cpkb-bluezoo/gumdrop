@@ -22,25 +22,37 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.annotation.Resource;
+
 /**
  * A reference to an external resource.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ResourceRef implements JNDIResource {
+final class ResourceRef implements Injectable {
 
     String description;
     String name; // res-ref-name
     String className; // res-type
-    String resAuth;
+    Resource.AuthenticationType resAuth;
     String resSharingScope;
 
-    // JNDIResource
-    String lookupName; // TODO
-    InjectionTarget injectionTarget; // TODO
-    String mappedName; // TODO
+    // Injectable
+    String lookupName;
+    InjectionTarget injectionTarget;
+    String mappedName;
 
-    // -- JNDIResource --
+    void init(Resource config) {
+        description = config.description();
+        name = config.name();
+        resAuth = config.authenticationType();
+        lookupName = config.lookup();
+        mappedName = config.mappedName();
+        className = config.type().getName();
+        // TODO config.shareable()
+    }
+
+    // -- Injectable --
 
     @Override public String getLookupName() {
         return lookupName;
@@ -50,20 +62,20 @@ final class ResourceRef implements JNDIResource {
         this.lookupName = lookupName;
     }
 
-    @Override public InjectionTarget getInjectionTarget() {
-        return injectionTarget;
-    }
-
-    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
-        this.injectionTarget = injectionTarget;
-    }
-
     @Override public String getMappedName() {
         return mappedName;
     }
 
     @Override public void setMappedName(String mappedName) {
         this.mappedName = mappedName;
+    }
+
+    @Override public InjectionTarget getInjectionTarget() {
+        return injectionTarget;
+    }
+
+    @Override public void setInjectionTarget(InjectionTarget injectionTarget) {
+        this.injectionTarget = injectionTarget;
     }
 
 }
