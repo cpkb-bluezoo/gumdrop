@@ -37,6 +37,7 @@ import java.util.logging.Level;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
+import javax.servlet.ServletException;
 
 /**
  * Container for a number of web application contexts.
@@ -49,6 +50,7 @@ public class Container implements ContainerService {
 
     final List<Context> contexts = new ArrayList<>();
     final Map<String,Realm> realms = new LinkedHashMap<>();
+    final List<Resource> resources = new ArrayList<>();
     boolean started = false;
 
     boolean hotDeploy = true;
@@ -81,6 +83,10 @@ public class Container implements ContainerService {
         realms.put(name, realm);
     }
 
+    public void addResource(Resource resource) {
+        resources.add(resource);
+    }
+
     public void setHotDeploy(boolean flag) {
         hotDeploy = flag;
     }
@@ -98,10 +104,31 @@ public class Container implements ContainerService {
      */
     synchronized void init() {
         if (!started) {
-            // Init resources
+            // Bootstrap JNDI
             String className = ServletInitialContextFactory.class.getName();
             System.getProperties().put("java.naming.factory.initial", className);
             boolean distributable = false;
+            // Init resources
+            try {
+                ServletInitialContext ctx = (ServletInitialContext) new InitialContext().lookup("");
+                for (Resource resource : resources) {
+                    try {
+                        resource.init();
+                        String name = resource.getName();
+                        String interfaceName = resource.getInterfaceName();
+                        Object instance = resource.newInstance();
+                        if (instance != null) {
+                            ctx.bind("java:comp/env/" + name, interfaceName, instance);
+                        }
+                    } catch (ServletException e) {
+                        String message = Context.L10N.getString("err.init_resource");
+                        Context.LOGGER.log(Level.SEVERE, message, e);
+                    }
+                }
+            } catch (NamingException e) {
+                String message = Context.L10N.getString("err.init_resource");
+                Context.LOGGER.log(Level.SEVERE, message, e);
+            }
             for (Context context : contexts) {
                 context.init();
                 distributable = distributable || context.distributable;
@@ -138,6 +165,9 @@ public class Container implements ContainerService {
             for (Context context : contexts) {
                 context.invalidateSessions(true);
                 context.destroy();
+            }
+            for (Resource resource : resources) {
+                resource.close();
             }
             started = false;
         }

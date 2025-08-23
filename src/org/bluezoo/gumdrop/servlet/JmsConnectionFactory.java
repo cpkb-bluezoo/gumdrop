@@ -25,13 +25,15 @@ package org.bluezoo.gumdrop.servlet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.xml.sax.Attributes;
+
 /**
  * Corresponds to a <code>jms-connection-factory</code> element in a
  * deployment descriptor.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class JmsConnectionFactory extends Resource {
+public final class JmsConnectionFactory extends Resource {
 
     String description;
     String name; // name
@@ -40,13 +42,27 @@ final class JmsConnectionFactory extends Resource {
     String user;
     String password;
     String clientId;
+
     boolean transactional = true;
     Pool pool;
     Map<String,String> properties = new LinkedHashMap<>();
     String resourceAdapter;
 
-    void addProperty(String name, String value) {
+    @Override public void addProperty(String name, String value) {
         properties.put(name, value);
+    }
+
+    @Override public void init(Attributes config) {
+        description = config.getValue("description");
+        name = config.getValue("name");
+        interfaceName = config.getValue("interface-name");
+        if (interfaceName == null) {
+            interfaceName = "javax.jms.ConnectionFactory";
+        }
+        className = config.getValue("class-name");
+        user = config.getValue("user");
+        password = config.getValue("password");
+        clientId = config.getValue("client-id");
     }
 
     static class Pool {

@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.servlet;
 import java.text.MessageFormat;
 import java.util.logging.Level;
 import javax.servlet.ServletException;
+import org.xml.sax.Attributes;
 
 /**
  * Definition of a resource that will be instantiated and bound in the JNDI
@@ -32,7 +33,7 @@ import javax.servlet.ServletException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-abstract class Resource {
+public abstract class Resource {
 
     /**
      * Returns the name that this resource will be bound into JNDI under.
@@ -69,6 +70,16 @@ abstract class Resource {
         }
         return null;
     }
+
+    /**
+     * Add the specified configuration property to this resource.
+     */
+    public abstract void addProperty(String name, String value);
+
+    /**
+     * Initialize this resource from the specified attributes.
+     */
+    public abstract void init(Attributes config);
 
     /**
      * Informs this resource that it is being put into service.

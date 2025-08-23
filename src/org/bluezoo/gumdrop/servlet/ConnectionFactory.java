@@ -26,6 +26,7 @@ import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import org.xml.sax.Attributes;
 
 /**
  * A JCA connection factory.
@@ -34,14 +35,19 @@ import java.util.logging.Level;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ConnectionFactory extends Resource {
+public final class ConnectionFactory extends Resource {
 
     String jndiName;
     String connectionDefinitionId;
     Map<String,String> properties = new LinkedHashMap<>();
 
-    void addProperty(String name, String value) {
+    @Override public void addProperty(String name, String value) {
         properties.put(name, value);
+    }
+
+    @Override public void init(Attributes config) {
+        jndiName = config.getValue("jndi-name");
+        connectionDefinitionId = config.getValue("connection-definition-id");
     }
 
     @Override String getName() {

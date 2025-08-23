@@ -33,6 +33,8 @@ import javax.mail.PasswordAuthentication;
 import javax.mail.Provider;
 import javax.mail.Session;
 
+import org.xml.sax.Attributes;
+
 /**
  * A mail session resource.
  * Corresponds to a <code>mail-session</code> element in a
@@ -40,7 +42,7 @@ import javax.mail.Session;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class MailSession extends Resource {
+public final class MailSession extends Resource {
 
     String description;
     String name;
@@ -65,8 +67,21 @@ final class MailSession extends Resource {
         from = config.from();
     }
 
-    void addProperty(String name, String value) {
+    @Override public void addProperty(String name, String value) {
         properties.put(name, value);
+    }
+
+    @Override public void init(Attributes config) {
+        description = config.getValue("description");
+        name = config.getValue("name");
+        storeProtocol = config.getValue("store-protocol");
+        storeProtocolClass = config.getValue("store-protocol-class");
+        transportProtocol = config.getValue("transport-protocol");
+        transportProtocolClass = config.getValue("transport-protocol-class");
+        host = config.getValue("host");
+        user = config.getValue("user");
+        password = config.getValue("password");
+        from = config.getValue("from");
     }
 
     @Override String getName() {

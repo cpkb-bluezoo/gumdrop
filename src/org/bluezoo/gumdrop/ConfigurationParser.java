@@ -22,8 +22,15 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.servlet.AdministeredObject;
+import org.bluezoo.gumdrop.servlet.ConnectionFactory;
 import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.Context;
+import org.bluezoo.gumdrop.servlet.DataSourceDef;
+import org.bluezoo.gumdrop.servlet.JmsConnectionFactory;
+import org.bluezoo.gumdrop.servlet.JmsDestination;
+import org.bluezoo.gumdrop.servlet.MailSession;
+import org.bluezoo.gumdrop.servlet.Resource;
 import org.bluezoo.gumdrop.servlet.ResourceHandlerFactory;
 
 import org.xml.sax.Attributes;
@@ -45,7 +52,9 @@ import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
 
@@ -61,19 +70,46 @@ import javax.xml.parsers.SAXParserFactory;
  */
 public final class ConfigurationParser extends DefaultHandler {
 
-    static final int SERVER = 1;
-    static final int CONTAINER = 2;
-    static final int CONTEXT = 3;
-    static final int CONNECTOR = 4;
-    static final int RESOURCE = 5;
-    static final int REALM = 6;
-    static final int PARAMETER = 7;
+    enum State {
+        INIT(null),
+
+        SERVER("server"),
+        CONTAINER("container"),
+        CONTEXT("context"),
+        CONNECTOR("connector"),
+        REALM("realm"),
+        PARAMETER("parameter"),
+
+        // resources
+        DATA_SOURCE("data-source"),
+        MAIL_SESSION("mail-session"),
+        JMS_CONNECTION_FACTORY("jms-connection-factory"),
+        JMS_DESTINATION("jms-destination"),
+        CONNECTION_FACTORY("connection-factory"),
+        ADMINISTERED_OBJECT("administered-object");
+
+        final String elementName;
+
+        State(String elementName) {
+            this.elementName = elementName;
+        }
+
+    }
+
+    private static Map<String,State> STATE_NAMES;
+    static {
+        STATE_NAMES = new HashMap<>();
+        for (State state : State.values()) {
+            STATE_NAMES.put(state.elementName, state);
+        }
+    }
 
     private List<Connector> connectors;
     private Locator loc;
-    private Deque<Integer> states = new ArrayDeque<Integer>();
+    private Deque<State> states = new ArrayDeque<>();
     private Container container;
     private Context context;
+    private Resource resource;
 
     public List<Connector> parse(File file) throws SAXException, IOException {
         InputStream in = null;
@@ -106,41 +142,37 @@ public final class ConfigurationParser extends DefaultHandler {
         }
     }
 
-    int peekState() {
+    State peekState() {
         return states.getLast();
     }
 
-    int popState() {
+    State popState() {
         return states.removeLast();
     }
 
-    void pushState(int state) {
+    void pushState(State state) {
         states.addLast(state);
     }
 
     /**
      * Use introspection to set a property on a bean.
      */
-    public static void setValue(Object obj, String name, Object value, Method[] methods)
-            throws Exception {
-        String mutatorName =
-                new StringBuffer("set")
-                        .append(Character.toUpperCase(name.charAt(0)))
-                        .append(name.substring(1))
-                        .toString();
+    public static void setValue(Object obj, String name, Object value, Method[] methods) throws Exception {
+        String mutatorName = new StringBuilder("set")
+            .append(Character.toUpperCase(name.charAt(0)))
+            .append(name.substring(1))
+            .toString();
         // Transform deployment-descriptor style names to bean-style names
         int hi = mutatorName.indexOf('-');
         while (hi != -1) {
-            mutatorName =
-                    new StringBuffer(mutatorName.substring(0, hi))
-                            .append(Character.toUpperCase(mutatorName.charAt(hi + 1)))
-                            .append(mutatorName.substring(hi + 2))
-                            .toString();
+            mutatorName = new StringBuilder(mutatorName.substring(0, hi))
+                .append(Character.toUpperCase(mutatorName.charAt(hi + 1)))
+                .append(mutatorName.substring(hi + 2))
+                .toString();
             hi = mutatorName.indexOf('-');
         }
-        Object[] args = {value};
-        for (int i = 0; i < methods.length; i++) {
-            Method method = methods[i];
+        Object[] args = { value };
+        for (Method method : methods) {
             if (method.getName().equals(mutatorName)) {
                 Class[] pta = method.getParameterTypes();
                 if (pta.length != 1) {
@@ -278,6 +310,37 @@ public final class ConfigurationParser extends DefaultHandler {
         }
     }
 
+    Resource createResource(State type, Attributes atts) throws SAXException {
+        switch (type) {
+            case DATA_SOURCE:
+                DataSourceDef dataSource = new DataSourceDef();
+                dataSource.init(atts);
+                return dataSource;
+            case MAIL_SESSION:
+                MailSession mailSession = new MailSession();
+                mailSession.init(atts);
+                return mailSession;
+            case JMS_CONNECTION_FACTORY:
+                JmsConnectionFactory jmsConnectionFactory = new JmsConnectionFactory();
+                jmsConnectionFactory.init(atts);
+                return jmsConnectionFactory;
+            case JMS_DESTINATION:
+                JmsDestination jmsDestination = new JmsDestination();
+                jmsDestination.init(atts);
+                return jmsDestination;
+            case CONNECTION_FACTORY:
+                ConnectionFactory connectionFactory = new ConnectionFactory();
+                connectionFactory.init(atts);
+                return connectionFactory;
+            case ADMINISTERED_OBJECT:
+                AdministeredObject administeredObject = new AdministeredObject();
+                administeredObject.init(atts);
+                return administeredObject;
+            default:
+                throw new IllegalStateException();
+        }
+    }
+
     // -- DefaultHandler --
 
     public void setLocator(Locator loc) {
@@ -288,111 +351,154 @@ public final class ConfigurationParser extends DefaultHandler {
         connectors = new ArrayList<Connector>();
         loc = null;
         states.clear();
-        states.addLast(0);
+        pushState(State.INIT);
         container = null;
         context = null;
     }
 
-    public void startElement(String uri, String localName, String qName, Attributes atts)
-            throws SAXException {
+    public void startElement(String uri, String localName, String qName, Attributes atts) throws SAXException {
         String name = (localName == null) ? qName : localName;
-        name = name.intern();
-        int state = peekState();
-        switch (state) {
-            case 0:
-                if (name == "server") {
-                    pushState(SERVER);
-                } else {
-                    String message = Server.L10N.getString("err.expected");
-                    message = MessageFormat.format(message, "server", name);
-                    throw new SAXParseException(message, loc);
+        State parentState = peekState();
+        State state = STATE_NAMES.get(name);
+        if (state == null) {
+            return;
+        }
+        switch (parentState) {
+            case INIT:
+                switch (state) {
+                    case SERVER:
+                        break;
+                    default:
+                        String message = Server.L10N.getString("err.expected");
+                        message = MessageFormat.format(message, "server", name);
+                        throw new SAXParseException(message, loc);
                 }
                 break;
             case SERVER:
-                if (name == "container") {
-                    container = createContainer(atts);
-                    pushState(CONTAINER);
-                } else if (name == "connector") {
-                    connectors.add(createConnector(atts));
-                    pushState(CONNECTOR);
-                } else {
-                    String message = Server.L10N.getString("err.expected_child");
-                    message = MessageFormat.format(message, "server", name);
-                    throw new SAXParseException(message, loc);
+                switch (state) {
+                    case CONTAINER:
+                        container = createContainer(atts);
+                        break;
+                    case CONNECTOR:
+                        connectors.add(createConnector(atts));
+                        break;
+                    default:
+                        String message = Server.L10N.getString("err.expected_child");
+                        message = MessageFormat.format(message, "server", name);
+                        throw new SAXParseException(message, loc);
                 }
                 break;
             case CONTAINER:
-                if (name == "context") {
-                    container.addContext(createContext(atts));
-                    pushState(CONTEXT);
-                } else if (name == "connector") {
-                    connectors.add(createConnector(atts));
-                    pushState(CONNECTOR);
-                } else if (name == "realm") {
-                    String realmName = atts.getValue("name");
-                    if (realmName == null) {
-                        String message = Server.L10N.getString("err.missing_attribute");
-                        message = MessageFormat.format(message, "name");
+                switch (state) {
+                    case CONTEXT:
+                        context = createContext(atts);
+                        container.addContext(context);
+                        break;
+                    case CONNECTOR:
+                        connectors.add(createConnector(atts));
+                        break;
+                    case REALM:
+                        String realmName = atts.getValue("name");
+                        if (realmName == null) {
+                            String message = Server.L10N.getString("err.missing_attribute");
+                            message = MessageFormat.format(message, "name");
+                            throw new SAXParseException(message, loc);
+                        }
+                        container.addRealm(realmName, createRealm(atts));
+                        break;
+                    case DATA_SOURCE:
+                    case MAIL_SESSION:
+                    case JMS_CONNECTION_FACTORY:
+                    case JMS_DESTINATION:
+                    case CONNECTION_FACTORY:
+                    case ADMINISTERED_OBJECT:
+                        resource = createResource(state, atts);
+                        container.addResource(resource);
+                        break;
+                    default:
+                        String message = Server.L10N.getString("err.expected_child");
+                        message = MessageFormat.format(message, "container");
                         throw new SAXParseException(message, loc);
-                    }
-                    container.addRealm(realmName, createRealm(atts));
-                    pushState(REALM);
-                } else if (name == "resource") {
-                    // TODO new mechanism for JNDI resources
-                    pushState(RESOURCE);
-                } else {
-                    String message = Server.L10N.getString("err.expected_child");
-                    message = MessageFormat.format(message, "container");
-                    throw new SAXParseException(message, loc);
                 }
                 break;
             case CONTEXT:
-                if (name == "parameter") {
-                    String paramName = atts.getValue("name");
-                    String paramValue = atts.getValue("value");
-                    if (paramName == null) {
-                        String message = Server.L10N.getString("err.missing_attribute");
-                        message = MessageFormat.format(message, "name");
+                switch (state) {
+                    case PARAMETER:
+                        String paramName = atts.getValue("name");
+                        String paramValue = atts.getValue("value");
+                        if (paramName == null) {
+                            String message = Server.L10N.getString("err.missing_attribute");
+                            message = MessageFormat.format(message, "name");
+                            throw new SAXParseException(message, loc);
+                        }
+                        context.setInitParameter(paramName, paramValue);
+                        break;
+                    case REALM:
+                        String realmName = atts.getValue("name");
+                        if (realmName == null) {
+                            String message = Server.L10N.getString("err.missing_attribute");
+                            message = MessageFormat.format(message, "name");
+                            throw new SAXParseException(message, loc);
+                        }
+                        container.addRealm(realmName, createRealm(atts));
+                    case DATA_SOURCE:
+                    case MAIL_SESSION:
+                    case JMS_CONNECTION_FACTORY:
+                    case JMS_DESTINATION:
+                    case CONNECTION_FACTORY:
+                    case ADMINISTERED_OBJECT:
+                        resource = createResource(state, atts);
+                        context.addResource(resource);
+                        break;
+                    default:                
+                        String message = Server.L10N.getString("err.expected_child");
+                        message = MessageFormat.format(message, "context");
                         throw new SAXParseException(message, loc);
-                    }
-                    context.setInitParameter(paramName, paramValue);
-                    pushState(PARAMETER);
-                } else if (name == "realm") {
-                    String realmName = atts.getValue("name");
-                    if (realmName == null) {
-                        String message = Server.L10N.getString("err.missing_attribute");
-                        message = MessageFormat.format(message, "name");
-                        throw new SAXParseException(message, loc);
-                    }
-                    container.addRealm(realmName, createRealm(atts));
-                    pushState(REALM);
-                } else if (name == "resource") {
-                    // TODO new mechanism for JNDI resources
-                    pushState(RESOURCE);
-                } else {
-                    String message = Server.L10N.getString("err.expected_child");
-                    message = MessageFormat.format(message, "context");
-                    throw new SAXParseException(message, loc);
                 }
                 break;
             case CONNECTOR:
-            default:
-                String message = Server.L10N.getString("err.unexpected");
-                message = MessageFormat.format(message, name);
-                throw new SAXParseException(message, loc);
+                // No sub-elements so far
+                break;
+            case DATA_SOURCE:
+            case MAIL_SESSION:
+            case JMS_CONNECTION_FACTORY:
+            case JMS_DESTINATION:
+            case CONNECTION_FACTORY:
+            case ADMINISTERED_OBJECT:
+                switch (state) {
+                    case PARAMETER:
+                        String paramName = atts.getValue("name");
+                        String paramValue = atts.getValue("value");
+                        if (paramName == null) {
+                            String message = Server.L10N.getString("err.missing_attribute");
+                            message = MessageFormat.format(message, "name");
+                            throw new SAXParseException(message, loc);
+                        }
+                        resource.addProperty(paramName, paramValue);
+                        break;
+                }
+                break;
         }
+        pushState(state);
     }
 
     public void endElement(String uri, String localName, String qName) throws SAXException {
         String name = (localName == null) ? qName : localName;
-        name = name.intern();
-        int state = popState();
+        State state = popState();
         switch (state) {
             case CONTAINER:
                 container = null;
                 break;
             case CONTEXT:
                 context = null;
+                break;
+            case DATA_SOURCE:
+            case MAIL_SESSION:
+            case JMS_CONNECTION_FACTORY:
+            case JMS_DESTINATION:
+            case CONNECTION_FACTORY:
+            case ADMINISTERED_OBJECT:
+                resource = null;
                 break;
         }
     }

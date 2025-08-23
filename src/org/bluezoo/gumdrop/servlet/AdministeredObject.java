@@ -26,6 +26,7 @@ import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import org.xml.sax.Attributes;
 
 /**
  * A JCA administered object.
@@ -34,7 +35,7 @@ import java.util.logging.Level;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class AdministeredObject extends Resource implements Injectable {
+public final class AdministeredObject extends Resource implements Injectable {
 
     String description;
     String jndiName;
@@ -47,8 +48,17 @@ final class AdministeredObject extends Resource implements Injectable {
     InjectionTarget injectionTarget;
     String mappedName;
 
-    void addProperty(String name, String value) {
+    // -- Resource --
+
+    @Override public void addProperty(String name, String value) {
         properties.put(name, value);
+    }
+
+    @Override public void init(Attributes config) {
+        description = config.getValue("description");
+        jndiName = config.getValue("jndi-name");
+        administeredObjectInterface = config.getValue("administered-object-interface");
+        administeredObjectClass = config.getValue("administered-object-class");
     }
 
     // -- Injectable --

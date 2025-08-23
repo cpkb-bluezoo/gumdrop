@@ -917,6 +917,22 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         realms.put(name, realm);
     }
 
+    public void addResource(Resource resource) {
+        if (resource instanceof DataSourceDef) {
+            addDataSourceDef((DataSourceDef) resource);
+        } else if (resource instanceof MailSession) {
+            addMailSession((MailSession) resource);
+        } else if (resource instanceof JmsConnectionFactory) {
+            addJmsConnectionFactory((JmsConnectionFactory) resource);
+        } else if (resource instanceof JmsDestination) {
+            addJmsDestination((JmsDestination) resource);
+        } else if (resource instanceof ConnectionFactory) {
+            addConnectionFactory((ConnectionFactory) resource);
+        } else if (resource instanceof AdministeredObject) {
+            addAdministeredObject((AdministeredObject) resource);
+        }
+    }
+
     Realm getRealm(String name) {
         Realm realm = realms.get(name);
         if (realm == null && container != null) {

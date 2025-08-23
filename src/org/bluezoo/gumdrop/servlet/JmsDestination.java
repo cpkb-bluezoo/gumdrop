@@ -26,6 +26,7 @@ import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import org.xml.sax.Attributes;
 
 /**
  * Corresponds to a <code>jms-destination</code> element in a
@@ -33,7 +34,7 @@ import java.util.logging.Level;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class JmsDestination extends Resource {
+public final class JmsDestination extends Resource {
 
     String description;
     String name;
@@ -41,8 +42,15 @@ final class JmsDestination extends Resource {
     String className;
     Map<String,String> properties = new LinkedHashMap<>();
 
-    void addProperty(String name, String value) {
+    @Override public void addProperty(String name, String value) {
         properties.put(name, value);
+    }
+
+    @Override public void init(Attributes config) {
+        description = config.getValue("description");
+        name = config.getValue("name");
+        interfaceName = config.getValue("interface-name");
+        className = config.getValue("class-name");
     }
 
     @Override String getName() {

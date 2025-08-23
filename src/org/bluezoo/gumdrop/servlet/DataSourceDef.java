@@ -58,6 +58,8 @@ import java.util.logging.Logger;
 import javax.servlet.ServletException;
 import javax.sql.DataSource;
 
+import org.xml.sax.Attributes;
+
 /**
  * JDBC DataSource for a web application.
  * This proxies the DriverManager, and provides simple connection pooling
@@ -65,7 +67,7 @@ import javax.sql.DataSource;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class DataSourceDef extends Resource implements DataSource {
+public final class DataSourceDef extends Resource implements DataSource {
 
     // There should be a definitive list of these somewhere
     static Map<String,String> DRIVER_SUBPROTOCOLS;
@@ -98,7 +100,7 @@ final class DataSourceDef extends Resource implements DataSource {
     int minPoolSize = 0; // min number of connections in the pool
     int maxIdleTime = 0; // maximum time a connection can remain idle in the pool (0 = no timeout)
     int maxStatements; // number of prepared statements to be cached
-    int transactionIsolation; // default transaction isolation level
+    int transactionIsolation = Connection.TRANSACTION_NONE; // default transaction isolation level
     Properties properties;
 
     private Driver driver;
@@ -108,7 +110,7 @@ final class DataSourceDef extends Resource implements DataSource {
     private PrintWriter logWriter;
     private Future<?> idleTask;
 
-    void addProperty(String name, String value) {
+    @Override public void addProperty(String name, String value) {
         if (properties == null) {
             properties = new Properties();
         }
@@ -128,6 +130,29 @@ final class DataSourceDef extends Resource implements DataSource {
             default:
                 return Connection.TRANSACTION_NONE;
         }
+    }
+
+    @Override public void init(Attributes config) {
+        description = config.getValue("description");
+        name = config.getValue("name");
+        className = config.getValue("class-name");
+        serverName = config.getValue("server-name");
+        portNumber = initIntValue(config.getValue("port-number"), -1);
+        databaseName = config.getValue("database-name");
+        user = config.getValue("user");
+        password = config.getValue("password");
+        url = config.getValue("url");
+        isolationLevel = getIsolationLevel(config.getValue("isolation-level"));
+        initialPoolSize = initIntValue(config.getValue("initial-pool-size"), 0);
+        maxPoolSize = initIntValue(config.getValue("max-pool-size"), Integer.MAX_VALUE);
+        minPoolSize = initIntValue(config.getValue("min-pool-size"), 0);
+        maxIdleTime = initIntValue(config.getValue("max-idle-time"), 0);
+        maxStatements = initIntValue(config.getValue("max-statements"), 0);
+        transactionIsolation = getIsolationLevel(config.getValue("transaction-isolation"));
+    }
+
+    private int initIntValue(String value, int defaultValue) {
+        return (value == null) ? defaultValue : Integer.parseInt(value);
     }
 
     /**
