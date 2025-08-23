@@ -40,8 +40,10 @@ import java.lang.reflect.Method;
 import java.net.*;
 import java.text.MessageFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
@@ -96,6 +98,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     byte[] digest; // MD5 digest of web.xml
 
     Map<String,Realm> realms = new LinkedHashMap<>();
+    Map<String,AtomicInteger> nonces = new ConcurrentHashMap<>();
+    Set<String> cnonces = new HashSet<>();
 
     Map<String,String> initParams = new LinkedHashMap<>();
     Map<String,Object> attributes = new LinkedHashMap<>();
@@ -941,6 +945,36 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             return realm.isMember(username, roleName);
         }
         return false;
+    }
+
+    /**
+     * Associate a new nonce value. This will keep a count of the number of
+     * times the nonce has been seen, to avoid replay attacks.
+     */
+    void newNonce(String nonce) {
+        nonces.put(nonce, new AtomicInteger(0));
+    }
+
+    /**
+     * Returns the nonce count for the given nonce value.
+     * Calling this method will increment the nonce count.
+     */
+    int getNonceCount(String nonce) {
+        AtomicInteger nonceCount = nonces.get(nonce);
+        return (nonceCount == null) ? -1 : nonceCount.incrementAndGet();
+    }
+
+    /**
+     * Indicates whether the given client nonce value has already been seen.
+     * Calling this method updates the seen status for the given client
+     * nonce.
+     * Note that this is theoretically vulnerable to a collision whereby we
+     * may erroneously reject a valid request, albeit improbable.
+     */
+    boolean seenCnonce(String cnonce) {
+        synchronized (cnonces) {
+            return cnonces.add(cnonce);
+        }
     }
 
     /**

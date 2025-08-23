@@ -8,15 +8,11 @@ Before 1.0 release
   - Implement stream priority (dependency trees)
   - Stream housekeeping after they have entered CLOSED state
   - Allow user to specify padding
-- HTTP authorisation using SSL client certs
-  - servlet
-  - more generic
 - Timeout for StreamAsyncContext
 - Add new mechanism in ConfigurationParser to add JNDI resources like
   context.xml
 - Implement servlet 4.0 methods in servlet package
   - service handler
-  - servlet mapping security constraint
   - JCA connection factories and administered objects
 - server push
 - Redo cluster management (distributable contexts) to use NIO

@@ -518,19 +518,33 @@ class Request implements HttpServletRequest {
                 return false;
             }
             String nonce = (String) digestResponse.get("nonce");
-            // TODO nonce must be the same as that sent to the client
             String requestDigest = (String) digestResponse.get("response");
             String qop = (String) digestResponse.get("qop");
             String algorithm = (String) digestResponse.get("algorithm");
             String cnonce = (String) digestResponse.get("cnonce");
-            String nonceCount = (String) digestResponse.get("nc");
+            String nc = (String) digestResponse.get("nc");
             String method = getMethod();
             String digestUri = getRequestURI();
             String requestQueryString = getQueryString();
             if (requestQueryString != null) {
                 digestUri = digestUri + "?" + requestQueryString;
             }
-            if (username == null || realm == null || requestDigest == null || nonce == null) {
+            if (username == null || realm == null || requestDigest == null || nonce == null || cnonce == null || nc == null) {
+                String message = Context.L10N.getString("http.bad_digest");
+                message = MessageFormat.format(message, drText);
+                response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
+                return false;
+            }
+            // Check nonce
+            try {
+                int clientNonceCount = Integer.parseInt(nc, 16); // hexadecimal
+                int serverNonceCount = context.getNonceCount(nonce);
+                if (clientNonceCount != serverNonceCount || serverNonceCount < 1 || context.seenCnonce(cnonce + nc)) {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentLength(0);
+                    return false;
+                }
+            } catch (Exception e) {
                 String message = Context.L10N.getString("http.bad_digest");
                 message = MessageFormat.format(message, drText);
                 response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
@@ -576,8 +590,9 @@ class Request implements HttpServletRequest {
                 if ("auth-int".equals(qop)) {
                     byte[] hEntity = null;
                     // need to read entire entity body here
-                    // but this will affect servlet
-                    throw new ProtocolException("auth-int not permitted");
+                    // TODO work out how we can do this in an event driven
+                    // model
+                    throw new ProtocolException("auth-int not supported");
                     /*md5.update(COLON);
                       md5.update(hEntity);*/
                 }
@@ -590,22 +605,17 @@ class Request implements HttpServletRequest {
                 md.update(COLON);
                 md.update(nonce.getBytes("US-ASCII"));
                 if ("auth".equals(qop)) {
-                    if (cnonce == null || nonceCount == null) {
-                        String message = Context.L10N.getString("http.bad_digest");
-                        message = MessageFormat.format(message, drText);
-                        response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                        return false;
-                    }
                     md.update(COLON);
-                    md.update(nonceCount.getBytes("US-ASCII"));
+                    md.update(nc.getBytes("US-ASCII"));
                     md.update(COLON);
                     md.update(cnonce.getBytes("US-ASCII"));
                     md.update(COLON);
                     md.update(qop.getBytes("US-ASCII"));
                 } else if ("auth-int".equals(qop)) {
                     // need to read entire entity body here
-                    // but this will affect servlet
-                    throw new ProtocolException("auth-int not permitted");
+                    // TODO work out how we can do this in an event driven
+                    // model
+                    throw new ProtocolException("auth-int not supported");
                 }
                 md.update(COLON);
                 md.update(ha2Hex.getBytes("US-ASCII"));
@@ -641,8 +651,22 @@ class Request implements HttpServletRequest {
                 }
             }
         } else if (HttpServletRequest.CLIENT_CERT_AUTH.equals(authMethod)) {
-            // TODO HTTP client cert
-            return false;
+            // HTTP client cert
+            Certificate[] certificates = stream.connection.getPeerCertificates();
+            if (certificates != null) {
+                for (Certificate certificate : certificates) {
+                    if (certificate instanceof X509Certificate) {
+                        X509Certificate x509 = (X509Certificate) certificate;
+                        username = x509.getSubjectX500Principal().getName();
+                        break;
+                    }
+                }
+            }
+            if (username == null) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN); // NB not 401 Unauthorized
+                response.setContentLength(0);
+                return false;
+            }
         } else {
             String message = Context.L10N.getString("http.unknown_auth_mechanism");
             message = MessageFormat.format(message, authMethod);
@@ -669,8 +693,8 @@ class Request implements HttpServletRequest {
                 oo.writeDouble(Math.random());
                 md.update(bo.toByteArray());
                 String nonce = toHexString(BASE64.encode(md.digest()));
-
-                // TODO associate nonce with context to avoid replay attacks
+                // associate nonce with context to avoid replay attacks
+                context.newNonce(nonce);
 
                 // Send UNAUTHORIZED with the WWW-Authenticate header
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
