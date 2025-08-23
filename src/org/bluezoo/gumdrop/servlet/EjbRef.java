@@ -26,7 +26,7 @@ import javax.ejb.EJB;
 import javax.naming.NamingException;
 
 /**
- * A reference to an enterprise bean's home.
+ * A reference to an enterprise bean.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -35,14 +35,19 @@ final class EjbRef implements Injectable {
     String description;
     String name; // ejb-ref-name
     String className; // ejb-ref-type
-    String home;
-    String remote;
+    String home; // home or local-home
+    String remoteOrLocal; // remote or local
     String ejbLink;
+    boolean remote; // if this is a reference to a remote EJB
 
     // Injectable
     String lookupName;
     InjectionTarget injectionTarget;
     String mappedName;
+
+    EjbRef(boolean remote) {
+        this.remote = remote;
+    }
 
     void init(EJB config) {
         description = config.description();

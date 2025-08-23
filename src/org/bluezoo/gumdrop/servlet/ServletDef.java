@@ -43,6 +43,8 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRegistration;
 import javax.servlet.ServletSecurityElement;
 import javax.servlet.SingleThreadModel;
+import javax.servlet.annotation.HttpConstraint;
+import javax.servlet.annotation.HttpMethodConstraint;
 import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.annotation.ServletSecurity;
 import javax.servlet.annotation.WebInitParam;
@@ -75,6 +77,8 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     MultipartConfigDef multipartConfig;
     boolean asyncSupported;
 
+    Set<SecurityConstraint> servletSecurity;
+
     void init(WebServlet config, String className) {
         this.className = className;
         description = config.description();
@@ -95,7 +99,18 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     }
 
     void init(ServletSecurity config) {
-        // TODO
+        servletSecurity = new LinkedHashSet<>();
+        Set<String> methods = new LinkedHashSet<>();
+        for (HttpMethodConstraint httpMethodConstraint : config.httpMethodConstraints()) {
+            String method = httpMethodConstraint.value();
+            methods.add(method);
+            SecurityConstraint methodConstraint = new SecurityConstraint();
+            methodConstraint.init(httpMethodConstraint);
+            servletSecurity.add(methodConstraint);
+        }
+        SecurityConstraint defaultMethodConstraint = new SecurityConstraint();
+        defaultMethodConstraint.init(config.value(), methods);
+        servletSecurity.add(defaultMethodConstraint);
     }
 
     void init(RunAs config) {

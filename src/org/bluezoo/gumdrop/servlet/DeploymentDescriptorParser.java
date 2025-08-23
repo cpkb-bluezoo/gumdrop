@@ -48,11 +48,13 @@ import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import javax.annotation.Resource;
+import javax.persistence.PersistenceContextType;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 import javax.servlet.DispatcherType;
 import javax.servlet.SessionTrackingMode;
+import javax.servlet.annotation.ServletSecurity;
 
 /**
  * Parses a web application deployment descriptor, populating an application
@@ -238,7 +240,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         SERVICE_REF_NAME("service-ref-name"),
         SERVICE_INTERFACE("service-interface"),
         SERVICE_REF_TYPE("service-ref-type"),
-        WDSL_FILE("wdsl-file"),
+        WSDL_FILE("wsdl-file"),
         JAXRPC_MAPPING_FILE("jaxrpc-mapping-file"),
         SERVICE_QNAME("service-qname"),
         PORT_COMPONENT_REF("port-component-ref"),
@@ -581,10 +583,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         pushTarget(new EnvEntry());
                         break;
                     case EJB_REF:
-                        pushTarget(new EjbRef());
+                        pushTarget(new EjbRef(true));
                         break;
                     case EJB_LOCAL_REF:
-                        pushTarget(new EjbLocalRef());
+                        pushTarget(new EjbRef(false));
                         break;
                     case SERVICE_REF:
                         pushTarget(new ServiceRef());
@@ -918,7 +920,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case DISPLAY_NAME:
                     case SERVICE_REF_NAME:
                     case SERVICE_INTERFACE:
-                    case WDSL_FILE:
+                    case WSDL_FILE:
                     case JAXRPC_MAPPING_FILE:
                     case SERVICE_QNAME:
                     case PORT_COMPONENT_REF:
@@ -1291,8 +1293,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((DeploymentDescriptor) peekTarget()).addEjbRef(ejbRef);
                         break;
                     case EJB_LOCAL_REF:
-                        EjbLocalRef ejbLocalRef = (EjbLocalRef) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).addEjbLocalRef(ejbLocalRef);
+                        EjbRef ejbLocalRef = (EjbRef) popTarget();
+                        ((DeploymentDescriptor) peekTarget()).addEjbRef(ejbLocalRef);
                         break;
                     case SERVICE_REF:
                         ServiceRef serviceRef = (ServiceRef) popTarget();
@@ -1692,7 +1694,11 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case USER_DATA_CONSTRAINT:
                 switch (state) {
                     case TRANSPORT_GUARANTEE:
-                        ((SecurityConstraint) peekTarget()).transportGuarantee = SecurityConstraint.TransportGuarantee.valueOf(popText());
+                        try {
+                            ((SecurityConstraint) peekTarget()).transportGuarantee = ServletSecurity.TransportGuarantee.valueOf(popText());
+                        } catch (IllegalArgumentException e) { // INTEGRAL can map to CONFIDENTIAL
+                            ((SecurityConstraint) peekTarget()).transportGuarantee = ServletSecurity.TransportGuarantee.CONFIDENTIAL;
+                        }
                         break;
                 }
                 break;
@@ -1777,7 +1783,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((EjbRef) peekTarget()).home = popText();
                         break;
                     case REMOTE:
-                        ((EjbRef) peekTarget()).remote = popText();
+                        ((EjbRef) peekTarget()).remoteOrLocal = popText();
                         break;
                     case EJB_LINK:
                         ((EjbRef) peekTarget()).ejbLink = popText();
@@ -1797,22 +1803,22 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case EJB_LOCAL_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((EjbLocalRef) peekTarget()).description = popText();
+                        ((EjbRef) peekTarget()).description = popText();
                         break;
                     case EJB_REF_NAME:
-                        ((EjbLocalRef) peekTarget()).name = popText();
+                        ((EjbRef) peekTarget()).name = popText();
                         break;
                     case EJB_REF_TYPE:
-                        ((EjbLocalRef) peekTarget()).className = popText();
+                        ((EjbRef) peekTarget()).className = popText();
                         break;
                     case LOCAL_HOME:
-                        ((EjbLocalRef) peekTarget()).localHome = popText();
+                        ((EjbRef) peekTarget()).home = popText();
                         break;
                     case LOCAL:
-                        ((EjbLocalRef) peekTarget()).local = popText();
+                        ((EjbRef) peekTarget()).remoteOrLocal = popText();
                         break;
                     case EJB_LINK:
-                        ((EjbLocalRef) peekTarget()).ejbLink = popText();
+                        ((EjbRef) peekTarget()).ejbLink = popText();
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -1840,8 +1846,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case SERVICE_REF_TYPE:
                         ((ServiceRef) peekTarget()).className = popText();
                         break;
-                    case WDSL_FILE:
-                        ((ServiceRef) peekTarget()).wdslFile = popText();
+                    case WSDL_FILE:
+                        ((ServiceRef) peekTarget()).wsdlFile = popText();
                         break;
                     case JAXRPC_MAPPING_FILE:
                         ((ServiceRef) peekTarget()).jaxrpcMappingFile = popText();
@@ -1958,10 +1964,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((PersistenceContextRef) peekTarget()).name = popText();
                         break;
                     case PERSISTENCE_CONTEXT_TYPE:
-                        ((PersistenceContextRef) peekTarget()).type = PersistenceContextRef.Type.valueOf(popText());
+                        ((PersistenceContextRef) peekTarget()).type = PersistenceContextType.valueOf(popText().toUpperCase());
                         break;
                     case PERSISTENCE_UNIT_NAME:
-                        ((PersistenceContextRef) peekTarget()).persistenceUnitName = popText();
+                        ((PersistenceContextRef) peekTarget()).unitName = popText();
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -1984,7 +1990,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((PersistenceUnitRef) peekTarget()).name = popText();
                         break;
                     case PERSISTENCE_UNIT_NAME:
-                        ((PersistenceUnitRef) peekTarget()).persistenceUnitName = popText();
+                        ((PersistenceUnitRef) peekTarget()).unitName = popText();
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());

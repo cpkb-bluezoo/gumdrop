@@ -15,10 +15,8 @@ Before 1.0 release
 - Add new mechanism in ConfigurationParser to add JNDI resources like
   context.xml
 - Implement servlet 4.0 methods in servlet package
-  - JNDI resource reference value injection
   - service handler
   - servlet mapping security constraint
-  - check lifecycle management for resources e.g. DataSourceDef
   - JCA connection factories and administered objects
 - server push
 - Redo cluster management (distributable contexts) to use NIO

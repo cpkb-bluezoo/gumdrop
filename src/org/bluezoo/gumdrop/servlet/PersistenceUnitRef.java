@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.persistence.PersistenceUnit;
+
 /**
  * A reference to a container-managed <code>EntityManagerFactory</code>.
  *
@@ -31,12 +33,17 @@ final class PersistenceUnitRef implements Injectable {
 
     String description;
     String name; // persistence-unit-ref-name
-    String persistenceUnitName;
+    String unitName; // persistence-unit-name
 
     // Injectable
     String lookupName;
     InjectionTarget injectionTarget;
     String mappedName;
+
+    void init(PersistenceUnit config) {
+        name = config.name();
+        unitName = config.unitName();
+    }
 
     // -- Injectable --
 
@@ -57,7 +64,7 @@ final class PersistenceUnitRef implements Injectable {
     }
 
     @Override public String getDefaultName() {
-        return String.format("java:comp/env/$s", persistenceUnitName);
+        return String.format("java:comp/env/$s", unitName);
     }
 
     @Override public InjectionTarget getInjectionTarget() {

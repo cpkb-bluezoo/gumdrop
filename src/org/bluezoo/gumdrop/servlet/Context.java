@@ -47,10 +47,19 @@ import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+import javax.annotation.Resources;
 import javax.annotation.security.DeclareRoles;
 import javax.annotation.security.RunAs;
+import javax.ejb.EJB;
+import javax.ejb.EJBs;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
+import javax.persistence.PersistenceContext;
+import javax.persistence.PersistenceContexts;
+import javax.persistence.PersistenceUnit;
+import javax.persistence.PersistenceUnits;
 import javax.servlet.*;
 import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.annotation.ServletSecurity;
@@ -63,6 +72,8 @@ import javax.servlet.http.HttpSessionAttributeListener;
 import javax.servlet.http.HttpSessionBindingListener;
 import javax.servlet.http.HttpSessionListener;
 import javax.servlet.http.MappingMatch;
+import javax.xml.ws.WebServiceRef;
+import javax.xml.ws.WebServiceRefs;
 
 /**
  * The application context represents the single point of contact for all
@@ -524,6 +535,73 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(runAs);
+                } else if (annotation instanceof EJBs) {
+                    EJBs ejbs = (EJBs) annotation;
+                    for (EJB ejb : ejbs.value()) {
+                        initEjbRef(ejb);
+                    }
+                } else if (annotation instanceof PersistenceContexts) {
+                    PersistenceContexts persistenceContexts = (PersistenceContexts) annotation;
+                    for (PersistenceContext persistenceContext : persistenceContexts.value()) {
+                        initPersistenceContextRef(persistenceContext);
+                    }
+                } else if (annotation instanceof PersistenceUnits) {
+                    PersistenceUnits persistenceUnits = (PersistenceUnits) annotation;
+                    for (PersistenceUnit persistenceUnit : persistenceUnits.value()) {
+                        initPersistenceUnitRef(persistenceUnit);
+                    }
+                } else if (annotation instanceof Resources) {
+                    Resources resources = (Resources) annotation;
+                    for (javax.annotation.Resource resource : resources.value()) {
+                        initResourceRef(resource);
+                    }
+                } else if (annotation instanceof WebServiceRefs) {
+                    WebServiceRefs webServiceRefs = (WebServiceRefs) annotation;
+                    for (WebServiceRef webServiceRef : webServiceRefs.value()) {
+                        initServiceRef(webServiceRef);
+                    }
+                }
+            }
+            // field annotations
+            for (Field field : t.getDeclaredFields()) { // NB may be private
+                for (Annotation annotation : field.getAnnotations()) {
+                    if (annotation instanceof EJB) {
+                        EJB ejb = (EJB) annotation;
+                        EjbRef ejbRef = initEjbRef(ejb);
+                        addInjectionTarget(ejbRef, className, field.getName());
+                    } else if (annotation instanceof javax.annotation.Resource) {
+                        javax.annotation.Resource resource = (javax.annotation.Resource) annotation;
+                        ResourceRef resourceRef = initResourceRef(resource);
+                        addInjectionTarget(resourceRef, className, field.getName());
+                    } else if (annotation instanceof PersistenceContext) {
+                        PersistenceContext persistenceContext = (PersistenceContext) annotation;
+                        PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
+                        addInjectionTarget(persistenceContextRef, className, field.getName());
+                    } else if (annotation instanceof PersistenceUnit) {
+                        PersistenceUnit persistenceUnit = (PersistenceUnit) annotation;
+                        PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
+                        addInjectionTarget(persistenceUnitRef, className, field.getName());
+                    } else if (annotation instanceof WebServiceRef) {
+                        WebServiceRef webServiceRef = (WebServiceRef) annotation;
+                        ServiceRef serviceRef = initServiceRef(webServiceRef);
+                        addInjectionTarget(serviceRef, className, field.getName());
+                    }
+                }
+            }
+            // method annotations
+            for (Method method : t.getMethods()) {
+                for (Annotation annotation : method.getAnnotations()) {
+                    if (annotation instanceof PostConstruct) {
+                        LifecycleCallback callback = new LifecycleCallback();
+                        callback.className = className;
+                        callback.methodName = method.getName();
+                        addPostConstruct(callback);
+                    } else if (annotation instanceof PreDestroy) {
+                        LifecycleCallback callback = new LifecycleCallback();
+                        callback.className = className;
+                        callback.methodName = method.getName();
+                        addPreDestroy(callback);
+                    }
                 }
             }
         } catch (ClassNotFoundException e) {
@@ -532,7 +610,95 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             LOGGER.log(Level.SEVERE, message, e);
         }
     }
-    
+
+    void addInjectionTarget(Injectable injectable, String className, String name) {
+        InjectionTarget it = new InjectionTarget();
+        it.className = className;
+        it.name = name;
+        injectable.setInjectionTarget(it);
+    }
+
+    EjbRef initEjbRef(EJB config) {
+        String name = config.name();
+        for (EjbRef ejbRef : ejbRefs) {
+            if (name.equals(ejbRef.name)) {
+                ejbRef.init(config);
+                return ejbRef;
+            }
+        }
+        // create
+        EjbRef ejbRef = new EjbRef(false);
+        ejbRef.init(config);
+        addEjbRef(ejbRef);
+        return ejbRef;
+    }
+
+    ResourceRef initResourceRef(javax.annotation.Resource config) {
+        String name = config.name();
+        for (ResourceRef resourceRef : resourceRefs) {
+            if (name.equals(resourceRef.name)) {
+                resourceRef.init(config);
+                return resourceRef;
+            }
+        }
+        // create
+        ResourceRef resourceRef = new ResourceRef();
+        resourceRef.init(config);
+        addResourceRef(resourceRef);
+        return resourceRef;
+    }
+
+    PersistenceContextRef initPersistenceContextRef(PersistenceContext config) {
+        String name = config.name();
+        if (name != null) {
+            for (PersistenceContextRef persistenceContextRef : persistenceContextRefs) {
+                if (name.equals(persistenceContextRef.name)) {
+                    persistenceContextRef.init(config);
+                    return persistenceContextRef;
+                }
+            }
+        }
+        // create
+        PersistenceContextRef persistenceContextRef = new PersistenceContextRef();
+        persistenceContextRef.init(config);
+        addPersistenceContextRef(persistenceContextRef);
+        return persistenceContextRef;
+    }
+
+    PersistenceUnitRef initPersistenceUnitRef(PersistenceUnit config) {
+        String name = config.name();
+        if (name != null) {
+            for (PersistenceUnitRef persistenceUnitRef : persistenceUnitRefs) {
+                if (name.equals(persistenceUnitRef.name)) {
+                    persistenceUnitRef.init(config);
+                    return persistenceUnitRef;
+                }
+            }
+        }
+        // create
+        PersistenceUnitRef persistenceUnitRef = new PersistenceUnitRef();
+        persistenceUnitRef.init(config);
+        addPersistenceUnitRef(persistenceUnitRef);
+        return persistenceUnitRef;
+    }
+
+    ServiceRef initServiceRef(WebServiceRef config) {
+        String name = config.name();
+        if (name != null) {
+            for (ServiceRef serviceRef : serviceRefs) {
+                if (name.equals(serviceRef.name)) {
+                    serviceRef.init(config);
+                    return serviceRef;
+                }
+            }
+        }
+        // create
+        ServiceRef serviceRef = new ServiceRef();
+        serviceRef.init(config);
+        addServiceRef(serviceRef);
+        return serviceRef;
+    }
+
     /**
      * Reloads this context.
      */

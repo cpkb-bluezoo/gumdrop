@@ -43,6 +43,7 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletRequestWrapper;
 import javax.servlet.ServletResponse;
 import javax.servlet.UnavailableException;
+import javax.servlet.annotation.ServletSecurity;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -261,27 +262,36 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             : request.match.servletPath + request.match.pathInfo;
         boolean authenticated = false;
 
+        // Build list of security constraints
+        ServletDef servletDef = request.match.servletDef;
+        Set<SecurityConstraint> securityConstraints = new LinkedHashSet<>();
+        if (servletDef.servletSecurity != null) {
+            // constraints specifically associated with this servlet
+            securityConstraints.addAll(servletDef.servletSecurity);
+        }
+        // constraints matching path
+        securityConstraints.addAll(context.securityConstraints);
+
         // Authorize if necessary
-        for (Iterator i = context.securityConstraints.iterator(); i.hasNext(); ) {
-            SecurityConstraint sc = (SecurityConstraint) i.next();
-            // Check if HTTPS is required
-            if (sc.transportGuarantee != SecurityConstraint.TransportGuarantee.NONE && !request.isSecure()) {
-                // Redirect to the secure host and port
-                if (context.secureHost == null) {
-                    String message = Context.L10N.getString("http.no_secure_host");
-                    response.sendError(500, message);
+        for (SecurityConstraint sc : securityConstraints) {
+            if (sc.matches(request.getMethod(), path)) {
+                // Check if HTTPS is required
+                if (sc.transportGuarantee != ServletSecurity.TransportGuarantee.NONE && !request.isSecure()) {
+                    // Redirect to the secure host and port
+                    if (context.secureHost == null) {
+                        String message = Context.L10N.getString("http.no_secure_host");
+                        response.sendError(500, message);
+                        return false;
+                    }
+                    String url = request.getRequestURI();
+                    String urlQueryString = request.getQueryString();
+                    if (urlQueryString != null) {
+                        url = url + "?" + urlQueryString;
+                    }
+                    url = "https://" + context.secureHost + url;
+                    response.sendRedirect(url);
                     return false;
                 }
-                String url = request.getRequestURI();
-                String urlQueryString = request.getQueryString();
-                if (urlQueryString != null) {
-                    url = url + "?" + urlQueryString;
-                }
-                url = "https://" + context.secureHost + url;
-                response.sendRedirect(url);
-                return false;
-            }
-            if (sc.matches(request.getMethod(), path)) {
                 // Need authentication
                 if (!authenticated && !request.authenticate(response)) {
                     return false;

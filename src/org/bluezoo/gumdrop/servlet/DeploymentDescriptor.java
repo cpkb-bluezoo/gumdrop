@@ -66,7 +66,6 @@ abstract class DeploymentDescriptor implements Description {
     List<SecurityRole> securityRoles = new ArrayList<>();
     List<EnvEntry> envEntries = new ArrayList<>();
     List<EjbRef> ejbRefs = new ArrayList<>();
-    List<EjbLocalRef> ejbLocalRefs = new ArrayList<>();
     List<ServiceRef> serviceRefs = new ArrayList<>();
     List<ResourceRef> resourceRefs = new ArrayList<>();
     List<ResourceEnvRef> resourceEnvRefs = new ArrayList<>();
@@ -107,7 +106,6 @@ abstract class DeploymentDescriptor implements Description {
             securityRoles.isEmpty() &&
             envEntries.isEmpty() &&
             ejbRefs.isEmpty() &&
-            ejbLocalRefs.isEmpty() &&
             serviceRefs.isEmpty() &&
             resourceRefs.isEmpty() &&
             resourceEnvRefs.isEmpty() &&
@@ -147,7 +145,6 @@ abstract class DeploymentDescriptor implements Description {
         securityRoles.clear();
         envEntries.clear();
         ejbRefs.clear();
-        ejbLocalRefs.clear();
         serviceRefs.clear();
         resourceRefs.clear();
         resourceEnvRefs.clear();
@@ -206,7 +203,6 @@ abstract class DeploymentDescriptor implements Description {
         // resources and references
         envEntries.addAll(other.envEntries);
         ejbRefs.addAll(other.ejbRefs);
-        ejbLocalRefs.addAll(other.ejbLocalRefs);
         serviceRefs.addAll(other.serviceRefs);
         resourceRefs.addAll(other.resourceRefs);
         resourceEnvRefs.addAll(other.resourceEnvRefs);
@@ -253,7 +249,6 @@ abstract class DeploymentDescriptor implements Description {
         Set<Injectable> injectables = new LinkedHashSet<>();
         injectables.addAll(envEntries);
         injectables.addAll(ejbRefs);
-        injectables.addAll(ejbLocalRefs);
         injectables.addAll(serviceRefs);
         injectables.addAll(resourceRefs);
         injectables.addAll(resourceEnvRefs);
@@ -369,10 +364,6 @@ abstract class DeploymentDescriptor implements Description {
 
     void addEjbRef(EjbRef ejbRef) {
         ejbRefs.add(ejbRef);
-    }
-
-    void addEjbLocalRef(EjbLocalRef ejbLocalRef) {
-        ejbLocalRefs.add(ejbLocalRef);
     }
 
     void addServiceRef(ServiceRef serviceRef) {

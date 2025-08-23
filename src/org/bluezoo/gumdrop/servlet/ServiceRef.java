@@ -22,6 +22,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.xml.ws.WebServiceRef;
+
 /**
  * A reference to a web service.
  *
@@ -38,7 +40,7 @@ final class ServiceRef implements Description, Injectable {
     String name; // service-ref-name
     String serviceInterface;
     String className; // service-ref-type
-    String wdslFile;
+    String wsdlFile;
     String jaxrpcMappingFile;
     String serviceQname;
     String portComponentRef;
@@ -49,6 +51,15 @@ final class ServiceRef implements Description, Injectable {
     String lookupName;
     InjectionTarget injectionTarget;
     String mappedName;
+
+    void init(WebServiceRef config) {
+        name = config.name();
+        className = config.type().getName();
+        serviceInterface = config.value().getName();
+        wsdlFile = config.wsdlLocation();
+        lookupName = config.lookup();
+        mappedName = config.mappedName();
+    }
 
     // -- Description --
 

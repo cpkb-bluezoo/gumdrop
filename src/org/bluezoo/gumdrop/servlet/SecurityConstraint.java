@@ -23,7 +23,14 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+
+import javax.servlet.annotation.ServletSecurity;
+import javax.servlet.annotation.HttpConstraint;
+import javax.servlet.annotation.HttpMethodConstraint;
 
 /**
  * An authorization constraint.
@@ -32,16 +39,42 @@ import java.util.List;
  */
 final class SecurityConstraint {
 
-    enum TransportGuarantee {
-        NONE,
-        INTEGRAL,
-        CONFIDENTIAL;
-    }
-
     String displayName;
     List<ResourceCollection> resourceCollections = new ArrayList<>();
     List<String> authConstraints = new ArrayList<>();
-    TransportGuarantee transportGuarantee = TransportGuarantee.NONE;
+    ServletSecurity.TransportGuarantee transportGuarantee = ServletSecurity.TransportGuarantee.NONE;
+    ServletSecurity.EmptyRoleSemantic emptyRoleSemantic = ServletSecurity.EmptyRoleSemantic.PERMIT;
+
+    /**
+     * Initialize a security constraint that metches the specified method.
+     */
+    void init(HttpMethodConstraint config) {
+        for (String roleName : config.rolesAllowed()) {
+            authConstraints.add(roleName);
+        }
+        transportGuarantee = config.transportGuarantee();
+        emptyRoleSemantic = config.emptyRoleSemantic();
+        ResourceCollection rc = new ResourceCollection();
+        rc.urlPatterns = null;
+        rc.httpMethods = new LinkedHashSet<>(Collections.singleton(config.value()));
+        resourceCollections.add(rc);
+    }
+
+    /**
+     * Initialize a default security constraint that matches all methods
+     * that are not in the specified collection.
+     */
+    void init(HttpConstraint config, Set<String> methods) {
+        for (String roleName : config.rolesAllowed()) {
+            authConstraints.add(roleName);
+        }
+        transportGuarantee = config.transportGuarantee();
+        emptyRoleSemantic = config.value();
+        ResourceCollection rc = new ResourceCollection();
+        rc.urlPatterns = null;
+        rc.httpMethodOmissions = methods;
+        resourceCollections.add(rc);
+    }
 
     boolean matches(String method, String path) {
         for (ResourceCollection rc : resourceCollections ) {

@@ -22,6 +22,9 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.persistence.PersistenceContext;
+import javax.persistence.PersistenceContextType;
+
 /**
  * A reference to a container-managed <code>EntityManager</code>.
  *
@@ -29,20 +32,21 @@ package org.bluezoo.gumdrop.servlet;
  */
 final class PersistenceContextRef implements Injectable {
 
-    enum Type {
-        Transaction,
-        Extended;
-    }
-
     String description;
     String name; // persistence-context-ref-name
-    Type type; // persistence-context-type
-    String persistenceUnitName;
+    PersistenceContextType type; // persistence-context-type
+    String unitName; // persistence-unit-name
 
     // Injectable
     String lookupName;
     InjectionTarget injectionTarget;
     String mappedName;
+
+    void init(PersistenceContext config) {
+        name = config.name();
+        type = config.type();
+        unitName = config.unitName();
+    }
 
     // -- Injectable --
 
@@ -63,7 +67,7 @@ final class PersistenceContextRef implements Injectable {
     }
 
     @Override public String getDefaultName() {
-        return String.format("java:comp/env/$s", persistenceUnitName);
+        return String.format("java:comp/env/$s", unitName);
     }
 
     @Override public InjectionTarget getInjectionTarget() {

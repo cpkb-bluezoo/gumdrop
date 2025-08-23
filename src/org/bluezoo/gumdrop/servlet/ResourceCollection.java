@@ -38,7 +38,7 @@ final class ResourceCollection {
 
     String name;
     String description;
-    List<String> urlPatterns = new ArrayList<>();
+    List<String> urlPatterns = new ArrayList<>(); // this will be set to null for a @ServletSecurity
     Set<String> httpMethods = new LinkedHashSet<>();
     Set<String> httpMethodOmissions = new LinkedHashSet<>();
 
@@ -46,6 +46,9 @@ final class ResourceCollection {
      * Does the specified request match a resource in this collection?
      */
     boolean matches(String method, String path) {
+        if (urlPatterns == null) {
+            return isCovered(method);
+        }
         for (String pattern : urlPatterns) {
             if (pattern.equals(path)) {
                 // 1. exact match
@@ -63,6 +66,9 @@ final class ResourceCollection {
     }
 
     boolean matchesExact(String path) {
+        if (urlPatterns == null) {
+            return true;
+        }
         for (String pattern : urlPatterns) {
             if (pattern.equals(path)) {
                 return true;
