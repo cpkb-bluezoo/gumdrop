@@ -196,6 +196,13 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         commonDir = value;
     }
 
+    public void setDistributable(boolean flag) {
+        if (initialized) {
+            throw new IllegalStateException();
+        }
+        distributable = flag;
+    }
+
     void reset() {
         super.reset();
 

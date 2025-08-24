@@ -1,6 +1,6 @@
 /*
  * Session.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -24,6 +24,12 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -47,11 +53,11 @@ import javax.servlet.http.HttpSessionListener;
 class Session implements HttpSession {
 
     final Context context;
-    final String id;
-    final long creationTime;
+    final String id; // 32 chars, hex representation of MD5 digest
+    long creationTime;
     long lastAccessedTime;
     int maxInactiveInterval;
-    final Map<String,Object> attributes;
+    Map<String,Object> attributes;
 
     Session(Context context, String id) {
         this.context = context;
@@ -60,6 +66,91 @@ class Session implements HttpSession {
         lastAccessedTime = creationTime;
         maxInactiveInterval = context.sessionTimeout;
         attributes = new LinkedHashMap<>();
+    }
+
+    // Serialize to a compact form for cluster replication
+    void serialize(ByteBuffer buf) throws IOException {
+        // id is an MD5 digest, 32 characters representing 16 bytes
+        for (int i = 0; i < 32; ) {
+            int hi = Character.digit(id.charAt(i++), 0x10);
+            int lo = Character.digit(id.charAt(i++), 0x10);
+            buf.put((byte) ((hi << 0x10) | lo));
+        }
+        serializeLong(buf, creationTime);
+        serializeLong(buf, lastAccessedTime);
+        serializeInt(buf, maxInactiveInterval);
+        // Use ObjectOutputStream for attributes
+        ByteArrayOutputStream sink = new ByteArrayOutputStream();
+        ObjectOutputStream out = new ObjectOutputStream(sink);
+        out.writeObject(attributes);
+        buf.put(sink.toByteArray());
+    }
+
+    private static void serializeLong(ByteBuffer buf, long value) {
+        for (int i = 7; i >= 0; i--) {
+            buf.put((byte) (value & 0xff));
+            value >>= 8;
+        }
+    }
+
+    private static void serializeInt(ByteBuffer buf, int value) {
+        for (int i = 3; i >= 0; i--) {
+            buf.put((byte) (value & 0xff));
+            value >>= 8;
+        }
+    }
+
+    // Deserialize
+    // This method should be called with the context classloader
+    static Session deserialize(Context context, ByteBuffer buf) throws IOException {
+        // id
+        byte[] idbytes = new byte[16];
+        buf.get(idbytes);
+        char[] idchars = new char[32];
+        int j = 0;
+        for (int i = 0; i < 16; i++) {
+            int c = (int) buf.get() & 0xff;
+            int hi = (c >> 0x10) & 0xf;
+            int lo = c & 0xf;
+            idchars[j++] = Character.forDigit(hi, 16);
+            idchars[j++] = Character.forDigit(lo, 16);
+        }
+        String id = new String(idchars);
+        Session session = new Session(context, id);
+        session.creationTime = deserializeLong(buf);
+        session.lastAccessedTime = deserializeLong(buf);
+        session.maxInactiveInterval = deserializeInt(buf);
+        // Use ObjectInputStream to deserialize attributes
+        byte[] attributesBytes = new byte[buf.remaining()];
+        buf.get(attributesBytes);
+        try {
+            ByteArrayInputStream source = new ByteArrayInputStream(attributesBytes);
+            ObjectInputStream in = new ObjectInputStream(source);
+            session.attributes = (Map<String,Object>) in.readObject();
+            return session;
+        } catch (ClassNotFoundException e) {
+            IOException e2 = new IOException(e.getMessage());
+            e2.initCause(e);
+            throw e2;
+        }
+    }
+
+    private static long deserializeLong(ByteBuffer buf) {
+        long value = 0L;
+        for (int i = 0; i < 8; i++) {
+            value <<= 8;
+            value |= buf.get();
+        }
+        return value;
+    }
+
+    private static int deserializeInt(ByteBuffer buf) {
+        int value = 0;
+        for (int i = 0; i < 4; i++) {
+            value <<= 8;
+            value |= buf.get();
+        }
+        return value;
     }
 
     public long getCreationTime() {

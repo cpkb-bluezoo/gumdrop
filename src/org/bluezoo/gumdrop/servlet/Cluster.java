@@ -1,6 +1,6 @@
 /*
  * Cluster.java
- * Copyright (C) 2005 Chris Burdess
+ * Copyright (C) 2005, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -27,12 +27,16 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.net.DatagramPacket;
 import java.net.InetAddress;
-import java.net.MulticastSocket;
-import java.net.SocketTimeoutException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.Selector;
+import java.nio.channels.SelectionKey;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
@@ -49,8 +53,10 @@ class Cluster extends Thread {
     final InetAddress local;
     final InetAddress group;
     final int port;
-    final MulticastSocket multicaster;
-    final Map<InetAddress, Long> nodes;
+    final Map<SocketAddress,Long> nodes;
+    private InetSocketAddress groupSocketAddress;
+    private DatagramChannel channel;
+    private ByteBuffer pingBuffer;
 
     Cluster(Container container) throws IOException {
         super("cluster");
@@ -74,104 +80,139 @@ class Cluster extends Thread {
         }
         local = l;
 
-        // Multicaster
         port = container.clusterPort;
         group = InetAddress.getByName(container.clusterGroupAddress);
-        multicaster = new MulticastSocket(port);
-        multicaster.joinGroup(group);
-        multicaster.setSoTimeout(5000);
-        nodes = new LinkedHashMap<InetAddress, Long>();
+        nodes = new LinkedHashMap<>();
+
+        groupSocketAddress = new InetSocketAddress(group, port);
+        channel = DatagramChannel.open();
+        channel.configureBlocking(false);
+        channel.bind(new InetSocketAddress(port));
+        //channel.join(group, local);
+        pingBuffer = ByteBuffer.allocate(0);
     }
 
     public void run() {
-        try {
+        ByteBuffer readBuffer = ByteBuffer.allocate(4096);
+        try (Selector selector = Selector.open()) {
+            channel.register(selector, SelectionKey.OP_READ);
+
             while (!isInterrupted()) {
                 // ping
                 ping();
 
-                // receive
-                int len = Math.min(1024, multicaster.getReceiveBufferSize());
-                byte[] buf = new byte[len];
-                DatagramPacket packet = new DatagramPacket(buf, buf.length);
-                try {
-                    while (!isInterrupted()) {
-                        multicaster.receive(packet);
-                        InetAddress remote = packet.getAddress();
-                        if (!remote.equals(local)) {
-                            // Receive session
-                            len = packet.getLength();
-                            if (len > 0) {
-                                int off = packet.getOffset();
-                                byte[] data = packet.getData();
-                                receive(data, off, len);
+                // select
+                selector.select(1000);
+                if (isInterrupted()) {
+                    break;
+                }
+
+                // process keys
+                Iterator<SelectionKey> selectedKeys = selector.selectedKeys().iterator();
+                while (selectedKeys.hasNext()) {
+                    SelectionKey key = selectedKeys.next();
+                    selectedKeys.remove();
+                    if (key.isReadable()) {
+                        DatagramChannel readableChannel = (DatagramChannel) key.channel();
+                        SocketAddress remoteAddress = readableChannel.receive(readBuffer);
+                        if (remoteAddress != null) {
+                            readBuffer.flip();
+                            if (readBuffer.remaining() > 0) {
+                                // session message
+                                receive(readBuffer);
                             }
                             // Have we heard from this node before?
-                            if (!nodes.containsKey(remote)) {
+                            if (!nodes.containsKey(remoteAddress)) {
                                 replicateAll();
                             }
                             // Update cluster membership
-                            nodes.put(remote, Long.valueOf(System.currentTimeMillis()));
+                            nodes.put(remoteAddress, Long.valueOf(System.currentTimeMillis()));
                         }
                     }
-                } catch (SocketTimeoutException e) {
-                    // Fall through
                 }
+
+                // receive
+                /*int len = Math.min(1024, multicaster.getReceiveBufferSize());
+                  byte[] buf = new byte[len];
+                  DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                  try {
+                  while (!isInterrupted()) {
+                  multicaster.receive(packet);
+                  InetAddress remote = packet.getAddress();
+                  if (!remote.equals(local)) {
+                // Receive session
+                len = packet.getLength();
+                if (len > 0) {
+                int off = packet.getOffset();
+                byte[] data = packet.getData();
+                receive(data, off, len);
+                }
+                // Have we heard from this node before?
+                if (!nodes.containsKey(remote)) {
+                replicateAll();
+                }
+                // Update cluster membership
+                nodes.put(remote, Long.valueOf(System.currentTimeMillis()));
+                }
+                }
+                } catch (SocketTimeoutException e) {
+                // Fall through
+                }*/
                 // Reap expired nodes
                 long now = System.currentTimeMillis();
-                Collection<InetAddress> addrs = new ArrayList<InetAddress>(nodes.keySet());
-                for (InetAddress remote : addrs) {
+                Collection<SocketAddress> addrs = new ArrayList<>(nodes.keySet());
+                for (SocketAddress remote : addrs) {
                     long t = nodes.get(remote);
                     if (now - t > 15000) {
                         nodes.remove(remote);
                     }
                 }
             }
-            multicaster.leaveGroup(group);
         } catch (IOException e) {
             Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
         }
     }
 
-    synchronized void ping() throws IOException {
-        byte[] buf = new byte[0];
-        DatagramPacket packet = new DatagramPacket(buf, buf.length, group, port);
-        multicaster.send(packet);
+    void ping() throws IOException {
+        channel.send(pingBuffer, groupSocketAddress);
     }
 
-    synchronized void replicate(Context context, Session session) throws IOException {
-        ByteArrayOutputStream sink = new ByteArrayOutputStream();
-        sink.write(context.digest);
-        ObjectOutputStream oo = new ObjectOutputStream(sink);
-        oo.writeObject(session);
-        oo.flush();
-        byte[] buf = sink.toByteArray();
-        DatagramPacket packet = new DatagramPacket(buf, buf.length, group, port);
-        multicaster.send(packet);
+    void replicate(Context context, Session session) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(4096);
+        buf.put(context.digest);
+        session.serialize(buf);
+        channel.send(buf, groupSocketAddress);
     }
 
-    void receive(byte[] buf, int off, int len) throws IOException {
-        byte[] digest = new byte[16]; // XXX MD5
-        ByteArrayInputStream in = new ByteArrayInputStream(buf, off, len);
-        in.read(digest, 0, digest.length);
-        ObjectInputStream oi = new ObjectInputStream(in);
+    void receive(ByteBuffer buf) throws IOException {
+        byte[] digest = new byte[16]; // length of MD5 digest
+        buf.get(digest);
+        Context context = container.getContextByDigest(digest);
+        if (context == null || !context.distributable) {
+            String message = Context.L10N.getString("warn.no_context_with_digest");
+            Context.LOGGER.warning(message);
+            return;
+        }
+        Thread thread = Thread.currentThread();
+        ClassLoader contextClassLoader = context.getContextClassLoader();
+        ClassLoader originalClassLoader = thread.getContextClassLoader();
+        thread.setContextClassLoader(contextClassLoader);
         try {
-            Session session = (Session) oi.readObject();
-            Context context = container.getContextByDigest(digest);
-            if (context != null) {
-                synchronized (context) {
-                    context.sessions.put(session.id, session);
-                    // notify listeners?
-                }
+            Session session = Session.deserialize(context, buf);
+            synchronized (context) {
+                context.sessions.put(session.id, session);
+                // notify listeners?
             }
-        } catch (ClassNotFoundException e) {
-            IOException e2 = new IOException(e.getMessage());
-            e2.initCause(e);
-            throw e2;
+        } finally {
+           thread.setContextClassLoader(originalClassLoader);
         }
     }
 
     void replicateAll() throws IOException {
         for (Context context : container.contexts) {
+            if (!context.distributable) {
+                continue;
+            }
             synchronized (context.sessions) {
                 for (Session session : context.sessions.values()) {
                     replicate(context, session);

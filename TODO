@@ -12,8 +12,6 @@ Before 1.0 release
 - Implement servlet 4.0 methods in servlet package
   - JCA connection factories and administered objects
 - server push
-- Redo cluster management (distributable contexts) to use NIO
-- Redo HotDeploymentThread to use nio.file.WatchService
 - Finish FTP connector
 
 Long term

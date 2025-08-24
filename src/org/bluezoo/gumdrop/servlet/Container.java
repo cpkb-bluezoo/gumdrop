@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.servlet.manager.ContainerService;
 import org.bluezoo.gumdrop.servlet.manager.ContextService;
 
 import java.io.IOException;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -146,6 +147,9 @@ public class Container implements ContainerService {
                 try {
                     cluster = new Cluster(this);
                     cluster.start();
+                    String message = Context.L10N.getString("info.cluster_started");
+                    message = MessageFormat.format(message, Integer.toString(clusterPort), clusterGroupAddress);
+                    Context.LOGGER.info(message);
                 } catch (IOException e) {
                     Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
                 }
