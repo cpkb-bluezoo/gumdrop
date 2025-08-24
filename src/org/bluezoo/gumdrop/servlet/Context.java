@@ -72,6 +72,7 @@ import javax.servlet.descriptor.JspConfigDescriptor;
 import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionAttributeListener;
 import javax.servlet.http.HttpSessionBindingListener;
+import javax.servlet.http.HttpSessionEvent;
 import javax.servlet.http.HttpSessionListener;
 import javax.servlet.http.MappingMatch;
 import javax.xml.ws.WebServiceRef;
@@ -997,6 +998,46 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     boolean seenCnonce(String cnonce) {
         synchronized (cnonces) {
             return cnonces.add(cnonce);
+        }
+    }
+
+    void addSession(Session session) {
+        synchronized (sessions) {
+            sessions.put(session.id, session);
+        }
+        if (!sessionActivationListeners.isEmpty()) {
+            HttpSessionEvent event = new HttpSessionEvent(session);
+            for (HttpSessionActivationListener l : sessionActivationListeners) {
+                l.sessionDidActivate(event);
+            }
+        }
+    }
+
+    // TODO have some process that expires sessions
+    void removeSession(String id) {
+        removeSession(id, true);
+    }
+
+    // called by cluster
+    void removeSession(String id, boolean notifyCluster) {
+        Session session;
+        synchronized (sessions) {
+            session = sessions.remove(id);
+        }
+        if (session != null) {
+            if (!sessionActivationListeners.isEmpty()) {
+                HttpSessionEvent event = new HttpSessionEvent(session);
+                for (HttpSessionActivationListener l : sessionActivationListeners) {
+                    l.sessionWillPassivate(event);
+                }
+            }
+            if (distributable && container.cluster != null) {
+                try {
+                    container.cluster.passivate(this, session);
+                } catch (IOException e) {
+                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                }
+            }
         }
     }
 

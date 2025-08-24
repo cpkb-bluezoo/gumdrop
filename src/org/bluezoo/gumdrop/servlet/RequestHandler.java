@@ -70,19 +70,20 @@ class RequestHandler implements Runnable {
                 notifyRequestDestroyed(stream.request);
 
                 // Replicate session if necessary
-                // TODO
-                /*
-                   if (connector.container.cluster != null
-                   && stream.request.sessionId != null
-                   && dispatcher.context != null) {
-                   Context context = dispatcher.context;
-                   String id = stream.request.sessionId;
-                   Session session = null;
-                   synchronized (context.sessions) {
-                   session = context.sessions.get(id);
-                   }
-                   connector.container.cluster.replicate(context, session);
-                   }*/
+                Container container = stream.connection.connector.getContainer();
+                if (container.cluster != null
+                        && stream.request.sessionId != null
+                        && dispatcher.context != null) {
+                    Context context = dispatcher.context;
+                    if (context.distributable) {
+                        String id = stream.request.sessionId;
+                        Session session = null;
+                        synchronized (context.sessions) {
+                            session = context.sessions.get(id);
+                        }
+                        container.cluster.replicate(context, session);
+                    }
+                }
             }
         } catch (Exception e) {
             Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);

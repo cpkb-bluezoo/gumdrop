@@ -29,16 +29,21 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.SocketAddress;
+import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.Selector;
 import java.nio.channels.SelectionKey;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.logging.Level;
 
 /**
@@ -49,11 +54,32 @@ import java.util.logging.Level;
  */
 class Cluster extends Thread {
 
+    private static final int UUID_SIZE_BYTES = 16;
+    private static final int DIGEST_SIZE_BYTES = 16;
+    private static final int INT_SIZE_BYTES = 4;
+    private static final int MAX_DATAGRAM_SIZE = 65507;
+    private static final int NODE_EXPIRY_TIME = 15000;
+
+    /**
+     * Event type indicating that sessions are being updated
+     */
+    private static final byte EVENT_REPLICATE = 0;
+
+    /**
+     * Event type indicating that sessions are being removed/passivated
+     */
+    private static final byte EVENT_PASSIVATE = 1;
+
+    /**
+     * Event type indicating a ping
+     */
+    private static final byte EVENT_PING = 2;
+
     final Container container;
-    final InetAddress local;
+    final UUID uuid; // unique identifier for this node
     final InetAddress group;
     final int port;
-    final Map<SocketAddress,Long> nodes;
+    final Map<UUID,Long> nodes;
     private InetSocketAddress groupSocketAddress;
     private DatagramChannel channel;
     private ByteBuffer pingBuffer;
@@ -63,23 +89,7 @@ class Cluster extends Thread {
         this.container = container;
         setDaemon(true);
 
-        // Interface to be considered local
-        InetAddress localhost = InetAddress.getLocalHost();
-        InetAddress[] locals = InetAddress.getAllByName(localhost.getHostName());
-        InetAddress l = null;
-        for (int i = 0; i < locals.length; i++) {
-            // Get first non-IPv6 address
-            if (locals[i].getHostAddress().indexOf(':') == -1) // TODO IPv6
-            {
-                l = locals[i];
-                break;
-            }
-        }
-        if (l == null) {
-            l = localhost;
-        }
-        local = l;
-
+        uuid = UUID.randomUUID();
         port = container.clusterPort;
         group = InetAddress.getByName(container.clusterGroupAddress);
         nodes = new LinkedHashMap<>();
@@ -88,12 +98,51 @@ class Cluster extends Thread {
         channel = DatagramChannel.open();
         channel.configureBlocking(false);
         channel.bind(new InetSocketAddress(port));
-        //channel.join(group, local);
-        pingBuffer = ByteBuffer.allocate(0);
+        pingBuffer = ByteBuffer.allocate(UUID_SIZE_BYTES + 1);
+
+        // Join multicast group on all interfaces that support it
+        Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+        boolean loopbackJoined = false;
+        while (interfaces.hasMoreElements()) {
+            NetworkInterface ni = interfaces.nextElement();
+            if (!ni.isUp()) {
+                continue;
+            }
+            if (ni.supportsMulticast()) {
+                try {
+                    channel.join(group, ni);
+                    String message = Context.L10N.getString("debug.cluster_joined_multicast_group");
+                    message = MessageFormat.format(message, group, ni.getDisplayName());
+                    Context.LOGGER.fine(message);
+                } catch (IOException e) {
+                    String message = Context.L10N.getString("debug.cluster_failed_multicast_group");
+                    message = MessageFormat.format(message, group, ni.getDisplayName());
+                    Context.LOGGER.fine(message);
+                }
+            } else if (ni.isLoopback()) {
+                // Ensure we handle the loopback interface specifically,
+                // even though it doesn't support multicast
+                // This is how we get local, same-machine communication
+                try {
+                    // While DatagramChannel.join doesn't "join" on a loopback in the traditional sense,
+                    // we need to set the interface to be used for sending
+                    channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, ni);
+                    loopbackJoined = true;
+                } catch (IOException e) {
+                    String message = Context.L10N.getString("err.cluster_failed_loopback");
+                    message = MessageFormat.format(message, ni.getDisplayName());
+                    Context.LOGGER.severe(message);
+                }
+            }
+        }
+        if (!loopbackJoined) {
+            String message = Context.L10N.getString("err.cluster_no_loopback");
+            Context.LOGGER.severe(message);
+        }
     }
 
     public void run() {
-        ByteBuffer readBuffer = ByteBuffer.allocate(4096);
+        ByteBuffer readBuffer = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
         try (Selector selector = Selector.open()) {
             channel.register(selector, SelectionKey.OP_READ);
 
@@ -117,54 +166,39 @@ class Cluster extends Thread {
                         SocketAddress remoteAddress = readableChannel.receive(readBuffer);
                         if (remoteAddress != null) {
                             readBuffer.flip();
-                            if (readBuffer.remaining() > 0) {
-                                // session message
-                                receive(readBuffer);
+
+                            // Read message uuid
+                            long hi = readBuffer.getLong();
+                            long lo = readBuffer.getLong();
+                            UUID nodeUuid = new UUID(hi, lo);
+
+                            // Event type
+                            byte eventType = readBuffer.get();
+
+                            if (!nodeUuid.equals(uuid)) { // another node
+                                if (eventType != EVENT_PING && readBuffer.remaining() > 0) {
+                                    // session message
+                                    receive(eventType, readBuffer);
+                                }
+                                // Have we heard from this node before?
+                                if (!nodes.containsKey(nodeUuid)) {
+                                    replicateAll();
+                                }
+                                // Update cluster membership
+                                nodes.put(nodeUuid, Long.valueOf(System.currentTimeMillis()));
                             }
-                            // Have we heard from this node before?
-                            if (!nodes.containsKey(remoteAddress)) {
-                                replicateAll();
-                            }
-                            // Update cluster membership
-                            nodes.put(remoteAddress, Long.valueOf(System.currentTimeMillis()));
                         }
+                        readBuffer.clear(); // prepare for next message
                     }
                 }
 
-                // receive
-                /*int len = Math.min(1024, multicaster.getReceiveBufferSize());
-                  byte[] buf = new byte[len];
-                  DatagramPacket packet = new DatagramPacket(buf, buf.length);
-                  try {
-                  while (!isInterrupted()) {
-                  multicaster.receive(packet);
-                  InetAddress remote = packet.getAddress();
-                  if (!remote.equals(local)) {
-                // Receive session
-                len = packet.getLength();
-                if (len > 0) {
-                int off = packet.getOffset();
-                byte[] data = packet.getData();
-                receive(data, off, len);
-                }
-                // Have we heard from this node before?
-                if (!nodes.containsKey(remote)) {
-                replicateAll();
-                }
-                // Update cluster membership
-                nodes.put(remote, Long.valueOf(System.currentTimeMillis()));
-                }
-                }
-                } catch (SocketTimeoutException e) {
-                // Fall through
-                }*/
                 // Reap expired nodes
                 long now = System.currentTimeMillis();
-                Collection<SocketAddress> addrs = new ArrayList<>(nodes.keySet());
-                for (SocketAddress remote : addrs) {
-                    long t = nodes.get(remote);
-                    if (now - t > 15000) {
-                        nodes.remove(remote);
+                for (Iterator<Map.Entry<UUID,Long>> i = nodes.entrySet().iterator(); i.hasNext(); ) {
+                    Map.Entry<UUID,Long> entry = i.next();
+                    long t = entry.getValue();
+                    if (now - t > NODE_EXPIRY_TIME) {
+                        i.remove();
                     }
                 }
             }
@@ -173,19 +207,55 @@ class Cluster extends Thread {
         }
     }
 
-    void ping() throws IOException {
+    private void ping() throws IOException {
+        pingBuffer.clear();
+        // Our UUID
+        pingBuffer.putLong(uuid.getMostSignificantBits());
+        pingBuffer.putLong(uuid.getLeastSignificantBits());
+        // ping type
+        pingBuffer.put(EVENT_PING);
+        pingBuffer.flip(); // ready for reading
         channel.send(pingBuffer, groupSocketAddress);
     }
 
+    // NB this is called externally by request handler worker 
+    // thread after servicing the request
     void replicate(Context context, Session session) throws IOException {
-        ByteBuffer buf = ByteBuffer.allocate(4096);
+        ByteBuffer buf = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
+        // our uuid
+        buf.putLong(uuid.getMostSignificantBits());
+        buf.putLong(uuid.getLeastSignificantBits());
+        // event type
+        buf.put(EVENT_REPLICATE);
+        // context digest
         buf.put(context.digest);
-        session.serialize(buf);
+        buf.putInt(1); // one session to replicate
+        // session
+        ByteBuffer sessionBuf = session.serialize();
+        buf.put(sessionBuf);
+        buf.flip(); // ready for reading
         channel.send(buf, groupSocketAddress);
     }
 
-    void receive(ByteBuffer buf) throws IOException {
-        byte[] digest = new byte[16]; // length of MD5 digest
+    // Called by context when session will be passivated
+    void passivate(Context context, Session session) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
+        // our uuid
+        buf.putLong(uuid.getMostSignificantBits());
+        buf.putLong(uuid.getLeastSignificantBits());
+        // event type
+        buf.put(EVENT_PASSIVATE);
+        // context digest
+        buf.put(context.digest);
+        buf.putInt(1); // one session to passivate
+        // session *id*
+        session.serializeId(buf);
+        buf.flip(); // ready for reading
+        channel.send(buf, groupSocketAddress);
+    }
+
+    private void receive(byte eventType, ByteBuffer buf) throws IOException {
+        byte[] digest = new byte[DIGEST_SIZE_BYTES]; // length of MD5 digest
         buf.get(digest);
         Context context = container.getContextByDigest(digest);
         if (context == null || !context.distributable) {
@@ -193,30 +263,92 @@ class Cluster extends Thread {
             Context.LOGGER.warning(message);
             return;
         }
-        Thread thread = Thread.currentThread();
-        ClassLoader contextClassLoader = context.getContextClassLoader();
-        ClassLoader originalClassLoader = thread.getContextClassLoader();
-        thread.setContextClassLoader(contextClassLoader);
-        try {
-            Session session = Session.deserialize(context, buf);
-            synchronized (context) {
-                context.sessions.put(session.id, session);
-                // notify listeners?
-            }
-        } finally {
-           thread.setContextClassLoader(originalClassLoader);
+        switch (eventType) {
+            case EVENT_REPLICATE:
+                int numSessions = buf.getInt();
+                Thread thread = Thread.currentThread();
+                ClassLoader contextClassLoader = context.getContextClassLoader();
+                ClassLoader originalClassLoader = thread.getContextClassLoader();
+                thread.setContextClassLoader(contextClassLoader);
+                try {
+                    for (int i = 0; i < numSessions; i++) {
+                        Session session = Session.deserialize(context, buf);
+                        context.addSession(session);
+                    }
+                } finally {
+                    thread.setContextClassLoader(originalClassLoader);
+                }
+                break;
+            case EVENT_PASSIVATE:
+                int numSessionIds = buf.getInt();
+                for (int i = 0; i < numSessionIds; i++) {
+                    String sessionId = Session.deserializeId(buf);
+                    context.removeSession(sessionId, false);
+                }
+                break;
         }
     }
 
-    void replicateAll() throws IOException {
+    private void replicateAll() throws IOException {
         for (Context context : container.contexts) {
             if (!context.distributable) {
                 continue;
             }
-            synchronized (context.sessions) {
-                for (Session session : context.sessions.values()) {
-                    replicate(context, session);
+            replicateContext(context);
+        }
+    }
+
+    private void replicateContext(Context context) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
+        // our uuid
+        buf.putLong(uuid.getMostSignificantBits());
+        buf.putLong(uuid.getLeastSignificantBits());
+        // event type
+        buf.put(EVENT_REPLICATE);
+        // context digest
+        buf.put(context.digest);
+        Collection<Session> sessions = context.sessions.values();
+        synchronized (sessions) {
+            // Reserve space for the session count, which we'll fill in later
+            int sessionCountPosition = buf.position();
+            buf.putInt(0); 
+        
+            int sessionCount = 0;
+            for (Session session : sessions) {
+                ByteBuffer sessionBuf = session.serialize();
+                // Check if the session data will fit in the buffer
+                if (sessionBuf.remaining() <= buf.remaining()) {
+                    buf.put(sessionBuf);
+                    sessionCount++;
+                } else {
+                    // Need to send this packet and start a new one
+                    // Update session count
+                    buf.putInt(sessionCountPosition, sessionCount);
+                    // Flip buffer and send
+                    buf.flip();
+                    channel.send(buf, groupSocketAddress);
+
+                    // Clear buffer
+                    buf.clear();
+                    // Re-add header
+                    buf.putLong(uuid.getMostSignificantBits());
+                    buf.putLong(uuid.getLeastSignificantBits());
+                    buf.put(EVENT_REPLICATE);
+                    buf.put(context.digest);
+                    sessionCountPosition = buf.position();
+                    buf.putInt(0);
+                    // Add session
+                    buf.put(sessionBuf);
+                    sessionCount = 1;
                 }
+            }
+            // Send final packet: last batch (might be all)
+            if (sessionCount > 0) {
+                // Update session count
+                buf.putInt(sessionCountPosition, sessionCount);
+                // Flip buffer and send
+                buf.flip();
+                channel.send(buf, groupSocketAddress);
             }
         }
     }

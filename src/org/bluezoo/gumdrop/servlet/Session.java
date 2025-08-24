@@ -69,41 +69,33 @@ class Session implements HttpSession {
     }
 
     // Serialize to a compact form for cluster replication
-    void serialize(ByteBuffer buf) throws IOException {
-        // id is an MD5 digest, 32 characters representing 16 bytes
+    void serializeId(ByteBuffer buf) throws IOException {
+        // session id is 32 characters representing 16 bytes
         for (int i = 0; i < 32; ) {
             int hi = Character.digit(id.charAt(i++), 0x10);
             int lo = Character.digit(id.charAt(i++), 0x10);
             buf.put((byte) ((hi << 0x10) | lo));
         }
-        serializeLong(buf, creationTime);
-        serializeLong(buf, lastAccessedTime);
-        serializeInt(buf, maxInactiveInterval);
+    }
+
+    ByteBuffer serialize() throws IOException {
         // Use ObjectOutputStream for attributes
         ByteArrayOutputStream sink = new ByteArrayOutputStream();
         ObjectOutputStream out = new ObjectOutputStream(sink);
         out.writeObject(attributes);
-        buf.put(sink.toByteArray());
+        byte[] payload = sink.toByteArray();
+        int size = 16 + 8 + 8 + 4 + payload.length; // total size
+        ByteBuffer buf = ByteBuffer.allocate(size);
+        serializeId(buf);
+        buf.putLong(creationTime);
+        buf.putLong(lastAccessedTime);
+        buf.putInt(maxInactiveInterval);
+        buf.put(payload);
+        buf.flip(); // ready for reading
+        return buf;
     }
 
-    private static void serializeLong(ByteBuffer buf, long value) {
-        for (int i = 7; i >= 0; i--) {
-            buf.put((byte) (value & 0xff));
-            value >>= 8;
-        }
-    }
-
-    private static void serializeInt(ByteBuffer buf, int value) {
-        for (int i = 3; i >= 0; i--) {
-            buf.put((byte) (value & 0xff));
-            value >>= 8;
-        }
-    }
-
-    // Deserialize
-    // This method should be called with the context classloader
-    static Session deserialize(Context context, ByteBuffer buf) throws IOException {
-        // id
+    static String deserializeId(ByteBuffer buf) throws IOException {
         byte[] idbytes = new byte[16];
         buf.get(idbytes);
         char[] idchars = new char[32];
@@ -115,11 +107,17 @@ class Session implements HttpSession {
             idchars[j++] = Character.forDigit(hi, 16);
             idchars[j++] = Character.forDigit(lo, 16);
         }
-        String id = new String(idchars);
+        return new String(idchars);
+    }
+
+    // Deserialize
+    // This method should be called with the context classloader
+    static Session deserialize(Context context, ByteBuffer buf) throws IOException {
+        String id = deserializeId(buf);
         Session session = new Session(context, id);
-        session.creationTime = deserializeLong(buf);
-        session.lastAccessedTime = deserializeLong(buf);
-        session.maxInactiveInterval = deserializeInt(buf);
+        session.creationTime = buf.getLong();
+        session.lastAccessedTime = buf.getLong();
+        session.maxInactiveInterval = buf.getInt();
         // Use ObjectInputStream to deserialize attributes
         byte[] attributesBytes = new byte[buf.remaining()];
         buf.get(attributesBytes);
@@ -133,24 +131,6 @@ class Session implements HttpSession {
             e2.initCause(e);
             throw e2;
         }
-    }
-
-    private static long deserializeLong(ByteBuffer buf) {
-        long value = 0L;
-        for (int i = 0; i < 8; i++) {
-            value <<= 8;
-            value |= buf.get();
-        }
-        return value;
-    }
-
-    private static int deserializeInt(ByteBuffer buf) {
-        int value = 0;
-        for (int i = 0; i < 4; i++) {
-            value <<= 8;
-            value |= buf.get();
-        }
-        return value;
     }
 
     public long getCreationTime() {
