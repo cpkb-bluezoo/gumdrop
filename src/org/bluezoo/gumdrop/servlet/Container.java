@@ -59,6 +59,7 @@ public class Container implements ContainerService {
 
     // Distributed session management
     Cluster cluster;
+    byte[] clusterKey;
     int clusterPort = 8080;
     String clusterGroupAddress = "224.0.80.80";
 
@@ -98,6 +99,16 @@ public class Container implements ContainerService {
 
     public void setClusterGroupAddress(String address) {
         clusterGroupAddress = address;
+    }
+
+    public void setClusterKey(String key) {
+        byte[] bytes = new java.math.BigInteger(key, 16).toByteArray();
+        if (bytes.length < 32) {
+            byte[] tmp = new byte[32];
+            System.arraycopy(bytes, 0, tmp, tmp.length - bytes.length, bytes.length);
+            bytes = tmp; 
+        }
+        clusterKey = bytes;
     }
 
     /**
@@ -144,14 +155,19 @@ public class Container implements ContainerService {
                 }
             }
             if (distributable) {
-                try {
-                    cluster = new Cluster(this);
-                    cluster.start();
-                    String message = Context.L10N.getString("info.cluster_started");
-                    message = MessageFormat.format(message, Integer.toString(clusterPort), clusterGroupAddress);
-                    Context.LOGGER.info(message);
-                } catch (IOException e) {
-                    Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                if (clusterKey == null) {
+                    String message = Context.L10N.getString("err.no_cluster_key");
+                    Context.LOGGER.severe(message);
+                } else {
+                    try {
+                        cluster = new Cluster(this, clusterKey);
+                        cluster.start();
+                        String message = Context.L10N.getString("info.cluster_started");
+                        message = MessageFormat.format(message, Integer.toString(clusterPort), clusterGroupAddress);
+                        Context.LOGGER.info(message);
+                    } catch (IOException e) {
+                        Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                    }
                 }
             }
             started = true;

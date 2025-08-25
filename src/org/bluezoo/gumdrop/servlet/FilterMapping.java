@@ -35,10 +35,13 @@ import javax.servlet.DispatcherType;
  */
 final class FilterMapping {
 
-    String name;
+    String filterName;
     Set<String> urlPatterns = new LinkedHashSet<>();
     Set<String> servletNames = new LinkedHashSet<>();
     EnumSet<DispatcherType> dispatchers;
+
+    FilterDef filterDef; // resolved link to filter definition
+    Set<ServletDef> servletDefs = new LinkedHashSet<>(); // resolved links to servlet defs
 
     FilterMapping() {
         dispatchers = EnumSet.noneOf(DispatcherType.class);

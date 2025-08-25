@@ -430,6 +430,39 @@ abstract class DeploymentDescriptor implements Description {
         localeEncodingMappings.put(locale, encoding);
     }
 
+    /**
+     * Resolve all the filterMappings and servletMappings.
+     * This cannot be done until the entire web deployment descriptor is
+     * parsed, since you can define filter-mapping and servlet-mapping
+     * elements before the filter and servlet elements they reference.
+     */
+    void resolve() {
+        for (FilterMapping filterMapping : filterMappings) {
+            filterMapping.filterDef = filterDefs.get(filterMapping.filterName);
+            if (filterMapping.filterDef == null) {
+                String message = Context.L10N.getString("warn.no_filter_def");
+                Context.LOGGER.warning(message);
+            }
+            filterMapping.servletDefs.clear();
+            for (String servletName : filterMapping.servletNames) {
+                ServletDef servletDef = servletDefs.get(servletName);
+                if (servletDef == null) {
+                    String message = Context.L10N.getString("warn.no_servlet_def");
+                    Context.LOGGER.warning(message);
+                } else {
+                    filterMapping.servletDefs.add(servletDef);
+                }
+            }
+        }
+        for (ServletMapping servletMapping : servletMappings) {
+            servletMapping.servletDef = servletDefs.get(servletMapping.servletName);
+            if (servletMapping.servletDef == null) {
+                String message = Context.L10N.getString("warn.no_servlet_def");
+                Context.LOGGER.warning(message);
+            }
+        }
+    }
+
     // Convenience methods for LoginConfig
 
     String getAuthMethod() {

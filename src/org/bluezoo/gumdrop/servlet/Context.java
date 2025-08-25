@@ -249,6 +249,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         DeploymentDescriptorParser parser = new DeploymentDescriptorParser();
         if (webXml != null) {
             parser.parse(this, webXml);
+            resolve();
         }
         if (!metadataComplete) {
             scan(parser);
@@ -270,7 +271,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         defaultServletDef = null;
         for (ServletMapping sm : servletMappings) {
             if (sm.urlPatterns.contains("/")) {
-                defaultServletDef = (ServletDef) servletDefs.get(sm.name);
+                defaultServletDef = sm.servletDef;
                 break;
             }
         }
@@ -283,7 +284,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             defaultServletDef.loadOnStartup = 0;
             servletDefs.put(null, defaultServletDef);
             ServletMapping defaultServletMapping = new ServletMapping();
-            defaultServletMapping.name = null;
+            defaultServletMapping.servletDef = defaultServletDef;
+            defaultServletMapping.servletName = null;
             defaultServletMapping.addUrlPattern("/");
             servletMappings.add(defaultServletMapping);
         }
@@ -294,24 +296,28 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
      * Scan the web application and add any web fragments or annotations.
      */
     void scan(DeploymentDescriptorParser parser) throws IOException, SAXException {
-        Set<String> resourcePaths = getResourcePaths("/WEB-INF/", false);
-        // Process WEB-INF/classes and build a list of jars to process
-        List<String> jarPaths = new ArrayList<>();
-        for (String resourcePath : resourcePaths) {
-            if (resourcePath.startsWith("/WEB-INF/lib/") && resourcePath.toLowerCase().endsWith(".jar")) {
-                jarPaths.add(resourcePath);
-            } else if (resourcePath.startsWith("/WEB-INF/classes/") && resourcePath.toLowerCase().endsWith(".class")) {
-                // classes in WEB-INF/classes must be processed before any
-                // jars. See rule 2b
-                String className = resourcePath.substring(17, resourcePath.length() - 6).replace('/', '.');
-                InputStream in = getResourceAsStream(resourcePath);
-                scanClass(this, className, in);
+        // Process WEB-INF/classes
+        // classes in WEB-INF/classes must be processed before any
+        // jars. See rule 2b
+        Set<String> resourcePaths = getResourcePaths("/WEB-INF/classes/", false);
+        if (resourcePaths != null) {
+            for (String resourcePath : resourcePaths) {
+                if (resourcePath.toLowerCase().endsWith(".class")) {
+                    String className = resourcePath.substring(17, resourcePath.length() - 6).replace('/', '.');
+                    InputStream in = getResourceAsStream(resourcePath);
+                    scanClass(this, className, in);
+                }
             }
         }
-        // Process the jars
+        // Process WEB-INF/lib
         List<WebFragment> webFragments = new ArrayList<>();
-        for (String jarPath : jarPaths) {
-            scanJar(parser, jarPath, webFragments);
+        resourcePaths = getResourcePaths("/WEB-INF/lib/", false);
+        if (resourcePaths != null) {
+            for (String resourcePath : resourcePaths) {
+                if (resourcePath.toLowerCase().endsWith(".jar")) {
+                    scanJar(parser, resourcePath, webFragments);
+                }
+            }
         }
         // Order web fragments
         Collections.sort(webFragments, this);
@@ -375,6 +381,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             if (jarEntry != null) {
                 InputStream in = jarFile.getInputStream(jarEntry);
                 parser.parse(webFragment, in);
+                webFragment.resolve();
             }
             // 8.2.2 rule 1d
             boolean noOthers = !absoluteOrdering.isEmpty() && absoluteOrdering.contains(WebFragment.OTHERS);
@@ -425,16 +432,17 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     FilterDef filterDef;
                     if (target == null) {
                         filterDef = new FilterDef();
-                        descriptor.addFilterDef(filterDef);
                         target = filterDef;
                     } else {
                         filterDef = (FilterDef) target;
                     }
                     filterDef.init(webFilter, className);
+                    descriptor.addFilterDef(filterDef);
                     String[] urlPatterns = webFilter.urlPatterns();
                     if (urlPatterns.length > 0) {
                         FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
-                        filterMapping.name = filterDef.name;
+                        filterMapping.filterDef = filterDef;
+                        filterMapping.filterName = filterDef.name;
                         for (String urlPattern : urlPatterns) {
                             filterMapping.addUrlPattern(urlPattern);
                         }
@@ -443,7 +451,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     String[] servletNames = webFilter.urlPatterns();
                     if (servletNames.length > 0) {
                         FilterMapping filterMapping = new FilterMapping(webFilter.dispatcherTypes());
-                        filterMapping.name = filterDef.name;
+                        filterMapping.filterDef = filterDef;
+                        filterMapping.filterName = filterDef.name;
+                        filterMapping.filterDef = filterDef;
                         for (String servletName : servletNames) {
                             filterMapping.addServletName(servletName);
                         }
@@ -480,16 +490,17 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     ServletDef servletDef;
                     if (target == null) {
                         servletDef = new ServletDef();
-                        descriptor.addServletDef(servletDef);
                         target = servletDef;
                     } else {
                         servletDef = (ServletDef) target;
                     }
                     servletDef.init(webServlet, className);
+                    descriptor.addServletDef(servletDef);
                     String[] urlPatterns = webServlet.urlPatterns();
                     if (urlPatterns.length > 0) {
                         ServletMapping servletMapping = new ServletMapping();
-                        servletMapping.name = servletDef.name;
+                        servletMapping.servletDef = servletDef;
+                        servletMapping.servletName = servletDef.name;
                         for (String urlPattern : urlPatterns) {
                             servletMapping.addUrlPattern(urlPattern);
                         }
@@ -506,7 +517,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     ServletDef servletDef;
                     if (target == null) {
                         servletDef = new ServletDef();
-                        descriptor.addServletDef(servletDef);
                         target = servletDef;
                     } else {
                         servletDef = (ServletDef) target;
@@ -523,7 +533,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     ServletDef servletDef;
                     if (target == null) {
                         servletDef = new ServletDef();
-                        descriptor.addServletDef(servletDef);
                         target = servletDef;
                     } else {
                         servletDef = (ServletDef) target;
@@ -541,7 +550,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     ServletDef servletDef;
                     if (target == null) {
                         servletDef = new ServletDef();
-                        descriptor.addServletDef(servletDef);
                         target = servletDef;
                     } else {
                         servletDef = (ServletDef) target;
@@ -1465,12 +1473,12 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         // Locate applicable filters
         Map<String,FilterMatch> requestFilters = new LinkedHashMap<>();
         for (FilterMapping filterMapping : filterMappings) {
-            String filterName = filterMapping.name;
-            FilterDef fd = filterDefs.get(filterName);
+            String filterName = filterMapping.filterName;
+            FilterDef fd = filterMapping.filterDef;
             if (fd == null) {
                 continue;
             }
-            if (!filterMapping.servletNames.isEmpty() && filterMapping.servletNames.contains(servletDef.name)) {
+            if (!filterMapping.servletDefs.isEmpty() && filterMapping.servletDefs.contains(servletDef)) {
                 FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXACT);
                 requestFilters.put(filterName, fm);
             } else {
@@ -1507,13 +1515,12 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     void matchServletMapping(String path, ServletMatch match) {
         for (ServletMapping servletMapping : servletMappings) {
-            String servletName = servletMapping.name;
+            ServletDef servletDef = servletMapping.servletDef;
             for (String pattern : servletMapping.urlPatterns) {
                 if (pattern.equals(path)) {
                     // 1. exact match
-                    ServletDef sd = servletDefs.get(servletName);
-                    if (sd != null && sd != defaultServletDef) {
-                        match.servletDef = sd;
+                    if (servletDef != null && servletDef != defaultServletDef) {
+                        match.servletDef = servletDef;
                         match.servletPath = pattern;
                         match.pathInfo = null;
                         match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
@@ -1526,9 +1533,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         // 2. longest path prefix
                         if (match.servletPath == null
                                 || pattern.length() > match.servletPath.length()) {
-                            ServletDef sd = servletDefs.get(servletName);
-                            if (sd != null) {
-                                match.servletDef = sd;
+                            if (servletDef != null) {
+                                match.servletDef = servletDef;
                                 match.servletPath = pattern;
                                 match.pathInfo = path.substring(pattern.length());
                                 if (match.pathInfo.length() == 0) {
@@ -1543,9 +1549,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         && pattern.startsWith("*.")
                         && path.endsWith(pattern.substring(1))) {
                     // 3. extension
-                    ServletDef sd = servletDefs.get(servletName);
-                    if (sd != null) {
-                        match.servletDef = sd;
+                    if (servletDef != null) {
+                        match.servletDef = servletDef;
                         match.servletPath = path;
                         match.pathInfo = null;
                         match.mappingMatch = MappingMatch.EXTENSION;

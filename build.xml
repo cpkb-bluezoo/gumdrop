@@ -26,6 +26,7 @@
   <property name='build-bootstrap' location='build-bootstrap'/>
   <property name='manager' location='manager'/>
   <property name='dist' location='dist'/>
+  <property name='test' location='test'/>
   <property name='server.jar' location='${dist}/server.jar'/>
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
   <property name='manager.war' location='${dist}/manager.war'/>
@@ -41,8 +42,9 @@
   <target name='clean'>
     <delete dir='${build-bootstrap}'/>
     <delete dir='${build}'/>
-    <delete dir='${manager}/WEB-INF/classes'/>
     <delete dir='${dist}'/>
+    <delete dir='${manager}/WEB-INF/classes'/>
+    <delete dir='${test}/cluster/WEB-INF/classes'/>
   </target>
 
   <!-- Target for the server/servlet container and all its resources -->
@@ -114,5 +116,14 @@
   </target>
 
   <target name='dist' depends='bootstrap-jar,manager-war'/>
+
+  <target name='cluster-test'>
+    <mkdir dir='${test}/cluster/WEB-INF/classes'/>
+    <javac srcdir='${test}/cluster' destdir='${test}/cluster/WEB-INF/classes' debug='true'>
+      <classpath>
+        <pathelement location='${lib}/${servlet.jar}'/>
+      </classpath>
+    </javac>
+  </target>
 
 </project>

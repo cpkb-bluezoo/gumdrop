@@ -176,7 +176,8 @@ final class FilterDef implements FilterConfig, FilterReg {
         // Can't use Set.of since we want to preserve order
         Set<String> unmapped = new LinkedHashSet<>(Arrays.asList(servletNames));
         FilterMapping filterMapping = new FilterMapping();
-        filterMapping.name = name;
+        filterMapping.filterDef = this;
+        filterMapping.filterName = name;
         filterMapping.servletNames = unmapped;
         filterMapping.dispatchers = dispatcherTypes.clone();
         int index = indexOfFilterMapping(context.filterMappings, unmapped, true);
@@ -200,7 +201,8 @@ final class FilterDef implements FilterConfig, FilterReg {
         // Can't use Set.of since we want to preserve order
         Set<String> unmapped = new LinkedHashSet<>(Arrays.asList(urlPatterns));
         FilterMapping filterMapping = new FilterMapping();
-        filterMapping.name = name;
+        filterMapping.filterDef = this;
+        filterMapping.filterName = name;
         filterMapping.urlPatterns = unmapped;
         filterMapping.dispatchers = dispatcherTypes.clone();
         int index = indexOfFilterMapping(context.filterMappings, unmapped, false);
@@ -246,7 +248,7 @@ final class FilterDef implements FilterConfig, FilterReg {
     @Override public Collection<String> getServletNameMappings() {
         Collection<String> ret = new LinkedHashSet<>();
         for (FilterMapping filterMapping : context.filterMappings) {
-            if (filterMapping.name.equals(name)) {
+            if (filterMapping.filterDef == this) {
                 ret.addAll(filterMapping.servletNames);
             }
         }
@@ -256,7 +258,7 @@ final class FilterDef implements FilterConfig, FilterReg {
     @Override public Collection<String> getUrlPatternMappings() {
         Collection<String> ret = new LinkedHashSet<>();
         for (FilterMapping filterMapping : context.filterMappings) {
-            if (filterMapping.name.equals(name)) {
+            if (filterMapping.filterDef == this) {
                 ret.addAll(filterMapping.urlPatterns);
             }
         }

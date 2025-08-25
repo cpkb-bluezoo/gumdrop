@@ -1443,7 +1443,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case FILTER_MAPPING:
                 switch (state) {
                     case FILTER_NAME:
-                        ((FilterMapping) peekTarget()).name = popText();
+                        ((FilterMapping) peekTarget()).filterName = popText();
                         break;
                     case URL_PATTERN:
                         ((FilterMapping) peekTarget()).addUrlPattern(popText());
@@ -1518,7 +1518,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case SERVLET_MAPPING:
                 switch (state) {
                     case SERVLET_NAME:
-                        ((ServletMapping) peekTarget()).name = popText();
+                        ((ServletMapping) peekTarget()).servletName = popText();
                         break;
                     case URL_PATTERN:
                         ((ServletMapping) peekTarget()).addUrlPattern(popText());

@@ -22,20 +22,30 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.InetAddress;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.net.ProtocolFamily;
 import java.net.SocketAddress;
+import java.net.StandardProtocolFamily;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.Selector;
 import java.nio.channels.SelectionKey;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,6 +69,12 @@ class Cluster extends Thread {
     private static final int INT_SIZE_BYTES = 4;
     private static final int MAX_DATAGRAM_SIZE = 65507;
     private static final int NODE_EXPIRY_TIME = 15000;
+    private static final int PING_FREQUENCY = 5000;
+
+   // Encryption constants
+    private static final String ALGORITHM = "AES/GCM/NoPadding";
+    private static final int GCM_IV_LENGTH = 12; // 96-bit IV
+    private static final int GCM_TAG_LENGTH = 16; // 128-bit authentication tag
 
     /**
      * Event type indicating that sessions are being updated
@@ -76,27 +92,53 @@ class Cluster extends Thread {
     private static final byte EVENT_PING = 2;
 
     final Container container;
+    private final SecretKey sharedSecret;
     final UUID uuid; // unique identifier for this node
-    final InetAddress group;
+    final InetAddress group, loopback;
     final int port;
     final Map<UUID,Long> nodes;
-    private InetSocketAddress groupSocketAddress;
+    private InetSocketAddress groupSocketAddress, loopbackSocketAddress;
     private DatagramChannel channel;
     private ByteBuffer pingBuffer;
+    private final SecureRandom secureRandom;
+    private long lastPing = -1L;
 
-    Cluster(Container container) throws IOException {
+    /**
+     * Constructor.
+     * @param container the container
+     * @param sharedSecret the secret key. Must be 32 bytes long.
+     */
+    Cluster(Container container, byte[] sharedSecret) throws IOException {
         super("cluster");
-        this.container = container;
         setDaemon(true);
+        this.container = container;
+        if (sharedSecret.length != 32) {
+            throw new IllegalArgumentException(Context.L10N.getString("err.cluster_bad_secret_key"));
+        }
+        this.sharedSecret = new SecretKeySpec(sharedSecret, "AES");
+        secureRandom = new SecureRandom();
 
         uuid = UUID.randomUUID();
         port = container.clusterPort;
         group = InetAddress.getByName(container.clusterGroupAddress);
         nodes = new LinkedHashMap<>();
 
+        final ProtocolFamily family;
+        
+        if (group instanceof Inet6Address) {
+            family = StandardProtocolFamily.INET6;
+            loopback = InetAddress.getByName("::1");
+        } else {
+            family = StandardProtocolFamily.INET;
+            loopback = InetAddress.getByName("127.0.0.1");
+        }
         groupSocketAddress = new InetSocketAddress(group, port);
-        channel = DatagramChannel.open();
+        loopbackSocketAddress = new InetSocketAddress(loopback, port);
+
+        channel = DatagramChannel.open(family);
         channel.configureBlocking(false);
+        channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+        //channel.setOption(StandardSocketOptions.IP_MULTICAST_LOOP, true);
         channel.bind(new InetSocketAddress(port));
         pingBuffer = ByteBuffer.allocate(UUID_SIZE_BYTES + 1);
 
@@ -108,18 +150,7 @@ class Cluster extends Thread {
             if (!ni.isUp()) {
                 continue;
             }
-            if (ni.supportsMulticast()) {
-                try {
-                    channel.join(group, ni);
-                    String message = Context.L10N.getString("debug.cluster_joined_multicast_group");
-                    message = MessageFormat.format(message, group, ni.getDisplayName());
-                    Context.LOGGER.fine(message);
-                } catch (IOException e) {
-                    String message = Context.L10N.getString("debug.cluster_failed_multicast_group");
-                    message = MessageFormat.format(message, group, ni.getDisplayName());
-                    Context.LOGGER.fine(message);
-                }
-            } else if (ni.isLoopback()) {
+            if (ni.isLoopback()) {
                 // Ensure we handle the loopback interface specifically,
                 // even though it doesn't support multicast
                 // This is how we get local, same-machine communication
@@ -128,9 +159,23 @@ class Cluster extends Thread {
                     // we need to set the interface to be used for sending
                     channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, ni);
                     loopbackJoined = true;
+                    String message = Context.L10N.getString("debug.cluster_joined_loopback");
+                    message = MessageFormat.format(message, ni.getDisplayName());
+                    Context.LOGGER.fine(message);
                 } catch (IOException e) {
                     String message = Context.L10N.getString("err.cluster_failed_loopback");
                     message = MessageFormat.format(message, ni.getDisplayName());
+                    Context.LOGGER.severe(message);
+                }
+            } else if (ni.supportsMulticast()) {
+                try {
+                    channel.join(group, ni);
+                    String message = Context.L10N.getString("debug.cluster_joined_multicast_group");
+                    message = MessageFormat.format(message, group, ni.getDisplayName());
+                    Context.LOGGER.fine(message);
+                } catch (IOException e) {
+                    String message = Context.L10N.getString("err.cluster_failed_multicast_group");
+                    message = MessageFormat.format(message, group, ni.getDisplayName());
                     Context.LOGGER.severe(message);
                 }
             }
@@ -148,7 +193,10 @@ class Cluster extends Thread {
 
             while (!isInterrupted()) {
                 // ping
-                ping();
+                if (lastPing < 0 || System.currentTimeMillis() >= lastPing + PING_FREQUENCY) {
+                    ping();
+                    lastPing = System.currentTimeMillis();
+                }
 
                 // select
                 selector.select(1000);
@@ -167,25 +215,33 @@ class Cluster extends Thread {
                         if (remoteAddress != null) {
                             readBuffer.flip();
 
-                            // Read message uuid
-                            long hi = readBuffer.getLong();
-                            long lo = readBuffer.getLong();
-                            UUID nodeUuid = new UUID(hi, lo);
+                            try {
+                                // Decrypt incoming message
+                                ByteBuffer buf = decrypt(readBuffer);
 
-                            // Event type
-                            byte eventType = readBuffer.get();
+                                // Read message uuid
+                                long hi = buf.getLong();
+                                long lo = buf.getLong();
+                                UUID nodeUuid = new UUID(hi, lo);
 
-                            if (!nodeUuid.equals(uuid)) { // another node
-                                if (eventType != EVENT_PING && readBuffer.remaining() > 0) {
-                                    // session message
-                                    receive(eventType, readBuffer);
+                                // Event type
+                                byte eventType = buf.get();
+
+                                if (!nodeUuid.equals(uuid)) { // another node
+                                    if (eventType != EVENT_PING && buf.remaining() > 0) {
+                                        // session message
+                                        receive(eventType, buf);
+                                    }
+                                    // Have we heard from this node before?
+                                    if (!nodes.containsKey(nodeUuid)) {
+                                        replicateAll();
+                                    }
+                                    // Update cluster membership
+                                    nodes.put(nodeUuid, Long.valueOf(System.currentTimeMillis()));
                                 }
-                                // Have we heard from this node before?
-                                if (!nodes.containsKey(nodeUuid)) {
-                                    replicateAll();
-                                }
-                                // Update cluster membership
-                                nodes.put(nodeUuid, Long.valueOf(System.currentTimeMillis()));
+                            } catch (GeneralSecurityException e) {
+                                String message = Context.L10N.getString("err.cluster_decrypt");
+                                Context.LOGGER.severe(message);
                             }
                         }
                         readBuffer.clear(); // prepare for next message
@@ -193,11 +249,10 @@ class Cluster extends Thread {
                 }
 
                 // Reap expired nodes
-                long now = System.currentTimeMillis();
                 for (Iterator<Map.Entry<UUID,Long>> i = nodes.entrySet().iterator(); i.hasNext(); ) {
                     Map.Entry<UUID,Long> entry = i.next();
                     long t = entry.getValue();
-                    if (now - t > NODE_EXPIRY_TIME) {
+                    if (System.currentTimeMillis() - t > NODE_EXPIRY_TIME) {
                         i.remove();
                     }
                 }
@@ -207,51 +262,49 @@ class Cluster extends Thread {
         }
     }
 
+    private void writeHeader(ByteBuffer buf, byte eventType) {
+        // Our UUID
+        buf.putLong(uuid.getMostSignificantBits());
+        buf.putLong(uuid.getLeastSignificantBits());
+        // event type
+        buf.put(eventType);
+    }
+
     private void ping() throws IOException {
         pingBuffer.clear();
-        // Our UUID
-        pingBuffer.putLong(uuid.getMostSignificantBits());
-        pingBuffer.putLong(uuid.getLeastSignificantBits());
-        // ping type
-        pingBuffer.put(EVENT_PING);
+        writeHeader(pingBuffer, EVENT_PING);
         pingBuffer.flip(); // ready for reading
-        channel.send(pingBuffer, groupSocketAddress);
+        send(pingBuffer, false); // don't log pings
     }
 
     // NB this is called externally by request handler worker 
     // thread after servicing the request
     void replicate(Context context, Session session) throws IOException {
         ByteBuffer buf = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
-        // our uuid
-        buf.putLong(uuid.getMostSignificantBits());
-        buf.putLong(uuid.getLeastSignificantBits());
-        // event type
-        buf.put(EVENT_REPLICATE);
+        writeHeader(buf, EVENT_REPLICATE);
         // context digest
         buf.put(context.digest);
-        buf.putInt(1); // one session to replicate
-        // session
+        // one session to replicate
+        buf.putInt(1);
+        // session serialization
         ByteBuffer sessionBuf = session.serialize();
         buf.put(sessionBuf);
         buf.flip(); // ready for reading
-        channel.send(buf, groupSocketAddress);
+        send(buf, true);
     }
 
     // Called by context when session will be passivated
     void passivate(Context context, Session session) throws IOException {
         ByteBuffer buf = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
-        // our uuid
-        buf.putLong(uuid.getMostSignificantBits());
-        buf.putLong(uuid.getLeastSignificantBits());
-        // event type
-        buf.put(EVENT_PASSIVATE);
+        writeHeader(buf, EVENT_PASSIVATE);
         // context digest
         buf.put(context.digest);
-        buf.putInt(1); // one session to passivate
+        // one session to passivate
+        buf.putInt(1);
         // session *id*
         session.serializeId(buf);
         buf.flip(); // ready for reading
-        channel.send(buf, groupSocketAddress);
+        send(buf, true);
     }
 
     private void receive(byte eventType, ByteBuffer buf) throws IOException {
@@ -273,6 +326,11 @@ class Cluster extends Thread {
                 try {
                     for (int i = 0; i < numSessions; i++) {
                         Session session = Session.deserialize(context, buf);
+                        if (Context.LOGGER.isLoggable(Level.FINE)) {
+                            String message = Context.L10N.getString("info.cluster_received_session");
+                            message = MessageFormat.format(message, session.id);
+                            Context.LOGGER.finest(message);
+                        }
                         context.addSession(session);
                     }
                 } finally {
@@ -300,11 +358,7 @@ class Cluster extends Thread {
 
     private void replicateContext(Context context) throws IOException {
         ByteBuffer buf = ByteBuffer.allocate(MAX_DATAGRAM_SIZE);
-        // our uuid
-        buf.putLong(uuid.getMostSignificantBits());
-        buf.putLong(uuid.getLeastSignificantBits());
-        // event type
-        buf.put(EVENT_REPLICATE);
+        writeHeader(buf, EVENT_REPLICATE);
         // context digest
         buf.put(context.digest);
         Collection<Session> sessions = context.sessions.values();
@@ -312,7 +366,7 @@ class Cluster extends Thread {
             // Reserve space for the session count, which we'll fill in later
             int sessionCountPosition = buf.position();
             buf.putInt(0); 
-        
+
             int sessionCount = 0;
             for (Session session : sessions) {
                 ByteBuffer sessionBuf = session.serialize();
@@ -326,14 +380,12 @@ class Cluster extends Thread {
                     buf.putInt(sessionCountPosition, sessionCount);
                     // Flip buffer and send
                     buf.flip();
-                    channel.send(buf, groupSocketAddress);
+                    send(buf, true);
 
                     // Clear buffer
                     buf.clear();
                     // Re-add header
-                    buf.putLong(uuid.getMostSignificantBits());
-                    buf.putLong(uuid.getLeastSignificantBits());
-                    buf.put(EVENT_REPLICATE);
+                    writeHeader(buf, EVENT_REPLICATE);
                     buf.put(context.digest);
                     sessionCountPosition = buf.position();
                     buf.putInt(0);
@@ -348,9 +400,96 @@ class Cluster extends Thread {
                 buf.putInt(sessionCountPosition, sessionCount);
                 // Flip buffer and send
                 buf.flip();
-                channel.send(buf, groupSocketAddress);
+                send(buf, true);
             }
         }
     }
+
+    private void send(ByteBuffer buf, boolean log) throws IOException {
+        try {
+            ByteBuffer ciphertext = encrypt(buf);
+            int len = ciphertext.remaining();
+
+            // We need to send both unicast to the loopback address, for
+            // nodes in other processes on the same machine, and multicast
+            // to the group address, for nodes on other hosts.
+
+            // copy the buffer
+            ByteBuffer loopbackBuffer = ciphertext.duplicate();
+
+            // Send loopback unicast message
+            channel.send(loopbackBuffer, loopbackSocketAddress);
+            if (log && Context.LOGGER.isLoggable(Level.FINEST)) {
+                String message = Context.L10N.getString("info.cluster_send_unicast");
+                message = MessageFormat.format(message, len, loopbackSocketAddress);
+                Context.LOGGER.finest(message);
+            }
+
+            // Send group multicast message
+            channel.send(ciphertext, groupSocketAddress);
+            if (log && Context.LOGGER.isLoggable(Level.FINEST)) {
+                String message = Context.L10N.getString("info.cluster_send");
+                message = MessageFormat.format(message, len, groupSocketAddress);
+                Context.LOGGER.finest(message);
+            }
+        } catch (GeneralSecurityException e) {
+            String message = Context.L10N.getString("err.cluster_encrypt");
+            Context.LOGGER.severe(message);
+        }
+    }
+
+    /**
+     * Encrypts the given buffer using AES-GCM and prepends a random IV.
+     * The returned buffer contains the IV, ciphertext, and authentication tag.
+     * @param cleartext The ByteBuffer containing the data to encrypt.
+     * @return A ByteBuffer containing the encrypted message.
+     * @throws Exception if encryption fails.
+     */
+    private ByteBuffer encrypt(ByteBuffer cleartext) throws GeneralSecurityException {
+        byte[] iv = new byte[GCM_IV_LENGTH];
+        secureRandom.nextBytes(iv);
+
+        GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        cipher.init(Cipher.ENCRYPT_MODE, sharedSecret, gcmParameterSpec);
+
+        byte[] cleartextBytes = new byte[cleartext.remaining()];
+        cleartext.get(cleartextBytes);
+
+        byte[] encryptedBytes = cipher.doFinal(cleartextBytes);
+
+        ByteBuffer encryptedBuf = ByteBuffer.allocate(GCM_IV_LENGTH + encryptedBytes.length);
+        encryptedBuf.put(iv);
+        encryptedBuf.put(encryptedBytes);
+        encryptedBuf.flip();
+        return encryptedBuf;
+    }
+
+    /**
+     * Decrypts the message from the ByteBuffer, validates the tag, and returns
+     * a buffer with the original plaintext cleartext.
+     * @param ciphertext The ByteBuffer containing the IV, ciphertext, and tag.
+     * @return A ByteBuffer with the decrypted cleartext.
+     * @throws Exception if decryption or validation fails.
+     */
+    private ByteBuffer decrypt(ByteBuffer ciphertext) throws GeneralSecurityException {
+        byte[] iv = new byte[GCM_IV_LENGTH];
+        ciphertext.get(iv);
+
+        GCMParameterSpec gcmParameterSpec = new GCMParameterSpec(GCM_TAG_LENGTH * 8, iv);
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        cipher.init(Cipher.DECRYPT_MODE, sharedSecret, gcmParameterSpec);
+
+        byte[] encryptedBytes = new byte[ciphertext.remaining()];
+        ciphertext.get(encryptedBytes);
+
+        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
+
+        ByteBuffer decryptedBuf = ByteBuffer.allocate(decryptedBytes.length);
+        decryptedBuf.put(decryptedBytes);
+        decryptedBuf.flip();
+        return decryptedBuf;
+    }
+
 
 }

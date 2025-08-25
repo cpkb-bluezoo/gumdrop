@@ -74,7 +74,7 @@ class Session implements HttpSession {
         for (int i = 0; i < 32; ) {
             int hi = Character.digit(id.charAt(i++), 0x10);
             int lo = Character.digit(id.charAt(i++), 0x10);
-            buf.put((byte) ((hi << 0x10) | lo));
+            buf.put((byte) ((hi << 4) | lo));
         }
     }
 
@@ -98,16 +98,12 @@ class Session implements HttpSession {
     static String deserializeId(ByteBuffer buf) throws IOException {
         byte[] idbytes = new byte[16];
         buf.get(idbytes);
-        char[] idchars = new char[32];
-        int j = 0;
-        for (int i = 0; i < 16; i++) {
-            int c = (int) buf.get() & 0xff;
-            int hi = (c >> 0x10) & 0xf;
-            int lo = c & 0xf;
-            idchars[j++] = Character.forDigit(hi, 16);
-            idchars[j++] = Character.forDigit(lo, 16);
+        StringBuilder sb = new StringBuilder(32);
+        for (byte b : idbytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
         }
-        return new String(idchars);
+        return sb.toString();
     }
 
     // Deserialize

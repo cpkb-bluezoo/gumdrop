@@ -38,9 +38,11 @@ import javax.servlet.ServletSecurityElement;
  */
 final class ServletMapping {
 
-    String name; // servlet-name
+    String servletName;
     Set<String> urlPatterns = new LinkedHashSet<>();
     ServletSecurityElement constraint; // TODO
+
+    ServletDef servletDef; // resolved link to servlet definition
 
     void addUrlPattern(String urlPattern) {
         urlPatterns.add(urlPattern);

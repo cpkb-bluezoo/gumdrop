@@ -214,7 +214,7 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     @Override public Set<String> setServletSecurity(ServletSecurityElement constraint) {
         Set<String> ret = new HashSet<>();
         for (ServletMapping mapping : context.servletMappings) {
-            if (mapping.name.equals(name)) { // servlet mapping for this servlet
+            if (mapping.servletDef == this) { // servlet mapping for this servlet
                 for (String urlPattern : mapping.urlPatterns) {
                     if (context.isSecurityConstraintTarget(urlPattern)) {
                         ret.add(urlPattern);
@@ -253,7 +253,7 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
         for (String urlPattern : urlPatterns) {
             unmapped.add(urlPattern);
             for (ServletMapping servletMapping : context.servletMappings) {
-                if (servletMapping.urlPatterns.contains(urlPattern) && !servletMapping.name.equals(name)) {
+                if (servletMapping.urlPatterns.contains(urlPattern) && servletMapping.servletDef != this) {
                     mapped.add(urlPattern);
                     break;
                 }
@@ -261,7 +261,8 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
         }
         if (mapped.isEmpty()) {
             ServletMapping servletMapping = new ServletMapping();
-            servletMapping.name = name;
+            servletMapping.servletDef = this;
+            servletMapping.servletName = name;
             servletMapping.urlPatterns = unmapped;
             context.servletMappings.add(servletMapping);
         }
@@ -271,7 +272,7 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     @Override public Collection<String> getMappings() {
         Set<String> acc = new LinkedHashSet<>();
         for (ServletMapping servletMapping : context.servletMappings) {
-            if (name.equals(servletMapping.name)) {
+            if (servletMapping.servletDef == this) {
                 acc.addAll(servletMapping.urlPatterns);
             }
         }
