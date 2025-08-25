@@ -38,13 +38,22 @@
   <property name='persistence.jar' value='javax.persistence-api-2.2.jar'/>
   <property name='jaxws.jar' value='jaxws-api-2.3.1.jar'/>
 
+  <!-- JUnit dependencies -->
+  <property name='junit.jar' value='junit-4.13.1.jar'/>
+  <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
+
   <!-- Remove compiled classes and build directories -->
-  <target name='clean'>
+  <target name='clean' depends='clean-junit'>
     <delete dir='${build-bootstrap}'/>
     <delete dir='${build}'/>
     <delete dir='${dist}'/>
     <delete dir='${manager}/WEB-INF/classes'/>
     <delete dir='${test}/cluster/WEB-INF/classes'/>
+  </target>
+
+  <target name='clean-junit'>
+    <delete dir='${test}/junit/classes'/>
+    <delete dir='${test}/junit/results'/>
   </target>
 
   <!-- Target for the server/servlet container and all its resources -->
@@ -124,6 +133,35 @@
         <pathelement location='${lib}/${servlet.jar}'/>
       </classpath>
     </javac>
+  </target>
+
+  <target name='junit-build' depends='build'>
+    <mkdir dir='${test}/junit/classes'/>
+    <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'>
+      <classpath>
+        <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${build}'/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name='junit-test' depends='junit-build'>
+    <mkdir dir='${test}/junit/results'/>
+    <junit printsummary='yes' haltonfailure='no'>
+      <classpath>
+        <pathelement location='${test}/junit/classes'/>
+        <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+        <pathelement location='${build}'/>
+      </classpath>
+      <batchtest fork="yes" todir="${test}/junit/results">
+        <fileset dir="${test}/junit/src">
+          <include name="**/*.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" />
+      <!--formatter type="xml" /-->
+    </junit>
   </target>
 
 </project>
