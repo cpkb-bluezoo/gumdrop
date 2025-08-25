@@ -8,38 +8,39 @@ import static org.junit.Assert.fail;
 
 /**
  * JUnit 4 test class for HPACKHuffman encoder and decoder.
- * This class tests the implementation against the examples provided in RFC 7541,
- * Appendix C.1, as well as a variety of edge cases.
  */
 public class HPACKHuffmanTest {
 
-    // Test data from RFC 7541, Appendix C.1
     private static final String EXAMPLE_1_STRING = "www.example.com";
     private static final byte[] EXAMPLE_1_ENCODED = new byte[] {
-            (byte) 0xf1, (byte) 0xe3, (byte) 0x6e, (byte) 0x1d, (byte) 0xe8, (byte) 0x61, (byte) 0x8b,
-            (byte) 0x64, (byte) 0x93, (byte) 0xbe, (byte) 0x3b
+            (byte) 0xf1, (byte) 0xe3, (byte) 0xc2, (byte) 0xe5, (byte) 0xf2, ':', 'k',
+            (byte) 0xa0, (byte) 0xab, (byte) 0x90, (byte) 0xf4, (byte) 0xff
     };
 
     private static final String EXAMPLE_2_STRING = "no-cache";
     private static final byte[] EXAMPLE_2_ENCODED = new byte[] {
-            (byte) 0xc6, (byte) 0x33, (byte) 0xc1, (byte) 0xb5, (byte) 0x05, (byte) 0x1e
+            (byte) 0xa8, (byte) 0xeb, (byte) 0x10, 'd', (byte) 0x9c, (byte) 0xbf
     };
 
-    private static final String EXAMPLE_3_STRING = "public, max-age=31536000";
+    private static final String EXAMPLE_3_STRING = "custom-key";
     private static final byte[] EXAMPLE_3_ENCODED = new byte[] {
-            (byte) 0x4f, (byte) 0xb2, (byte) 0x3d, (byte) 0xb3, (byte) 0xd5, (byte) 0x1a, (byte) 0xb2,
-            (byte) 0x54, (byte) 0xce, (byte) 0xb2, (byte) 0xee, (byte) 0x6e, (byte) 0x75, (byte) 0x5a,
-            (byte) 0x89, (byte) 0x18, (byte) 0x66, (byte) 0x12, (byte) 0x58, (byte) 0x22, (byte) 0x53,
-            (byte) 0xf2
+            '%', (byte) 0xa8, 'I', (byte) 0xe9, '[', (byte) 0xa9, '}', (byte) 0x7f
     };
 
-    private static final String EXAMPLE_4_STRING = "Mon, 21 Oct 2013 20:13:21 GMT";
+    private static final String EXAMPLE_4_STRING = "custom-value";
     private static final byte[] EXAMPLE_4_ENCODED = new byte[] {
-            (byte) 0x64, (byte) 0x02, (byte) 0x59, (byte) 0xa8, (byte) 0x01, (byte) 0x5d, (byte) 0x44,
-            (byte) 0xc9, (byte) 0x07, (byte) 0x94, (byte) 0x0b, (byte) 0xe9, (byte) 0x41, (byte) 0xa8,
-            (byte) 0x16, (byte) 0x22, (byte) 0x4d, (byte) 0xd7, (byte) 0xbb, (byte) 0x76, (byte) 0x60,
-            (byte) 0x6f, (byte) 0x67, (byte) 0xd8, (byte) 0x1d, (byte) 0x4d, (byte) 0x39, (byte) 0x7a,
-            (byte) 0xb7, (byte) 0xd6
+            '%', (byte) 0xa8, 'I', (byte) 0xe9, '[', (byte) 0xb8, (byte) 0xe8,
+            (byte) 0xb4, (byte) 0xbf
+    };
+
+    private static final byte[] INVALID_1 = new byte[] {
+            (byte) 0xff
+    };
+    private static final byte[] INVALID_2 = new byte[] {
+            (byte) 0x5f, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff
+    };
+    private static final byte[] INVALID_3 = new byte[] {
+            (byte) 0x00, (byte) 0x3f, (byte) 0xff, (byte) 0xff, (byte) 0xff
     };
     
     /**
@@ -153,24 +154,49 @@ public class HPACKHuffmanTest {
      */
     @Test(expected = IOException.class)
     public void testDecodeWithNonTerminalEnd() throws IOException {
-        // This is a valid prefix for "www.example.com", but not a complete encoded string.
-        byte[] invalidData = new byte[] { (byte) 0xf1 };
+        byte[] invalidData = new byte[] { (byte) 0xfe };
+        // This is a prefix of '!' and '"' but not in itself a valid code
         HPACKHuffman.decode(invalidData);
     }
     
     /**
-     * Test decoding with a valid Huffman code followed by trailing garbage bits.
-     * The last byte contains extraneous bits that are not part of a valid code.
-     * This should also cause an IOException.
+     * Test invalid random bytestring 1
      */
     @Test(expected = IOException.class)
-    public void testDecodeWithTrailingGarbage() throws IOException {
-        // This is a correct encoded string for "www.example.com" but with trailing bits (0b111) added.
-        byte[] dataWithTrailingBits = new byte[] {
-            (byte) 0xf1, (byte) 0xe3, (byte) 0x6e, (byte) 0x1d, (byte) 0xe8, (byte) 0x61, (byte) 0x8b,
-            (byte) 0x64, (byte) 0x93, (byte) 0xbe, (byte) 0x3b, (byte) 0xff // adding a byte with trailing bits
-        };
-        HPACKHuffman.decode(dataWithTrailingBits);
+    public void testInvalid1() throws IOException {
+        HPACKHuffman.decode(INVALID_1);
     }
+
+    /**
+     * Test invalid random bytestring 2
+     */
+    @Test(expected = IOException.class)
+    public void testInvalid2() throws IOException {
+        HPACKHuffman.decode(INVALID_2);
+    }
+
+    /**
+     * Test invalid random bytestring 3
+     */
+    @Test(expected = IOException.class)
+    public void testInvalid3() throws IOException {
+        HPACKHuffman.decode(INVALID_3);
+    }
+
+    public static String toString(byte[] bytes) {
+        StringBuilder buf = new StringBuilder();
+        buf.append('"');
+        for (int i = 0; i < bytes.length; i++) {
+            int b = bytes[i] & 0xff;
+            if (b < 32 || b > 126) {
+                buf.append(String.format("\\u%02x", b));
+            } else {
+                buf.append((char) b);
+            }
+        }
+        buf.append('"');
+        return buf.toString();
+    }
+
 }
 
