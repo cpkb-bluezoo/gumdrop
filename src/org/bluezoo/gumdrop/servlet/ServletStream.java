@@ -60,7 +60,7 @@ class ServletStream extends Stream {
 
     private int statusCode;
     private long contentLength;
-    private Collection<Header> headers;
+    private List<Header> headers;
     private List<ByteBuffer> responseBody;
     private boolean requestComplete, responseComplete;
 
@@ -187,7 +187,7 @@ class ServletStream extends Stream {
     }
 
     // Called by worker thread
-    void commit(int statusCode, Collection<Header> headers) {
+    void commit(int statusCode, List<Header> headers) {
         this.statusCode = statusCode;
         this.headers = headers;
 

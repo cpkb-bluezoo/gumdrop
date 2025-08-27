@@ -33,11 +33,13 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.http.hpack.HPACKHeaders;
+import org.bluezoo.gumdrop.http.hpack.Decoder;
+import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.util.LineInput;
 
 import gnu.inet.http.HTTPDateFormat;
@@ -269,10 +271,16 @@ public class Stream {
         }
     }
 
-    void streamEndHeaders(int maxHeaderTableSize) throws IOException {
+    void streamEndHeaders() throws IOException {
         if (headerBlock != null) {
             headerBlock.flip();
-            headers = new HPACKHeaders(headerBlock, maxHeaderTableSize);
+            headers = new ArrayList<>();
+            HeaderHandler handler = new HeaderHandler() {
+                @Override public void header(Header header) {
+                    headers.add(header);
+                }
+            };
+            connection.hpackDecoder.decode(headerBlock, handler);
             headerBlock = null;
         }
         if (state == State.IDLE) {
@@ -296,7 +304,7 @@ public class Stream {
                     if (NO_REQUEST_BODY.contains(value)) {
                         contentLength = 0;
                     }
-                } else if (maxHeaderTableSize == 0) { // HTTP/1
+                } else if (connection.version != HTTPVersion.HTTP_2_0) { // HTTP/1
                     if ("Connection".equalsIgnoreCase(name)) {
                         if ("close".equalsIgnoreCase(value)) {
                             closeConnection = true;
@@ -471,7 +479,7 @@ public class Stream {
      * @param endStream if no response data will be sent and this is a
      * complete response
      */
-    protected final void sendResponseHeaders(int statusCode, Collection<Header> headers, boolean endStream) throws ProtocolException {
+    protected final void sendResponseHeaders(int statusCode, List<Header> headers, boolean endStream) throws ProtocolException {
         if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
             throw new ProtocolException(String.format("Invalid state: %s", state));
         }
@@ -553,7 +561,7 @@ public class Stream {
         if (state == State.IDLE) {
             state = State.OPEN;
         }
-        Collection<Header> headers = new ArrayList<>();
+        List<Header> headers = new ArrayList<>();
         sendResponseHeaders(statusCode, headers, true);
     }
 

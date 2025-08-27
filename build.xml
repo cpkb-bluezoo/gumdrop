@@ -41,6 +41,7 @@
   <!-- JUnit dependencies -->
   <property name='junit.jar' value='junit-4.13.1.jar'/>
   <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
+  <property name='jsonparser.jar' value='jsonparser-1.0.3.jar'/>
 
   <!-- Remove compiled classes and build directories -->
   <target name='clean' depends='clean-junit'>
@@ -140,6 +141,7 @@
     <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'>
       <classpath>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
         <pathelement location='${build}'/>
       </classpath>
     </javac>
@@ -152,11 +154,12 @@
         <pathelement location='${test}/junit/classes'/>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+        <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
         <pathelement location='${build}'/>
       </classpath>
       <batchtest fork="yes" todir="${test}/junit/results">
         <fileset dir="${test}/junit/src">
-          <include name="**/*.java" />
+          <include name="**/*Test.java" />
         </fileset>
       </batchtest>
       <formatter type="plain" />

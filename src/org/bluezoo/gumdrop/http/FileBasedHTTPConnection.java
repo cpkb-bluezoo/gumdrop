@@ -163,7 +163,7 @@ public class FileBasedHTTPConnection extends AbstractHTTPConnection {
 
         @Override protected void endRequest() {
             try {
-                Collection<Header> responseHeaders = new ArrayList<>();
+                List<Header> responseHeaders = new ArrayList<>();
                 int sc = 405;
                 if ("HEAD".equals(method)) {
                     if (!Files.exists(path)) {

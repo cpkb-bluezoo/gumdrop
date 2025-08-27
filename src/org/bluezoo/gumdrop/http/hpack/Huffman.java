@@ -1,5 +1,5 @@
 /*
- * HPACKHuffman.java
+ * Huffman.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import java.util.TreeMap;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see https://www.rfc-editor.org/rfc/rfc7541.html#appendix-B
  */
-public class HPACKHuffman {
+public class Huffman {
 
     // Represents a node in the Huffman decoding tree (trie).
     private static class HuffmanNode {
@@ -591,7 +591,7 @@ public class HPACKHuffman {
         System.out.println("--- Test Case 1: Encode 'abc' ---");
         try {
             byte[] plaintext = new byte[] {(byte) 'a', (byte) 'b', (byte) 'c'};
-            byte[] testEncode = HPACKHuffman.encode(plaintext);
+            byte[] testEncode = Huffman.encode(plaintext);
             System.out.println("Expected bytes: " + bytesToHex(encodedBytes1));
             System.out.println("Encoded bytes: " + bytesToHex(testEncode));
             System.out.println("Match: " + equals(testEncode, encodedBytes1));
@@ -601,7 +601,7 @@ public class HPACKHuffman {
 
         System.out.println("--- Test Case 1: Decode 'abc' ---");
         try {
-            byte[] decodedBytes1 = HPACKHuffman.decode(encodedBytes1);
+            byte[] decodedBytes1 = Huffman.decode(encodedBytes1);
             String decodedString1 =
                     new String(decodedBytes1, java.nio.charset.StandardCharsets.UTF_8);
             System.out.println("Encoded bytes: " + bytesToHex(encodedBytes1));
@@ -665,7 +665,7 @@ public class HPACKHuffman {
                         (byte) 'd',
                         (byte) '!'
                     };
-            byte[] testEncode = HPACKHuffman.encode(plaintext);
+            byte[] testEncode = Huffman.encode(plaintext);
             System.out.println("Expected bytes: " + bytesToHex(encodedBytes2));
             System.out.println("Encoded bytes: " + bytesToHex(testEncode));
             System.out.println("Match: " + equals(testEncode, encodedBytes2));
@@ -675,7 +675,7 @@ public class HPACKHuffman {
 
         System.out.println("--- Test Case 2: Decoding 'Hello, world!' ---");
         try {
-            byte[] decodedBytes2 = HPACKHuffman.decode(encodedBytes2);
+            byte[] decodedBytes2 = Huffman.decode(encodedBytes2);
             String decodedString2 =
                     new String(decodedBytes2, java.nio.charset.StandardCharsets.UTF_8);
             System.out.println("Encoded bytes: " + bytesToHex(encodedBytes2));
@@ -691,7 +691,7 @@ public class HPACKHuffman {
         byte[] encodedBytes3 = new byte[] {(byte) 0x06};
         System.out.println("--- Test Case 3: Malformed Input: Invalid bit sequence ---");
         try {
-            byte[] b = HPACKHuffman.decode(encodedBytes3);
+            byte[] b = Huffman.decode(encodedBytes3);
             System.out.println(
                     "Failed: decoded " + bytesToHex(b) + " from " + bytesToHex(encodedBytes3));
         } catch (IOException e) {
@@ -714,7 +714,7 @@ public class HPACKHuffman {
                     (byte) 0x1c, (byte) 0x7f, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff
                 };
         try {
-            HPACKHuffman.decode(encodedBytes4);
+            Huffman.decode(encodedBytes4);
         } catch (IOException e) {
             System.err.println("Decoding failed as expected: " + e.getMessage());
         }
@@ -724,7 +724,7 @@ public class HPACKHuffman {
         System.out.println("--- Test Case 5: Empty Input ---");
         byte[] emptyBytes = new byte[] {};
         try {
-            byte[] decodedEmpty = HPACKHuffman.decode(emptyBytes);
+            byte[] decodedEmpty = Huffman.decode(emptyBytes);
             System.out.println("Decoded empty string: " + new String(decodedEmpty));
             System.out.println("Match: " + (decodedEmpty.length == 0));
         } catch (IOException e) {

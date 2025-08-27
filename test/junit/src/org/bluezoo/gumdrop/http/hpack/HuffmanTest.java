@@ -7,9 +7,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 /**
- * JUnit 4 test class for HPACKHuffman encoder and decoder.
+ * JUnit 4 test class for Huffman encoder and decoder.
  */
-public class HPACKHuffmanTest {
+public class HuffmanTest {
 
     private static final String EXAMPLE_1_STRING = "www.example.com";
     private static final byte[] EXAMPLE_1_ENCODED = new byte[] {
@@ -48,7 +48,7 @@ public class HPACKHuffmanTest {
      */
     @Test
     public void testEncodeSimpleString() throws IOException {
-        byte[] encoded = HPACKHuffman.encode(EXAMPLE_1_STRING.getBytes());
+        byte[] encoded = Huffman.encode(EXAMPLE_1_STRING.getBytes());
         assertArrayEquals("Encoding of 'www.example.com' should match RFC 7541", EXAMPLE_1_ENCODED, encoded);
     }
 
@@ -57,7 +57,7 @@ public class HPACKHuffmanTest {
      */
     @Test
     public void testDecodeSimpleString() throws IOException {
-        byte[] decoded = HPACKHuffman.decode(EXAMPLE_1_ENCODED);
+        byte[] decoded = Huffman.decode(EXAMPLE_1_ENCODED);
         assertEquals("Decoding of RFC 7541 example 1 should be 'www.example.com'", EXAMPLE_1_STRING, new String(decoded));
     }
 
@@ -68,8 +68,8 @@ public class HPACKHuffmanTest {
     @Test
     public void testEncodeAndDecodeRoundTrip() throws IOException {
         String original = "custom-key: custom-value";
-        byte[] encoded = HPACKHuffman.encode(original.getBytes());
-        byte[] decoded = HPACKHuffman.decode(encoded);
+        byte[] encoded = Huffman.encode(original.getBytes());
+        byte[] decoded = Huffman.decode(encoded);
         assertEquals("Encode-decode round trip should yield the original string", original, new String(decoded));
     }
     
@@ -78,7 +78,7 @@ public class HPACKHuffmanTest {
      */
     @Test
     public void testDecodeExample2() throws IOException {
-        byte[] decoded = HPACKHuffman.decode(EXAMPLE_2_ENCODED);
+        byte[] decoded = Huffman.decode(EXAMPLE_2_ENCODED);
         assertEquals("Decoding of RFC 7541 example 2 should be 'no-cache'", EXAMPLE_2_STRING, new String(decoded));
     }
 
@@ -87,7 +87,7 @@ public class HPACKHuffmanTest {
      */
     @Test
     public void testDecodeExample3() throws IOException {
-        byte[] decoded = HPACKHuffman.decode(EXAMPLE_3_ENCODED);
+        byte[] decoded = Huffman.decode(EXAMPLE_3_ENCODED);
         assertEquals("Decoding of RFC 7541 example 3 should be 'public, max-age=31536000'", EXAMPLE_3_STRING, new String(decoded));
     }
 
@@ -96,7 +96,7 @@ public class HPACKHuffmanTest {
      */
     @Test
     public void testDecodeExample4() throws IOException {
-        byte[] decoded = HPACKHuffman.decode(EXAMPLE_4_ENCODED);
+        byte[] decoded = Huffman.decode(EXAMPLE_4_ENCODED);
         assertEquals("Decoding of RFC 7541 example 4 should be 'Mon, 21 Oct 2013 20:13:21 GMT'", EXAMPLE_4_STRING, new String(decoded));
     }
 
@@ -106,8 +106,8 @@ public class HPACKHuffmanTest {
     @Test
     public void testDecodeSpecialCharacters() throws IOException {
         String original = "key_with-special@#$chars!%";
-        byte[] encoded = HPACKHuffman.encode(original.getBytes());
-        byte[] decoded = HPACKHuffman.decode(encoded);
+        byte[] encoded = Huffman.encode(original.getBytes());
+        byte[] decoded = Huffman.decode(encoded);
         assertEquals("Decoding special characters should work correctly", original, new String(decoded));
     }
     
@@ -117,10 +117,10 @@ public class HPACKHuffmanTest {
     @Test
     public void testEncodeAndDecodeEmptyString() throws IOException {
         String original = "";
-        byte[] encoded = HPACKHuffman.encode(original.getBytes());
+        byte[] encoded = Huffman.encode(original.getBytes());
         assertEquals("Encoded empty string should be empty", 0, encoded.length);
         
-        byte[] decoded = HPACKHuffman.decode(encoded);
+        byte[] decoded = Huffman.decode(encoded);
         assertEquals("Decoded empty byte array should be an empty string", original, new String(decoded));
     }
     
@@ -130,8 +130,8 @@ public class HPACKHuffmanTest {
     @Test
     public void testEncodeAndDecodeLargeString() throws IOException {
         String largeString = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.";
-        byte[] encoded = HPACKHuffman.encode(largeString.getBytes());
-        byte[] decoded = HPACKHuffman.decode(encoded);
+        byte[] encoded = Huffman.encode(largeString.getBytes());
+        byte[] decoded = Huffman.decode(encoded);
         assertEquals("Encoding and decoding of a large string should match", largeString, new String(decoded));
     }
     
@@ -144,7 +144,7 @@ public class HPACKHuffmanTest {
     public void testDecodeWithInvalidEndOfCode() throws IOException {
         // This byte array corresponds to a valid prefix but ends abruptly without a full code.
         byte[] invalidData = new byte[] { (byte) 0xf1, (byte) 0xe3, (byte) 0x6e };
-        HPACKHuffman.decode(invalidData);
+        Huffman.decode(invalidData);
     }
     
     /**
@@ -156,7 +156,7 @@ public class HPACKHuffmanTest {
     public void testDecodeWithNonTerminalEnd() throws IOException {
         byte[] invalidData = new byte[] { (byte) 0xfe };
         // This is a prefix of '!' and '"' but not in itself a valid code
-        HPACKHuffman.decode(invalidData);
+        Huffman.decode(invalidData);
     }
     
     /**
@@ -164,7 +164,7 @@ public class HPACKHuffmanTest {
      */
     @Test(expected = IOException.class)
     public void testInvalid1() throws IOException {
-        HPACKHuffman.decode(INVALID_1);
+        Huffman.decode(INVALID_1);
     }
 
     /**
@@ -172,7 +172,7 @@ public class HPACKHuffmanTest {
      */
     @Test(expected = IOException.class)
     public void testInvalid2() throws IOException {
-        HPACKHuffman.decode(INVALID_2);
+        Huffman.decode(INVALID_2);
     }
 
     /**
@@ -180,7 +180,7 @@ public class HPACKHuffmanTest {
      */
     @Test(expected = IOException.class)
     public void testInvalid3() throws IOException {
-        HPACKHuffman.decode(INVALID_3);
+        Huffman.decode(INVALID_3);
     }
 
     public static String toString(byte[] bytes) {

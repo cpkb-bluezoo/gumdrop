@@ -73,7 +73,7 @@ class Response implements HttpServletResponse {
     ServletStream stream;
     Request request;
     int bufferSize;
-    final Collection<Header> headers;
+    final List<Header> headers;
 
     Context context;
     int statusCode;

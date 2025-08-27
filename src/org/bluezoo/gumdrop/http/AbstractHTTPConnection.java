@@ -48,7 +48,8 @@ import javax.mail.internet.MimeUtility;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
 
-import org.bluezoo.gumdrop.http.hpack.HPACKHeaders;
+import org.bluezoo.gumdrop.http.hpack.Decoder;
+import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.util.LineInput;
 
 import gnu.inet.http.HTTPDateFormat;
@@ -119,6 +120,10 @@ public abstract class AbstractHTTPConnection extends Connection {
     int initialWindowSize = 65535;
     int maxFrameSize = 16384;
     int maxHeaderListSize = Integer.MAX_VALUE;
+
+    // HTTP/2 header decoder and encoder
+    Decoder hpackDecoder;
+    Encoder hpackEncoder;
 
     private int clientStreamId; // synthesized stream ID for HTTP/1
     private Map<Integer,Stream> streams;
@@ -395,14 +400,14 @@ public abstract class AbstractHTTPConnection extends Connection {
                             headerValue = null;
                         }
                         try {
-                            stream.streamEndHeaders(0); // 0 signals HTTP/1
+                            stream.streamEndHeaders();
                         } catch (IOException e) {
                             // This should only happen with malformed HPACK headers
                             LOGGER.log(Level.SEVERE, e.getMessage(), e);
                         }
                         if (stream.upgrade != null && stream.upgrade.contains("h2c") && stream.settingsFrame != null) {
                             // 3.2 Starting HTTP/2
-                            Collection<Header> responseHeaders = new ArrayList<>();
+                            List<Header> responseHeaders = new ArrayList<>();
                             responseHeaders.add(new Header("Connection", "Upgrade"));
                             responseHeaders.add(new Header("Upgrade", "h2c"));
                             sendResponseHeaders(clientStreamId, 101, responseHeaders, true); // Switching Protocols
@@ -526,6 +531,8 @@ public abstract class AbstractHTTPConnection extends Connection {
                         return;
                     }*/
                     state = STATE_HTTP2;
+                    hpackDecoder = new Decoder(headerTableSize);
+                    hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
                     try {
                         receiveFrame(frame); // handle the frame
                     } catch (IOException e) { // HPACK headers malformed
@@ -624,7 +631,7 @@ public abstract class AbstractHTTPConnection extends Connection {
                 HeadersFrame hf = (HeadersFrame) frame;
                 stream.appendHeaderBlockFragment(hf.headerBlockFragment);
                 if (hf.endHeaders) {
-                    stream.streamEndHeaders(headerTableSize);
+                    stream.streamEndHeaders();
                     if (hf.endStream) {
                         stream.streamEndRequest();
                     }
@@ -642,7 +649,7 @@ public abstract class AbstractHTTPConnection extends Connection {
                 stream.setPushPromise();
                 stream.appendHeaderBlockFragment(ppf.headerBlockFragment);
                 if (ppf.endHeaders) {
-                    stream.streamEndHeaders(headerTableSize);
+                    stream.streamEndHeaders();
                     stream.streamEndRequest();
                 } else {
                     state = STATE_HTTP2_CONTINUATION;
@@ -654,7 +661,7 @@ public abstract class AbstractHTTPConnection extends Connection {
                 ContinuationFrame cf = (ContinuationFrame) frame;
                 stream.appendHeaderBlockFragment(cf.headerBlockFragment);
                 if (cf.endHeaders) {
-                    stream.streamEndHeaders(headerTableSize);
+                    stream.streamEndHeaders();
                     state = STATE_HTTP2;
                     continuationStream = 0;
                     if (continuationEndStream) {
@@ -675,6 +682,9 @@ public abstract class AbstractHTTPConnection extends Connection {
                 break;
             case Frame.TYPE_SETTINGS:
                 ((SettingsFrame) frame).apply(this);
+                hpackDecoder.setHeaderTableSize(headerTableSize);
+                hpackEncoder.setHeaderTableSize(headerTableSize);
+                hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
                 SettingsFrame result = new SettingsFrame(true,
                         headerTableSize,
                         enablePush,
@@ -777,7 +787,7 @@ public abstract class AbstractHTTPConnection extends Connection {
      * @param headers the headers to be sent to the client
      * @param endStream if no response body data will be sent
      */
-    void sendResponseHeaders(int streamId, int statusCode, Collection<Header> headers, boolean endStream) {
+    void sendResponseHeaders(int streamId, int statusCode, List<Header> headers, boolean endStream) {
         ByteBuffer buf;
         boolean success = false;
         switch (state) {
@@ -788,16 +798,21 @@ public abstract class AbstractHTTPConnection extends Connection {
                 boolean streamDependencyExclusive = false; // TODO
                 int weight = 0; // TODO
                 int padLength = 0; // TODO
-                // determine headers payload
-                HPACKHeaders hheaders = new HPACKHeaders(headers);
-                headers = hheaders;
+                // encode
                 buf = ByteBuffer.allocate(headerTableSize);
                 while (!success) {
                     try {
-                        hheaders.write(buf, headerTableSize); 
+                        hpackEncoder.encode(buf, headers);
                         success = true;
                     } catch (BufferOverflowException e) {
                         buf = ByteBuffer.allocate(buf.capacity() + headerTableSize);
+                    } catch (ProtocolException e) {
+                        // Headers provided exceeded maximum size that
+                        // client can handle. This is fatal
+                        int errorCode = Frame.ERROR_COMPRESSION_ERROR;
+                        sendFrame(new GoawayFrame(streamId, errorCode, new byte[0]));
+                        send(null); // close after frame sent
+                        return;
                     }
                 }
                 buf.flip();
