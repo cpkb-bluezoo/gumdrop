@@ -138,12 +138,12 @@ public abstract class AbstractHTTPConnection extends Connection {
     protected AbstractHTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
         super(engine, secure);
         in = ByteBuffer.allocate(4096);
-        /*if (engine != null) {
+        if (engine != null) {
             // Configure this engine with ALPN
             SSLParameters sp = engine.getSSLParameters();
             sp.setApplicationProtocols(new String[] { "h2", "http/1.1"}); // h2 and http/1.1
             engine.setSSLParameters(sp);
-        }*/
+        }
         streams = new TreeMap<>();
         clientStreamId = 1;
         lineReader = this.new LineReader();
