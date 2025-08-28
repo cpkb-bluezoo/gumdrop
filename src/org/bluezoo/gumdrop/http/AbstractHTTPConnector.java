@@ -23,7 +23,6 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Connector;
-import java.util.ResourceBundle;
 
 /**
  * Abstract connection factory for HTTP connections on a given port.
@@ -31,8 +30,6 @@ import java.util.ResourceBundle;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public abstract class AbstractHTTPConnector extends Connector {
-
-    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     protected static final int HTTP_DEFAULT_PORT = 80;
     protected static final int HTTPS_DEFAULT_PORT = 443;

@@ -145,4 +145,23 @@ final class HeadersFrame extends Frame {
         }
     }
 
+    protected void appendFields(StringBuilder buf) {
+        super.appendFields(buf);
+        if (padded) {
+            buf.append(";padded");
+        }
+        if (endStream) {
+            buf.append(";endStream");
+        }
+        if (endHeaders) {
+            buf.append(";endHeaders");
+        }
+        buf.append(";priority=").append(priority);
+        buf.append(";padLength=").append(padLength);
+        buf.append(";streamDependency=").append(streamDependency);
+        buf.append(";streamDependencyExclusive=").append(streamDependencyExclusive);
+        buf.append(";weight=").append(weight);
+        buf.append(";headerBlockFragment=").append(AbstractHTTPConnection.toHexString(headerBlockFragment));
+    }
+
 }

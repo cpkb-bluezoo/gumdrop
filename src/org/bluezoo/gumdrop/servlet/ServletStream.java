@@ -224,7 +224,7 @@ class ServletStream extends Stream {
             if (!endStream) {
                 for (Iterator<ByteBuffer> i = responseBody.iterator(); i.hasNext(); ) {
                     ByteBuffer buf = i.next();
-                    sendResponseBody(buf, i.hasNext());
+                    sendResponseBody(buf, !i.hasNext());
                 }
             }
         } catch (ProtocolException e) {

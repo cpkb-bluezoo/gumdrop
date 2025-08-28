@@ -32,6 +32,8 @@ import java.net.URLConnection;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
+import org.bluezoo.gumdrop.http.ContentTypes;
+
 /**
  * URLConnection for a <code>resource:</code> URL identifying a resource in a context.
  *
@@ -122,7 +124,15 @@ public class ResourceURLConnection extends URLConnection {
     }
 
     @Override public String getContentType() {
-        return context.getMimeType(resourcePath);
+        String contentType = context.getMimeType(resourcePath);
+        if (contentType == null) {
+            int di = resourcePath.lastIndexOf('.');
+            if (di != -1) {
+                String extension = resourcePath.substring(di + 1);
+                contentType = ContentTypes.getContentType(extension);
+            }
+        }
+        return contentType;
     }
 
     @Override public InputStream getInputStream() throws IOException {

@@ -84,4 +84,9 @@ class WindowUpdateFrame extends Frame {
         buf.put((byte) (windowSizeIncrement & 0xff));
     }
 
+    protected void appendFields(StringBuilder buf) {
+        super.appendFields(buf);
+        buf.append(";windowSizeIncrement=").append(windowSizeIncrement);
+    }
+
 }

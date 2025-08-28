@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http;
 
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -60,9 +61,6 @@ class SettingsFrame extends Frame {
                 | ((int) payload[offset++] & 0xff) << 16
                 | ((int) payload[offset++] & 0xff) << 8
                 | ((int) payload[offset++] & 0xff);
-            if (value < 1) {
-                throw new ProtocolException();
-            }
             switch (identifier) {
                 case SETTINGS_ENABLE_PUSH:
                     if (value > 1) { // values other than 0 or 1 must be treated as PROTOCOL_ERROR
@@ -73,6 +71,13 @@ class SettingsFrame extends Frame {
                     if (value < 16384) {
                         throw new ProtocolException();
                     }
+                    // fall through
+                default:
+                    if (value < 1) {
+                        String message = AbstractHTTPConnection.L10N.getString("err.bad_settings_value");
+                        message = MessageFormat.format(message, identifier, value);
+                        throw new ProtocolException(message);
+                    }
                     break;
             }
             settings.put(identifier, value);
@@ -82,21 +87,13 @@ class SettingsFrame extends Frame {
     /**
      * Constructor for a settings frame to send to the client.
      */
-    protected SettingsFrame(boolean ack,
-            int headerTableSize,
-            boolean enablePush,
-            int maxConcurrentStreams,
-            int initialWindowSize,
-            int maxFrameSize,
-            int maxHeaderListSize) {
+    protected SettingsFrame(boolean ack) {
         this.ack = ack;
         settings = new LinkedHashMap<>();
-        settings.put(SETTINGS_HEADER_TABLE_SIZE, headerTableSize);
-        settings.put(SETTINGS_ENABLE_PUSH, enablePush ? 1 : 0);
-        settings.put(SETTINGS_MAX_CONCURRENT_STREAMS, maxConcurrentStreams);
-        settings.put(SETTINGS_INITIAL_WINDOW_SIZE, initialWindowSize);
-        settings.put(SETTINGS_MAX_FRAME_SIZE, maxFrameSize);
-        settings.put(SETTINGS_MAX_HEADER_LIST_SIZE, maxHeaderListSize);
+    }
+
+    void set(int identifier, int value) {
+        settings.put(identifier, value);
     }
 
     protected int getLength() {
@@ -117,14 +114,17 @@ class SettingsFrame extends Frame {
 
     protected void write(ByteBuffer buf) {
         super.write(buf);
-        for (int identifier : settings.keySet()) {
-            int value = settings.get(identifier);
-            buf.put((byte) ((identifier >> 8) & 0xff));
-            buf.put((byte) (identifier & 0xff));
-            buf.put((byte) ((value >> 24) & 0xff));
-            buf.put((byte) ((value >> 16) & 0xff));
-            buf.put((byte) ((value >> 8) & 0xff));
-            buf.put((byte) (value & 0xff));
+        // If ACK is set, pyload of SETTINGS frame must be empty
+        if (!ack) {
+            for (int identifier : settings.keySet()) {
+                int value = settings.get(identifier);
+                buf.put((byte) ((identifier >> 8) & 0xff));
+                buf.put((byte) (identifier & 0xff));
+                buf.put((byte) ((value >> 24) & 0xff));
+                buf.put((byte) ((value >> 16) & 0xff));
+                buf.put((byte) ((value >> 8) & 0xff));
+                buf.put((byte) (value & 0xff));
+            }
         }
     }
 
@@ -151,6 +151,45 @@ class SettingsFrame extends Frame {
                     c.maxHeaderListSize = value;
                     break;
             }
+        }
+    }
+
+    // -- debugging --
+
+    protected void appendFields(StringBuilder buf) {
+        super.appendFields(buf);
+        buf.append(";ack=").append(ack);
+        buf.append(";settings={");
+        boolean first = true;
+        for (Map.Entry<Integer,Integer> entry : settings.entrySet()) {
+            int identifier = entry.getKey();
+            int value = entry.getValue();
+            if (!first) {
+                buf.append(',');
+            } else {
+                first = false;
+            }
+            buf.append(toString(identifier)).append('=').append(value);
+        }
+        buf.append("}");
+    }
+
+    private String toString(int identifier) {
+        switch (identifier) {
+            case SETTINGS_HEADER_TABLE_SIZE:
+                return "SETTINGS_HEADER_TABLE_SIZE";
+            case SETTINGS_ENABLE_PUSH:
+                return "SETTINGS_ENABLE_PUSH";
+            case SETTINGS_MAX_CONCURRENT_STREAMS:
+                return "SETTINGS_MAX_CONCURRENT_STREAMS";
+            case SETTINGS_INITIAL_WINDOW_SIZE:
+                return "SETTINGS_INITIAL_WINDOW_SIZE";
+            case SETTINGS_MAX_FRAME_SIZE:
+                return "SETTINGS_MAX_FRAME_SIZE";
+            case SETTINGS_MAX_HEADER_LIST_SIZE:
+                return "SETTINGS_MAX_HEADER_LIST_SIZE";
+            default:
+                return "!!ERROR!!";
         }
     }
 

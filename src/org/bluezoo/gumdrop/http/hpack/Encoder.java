@@ -168,7 +168,7 @@ public class Encoder extends HPACKConstants {
                         encodeInteger(buf, (byte) 0, index, 4); // opcode
                     }
                 } else { // literal header field new name
-                    byte[] rname = name.getBytes(US_ASCII); // raw bytes
+                    byte[] rname = name.toLowerCase().getBytes(US_ASCII); // raw bytes, always lowercase
                     byte[] hname = Huffman.encode(rname); // Huffman encoded bytes
                     boolean useHuffman = autoHuffman && (hname.length < rname.length);
                     byte hbit = (byte) (useHuffman ? 0x80 : 0);

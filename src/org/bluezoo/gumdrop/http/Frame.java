@@ -177,20 +177,25 @@ abstract class Frame {
     }
 
     public String toString() {
+        StringBuilder buf = new StringBuilder(getClass().getName());
+        buf.append('[');
+        appendFields(buf);
+        buf.append(']');
+        return buf.toString();
+    }
+
+    protected void appendFields(StringBuilder buf) {
         int length = getLength();
         int type = getType();
+        buf.append(String.format("length=%d;type=%s", length, typeToString(type)));
         int flags = getFlags();
-        int stream = getStream();
-        StringBuilder buf = new StringBuilder(getClass().getName());
-        buf.append(String.format("[length=%d;type=%s", length, typeToString(type)));
         if (flags != 0) {
-            buf.append(";type=").append(flagsToString(type, flags));
+            buf.append(";flags=").append(flagsToString(type, flags));
         }
+        int stream = getStream();
         if (stream != 0) {
             buf.append(String.format(";stream=%d", stream));
         }
-        buf.append(']');
-        return buf.toString();
     }
 
     static String typeToString(int type) {

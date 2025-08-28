@@ -93,16 +93,18 @@ public class DefaultServlet extends HttpServlet {
             response.setStatus(HttpServletResponse.SC_NO_CONTENT);
             // Copy resource headers into response
             URLConnection connection = resource.openConnection();
-            String contentType = context.getMimeType(path);
-            if (contentType == null) {
-                contentType = connection.getContentType();
-            }
+            connection.connect();
+            String contentType = connection.getContentType();
             int contentLength = connection.getContentLength();
             if (contentType != null) {
                 response.setContentType(contentType);
             }
             if (contentLength != -1) {
                 response.setContentLength(contentLength);
+            }
+            long lastModified = connection.getDate();
+            if (lastModified != -1L) {
+                response.setDateHeader("Last-Modified", lastModified);
             }
             Map<String,List<String>> headers = connection.getHeaderFields();
             for (Map.Entry<String,List<String>> entry : headers.entrySet()) {
@@ -127,16 +129,18 @@ public class DefaultServlet extends HttpServlet {
             response.setStatus(HttpServletResponse.SC_OK);
             // Copy resource headers into response
             URLConnection connection = resource.openConnection();
-            String contentType = context.getMimeType(path);
-            if (contentType == null) {
-                contentType = connection.getContentType();
-            }
-            int contentLength = connection.getContentLength();
+            connection.connect();
+            String contentType = connection.getContentType();
             if (contentType != null) {
                 response.setContentType(contentType);
             }
+            int contentLength = connection.getContentLength();
             if (contentLength != -1) {
                 response.setContentLength(contentLength);
+            }
+            long lastModified = connection.getDate();
+            if (lastModified != -1L) {
+                response.setDateHeader("Last-Modified", lastModified);
             }
             Map<String,List<String>> headers = connection.getHeaderFields();
             for (Map.Entry<String,List<String>> entry : headers.entrySet()) {
@@ -161,7 +165,7 @@ public class DefaultServlet extends HttpServlet {
 
     /**
      * Returns the last-modified time for the given resource.
-     */
+     *
     protected long getLastModified(HttpServletRequest request) {
         String path = getPath(request);
         ServletContext context = getServletContext();
@@ -169,13 +173,14 @@ public class DefaultServlet extends HttpServlet {
             URL resource = getResource(request, path, context);
             if (resource != null) {
                 URLConnection connection = resource.openConnection();
+                connection.connect();
                 return connection.getLastModified();
             }
         } catch (IOException e) {
             // Fall through
         }
         return -1L;
-    }
+    }*/
 
     /**
      * Returns the resource URL for the given request.

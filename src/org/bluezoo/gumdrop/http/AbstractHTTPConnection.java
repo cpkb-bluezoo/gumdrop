@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -65,7 +66,8 @@ import gnu.inet.http.HTTPDateFormat;
  */
 public abstract class AbstractHTTPConnection extends Connection {
 
-    private static final Logger LOGGER = Logger.getLogger(AbstractHTTPConnection.class.getName());
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
+    static final Logger LOGGER = Logger.getLogger(AbstractHTTPConnection.class.getName());
 
     static final Charset US_ASCII = Charset.forName("US-ASCII");
     static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
@@ -84,8 +86,9 @@ public abstract class AbstractHTTPConnection extends Connection {
     private static final int STATE_HEADER = 1;
     private static final int STATE_BODY = 2;
     private static final int STATE_PRI = 4;
-    private static final int STATE_HTTP2 = 5;
-    private static final int STATE_HTTP2_CONTINUATION = 6;
+    private static final int STATE_PRI_SETTINGS = 5;
+    private static final int STATE_HTTP2 = 6;
+    private static final int STATE_HTTP2_CONTINUATION = 7;
 
     private int state = STATE_REQUEST_LINE;
     private ByteBuffer in; // input buffer
@@ -179,6 +182,7 @@ public abstract class AbstractHTTPConnection extends Connection {
         int pos = in.position();
         byte[] header = new byte[9];
         in.get(header);
+        //System.err.println("readFrame header="+toHexString(header));
         int length = ((int) header[0] & 0xff) << 16
             | ((int) header[1] & 0xff) << 8
             | ((int) header[2] & 0xff);
@@ -204,14 +208,12 @@ public abstract class AbstractHTTPConnection extends Connection {
                         return null;
                     }
                     // TODO STREAM_CLOSED
-                    in.compact();
                     return new DataFrame(flags, stream, payload);
                 case Frame.TYPE_HEADERS:
                     if (stream == 0) {
                         sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new HeadersFrame(flags, stream, payload);
                 case Frame.TYPE_PRIORITY:
                     if (stream == 0) {
@@ -222,7 +224,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                         sendErrorFrame(Frame.ERROR_FRAME_SIZE_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new PriorityFrame(stream, payload);
                 case Frame.TYPE_RST_STREAM:
                     if (stream == 0) {
@@ -234,7 +235,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                         return null;
                     }
                     // TODO stream in idle state
-                    in.compact();
                     return new RstStreamFrame(stream, payload);
                 case Frame.TYPE_SETTINGS:
                     if (stream != 0) {
@@ -245,7 +245,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                         sendErrorFrame(Frame.ERROR_FRAME_SIZE_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new SettingsFrame(flags, payload);
                 case Frame.TYPE_PUSH_PROMISE:
                     if (!enablePush || stream == 0) {
@@ -253,7 +252,6 @@ public abstract class AbstractHTTPConnection extends Connection {
                         return null;
                     }
                     // TODO STREAM_CLOSED
-                    in.compact();
                     return new PushPromiseFrame(flags, stream, payload);
                 case Frame.TYPE_PING:
                     if (stream != 0) {
@@ -264,28 +262,24 @@ public abstract class AbstractHTTPConnection extends Connection {
                         sendErrorFrame(Frame.ERROR_FRAME_SIZE_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new PingFrame(flags);
                 case Frame.TYPE_GOAWAY:
                     if (stream != 0 || length < 8) {
                         sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new GoawayFrame(payload);
                 case Frame.TYPE_WINDOW_UPDATE:
                     if (length != 4) {
                         sendErrorFrame(Frame.ERROR_FRAME_SIZE_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new WindowUpdateFrame(stream, payload);
                 case Frame.TYPE_CONTINUATION:
                     if (stream != continuationStream) {
                         sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, stream);
                         return null;
                     }
-                    in.compact();
                     return new ContinuationFrame(flags, stream, payload);
                 default:
                     sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, stream);
@@ -293,7 +287,7 @@ public abstract class AbstractHTTPConnection extends Connection {
         } catch (ProtocolException e) {
             sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, stream);
         }
-        close();
+        send(null); // close after sending responses
         return null;
     }
 
@@ -359,20 +353,31 @@ public abstract class AbstractHTTPConnection extends Connection {
                         return;
                     }
                     switch (this.version) {
-                        case HTTP_1_0:
-                            stream.closeConnection = true;
-                            break;
                         case UNKNOWN:
                             sendStreamError(stream, 505); // HTTP Version Not Supported
                             in.compact();
                             return;
+                        case HTTP_2_0:
+                            if ("PRI".equals(method) && "*".equals(requestTarget)) {
+                                state = STATE_PRI;
+                            } else {
+                                // invalid
+                                sendStreamError(stream, 400); // Bad Request
+                                in.compact();
+                                return;
+                            }
+                            break;
+                        case HTTP_1_0:
+                            stream.closeConnection = true;
+                            // fall through
+                        default: // HTTP_1_1
+                            stream.addHeader(new Header(":method", method));
+                            stream.addHeader(new Header(":path", requestTarget));
+                            stream.addHeader(new Header(":scheme", secure ? "https" : "http"));
+                            headerName = null;
+                            headerValue = CharBuffer.allocate(4096);
+                            state = STATE_HEADER;
                     }
-                    stream.addHeader(new Header(":method", method));
-                    stream.addHeader(new Header(":path", requestTarget));
-                    stream.addHeader(new Header(":scheme", secure ? "https" : "http"));
-                    headerName = null;
-                    headerValue = CharBuffer.allocate(4096);
-                    state = STATE_HEADER;
                     break;
                 case STATE_HEADER:
                     stream = getStream(clientStreamId);
@@ -411,22 +416,10 @@ public abstract class AbstractHTTPConnection extends Connection {
                             responseHeaders.add(new Header("Connection", "Upgrade"));
                             responseHeaders.add(new Header("Upgrade", "h2c"));
                             sendResponseHeaders(clientStreamId, 101, responseHeaders, true); // Switching Protocols
-                            // We now start the server side of the
-                            // connection preface
-                            SettingsFrame settingsFrame = new SettingsFrame(false,
-                                    headerTableSize,
-                                    enablePush,
-                                    maxConcurrentStreams,
-                                    initialWindowSize,
-                                    maxFrameSize,
-                                    maxHeaderListSize);
-                            sendFrame(settingsFrame);
                             // We now await the client connection preface
                             // (PRI * HTTP/2.0 request line)
                             state = STATE_REQUEST_LINE;
                             // client stream ID is not updated
-                        } else if ("PRI".equals(stream.method) && "*".equals(stream.requestTarget) && this.version == HTTPVersion.HTTP_2_0) {
-                            state = STATE_PRI;
                         } else {
                             state = STATE_BODY;
                             if (stream.getContentLength() == 0L) { // end of request
@@ -509,27 +502,37 @@ public abstract class AbstractHTTPConnection extends Connection {
                     break;
                 case STATE_PRI:
                     stream = getStream(clientStreamId);
-                    // SM\r\n\r\n + SETTINGS frame
-                    if (in.remaining() < 16) {
-                        in.compact();
+                    // \r\nSM\r\n\r\n + SETTINGS frame
+                    // initial CRLF is end of headers
+                    if (in.remaining() < 8) {
                         return; // underflow
                     }
-                    byte[] smt = new byte[6];
+                    byte[] smt = new byte[8];
                     in.get(smt);
-                    if (smt[0] != 'S' || smt[1] != 'M' || smt[2] != '\r' || smt[3] != '\n' || smt[4] != '\r' || smt[5] != '\n') {
+                    if (smt[0] != '\r' || smt[1] != '\n' || smt[2] != 'S' || smt[3] != 'M' || smt[4] != '\r' || smt[5] != '\n' || smt[6] != '\r' || smt[7] != '\n') {
                         sendStreamError(stream, 400);
                         in.compact();
                         return;
                     }
+                    state = STATE_PRI_SETTINGS;
+                    // fall through
+                case STATE_PRI_SETTINGS:
+                    stream = getStream(clientStreamId);
                     frame = readFrame();
                     if (frame == null) {
+                        // not enough data for frame
                         return; // not enough data for settings frame
                     }
-                    in.compact(); // remove frame from in
-                    /* XXX if (frame.getType() != Frame.TYPE_SETTINGS) {
+                    // Start the server side of the connection preface
+                    SettingsFrame serverPreface = new SettingsFrame(false);
+                    // We don't need to set any special values as we use the defaults
+                    sendFrame(serverPreface);
+                    // Now process the client settings
+                    if (frame.getType() != Frame.TYPE_SETTINGS) {
                         sendStreamError(stream, 400);
+                        in.compact();
                         return;
-                    }*/
+                    }
                     state = STATE_HTTP2;
                     hpackDecoder = new Decoder(headerTableSize);
                     hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
@@ -543,10 +546,8 @@ public abstract class AbstractHTTPConnection extends Connection {
                 case STATE_HTTP2_CONTINUATION:
                     frame = readFrame();
                     if (frame == null) {
-                        in.compact();
                         return; // underflow
                     }
-                    in.compact();
                     int streamId = frame.getStream();
                     if (streamId != 0 && !streams.containsKey(streamId)) {
                         // Check max concurrent streams (5.1.2)
@@ -572,6 +573,7 @@ public abstract class AbstractHTTPConnection extends Connection {
                     } catch (IOException e) { // HPACK headers malformed
                         sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, clientStreamId);
                         in.compact();
+                        return;
                     }
                     break;
             }
@@ -597,7 +599,7 @@ public abstract class AbstractHTTPConnection extends Connection {
         try {
             stream.sendError(statusCode);
         } catch (ProtocolException e) {
-            String message = AbstractHTTPConnector.L10N.getString("err.send_headers");
+            String message = L10N.getString("err.send_headers");
             LOGGER.log(Level.SEVERE, message, e);
         }
     }
@@ -614,6 +616,7 @@ public abstract class AbstractHTTPConnection extends Connection {
      * Received a frame from the client.
      */
     void receiveFrame(Frame frame) throws IOException {
+        //System.err.println("Received frame: "+frame);
         int streamId = frame.getStream();
         Stream stream = getStream(streamId);
         switch (frame.getType()) {
@@ -681,18 +684,15 @@ public abstract class AbstractHTTPConnection extends Connection {
                 close();
                 break;
             case Frame.TYPE_SETTINGS:
-                ((SettingsFrame) frame).apply(this);
-                hpackDecoder.setHeaderTableSize(headerTableSize);
-                hpackEncoder.setHeaderTableSize(headerTableSize);
-                hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
-                SettingsFrame result = new SettingsFrame(true,
-                        headerTableSize,
-                        enablePush,
-                        maxConcurrentStreams,
-                        initialWindowSize,
-                        maxFrameSize,
-                        maxHeaderListSize);
-                sendFrame(result);
+                SettingsFrame settings = (SettingsFrame) frame;
+                if (!settings.ack) {
+                    settings.apply(this);
+                    hpackDecoder.setHeaderTableSize(headerTableSize);
+                    hpackEncoder.setHeaderTableSize(headerTableSize);
+                    hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
+                    SettingsFrame result = new SettingsFrame(true); // ACK
+                    sendFrame(result);
+                }
                 break;
         }
     }
@@ -702,8 +702,10 @@ public abstract class AbstractHTTPConnection extends Connection {
     }
 
     void sendFrame(Frame frame) {
+        //System.err.println("sending frame: "+frame);
         ByteBuffer buf = ByteBuffer.allocate(9 + frame.getLength());
         frame.write(buf);
+        buf.flip();
         send(buf);
     }
 
@@ -793,7 +795,7 @@ public abstract class AbstractHTTPConnection extends Connection {
         switch (state) {
             case STATE_HTTP2:
                 // send headers frame(s)
-                headers.add(new Header(":status", Integer.toString(statusCode)));
+                headers.add(0, new Header(":status", Integer.toString(statusCode))); // pseudo-header must always be first
                 int streamDependency = 0; // TODO
                 boolean streamDependencyExclusive = false; // TODO
                 int weight = 0; // TODO
@@ -954,6 +956,15 @@ public abstract class AbstractHTTPConnection extends Connection {
                 // send directly
                 send(buf);
         }
+    }
+
+    public static String toHexString(byte[] bytes) {
+        StringBuilder hexString = new StringBuilder(2 * bytes.length);
+        for (byte b : bytes) {
+            int value = b & 0xFF;
+            hexString.append(String.format("%02x", value));
+        }
+        return hexString.toString();
     }
 
 }

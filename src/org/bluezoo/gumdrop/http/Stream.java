@@ -36,6 +36,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.logging.Level;
 
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
@@ -82,8 +83,8 @@ public class Stream {
         HALF_CLOSED_REMOTE;
     }
 
-    private final AbstractHTTPConnection connection;
-    private final int streamId;
+    final AbstractHTTPConnection connection;
+    final int streamId;
 
     protected Stream(AbstractHTTPConnection connection, int streamId) {
         this.connection = connection;
@@ -259,16 +260,14 @@ public class Stream {
 
     void appendHeaderBlockFragment(byte[] hbf) {
         if (headerBlock == null) {
-            headerBlock = ByteBuffer.wrap(hbf);
-        } else {
-            if (headerBlock.remaining() < hbf.length) {
-                ByteBuffer newHeaderBlock = ByteBuffer.allocate(headerBlock.capacity() + hbf.length);
-                headerBlock.flip();
-                newHeaderBlock.put(headerBlock);
-                headerBlock = newHeaderBlock;
-            }
-            headerBlock.put(hbf);
+            headerBlock = ByteBuffer.allocate(4096);
+        } else if (headerBlock.remaining() < hbf.length) {
+            ByteBuffer newHeaderBlock = ByteBuffer.allocate(headerBlock.capacity() + hbf.length);
+            headerBlock.flip();
+            newHeaderBlock.put(headerBlock);
+            headerBlock = newHeaderBlock;
         }
+        headerBlock.put(hbf);
     }
 
     void streamEndHeaders() throws IOException {
@@ -337,6 +336,8 @@ public class Stream {
                         try {
                             settingsFrame = new SettingsFrame(0, settings);
                         } catch (ProtocolException e) {
+                            String message = AbstractHTTPConnection.L10N.getString("err.decode_http2_settings");
+                            AbstractHTTPConnection.LOGGER.log(Level.SEVERE, message, e);
                         }
                     }
                 }
@@ -383,10 +384,10 @@ public class Stream {
                         return; // not enough data to read header line
                     } else if (line.length() == 0) { // end of request
                     } else { // add header line
-                        // NB header values in trailer headers may not be
-                        // folded, so we don't have to worry about value
-                        // state management over multiple lines. The whole
-                        // header must be on one line.
+                             // NB header values in trailer headers may not be
+                             // folded, so we don't have to worry about value
+                             // state management over multiple lines. The whole
+                             // header must be on one line.
                         int ci = line.indexOf(':');
                         if (ci < 1) {
                             connection.sendStreamError(this, 400);
@@ -569,7 +570,6 @@ public class Stream {
         state = State.CLOSED;
         timestampCompleted = System.currentTimeMillis();
         close();
-        new Throwable().printStackTrace();
     }
 
     /**

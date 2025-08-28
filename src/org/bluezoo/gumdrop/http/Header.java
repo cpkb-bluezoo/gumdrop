@@ -85,7 +85,12 @@ public class Header {
 
     public int hashCode() {
         if (hashCode == -1) {
-            hashCode = toString().hashCode();
+            StringBuilder buf = new StringBuilder(name.toLowerCase());
+            buf.append(": ");
+            if (value != null) {
+                buf.append(value);
+            }
+            hashCode = buf.hashCode();
         }
         return hashCode;
     }
