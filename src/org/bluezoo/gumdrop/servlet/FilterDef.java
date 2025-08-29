@@ -42,6 +42,7 @@ import javax.servlet.Filter;
 import javax.servlet.FilterConfig;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
+import javax.servlet.UnavailableException;
 import javax.servlet.annotation.WebFilter;
 import javax.servlet.annotation.WebInitParam;
 
@@ -69,6 +70,8 @@ final class FilterDef implements FilterConfig, FilterReg {
     Map<String,InitParam> initParams = new LinkedHashMap<>();
     boolean asyncSupported;
 
+    long unavailableUntil;
+
     void init(WebFilter config, String className) {
         this.className = className;
         description = config.description();
@@ -92,6 +95,13 @@ final class FilterDef implements FilterConfig, FilterReg {
             Filter filter = (Filter) t.newInstance();
             filter.init(this);
             return filter;
+        } catch (UnavailableException e) {
+            if (e.isPermanent()) {
+                unavailableUntil = -1L;
+            } else {
+                unavailableUntil = System.currentTimeMillis() + ((long) e.getUnavailableSeconds() * 1000L);
+            }
+            throw e;
         } catch (Exception e) {
             String message = Context.L10N.getString("err.init_filter");
             message = MessageFormat.format(message, name);

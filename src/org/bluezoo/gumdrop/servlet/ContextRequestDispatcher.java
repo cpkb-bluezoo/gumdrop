@@ -57,19 +57,19 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     final Context context;
     final ServletMatch match;
     final String queryString;
-    final List handlers;
+    final List<FilterMatch> filterMatches;
     final boolean named;
-    int index;
+    int index; // current index of this dispatcher in the filter list
     boolean errorSent;
     DispatcherType mode;
     Request originalRequest;
     Response originalResponse;
 
-    ContextRequestDispatcher(Context context, ServletMatch match, String queryString, List handlers, boolean named) {
+    ContextRequestDispatcher(Context context, ServletMatch match, String queryString, List<FilterMatch> filterMatches, boolean named) {
         this.context = context;
         this.match = match;
         this.queryString = queryString;
-        this.handlers = handlers;
+        this.filterMatches = filterMatches;
         this.named = named;
         index = 0;
         mode = DispatcherType.REQUEST;
@@ -171,32 +171,49 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         }
         Request r = (Request) cur;
         try {
-            int servletIndex = handlers.size() - 1;
             boolean handled = false;
-            if (index < servletIndex) {
+            if (index < filterMatches.size()) {
                 FilterMatch filterMatch = null;
                 // Get next filter matching mode
                 do {
-                    filterMatch = (FilterMatch) handlers.get(index++);
+                    filterMatch = filterMatches.get(index++);
                     handled = filterMatch.filterMapping.matches(mode);
-                } while (!handled && index < servletIndex);
+                } while (!handled && index < filterMatches.size());
                 if (handled) {
                     // apply matching filter
                     // Filters are already loaded
                     FilterDef filterDef = filterMatch.filterDef;
                     servletName = filterDef.name;
-                    Filter filter = (Filter) context.filters.get(filterDef.name);
-                    filter.doFilter(request, filterResponse, this);
+                    try {
+                        Filter filter = context.loadFilter(filterDef);
+                        filter.doFilter(request, filterResponse, this);
+                    } catch (UnavailableException e) {
+                        if (e.isPermanent()) {
+                            filterDef.unavailableUntil = -1L;
+                        } else {
+                            filterDef.unavailableUntil = System.currentTimeMillis() + ((long) e.getUnavailableSeconds() * 1000L);
+                        }
+                        throw e;
+                    }
                     handled = true;
                 }
                 // otherwise fall through to servlet
             }
             if (!handled) {
-                ServletDef servletDef = (ServletDef) handlers.get(index++);
+                ServletDef servletDef = match.servletDef;
                 servletName = servletDef.name;
-                // Servlet may be loaded or not
-                servlet = context.loadServlet(servletDef.name);
-                servlet.service(request, filterResponse);
+                try {
+                    // Servlet may be loaded or not
+                    servlet = context.loadServlet(servletDef);
+                    servlet.service(request, filterResponse);
+                } catch (UnavailableException e) {
+                    if (e.isPermanent()) {
+                        servletDef.unavailableUntil = -1L;
+                    } else {
+                        servletDef.unavailableUntil = System.currentTimeMillis() + ((long) e.getUnavailableSeconds() * 1000L);
+                    }
+                    throw e;
+                }
             }
             // Check if startAsync was called
             StreamAsyncContext async = r.asyncContext;
@@ -336,9 +353,9 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             buf.append(queryString);
         }
         buf.append("]");
-        for (Iterator i = handlers.iterator(); i.hasNext(); ) {
+        for (FilterMatch filterMatch : filterMatches) {
             buf.append("\n\t");
-            buf.append(i.next().toString());
+            buf.append(filterMatch.toString());
         }
         return buf.toString();
     }

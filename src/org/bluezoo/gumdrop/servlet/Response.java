@@ -238,7 +238,7 @@ class Response implements HttpServletResponse {
                         match.servletPath = "/";
                         match.pathInfo = "/".equals(location) ? null : location.substring(1);
                     }
-                    Servlet servlet = context.loadServlet(match.servletDef.name);
+                    Servlet servlet = context.loadServlet(match.servletDef);
                     ErrorRequest errorRequest =
                             new ErrorRequest(
                                     request,

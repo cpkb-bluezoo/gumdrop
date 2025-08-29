@@ -43,6 +43,7 @@ import javax.servlet.ServletException;
 import javax.servlet.ServletRegistration;
 import javax.servlet.ServletSecurityElement;
 import javax.servlet.SingleThreadModel;
+import javax.servlet.UnavailableException;
 import javax.servlet.annotation.HttpConstraint;
 import javax.servlet.annotation.HttpMethodConstraint;
 import javax.servlet.annotation.MultipartConfig;
@@ -78,6 +79,8 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     boolean asyncSupported;
 
     Set<SecurityConstraint> servletSecurity;
+
+    long unavailableUntil;
 
     void init(WebServlet config, String className) {
         this.className = className;
@@ -146,6 +149,13 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
             Servlet servlet = (Servlet) t.newInstance();
             servlet.init(this);
             return servlet;
+        } catch (UnavailableException e) {
+            if (e.isPermanent()) {
+                unavailableUntil = -1L;
+            } else {
+                unavailableUntil = System.currentTimeMillis() + ((long) e.getUnavailableSeconds() * 1000L);
+            }
+            throw e;
         } catch (Exception e) {
             String message = Context.L10N.getString("err.init_servlet");
             message = MessageFormat.format(message, name);

@@ -853,8 +853,17 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             try {
                 Filter filter = filterDef.newInstance();
                 filters.put(filterDef.name, filter);
+            } catch (UnavailableException e) {
+                if (e.isPermanent()) {
+                    String message = L10N.getString("err.filter_permanently_unavailable");
+                    message = MessageFormat.format(message, filterDef.name);
+                    LOGGER.log(Level.SEVERE, message, e);
+                } else {
+                    String message = L10N.getString("err.filter_temporarily_unavailable");
+                    message = MessageFormat.format(message, filterDef.name, e.getUnavailableSeconds());
+                    LOGGER.log(Level.SEVERE, message, e);
+                }
             } catch (ServletException e) {
-                // TODO UnavailableException
                 String message = L10N.getString("err.init_filter");
                 message = MessageFormat.format(message, filterDef.name);
                 LOGGER.log(Level.SEVERE, message, e);
@@ -868,8 +877,17 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                 try {
                     Servlet servlet = servletDef.newInstance();
                     servlets.put(servletDef.name, servlet);
+                } catch (UnavailableException e) {
+                    if (e.isPermanent()) {
+                        String message = L10N.getString("err.servlet_permanently_unavailable");
+                        message = MessageFormat.format(message, servletDef.name);
+                        LOGGER.log(Level.SEVERE, message, e);
+                    } else {
+                        String message = L10N.getString("err.servlet_temporarily_unavailable");
+                        message = MessageFormat.format(message, servletDef.name, e.getUnavailableSeconds());
+                        LOGGER.log(Level.SEVERE, message, e);
+                    }
                 } catch (ServletException e) {
-                    // TODO UnavailableException
                     String message = L10N.getString("err.init_servlet");
                     message = MessageFormat.format(message, servletDef.name);
                     LOGGER.log(Level.SEVERE, message, e);
@@ -1085,14 +1103,48 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         throw new UnsupportedOperationException("JSP not yet supported");
     }
 
-    Servlet loadServlet(String name) throws ServletException {
+    Servlet loadServlet(ServletDef servletDef) throws ServletException {
+        String name = servletDef.name;
         Servlet servlet = servlets.get(name);
         if (servlet == null) {
-            ServletDef servletDef = servletDefs.get(name);
-            servlet = servletDef.newInstance();
-            servlets.put(name, servlet);
+            if (servletDef.unavailableUntil == -1L) { // permanently out of action
+                String message = L10N.getString("err.servlet_permanently_unavailable");
+                message = MessageFormat.format(message, servletDef.name);
+                throw new UnavailableException(message);
+            } else if (servletDef.unavailableUntil > 0L) {
+                // We will not try to initialize the servlet yet
+                int seconds = (int) ((servletDef.unavailableUntil - System.currentTimeMillis()) / 1000L);
+                String message = L10N.getString("err.servlet_temporarily_unavailable");
+                message = MessageFormat.format(message, servletDef.name, seconds);
+                throw new UnavailableException(message, seconds);
+            } else {
+                servlet = servletDef.newInstance();
+                servlets.put(name, servlet);
+            }
         }
         return servlet;
+    }
+
+    Filter loadFilter(FilterDef filterDef) throws ServletException {
+        String name = filterDef.name;
+        Filter filter = filters.get(name);
+        if (filter == null) {
+            if (filterDef.unavailableUntil == -1L) { // permanently out of action
+                String message = L10N.getString("err.filter_permanently_unavailable");
+                message = MessageFormat.format(message, filterDef.name);
+                throw new UnavailableException(message);
+            } else if (filterDef.unavailableUntil > 0L) {
+                // We will not try to initialize the filter yet
+                int seconds = (int) ((filterDef.unavailableUntil - System.currentTimeMillis()) / 1000L);
+                String message = L10N.getString("err.filter_temporarily_unavailable");
+                message = MessageFormat.format(message, filterDef.name, seconds);
+                throw new UnavailableException(message, seconds);
+            } else {
+                filter = filterDef.newInstance();
+                filters.put(name, filter);
+            }
+        }
+        return filter;
     }
 
     /**
@@ -1494,46 +1546,39 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         String pathInfo = match.pathInfo;
 
         // Locate applicable filters
-        Map<String,FilterMatch> requestFilters = new LinkedHashMap<>();
+        Map<FilterDef,FilterMatch> requestFilters = new LinkedHashMap<>();
         for (FilterMapping filterMapping : filterMappings) {
             String filterName = filterMapping.filterName;
-            FilterDef fd = filterMapping.filterDef;
-            if (fd == null) {
+            FilterDef filterDef = filterMapping.filterDef;
+            if (filterDef == null) {
                 continue;
             }
             if (!filterMapping.servletDefs.isEmpty() && filterMapping.servletDefs.contains(servletDef)) {
-                FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXACT);
-                requestFilters.put(filterName, fm);
+                requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
             } else {
                 for (String pattern : filterMapping.urlPatterns) {
                     if (pattern.equals(path)) {
                         // 1. exact match
-                        FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXACT);
-                        requestFilters.put(filterName, fm);
+                        requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
                     } else if (pattern.endsWith("/*") && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
                         // 2. match path prefix
-                        FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.PATH);
-                        requestFilters.put(filterName, fm);
+                        requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.PATH));
                     } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
                         // 3. extension
-                        FilterMatch fm = new FilterMatch(fd, filterMapping, MappingMatch.EXTENSION);
-                        requestFilters.put(filterName, fm);
+                        requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXTENSION));
                     }
                 }
             }
         }
-        // Build list of handlers and defs in filter order
-        // Servlet is the last handler in the list
-        List handlers = new ArrayList();
-        for (String filterName : filterDefs.keySet()) {
-            if (requestFilters.containsKey(filterName)) {
-                FilterMatch fm = requestFilters.get(filterName);
-                handlers.add(fm);
+        // Build list of filter matches in filter order
+        List<FilterMatch> filterMatches = new ArrayList();
+        for (FilterDef filterDef : filterDefs.values()) {
+            FilterMatch filterMatch = requestFilters.get(filterDef);
+            if (filterMatch != null) { // requestFilters contains this filter
+                filterMatches.add(filterMatch);
             }
         }
-        // Add servlet def
-        handlers.add(servletDef);
-        return new ContextRequestDispatcher(this, match, queryString, handlers, false);
+        return new ContextRequestDispatcher(this, match, queryString, filterMatches, false);
     }
 
     void matchServletMapping(String path, ServletMatch match) {
@@ -1696,7 +1741,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     public Servlet getDefaultServlet() {
         try {
-            return loadServlet(defaultServletDef.name);
+            return loadServlet(defaultServletDef);
         } catch (ServletException e) {
             RuntimeException e2 = new RuntimeException();
             e2.initCause(e);

@@ -123,11 +123,11 @@ class StreamAsyncContext implements AsyncContext {
             cur = ((ServletRequestWrapper) cur).getRequest();
         }
         Request r = (Request) cur;
-        String servletName = r.match.servletDef.name;
+        ServletDef servletDef = r.match.servletDef;
         Context context = r.context;
         // Call service
         try {
-            Servlet servlet = context.loadServlet(servletName);
+            Servlet servlet = context.loadServlet(servletDef);
             servlet.service(request, response);
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, e.getMessage(), e);
