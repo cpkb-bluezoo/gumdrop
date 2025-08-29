@@ -522,6 +522,13 @@ class Response implements HttpServletResponse {
             throw new IllegalStateException("already committed");
         }
         String encoding = getCharacterEncoding();
+        if (encoding == null) {
+            encoding = context.getResponseCharacterEncoding();
+            if (encoding == null) {
+                // servlet 4.0 section 4.6
+                encoding = "ISO-8859-1";
+            }
+        }
         Charset c = Charset.forName(encoding);
         commit();
         if (outputStream != null) {

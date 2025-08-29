@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.util.ByteArrays;
 
 /**
  * An HPACK HTTP/2 header block decoder.
@@ -204,5 +205,78 @@ public class Decoder extends HPACKConstants {
             return value;
         }
     }
+
+    // Testing
+    public static void main(String[] args) throws Exception {
+        ByteBuffer buf = ByteBuffer.allocate(4096);
+        Decoder decoder;
+        List<Header> decoded = new ArrayList<>();
+        HeaderHandler handler = new HeaderHandler() {
+            public void header(Header header) {
+                decoded.add(header);
+            }
+        };
+
+        /*// C.2.1 Literal Header Field with Indexing
+        Header header = new Header("custom-key", "custom-header");
+        byte[] encoded = new byte[] {
+            (byte) 0x40, (byte) 0x0a, (byte) 0x63, (byte) 0x75, (byte) 0x73, (byte) 0x74,
+            (byte) 0x6f, (byte) 0x6d, (byte) 0x2d, (byte) 0x6b, (byte) 0x65, (byte) 0x79,
+            (byte) 0x0d, (byte) 0x63, (byte) 0x75, (byte) 0x73, (byte) 0x74, (byte) 0x6f,
+            (byte) 0x6d, (byte) 0x2d, (byte) 0x68, (byte) 0x65, (byte) 0x61, (byte) 0x64,
+            (byte) 0x65, (byte) 0x72
+        };
+        buf.clear();
+        buf.put(encoded);
+        buf.flip();
+        decoder = new Decoder(4096);
+        decoder.decode(buf, handler);
+        System.err.println(header + " should be "+decoded.get(0));
+        decoded.clear();
+
+        // C.2.2 Literal Header Field without Indexing
+        header = new Header(":path", "/sample/path");
+        encoded = new byte[] {
+            (byte) 0x04, (byte) 0x0c, (byte) 0x2f, (byte) 0x73, (byte) 0x61, (byte) 0x6d,
+            (byte) 0x70, (byte) 0x6c, (byte) 0x65, (byte) 0x2f, (byte) 0x70, (byte) 0x61,
+            (byte) 0x74, (byte) 0x68
+        };
+        buf.clear();
+        buf.put(encoded);
+        buf.flip();
+        decoder = new Decoder(4096);
+        decoder.decode(buf, handler);
+        System.err.println(header + " should be "+decoded.get(0));
+        decoded.clear();
+
+        // C.2.3 Literal Header Field Never Indexed
+        header = new Header("password", "secret");
+        encoded = new byte[] {
+            (byte) 0x10, (byte) 0x08, (byte) 0x70, (byte) 0x61, (byte) 0x73, (byte) 0x73,
+            (byte) 0x77, (byte) 0x6f, (byte) 0x72, (byte) 0x64, (byte) 0x06, (byte) 0x73,
+            (byte) 0x65, (byte) 0x63, (byte) 0x72, (byte) 0x65, (byte) 0x74
+        };
+        buf.clear();
+        buf.put(encoded);
+        buf.flip();
+        decoder = new Decoder(4096);
+        decoder.decode(buf, handler);
+        System.err.println(header + " should be "+decoded.get(0));
+        decoded.clear();*/
+
+        // Process arg
+        handler = new HeaderHandler() {
+            public void header(Header header) {
+                System.out.println(header.toString());
+            }
+        };
+        byte[] encoded = ByteArrays.toByteArray(args[0]);
+        buf.clear();
+        buf.put(encoded);
+        buf.flip();
+        decoder = new Decoder(4096);
+        decoder.decode(buf, handler);
+    }
+
 
 }

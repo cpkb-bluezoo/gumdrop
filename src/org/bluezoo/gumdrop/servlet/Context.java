@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.servlet.manager.ContextService;
 import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import org.bluezoo.gumdrop.util.JarInputStream;
+import org.bluezoo.util.ByteArrays;
 
 import org.xml.sax.SAXException;
 
@@ -38,6 +39,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.*;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -125,8 +129,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     String moduleName; // TODO
     String defaultContextPath; // TODO
-    String requestCharacterEncoding; // TODO
-    String responseCharacterEncoding; // TODO
+    String requestCharacterEncoding;
+    String responseCharacterEncoding;
     List<String> absoluteOrdering = new ArrayList<>();
 
     Map<String,? extends ServletRegistration> servletRegistrations = new LinkedHashMap<>();
@@ -139,7 +143,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     HitStatisticsImpl hitStatistics = new HitStatisticsImpl();
 
-    // TODO session activation/passivation, distributed sessions
+    private byte[] managerDigest;
 
     public Context(Container container, String contextPath, File root) {
         this.container = container;
@@ -152,9 +156,28 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         // Work out if this context is the manager webapp
         boolean manager = false;
         if (root.isFile() && root.getName().equals("manager.war")) {
-            // TODO compute checksum of the file and compare to correct
-            // version
-            manager = true;
+            // compute checksum of the file and compare to correct version
+            try (InputStream in = new FileInputStream(root)) {
+                MessageDigest md5 = MessageDigest.getInstance("MD5");
+                DigestInputStream md5in = new DigestInputStream(in, md5);
+                byte[] buf = new byte[Math.max(4096, in.available())];
+                for (int len = md5in.read(buf); len != -1; len = md5in.read(buf)) {
+                }
+                byte[] computedDigest = md5.digest();
+                System.err.println("managerDigest="+ByteArrays.toHexString(computedDigest));
+                if (ByteArrays.equals(computedDigest, managerDigest)) {
+                    manager = true;
+                }
+            } catch (NoSuchAlgorithmException e) {
+                // fatal
+                RuntimeException e2 = new RuntimeException("No MD5 support in JRE");
+                e2.initCause(e);
+                throw e2;
+            } catch (IOException e) {
+                String message = L10N.getString("err.manager_war_checksum");
+                message = MessageFormat.format(message, root);
+                LOGGER.log(Level.SEVERE, message, e);
+            }
         }
 
         sessionsLastInvalidated = System.currentTimeMillis();

@@ -1,10 +1,8 @@
 Before 1.0 release
 
 - Test SSL more under more different conditions
-- Create unit tests
-  - move code out of hpack classes into test
+- Create more unit tests
 - Finish HTTP/2 frame handling
-  - re-enable h2 protocol in SSL negotiation when it will be the default
   - Implement stream priority (dependency trees)
   - Stream housekeeping after they have entered CLOSED state
   - Allow user to specify padding

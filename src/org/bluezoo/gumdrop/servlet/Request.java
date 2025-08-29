@@ -888,14 +888,19 @@ class Request implements HttpServletRequest {
                 }
             }
         }
+        if (contentType.startsWith("application/x-www-form-urlencoded")) {
+            // See servlet 4.0 section 3.12
+            return "US-ASCII";
+        }
         return null;
     }
 
     @Override public void setCharacterEncoding(String encoding) throws UnsupportedEncodingException {
         if (encoding != null) {
             // Check that encoding is supported by InputStreamReader
-            ByteArrayInputStream dummy = new ByteArrayInputStream(new byte[0]);
-            InputStreamReader reader = new InputStreamReader(dummy, encoding);
+            if (!Charset.isSupported(encoding)) {
+                throw new UnsupportedEncodingException(encoding);
+            }
         }
         // OK
         this.encoding = encoding;
@@ -1061,10 +1066,13 @@ class Request implements HttpServletRequest {
     }
 
     @Override public BufferedReader getReader() throws IOException {
-        // See SRV.4.9
         String charset = getCharacterEncoding();
         if (charset == null) {
-            return new BufferedReader(new InputStreamReader(in, "ISO-8859-1"));
+            // See servlet 4.0 section 3.12
+            charset = context.getRequestCharacterEncoding();
+            if (charset == null) {
+                charset = "ISO-8859-1";
+            }
         }
         return new BufferedReader(new InputStreamReader(in, charset));
     }

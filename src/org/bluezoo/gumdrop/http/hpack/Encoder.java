@@ -26,6 +26,7 @@ import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
@@ -239,6 +240,94 @@ public class Encoder extends HPACKConstants {
             // set MSB to 0 for end of continuation
             buf.put((byte) value);
         }
+    }
+
+    // Testing
+    public static void main(String[] args) throws Exception {
+        ByteBuffer buf = ByteBuffer.allocate(4096);
+        Encoder encoder;
+        byte b;
+
+        /*// C.1.1 encode 10 using 5-bit prefix
+        buf.clear();
+        int val = decodeInteger(buf, (byte) 0x6a, 5);
+        System.err.println("decodeInteger returned "+val+", should be 10");
+
+        buf.clear();
+        encodeInteger(buf, (byte) 0x60, 10, 5);
+        buf.flip();
+        b = buf.get();
+        System.err.println("encodeInteger encoded "+String.format("0x%02x", (b & 0xff))+", should be 0x6a");
+
+        // C.1.2 encode 1337 using 5-bit prefix
+        buf.clear();
+        buf.put((byte) 0x9a);
+        buf.put((byte) 0xa);
+        buf.flip();
+        val = decodeInteger(buf, (byte) 0x7f, 5);
+        System.err.println("decodeInteger returned "+val+", should be 1337");
+
+        buf.clear();
+        encodeInteger(buf, (byte) 0x60, 1337, 5);
+        buf.flip();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 3; i++) {
+            b = buf.get();
+            sb.append(String.format("0x%02x ", (b & 0xff)));
+        }
+        System.err.println("encodeInteger encoded "+sb.toString()+", should be 0x7f 0x9a 0x0a");*/
+
+        // C.2.1 Literal Header Field with Indexing
+        Header header = new Header("custom-key", "custom-header");
+        byte[] encoded = new byte[] {
+            (byte) 0x40, (byte) 0x0a, (byte) 0x63, (byte) 0x75, (byte) 0x73, (byte) 0x74,
+            (byte) 0x6f, (byte) 0x6d, (byte) 0x2d, (byte) 0x6b, (byte) 0x65, (byte) 0x79,
+            (byte) 0x0d, (byte) 0x63, (byte) 0x75, (byte) 0x73, (byte) 0x74, (byte) 0x6f,
+            (byte) 0x6d, (byte) 0x2d, (byte) 0x68, (byte) 0x65, (byte) 0x61, (byte) 0x64,
+            (byte) 0x65, (byte) 0x72
+        };
+        buf.clear();
+        encoder = new Encoder(4096, 4096);
+        encoder.setAutoHuffman(false);
+        encoder.encode(buf, Collections.singletonList(header));
+        buf.flip();
+        boolean success = true;
+        for (int i = 0; i < encoded.length && success; i++) {
+            b = buf.get(i);
+            if (b != encoded[i]) {
+                System.err.println("Failed encoding of C.2.1 at index "+i+" encoded="+String.format("%02x", encoded[i])+" written="+String.format("%02x", b));
+                success = false;
+            }
+        }
+        if (success) {
+            System.err.println("Successfully encoded C.2.1");
+        }
+
+        // C.2.2 Literal Header Field without Indexing
+        header = new Header(":path", "/sample/path");
+        encoded = new byte[] {
+            (byte) 0x04, (byte) 0x0c, (byte) 0x2f, (byte) 0x73, (byte) 0x61, (byte) 0x6d,
+            (byte) 0x70, (byte) 0x6c, (byte) 0x65, (byte) 0x2f, (byte) 0x70, (byte) 0x61,
+            (byte) 0x74, (byte) 0x68
+        };
+        buf.clear();
+        encoder = new Encoder(4096, 4096);
+        encoder.setAutoHuffman(false);
+        encoder.setNoIndexing(true);
+        encoder.encode(buf, Collections.singletonList(header));
+        buf.flip();
+        success = true;
+        for (int i = 0; i < encoded.length && success; i++) {
+            b = buf.get(i);
+            if (b != encoded[i]) {
+                System.err.println("Failed encoding of C.2.2 at index "+i+" encoded="+String.format("%02x", encoded[i])+" written="+String.format("%02x", b));
+                success = false;
+            }
+        }
+        if (success) {
+            System.err.println("Successfully encoded C.2.2");
+        }
+
     }
 
 }
