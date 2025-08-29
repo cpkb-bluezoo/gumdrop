@@ -127,8 +127,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     boolean distributable;
     boolean initialized;
 
-    String moduleName; // TODO
-    String defaultContextPath; // TODO
+    String moduleName; // TODO EAR
+    String defaultContextPath; // TODO EAR
     String requestCharacterEncoding;
     String responseCharacterEncoding;
     List<String> absoluteOrdering = new ArrayList<>();
@@ -143,7 +143,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     HitStatisticsImpl hitStatistics = new HitStatisticsImpl();
 
-    private byte[] managerDigest;
+    private byte[] managerDigest = ByteArrays.toByteArray("38ef87e9959197a79990562e5a515e4f");
 
     public Context(Container container, String contextPath, File root) {
         this.container = container;
@@ -164,7 +164,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                 for (int len = md5in.read(buf); len != -1; len = md5in.read(buf)) {
                 }
                 byte[] computedDigest = md5.digest();
-                System.err.println("managerDigest="+ByteArrays.toHexString(computedDigest));
                 if (ByteArrays.equals(computedDigest, managerDigest)) {
                     manager = true;
                 }
@@ -1099,7 +1098,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     Servlet parseJSPFile(String path) {
-        // TODO JSP
         throw new UnsupportedOperationException("JSP not yet supported");
     }
 
@@ -1263,7 +1261,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     }
                 }
             } catch (IOException e) {
-                // TODO log
+                String message = L10N.getString("err.reading_jar");
+                message = MessageFormat.format(message, root);
+                LOGGER.log(Level.SEVERE, message, e);
             }
         }
         if (searchJars) {
@@ -1285,7 +1285,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         }
                     }
                 } catch (IOException e) {
-                    // TODO log
+                    String message = L10N.getString("err.reading_jar");
+                    message = MessageFormat.format(message, file);
+                    LOGGER.log(Level.SEVERE, message, e);
                 }
             }
         }
@@ -1370,7 +1372,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     }
                 }
             } catch (IOException e) {
-                // TODO log
+                String message = L10N.getString("err.reading_jar");
+                message = MessageFormat.format(message, root);
+                LOGGER.log(Level.SEVERE, message, e);
             }
         }
         if (!found) {
@@ -1384,7 +1388,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                         break;
                     }
                 } catch (IOException e) {
-                    // TODO log
+                    String message = L10N.getString("err.reading_jar");
+                    message = MessageFormat.format(message, file);
+                    LOGGER.log(Level.SEVERE, message, e);
                 }
             }
             if (!found) {
@@ -1479,7 +1485,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                 }
             }
         } catch (IOException e) {
-            // TODO log
+            String message = L10N.getString("err.reading_jar");
+            message = MessageFormat.format(message, root);
+            LOGGER.log(Level.SEVERE, message, e);
         }
         return null;
     }
@@ -1630,13 +1638,21 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     @Override public synchronized RequestDispatcher getNamedDispatcher(String name) {
-        // This method cannot return a filter chain because the path by with the
-        // servlet is accessed is not specified, only its name.
         ServletDef servletDef = servletDefs.get(name);
         if (servletDef != null) {
-            List handlers = Collections.singletonList(servletDef);
-            // TODO fabricate a ServletMatch
-            return new ContextRequestDispatcher(this, null, null, handlers, true);
+            // Discover all the filterDefs with a mapping matching this
+            // servlet name
+            List<FilterMatch> filterMatches = new ArrayList<>();
+            for (FilterMapping filterMapping : filterMappings) {
+                if (filterMapping.servletNames.contains(name)) {
+                    filterMatches.add(new FilterMatch(filterMapping.filterDef, filterMapping, MappingMatch.EXACT));
+                }
+            }
+            // construct a ServletMatch
+            ServletMatch match = new ServletMatch();
+            match.servletDef = servletDef;
+            match.mappingMatch = MappingMatch.EXACT;
+            return new ContextRequestDispatcher(this, match, null, filterMatches, true);
         }
         return null;
     }
@@ -2005,7 +2021,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     public JspConfigDescriptor getJspConfigDescriptor() {
-        return null; // TODO
+        return jspConfig;
     }
 
     @Override public ClassLoader getClassLoader() {
@@ -2049,11 +2065,22 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     @Override public String getVirtualServerName() {
-        return null; // TODO
+        throw new UnsupportedOperationException(); // virtual hosts not supported
     }
 
     @Override public ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {
-        return null; // TODO
+        if (initialized) {
+            throw new IllegalStateException();
+        }
+        if (servletName == null || servletName.length() == 0) {
+            throw new IllegalArgumentException();
+        }
+        Servlet servlet = parseJSPFile(jspFile);
+        ServletDef servletDef = new ServletDef();
+        servletDef.name = servletName;
+        servletDef.className = servlet.getClass().getName();
+        addServletDef(servletDef);
+        return servletDef;
     }
 
 }

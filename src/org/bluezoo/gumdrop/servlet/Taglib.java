@@ -22,14 +22,26 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import javax.servlet.descriptor.TaglibDescriptor;
+
 /**
  * A <code>taglib</code> deployment descriptor definition.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Taglib {
+public class Taglib implements TaglibDescriptor {
 
     String taglibUri;
     String taglibLocation;
+
+    // -- TaglibDescriptor --
+
+    @Override public String getTaglibURI() {
+        return taglibUri;
+    }
+
+    @Override public String getTaglibLocation() {
+        return taglibLocation;
+    }
 
 }

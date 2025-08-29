@@ -23,14 +23,20 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+
+import javax.servlet.descriptor.JspConfigDescriptor;
+import javax.servlet.descriptor.JspPropertyGroupDescriptor;
+import javax.servlet.descriptor.TaglibDescriptor;
 
 /**
  * A <code>jsp-config</code> deployment descriptor definition.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspConfig {
+public class JspConfig implements JspConfigDescriptor {
 
     List<Taglib> taglibs = new ArrayList<>();
     List<JspPropertyGroup> jspPropertyGroups = new ArrayList<>();
@@ -41,6 +47,21 @@ public class JspConfig {
 
     void addJspPropertyGroup(JspPropertyGroup jspPropertyGroup) {
         jspPropertyGroups.add(jspPropertyGroup);
+    }
+
+    void merge(JspConfig other) {
+        taglibs.addAll(other.taglibs);
+        jspPropertyGroups.addAll(other.jspPropertyGroups);
+    }
+
+    // -- JspConfigDescriptor --
+
+    @Override public Collection<TaglibDescriptor> getTaglibs() {
+        return Collections.unmodifiableList(taglibs);
+    }
+
+    @Override public Collection<JspPropertyGroupDescriptor> getJspPropertyGroups() {
+        return Collections.unmodifiableList(jspPropertyGroups);
     }
 
 }

@@ -23,23 +23,81 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+
+import javax.servlet.descriptor.JspPropertyGroupDescriptor;
 
 /**
  * A <code>jsp-property-group</code> deployment descriptor definition.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JspPropertyGroup {
+public class JspPropertyGroup implements JspPropertyGroupDescriptor {
 
     String description;
     List<String> urlPatterns = new ArrayList<>();
-    boolean elIgnored;
+    Boolean elIgnored;
     String pageEncoding;
-    boolean scriptingInvalid;
-    String includePrelude;
-    String includeCoda;
-    long buffer;
-    boolean trimDirectiveWhitespaces;
+    Boolean scriptingInvalid;
+    List<String> includePrelude = new ArrayList<>();
+    List<String> includeCoda = new ArrayList<>();
+    String defaultContentType;
+    Long buffer;
+    Boolean trimDirectiveWhitespaces;
+    Boolean isXml;
+    Boolean deferredSyntaxAllowedAsLiteral;
+    Boolean errorOnUndeclaredNamespace;
+
+    // -- JspPropertyGroupDescriptor --
+
+    @Override public Collection<String> getUrlPatterns() {
+        return Collections.unmodifiableList(urlPatterns);
+    }
+
+    @Override public String getElIgnored() {
+        return (elIgnored == null) ? null : elIgnored.toString();
+    }
+
+    @Override public String getPageEncoding() {
+        return pageEncoding;
+    }
+
+    @Override public String getScriptingInvalid() {
+        return (scriptingInvalid == null) ? null : scriptingInvalid.toString();
+    }
+
+    @Override public String getIsXml() {
+        return (isXml == null) ? null : isXml.toString();
+    }
+
+    @Override public Collection<String> getIncludePreludes() {
+        return Collections.unmodifiableList(urlPatterns);
+    }
+
+    @Override public Collection<String> getIncludeCodas() {
+        return Collections.unmodifiableList(urlPatterns);
+    }
+
+    @Override public String getDeferredSyntaxAllowedAsLiteral() {
+        return (deferredSyntaxAllowedAsLiteral ==  null) ? null : deferredSyntaxAllowedAsLiteral.toString();
+    }
+
+    @Override public String getTrimDirectiveWhitespaces() {
+        return (trimDirectiveWhitespaces == null) ? null : trimDirectiveWhitespaces.toString();
+    }
+
+    @Override public String getDefaultContentType() {
+        return defaultContentType;
+    }
+
+    @Override public String getBuffer() {
+        return (buffer == null) ? null : buffer.toString();
+    }
+
+    @Override public String getErrorOnUndeclaredNamespace() {
+        return (errorOnUndeclaredNamespace == null) ? null : errorOnUndeclaredNamespace.toString();
+    }
 
 }

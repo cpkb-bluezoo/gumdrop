@@ -44,6 +44,7 @@ import javax.servlet.ServletRequestWrapper;
 import javax.servlet.ServletResponse;
 import javax.servlet.UnavailableException;
 import javax.servlet.annotation.ServletSecurity;
+import javax.servlet.http.HttpServletMapping;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -75,22 +76,41 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         mode = DispatcherType.REQUEST;
     }
 
+    // Called by worker
+    void handleRequest(Request request, Response response) throws ServletException, IOException {
+        originalRequest = request;
+        originalResponse = response;
+        if (!context.authentication || authorize(request, response)) {
+            doFilter(request, response);
+        }
+    }
+
+    // -- RequestDispatcher --
+
     @Override public void forward(ServletRequest request, ServletResponse response) throws ServletException, IOException {
         if (response.isCommitted()) {
             // SRV.8.4
             String message = Context.L10N.getString("err.committed");
             throw new IllegalStateException(message);
         }
-        if (request instanceof HttpServletRequest && !named) {
+
+        if (request instanceof HttpServletRequest) {
             HttpServletRequest hq = (HttpServletRequest) request;
+            ServletMatch match = this.match;
+
+            if (named) {
+                // We need to populate the match values for the request
+                HttpServletMapping hsm = hq.getHttpServletMapping();
+                match = new ServletMatch();
+                match.servletDef = this.match.servletDef;
+                match.mappingMatch = this.match.mappingMatch;
+                match.servletPath = hsm.getPattern();
+                match.matchValue = hsm.getMatchValue();
+            }
+
             // SRV.8.4.1, SRV.8.4.2
             String contextPath = context.contextPath;
-            StringBuffer uri = new StringBuffer();
-            if (!"/".equals(contextPath)) {
-                uri.append(contextPath);
-            } else {
-                contextPath = "";
-            }
+            StringBuilder uri = new StringBuilder(contextPath);
             if (match.servletPath != null) {
                 uri.append(match.servletPath);
             }
@@ -114,14 +134,21 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     @Override public void include(ServletRequest request, ServletResponse response) throws ServletException, IOException {
         if (request instanceof HttpServletRequest) {
             HttpServletRequest hq = (HttpServletRequest) request;
+            ServletMatch match = this.match;
+
+            if (named) {
+                // We need to populate the match values for the request
+                HttpServletMapping hsm = hq.getHttpServletMapping();
+                match = new ServletMatch();
+                match.servletDef = this.match.servletDef;
+                match.mappingMatch = this.match.mappingMatch;
+                match.servletPath = hsm.getPattern();
+                match.matchValue = hsm.getMatchValue();
+            }
+
             // SRV.8.3.1
             String contextPath = context.contextPath;
-            StringBuffer uri = new StringBuffer();
-            if (!"/".equals(contextPath)) {
-                uri.append(contextPath);
-            } else {
-                contextPath = "";
-            }
+            StringBuilder uri = new StringBuilder(contextPath);
             if (match.servletPath != null) {
                 uri.append(match.servletPath);
             }
@@ -145,14 +172,6 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         mode = DispatcherType.INCLUDE;
         doFilter(request, response);
         mode = oldMode;
-    }
-
-    void handleRequest(Request request, Response response) throws ServletException, IOException {
-        originalRequest = request;
-        originalResponse = response;
-        if (!context.authentication || authorize(request, response)) {
-            doFilter(request, response);
-        }
     }
 
     // -- FilterChain --

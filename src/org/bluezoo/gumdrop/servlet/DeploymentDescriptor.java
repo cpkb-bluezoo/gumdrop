@@ -60,7 +60,7 @@ abstract class DeploymentDescriptor implements Description {
     List<MimeMapping> mimeMappings = new ArrayList<>();
     List<String> welcomeFiles = new ArrayList<>();
     List<ErrorPage> errorPages = new ArrayList<>();
-    List<JspConfig> jspConfigs = new ArrayList<>();
+    JspConfig jspConfig;
     List<SecurityConstraint> securityConstraints = new ArrayList<>();
     LoginConfig loginConfig;
     List<SecurityRole> securityRoles = new ArrayList<>();
@@ -100,7 +100,7 @@ abstract class DeploymentDescriptor implements Description {
             mimeMappings.isEmpty() &&
             welcomeFiles.isEmpty() &&
             errorPages.isEmpty() &&
-            jspConfigs.isEmpty() &&
+            jspConfig == null &&
             securityConstraints.isEmpty() &&
             loginConfig == null &&
             securityRoles.isEmpty() &&
@@ -139,7 +139,7 @@ abstract class DeploymentDescriptor implements Description {
         mimeMappings.clear();
         welcomeFiles.clear();
         errorPages.clear();
-        jspConfigs.clear();
+        jspConfig = null;
         securityConstraints.clear();
         loginConfig = null;
         securityRoles.clear();
@@ -193,7 +193,11 @@ abstract class DeploymentDescriptor implements Description {
         mimeMappings.addAll(other.mimeMappings);
         welcomeFiles.addAll(other.welcomeFiles);
         errorPages.addAll(other.errorPages);
-        jspConfigs.addAll(other.jspConfigs);
+        if (jspConfig == null) {
+            jspConfig = other.jspConfig;
+        } else if (other.jspConfig != null) {
+            jspConfig.merge(other.jspConfig);
+        }
         securityConstraints.addAll(other.securityConstraints);
         if (loginConfig == null) {
             loginConfig = other.loginConfig; // XXX check
@@ -338,10 +342,6 @@ abstract class DeploymentDescriptor implements Description {
 
     void addErrorPage(ErrorPage errorPage) {
         errorPages.add(errorPage);
-    }
-
-    void addJspConfig(JspConfig jspConfig) {
-        jspConfigs.add(jspConfig);
     }
 
     void addSecurityConstraint(SecurityConstraint securityConstraint) {

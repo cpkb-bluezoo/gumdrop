@@ -283,6 +283,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         DEFAULT_CONTENT_TYPE("default-content-type"),
         BUFFER("buffer"),
         TRIM_DIRECTIVE_WHITESPACES("trim-directive-whitespaces"),
+        // not documented in servlet spec:
+        IS_XML("is-xml"),
+        DEFERRED_SYNTAX_ALLOWED_AS_LITERAL("deferred-syntax-allowed-as-literal"),
+        ERROR_ON_UNDECLARED_NAMESPACE("error-on-undeclared-namespace"),
 
         // web-fragment.xml
         NAME("name"),
@@ -799,8 +803,12 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case SCRIPTING_INVALID:
                     case INCLUDE_PRELUDE:
                     case INCLUDE_CODA:
+                    case DEFAULT_CONTENT_TYPE:
                     case BUFFER:
                     case TRIM_DIRECTIVE_WHITESPACES:
+                    case IS_XML:
+                    case DEFERRED_SYNTAX_ALLOWED_AS_LITERAL:
+                    case ERROR_ON_UNDECLARED_NAMESPACE:
                         pushText();
                 }
                 break;
@@ -1303,7 +1311,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case JSP_CONFIG:
                         JspConfig jspConfig = (JspConfig) popTarget();
-                        ((DeploymentDescriptor) peekTarget()).addJspConfig(jspConfig);
+                        ((DeploymentDescriptor) peekTarget()).jspConfig = jspConfig;
                         break;
                     case SECURITY_CONSTRAINT:
                         SecurityConstraint securityConstraint = (SecurityConstraint) popTarget();
@@ -1652,24 +1660,27 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((JspPropertyGroup) peekTarget()).urlPatterns.add(popText());
                         break;
                     case EL_IGNORED:
-                        ((JspPropertyGroup) peekTarget()).elIgnored = popBoolean();
+                        ((JspPropertyGroup) peekTarget()).elIgnored = Boolean.valueOf(popBoolean());
                         break;
                     case PAGE_ENCODING:
                         ((JspPropertyGroup) peekTarget()).pageEncoding = popText();
                         break;
                     case SCRIPTING_INVALID:
-                        ((JspPropertyGroup) peekTarget()).scriptingInvalid = popBoolean();
+                        ((JspPropertyGroup) peekTarget()).scriptingInvalid = Boolean.valueOf(popBoolean());
                         break;
                     case INCLUDE_PRELUDE:
-                        ((JspPropertyGroup) peekTarget()).includePrelude = popText();
+                        ((JspPropertyGroup) peekTarget()).includePrelude.add(popText());
                         break;
                     case INCLUDE_CODA:
-                        ((JspPropertyGroup) peekTarget()).includeCoda = popText();
+                        ((JspPropertyGroup) peekTarget()).includeCoda.add(popText());
+                        break;
+                    case DEFAULT_CONTENT_TYPE:
+                        ((JspPropertyGroup) peekTarget()).defaultContentType = popText();
                         break;
                     case BUFFER:
                         text = popText();
                         try {
-                            ((JspPropertyGroup) peekTarget()).buffer = Long.parseLong(text);
+                            ((JspPropertyGroup) peekTarget()).buffer = Long.valueOf(text);
                         } catch (NumberFormatException e) {
                             // Log and continue
                             String message = L10N.getString("warn.invalid_number");
@@ -1678,7 +1689,16 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         }
                         break;
                     case TRIM_DIRECTIVE_WHITESPACES:
-                        ((JspPropertyGroup) peekTarget()).trimDirectiveWhitespaces = popBoolean();
+                        ((JspPropertyGroup) peekTarget()).trimDirectiveWhitespaces = Boolean.valueOf(popBoolean());
+                        break;
+                    case IS_XML:
+                        ((JspPropertyGroup) peekTarget()).isXml = Boolean.valueOf(popBoolean());
+                        break;
+                    case DEFERRED_SYNTAX_ALLOWED_AS_LITERAL:
+                        ((JspPropertyGroup) peekTarget()).deferredSyntaxAllowedAsLiteral = Boolean.valueOf(popBoolean());
+                        break;
+                    case ERROR_ON_UNDECLARED_NAMESPACE:
+                        ((JspPropertyGroup) peekTarget()).errorOnUndeclaredNamespace = Boolean.valueOf(popBoolean());
                         break;
                 }
                 break;
