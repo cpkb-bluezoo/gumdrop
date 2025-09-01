@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
+import org.bluezoo.gumdrop.util.Multipart;
 import gnu.inet.http.HTTPDateFormat;
 import gnu.inet.util.BASE64;
 
@@ -43,6 +44,10 @@ import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
 
+import javax.mail.MessagingException;
+import javax.mail.internet.ContentType;
+import javax.mail.internet.InternetHeaders;
+import javax.mail.internet.MimeMultipart;
 import javax.servlet.*;
 import javax.servlet.http.*;
 
@@ -52,6 +57,13 @@ import javax.servlet.http.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class Request implements HttpServletRequest {
+
+    enum InputStreamState {
+        NONE,
+        GET_INPUT_STREAM_CALLED,
+        GET_READER_CALLED,
+        GET_PARTS_CALLED;
+    }
 
     static final DateFormat dateFormat = new HTTPDateFormat();
     private static final byte COLON = 0x3a;
@@ -84,6 +96,8 @@ class Request implements HttpServletRequest {
     ServletPrincipal userPrincipal;
 
     StreamAsyncContext asyncContext;
+    InputStreamState inputStreamState = InputStreamState.NONE;
+    MimeParts parts;
 
     /**
      * Constructor.
@@ -807,12 +821,56 @@ class Request implements HttpServletRequest {
     }
 
     @Override public Collection<Part> getParts() throws IOException, ServletException {
-        // TODO
-        return null;
+        if (parts != null) {
+            return parts;
+        }
+        String contentTypeString = getContentType();
+        if (contentTypeString == null) {
+            throw new ServletException(Context.L10N.getString("err.not_multipart_form_data"));
+        }
+        try {
+            ContentType contentType = new ContentType(contentTypeString);
+            if (!"multipart/form-data".equals(contentType.getBaseType())) {
+                throw new ServletException(Context.L10N.getString("err.not_multipart_form_data"));
+            }
+            ServletDef servletDef = match.servletDef;
+            MultipartConfigDef multipartConfig = servletDef.multipartConfig;
+            if (multipartConfig == null) {
+                throw new IllegalStateException(Context.L10N.getString("err.no_multipart_config"));
+            }
+            switch (inputStreamState) {
+                case NONE:
+                case GET_PARTS_CALLED:
+                    inputStreamState = InputStreamState.GET_PARTS_CALLED;
+                    long contentLength = getContentLength();
+                    if (contentLength > multipartConfig.maxRequestSize) {
+                        throw new IllegalStateException(Context.L10N.getString("err.request_body_exceeds_maximum_size"));
+                    }
+                    // Create InternetHeaders
+                    InternetHeaders ih = new InternetHeaders();
+                    for (Header header : headers) {
+                        ih.addHeader(header.getName(), header.getValue());
+                    }
+                    Multipart multipart = new Multipart(ih, new MultipartConfigContent(multipartConfig, null));
+                    parts = new MimeParts(this, multipart);
+                    return parts;
+                default:
+                    throw new IllegalStateException(Context.L10N.getString("err.input_stream_state"));
+            }
+        } catch (MessagingException e) {
+            IOException e2 = new IOException(Context.L10N.getString("err.body_part_headers"));
+            e2.initCause(e);
+            throw e2;
+        }
     }
 
     @Override public Part getPart(String name) throws IOException, ServletException {
-        // TODO
+        Collection<Part> parts = getParts();
+        for (Part part : parts) {
+            if (part.getName().equals(name)) {
+                return part;
+            }
+        }
         return null;
     }
 
@@ -919,7 +977,14 @@ class Request implements HttpServletRequest {
     }
 
     @Override public ServletInputStream getInputStream() {
-        return in;
+        switch (inputStreamState) {
+            case NONE:
+            case GET_INPUT_STREAM_CALLED:
+                inputStreamState = InputStreamState.GET_INPUT_STREAM_CALLED;
+                return in;
+            default:
+                throw new IllegalStateException(Context.L10N.getString("err.input_stream_state"));
+        }
     }
 
     @Override public String getParameter(String name) {
@@ -1066,15 +1131,22 @@ class Request implements HttpServletRequest {
     }
 
     @Override public BufferedReader getReader() throws IOException {
-        String charset = getCharacterEncoding();
-        if (charset == null) {
-            // See servlet 4.0 section 3.12
-            charset = context.getRequestCharacterEncoding();
-            if (charset == null) {
-                charset = "ISO-8859-1";
-            }
+        switch (inputStreamState) {
+            case NONE:
+            case GET_READER_CALLED:
+                String charset = getCharacterEncoding();
+                if (charset == null) {
+                    // See servlet 4.0 section 3.12
+                    charset = context.getRequestCharacterEncoding();
+                    if (charset == null) {
+                        charset = "ISO-8859-1";
+                    }
+                }
+                inputStreamState = InputStreamState.GET_READER_CALLED;
+                return new BufferedReader(new InputStreamReader(in, charset));
+            default:
+                throw new IllegalStateException(Context.L10N.getString("err.input_stream_state"));
         }
-        return new BufferedReader(new InputStreamReader(in, charset));
     }
 
     @Override public String getRemoteAddr() {

@@ -78,6 +78,7 @@ class ServletStream extends Stream {
      * Request headers
      */
     @Override protected void endHeaders(Collection<Header> headers) {
+        // System.err.println("endHeaders");
         String method = null;
         String requestTarget = null;
         // Extract method and requestTarget, create headers for request
@@ -101,7 +102,6 @@ class ServletStream extends Stream {
             String message = ServletConnector.L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
         }
-        // System.err.println("endHeaders");
     }
 
     /**
