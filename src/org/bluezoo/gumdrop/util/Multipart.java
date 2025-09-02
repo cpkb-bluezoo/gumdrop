@@ -54,10 +54,6 @@ public class Multipart extends Part {
     private List<Part> parts;
 
     public Multipart(InternetHeaders headers, Content content) throws IOException {
-        this(headers, content, true);
-    }
-
-    private Multipart(InternetHeaders headers, Content content, boolean parse) throws IOException {
         super(headers, content);
         parts = new ArrayList<>();
         try {
@@ -95,6 +91,11 @@ public class Multipart extends Part {
                     throw new IOException(message);
                 } 
             }
+            // The first boundary will not be preceded by CRLF if it is at
+            // the start of the content.
+            byte[] firstBoundaryTest = new byte[boundaryTest.length - 2];
+            System.arraycopy(boundaryTest, 2, firstBoundaryTest, 0, firstBoundaryTest.length);
+
             Content partContent = content.create(null); // first will be preamble, if any
             OutputStream out = partContent.getOutputStream(); // sink for writing part content to
             byte[] buf = new byte[Math.max(4096, in.available())];
@@ -102,27 +103,34 @@ public class Multipart extends Part {
             int len = in.read(buf);
             boolean seenFinalBoundary = false;
             InternetHeaders partHeaders = null;
+            boolean first = true;
             while (len != -1) {
                 int advance = 0;
-                switch (testBoundary(buf, boundaryTest)) { // are we at the start of a boundary
+                // we could check as well that the Content-Length matches if
+                // it is specified
+                byte[] test = first ? firstBoundaryTest : boundaryTest;
+                switch (testBoundary(buf, len, test)) { // are we at the start of a boundary
                     case FINAL_BOUNDARY:
                         // end of part and no more parts
                         if (seenFinalBoundary) {
                             throw new IOException(L10N.getString("err.duplicate_final_boundary"));
                         }
                         seenFinalBoundary = true;
-                        advance = 2;
-                        // fall through
+                        out.close();
+                        advance = test.length + 4; // account for 2 extra hyphens
+                        endPart(partHeaders, partContent);
+                        in.reset();
+                        in.skip(advance);
+                        partContent = content.create(null); // can store any trailing gubbins
+                        out = partContent.getOutputStream();
+                        break;
                     case BOUNDARY:
                         // end of part
                         out.close();
-                        advance += boundaryTest.length + 2;
+                        advance += test.length + 2; // advance to after CRLF
+                        endPart(partHeaders, partContent);
+                        in.reset();
                         in.skip(advance);
-                        if (partHeaders == null) { // preamble
-                            preamble = partContent;
-                        } else {
-                            parts.add(new Part(partHeaders, partContent));
-                        }
                         partHeaders = new InternetHeaders(in);
                         String fileName = getFileName(partHeaders);
                         partContent = content.create(fileName);
@@ -130,23 +138,33 @@ public class Multipart extends Part {
                         break;
                     case NONE:
                         int start = indexOf(buf, len, (byte) '\r'); // find the first occurrence of CR
-                        if (start != -1) {
+                        if (start == 0) {
+                            // start of buffer is CR but didn't match
+                            // boundary. So consume the CR and loop
+                            out.write(buf, 0, 1);
+                            in.reset();
+                            in.skip(1);
+                        } else if (start != -1) {
                             // flush part up to CR
                             out.write(buf, 0, start);
                             // reset and reposition stream at CR
                             in.reset();
                             in.skip(start);
                         } else {
-                            // flush buffer to partContent
+                            // flush entire buffer to partContent
                             out.write(buf, 0, len);
                         }
                 }
 
                 in.mark(markLength);
                 len = in.read(buf);
+                first = false;
             }
+            out.close();
             if (!seenFinalBoundary) {
-                throw new IOException(L10N.getString("err.no_final_boundary"));
+                String message = L10N.getString("err.no_final_boundary");
+                message = MessageFormat.format(message, boundary);
+                throw new IOException(message);
             }
         } catch (MessagingException e) {
             IOException e2 = new IOException(L10N.getString("err.read_headers"));
@@ -155,17 +173,50 @@ public class Multipart extends Part {
         }
     }
 
+    private void endPart(InternetHeaders partHeaders, Content partContent) throws MessagingException, IOException {
+        //System.err.println("endPart headers="+toString(partHeaders));
+        if (partHeaders == null) { // preamble
+            preamble = partContent;
+        } else {
+            Part part;
+            String contentType = getHeader(partHeaders, "Content-Type");
+            if (contentType != null && contentType.startsWith("multipart/")) {
+                part = new Multipart(partHeaders, partContent);
+            } else {
+                part = new Part(partHeaders, partContent);
+            }
+            //System.err.println("created part: "+contentType+" filename="+getFileName(partHeaders));
+            parts.add(part);
+        }
+    }
+
+    /*private String toString(InternetHeaders headers) {
+        if (headers == null) { return "null"; }
+        StringBuilder buf = new StringBuilder("{");
+        for (java.util.Enumeration i = headers.getAllHeaders(); i.hasMoreElements(); ) {
+            javax.mail.Header h = (javax.mail.Header) i.nextElement();
+            buf.append(h.getName()).append("=").append(h.getValue()).append(" ");
+        }
+        buf.append("}");
+        return buf.toString();
+    }*/
+
+    private String getHeader(InternetHeaders headers, String name) throws MessagingException {
+        String[] vals = headers.getHeader(name);
+        return (vals != null && vals.length > 0) ? vals[0] : null;
+    }
+
     private String getFileName(InternetHeaders headers) throws MessagingException {
         String fileName = null;
-        String[] disposition = headers.getHeader("Content-Disposition");
-        if (disposition != null && disposition.length > 0) {
-            ContentDisposition cd = new ContentDisposition(disposition[0]);
+        String disposition = getHeader(headers, "Content-Disposition");
+        if (disposition != null) {
+            ContentDisposition cd = new ContentDisposition(disposition);
             fileName = cd.getParameter("filename");
         }
         if (fileName == null) {
-            String[] contentType = headers.getHeader("Content-Type");
-            if (contentType != null && contentType.length > 0) {
-                ContentType ct = new ContentType(contentType[0]);
+            String contentType = getHeader(headers, "Content-Type");
+            if (contentType != null) {
+                ContentType ct = new ContentType(contentType);
                 fileName = ct.getParameter("name");
             }
         }
@@ -181,7 +232,10 @@ public class Multipart extends Part {
         return -1;
     }
 
-    private static BoundaryTest testBoundary(byte[] buf, byte[] test) {
+    private static BoundaryTest testBoundary(byte[] buf, int len, byte[] test) {
+        if (len < test.length) {
+            return BoundaryTest.NONE;
+        }
         int i = 0;
         for (; i < test.length; i++) {
             if (buf[i] != test[i]) {
@@ -190,7 +244,8 @@ public class Multipart extends Part {
         }
         if (buf[i] == '\r' && buf[i + 1] == '\n') {
             return BoundaryTest.BOUNDARY;
-        } else if (buf[i] == '-' && buf[i + 1] == '-' && buf[i + 2] == '\r' && buf[i + 3] == '\n') {
+        } else if (buf[i] == '-' && buf[i + 1] == '-' &&
+            ((i + 2 == len) || (len > i + 3 && buf[i + 2] == '\r' && buf[i + 3] == '\n'))) {
             return BoundaryTest.FINAL_BOUNDARY;
         } else {
             return BoundaryTest.NONE;

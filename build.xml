@@ -143,8 +143,14 @@
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
         <pathelement location='${build}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
       </classpath>
     </javac>
+    <copy todir='${test}/junit/classes'>
+      <fileset dir='${test}/junit/src'>
+        <include name='**/*.eml'/>
+      </fileset>
+    </copy>
   </target>
 
   <target name='junit-test' depends='junit-build'>
@@ -156,6 +162,7 @@
         <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
         <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
         <pathelement location='${build}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
       </classpath>
       <batchtest fork="yes" todir="${test}/junit/results">
         <fileset dir="${test}/junit/src">
