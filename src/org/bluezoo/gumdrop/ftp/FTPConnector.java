@@ -70,7 +70,7 @@ public class FTPConnector extends Connector {
 
     public Connection newConnection(SocketChannel sc, SSLEngine engine) {
         // System.err.println("New connection from "+sc.socket().getInetAddress().getHostName());
-        return new FTPConnection(sc, engine);
+        return new FTPConnection(sc, engine, isSecure());
     }
 
 }

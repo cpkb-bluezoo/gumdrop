@@ -4,7 +4,55 @@ Multipurpose asynchronous Java server and servlet container
 ![gumdrop logo](https://www.nongnu.org/gumdrop/gumdrop.png "gumdrop logo")
 
 This is gumdrop, a multipurpose Java server using asynchronous, event-driven
-I/O. It supports HTTP and HTTPS. HTTP/2 support and FTP are under development.
+I/O. It supports:
+- a generic, extensible server framework that can transparently handle TLS
+  connections from clients
+    - keystore/truststore configuration
+    - client certificates
+    - SSL protocols (TLS 1.2, 1.3)
+    - cipher suite selection
+    - thread pool configuration
+    - internationalization and localization facilities
+    - centralized and secure realm interface for authentication and
+      authorization
+    - connection filtering
+- HTTP
+    - versions 1.0 and 1.1
+        - Chunked encoding
+    - HTTP/2
+        - all HTTP/2 frame types
+        - HPACK compression
+    - HTTPS with client certificate authentication, custom SSL parameters
+      and cipher suites
+    - HTTP Digest Authentication
+    - simple file-based HTTP server
+    - complete, conformant Java servlet container
+        - servlet 4.0 implementation
+        - hot deployment
+        - filter chains
+        - session management and clustering/replication facilities
+        - complete multipart/form-data handling
+        - annotation-driven configuration and web fragments
+        - programmatic registration of web descriptors
+        - asynchronous processing
+        - enterprise DataSource and MailSession handling
+        - secure classloader separation
+        - enterprise JNDI integration
+- FTP, under development
+- SMTP
+    - SMTPS
+    - STARTTLS support
+    - SMTP AUTH with LOGIN and PLAIN authentication
+    - 8-bit clean message transport
+    - memory efficient processing of large messages
+    - attack prevention features
+    - persistent connections
+    - transaction reset
+    - connection filtering policy settings for MTA mode or message submission
+        - rate limiting
+        - network block lists
+        - max connections per IP
+        - require authentication
 
 This software is dual-licensed. See the LICENSING.md file for complete details.
 
@@ -96,7 +144,8 @@ See `LICENCE-GPL3` for full terms.
 Available for proprietary and commercial use without GPL obligations.
 Contact Chris Burdess <dog@gnu.org> for commercial licensing.
 
-**Special Note**: Mimecast Services Limited has been granted commercial usage rights under a separate license agreement.
+**Special Note**: Mimecast Services Limited has been granted commercial
+usage rights under a separate license agreement.
 
 For complete licensing information, see [LICENSING.md](LICENSING.md).
 

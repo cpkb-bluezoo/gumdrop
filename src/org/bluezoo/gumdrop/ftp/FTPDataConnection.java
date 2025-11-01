@@ -38,8 +38,8 @@ import javax.net.ssl.SSLEngine;
  */
 public class FTPDataConnection extends Connection {
 
-    protected FTPDataConnection(SocketChannel channel, SSLEngine engine) {
-        super(engine, engine != null);
+    protected FTPDataConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
+        super(engine, secure);
         // TODO
     }
 

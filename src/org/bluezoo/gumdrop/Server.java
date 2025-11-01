@@ -259,19 +259,51 @@ public class Server extends Thread {
     private void processKey(SelectionKey key) throws IOException {
         int readyOps = key.readyOps();
         if ((readyOps & SelectionKey.OP_ACCEPT) != 0) {
-            // accept
+            // accept - batch process if multiple connections pending
             ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
             Connector connector = (Connector) key.attachment();
-            SocketChannel sc = ssc.accept();
-            sc.configureBlocking(false);
-            SelectionKey skey = sc.register(selector, SelectionKey.OP_READ);
-            Connection connection = connector.newConnection(sc, skey);
-            skey.attach(connection);
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                Object sa = sc.socket().getRemoteSocketAddress();
-                String message = L10N.getString("info.accepted");
-                message = MessageFormat.format(message, sa.toString());
-                LOGGER.finest(message);
+            
+            // Process all pending connections to avoid selector thrashing
+            SocketChannel sc;
+            while ((sc = ssc.accept()) != null) {
+                try {
+                    // Check if connector accepts this connection
+                    InetSocketAddress remoteAddress = (InetSocketAddress) sc.getRemoteAddress();
+                    if (!connector.acceptConnection(remoteAddress)) {
+                        // Connection rejected - close immediately and continue
+                        if (LOGGER.isLoggable(Level.FINE)) {
+                            String message = L10N.getString("info.connection_rejected");
+                            if (message == null) {
+                                message = "Connection rejected from {0}";
+                            }
+                            message = MessageFormat.format(message, remoteAddress.toString());
+                            LOGGER.fine(message);
+                        }
+                        sc.close();
+                        continue; // Process next connection
+                    }
+                    
+                    // Connection accepted - proceed with normal flow
+                    sc.configureBlocking(false);
+                    SelectionKey skey = sc.register(selector, SelectionKey.OP_READ);
+                    Connection connection = connector.newConnection(sc, skey);
+                    skey.attach(connection);
+                    if (LOGGER.isLoggable(Level.FINEST)) {
+                        String message = L10N.getString("info.accepted");
+                        message = MessageFormat.format(message, remoteAddress.toString());
+                        LOGGER.finest(message);
+                    }
+                } catch (IOException e) {
+                    // Error with this connection - close and continue with others
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.log(Level.WARNING, "Error processing accepted connection", e);
+                    }
+                    try {
+                        sc.close();
+                    } catch (IOException closeEx) {
+                        // Ignore close errors
+                    }
+                }
             }
         }
         if ((readyOps & SelectionKey.OP_CONNECT) != 0) {

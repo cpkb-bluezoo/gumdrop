@@ -120,12 +120,43 @@ public abstract class Connection {
     protected final void init() throws IOException {
         Socket socket = channel.socket();
         socket.setTcpNoDelay(true);
-        if (engine == null) {
+        if (engine == null || !secure) {
+            // For plaintext connections or no SSL engine available
             bufferSize = Math.max(4096, socket.getReceiveBufferSize());
-        } else {
+        }
+        // Only initialize SSL state if connection starts secure
+        if (engine != null && secure) {
             SSLSession session = engine.getSession();
             sslState = this.new SSLState(session);
         }
+    }
+
+    /**
+     * Initializes SSL state for STARTTLS upgrade.
+     * This method should be called when upgrading a plaintext connection to TLS.
+     * The connection must have been created with an SSLEngine but secure=false.
+     * @throws IOException if SSL initialization fails
+     */
+    protected final void initializeSSLState() throws IOException {
+        if (engine == null) {
+            throw new IOException("Cannot initialize SSL state: no SSL engine available");
+        }
+        if (sslState != null) {
+            throw new IOException("SSL state already initialized");
+        }
+        if (secure) {
+            throw new IOException("Connection is already secure");
+        }
+        
+        // Set secure flag to enable SSL processing
+        secure = true;
+        
+        // Initialize SSL state with the existing engine
+        SSLSession session = engine.getSession();
+        sslState = this.new SSLState(session);
+        
+        // Update buffer size for SSL operations
+        bufferSize = Math.max(4096, channel.socket().getReceiveBufferSize());
     }
 
     // Will be invoked in server main selector loop thread

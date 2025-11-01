@@ -67,7 +67,7 @@ class FTPDataConnector extends Connector {
     }
 
     public Connection newConnection(SocketChannel sc, SSLEngine engine) {
-        return new FTPDataConnection(sc, engine);
+        return new FTPDataConnection(sc, engine, isSecure());
     }
 
 }

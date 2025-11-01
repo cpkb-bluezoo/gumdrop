@@ -91,8 +91,8 @@ public class FTPConnection extends Connection {
 
     }
 
-    protected FTPConnection(SocketChannel channel, SSLEngine engine) {
-        super(engine, engine != null);
+    protected FTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
+        super(engine, secure);
         this.channel = channel;
         commands = new HashMap<>();
         commands.put("USER", this::doUser);

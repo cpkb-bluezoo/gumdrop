@@ -98,6 +98,8 @@ public abstract class Connector {
 
     final Connection newConnection(SocketChannel sc, SelectionKey key) throws IOException {
         SSLEngine engine = null;
+        // Always create SSLEngine if SSL context is available (regardless of secure flag)
+        // This enables STARTTLS capability even on secure=false connectors
         if (context != null) {
             InetSocketAddress peerAddress = (InetSocketAddress) sc.getRemoteAddress();
             String peerHost = peerAddress.getHostName();
@@ -205,6 +207,21 @@ public abstract class Connector {
         needClientAuth = flag;
     }
 
+    /**
+     * Determines whether to accept a connection from the specified remote address.
+     * This method is called for each incoming connection before resources are allocated.
+     * Implementations can use this to implement IP filtering, rate limiting, or other
+     * connection policies.
+     * 
+     * @param remoteAddress the remote socket address attempting to connect
+     * @return true to accept the connection, false to reject it
+     */
+    public boolean acceptConnection(InetSocketAddress remoteAddress) {
+        // Default implementation accepts all connections
+        // Subclasses can override for specific filtering policies
+        return true;
+    }
+
     public void setCorePoolSize(int corePoolSize) {
         connectorThreadPool.setCorePoolSize(corePoolSize);
     }
@@ -275,11 +292,14 @@ public abstract class Connector {
      * Starts this connector.
      */
     protected void start() {
-        if (secure || keystoreFile != null || keystorePass != null) {
-            if (keystoreFile == null || keystorePass == null) {
-                String message = Server.L10N.getString("err.no_keystore");
-                throw new RuntimeException(message);
-            }
+        // Validation: secure=true REQUIRES SSL configuration
+        if (secure && (keystoreFile == null || keystorePass == null)) {
+            String message = Server.L10N.getString("err.no_keystore");
+            throw new RuntimeException("Secure connector requires keystore configuration: " + message);
+        }
+        
+        // Create SSL context if SSL configuration is provided (for secure=true or STARTTLS capability)
+        if (keystoreFile != null && keystorePass != null) {
             try {
                 KeyStore ks = KeyStore.getInstance(keystoreFormat);
                 InputStream in = new FileInputStream(keystoreFile);

@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.util.LineInput;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.SocketChannel;
@@ -89,6 +90,7 @@ public class SMTPConnection extends Connection {
         LOGIN_PASSWORD  // LOGIN: waiting for password
     }
 
+
     @FunctionalInterface
     interface IOConsumer<T> {
         void accept(T t) throws IOException;
@@ -97,6 +99,8 @@ public class SMTPConnection extends Connection {
     private final SocketChannel channel;
     private final Map<String, IOConsumer<String>> commands;
     private final SMTPConnector connector;
+    private final SMTPConnectionHandler handler;
+    private final long connectionTimeMillis;
 
     // SMTP session state
     private SMTPState state = SMTPState.INITIAL;
@@ -151,16 +155,62 @@ public class SMTPConnection extends Connection {
     }
 
     /**
+     * Creates connection metadata for handler notifications.
+     * @return current connection metadata
+     */
+    private SMTPConnectionMetadata createMetadata() {
+        try {
+            InetSocketAddress clientAddr = (InetSocketAddress) channel.getRemoteAddress();
+            InetSocketAddress serverAddr = (InetSocketAddress) channel.getLocalAddress();
+            
+            // SSL/TLS information - simplified since we can't access sslState directly
+            String cipherSuite = null;
+            String protocolVersion = null;
+            java.security.cert.X509Certificate[] clientCerts = null;
+            
+            // Note: SSL session details would need to be exposed by Connection class
+            // For now, we can only provide the secure status
+            
+            return new SMTPConnectionMetadata(
+                clientAddr,
+                serverAddr,
+                isSecure(),
+                clientCerts,
+                cipherSuite,
+                protocolVersion,
+                authenticated,
+                authenticatedUser,
+                authMechanism,
+                heloName,
+                extendedSMTP,
+                connectionTimeMillis,
+                connector.getDescription()
+            );
+        } catch (IOException e) {
+            // Fallback if we can't get addresses
+            return new SMTPConnectionMetadata(
+                null, null, isSecure(), null, null, null,
+                authenticated, authenticatedUser, authMechanism,
+                heloName, extendedSMTP, connectionTimeMillis,
+                connector.getDescription()
+            );
+        }
+    }
+
+    /**
      * Creates a new SMTP connection.
      * @param connector the SMTP connector that created this connection
      * @param channel the socket channel for this connection
      * @param engine the SSL engine if this is a secure connection, null for plaintext
      * @param secure true if this connection should use TLS encryption
+     * @param handler the application handler for SMTP events
      */
-    protected SMTPConnection(SMTPConnector connector, SocketChannel channel, SSLEngine engine, boolean secure) {
+    protected SMTPConnection(SMTPConnector connector, SocketChannel channel, SSLEngine engine, boolean secure, SMTPConnectionHandler handler) {
         super(engine, secure);
         this.connector = connector;
         this.channel = channel;
+        this.handler = handler;
+        this.connectionTimeMillis = System.currentTimeMillis();
         this.in = ByteBuffer.allocate(4096);
         this.lineReader = new LineReader();
         this.recipients = new ArrayList<>();
@@ -182,8 +232,8 @@ public class SMTPConnection extends Connection {
         commands.put("HELP", this::help);
         commands.put("VRFY", this::vrfy);
         commands.put("EXPN", this::expn);
-        // STARTTLS is only available on plaintext connections that can be upgraded
-        if (!secure && engine == null) {
+        // STARTTLS is only available on plaintext connections that have an SSLEngine available
+        if (!secure && engine != null) {
             commands.put("STARTTLS", this::starttls);
         }
         commands.put("AUTH", this::auth);
@@ -427,21 +477,22 @@ public class SMTPConnection extends Connection {
     }
 
     /**
-     * Processes a complete RFC822 message received during DATA command.
-     * @param messageBuffer the complete message content as bytes
+     * Processes RFC822 message content received during DATA command.
+     * Delegates to the connection handler for actual message processing.
+     * @param messageBuffer the message content as bytes
      */
     private void messageContent(ByteBuffer messageBuffer) {
-        // TODO: Implement message processing
-        // This should involve:
-        // 1. Parsing message headers and body from RFC822 format
-        // 2. Virus/spam checking
-        // 3. Storing the message
-        // 4. Forwarding to recipients
-        
-        if (LOGGER.isLoggable(Level.INFO)) {
-            int messageSize = messageBuffer.position(); // Amount of data in buffer
-            LOGGER.info("Received message from " + mailFrom + " to " + recipients + 
-                       " (" + messageSize + " bytes)");
+        if (handler != null) {
+            // Create a read-only view to prevent handler from modifying buffer
+            ByteBuffer readOnlyBuffer = messageBuffer.asReadOnlyBuffer();
+            handler.messageContent(readOnlyBuffer, createMetadata());
+        } else {
+            // Fallback logging if no handler
+            if (LOGGER.isLoggable(Level.INFO)) {
+                int messageSize = messageBuffer.remaining();
+                LOGGER.info("Received message from " + mailFrom + " to " + recipients + 
+                           " (" + messageSize + " bytes) - no handler configured");
+            }
         }
     }
 
@@ -660,8 +711,11 @@ public class SMTPConnection extends Connection {
             reply(250, "STARTTLS");
         }
         
-        // Authentication capability (placeholder for future implementation)
-        if (isSecure() || connector.isSTARTTLSAvailable()) {
+        // Authentication capability
+        // Advertise AUTH if we have a realm configured and either:
+        // - Connection is already secure, OR
+        // - STARTTLS is available for securing the connection
+        if (connector.getRealm() != null && (isSecure() || connector.isSTARTTLSAvailable())) {
             reply(250, "AUTH PLAIN LOGIN"); // Can add CRAM-MD5, DIGEST-MD5 later
         }
         
@@ -679,6 +733,12 @@ public class SMTPConnection extends Connection {
             return;
         }
 
+        // Check authentication requirement (typically for MSA on port 587)
+        if (connector.isAuthRequired() && !authenticated) {
+            reply(530, "5.7.0 Authentication required");
+            return;
+        }
+
         if (args == null || !args.toUpperCase().startsWith("FROM:")) {
             reply(501, "5.0.0 Syntax: MAIL FROM:<address>");
             return;
@@ -688,6 +748,50 @@ public class SMTPConnection extends Connection {
         String fromAddr = args.substring(5).trim();
         if (fromAddr.startsWith("<") && fromAddr.endsWith(">")) {
             fromAddr = fromAddr.substring(1, fromAddr.length() - 1);
+        }
+
+        // For authenticated sessions, verify sender authorization
+        if (authenticated && !isAuthorizedSender(fromAddr, authenticatedUser)) {
+            reply(550, "5.7.1 Not authorized to send from this address");
+            return;
+        }
+
+        // Apply sender policy checks with appropriate response codes
+        SenderPolicyResult policyResult = evaluateSenderPolicy(fromAddr);
+        if (policyResult != SenderPolicyResult.ACCEPT) {
+            // Different rejection codes based on policy decision
+            switch (policyResult) {
+                case TEMP_REJECT_GREYLIST:
+                    reply(450, "4.7.1 Greylisting in effect, please try again later");
+                    return;
+                case TEMP_REJECT_RATE_LIMIT:
+                    reply(450, "4.7.1 Rate limit exceeded, please try again later");
+                    return;
+                case REJECT_BLOCKED_DOMAIN:
+                    reply(550, "5.1.1 Sender domain blocked by policy");
+                    return;
+                case REJECT_INVALID_DOMAIN:
+                    reply(550, "5.1.1 Sender domain does not exist");
+                    return;
+                case REJECT_POLICY_VIOLATION:
+                    reply(553, "5.7.1 Sender address violates local policy");
+                    return;
+                case REJECT_SPAM_REPUTATION:
+                    reply(554, "5.7.1 Sender has poor reputation");
+                    return;
+                case REJECT_SYNTAX_ERROR:
+                    reply(501, "5.1.3 Invalid sender address format");
+                    return;
+                case REJECT_RELAY_DENIED:
+                    reply(551, "5.7.1 Relaying denied");
+                    return;
+                case REJECT_STORAGE_FULL:
+                    reply(452, "4.3.1 Insufficient system storage");
+                    return;
+                default:
+                    reply(550, "5.0.0 Sender address rejected");
+                    return;
+            }
         }
 
         this.mailFrom = fromAddr;
@@ -704,6 +808,12 @@ public class SMTPConnection extends Connection {
     private void rcpt(String args) throws IOException {
         if (state != SMTPState.MAIL && state != SMTPState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
+            return;
+        }
+
+        // Check authentication requirement (typically for MSA on port 587)
+        if (connector.isAuthRequired() && !authenticated) {
+            reply(530, "5.7.0 Authentication required");
             return;
         }
 
@@ -730,10 +840,59 @@ public class SMTPConnection extends Connection {
             return;
         }
 
+        // Evaluate recipient policy with appropriate response codes
+        RecipientPolicyResult recipientResult = evaluateRecipientPolicy(toAddr);
+        if (recipientResult != RecipientPolicyResult.ACCEPT && recipientResult != RecipientPolicyResult.ACCEPT_FORWARD) {
+            // Different rejection codes based on recipient policy decision
+            switch (recipientResult) {
+                case TEMP_REJECT_UNAVAILABLE:
+                    reply(450, "4.2.1 Mailbox temporarily unavailable");
+                    return;
+                case TEMP_REJECT_SYSTEM_ERROR:
+                    reply(451, "4.3.0 Local error in processing");
+                    return;
+                case TEMP_REJECT_STORAGE_FULL:
+                    reply(452, "4.3.1 Insufficient system storage");
+                    return;
+                case REJECT_MAILBOX_UNAVAILABLE:
+                    reply(550, "5.1.1 Mailbox unavailable");
+                    return;
+                case REJECT_USER_NOT_LOCAL:
+                    reply(551, "5.1.1 User not local; please try <forward-path>");
+                    return;
+                case REJECT_QUOTA_EXCEEDED:
+                    reply(552, "5.2.2 Mailbox full, quota exceeded");
+                    return;
+                case REJECT_INVALID_MAILBOX:
+                    reply(553, "5.1.3 Mailbox name not allowed");
+                    return;
+                case REJECT_TRANSACTION_FAILED:
+                    reply(554, "5.0.0 Transaction failed");
+                    return;
+                case REJECT_SYNTAX_ERROR:
+                    reply(501, "5.1.3 Invalid recipient address format");
+                    return;
+                case REJECT_RELAY_DENIED:
+                    reply(551, "5.7.1 Relaying denied");
+                    return;
+                case REJECT_POLICY_VIOLATION:
+                    reply(553, "5.7.1 Recipient violates local policy");
+                    return;
+                default:
+                    reply(550, "5.1.1 Recipient address rejected");
+                    return;
+            }
+        }
+
         this.recipients.add(toAddr);
         this.state = SMTPState.RCPT;
         
-        reply(250, "2.1.5 " + toAddr + "... Recipient ok");
+        // Handle different acceptance responses
+        if (recipientResult == RecipientPolicyResult.ACCEPT_FORWARD) {
+            reply(251, "2.1.5 User not local; will forward to " + toAddr);
+        } else {
+            reply(250, "2.1.5 " + toAddr + "... Recipient ok");
+        }
     }
 
     /**
@@ -743,6 +902,12 @@ public class SMTPConnection extends Connection {
     private void data(String args) throws IOException {
         if (state != SMTPState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
+            return;
+        }
+
+        // Check authentication requirement (typically for MSA on port 587)
+        if (connector.isAuthRequired() && !authenticated) {
+            reply(530, "5.7.0 Authentication required");
             return;
         }
 
@@ -768,6 +933,11 @@ public class SMTPConnection extends Connection {
         this.recipients.clear();
         resetDataState();
         this.state = SMTPState.READY;
+        
+        // Notify handler of reset
+        if (handler != null) {
+            handler.reset(createMetadata());
+        }
         
         reply(250, "2.0.0 Reset state");
     }
@@ -841,340 +1011,632 @@ public class SMTPConnection extends Connection {
             return;
         }
         
-        try {
-            // Send success response - after this, client expects TLS handshake
-            reply(220, "2.0.0 Ready to start TLS");
-            
-            // Create SSL engine for this connection
-            SSLEngine newEngine = connector.createSSLEngine(channel);
-            if (newEngine == null) {
-                throw new IOException("Failed to create SSL engine");
-            }
-            
-            // Initialize SSL state for this connection
-            // Note: This is a workaround since Connection.engine is final
-            // We need to manually create and initialize the SSL state
-            initializeSSLState(newEngine);
-            
-            // Reset SMTP state after TLS upgrade
-            state = SMTPState.INITIAL;
-            heloName = null;
-            extendedSMTP = false;
-            
-            // Remove STARTTLS command - no longer valid after upgrade
-            commands.remove("STARTTLS");
-            
-            if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info("STARTTLS upgrade initiated for " + getRemoteSocketAddress());
-            }
-            
-        } catch (Exception e) {
-            reply(454, "4.3.0 TLS not available due to temporary reason");
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "STARTTLS failed", e);
-            }
-        }
-    }
-    
-    /**
-     * Initialize SSL state for STARTTLS upgrade.
-     * This is a workaround for the Connection class having a final SSLEngine field.
-     * @param sslEngine the SSL engine to use for the upgraded connection
-     */
-    private void initializeSSLState(SSLEngine sslEngine) throws IOException {
-        // TODO: This needs to properly initialize the SSL state
-        // The challenge is that Connection.engine is final and Connection.sslState is private
-        // We may need to modify the Connection class or use reflection
-        
-        // For now, set the secure flag to indicate TLS is active
-        secure = true;
-        
-        // The actual SSL handshake and state initialization would happen here
-        // This might require modifications to the Connection base class to support
-        // dynamic SSL upgrade, or using reflection to access private fields
-        
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("SSL state initialized for STARTTLS upgrade");
-        }
-    }
+		try {
+			// Send success response - after this, client expects TLS handshake
+			reply(220, "2.0.0 Ready to start TLS");
 
-    /**
-     * AUTH command - SMTP authentication.
-     * Supports PLAIN and LOGIN mechanisms using the configured Realm.
-     * @param args authentication mechanism and optional initial response
-     */
-    private void auth(String args) throws IOException {
-        // Check if realm is configured
-        if (connector.getRealm() == null) {
-            reply(502, "5.5.1 Authentication not available");
-            return;
-        }
+			// Initialize SSL state using the existing engine
+			initializeSSLState();
 
-        // AUTH only allowed after EHLO
-        if (!extendedSMTP) {
-            reply(503, "5.0.0 AUTH requires EHLO");
-            return;
-        }
+			// Reset SMTP state after TLS upgrade
+			state = SMTPState.INITIAL;
+			heloName = null;
+			extendedSMTP = false;
 
-        // Can't authenticate when already authenticated
-        if (authenticated) {
-            reply(503, "5.0.0 Already authenticated");
-            return;
-        }
+			// Remove STARTTLS command - no longer valid after upgrade
+			commands.remove("STARTTLS");
 
-        // AUTH requires secure connection or STARTTLS
-        if (!isSecure() && !connector.isSTARTTLSAvailable()) {
-            reply(538, "5.7.11 Encryption required for requested authentication mechanism");
-            return;
-        }
+			if (LOGGER.isLoggable(Level.INFO)) {
+				LOGGER.info("STARTTLS upgrade initiated for " + getRemoteSocketAddress());
+			}
 
-        if (args == null || args.trim().isEmpty()) {
-            reply(501, "5.0.0 Syntax: AUTH mechanism [initial-response]");
-            return;
-        }
+		} catch (Exception e) {
+			reply(454, "4.3.0 TLS not available due to temporary reason");
+			if (LOGGER.isLoggable(Level.WARNING)) {
+				LOGGER.log(Level.WARNING, "STARTTLS failed", e);
+			}
+		}
+	}
 
-        String[] parts = args.trim().split("\\s+", 2);
-        String mechanism = parts[0].toUpperCase();
-        String initialResponse = (parts.length > 1) ? parts[1] : null;
 
-        switch (mechanism) {
-            case "PLAIN":
-                handleAuthPlain(initialResponse);
-                break;
-            case "LOGIN":
-                handleAuthLogin(initialResponse);
-                break;
-            default:
-                reply(504, "5.5.4 Authentication mechanism not supported");
-        }
-    }
+	/**
+	 * AUTH command - SMTP authentication.
+	 * Supports PLAIN and LOGIN mechanisms using the configured Realm.
+	 * @param args authentication mechanism and optional initial response
+	 */
+	private void auth(String args) throws IOException {
+		// Check if realm is configured
+		if (connector.getRealm() == null) {
+			reply(502, "5.5.1 Authentication not available");
+			return;
+		}
 
-    /**
-     * Handles AUTH PLAIN mechanism.
-     * Format: base64(authzid\0username\0password)
-     * @param initialResponse optional base64-encoded credentials
-     */
-    private void handleAuthPlain(String initialResponse) throws IOException {
-        try {
-            String credentials;
-            if (initialResponse != null && !initialResponse.equals("=")) {
-                // Initial response provided
-                credentials = initialResponse;
-            } else {
-                // Request credentials
-                reply(334, ""); // Empty challenge for PLAIN
-                authState = AuthState.PLAIN_RESPONSE;
-                authMechanism = "PLAIN";
-                return;
-            }
+		// AUTH only allowed after EHLO
+		if (!extendedSMTP) {
+			reply(503, "5.0.0 AUTH requires EHLO");
+			return;
+		}
 
-            // Decode base64 credentials
-            byte[] decoded = Base64.getDecoder().decode(credentials);
-            String authString = new String(decoded, US_ASCII);
+		// Can't authenticate when already authenticated
+		if (authenticated) {
+			reply(503, "5.0.0 Already authenticated");
+			return;
+		}
 
-            // Parse authzid\0username\0password
-            String[] parts = authString.split("\0", -1);
-            if (parts.length != 3) {
-                reply(535, "5.7.8 Authentication credentials invalid");
-                resetAuthState();
-                return;
-            }
+		// AUTH requires secure connection or STARTTLS
+		if (!isSecure() && !connector.isSTARTTLSAvailable()) {
+			reply(538, "5.7.11 Encryption required for requested authentication mechanism");
+			return;
+		}
 
-            String authzid = parts[0]; // Authorization identity (can be empty)
-            String username = parts[1];
-            String password = parts[2];
+		if (args == null || args.trim().isEmpty()) {
+			reply(501, "5.0.0 Syntax: AUTH mechanism [initial-response]");
+			return;
+		}
 
-            if (username.isEmpty() || password.isEmpty()) {
-                reply(535, "5.7.8 Authentication credentials invalid");
-                resetAuthState();
-                return;
-            }
+		String[] parts = args.trim().split("\\s+", 2);
+		String mechanism = parts[0].toUpperCase();
+		String initialResponse = (parts.length > 1) ? parts[1] : null;
 
-            // Authenticate against realm
-            if (authenticateUser(username, password)) {
-                authenticated = true;
-                authenticatedUser = username;
-                reply(235, "2.7.0 Authentication successful");
-                if (LOGGER.isLoggable(Level.INFO)) {
-                    LOGGER.info("SMTP AUTH PLAIN successful for user: " + username);
-                }
-            } else {
-                reply(535, "5.7.8 Authentication credentials invalid");
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("SMTP AUTH PLAIN failed for user: " + username);
-                }
-            }
-            resetAuthState();
+		switch (mechanism) {
+			case "PLAIN":
+				handleAuthPlain(initialResponse);
+				break;
+			case "LOGIN":
+				handleAuthLogin(initialResponse);
+				break;
+			default:
+				reply(504, "5.5.4 Authentication mechanism not supported");
+		}
+	}
 
-        } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH PLAIN error", e);
-            }
-        }
-    }
+	/**
+	 * Handles AUTH PLAIN mechanism.
+	 * Format: base64(authzid\0username\0password)
+	 * @param initialResponse optional base64-encoded credentials
+	 */
+	private void handleAuthPlain(String initialResponse) throws IOException {
+		try {
+			String credentials;
+			if (initialResponse != null && !initialResponse.equals("=")) {
+				// Initial response provided
+				credentials = initialResponse;
+			} else {
+				// Request credentials
+				reply(334, ""); // Empty challenge for PLAIN
+				authState = AuthState.PLAIN_RESPONSE;
+				authMechanism = "PLAIN";
+				return;
+			}
 
-    /**
-     * Handles AUTH LOGIN mechanism.
-     * Interactive: server challenges for username, then password.
-     * @param initialResponse optional base64-encoded username
-     */
-    private void handleAuthLogin(String initialResponse) throws IOException {
-        try {
-            if (initialResponse != null && !initialResponse.equals("=")) {
-                // Initial response is username
-                byte[] decoded = Base64.getDecoder().decode(initialResponse);
-                String username = new String(decoded, US_ASCII);
-                
-                if (username.isEmpty()) {
-                    reply(535, "5.7.8 Authentication credentials invalid");
-                    resetAuthState();
-                    return;
-                }
+			// Decode base64 credentials
+			byte[] decoded = Base64.getDecoder().decode(credentials);
+			String authString = new String(decoded, US_ASCII);
 
-                pendingAuthUsername = username;
-                authState = AuthState.LOGIN_PASSWORD;
-                authMechanism = "LOGIN";
-                
-                // Challenge for password
-                String passwordPrompt = Base64.getEncoder().encodeToString("Password:".getBytes(US_ASCII));
-                reply(334, passwordPrompt);
-            } else {
-                // Start LOGIN sequence - challenge for username
-                authState = AuthState.LOGIN_USERNAME;
-                authMechanism = "LOGIN";
-                
-                String usernamePrompt = Base64.getEncoder().encodeToString("Username:".getBytes(US_ASCII));
-                reply(334, usernamePrompt);
-            }
+			// Parse authzid\0username\0password
+			String[] parts = authString.split("\0", -1);
+			if (parts.length != 3) {
+				reply(535, "5.7.8 Authentication credentials invalid");
+				resetAuthState();
+				return;
+			}
 
-        } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH LOGIN error", e);
-            }
-        }
-    }
+			String authzid = parts[0]; // Authorization identity (can be empty)
+			String username = parts[1];
+			String password = parts[2];
 
-    /**
-     * Handles authentication data during AUTH LOGIN sequence.
-     * @param data the base64-encoded authentication data
-     */
-    private void handleAuthData(String data) throws IOException {
-        try {
-            switch (authState) {
-                case PLAIN_RESPONSE:
-                    // Handle PLAIN credentials that were requested with empty challenge
-                    handleAuthPlain(data);
-                    break;
+			if (username.isEmpty() || password.isEmpty()) {
+				reply(535, "5.7.8 Authentication credentials invalid");
+				resetAuthState();
+				return;
+			}
 
-                case LOGIN_USERNAME:
-                    // Decode username
-                    byte[] decoded = Base64.getDecoder().decode(data);
-                    String username = new String(decoded, US_ASCII);
-                    
-                    if (username.isEmpty()) {
-                        reply(535, "5.7.8 Authentication credentials invalid");
-                        resetAuthState();
-                        return;
-                    }
+			// Authenticate against realm
+			if (authenticateUser(username, password)) {
+				authenticated = true;
+				authenticatedUser = username;
+				reply(235, "2.7.0 Authentication successful");
+				if (LOGGER.isLoggable(Level.INFO)) {
+					LOGGER.info("SMTP AUTH PLAIN successful for user: " + username);
+				}
+			} else {
+				reply(535, "5.7.8 Authentication credentials invalid");
+				if (LOGGER.isLoggable(Level.WARNING)) {
+					LOGGER.warning("SMTP AUTH PLAIN failed for user: " + username);
+				}
+			}
+			resetAuthState();
 
-                    pendingAuthUsername = username;
-                    authState = AuthState.LOGIN_PASSWORD;
-                    
-                    // Challenge for password
-                    String passwordPrompt = Base64.getEncoder().encodeToString("Password:".getBytes(US_ASCII));
-                    reply(334, passwordPrompt);
-                    break;
+		} catch (Exception e) {
+			reply(535, "5.7.8 Authentication credentials invalid");
+			resetAuthState();
+			if (LOGGER.isLoggable(Level.WARNING)) {
+				LOGGER.log(Level.WARNING, "AUTH PLAIN error", e);
+			}
+		}
+	}
 
-                case LOGIN_PASSWORD:
-                    // Decode password and authenticate
-                    decoded = Base64.getDecoder().decode(data);
-                    String password = new String(decoded, US_ASCII);
+	/**
+	 * Handles AUTH LOGIN mechanism.
+	 * Interactive: server challenges for username, then password.
+	 * @param initialResponse optional base64-encoded username
+	 */
+	private void handleAuthLogin(String initialResponse) throws IOException {
+		try {
+			if (initialResponse != null && !initialResponse.equals("=")) {
+				// Initial response is username
+				byte[] decoded = Base64.getDecoder().decode(initialResponse);
+				String username = new String(decoded, US_ASCII);
 
-                    if (password.isEmpty()) {
-                        reply(535, "5.7.8 Authentication credentials invalid");
-                        resetAuthState();
-                        return;
-                    }
+				if (username.isEmpty()) {
+					reply(535, "5.7.8 Authentication credentials invalid");
+					resetAuthState();
+					return;
+				}
 
-                    // Authenticate against realm
-                    if (authenticateUser(pendingAuthUsername, password)) {
-                        authenticated = true;
-                        authenticatedUser = pendingAuthUsername;
-                        reply(235, "2.7.0 Authentication successful");
-                        if (LOGGER.isLoggable(Level.INFO)) {
-                            LOGGER.info("SMTP AUTH LOGIN successful for user: " + pendingAuthUsername);
-                        }
-                    } else {
-                        reply(535, "5.7.8 Authentication credentials invalid");
-                        if (LOGGER.isLoggable(Level.WARNING)) {
-                            LOGGER.warning("SMTP AUTH LOGIN failed for user: " + pendingAuthUsername);
-                        }
-                    }
-                    resetAuthState();
-                    break;
+				pendingAuthUsername = username;
+				authState = AuthState.LOGIN_PASSWORD;
+				authMechanism = "LOGIN";
 
-                default:
-                    // Shouldn't happen
-                    reply(503, "5.0.0 Bad sequence of commands");
-                    resetAuthState();
-            }
+				// Challenge for password
+				String passwordPrompt = Base64.getEncoder().encodeToString("Password:".getBytes(US_ASCII));
+				reply(334, passwordPrompt);
+			} else {
+				// Start LOGIN sequence - challenge for username
+				authState = AuthState.LOGIN_USERNAME;
+				authMechanism = "LOGIN";
 
-        } catch (Exception e) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "AUTH data handling error", e);
-            }
-        }
-    }
+				String usernamePrompt = Base64.getEncoder().encodeToString("Username:".getBytes(US_ASCII));
+				reply(334, usernamePrompt);
+			}
 
-    /**
-     * Authenticates a user against the configured realm.
-     * @param username the username
-     * @param password the password
-     * @return true if authentication succeeds, false otherwise
-     */
-    private boolean authenticateUser(String username, String password) {
-        if (connector.getRealm() == null) {
-            return false;
-        }
+		} catch (Exception e) {
+			reply(535, "5.7.8 Authentication credentials invalid");
+			resetAuthState();
+			if (LOGGER.isLoggable(Level.WARNING)) {
+				LOGGER.log(Level.WARNING, "AUTH LOGIN error", e);
+			}
+		}
+	}
 
-        return connector.getRealm().passwordMatch(username, password);
-    }
+	/**
+	 * Handles authentication data during AUTH LOGIN sequence.
+	 * @param data the base64-encoded authentication data
+	 */
+	private void handleAuthData(String data) throws IOException {
+		try {
+			switch (authState) {
+				case PLAIN_RESPONSE:
+					// Handle PLAIN credentials that were requested with empty challenge
+					handleAuthPlain(data);
+					break;
 
-    /**
-     * Resets authentication state after completion or failure.
-     */
-    private void resetAuthState() {
-        authState = AuthState.NONE;
-        authMechanism = null;
-        pendingAuthUsername = null;
-    }
+				case LOGIN_USERNAME:
+					// Decode username
+					byte[] decoded = Base64.getDecoder().decode(data);
+					String username = new String(decoded, US_ASCII);
 
-    /**
-     * Invoked when the client closes the connection.
-     * Performs any necessary cleanup for the SMTP session.
-     */
-    @Override
-    protected void disconnected() throws IOException {
-        // Clean up session state and buffers
-        if (recipients != null) {
-            recipients.clear();
-        }
-        resetDataState();
-        
-        // Clear line buffer
-        if (lineBuffer != null) {
-            lineBuffer.clear();
-        }
-        
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("SMTP connection disconnected: " + getRemoteSocketAddress());
-        }
-    }
+					if (username.isEmpty()) {
+						reply(535, "5.7.8 Authentication credentials invalid");
+						resetAuthState();
+						return;
+					}
+
+					pendingAuthUsername = username;
+					authState = AuthState.LOGIN_PASSWORD;
+
+					// Challenge for password
+					String passwordPrompt = Base64.getEncoder().encodeToString("Password:".getBytes(US_ASCII));
+					reply(334, passwordPrompt);
+					break;
+
+				case LOGIN_PASSWORD:
+					// Decode password and authenticate
+					decoded = Base64.getDecoder().decode(data);
+					String password = new String(decoded, US_ASCII);
+
+					if (password.isEmpty()) {
+						reply(535, "5.7.8 Authentication credentials invalid");
+						resetAuthState();
+						return;
+					}
+
+					// Authenticate against realm
+					if (authenticateUser(pendingAuthUsername, password)) {
+						authenticated = true;
+						authenticatedUser = pendingAuthUsername;
+						reply(235, "2.7.0 Authentication successful");
+						if (LOGGER.isLoggable(Level.INFO)) {
+							LOGGER.info("SMTP AUTH LOGIN successful for user: " + pendingAuthUsername);
+						}
+					} else {
+						reply(535, "5.7.8 Authentication credentials invalid");
+						if (LOGGER.isLoggable(Level.WARNING)) {
+							LOGGER.warning("SMTP AUTH LOGIN failed for user: " + pendingAuthUsername);
+						}
+					}
+					resetAuthState();
+					break;
+
+				default:
+					// Shouldn't happen
+					reply(503, "5.0.0 Bad sequence of commands");
+					resetAuthState();
+			}
+
+		} catch (Exception e) {
+			reply(535, "5.7.8 Authentication credentials invalid");
+			resetAuthState();
+			if (LOGGER.isLoggable(Level.WARNING)) {
+				LOGGER.log(Level.WARNING, "AUTH data handling error", e);
+			}
+		}
+	}
+
+	/**
+	 * Authenticates a user against the configured realm.
+	 * @param username the username
+	 * @param password the password
+	 * @return true if authentication succeeds, false otherwise
+	 */
+	private boolean authenticateUser(String username, String password) {
+		if (connector.getRealm() == null) {
+			return false;
+		}
+
+		return connector.getRealm().passwordMatch(username, password);
+	}
+
+	/**
+	 * Resets authentication state after completion or failure.
+	 */
+	private void resetAuthState() {
+		authState = AuthState.NONE;
+		authMechanism = null;
+		pendingAuthUsername = null;
+	}
+
+	/**
+	 * Checks if the authenticated user is authorized to send from the specified email address.
+	 * This implements sender address authorization policies for authenticated SMTP sessions.
+	 * 
+	 * Current policy (can be enhanced):
+	 * - Username equals email address (exact match)
+	 * - Username equals local part of email address (user@domain.com authorized for "user")
+	 * - Users with "admin" or "postmaster" roles can send from any address
+	 * 
+	 * @param fromAddress the email address in the MAIL FROM command
+	 * @param authenticatedUser the authenticated username
+	 * @return true if authorized to send from this address
+	 */
+	private boolean isAuthorizedSender(String fromAddress, String authenticatedUser) {
+		if (fromAddress == null || authenticatedUser == null) {
+			return false;
+		}
+
+		// Policy 1: Exact match (username equals full email address)
+		if (authenticatedUser.equalsIgnoreCase(fromAddress)) {
+			return true;
+		}
+
+		// Policy 2: Username matches local part of email address
+		// e.g., user "john" can send from "john@example.com"
+		int atIndex = fromAddress.indexOf('@');
+		if (atIndex > 0) {
+			String localPart = fromAddress.substring(0, atIndex);
+			if (authenticatedUser.equalsIgnoreCase(localPart)) {
+				return true;
+			}
+		}
+
+		// Policy 3: Check realm roles for administrative privileges
+		// If user has "admin" or "postmaster" role, allow any sender address
+		if (connector.getRealm() != null) {
+			if (connector.getRealm().isMember(authenticatedUser, "admin") || 
+					connector.getRealm().isMember(authenticatedUser, "postmaster")) {
+				return true;
+					}
+		}
+
+		// Future enhancement: Could add domain-based authorization, alias mapping, etc.
+
+		return false; // Default: deny
+	}
+
+	/**
+	 * Evaluates sender policy by delegating to the connection handler.
+	 * 
+	 * @param fromAddress the sender email address from MAIL FROM command
+	 * @return policy result indicating accept/reject with appropriate SMTP response code
+	 */
+	private SenderPolicyResult evaluateSenderPolicy(String fromAddress) {
+		if (handler != null) {
+			return handler.mailFrom(fromAddress, createMetadata());
+		}
+		return SenderPolicyResult.ACCEPT; // Default: accept if no handler
+	}
+
+	/**
+	 * Basic email address syntax validation.
+	 */
+	private boolean isValidEmailAddress(String email) {
+		if (email == null || email.isEmpty()) {
+			return false;
+		}
+
+		// Basic validation - can be enhanced with more sophisticated regex
+		int atIndex = email.indexOf('@');
+		if (atIndex <= 0 || atIndex >= email.length() - 1) {
+			return false; // No @ or @ at start/end
+		}
+
+		String localPart = email.substring(0, atIndex);
+		String domain = email.substring(atIndex + 1);
+
+		// RFC 5321 limits: local part <= 64 chars, domain <= 255 chars
+		return localPart.length() <= 64 && domain.length() <= 255 && 
+			!localPart.isEmpty() && !domain.isEmpty();
+	}
+
+	/**
+	 * Extracts domain portion from email address.
+	 */
+	private String extractDomain(String email) {
+		int atIndex = email.indexOf('@');
+		return atIndex > 0 ? email.substring(atIndex + 1).toLowerCase() : null;
+	}
+
+	/**
+	 * Checks if domain is in blocked list.
+	 * Example implementation - customize with your blocked domains.
+	 */
+	private boolean isBlockedDomain(String domain) {
+		// Example blocked domains - replace with your policy
+		String[] blockedDomains = {
+			"spam.example.com",
+			"blocked.domain.com",
+			"malicious.net"
+		};
+
+		for (String blocked : blockedDomains) {
+			if (domain.equals(blocked) || domain.endsWith("." + blocked)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Checks sender against spam reputation databases.
+	 * Placeholder for integration with reputation services.
+	 */
+	private boolean hasSpamReputation(String fromAddress) {
+		// Placeholder - integrate with reputation services like:
+		// - Spamhaus SBL/XBL/PBL
+		// - SURBL
+		// - Custom reputation database
+		return false;
+	}
+
+	/**
+	 * Implements per-sender rate limiting.
+	 * Placeholder for rate limiting logic.
+	 */
+	private boolean isSenderRateLimited(String fromAddress) {
+		// Placeholder - implement rate limiting per sender:
+		// - Track sending frequency per address
+		// - Apply limits based on sender reputation
+		// - Use sliding window or token bucket algorithms
+		return false;
+	}
+
+	/**
+	 * Implements greylisting policy.
+	 * Placeholder for greylisting logic.
+	 */
+	private boolean shouldGreylist(String fromAddress) {
+		// Placeholder - implement greylisting:
+		// - Temporarily reject first-time senders
+		// - Accept after legitimate retry (usually 15+ minutes)
+		// - Maintain whitelist of known good senders
+		return false;
+	}
+
+	/**
+	 * Checks for policy violations.
+	 * Placeholder for custom business rules.
+	 */
+	private boolean violatesPolicy(String fromAddress) {
+		// Placeholder - implement custom policies:
+		// - Content filtering rules
+		// - Business-specific sender restrictions
+		// - Compliance requirements
+		return false;
+	}
+
+	/**
+	 * Checks if mail storage is full.
+	 * Placeholder for storage capacity monitoring.
+	 */
+	private boolean isStorageFull() {
+		// Placeholder - implement storage monitoring:
+		// - Check disk space availability
+		// - Monitor queue sizes
+		// - Apply per-user quotas
+		return false;
+	}
+
+	/**
+	 * Checks if relaying is denied for this sender.
+	 * Placeholder for relay authorization.
+	 */
+	private boolean isRelayDenied(String fromAddress) {
+		// Placeholder - implement relay policies:
+		// - Allow relay for authenticated users
+		// - Allow relay for internal networks
+		// - Deny relay for external users (open relay prevention)
+		return false;
+	}
+
+	/**
+	 * Evaluates recipient policy by delegating to the connection handler.
+	 * 
+	 * @param toAddress the recipient email address from RCPT TO command
+	 * @return policy result indicating accept/reject with appropriate SMTP response code
+	 */
+	private RecipientPolicyResult evaluateRecipientPolicy(String toAddress) {
+		if (handler != null) {
+			return handler.rcptTo(toAddress, createMetadata());
+		}
+		return RecipientPolicyResult.ACCEPT; // Default: accept if no handler
+	}
+
+	/**
+	 * Checks if a mailbox exists for the given recipient.
+	 * Placeholder for mailbox existence verification.
+	 */
+	private boolean mailboxExists(String recipient) {
+		// Placeholder - implement mailbox lookup:
+		// - Check local user database
+		// - Query LDAP/Active Directory
+		// - Check virtual alias maps
+		// - Verify catch-all settings
+		return true; // Default: assume exists for demo
+	}
+
+	/**
+	 * Checks if a mailbox is temporarily unavailable.
+	 * Placeholder for mailbox availability checking.
+	 */
+	private boolean isMailboxTemporarilyUnavailable(String recipient) {
+		// Placeholder - implement availability checks:
+		// - Check if user account is locked
+		// - Verify mailbox maintenance status
+		// - Check system load/performance
+		return false;
+	}
+
+	/**
+	 * Checks if recipient has exceeded their storage quota.
+	 * Placeholder for quota management.
+	 */
+	private boolean isRecipientQuotaExceeded(String recipient) {
+		// Placeholder - implement quota checking:
+		// - Check per-user disk usage
+		// - Verify message count limits
+		// - Check attachment size restrictions
+		return false;
+	}
+
+	/**
+	 * Determines if recipient should be forwarded to another server.
+	 * Placeholder for forwarding logic.
+	 */
+	private boolean shouldForwardRecipient(String recipient) {
+		// Placeholder - implement forwarding rules:
+		// - Check if domain is handled locally
+		// - Determine if user has forwarding rules
+		// - Check MX record priorities
+		return false;
+	}
+
+	/**
+	 * Checks if recipient is in blocked list.
+	 * Placeholder for recipient blocking.
+	 */
+	private boolean isRecipientBlocked(String recipient) {
+		// Placeholder - implement recipient blocking:
+		// - Internal blacklists
+		// - Suspended accounts
+		// - Compliance restrictions
+		return false;
+	}
+
+	/**
+	 * Checks relay permissions for recipient (different context than sender).
+	 * Placeholder for recipient relay authorization.
+	 */
+	private boolean isRecipientRelayDenied(String recipient) {
+		// Placeholder - implement recipient relay checks:
+		// - Verify domain is local or relay is authorized
+		// - Check if authenticated user can send to this recipient
+		// - Apply recipient-specific relay rules
+		return false;
+	}
+
+	/**
+	 * Checks if storage is full for this specific recipient.
+	 * Placeholder for per-recipient storage monitoring.
+	 */
+	private boolean isRecipientStorageFull(String recipient) {
+		// Placeholder - implement per-recipient storage:
+		// - Check individual mailbox limits
+		// - Verify per-domain storage quotas
+		// - Monitor system-wide capacity
+		return false;
+	}
+
+	/**
+	 * Checks if recipient violates policy (recipient-specific rules).
+	 * Placeholder for recipient policy enforcement.
+	 */
+	private boolean recipientViolatesPolicy(String recipient) {
+		// Placeholder - implement recipient policies:
+		// - Corporate email policies
+		// - External recipient restrictions
+		// - Compliance and regulatory rules
+		return false;
+	}
+
+	/**
+	 * Checks if mailbox name format is allowed.
+	 * Placeholder for mailbox naming policies.
+	 */
+	private boolean isMailboxNameAllowed(String recipient) {
+		// Placeholder - implement naming policies:
+		// - Restricted usernames (admin, root, etc.)
+		// - Corporate naming conventions
+		// - Character restrictions beyond RFC compliance
+		return true;
+	}
+
+	/**
+	 * Invoked when the client closes the connection.
+	 * Performs any necessary cleanup for the SMTP session.
+	 */
+	@Override
+	protected void disconnected() throws IOException {
+		// Notify handler of disconnection
+		if (handler != null) {
+			handler.disconnected(createMetadata());
+		}
+
+		// Notify connector that connection is closed for tracking
+		try {
+			if (channel != null) {
+				connector.connectionClosed((InetSocketAddress) channel.getRemoteAddress());
+			}
+		} catch (IOException e) {
+			// Log but don't fail - cleanup is more important
+			if (LOGGER.isLoggable(Level.WARNING)) {
+				LOGGER.log(Level.WARNING, "Error notifying connector of connection close", e);
+			}
+		}
+
+		// Clean up session state and buffers
+		if (recipients != null) {
+			recipients.clear();
+		}
+		resetDataState();
+
+		// Clear line buffer
+		if (lineBuffer != null) {
+			lineBuffer.clear();
+		}
+
+		if (LOGGER.isLoggable(Level.FINE)) {
+			LOGGER.fine("SMTP connection disconnected: " + getRemoteSocketAddress());
+		}
+	}
 
 }
