@@ -26,6 +26,8 @@ import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.Connector;
 
 import java.nio.channels.SocketChannel;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
 
@@ -35,6 +37,8 @@ import javax.net.ssl.SSLEngine;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FTPConnector extends Connector {
+
+    private static final Logger LOGGER = Logger.getLogger(FTPConnector.class.getName());
 
     /**
      * The default FTP transmission control port.
@@ -47,6 +51,7 @@ public class FTPConnector extends Connector {
     protected static final int FTP_DEFAULT_DATA_PORT = 20;
 
     protected int port = FTP_DEFAULT_PORT;
+    protected FTPConnectionHandlerFactory handlerFactory;
 
     public String getDescription() {
         return "FTP";
@@ -60,6 +65,14 @@ public class FTPConnector extends Connector {
         this.port = port;
     }
 
+    public void setHandlerFactory(FTPConnectionHandlerFactory factory) {
+        this.handlerFactory = factory;
+    }
+
+    public FTPConnectionHandlerFactory getHandlerFactory() {
+        return handlerFactory;
+    }
+
     public void start() {
         // NOOP
     }
@@ -69,8 +82,20 @@ public class FTPConnector extends Connector {
     }
 
     public Connection newConnection(SocketChannel sc, SSLEngine engine) {
-        // System.err.println("New connection from "+sc.socket().getInetAddress().getHostName());
-        return new FTPConnection(sc, engine, isSecure());
+        // Create a new handler instance for this connection (thread safety)
+        FTPConnectionHandler handler = null;
+        if (handlerFactory != null) {
+            try {
+                handler = handlerFactory.createHandler();
+            } catch (Exception e) {
+                // Log error but don't fail connection creation
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "Failed to create FTP handler, using default behavior", e);
+                }
+            }
+        }
+        
+        return new FTPConnection(sc, engine, isSecure(), handler);
     }
 
 }

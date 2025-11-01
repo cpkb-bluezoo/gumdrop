@@ -25,6 +25,8 @@ package org.bluezoo.gumdrop.ftp;
 import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.Connector;
 
+import java.net.InetSocketAddress;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 
 import javax.net.ssl.SSLEngine;
@@ -39,11 +41,14 @@ import javax.net.ssl.SSLEngine;
 class FTPDataConnector extends Connector {
 
     final FTPConnection controlConnection;
-    final int port;
+    final int requestedPort;
+    final FTPDataConnectionCoordinator coordinator;
+    private int actualPort = -1;
 
-    FTPDataConnector(FTPConnection controlConnection, int port) {
+    FTPDataConnector(FTPConnection controlConnection, int port, FTPDataConnectionCoordinator coordinator) {
         this.controlConnection = controlConnection;
-        this.port = port;
+        this.requestedPort = port;
+        this.coordinator = coordinator;
     }
 
     public String getDescription() {
@@ -51,11 +56,25 @@ class FTPDataConnector extends Connector {
     }
 
     public int getPort() {
-        return port;
+        return requestedPort;
     }
 
     public void setPort(int port) {
         throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Gets the actual port being used (may differ from requested if 0 was requested).
+     */
+    public int getActualPort() {
+        return actualPort;
+    }
+
+    /**
+     * Sets the actual port after binding (called by Server).
+     */
+    public void setActualPort(int actualPort) {
+        this.actualPort = actualPort;
     }
 
     public void start() {
@@ -63,11 +82,33 @@ class FTPDataConnector extends Connector {
     }
 
     public void stop() {
-        // NOOP
+        // NOOP - cleanup handled by coordinator
+    }
+
+    /**
+     * Called by Server after binding to capture the actual port.
+     * This is a custom method for FTPDataConnector since we can't override
+     * the package-private addServerChannel method from another package.
+     */
+    public void notifyBound(ServerSocketChannel channel) {
+        // Capture the actual bound port
+        try {
+            InetSocketAddress localAddress = (InetSocketAddress) channel.getLocalAddress();
+            actualPort = localAddress.getPort();
+        } catch (Exception e) {
+            // Fallback - use requested port if we can't get actual port  
+            actualPort = requestedPort;
+        }
     }
 
     public Connection newConnection(SocketChannel sc, SSLEngine engine) {
-        return new FTPDataConnection(sc, engine, isSecure());
+        // Create data connection and coordinate with parent control connection
+        FTPDataConnection dataConnection = new FTPDataConnection(sc, engine, isSecure(), coordinator);
+        
+        // Notify coordinator of new data connection
+        coordinator.acceptDataConnection(dataConnection);
+        
+        return dataConnection;
     }
 
 }

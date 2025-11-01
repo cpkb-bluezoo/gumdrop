@@ -75,7 +75,6 @@ public class Server extends Thread {
         return instance;
     }
 
-    final File gumdroprc;
     final Executor sslMainExecutor; // for main SSL operations
     final ThreadPoolExecutor sslTaskThreadPool; // for SSLEngine delayed task operations
 
@@ -87,9 +86,16 @@ public class Server extends Thread {
     private volatile boolean active;
     private volatile boolean reload;
 
-    Server(File gumdroprc) {
+    /**
+     * Creates a new Server instance with the provided connectors.
+     * This constructor allows for programmatic configuration of the server.
+     *
+     * @param connectors the collection of connectors to serve
+     */
+    public Server(Collection<Connector> connectors) {
         super("Server");
-        this.gumdroprc = gumdroprc;
+        instance = this; // Set singleton instance
+        this.connectors = connectors;
         ThreadFactory factory = Executors.defaultThreadFactory();
         sslMainExecutor = Executors.newSingleThreadExecutor(new GumdropThreadFactory(factory, "ssl-main"));
         sslTaskThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new GumdropThreadFactory(factory, "ssl-task"));
@@ -98,36 +104,18 @@ public class Server extends Thread {
         Runtime.getRuntime().addShutdownHook(this.new Shutdown());
     }
 
-    public Connector getConnector(String host, int port) {
-        for (Connector connector : connectors) {
-            if (connector.getPort() == port) {
-                return connector;
-            }
-        }
-        return null;
-    }
 
     /**
      * The main service loop.
      */
     public void run() {
-        long t1, t2, t3, t4;
+        long t3, t4;
         active = true;
         do {
             reload = false;
             selector = null;
             t3 = System.currentTimeMillis();
             try {
-                // Read configuration
-                t1 = System.currentTimeMillis();
-                connectors = new ConfigurationParser().parse(gumdroprc);
-                t2 = System.currentTimeMillis();
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    String message = L10N.getString("info.read_configuration");
-                    message = MessageFormat.format(message, (t2 - t1));
-                    LOGGER.fine(message);
-                }
-
                 // Open selector
                 selector = Selector.open();
 
@@ -456,6 +444,7 @@ public class Server extends Thread {
     }
 
     public static void main(String[] args) {
+        // Determine configuration file location
         File gumdroprc;
         if (args.length > 0) {
             gumdroprc = new File(args[0]);
@@ -469,7 +458,26 @@ public class Server extends Thread {
             System.out.println(L10N.getString("err.syntax"));
             System.exit(1);
         }
-        instance = new Server(gumdroprc);
+
+        // Parse configuration file to get connectors
+        Collection<Connector> connectors;
+        try {
+            long t1 = System.currentTimeMillis();
+            connectors = new ConfigurationParser().parse(gumdroprc);
+            long t2 = System.currentTimeMillis();
+            if (LOGGER.isLoggable(Level.FINE)) {
+                String message = L10N.getString("info.read_configuration");
+                message = MessageFormat.format(message, (t2 - t1));
+                LOGGER.fine(message);
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Failed to parse configuration file: " + gumdroprc, e);
+            System.exit(2);
+            return; // unreachable, but helps with compilation
+        }
+
+        // Create and start server with parsed connectors
+        instance = new Server(connectors);
         System.out.println(L10N.getString("banner"));
         instance.run();
     }

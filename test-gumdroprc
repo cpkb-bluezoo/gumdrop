@@ -1,0 +1,74 @@
+# Gumdrop FTP Server Configuration Test File
+#
+# This configuration demonstrates FTP server setup with both
+# anonymous and authenticated access using file system backends.
+
+# =============================================================================
+# FTP Server Configuration
+# =============================================================================
+
+# Standard FTP Server (Port 2121) with Realm Authentication
+connector.ftp.port=2121
+connector.ftp.class=org.bluezoo.gumdrop.ftp.FTPConnector
+connector.ftp.handlerFactory.class=org.bluezoo.gumdrop.ftp.file.SimpleFTPHandlerFactory
+connector.ftp.handlerFactory.rootDirectory=/tmp/gumdrop-ftp-test
+connector.ftp.handlerFactory.readOnly=false
+# connector.ftp.handlerFactory.realm=basicRealm
+
+# Anonymous FTP Server (Port 2122) for Public Access  
+connector.ftpanon.port=2122
+connector.ftpanon.class=org.bluezoo.gumdrop.ftp.FTPConnector
+connector.ftpanon.handlerFactory.class=org.bluezoo.gumdrop.ftp.file.AnonymousFTPHandlerFactory
+connector.ftpanon.handlerFactory.rootDirectory=/tmp/gumdrop-ftp-public
+connector.ftpanon.handlerFactory.welcomeMessage=Welcome to Gumdrop Public FTP Server - Use 'anonymous' and your email
+
+# =============================================================================
+# HTTP Server (for comparison/testing)
+# =============================================================================
+
+connector.http.port=8080
+connector.http.class=org.bluezoo.gumdrop.http.HTTPConnector
+
+# =============================================================================
+# Authentication Realm Configuration
+# =============================================================================
+
+# Basic Realm for testing (simple in-memory user store)
+realm.basicRealm.class=org.bluezoo.gumdrop.realm.BasicRealm
+
+# Test users for the basic realm
+# Format: username:password
+realm.basicRealm.user.testuser=testpass
+realm.basicRealm.user.admin=adminpass
+realm.basicRealm.user.readonly=readonly123
+
+# User roles (optional, for future role-based access control)
+realm.basicRealm.role.testuser=user
+realm.basicRealm.role.admin=admin,user
+realm.basicRealm.role.readonly=readonly
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+
+# Server threads and connection limits
+server.maxConnections=100
+server.connectionTimeout=300000
+
+# Logging configuration
+logging.level=INFO
+logging.file=/tmp/gumdrop-test.log
+
+# =============================================================================
+# SSL/TLS Configuration (for FTPS testing)
+# =============================================================================
+
+# Uncomment these for FTPS testing
+# connector.ftps.port=2123
+# connector.ftps.class=org.bluezoo.gumdrop.ftp.FTPConnector
+# connector.ftps.secure=true
+# connector.ftps.keystore=/path/to/keystore.jks
+# connector.ftps.keystorePassword=password
+# connector.ftps.handlerFactory.class=org.bluezoo.gumdrop.ftp.file.SimpleFTPHandlerFactory
+# connector.ftps.handlerFactory.rootDirectory=/tmp/gumdrop-ftp-secure
+# connector.ftps.handlerFactory.readOnly=false

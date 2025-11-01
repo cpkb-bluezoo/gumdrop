@@ -117,7 +117,7 @@ public abstract class Connection {
         hasOpWriteInterest.set(value);
     }
 
-    protected final void init() throws IOException {
+    protected void init() throws IOException {
         Socket socket = channel.socket();
         socket.setTcpNoDelay(true);
         if (engine == null || !secure) {

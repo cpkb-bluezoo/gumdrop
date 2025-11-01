@@ -27,24 +27,70 @@ import org.bluezoo.gumdrop.Connection;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
 
 /**
- * Connection handler for the FTP protocol.
- * This manages one TCP data connection.
+ * Connection handler for FTP data connections.
+ * This manages one TCP data connection used for file transfers and listings.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FTPDataConnection extends Connection {
 
-    protected FTPDataConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
+    private static final Logger LOGGER = Logger.getLogger(FTPDataConnection.class.getName());
+
+    private final SocketChannel channel;
+    private final FTPDataConnectionCoordinator coordinator;
+    private boolean transferActive = false;
+
+    protected FTPDataConnection(SocketChannel channel, SSLEngine engine, boolean secure, 
+                               FTPDataConnectionCoordinator coordinator) {
         super(engine, secure);
-        // TODO
+        this.channel = channel;
+        this.coordinator = coordinator;
     }
 
-    protected synchronized void received(ByteBuffer buf) {}
+    /**
+     * Gets the SocketChannel for direct I/O operations during transfers.
+     */
+    public SocketChannel getChannel() {
+        return channel;
+    }
 
-    protected void disconnected() throws IOException {}
+    /**
+     * Marks this connection as actively transferring data.
+     */
+    public void setTransferActive(boolean active) {
+        this.transferActive = active;
+    }
+
+    /**
+     * Checks if this connection is actively transferring data.
+     */
+    public boolean isTransferActive() {
+        return transferActive;
+    }
+
+    protected synchronized void received(ByteBuffer buf) {
+        // Data connections typically don't receive commands - they transfer data
+        // This will be handled by the coordinator during transfers
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            LOGGER.finest("Received " + buf.remaining() + " bytes on data connection");
+        }
+    }
+
+    protected void disconnected() throws IOException {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Data connection closed");
+        }
+        
+        // Notify coordinator of disconnection if needed
+        if (transferActive && coordinator != null) {
+            // This will be expanded in Phase 2 for transfer completion handling
+        }
+    }
 
 }
