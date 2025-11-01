@@ -5,19 +5,19 @@
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
  *
- * gumdrop is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * This software is dual-licensed:
+ *
+ * 1. GNU General Public License v3 (or later) for open source use
+ *    See LICENCE-GPL3 file for GPL terms and conditions.
+ *
+ * 2. Commercial License for proprietary use
+ *    Contact Chris Burdess <dog@gnu.org> for commercial licensing terms.
+ *    Mimecast Services Limited has been granted commercial usage rights under
+ *    separate license agreement.
  *
  * gumdrop is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with gumdrop.
- * If not, see <http://www.gnu.org/licenses/>.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
 package org.bluezoo.gumdrop;
@@ -29,6 +29,9 @@ import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.File;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -48,27 +51,71 @@ public class BasicRealm extends DefaultHandler implements Realm {
     /**
      * Users and their passwords.
      */
-    Map passwords;
+    Map<String, String> passwords;
 
     /**
      * Users to set of groups.
      */
-    Map userGroups;
+    Map<String, Set<String>> userGroups;
 
     private transient String group;
 
     public BasicRealm() {
-        passwords = new LinkedHashMap();
-        userGroups = new LinkedHashMap();
+        passwords = new LinkedHashMap<String, String>();
+        userGroups = new LinkedHashMap<String, Set<String>>();
     }
 
+    @Override
+    public boolean passwordMatch(String username, String password) {
+        String storedPassword = passwords.get(username);
+        return storedPassword != null && storedPassword.equals(password);
+    }
+
+    @Override
+    public String getDigestHA1(String username, String realmName) {
+        String password = passwords.get(username);
+        if (password == null) {
+            return null; // User doesn't exist
+        }
+
+        try {
+            // Compute MD5(username:realm:password)
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(username.getBytes(StandardCharsets.US_ASCII));
+            md.update((byte) ':');
+            md.update(realmName.getBytes(StandardCharsets.US_ASCII));
+            md.update((byte) ':');
+            md.update(password.getBytes(StandardCharsets.US_ASCII));
+            
+            byte[] hash = md.digest();
+            return toHexString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            // MD5 should always be available
+            throw new RuntimeException("MD5 algorithm not available", e);
+        }
+    }
+
+    @Override
+    @Deprecated
     public String getPassword(String username) {
-        return (String) passwords.get(username);
+        return passwords.get(username);
     }
 
+    @Override
     public boolean isMember(String username, String role) {
-        Set roles = (Set) userGroups.get(username);
+        Set<String> roles = userGroups.get(username);
         return (roles != null && roles.contains(role));
+    }
+
+    /**
+     * Converts a byte array to a lowercase hexadecimal string.
+     */
+    private static String toHexString(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b & 0xff));
+        }
+        return sb.toString();
     }
 
     public void setHref(String href) {
@@ -101,9 +148,9 @@ public class BasicRealm extends DefaultHandler implements Realm {
             group = atts.getValue("name");
         } else if ("member".equals(qName)) {
             String role = atts.getValue("name");
-            Set roles = (Set) userGroups.get(group);
+            Set<String> roles = userGroups.get(group);
             if (roles == null) {
-                roles = new LinkedHashSet();
+                roles = new LinkedHashSet<String>();
                 userGroups.put(group, roles);
             }
             roles.add(role);

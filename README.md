@@ -6,8 +6,7 @@ Multipurpose asynchronous Java server and servlet container
 This is gumdrop, a multipurpose Java server using asynchronous, event-driven
 I/O. It supports HTTP and HTTPS. HTTP/2 support and FTP are under development.
 
-This software is distributed under the GNU General Public Licence; see the
-file COPYING for details.
+This software is dual-licensed. See the LICENSING.md file for complete details.
 
 The gumdroprc file is used to configure gumdrop.
 
@@ -84,5 +83,21 @@ application.
 ## Ongoing work
 
 The list of current tasks is in the TODO file in the project.
+
+## Licensing
+
+Gumdrop is dual-licensed to provide maximum flexibility:
+
+### Open Source License (GPL v3)
+Free for open source projects and GPL-compatible applications. 
+See `LICENCE-GPL3` for full terms.
+
+### Commercial License
+Available for proprietary and commercial use without GPL obligations.
+Contact Chris Burdess <dog@gnu.org> for commercial licensing.
+
+**Special Note**: Mimecast Services Limited has been granted commercial usage rights under a separate license agreement.
+
+For complete licensing information, see [LICENSING.md](LICENSING.md).
 
 -- Chris Burdess

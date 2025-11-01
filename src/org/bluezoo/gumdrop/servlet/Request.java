@@ -5,19 +5,19 @@
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
  *
- * gumdrop is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * This software is dual-licensed:
+ *
+ * 1. GNU General Public License v3 (or later) for open source use
+ *    See LICENCE-GPL3 file for GPL terms and conditions.
+ *
+ * 2. Commercial License for proprietary use
+ *    Contact Chris Burdess <dog@gnu.org> for commercial licensing terms.
+ *    Mimecast Services Limited has been granted commercial usage rights under
+ *    separate license agreement.
  *
  * gumdrop is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with gumdrop.
- * If not, see <http://www.gnu.org/licenses/>.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 
 package org.bluezoo.gumdrop.servlet;
@@ -492,8 +492,7 @@ class Request implements HttpServletRequest {
             }
             username = userPass.substring(0, ci);
             String password = userPass.substring(ci + 1);
-            String userPassword = context.getPassword(realm, username);
-            if (!password.equals(userPassword)) {
+            if (!context.passwordMatch(realm, username, password)) {
                 String message = Context.L10N.getString("err.auth_fail");
                 message = MessageFormat.format(message, username, password);
                 Context.LOGGER.warning(message);
@@ -525,8 +524,8 @@ class Request implements HttpServletRequest {
             Map digestResponse = parseDigestResponse(drText);
             username = (String) digestResponse.get("username");
             realm = (String) digestResponse.get("realm");
-            String userPassword = context.getPassword(realm, username);
-            if (userPassword == null) {
+            String ha1Hex = context.getDigestHA1(realm, username);
+            if (ha1Hex == null) {
                 // No such user
                 requireAuthentication(response, "Digest");
                 return false;
@@ -570,14 +569,9 @@ class Request implements HttpServletRequest {
             try {
                 MessageDigest md = MessageDigest.getInstance(algorithm);
 
-                // Compute H(A1)
-                md.reset();
-                md.update(username.getBytes("US-ASCII"));
-                md.update(COLON);
-                md.update(realm.getBytes("US-ASCII"));
-                md.update(COLON);
-                md.update(userPassword.getBytes("US-ASCII"));
-                byte[] ha1 = md.digest();
+                // Get H(A1) from realm
+                byte[] ha1 = hexStringToBytes(ha1Hex);
+                String finalHA1Hex;
                 if ("MD5-sess".equals(algorithm)) {
                     if (cnonce == null) {
                         String message = Context.L10N.getString("http.bad_digest");
@@ -591,10 +585,12 @@ class Request implements HttpServletRequest {
                     md.update(nonce.getBytes("US-ASCII"));
                     md.update(COLON);
                     md.update(cnonce.getBytes("US-ASCII"));
-                    ha1 = md.digest();
+                    byte[] sessHA1 = md.digest();
+                    finalHA1Hex = toHexString(sessHA1);
                     // TODO sessions
+                } else {
+                    finalHA1Hex = ha1Hex;
                 }
-                String ha1Hex = toHexString(ha1);
 
                 // Compute H(A2)
                 md.reset();
@@ -615,7 +611,7 @@ class Request implements HttpServletRequest {
 
                 // Calculate response
                 md.reset();
-                md.update(ha1Hex.getBytes("US-ASCII"));
+                md.update(finalHA1Hex.getBytes("US-ASCII"));
                 md.update(COLON);
                 md.update(nonce.getBytes("US-ASCII"));
                 if ("auth".equals(qop)) {
@@ -655,8 +651,7 @@ class Request implements HttpServletRequest {
                 response.sendRedirect(context.getFormLoginPage());
                 return false;
             } else {
-                String password = context.getPassword(realm, username);
-                if (requestPassword == null || !requestPassword.equals(password)) {
+                if (!context.passwordMatch(realm, username, requestPassword)) {
                     String message = Context.L10N.getString("err.auth_fail");
                     message = MessageFormat.format(message, username, requestPassword);
                     Context.LOGGER.warning(message);
@@ -801,14 +796,27 @@ class Request implements HttpServletRequest {
                 c += 0x100;
             }
             ret[j++] = Character.forDigit(c / 0x10, 0x10);
-            ret[j++] = Character.forDigit(c % 0x10, 0x10);                                                                      }
+            ret[j++] = Character.forDigit(c % 0x10, 0x10);
+        }
         return new String(ret);
+    }
+
+    /**
+     * Converts a hex string to byte array.
+     */
+    static byte[] hexStringToBytes(String hexString) {
+        int len = hexString.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(hexString.charAt(i), 16) << 4)
+                                 + Character.digit(hexString.charAt(i+1), 16));
+        }
+        return data;
     }
 
     @Override public void login(String username, String password) throws ServletException {
         String realm = context.getRealmName();
-        String realmPassword = context.getPassword(realm, username);
-        if (userPrincipal != null || password == null || !password.equals(realmPassword)) {
+        if (userPrincipal != null || !context.passwordMatch(realm, username, password)) {
             String message = Context.L10N.getString("err.auth_fail");
             message = MessageFormat.format(message, username, password);
             throw new ServletException(message);
