@@ -25,6 +25,7 @@ I/O. It supports:
     - HTTP/2
         - all HTTP/2 frame types
         - HPACK compression
+    - WebSockets
     - HTTPS with client certificate authentication, custom SSL parameters
       and cipher suites
     - HTTP Digest Authentication
@@ -45,6 +46,7 @@ I/O. It supports:
         - filter chains
         - separate thread pool configuration for servlet worker threads,
           distinct from HTTP connection handler thread pool
+        - WebSocket servlet support with example showing how to use upgrade
 - SMTP
     - SMTPS
     - STARTTLS support

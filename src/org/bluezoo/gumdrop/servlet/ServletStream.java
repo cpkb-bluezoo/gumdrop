@@ -57,6 +57,10 @@ class ServletStream extends Stream {
     Request request;
     Response response;
     boolean explicitCloseConnection;
+    
+    // WebSocket support
+    private ServletWebSocketConnection webSocketConnection;
+    private boolean webSocketMode = false;
 
     private int statusCode;
     private long contentLength;
@@ -108,6 +112,18 @@ class ServletStream extends Stream {
      * Request body chunk
      */
     @Override protected void receiveRequestBody(byte[] buf) {
+        if (webSocketMode && webSocketConnection != null) {
+            // In WebSocket mode, process incoming data as WebSocket frames
+            try {
+                java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(buf);
+                webSocketConnection.processIncomingData(buffer);
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE, "Error processing WebSocket data", e);
+                webSocketConnection.onError(e);
+            }
+            return;
+        }
+
         if (buf.length > 0) {
             ReadListener readListener = request.in.readListener;
             try {
@@ -147,6 +163,89 @@ class ServletStream extends Stream {
         }
         requestComplete = true;
         // System.err.println("endRequest");
+        
+        // In WebSocket mode, don't close the request - keep connection open for frames
+        if (webSocketMode) {
+            return;
+        }
+    }
+
+    /**
+     * Sends the WebSocket upgrade response (101 Switching Protocols).
+     *
+     * @param responseHeaders the WebSocket response headers
+     * @throws IOException if an I/O error occurs
+     */
+    void sendWebSocketUpgradeResponse(java.util.List<org.bluezoo.gumdrop.http.Header> responseHeaders) throws IOException {
+        try {
+            // Send 101 Switching Protocols response through the underlying HTTP connection
+            // Use the Stream's sendResponseHeaders method
+            sendResponseHeaders(101, responseHeaders, false);
+        } catch (Exception e) {
+            throw new IOException("Failed to send WebSocket upgrade response", e);
+        }
+    }
+
+    /**
+     * Switches this stream to WebSocket mode.
+     *
+     * @param webSocketConnection the WebSocket connection to use
+     */
+    void switchToWebSocketMode(ServletWebSocketConnection webSocketConnection) {
+        this.webSocketConnection = webSocketConnection;
+        this.webSocketMode = true;
+        
+        // Mark response as committed to prevent further HTTP response operations
+        response.committed = true;
+        
+        LOGGER.fine("Stream switched to WebSocket mode");
+    }
+
+    /**
+     * Returns true if this stream is in WebSocket mode.
+     *
+     * @return true if in WebSocket mode
+     */
+    boolean isWebSocketMode() {
+        return webSocketMode;
+    }
+
+    /**
+     * Returns true if the HTTP response has been started.
+     *
+     * @return true if response started
+     */
+    boolean isResponseStarted() {
+        return response != null && response.committed;
+    }
+
+    /**
+     * Sends WebSocket frame data directly to the connection.
+     * This is used by the WebSocket transport to send frames after upgrade.
+     *
+     * @param data the frame data to send
+     * @throws IOException if an I/O error occurs
+     */
+    void sendWebSocketFrameData(ByteBuffer data) throws IOException {
+        try {
+            // In WebSocket mode, send data directly through the connection
+            sendResponseBody(data, false);
+        } catch (Exception e) {
+            throw new IOException("Failed to send WebSocket frame data", e);
+        }
+    }
+
+    /**
+     * Closes the WebSocket stream.
+     * This is used by the WebSocket transport when the connection is closed.
+     */
+    void closeWebSocket() {
+        try {
+            // Use the protected close() method from Stream
+            close();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error closing WebSocket stream", e);
+        }
     }
 
     boolean isTrailerFieldsReady() {

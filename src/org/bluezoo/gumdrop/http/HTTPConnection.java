@@ -130,10 +130,16 @@ public class HTTPConnection extends Connection {
     Encoder hpackEncoder;
 
     private int clientStreamId; // synthesized stream ID for HTTP/1
-    private Map<Integer,Stream> streams;
+    private final Map<Integer,Stream> streams;
     private int continuationStream;
     private boolean continuationEndStream; // if the continuation should end stream after end of headers
-    private Set<Integer> activeStreams = new TreeSet<>();
+    private final Set<Integer> activeStreams = new TreeSet<>();
+    
+    // Stream cleanup management
+    private long lastStreamCleanup = 0L;
+    private static final long STREAM_CLEANUP_INTERVAL_MS = 30_000L; // 30 seconds
+    private static final long STREAM_RETENTION_MS = 30_000L; // Keep closed streams for 30 seconds
+    
     // TODO stream priority
 
     protected HTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
@@ -550,9 +556,16 @@ public class HTTPConnection extends Connection {
                         return; // underflow
                     }
                     int streamId = frame.getStream();
-                    if (streamId != 0 && !streams.containsKey(streamId)) {
+                    boolean streamExists;
+                    synchronized (streams) {
+                        streamExists = streams.containsKey(streamId);
+                    }
+                    if (streamId != 0 && !streamExists) {
                         // Check max concurrent streams (5.1.2)
-                        int numConcurrentStreams = activeStreams.size();
+                        int numConcurrentStreams;
+                        synchronized (activeStreams) {
+                            numConcurrentStreams = activeStreams.size();
+                        }
                         if (numConcurrentStreams >= maxConcurrentStreams) {
                             sendErrorFrame(Frame.ERROR_REFUSED_STREAM, streamId);
                             in.compact();
@@ -588,12 +601,59 @@ public class HTTPConnection extends Connection {
      * Stream ID 0 always results in a null stream.
      */
     Stream getStream(int streamId) {
-        Stream stream = (streamId == 0) ? null : streams.get(streamId);
-        if (streamId != 0 && stream == null) {
-            stream = newStream(this, streamId);
-            streams.put(streamId, stream);
+        // Trigger periodic cleanup to prevent memory accumulation
+        maybeCleanupClosedStreams();
+        
+        synchronized (streams) {
+            Stream stream = (streamId == 0) ? null : streams.get(streamId);
+            if (streamId != 0 && stream == null) {
+                stream = newStream(this, streamId);
+                streams.put(streamId, stream);
+            }
+            return stream;
         }
-        return stream;
+    }
+    
+    /**
+     * Performs periodic cleanup of closed streams to prevent memory leaks.
+     * Called opportunistically during stream access to minimize overhead.
+     * Thread-safe and optimized to avoid unnecessary work.
+     */
+    private void maybeCleanupClosedStreams() {
+        long now = System.currentTimeMillis();
+        
+        // Only cleanup if enough time has passed (avoid excessive cleanup)
+        if (now - lastStreamCleanup < STREAM_CLEANUP_INTERVAL_MS) {
+            return;
+        }
+        
+        synchronized (streams) {
+            // Double-check timing under lock to avoid race conditions
+            if (now - lastStreamCleanup < STREAM_CLEANUP_INTERVAL_MS) {
+                return;
+            }
+            
+            lastStreamCleanup = now;
+            
+            // Remove streams that have been closed for longer than retention period
+            int removedCount = 0;
+            var iterator = streams.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                Stream stream = entry.getValue();
+                
+                if (stream.isClosed() && 
+                    (now - stream.timestampCompleted) > STREAM_RETENTION_MS) {
+                    iterator.remove();
+                    removedCount++;
+                }
+            }
+            
+            if (removedCount > 0 && LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine(String.format("Cleaned up %d closed streams (total remaining: %d)", 
+                                        removedCount, streams.size()));
+            }
+        }
     }
 
     void sendStreamError(Stream stream, int statusCode) {
@@ -630,7 +690,9 @@ public class HTTPConnection extends Connection {
                 if (df.endStream) {
                     stream.streamEndRequest();
                     if (stream.isActive()) {
-                        activeStreams.add(streamId);
+                        synchronized (activeStreams) {
+                            activeStreams.add(streamId);
+                        }
                     }
                 }
                 break;
@@ -643,7 +705,9 @@ public class HTTPConnection extends Connection {
                         stream.streamEndRequest();
                     }
                     if (stream.isActive()) {
-                        activeStreams.add(streamId);
+                        synchronized (activeStreams) {
+                            activeStreams.add(streamId);
+                        }
                     }
                 } else {
                     state = STATE_HTTP2_CONTINUATION;
@@ -675,14 +739,18 @@ public class HTTPConnection extends Connection {
                         stream.streamEndRequest();
                     }
                     if (stream.isActive()) {
-                        activeStreams.add(streamId);
+                        synchronized (activeStreams) {
+                            activeStreams.add(streamId);
+                        }
                     }
                 }
                 break;
             case Frame.TYPE_RST_STREAM:
                 stream.streamClose();
-                activeStreams.remove(streamId);
-                // TODO evict the stream from streams after some reasonable delay
+                synchronized (activeStreams) {
+                    activeStreams.remove(streamId);
+                }
+                // Stream will be cleaned up by periodic cleanup after retention period
                 break;
             case Frame.TYPE_GOAWAY:
                 close();
@@ -783,7 +851,25 @@ public class HTTPConnection extends Connection {
     }
 
     protected void disconnected() throws IOException {
-        // System.err.println("Peer closed connection");
+        // Clean up all streams when connection closes to prevent memory leaks
+        cleanupAllStreams();
+    }
+    
+    /**
+     * Immediately cleanup all streams when the connection is closing.
+     * This prevents memory leaks on connection termination.
+     */
+    private void cleanupAllStreams() {
+        synchronized (streams) {
+            int streamCount = streams.size();
+            streams.clear();
+            if (streamCount > 0 && LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine(String.format("Connection closing: cleaned up %d remaining streams", streamCount));
+            }
+        }
+        synchronized (activeStreams) {
+            activeStreams.clear();
+        }
     }
 
     /**

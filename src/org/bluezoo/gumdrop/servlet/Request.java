@@ -882,8 +882,86 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-    @Override public <T extends HttpUpgradeHandler> T upgrade(Class<T> handlerClass) {
-        throw new UnsupportedOperationException(); // TODO
+    @Override public <T extends HttpUpgradeHandler> T upgrade(Class<T> handlerClass) throws ServletException {
+        // Validate that this request is eligible for upgrade
+        if (stream.isResponseStarted()) {
+            throw new IllegalStateException("Response has already been started");
+        }
+
+        // Check if this is a WebSocket upgrade request
+        if (!isWebSocketUpgrade()) {
+            throw new IllegalStateException("Request is not a valid WebSocket upgrade");
+        }
+
+        try {
+            // Create the upgrade handler instance
+            T handler = handlerClass.getDeclaredConstructor().newInstance();
+            
+            // Perform the WebSocket upgrade
+            performWebSocketUpgrade(handler);
+            
+            return handler;
+            
+        } catch (Exception e) {
+            throw new ServletException("Failed to create or initialize upgrade handler", e);
+        }
+    }
+
+    /**
+     * Checks if this request is a valid WebSocket upgrade request.
+     *
+     * @return true if this is a valid WebSocket upgrade request
+     */
+    private boolean isWebSocketUpgrade() {
+        // Use the request headers from this Request object
+        java.util.Collection<org.bluezoo.gumdrop.http.Header> requestHeaders = new java.util.ArrayList<>();
+        
+        // Convert servlet headers to HTTP headers
+        java.util.Enumeration<String> headerNames = getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String name = headerNames.nextElement();
+            java.util.Enumeration<String> values = getHeaders(name);
+            while (values.hasMoreElements()) {
+                String value = values.nextElement();
+                requestHeaders.add(new org.bluezoo.gumdrop.http.Header(name, value));
+            }
+        }
+        
+        return org.bluezoo.gumdrop.http.websocket.WebSocketHandshake.isValidWebSocketUpgrade(requestHeaders);
+    }
+
+    /**
+     * Performs the WebSocket upgrade process.
+     *
+     * @param handler the upgrade handler to use
+     * @throws ServletException if the upgrade fails
+     */
+    private void performWebSocketUpgrade(HttpUpgradeHandler handler) throws ServletException {
+        try {
+            // Get WebSocket handshake parameters from request headers
+            String key = getHeader("Sec-WebSocket-Key");
+            String protocol = getHeader("Sec-WebSocket-Protocol");
+            
+            // Create WebSocket response headers
+            java.util.List<org.bluezoo.gumdrop.http.Header> responseHeaders = 
+                org.bluezoo.gumdrop.http.websocket.WebSocketHandshake.createWebSocketResponse(key, protocol);
+            
+            // Send 101 Switching Protocols response
+            stream.sendWebSocketUpgradeResponse(responseHeaders);
+            
+            // Create WebSocket transport and connection
+            WebSocketServletTransport transport = new WebSocketServletTransport(stream);
+            ServletWebSocketConnection webSocketConnection = new ServletWebSocketConnection(handler, transport);
+            
+            // Switch the stream to WebSocket mode
+            stream.switchToWebSocketMode(webSocketConnection);
+            
+            // Notify the WebSocket connection that it's open
+            webSocketConnection.notifyConnectionOpen();
+            
+        } catch (Exception e) {
+            throw new ServletException("WebSocket upgrade failed", e);
+        }
     }
 
     @Override public Map<String,String> getTrailerFields() {
