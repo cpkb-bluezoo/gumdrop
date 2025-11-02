@@ -56,7 +56,7 @@ import java.util.logging.Logger;
 public class FTPProtocolTest {
     
     private Path tempRoot;
-    private TestFTPConnection connection;
+    private FTPConnection connection;
     private List<String> responses;
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -122,10 +122,22 @@ public class FTPProtocolTest {
         connector.setHandlerFactory(() -> handler);
         
         // Create mock socket channel (we won't actually use it for network)
-        MockSocketChannel mockChannel = new MockSocketChannel();
+        // Create the FTP connection with null channel to test null safety
+        connection = new FTPConnection(null, null, false, handler);
         
-        // Create the FTP connection directly
-        connection = new TestFTPConnection(mockChannel, null, false, handler);
+        // Channel is now set by constructor, no need to set fields manually
+        
+        // Set up test callback to capture send() output
+        connection.setSendCallback(new org.bluezoo.gumdrop.SendCallback() {
+            @Override
+            public void onSend(org.bluezoo.gumdrop.Connection connection, ByteBuffer buf) {
+                if (buf != null) {
+                    byte[] data = new byte[buf.remaining()];
+                    buf.get(data);
+                    responses.add(new String(data, StandardCharsets.US_ASCII));
+                }
+            }
+        });
         
         // Initialize the connection (this should send welcome banner)
         connection.init();
@@ -390,38 +402,7 @@ public class FTPProtocolTest {
         }
     }
     
-    /**
-     * Test FTP connection that captures send() calls for verification.
-     */
-    private class TestFTPConnection extends FTPConnection {
-        
-        public TestFTPConnection(SocketChannel channel, SSLEngine engine, boolean secure, 
-                               FTPConnectionHandler handler) {
-            super(channel, engine, secure, handler);
-            
-            // Set the base class channel field (normally done by Server)
-            // Use reflection since FTPConnection has a private channel field that shadows the protected one
-            try {
-                java.lang.reflect.Field baseChannelField = org.bluezoo.gumdrop.Connection.class.getDeclaredField("channel");
-                baseChannelField.setAccessible(true);
-                baseChannelField.set(this, channel);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to set base class channel field", e);
-            }
-        }
-        
-        @Override
-        public void send(ByteBuffer buf) {
-            // Capture the response for testing
-            byte[] data = new byte[buf.remaining()];
-            buf.get(data);
-            String response = new String(data, StandardCharsets.US_ASCII).trim();
-            
-            responses.add(response);
-            
-            // Don't actually send over network - we're testing in isolation
-        }
-    }
+    // Now using setSendCallback mechanism consistently - no custom subclass needed
     
     /**
      * Mock SocketChannel for testing (we don't actually use network).

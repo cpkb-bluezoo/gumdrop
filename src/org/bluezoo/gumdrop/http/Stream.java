@@ -391,13 +391,18 @@ public class Stream {
                             upgrade.add(v.trim());
                         }
                     } else if ("HTTP2-Settings".equalsIgnoreCase(name)) {
-                        Base64.Decoder decoder = Base64.getUrlDecoder();
-                        byte[] settings = decoder.decode(value);
                         try {
-                            settingsFrame = new SettingsFrame(0, settings);
-                        } catch (ProtocolException e) {
-                            String message = HTTPConnection.L10N.getString("err.decode_http2_settings");
-                            HTTPConnection.LOGGER.log(Level.SEVERE, message, e);
+                            Base64.Decoder decoder = Base64.getUrlDecoder();
+                            byte[] settings = decoder.decode(value);
+                            try {
+                                settingsFrame = new SettingsFrame(0, settings);
+                            } catch (ProtocolException e) {
+                                String message = HTTPConnection.L10N.getString("err.decode_http2_settings");
+                                HTTPConnection.LOGGER.log(Level.SEVERE, message, e);
+                            }
+                        } catch (IllegalArgumentException e) {
+                            // Invalid base64 in HTTP2-Settings header - ignore it
+                            HTTPConnection.LOGGER.log(Level.WARNING, "Invalid base64 in HTTP2-Settings header: " + value, e);
                         }
                     }
                 }

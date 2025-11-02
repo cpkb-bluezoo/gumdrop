@@ -22,6 +22,7 @@
 
 package org.bluezoo.gumdrop.http.file;
 
+import org.bluezoo.gumdrop.SendCallback;
 import org.bluezoo.gumdrop.http.HTTPConnection;
 import org.bluezoo.gumdrop.http.Stream;
 
@@ -61,5 +62,10 @@ public class FileHTTPConnection extends HTTPConnection {
     @Override
     protected Stream newStream(HTTPConnection connection, int streamId) {
         return new FileStream(connection, streamId, rootPath, allowWrite, allowedOptions);
+    }
+    
+    @Override
+    protected void setSendCallback(SendCallback callback) {
+        super.setSendCallback(callback);
     }
 }

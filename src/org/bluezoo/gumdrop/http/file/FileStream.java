@@ -40,7 +40,9 @@ import java.nio.file.StandardOpenOption;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -54,6 +56,32 @@ class FileStream extends Stream {
 
     private static final Logger LOGGER = Logger.getLogger(FileStream.class.getName());
     private static final HTTPDateFormat dateFormat = new HTTPDateFormat();
+    
+    // MIME type mappings
+    private static final Map<String, String> CONTENT_TYPES = new HashMap<>();
+    static {
+        CONTENT_TYPES.put("html", "text/html");
+        CONTENT_TYPES.put("htm", "text/html");
+        CONTENT_TYPES.put("txt", "text/plain");
+        CONTENT_TYPES.put("css", "text/css");
+        CONTENT_TYPES.put("js", "application/javascript");
+        CONTENT_TYPES.put("json", "application/json");
+        CONTENT_TYPES.put("xml", "application/xml");
+        CONTENT_TYPES.put("pdf", "application/pdf");
+        CONTENT_TYPES.put("jpg", "image/jpeg");
+        CONTENT_TYPES.put("jpeg", "image/jpeg");
+        CONTENT_TYPES.put("png", "image/png");
+        CONTENT_TYPES.put("gif", "image/gif");
+        CONTENT_TYPES.put("svg", "image/svg+xml");
+        CONTENT_TYPES.put("ico", "image/x-icon");
+        CONTENT_TYPES.put("zip", "application/zip");
+        CONTENT_TYPES.put("jar", "application/java-archive");
+        CONTENT_TYPES.put("mp3", "audio/mpeg");
+        CONTENT_TYPES.put("mp4", "video/mp4");
+        CONTENT_TYPES.put("webm", "video/webm");
+        // Default fallback
+        CONTENT_TYPES.put("", "application/octet-stream");
+    }
 
     private final Path rootPath;
     private final boolean allowWrite;
@@ -64,8 +92,9 @@ class FileStream extends Stream {
     private FileChannel fileChannel;
     private WritableByteChannel writeChannel; // For PUT operations
     private long ifModifiedSince = -1;
-    private long contentLength = -1;
+    private long requestContentLength = -1; // Local copy of content length
     private long bytesReceived = 0;
+    private boolean fileExistedBeforePut = false; // Track file existence before PUT
     private boolean requestBodyExpected = false;
 
     protected FileStream(HTTPConnection connection, int streamId, Path rootPath, 
@@ -96,7 +125,7 @@ class FileStream extends Stream {
                 }
             } else if ("content-length".equals(name.toLowerCase())) {
                 try {
-                    contentLength = Long.parseLong(value);
+                    requestContentLength = Long.parseLong(value);
                 } catch (NumberFormatException e) {
                     // ignore invalid content-length
                 }
@@ -124,14 +153,42 @@ class FileStream extends Stream {
             if (path == null || !Files.exists(path)) {
                 sc = 404;
             } else if (Files.isDirectory(path)) {
-                sc = 403; // TODO: could implement directory listing
-            } else if (!Files.isReadable(path)) {
-                sc = 403;
-            } else {
+                // Try to serve index files for directory requests
+                try {
+                    Path indexFile = findIndexFile(path);
+                    if (indexFile != null) {
+                        path = indexFile; // serve the index file instead
+                        // Continue to serve the index file (fall through to file serving logic)
+                    } else {
+                        sc = 403; // TODO: could implement directory listing
+                        sendResponseHeaders(sc, responseHeaders, true);
+                        return;
+                    }
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error finding index file in directory: " + path, e);
+                    sc = 403; // Fallback to Forbidden
+                    sendResponseHeaders(sc, responseHeaders, true);
+                    return;
+                }
+            }
+            
+            // Check if the (potentially updated) path is readable (only if we haven't already set an error status)
+            if (sc == 500 && path != null && Files.exists(path) && !Files.isReadable(path)) {
+                sc = 403; // Path exists but is not readable
+            }
+            
+            if (sc != 500) {
+                sendResponseHeaders(sc, responseHeaders, true);
+                return;
+            }
+            
+            // If we get here, the file exists and is readable
+            {
                 try {
                     long size = Files.size(path);
                     long lastModified = Files.getLastModifiedTime(path).toMillis();
                     responseHeaders.add(new Header("Last-Modified", dateFormat.format(lastModified)));
+                    responseHeaders.add(new Header("Content-Type", getContentType(path)));
                     if (lastModified <= ifModifiedSince) {
                         responseHeaders.add(new Header("Content-Length", "0"));
                         sc = 304;
@@ -209,7 +266,7 @@ class FileStream extends Stream {
             bytesReceived += written;
             
             // If we've received all expected data, close the write channel
-            if (contentLength > 0 && bytesReceived >= contentLength) {
+            if (requestContentLength > 0 && bytesReceived >= requestContentLength) {
                 finalizePutRequest();
             }
         } catch (IOException e) {
@@ -224,7 +281,7 @@ class FileStream extends Stream {
 
     @Override protected void endRequest() {
         // For PUT requests without Content-Length, finalize when request ends
-        if (requestBodyExpected && writeChannel != null && contentLength <= 0) {
+        if (requestBodyExpected && writeChannel != null && requestContentLength <= 0) {
             finalizePutRequest();
         }
         
@@ -299,6 +356,9 @@ class FileStream extends Stream {
             return;
         }
         
+        // Remember if file existed before PUT operation
+        fileExistedBeforePut = Files.exists(path);
+        
         // Create parent directories if they don't exist
         Path parentDir = path.getParent();
         if (parentDir != null && !Files.exists(parentDir)) {
@@ -321,7 +381,7 @@ class FileStream extends Stream {
                 StandardOpenOption.TRUNCATE_EXISTING);
             
             // If we expect a request body, set up to receive it
-            if (contentLength != 0) { // 0 means empty body, -1 means no Content-Length header
+            if (requestContentLength != 0) { // 0 means empty body, -1 means no Content-Length header
                 requestBodyExpected = true;
                 // Don't send response yet - wait for body to be received
                 return;
@@ -347,9 +407,10 @@ class FileStream extends Stream {
             
             requestBodyExpected = false;
             
-            // Determine response code based on whether file was created or updated
-            boolean fileExisted = bytesReceived > 0 || Files.exists(path);
-            int statusCode = fileExisted ? 200 : 201; // OK vs Created
+            // Determine response code based on whether file existed before PUT
+            // 201 Created: new file created
+            // 204 No Content: existing file updated (per HTTP spec)
+            int statusCode = fileExistedBeforePut ? 204 : 201;
             
             List<Header> responseHeaders = new ArrayList<>();
             if (Files.exists(path)) {
@@ -570,6 +631,53 @@ class FileStream extends Stream {
             safe = safe.substring(0, 100) + "...[truncated]";
         }
         return safe;
+    }
+    
+    @Override
+    protected long getContentLength() {
+        return requestContentLength;
+    }
+    
+    /**
+     * Finds an index file in the given directory.
+     * Tries common index file names in order of preference.
+     */
+    private Path findIndexFile(Path directory) {
+        if (!Files.isDirectory(directory)) {
+            return null;
+        }
+        
+        String[] indexFileNames = {"index.html", "index.htm", "default.html", "default.htm"};
+        
+        for (String indexName : indexFileNames) {
+            Path indexFile = directory.resolve(indexName);
+            if (Files.exists(indexFile) && Files.isReadable(indexFile) && !Files.isDirectory(indexFile)) {
+                return indexFile;
+            }
+        }
+        
+        return null; // No index file found
+    }
+    
+    /**
+     * Determines the Content-Type header value based on the file extension.
+     */
+    private String getContentType(Path filePath) {
+        if (filePath == null) {
+            return CONTENT_TYPES.get(""); // default
+        }
+        
+        String fileName = filePath.getFileName().toString().toLowerCase();
+        int lastDot = fileName.lastIndexOf('.');
+        if (lastDot >= 0 && lastDot < fileName.length() - 1) {
+            String extension = fileName.substring(lastDot + 1);
+            String contentType = CONTENT_TYPES.get(extension);
+            if (contentType != null) {
+                return contentType;
+            }
+        }
+        
+        return CONTENT_TYPES.get(""); // default to application/octet-stream
     }
 
     protected void close() {

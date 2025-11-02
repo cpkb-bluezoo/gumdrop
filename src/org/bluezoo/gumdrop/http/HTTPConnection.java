@@ -23,6 +23,7 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.SendCallback;
 
 import java.io.IOException;
 import java.net.ProtocolException;
@@ -152,6 +153,7 @@ public class HTTPConnection extends Connection {
     
     protected HTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure, int framePadding) {
         super(engine, secure);
+        this.channel = channel;
         this.framePadding = framePadding;
         in = ByteBuffer.allocate(4096);
         if (engine != null) {
@@ -163,6 +165,17 @@ public class HTTPConnection extends Connection {
         streams = new TreeMap<>();
         clientStreamId = 1;
         lineReader = this.new LineReader();
+    }
+
+    @Override
+    protected void setSendCallback(SendCallback callback) {
+        super.setSendCallback(callback);
+    }
+
+    @Override
+    protected void init() throws IOException {
+        super.init();
+        // HTTP connections don't send initial banners
     }
 
     protected void handshakeComplete(String protocol) {
@@ -312,6 +325,7 @@ public class HTTPConnection extends Connection {
      * This method is called from a thread in the connector's thread pool.
      * @param buf the receive buffer
      */
+    @Override
     protected synchronized void received(ByteBuffer buf) {
         // in is ready for put
         int len = buf.remaining();

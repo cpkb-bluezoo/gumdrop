@@ -118,6 +118,12 @@ public abstract class Connection {
     }
 
     protected void init() throws IOException {
+        if (channel == null) {
+            // For testing scenarios where no actual network channel exists
+            bufferSize = 4096; // Use default buffer size
+            return;
+        }
+        
         Socket socket = channel.socket();
         socket.setTcpNoDelay(true);
         if (engine == null || !secure) {
@@ -287,36 +293,62 @@ public abstract class Connection {
      * connection.
      * @param buf the application data to send to the client
      */
+    /**
+     * Inner class for default server-based sending.
+     * This avoids the extra method call overhead and gives direct access to connection internals.
+     */
+    private final SendCallback defaultSendCallback = new SendCallback() {
+        @Override
+        public void onSend(Connection connection, ByteBuffer buf) {
+            // Direct implementation - no extra method call needed
+            if (buf == null) {
+                closeAfterSend = true;
+                return;
+            }
+            if (!channel.isOpen()) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    String message = Server.L10N.getString("err.channel_closed");
+                    message = MessageFormat.format(message, channel);
+                    LOGGER.fine(message);
+                }
+                return;
+            }
+            if (sslState != null) {
+                try {
+                    // We cannot write directly to appOut, it can only be
+                    // accessed in the SSL main thread
+                    Server.getInstance().sslMainExecutor.execute(sslState.new SSLSend(buf));
+                } catch (Exception e) {
+                    // Handle exceptions from the executor, e.g., RejectedExecutionException
+                    throw (RuntimeException) new RuntimeException().initCause(e);
+                }
+            } else {
+                try {
+                    outboundQueue.put(buf); // NB does not use appOut
+                    Server.getInstance().addWriteRequest(Connection.this);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    };
+    
+    // Current send callback - defaults to server-based sending
+    private SendCallback sendCallback = defaultSendCallback;
+    
+    /**
+     * Sets the send callback for this connection.
+     * This allows test classes to intercept sent data.
+     * Protected visibility ensures this is only used by test classes in the same package.
+     * @param callback the callback, or null to use default server-based sending
+     */
+    protected void setSendCallback(SendCallback callback) {
+        this.sendCallback = (callback != null) ? callback : defaultSendCallback;
+    }
+
+    
     public void send(ByteBuffer buf) {
-        if (buf == null) {
-            closeAfterSend = true;
-            return;
-        }
-        if (!channel.isOpen()) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                String message = Server.L10N.getString("err.channel_closed");
-                message = MessageFormat.format(message, channel);
-                LOGGER.fine(message);
-            }
-            return;
-        }
-        if (sslState != null) {
-            try {
-                // We cannot write directly to appOut, it can only be
-                // accessed in the SSL main thread
-                Server.getInstance().sslMainExecutor.execute(sslState.new SSLSend(buf));
-            } catch (Exception e) {
-                // Handle exceptions from the executor, e.g., RejectedExecutionException
-                throw (RuntimeException) new RuntimeException().initCause(e);
-            }
-        } else {
-            try {
-                outboundQueue.put(buf); // NB does not use appOut
-                Server.getInstance().addWriteRequest(this);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
+        sendCallback.onSend(this, buf);
     }
 
     /**
@@ -332,19 +364,26 @@ public abstract class Connection {
 
     private void doClose() {
         try {
-            channel.close();
+            if (channel != null) {
+                channel.close();
+            }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, e.getMessage(), e);
         }
-        Selector selector = key.selector();
-        key.cancel();
-        selector.wakeup();
+        if (key != null) {
+            Selector selector = key.selector();
+            key.cancel();
+            selector.wakeup();
+        }
     }
 
     /**
      * Returns the address of the endpoint this connection is bound to.
      */
     public SocketAddress getLocalSocketAddress() {
+        if (channel == null) {
+            return new java.net.InetSocketAddress("localhost", 25); // For testing scenarios
+        }
         return channel.socket().getLocalSocketAddress();
     }
 
@@ -352,6 +391,9 @@ public abstract class Connection {
      * Returns the address of the endpoint this connection is connected to.
      */
     public SocketAddress getRemoteSocketAddress() {
+        if (channel == null) {
+            return new java.net.InetSocketAddress("client.example.com", 12345); // For testing scenarios
+        }
         return channel.socket().getRemoteSocketAddress();
     }
 

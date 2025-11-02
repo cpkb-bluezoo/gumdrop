@@ -23,6 +23,7 @@
 package org.bluezoo.gumdrop.ftp;
 
 import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.SendCallback;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.util.LineInput;
 
@@ -64,7 +65,7 @@ public class FTPConnection extends Connection {
         void accept(T t) throws IOException;
     }
 
-    private final SocketChannel channel;
+    // Using base class protected SocketChannel channel field
     private final Map<String,IOConsumer<String>> commands;
     private final FTPConnectionHandler handler;
     private final FTPConnectionMetadata metadata;
@@ -106,8 +107,12 @@ public class FTPConnection extends Connection {
         // Initialize metadata
         FTPConnectionMetadata tempMetadata;
         try {
-            InetSocketAddress clientAddr = (InetSocketAddress) channel.getRemoteAddress();
-            InetSocketAddress serverAddr = (InetSocketAddress) channel.getLocalAddress();
+            InetSocketAddress clientAddr = null;
+            InetSocketAddress serverAddr = null;
+            if (channel != null) {
+                clientAddr = (InetSocketAddress) channel.getRemoteAddress();
+                serverAddr = (InetSocketAddress) channel.getLocalAddress();
+            }
             
             tempMetadata = new FTPConnectionMetadata(
                 clientAddr,
@@ -172,6 +177,11 @@ public class FTPConnection extends Connection {
     }
     
     @Override
+    protected void setSendCallback(SendCallback callback) {
+        super.setSendCallback(callback);
+    }
+    
+    @Override
     protected void init() throws IOException {
         super.init();
         
@@ -193,6 +203,7 @@ public class FTPConnection extends Connection {
         }
     }
 
+    @Override
     protected synchronized void received(ByteBuffer buf) {
         try {
             // buf is already in read mode - copy its data to our internal buffer
@@ -620,6 +631,10 @@ public class FTPConnection extends Connection {
             int actualPort = dataCoordinator.setupPassiveMode(requestedPort);
             
             // Get server's local address for PASV response
+            if (channel == null) {
+                reply(425, "Cannot establish data connection - no network channel");
+                return;
+            }
             InetSocketAddress localAddr = (InetSocketAddress) channel.getLocalAddress();
             String pasvResponse = dataCoordinator.generatePassiveResponse(localAddr.getAddress());
             
