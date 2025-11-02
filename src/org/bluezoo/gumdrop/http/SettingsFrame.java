@@ -74,7 +74,7 @@ class SettingsFrame extends Frame {
                     // fall through
                 default:
                     if (value < 1) {
-                        String message = AbstractHTTPConnection.L10N.getString("err.bad_settings_value");
+                        String message = HTTPConnection.L10N.getString("err.bad_settings_value");
                         message = MessageFormat.format(message, identifier, value);
                         throw new ProtocolException(message);
                     }
@@ -128,7 +128,7 @@ class SettingsFrame extends Frame {
         }
     }
 
-    void apply(AbstractHTTPConnection c) {
+    void apply(HTTPConnection c) {
         for (int identifier : settings.keySet()) {
             int value = settings.get(identifier);
             switch (identifier) {

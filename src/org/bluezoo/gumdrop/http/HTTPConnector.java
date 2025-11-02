@@ -1,6 +1,6 @@
 /*
- * FileBasedHTTPConnector.java
- * Copyright (C) 2005, 2013, 2025 Chris Burdess
+ * HTTPConnector.java
+ * Copyright (C) 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -23,51 +23,51 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.Connector;
 
 import java.nio.channels.SocketChannel;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
 
 import javax.net.ssl.SSLEngine;
 
 /**
  * Connection factory for HTTP connections on a given port.
- * This connection can serve static pages from a filesystem root.
+ * Provides default HTTPConnection instances with 404 behavior.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FileBasedHTTPConnector extends AbstractHTTPConnector {
+public class HTTPConnector extends Connector {
 
-    protected String root;
-    protected boolean allowWrite;
+    protected static final int HTTP_DEFAULT_PORT = 80;
+    protected static final int HTTPS_DEFAULT_PORT = 443;
 
-    protected FileSystem fileSystem;
-    protected Path rootPath;
+    protected int port = -1;
 
-    public FileBasedHTTPConnector() {
-        fileSystem = FileSystems.getDefault();
+    public String getDescription() {
+        return secure ? "https" : "http";
     }
 
-    public String getRoot() {
-        return root;
+    public int getPort() {
+        return port;
     }
 
-    public void setRoot(String root) {
-        this.root = root;
-        rootPath = fileSystem.getPath(root);
+    public void setPort(int port) {
+        this.port = port;
     }
 
-    public boolean isAllowWrite() {
-        return allowWrite;
+    public void start() {
+        super.start();
+        if (port <= 0) {
+            port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
+        }
     }
 
-    public void setAllowWrite(boolean allowWrite) {
-        this.allowWrite = allowWrite;
+    public void stop() {
+        // NOOP
     }
 
-    public Connection newConnection(SocketChannel sc, SSLEngine engine) {
-        return new FileBasedHTTPConnection(sc, engine, isSecure(), rootPath, allowWrite);
+    @Override
+    public Connection newConnection(SocketChannel channel, SSLEngine engine) {
+        return new HTTPConnection(channel, engine, secure);
     }
 
 }

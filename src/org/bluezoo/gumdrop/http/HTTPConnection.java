@@ -1,5 +1,5 @@
 /*
- * AbstractHTTPConnection.java
+ * HTTPConnection.java
  * Copyright (C) 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -56,18 +56,19 @@ import org.bluezoo.gumdrop.util.LineInput;
 import gnu.inet.http.HTTPDateFormat;
 
 /**
- * Abstract connection handler for the HTTP protocol.
+ * Connection handler for the HTTP protocol.
  * This manages potentially multiple requests within a single TCP
- * connection.
+ * connection. Provides default 404 behavior when no specific
+ * Stream implementation is provided.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see https://www.rfc-editor.org/rfc/rfc7230
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-public abstract class AbstractHTTPConnection extends Connection {
+public class HTTPConnection extends Connection {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
-    static final Logger LOGGER = Logger.getLogger(AbstractHTTPConnection.class.getName());
+    static final Logger LOGGER = Logger.getLogger(HTTPConnection.class.getName());
 
     static final Charset US_ASCII = Charset.forName("US-ASCII");
     static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
@@ -135,7 +136,7 @@ public abstract class AbstractHTTPConnection extends Connection {
     private Set<Integer> activeStreams = new TreeSet<>();
     // TODO stream priority
 
-    protected AbstractHTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
+    protected HTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
         super(engine, secure);
         in = ByteBuffer.allocate(4096);
         if (engine != null) {
@@ -607,10 +608,13 @@ public abstract class AbstractHTTPConnection extends Connection {
     /**
      * Returns a new stream implementation for this connection.
      * The stream will be notified of events relating to request reception.
+     * Default implementation returns a stream that sends 404 responses.
      * @param connection the connection the stream is associated with
      * @param streamId the connection-unique stream identifier
      */
-    protected abstract Stream newStream(AbstractHTTPConnection connection, int streamId);
+    protected Stream newStream(HTTPConnection connection, int streamId) {
+        return new DefaultStream(connection, streamId);
+    }
 
     /**
      * Received a frame from the client.

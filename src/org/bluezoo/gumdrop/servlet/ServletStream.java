@@ -22,7 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.AbstractHTTPConnection;
+import org.bluezoo.gumdrop.http.HTTPConnection;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Stream;
 
@@ -64,7 +64,7 @@ class ServletStream extends Stream {
     private List<ByteBuffer> responseBody;
     private boolean requestComplete, responseComplete;
 
-    protected ServletStream(AbstractHTTPConnection connection, int streamId, int bufferSize) {
+    protected ServletStream(HTTPConnection connection, int streamId, int bufferSize) {
         super(connection, streamId);
         this.connection = (ServletConnection) connection;
         this.bufferSize = bufferSize;

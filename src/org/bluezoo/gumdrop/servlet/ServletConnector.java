@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.http.AbstractHTTPConnector;
+import org.bluezoo.gumdrop.http.HTTPConnector;
 import org.bluezoo.gumdrop.util.MessageFormatter;
 
 import java.io.IOException;
@@ -53,7 +53,7 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ServletConnector extends AbstractHTTPConnector {
+public class ServletConnector extends HTTPConnector {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 

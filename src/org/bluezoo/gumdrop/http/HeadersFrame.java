@@ -161,7 +161,7 @@ final class HeadersFrame extends Frame {
         buf.append(";streamDependency=").append(streamDependency);
         buf.append(";streamDependencyExclusive=").append(streamDependencyExclusive);
         buf.append(";weight=").append(weight);
-        buf.append(";headerBlockFragment=").append(AbstractHTTPConnection.toHexString(headerBlockFragment));
+        buf.append(";headerBlockFragment=").append(HTTPConnection.toHexString(headerBlockFragment));
     }
 
 }

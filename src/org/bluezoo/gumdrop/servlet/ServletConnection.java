@@ -22,7 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.AbstractHTTPConnection;
+import org.bluezoo.gumdrop.http.HTTPConnection;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Stream;
 
@@ -46,7 +46,7 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ServletConnection extends AbstractHTTPConnection {
+public class ServletConnection extends HTTPConnection {
 
     private static final Logger LOGGER = Logger.getLogger(ServletConnection.class.getName());
 
@@ -74,7 +74,7 @@ public class ServletConnection extends AbstractHTTPConnection {
         return channel;
     }
 
-    protected Stream newStream(AbstractHTTPConnection connection, int streamId) {
+    protected Stream newStream(HTTPConnection connection, int streamId) {
         ServletStream stream = new ServletStream(this, streamId, bufferSize);
         try {
             responseQueue.put(stream);

@@ -11,14 +11,14 @@
 			secure='true' keystoreFile='testkeystore.p12' keystorePass='changeit'
 			port='8443'/>
 	</container>
-	<!--connector class='org.bluezoo.gumdrop.http.FileBasedHTTPConnector'
+	<!--connector class='org.bluezoo.gumdrop.http.file.FileHTTPConnector'
 		port='8081' root='web'/-->
-	<!--connector class='org.bluezoo.gumdrop.http.FileBasedHTTPConnector'
+	<!--connector class='org.bluezoo.gumdrop.http.file.FileHTTPConnector'
 		secure='true' keystoreFile='testkeystore.p12' keystorePass='changeit'
 		port='8082' root='web/-->
 	<!--connector class='org.bluezoo.gumdrop.ftp.FTPConnector'
 		port='8083' root='web'/-->
-	<connector class="org.bluezoo.gumdrop.smtp.SMTPConnector" port="25"/>
-	<connector class="org.bluezoo.gumdrop.smtp.SMTPConnector" port="465"
-		secure="true" keystoreFile="server.p12" keystorePass="changeit"/>
+	<!--connector class="org.bluezoo.gumdrop.smtp.SMTPConnector" port="25"/-->
+	<!--connector class="org.bluezoo.gumdrop.smtp.SMTPConnector" port="465"
+		secure="true" keystoreFile="server.p12" keystorePass="changeit"/-->
 </server>

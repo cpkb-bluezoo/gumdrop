@@ -83,10 +83,10 @@ public class Stream {
         HALF_CLOSED_REMOTE;
     }
 
-    final AbstractHTTPConnection connection;
+    final HTTPConnection connection;
     final int streamId;
 
-    protected Stream(AbstractHTTPConnection connection, int streamId) {
+    protected Stream(HTTPConnection connection, int streamId) {
         this.connection = connection;
         this.streamId = streamId;
     }
@@ -336,8 +336,8 @@ public class Stream {
                         try {
                             settingsFrame = new SettingsFrame(0, settings);
                         } catch (ProtocolException e) {
-                            String message = AbstractHTTPConnection.L10N.getString("err.decode_http2_settings");
-                            AbstractHTTPConnection.LOGGER.log(Level.SEVERE, message, e);
+                            String message = HTTPConnection.L10N.getString("err.decode_http2_settings");
+                            HTTPConnection.LOGGER.log(Level.SEVERE, message, e);
                         }
                     }
                 }
@@ -373,7 +373,7 @@ public class Stream {
             while (chunkLineInput.hasRemaining()) {
                 String line;
                 try {
-                    line = chunkLineInput.readLine(AbstractHTTPConnection.US_ASCII_DECODER);
+                    line = chunkLineInput.readLine(HTTPConnection.US_ASCII_DECODER);
                 } catch (IOException e) {
                     connection.sendStreamError(this, 400);
                     return;
