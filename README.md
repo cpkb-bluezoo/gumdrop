@@ -39,7 +39,8 @@ I/O. It supports:
         - annotation-driven configuration and web fragments
         - programmatic registration of web descriptors
         - asynchronous processing
-        - enterprise DataSource and MailSession handling
+        - enterprise DataSource and MailSession handling, JCA connection
+          factories and administered objects
         - secure classloader separation
         - enterprise JNDI integration
         - separate thread pool configuration for servlet worker threads,

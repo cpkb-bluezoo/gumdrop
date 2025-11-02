@@ -26,6 +26,7 @@ import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import javax.servlet.ServletException;
 import org.xml.sax.Attributes;
 
 /**
@@ -99,6 +100,111 @@ public final class AdministeredObject extends Resource implements Injectable {
 
     @Override String getInterfaceName() {
         return administeredObjectInterface;
+    }
+
+    @Override Object newInstance() {
+        if (administeredObjectClass == null) {
+            String message = "No administered-object-class specified for: " + jndiName;
+            Context.LOGGER.log(Level.SEVERE, message);
+            return null;
+        }
+        
+        try {
+            // Load the administered object class
+            Class<?> clazz = Class.forName(administeredObjectClass);
+            Object instance = clazz.getDeclaredConstructor().newInstance();
+            
+            // Set properties via reflection (bean-style property setting)
+            setProperties(instance, properties);
+            
+            return instance;
+            
+        } catch (Exception e) {
+            String message = "Failed to create administered object: " + jndiName;
+            Context.LOGGER.log(Level.SEVERE, message, e);
+            return null;
+        }
+    }
+    
+    /**
+     * Set properties on the administered object using JavaBean conventions.
+     */
+    private void setProperties(Object target, Map<String,String> properties) throws Exception {
+        Class<?> clazz = target.getClass();
+        
+        for (Map.Entry<String,String> entry : properties.entrySet()) {
+            String propertyName = entry.getKey();
+            String propertyValue = entry.getValue();
+            
+            try {
+                // Convert property name to setter method name (e.g., "serverUrl" -> "setServerUrl")
+                String setterName = "set" + Character.toUpperCase(propertyName.charAt(0)) + 
+                                   propertyName.substring(1);
+                
+                // Try common property types
+                setProperty(target, clazz, setterName, propertyValue);
+                
+            } catch (Exception e) {
+                // Log warning but continue - some properties may be optional
+                Context.LOGGER.warning("Failed to set property " + propertyName + 
+                                     " on " + administeredObjectClass + ": " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Set a single property with type conversion.
+     */
+    private void setProperty(Object target, Class<?> clazz, String setterName, String value) 
+            throws Exception {
+        
+        // Try different parameter types in order of likelihood
+        Class<?>[] parameterTypes = {
+            String.class,           // Most common
+            int.class, Integer.class,
+            boolean.class, Boolean.class,
+            long.class, Long.class,
+            double.class, Double.class,
+            float.class, Float.class
+        };
+        
+        Exception lastException = null;
+        
+        for (Class<?> paramType : parameterTypes) {
+            try {
+                java.lang.reflect.Method setter = clazz.getMethod(setterName, paramType);
+                Object convertedValue = convertValue(value, paramType);
+                setter.invoke(target, convertedValue);
+                return; // Success
+            } catch (NoSuchMethodException e) {
+                // Try next parameter type
+                lastException = e;
+            }
+        }
+        
+        // If we get here, no suitable setter was found
+        throw new Exception("No suitable setter method found for property: " + setterName, lastException);
+    }
+    
+    /**
+     * Convert string value to the target type.
+     */
+    private Object convertValue(String value, Class<?> targetType) {
+        if (targetType == String.class) {
+            return value;
+        } else if (targetType == int.class || targetType == Integer.class) {
+            return Integer.valueOf(value);
+        } else if (targetType == boolean.class || targetType == Boolean.class) {
+            return Boolean.valueOf(value);
+        } else if (targetType == long.class || targetType == Long.class) {
+            return Long.valueOf(value);
+        } else if (targetType == double.class || targetType == Double.class) {
+            return Double.valueOf(value);
+        } else if (targetType == float.class || targetType == Float.class) {
+            return Float.valueOf(value);
+        } else {
+            throw new IllegalArgumentException("Unsupported property type: " + targetType);
+        }
     }
 
 }

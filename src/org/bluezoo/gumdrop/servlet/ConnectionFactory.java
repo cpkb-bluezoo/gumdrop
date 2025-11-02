@@ -26,6 +26,7 @@ import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
+import javax.servlet.ServletException;
 import org.xml.sax.Attributes;
 
 /**
@@ -70,8 +71,15 @@ public final class ConnectionFactory extends Resource {
     }
 
     @Override Object newInstance() {
-        // TODO
-        return null;
+        // For now, create a simple connection factory implementation
+        // In a full JCA implementation, this would integrate with resource adapters
+        try {
+            return new BasicJCAConnectionFactory(this);
+        } catch (Exception e) {
+            String message = "Failed to create JCA connection factory: " + jndiName;
+            Context.LOGGER.log(Level.SEVERE, message, e);
+            return null;
+        }
     }
 
 }
