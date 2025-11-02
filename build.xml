@@ -41,7 +41,7 @@
   <!-- JUnit dependencies -->
   <property name='junit.jar' value='junit-4.13.1.jar'/>
   <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
-  <property name='jsonparser.jar' value='jsonparser-1.0.3.jar'/>
+  <property name='jsonparser.jar' value='jsonparser-20251102.jar'/>
 
   <!-- Remove compiled classes and build directories -->
   <target name='clean' depends='clean-junit'>
@@ -172,6 +172,10 @@
       <formatter type="plain" />
       <!--formatter type="xml" /-->
     </junit>
+  </target>
+
+  <!-- Main test target that runs all available tests -->
+  <target name='test' depends='junit-test' description='Run all unit tests'>
   </target>
 
 </project>

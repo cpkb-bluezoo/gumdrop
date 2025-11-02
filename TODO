@@ -3,15 +3,22 @@ Before 1.0 release
 - Test SSL more under more different conditions
 - Create more unit tests
 - Finish HTTP/2 frame handling
-  - Implement stream priority (dependency trees)
-  - Stream housekeeping after they have entered CLOSED state
-  - Allow user to specify padding
+	- Implement stream priority (dependency trees)
+	- Stream housekeeping after they have entered CLOSED state
+	- Allow user to specify padding
 - Timeout for StreamAsyncContext
 - Implement servlet 4.0 methods in servlet package
-  - JCA connection factories and administered objects
+	- JCA connection factories and administered objects
 - server push
-- Finish FTP connector
 
 Long term
 
-- JSP
+- servlet connector
+	- JSP parsing
+- FTP connector
+	- role based access control
+	- rate limiting
+	- quota management
+	- AUTH TLS
+	- IPv6 support
+

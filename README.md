@@ -38,7 +38,6 @@ I/O. It supports:
         - enterprise DataSource and MailSession handling
         - secure classloader separation
         - enterprise JNDI integration
-- FTP, under development
 - SMTP
     - SMTPS
     - STARTTLS support
@@ -53,6 +52,20 @@ I/O. It supports:
         - network block lists
         - max connections per IP
         - require authentication
+- FTP
+    - FTPS
+    - pluggable realm authentication via standardized mechanism
+    - extensible, customizable virtual filesystem
+        - local filesystem implementation provided with secure chroot, cross
+          platform, configurable read/write permissions
+        - extensible for cloud/database resource access
+        - uses high performance NIO channels for data transfer
+    - simple application handler, abstracted away from protocol details
+    - supports binary and ASCII transfer modes
+    - passive and active transfer modes
+    - resume and append support
+    - allows abort to cancel in-progress transfers
+    
 
 This software is dual-licensed. See the LICENSING.md file for complete details.
 
