@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -266,6 +267,58 @@ class ServletStream extends Stream {
         }
         return trailerFields;
     }
+    
+    /**
+     * Sends HTTP trailer fields after the response body.
+     * This method converts the trailer fields map to HTTP headers and sends them
+     * as trailer fields in the HTTP/2 stream or chunked transfer encoding.
+     *
+     * @param trailerFields map of trailer field names to values
+     */
+    private void sendTrailerFields(Map<String,String> trailerFields) {
+        if (trailerFields == null || trailerFields.isEmpty()) {
+            return;
+        }
+        
+        try {
+            // Convert trailer fields to Header list
+            List<Header> trailerHeaders = new ArrayList<>();
+            for (Map.Entry<String,String> entry : trailerFields.entrySet()) {
+                trailerHeaders.add(new Header(entry.getKey(), entry.getValue()));
+            }
+            
+            // Send trailer fields and end the stream
+            // This calls the underlying HTTP connection to send trailer fields
+            sendTrailerHeaders(trailerHeaders);
+            
+        } catch (Exception e) {
+            // Log error but don't throw - trailer field errors shouldn't break the response
+            Logger.getLogger(ServletStream.class.getName()).warning(
+                "Error sending trailer fields: " + e.getMessage());
+            
+            // Still need to end the stream even if trailer sending failed
+            try {
+                sendResponseBody(ByteBuffer.allocate(0), true); // Send empty buffer with endStream=true
+            } catch (Exception endStreamError) {
+                Logger.getLogger(ServletStream.class.getName()).severe(
+                    "Failed to end stream after trailer field error: " + endStreamError.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Sends trailer headers using the underlying HTTP connection.
+     * This method delegates to the parent Stream class to send trailer fields
+     * in the appropriate format for the HTTP version being used.
+     *
+     * @param trailerHeaders list of trailer headers to send
+     * @throws ProtocolException if there's an error sending the trailer headers
+     */
+    private void sendTrailerHeaders(List<Header> trailerHeaders) throws ProtocolException {
+        // For HTTP/2, this will send trailer fields in a HEADERS frame with END_STREAM
+        // For HTTP/1.1 with chunked encoding, this will send trailers after the final chunk
+        super.sendResponseHeaders(0, trailerHeaders, true); // statusCode=0 indicates trailer headers
+    }
 
     // Buffer responses until flush is called. Then notify
     // response-sending thread
@@ -321,9 +374,34 @@ class ServletStream extends Stream {
             // We could add Content-Length here if the servlet didn't do it?
             sendResponseHeaders(statusCode, headers, endStream);
             if (!endStream) {
+                boolean hasTrailerFields = false;
+                Map<String,String> trailerFields = null;
+                
+                // Check if response has trailer fields to send
+                if (response != null) {
+                    Supplier<Map<String,String>> trailerSupplier = response.getTrailerFields();
+                    if (trailerSupplier != null) {
+                        try {
+                            trailerFields = trailerSupplier.get();
+                            hasTrailerFields = (trailerFields != null && !trailerFields.isEmpty());
+                        } catch (Exception e) {
+                            // Log error but continue - don't let trailer field errors break response
+                            Logger.getLogger(ServletStream.class.getName()).warning(
+                                "Error getting trailer fields: " + e.getMessage());
+                        }
+                    }
+                }
+                
+                // Send response body, but don't end stream if we have trailer fields
                 for (Iterator<ByteBuffer> i = responseBody.iterator(); i.hasNext(); ) {
                     ByteBuffer buf = i.next();
-                    sendResponseBody(buf, !i.hasNext());
+                    boolean isLast = !i.hasNext();
+                    sendResponseBody(buf, isLast && !hasTrailerFields);
+                }
+                
+                // Send trailer fields if present
+                if (hasTrailerFields) {
+                    sendTrailerFields(trailerFields);
                 }
             }
         } catch (ProtocolException e) {

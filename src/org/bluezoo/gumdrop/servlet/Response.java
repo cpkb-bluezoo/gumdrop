@@ -38,6 +38,7 @@ import java.nio.charset.CharsetEncoder;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.function.Supplier;
 
 import javax.servlet.Servlet;
 import javax.servlet.ServletOutputStream;
@@ -86,6 +87,9 @@ class Response implements HttpServletResponse {
     PrintWriter writer;
     Locale locale;
     long contentLength = -1L;
+    
+    // Servlet 4.0 - HTTP trailer fields support
+    private Supplier<Map<String,String>> trailerFieldsSupplier;
 
     Response(ServletStream stream, Request request, int bufferSize) {
         this.stream = stream;
@@ -647,6 +651,36 @@ class Response implements HttpServletResponse {
             ret.add(header.getName());
         }
         return Collections.unmodifiableSet(ret);
+    }
+    
+    // -- Servlet 4.0 --
+    
+    /**
+     * Sets a supplier for HTTP trailer fields that will be sent after the response body.
+     * The supplier will be called when the response is being completed to get the
+     * final trailer field values.
+     * 
+     * <p>Trailer fields are only supported in HTTP/2 and chunked transfer encoding
+     * scenarios. If the current connection doesn't support trailers, the supplier
+     * may be ignored.
+     * 
+     * @param supplier the supplier that provides trailer fields, or null to clear
+     * @since Servlet 4.0
+     */
+    @Override
+    public void setTrailerFields(Supplier<Map<String,String>> supplier) {
+        this.trailerFieldsSupplier = supplier;
+    }
+    
+    /**
+     * Returns the supplier for HTTP trailer fields that will be sent after the response body.
+     * 
+     * @return the trailer fields supplier, or null if none has been set
+     * @since Servlet 4.0
+     */
+    @Override
+    public Supplier<Map<String,String>> getTrailerFields() {
+        return this.trailerFieldsSupplier;
     }
 
 }
