@@ -27,6 +27,7 @@ import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
+import org.bluezoo.gumdrop.SendCallback;
 import org.bluezoo.gumdrop.http.HTTPConnection;
 
 import javax.net.ssl.SSLEngine;
@@ -54,7 +55,7 @@ import java.util.logging.Logger;
 public class FileHTTPConnectionTest {
     
     private Path tempRoot;
-    private TestFileHTTPConnection connection;
+    private FileHTTPConnection connection;
     private List<String> responses;
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -117,19 +118,30 @@ public class FileHTTPConnectionTest {
      * Creates FileHTTPConnection directly for protocol testing.
      */
     private void createFileHTTPConnection() throws Exception {
-        // Create FileHTTPConnector with no-arg constructor
-        FileHTTPConnector connector = new FileHTTPConnector();
-        connector.setSecure(false);
-        connector.setRootPath(tempRoot.toString());
-        connector.setAllowWrite(true);
-        
         // Create mock socket channel
         MockSocketChannel mockChannel = new MockSocketChannel();
         
         // Create the FileHTTPConnection directly
-        connection = new TestFileHTTPConnection(mockChannel, null, false, tempRoot, true);
+        connection = new FileHTTPConnection(mockChannel, null, false, tempRoot, true, "index.html");
         
-        // Skip init() call - not needed for protocol testing
+        // Set up callback to capture send() output
+        connection.setSendCallback(new SendCallback() {
+            @Override
+            public void onSend(org.bluezoo.gumdrop.Connection conn, ByteBuffer buf) {
+                if (buf != null && buf.hasRemaining()) {
+                    try {
+                        // Create a defensive copy to avoid buffer state issues
+                        int remaining = buf.remaining();
+                        byte[] data = new byte[remaining];
+                        buf.duplicate().get(data); // Use duplicate() to avoid modifying original buffer
+                        responses.add(new String(data, StandardCharsets.UTF_8));
+                    } catch (Exception e) {
+                        // Log but don't fail the test for buffer issues
+                        System.err.println("SendCallback error: " + e.getMessage());
+                    }
+                }
+            }
+        });
         
         // Clear any initialization responses
         responses.clear();
@@ -600,37 +612,6 @@ public class FileHTTPConnectionTest {
         }
     }
     
-    /**
-     * Test FileHTTPConnection that captures send() calls for verification.
-     */
-    private class TestFileHTTPConnection extends FileHTTPConnection {
-        
-        public TestFileHTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure, 
-                                    Path rootPath, boolean allowWrite) {
-            super(channel, engine, secure, rootPath, allowWrite);
-            
-            // Set the base class channel field
-            try {
-                java.lang.reflect.Field baseChannelField = org.bluezoo.gumdrop.Connection.class.getDeclaredField("channel");
-                baseChannelField.setAccessible(true);
-                baseChannelField.set(this, channel);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to set base class channel field", e);
-            }
-        }
-        
-        @Override
-        public void send(ByteBuffer buf) {
-            // Capture the response for testing
-            byte[] data = new byte[buf.remaining()];
-            buf.get(data);
-            String response = new String(data, StandardCharsets.UTF_8);
-            
-            responses.add(response);
-            
-            // Don't actually send over network - we're testing in isolation
-        }
-    }
     
     /**
      * Mock SocketChannel for testing.

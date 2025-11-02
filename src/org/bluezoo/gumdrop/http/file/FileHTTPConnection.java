@@ -47,21 +47,24 @@ public class FileHTTPConnection extends HTTPConnection {
     private final Path rootPath;
     private final boolean allowWrite;
     private final String allowedOptions;
+    private final String welcomeFile;
 
     protected FileHTTPConnection(SocketChannel channel,
             SSLEngine engine,
             boolean secure,
             Path rootPath,
-            boolean allowWrite) {
+            boolean allowWrite,
+            String welcomeFile) {
         super(channel, engine, secure);
         this.rootPath = rootPath;
         this.allowWrite = allowWrite;
+        this.welcomeFile = welcomeFile != null ? welcomeFile : "index.html";
         allowedOptions = allowWrite ? "OPTIONS, GET, HEAD, PUT, DELETE" : "OPTIONS, GET, HEAD";
     }
 
     @Override
     protected Stream newStream(HTTPConnection connection, int streamId) {
-        return new FileStream(connection, streamId, rootPath, allowWrite, allowedOptions);
+        return new FileStream(connection, streamId, rootPath, allowWrite, allowedOptions, welcomeFile);
     }
     
     @Override

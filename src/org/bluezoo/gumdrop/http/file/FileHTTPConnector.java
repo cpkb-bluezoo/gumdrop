@@ -46,6 +46,7 @@ public class FileHTTPConnector extends HTTPConnector {
 
     private Path rootPath = Paths.get(".");
     private boolean allowWrite = false;
+    private String welcomeFile = "index.html"; // Default welcome file list
 
     public Path getRootPath() {
         return rootPath;
@@ -70,15 +71,25 @@ public class FileHTTPConnector extends HTTPConnector {
         this.allowWrite = allowWrite;
     }
 
+    public String getWelcomeFile() {
+        return welcomeFile;
+    }
+
+    public void setWelcomeFile(String welcomeFile) {
+        this.welcomeFile = (welcomeFile != null && !welcomeFile.trim().isEmpty()) 
+                          ? welcomeFile.trim() 
+                          : "index.html";
+    }
+
     @Override
     public Connection newConnection(SocketChannel channel, SSLEngine engine) {
-        return new FileHTTPConnection(channel, engine, secure, rootPath, allowWrite);
+        return new FileHTTPConnection(channel, engine, secure, rootPath, allowWrite, welcomeFile);
     }
 
     @Override
     public String getDescription() {
-        return String.format("%s file server (root: %s, write: %s)", 
-                            super.getDescription(), rootPath, allowWrite);
+        return String.format("%s file server (root: %s, write: %s, welcome: %s)", 
+                            super.getDescription(), rootPath, allowWrite, welcomeFile);
     }
 
     /**

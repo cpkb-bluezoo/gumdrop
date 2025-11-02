@@ -1,8 +1,6 @@
 Before 1.0 release
 
 - Test SSL more under more different conditions
-- Create more unit tests
-- FileHTTPConnection index files
 
 Long term
 

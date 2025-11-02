@@ -34,6 +34,7 @@ import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -86,8 +87,10 @@ class FileStream extends Stream {
     private final Path rootPath;
     private final boolean allowWrite;
     private final String allowedOptions;
+    private final String[] welcomeFiles;
 
     private String method;
+    private String requestPath; // Store the original request path
     private Path path;
     private FileChannel fileChannel;
     private WritableByteChannel writeChannel; // For PUT operations
@@ -98,11 +101,22 @@ class FileStream extends Stream {
     private boolean requestBodyExpected = false;
 
     protected FileStream(HTTPConnection connection, int streamId, Path rootPath, 
-                        boolean allowWrite, String allowedOptions) {
+                        boolean allowWrite, String allowedOptions, String welcomeFile) {
         super(connection, streamId);
         this.rootPath = rootPath;
         this.allowWrite = allowWrite;
         this.allowedOptions = allowedOptions;
+        
+        // Parse comma-separated welcome file list
+        if (welcomeFile != null && !welcomeFile.trim().isEmpty()) {
+            String[] files = welcomeFile.split(",");
+            welcomeFiles = new String[files.length];
+            for (int i = 0; i < files.length; i++) {
+                welcomeFiles[i] = files[i].trim();
+            }
+        } else {
+            welcomeFiles = new String[]{"index.html"}; // Default fallback
+        }
     }
 
     @Override protected void endHeaders(Collection<Header> headers) {
@@ -114,7 +128,9 @@ class FileStream extends Stream {
             } else if (":path".equals(name)) {
                 if ("*".equals(value)) { // for OPTIONS
                     path = null;
+                    requestPath = "*";
                 } else {
+                    requestPath = value; // Store original request path
                     path = validateAndResolvePath(value);
                 }
             } else if ("if-modified-since".equals(name.toLowerCase())) {
@@ -160,8 +176,8 @@ class FileStream extends Stream {
                         path = indexFile; // serve the index file instead
                         // Continue to serve the index file (fall through to file serving logic)
                     } else {
-                        sc = 403; // TODO: could implement directory listing
-                        sendResponseHeaders(sc, responseHeaders, true);
+                        // Generate directory listing  
+                        generateDirectoryListing(path, responseHeaders, requestPath);
                         return;
                     }
                 } catch (Exception e) {
@@ -639,24 +655,24 @@ class FileStream extends Stream {
     }
     
     /**
-     * Finds an index file in the given directory.
-     * Tries common index file names in order of preference.
+     * Finds a welcome file in the given directory.
+     * Tries configured welcome file names in order of preference.
      */
     private Path findIndexFile(Path directory) {
         if (!Files.isDirectory(directory)) {
             return null;
         }
         
-        String[] indexFileNames = {"index.html", "index.htm", "default.html", "default.htm"};
-        
-        for (String indexName : indexFileNames) {
-            Path indexFile = directory.resolve(indexName);
-            if (Files.exists(indexFile) && Files.isReadable(indexFile) && !Files.isDirectory(indexFile)) {
-                return indexFile;
+        for (String welcomeFileName : welcomeFiles) {
+            if (welcomeFileName != null && !welcomeFileName.isEmpty()) {
+                Path welcomeFilePath = directory.resolve(welcomeFileName);
+                if (Files.exists(welcomeFilePath) && Files.isReadable(welcomeFilePath) && !Files.isDirectory(welcomeFilePath)) {
+                    return welcomeFilePath;
+                }
             }
         }
         
-        return null; // No index file found
+        return null; // No welcome file found
     }
     
     /**
@@ -682,5 +698,113 @@ class FileStream extends Stream {
 
     protected void close() {
         // This method exists in the original - may be used for cleanup
+    }
+    
+    /**
+     * Generates an HTML directory listing for the given directory.
+     */
+    private void generateDirectoryListing(Path directory, List<Header> responseHeaders, String requestPath) 
+            throws IOException, ProtocolException {
+        // Use the original request path instead of trying to calculate from filesystem
+        String displayPath = requestPath;
+        if (displayPath == null || displayPath.isEmpty()) {
+            displayPath = "/";
+        }
+        // Ensure it ends with / for directories
+        if (!displayPath.endsWith("/")) {
+            displayPath += "/";
+        }
+        final String relativePath = displayPath; // Make final for lambda
+        
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html>\n");
+        html.append("<html><head><title>Directory listing for ").append(escapeHtml(relativePath)).append("</title></head>\n");
+        html.append("<body>\n");
+        html.append("<h1>Directory listing for ").append(escapeHtml(relativePath)).append("</h1>\n");
+        html.append("<hr>\n<ul>\n");
+        
+        // Add parent directory link if not at root
+        if (!relativePath.equals("/")) {
+            String parentPath = relativePath.substring(0, relativePath.lastIndexOf('/', relativePath.length() - 2) + 1);
+            html.append("<li><a href=\"").append(escapeHtml(parentPath)).append("\">../</a></li>\n");
+        }
+        
+        try {
+            // List directory contents
+            Files.list(directory)
+                .sorted((p1, p2) -> {
+                    // Directories first, then files, both alphabetically
+                    boolean p1IsDir = Files.isDirectory(p1);
+                    boolean p2IsDir = Files.isDirectory(p2);
+                    if (p1IsDir != p2IsDir) {
+                        return p1IsDir ? -1 : 1;
+                    }
+                    return p1.getFileName().toString().compareToIgnoreCase(p2.getFileName().toString());
+                })
+                .forEach(file -> {
+                    try {
+                        String filename = file.getFileName().toString();
+                        boolean isDirectory = Files.isDirectory(file);
+                        String displayName = isDirectory ? filename + "/" : filename;
+                        
+                        html.append("<li><a href=\"")
+                            .append(escapeHtml(relativePath))
+                            .append(escapeHtml(filename))
+                            .append(isDirectory ? "/" : "")
+                            .append("\">")
+                            .append(escapeHtml(displayName))
+                            .append("</a>");
+                        
+                        if (!isDirectory) {
+                            try {
+                                long size = Files.size(file);
+                                html.append(" (").append(formatFileSize(size)).append(")");
+                            } catch (IOException e) {
+                                // Ignore file size errors
+                            }
+                        }
+                        
+                        html.append("</li>\n");
+                    } catch (Exception e) {
+                        // Skip files that cause errors
+                    }
+                });
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error listing directory contents: " + directory, e);
+            html.append("<li><em>Error reading directory contents</em></li>\n");
+        }
+        
+        html.append("</ul>\n<hr>\n");
+        html.append("<address>gumdrop/0.3 Server</address>\n");
+        html.append("</body></html>\n");
+        
+        byte[] htmlBytes = html.toString().getBytes(StandardCharsets.UTF_8);
+        
+        responseHeaders.add(new Header("Content-Type", "text/html; charset=utf-8"));
+        responseHeaders.add(new Header("Content-Length", String.valueOf(htmlBytes.length)));
+        
+        sendResponseHeaders(200, responseHeaders, false);
+        sendResponseBody(htmlBytes, true);
+    }
+    
+    /**
+     * Escapes HTML special characters.
+     */
+    private String escapeHtml(String text) {
+        return text.replace("&", "&amp;")
+                  .replace("<", "&lt;")
+                  .replace(">", "&gt;")
+                  .replace("\"", "&quot;")
+                  .replace("'", "&#x27;");
+    }
+    
+    /**
+     * Formats file size in human-readable format.
+     */
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024));
+        return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
     }
 }

@@ -71,7 +71,7 @@ public class FileSecurityTest {
     private static class TestFileStream extends FileStream {
         
         public TestFileStream(Path rootPath) {
-            super(new TestHTTPConnection(), 1, rootPath, true, "GET, HEAD, PUT, DELETE, OPTIONS");
+            super(new TestHTTPConnection(), 1, rootPath, true, "GET, HEAD, PUT, DELETE, OPTIONS", "index.html");
         }
         
         public Path testValidateAndResolvePath(String requestPath) throws Exception {
