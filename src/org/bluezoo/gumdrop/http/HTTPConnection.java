@@ -130,10 +130,10 @@ public class HTTPConnection extends Connection {
     Encoder hpackEncoder;
 
     private int clientStreamId; // synthesized stream ID for HTTP/1
-    private final Map<Integer,Stream> streams;
+    protected final Map<Integer,Stream> streams;
     private int continuationStream;
     private boolean continuationEndStream; // if the continuation should end stream after end of headers
-    private final Set<Integer> activeStreams = new TreeSet<>();
+    protected final Set<Integer> activeStreams = new TreeSet<>();
     
     // Stream cleanup management
     private long lastStreamCleanup = 0L;
@@ -141,9 +141,9 @@ public class HTTPConnection extends Connection {
     private static final long STREAM_RETENTION_MS = 30_000L; // Keep closed streams for 30 seconds
     
     // HTTP/2 frame padding configuration
-    private final int framePadding; // 0-255 bytes padding for server-originated frames
+    private final int framePadding; // 0-255 bytes padding for server-oriented frames
     
-    // TODO stream priority
+    // TODO stream priority - use PriorityAwareHTTPConnector for priority support
 
     protected HTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
         this(channel, engine, secure, 0); // Default: no padding
@@ -688,6 +688,18 @@ public class HTTPConnection extends Connection {
      * Received a frame from the client.
      */
     void receiveFrame(Frame frame) throws IOException {
+        // Allow subclasses to handle priority information
+        processFrame(frame);
+    }
+    
+    /**
+     * Processes a frame for this connection.
+     * Subclasses can override to add priority handling or other frame processing.
+     * 
+     * @param frame the frame to process
+     * @throws Exception if frame processing fails
+     */
+    protected void processFrame(Frame frame) throws IOException {
         //System.err.println("Received frame: "+frame);
         int streamId = frame.getStream();
         Stream stream = getStream(streamId);
@@ -867,7 +879,7 @@ public class HTTPConnection extends Connection {
      * Immediately cleanup all streams when the connection is closing.
      * This prevents memory leaks on connection termination.
      */
-    private void cleanupAllStreams() {
+    protected void cleanupAllStreams() {
         synchronized (streams) {
             int streamCount = streams.size();
             streams.clear();
@@ -1061,6 +1073,17 @@ public class HTTPConnection extends Connection {
             hexString.append(String.format("%02x", value));
         }
         return hexString.toString();
+    }
+    
+    /**
+     * Removes a stream from this connection.
+     * Subclasses can override to perform additional cleanup.
+     * 
+     * @param streamId the stream ID to remove
+     * @return the removed stream, or null if not found
+     */
+    protected Stream removeStream(int streamId) {
+        return streams.remove(streamId);
     }
 
 }
