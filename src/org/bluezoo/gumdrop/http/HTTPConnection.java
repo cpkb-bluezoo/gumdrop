@@ -140,10 +140,18 @@ public class HTTPConnection extends Connection {
     private static final long STREAM_CLEANUP_INTERVAL_MS = 30_000L; // 30 seconds
     private static final long STREAM_RETENTION_MS = 30_000L; // Keep closed streams for 30 seconds
     
+    // HTTP/2 frame padding configuration
+    private final int framePadding; // 0-255 bytes padding for server-originated frames
+    
     // TODO stream priority
 
     protected HTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
+        this(channel, engine, secure, 0); // Default: no padding
+    }
+    
+    protected HTTPConnection(SocketChannel channel, SSLEngine engine, boolean secure, int framePadding) {
         super(engine, secure);
+        this.framePadding = framePadding;
         in = ByteBuffer.allocate(4096);
         if (engine != null) {
             // Configure this engine with ALPN
@@ -889,7 +897,7 @@ public class HTTPConnection extends Connection {
                 int streamDependency = 0; // TODO
                 boolean streamDependencyExclusive = false; // TODO
                 int weight = 0; // TODO
-                int padLength = 0; // TODO
+                int padLength = framePadding; // Use configured padding for server-originated frames
                 // encode
                 buf = ByteBuffer.allocate(headerTableSize);
                 while (!success) {
@@ -1015,9 +1023,8 @@ public class HTTPConnection extends Connection {
         // We should probably store them as ByteBuffer at some point
         switch (state) {
             case STATE_HTTP2:
-                // Use DATA frame
-                int padLength = 0; // TODO allow user to specify padding
-                sendFrame(new DataFrame(streamId, padLength > 0, endStream, padLength, data));
+                // Use DATA frame with configured padding
+                sendFrame(new DataFrame(streamId, framePadding > 0, endStream, framePadding, data));
                 break;
             default:
                 // send directly
@@ -1035,12 +1042,11 @@ public class HTTPConnection extends Connection {
     void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream) {
         switch (state) {
             case STATE_HTTP2:
-                // Use DATA frame
-                int padLength = 0; // TODO allow user to specify padding
+                // Use DATA frame with configured padding
                 int length = buf.remaining();
                 byte[] data = new byte[length];
                 buf.get(data);
-                sendFrame(new DataFrame(streamId, padLength > 0, endStream, padLength, data));
+                sendFrame(new DataFrame(streamId, framePadding > 0, endStream, framePadding, data));
                 break;
             default:
                 // send directly

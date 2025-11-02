@@ -41,6 +41,14 @@ public class HTTPConnector extends Connector {
     protected static final int HTTPS_DEFAULT_PORT = 443;
 
     protected int port = -1;
+    
+    /**
+     * HTTP/2 frame padding amount for server-originated frames.
+     * Padding can be used to obscure the actual size of DATA, HEADERS,
+     * and PUSH_PROMISE frames for security purposes (RFC 7540 Section 6.1).
+     * Value must be between 0-255 bytes.
+     */
+    protected int framePadding = 0;
 
     public String getDescription() {
         return secure ? "https" : "http";
@@ -65,9 +73,37 @@ public class HTTPConnector extends Connector {
         // NOOP
     }
 
+    /**
+     * Gets the HTTP/2 frame padding amount for server-originated frames.
+     * 
+     * @return padding amount in bytes (0-255)
+     */
+    public int getFramePadding() {
+        return framePadding;
+    }
+    
+    /**
+     * Sets the HTTP/2 frame padding amount for server-originated frames.
+     * Padding adds random-length padding to DATA, HEADERS, and PUSH_PROMISE
+     * frames to obscure actual message sizes for security purposes.
+     * 
+     * <p>From RFC 7540 Section 6.1: "Padding can be added to DATA, HEADERS, 
+     * PUSH_PROMISE frames to obscure the size of messages and to provide 
+     * protection against specific attacks."
+     * 
+     * @param framePadding padding amount in bytes (0-255)
+     * @throws IllegalArgumentException if padding is outside valid range
+     */
+    public void setFramePadding(int framePadding) {
+        if (framePadding < 0 || framePadding > 255) {
+            throw new IllegalArgumentException("Frame padding must be between 0-255 bytes, got: " + framePadding);
+        }
+        this.framePadding = framePadding;
+    }
+
     @Override
     public Connection newConnection(SocketChannel channel, SSLEngine engine) {
-        return new HTTPConnection(channel, engine, secure);
+        return new HTTPConnection(channel, engine, secure, framePadding);
     }
 
 }

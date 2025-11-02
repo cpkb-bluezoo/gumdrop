@@ -4,8 +4,6 @@ Before 1.0 release
 - Create more unit tests
 - Finish HTTP/2 frame handling
 	- Implement stream priority (dependency trees)
-	- Allow user to specify padding
-- Timeout for StreamAsyncContext
 - Implement servlet 4.0 methods in servlet package
 	- JCA connection factories and administered objects
 - server push

@@ -34,6 +34,7 @@ import javax.net.ssl.SSLEngine;
 
 /**
  * HTTP connection that serves files from a filesystem root.
+ * This is a cleaner implementation that extends HTTPConnection directly.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -61,5 +62,4 @@ public class FileHTTPConnection extends HTTPConnection {
     protected Stream newStream(HTTPConnection connection, int streamId) {
         return new FileStream(connection, streamId, rootPath, allowWrite, allowedOptions);
     }
-
 }

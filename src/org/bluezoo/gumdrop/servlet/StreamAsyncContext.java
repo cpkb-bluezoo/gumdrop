@@ -27,6 +27,10 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -49,10 +53,20 @@ import javax.servlet.ServletResponse;
 class StreamAsyncContext implements AsyncContext {
 
     static final Logger LOGGER = Logger.getLogger(StreamAsyncContext.class.getName());
+    
+    // Shared scheduled executor for timeout management across all async contexts
+    private static final ScheduledExecutorService TIMEOUT_EXECUTOR = 
+        Executors.newScheduledThreadPool(2, r -> {
+            Thread t = new Thread(r, "async-timeout");
+            t.setDaemon(true);
+            return t;
+        });
 
     ServletStream stream;
     boolean dispatched;
-    long timeout = 30000L; // TODO
+    long timeout = 30000L; // Default 30 seconds
+    private ScheduledFuture<?> timeoutTask;
+    private boolean completed = false;
 
     Collection<ListenerRegistration> listeners = new ConcurrentLinkedDeque<>();
 
@@ -63,6 +77,10 @@ class StreamAsyncContext implements AsyncContext {
     // Called by ContextRequestDispatcher.doFilter once service has been
     // completed after startAsync was called
     void asyncStarted() {
+        // Schedule timeout if configured and not already completed
+        scheduleTimeout();
+        
+        // Notify listeners
         for (ListenerRegistration item : listeners) {
             AsyncListener listener = item.listener;
             ServletRequest request = item.request;
@@ -79,6 +97,80 @@ class StreamAsyncContext implements AsyncContext {
             } catch (IOException e) {
                 LOGGER.log(Level.SEVERE, e.getMessage(), e);
             }
+        }
+    }
+    
+    /**
+     * Schedules the timeout task if a timeout is configured.
+     */
+    private synchronized void scheduleTimeout() {
+        if (timeout > 0 && !completed && timeoutTask == null) {
+            timeoutTask = TIMEOUT_EXECUTOR.schedule(() -> {
+                handleTimeout();
+            }, timeout, TimeUnit.MILLISECONDS);
+            
+            LOGGER.fine("Scheduled async timeout for " + timeout + "ms on stream " + stream);
+        }
+    }
+    
+    /**
+     * Handles async context timeout by notifying listeners and potentially completing the request.
+     */
+    private synchronized void handleTimeout() {
+        if (completed) {
+            return; // Already completed, ignore timeout
+        }
+        
+        LOGGER.info("Async context timeout after " + timeout + "ms on stream " + stream);
+        
+        boolean listenerHandledTimeout = false;
+        
+        // Notify all registered listeners of the timeout
+        for (ListenerRegistration item : listeners) {
+            AsyncListener listener = item.listener;
+            ServletRequest request = item.request;
+            ServletResponse response = item.response;
+            if (request == null) {
+                request = stream.request;
+            }
+            if (response == null) {
+                response = stream.response;
+            }
+            
+            AsyncEvent event = new AsyncEvent(this, request, response);
+            try {
+                listener.onTimeout(event);
+                // If listener calls complete() or dispatch(), completed will be set to true
+                if (completed) {
+                    listenerHandledTimeout = true;
+                    break;
+                }
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error in async timeout listener", e);
+            }
+        }
+        
+        // If no listener handled the timeout, complete the request with error
+        if (!listenerHandledTimeout && !completed) {
+            LOGGER.info("No listener handled timeout, completing request with error");
+            try {
+                // Send 500 Internal Server Error for timeout
+                stream.response.sendError(500, "Async operation timed out");
+                complete();
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE, "Error completing timed-out async request", e);
+            }
+        }
+    }
+    
+    /**
+     * Cancels any pending timeout task.
+     */
+    private synchronized void cancelTimeout() {
+        if (timeoutTask != null && !timeoutTask.isDone()) {
+            boolean cancelled = timeoutTask.cancel(false);
+            LOGGER.fine("Cancelled async timeout task: " + cancelled + " on stream " + stream);
+            timeoutTask = null;
         }
     }
 
@@ -114,7 +206,17 @@ class StreamAsyncContext implements AsyncContext {
         return (getRequest() instanceof Request) && (getResponse() instanceof Response);
     }
 
-    @Override public void dispatch() {
+    @Override public synchronized void dispatch() {
+        if (completed) {
+            throw new IllegalStateException("AsyncContext already completed");
+        }
+        
+        completed = true;
+        cancelTimeout();
+        dispatched = true;
+        
+        LOGGER.fine("Dispatching async context on stream " + stream);
+        
         ServletRequest request = getRequest();
         ServletResponse response = getResponse();
         // Determine servlet used for request
@@ -138,7 +240,17 @@ class StreamAsyncContext implements AsyncContext {
         dispatch(getRequest().getServletContext(), path);
     }
 
-    @Override public void dispatch(ServletContext context, String path) {
+    @Override public synchronized void dispatch(ServletContext context, String path) {
+        if (completed) {
+            throw new IllegalStateException("AsyncContext already completed");
+        }
+        
+        completed = true;
+        cancelTimeout();
+        dispatched = true;
+        
+        LOGGER.fine("Dispatching async context to path " + path + " on stream " + stream);
+        
         RequestDispatcher rd = context.getRequestDispatcher(path);
         try {
             rd.forward(getRequest(), getResponse());
@@ -147,8 +259,17 @@ class StreamAsyncContext implements AsyncContext {
         }
     }
 
-    @Override public void complete() {
-        // TODO close response
+    @Override public synchronized void complete() {
+        if (completed) {
+            return; // Already completed
+        }
+        
+        completed = true;
+        cancelTimeout();
+        
+        LOGGER.fine("Completing async context on stream " + stream);
+        
+        // Notify completion listeners
         for (ListenerRegistration item : listeners) {
             AsyncListener listener = item.listener;
             ServletRequest request = item.request;
@@ -166,6 +287,10 @@ class StreamAsyncContext implements AsyncContext {
                 LOGGER.log(Level.SEVERE, e.getMessage(), e);
             }
         }
+        
+        // Mark the response as completed - the stream will be closed by the container
+        // when the response is fully sent
+        LOGGER.fine("Async context completed on stream " + stream);
     }
 
     @Override public void start(Runnable run) {
@@ -189,8 +314,16 @@ class StreamAsyncContext implements AsyncContext {
         }
     }
 
-    @Override public void setTimeout(long timeout) {
+    @Override public synchronized void setTimeout(long timeout) {
         this.timeout = timeout;
+        
+        // If already started and timeout changed, reschedule
+        if (timeoutTask != null) {
+            cancelTimeout();
+            scheduleTimeout();
+        }
+        
+        LOGGER.fine("Set async timeout to " + timeout + "ms on stream " + stream);
     }
 
     @Override public long getTimeout() {
