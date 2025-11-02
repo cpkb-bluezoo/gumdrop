@@ -11,11 +11,14 @@ I/O. It supports:
     - client certificates
     - SSL protocols (TLS 1.2, 1.3)
     - cipher suite selection
-    - thread pool configuration
+    - thread pool configuration for connection handlers on a per-connector
+      basis, completely independent of number of client connections
     - internationalization and localization facilities
     - centralized and secure realm interface for authentication and
       authorization
     - connection filtering
+    - centralized authentication and authorization realm interface
+      usable by multiple connectors
 - HTTP
     - versions 1.0 and 1.1
         - Chunked encoding
@@ -26,10 +29,11 @@ I/O. It supports:
       and cipher suites
     - HTTP Digest Authentication
     - simple file-based HTTP server
+        - supports fast NIO based data transfer
+        - PUT and DELETE
     - complete, conformant Java servlet container
         - servlet 4.0 implementation
         - hot deployment
-        - filter chains
         - session management and clustering/replication facilities
         - complete multipart/form-data handling
         - annotation-driven configuration and web fragments
@@ -38,6 +42,9 @@ I/O. It supports:
         - enterprise DataSource and MailSession handling
         - secure classloader separation
         - enterprise JNDI integration
+        - filter chains
+        - separate thread pool configuration for servlet worker threads,
+          distinct from HTTP connection handler thread pool
 - SMTP
     - SMTPS
     - STARTTLS support

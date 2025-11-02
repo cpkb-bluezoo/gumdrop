@@ -25,9 +25,12 @@ package org.bluezoo.gumdrop.http.file;
 import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.http.HTTPConnector;
 
+import java.io.IOException;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
 
@@ -39,6 +42,8 @@ import javax.net.ssl.SSLEngine;
  */
 public class FileHTTPConnector extends HTTPConnector {
 
+    private static final Logger LOGGER = Logger.getLogger(FileHTTPConnector.class.getName());
+
     private Path rootPath = Paths.get(".");
     private boolean allowWrite = false;
 
@@ -47,11 +52,14 @@ public class FileHTTPConnector extends HTTPConnector {
     }
 
     public void setRootPath(Path rootPath) {
+        validateRootPath(rootPath);
         this.rootPath = rootPath;
     }
 
     public void setRootPath(String rootPath) {
-        this.rootPath = Paths.get(rootPath);
+        Path path = Paths.get(rootPath);
+        validateRootPath(path);
+        this.rootPath = path;
     }
 
     public boolean isAllowWrite() {
@@ -73,4 +81,40 @@ public class FileHTTPConnector extends HTTPConnector {
                             super.getDescription(), rootPath, allowWrite);
     }
 
+    /**
+     * Validates that the root path is safe for use as a file server root.
+     * This prevents configuration errors that could lead to security issues.
+     */
+    private void validateRootPath(Path path) {
+        if (path == null) {
+            throw new IllegalArgumentException("Root path cannot be null");
+        }
+
+        try {
+            // Resolve to canonical path to handle symbolic links
+            Path realPath = path.toRealPath();
+            
+            // Ensure it's a directory
+            if (!Files.isDirectory(realPath)) {
+                throw new IllegalArgumentException("Root path must be a directory: " + realPath);
+            }
+            
+            // Ensure it's readable
+            if (!Files.isReadable(realPath)) {
+                throw new IllegalArgumentException("Root path must be readable: " + realPath);
+            }
+            
+            // Warn about writable roots if write operations are enabled
+            if (allowWrite && !Files.isWritable(realPath)) {
+                LOGGER.warning("Root path is not writable but write operations are enabled: " + realPath);
+            }
+            
+            // Security: Log the canonical path being used
+            LOGGER.info("File server root validated: " + realPath + 
+                       " (write: " + allowWrite + ")");
+                       
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Cannot access root path: " + path + " - " + e.getMessage(), e);
+        }
+    }
 }

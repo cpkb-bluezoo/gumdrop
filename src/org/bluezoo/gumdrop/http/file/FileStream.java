@@ -86,26 +86,7 @@ class FileStream extends Stream {
                 if ("*".equals(value)) { // for OPTIONS
                     path = null;
                 } else {
-                    // HTTP URI always uses slash as path separator.
-                    // The underlying filesystem here may not.
-                    String[] pathComps = value.split("/");
-                    path = rootPath;
-                    for (String comp : pathComps) {
-                        try {
-                            comp = URLDecoder.decode(comp, "UTF-8");
-                        } catch (UnsupportedEncodingException e) {
-                            // This should never happen
-                            RuntimeException e2 = new RuntimeException("UTF-8 is not supported");
-                            e2.initCause(e);
-                            throw e2;
-                        }
-                        path = path.resolve(comp);
-                    }
-                    // Normalize the path to prevent directory traversal attacks
-                    path = path.normalize();
-                    if (!path.startsWith(rootPath)) {
-                        path = null; // Outside root - will result in 403
-                    }
+                    path = validateAndResolvePath(value);
                 }
             } else if ("if-modified-since".equals(name.toLowerCase())) {
                 try {
@@ -387,6 +368,208 @@ class FileStream extends Stream {
                 LOGGER.log(Level.SEVERE, "Error sending 500 response", pe);
             }
         }
+    }
+
+    /**
+     * Validates and resolves a request path to ensure it stays within the filesystem root.
+     * This method implements comprehensive security checks to prevent directory traversal attacks.
+     * 
+     * @param requestPath the raw HTTP request path
+     * @return the resolved Path within the root, or null if invalid/outside root
+     */
+    private Path validateAndResolvePath(String requestPath) {
+        if (requestPath == null || requestPath.isEmpty()) {
+            LOGGER.warning("Rejected empty or null path");
+            return null;
+        }
+        
+        // Security check: Reject paths with null bytes (historical attack vector)
+        if (requestPath.contains("\0")) {
+            LOGGER.warning("Rejected path containing null bytes: " + logSafePath(requestPath));
+            return null;
+        }
+        
+        // Security check: Reject overly long paths (potential DoS)
+        if (requestPath.length() > 2048) {
+            LOGGER.warning("Rejected overly long path (length: " + requestPath.length() + ")");
+            return null;
+        }
+        
+        try {
+            // Start with the root path
+            Path resolvedPath = rootPath;
+            
+            // Split path and process each component
+            String[] pathComponents = requestPath.split("/");
+            
+            for (String component : pathComponents) {
+                // Skip empty components (multiple slashes)
+                if (component.isEmpty()) {
+                    continue;
+                }
+                
+                // URL decode the component
+                String decodedComponent;
+                try {
+                    decodedComponent = URLDecoder.decode(component, "UTF-8");
+                } catch (UnsupportedEncodingException e) {
+                    // This should never happen with UTF-8
+                    LOGGER.severe("UTF-8 decoding failed for component: " + component);
+                    return null;
+                }
+                
+                // Security check: Additional decoding attempts to catch double encoding
+                String doubleDecoded = decodedComponent;
+                try {
+                    doubleDecoded = URLDecoder.decode(decodedComponent, "UTF-8");
+                } catch (Exception e) {
+                    // Ignore - single decoding is sufficient
+                }
+                if (!doubleDecoded.equals(decodedComponent)) {
+                    LOGGER.warning("Rejected double-encoded path component: " + logSafePath(component));
+                    return null;
+                }
+                
+                // Security check: Reject dangerous path components
+                if (isDangerousPathComponent(decodedComponent)) {
+                    LOGGER.warning("Rejected dangerous path component: " + logSafePath(decodedComponent));
+                    return null;
+                }
+                
+                // Resolve the component
+                resolvedPath = resolvedPath.resolve(decodedComponent);
+            }
+            
+            // Normalize the path to resolve . and .. components
+            resolvedPath = resolvedPath.normalize();
+            
+            // Security check: Ensure the normalized path is still within root
+            if (!isWithinRoot(resolvedPath)) {
+                LOGGER.warning("Rejected path outside root: " + logSafePath(resolvedPath.toString()));
+                return null;
+            }
+            
+            // Security check: If file exists, resolve real path to handle symbolic links
+            if (Files.exists(resolvedPath)) {
+                try {
+                    Path realPath = resolvedPath.toRealPath();
+                    if (!isWithinRoot(realPath)) {
+                        LOGGER.warning("Rejected symbolic link outside root: " + logSafePath(realPath.toString()));
+                        return null;
+                    }
+                    resolvedPath = realPath;
+                } catch (IOException e) {
+                    // Could be a broken symlink or permission issue - allow it to proceed
+                    // The actual file operation will handle the error appropriately
+                    LOGGER.fine("Could not resolve real path for: " + resolvedPath + " - " + e.getMessage());
+                }
+            }
+            
+            LOGGER.fine("Validated path: " + requestPath + " -> " + resolvedPath);
+            return resolvedPath;
+            
+        } catch (Exception e) {
+            LOGGER.warning("Path validation error for: " + logSafePath(requestPath) + " - " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Checks if a path component is dangerous (potential security risk).
+     */
+    private boolean isDangerousPathComponent(String component) {
+        if (component == null || component.isEmpty()) {
+            return false;
+        }
+        
+        // Reject path traversal attempts
+        if ("..".equals(component) || ".".equals(component)) {
+            return true;
+        }
+        
+        // Reject components with path traversal sequences
+        if (component.contains("..")) {
+            return true;
+        }
+        
+        // Reject components that are just "." or contain suspicious patterns
+        if (component.contains("./") || component.contains("/.")) {
+            return true;
+        }
+        
+        // Reject Windows-specific dangerous patterns
+        if (component.matches(".*[<>:\"|?*].*")) {
+            return true;
+        }
+        
+        // Reject control characters
+        for (char c : component.toCharArray()) {
+            if (Character.isISOControl(c)) {
+                return true;
+            }
+        }
+        
+        // Reject Windows device names (CON, PRN, AUX, NUL, etc.)
+        String upperComponent = component.toUpperCase();
+        if (upperComponent.matches("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?$")) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Checks if a resolved path is within the allowed root directory.
+     * This uses both logical and physical path checking for maximum security.
+     */
+    private boolean isWithinRoot(Path path) {
+        try {
+            // Get the canonical root path
+            Path canonicalRoot = rootPath.toRealPath();
+            
+            // For existing paths, use real path resolution
+            if (Files.exists(path)) {
+                Path realPath = path.toRealPath();
+                return realPath.startsWith(canonicalRoot);
+            } else {
+                // For non-existent paths, check the normalized logical path
+                Path normalizedPath = path.normalize();
+                Path normalizedRoot = rootPath.normalize();
+                
+                // Also check that when we resolve the real path of the parent,
+                // it's still within the root
+                Path parent = normalizedPath.getParent();
+                while (parent != null && !Files.exists(parent)) {
+                    parent = parent.getParent();
+                }
+                
+                if (parent != null) {
+                    Path realParent = parent.toRealPath();
+                    if (!realParent.startsWith(canonicalRoot)) {
+                        return false;
+                    }
+                }
+                
+                return normalizedPath.startsWith(normalizedRoot);
+            }
+        } catch (IOException e) {
+            // If we can't resolve paths, err on the side of caution
+            LOGGER.warning("Could not resolve paths for security check: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Creates a log-safe version of a path string by removing potentially dangerous characters.
+     */
+    private String logSafePath(String path) {
+        if (path == null) return "null";
+        // Remove control characters and limit length for safe logging
+        String safe = path.replaceAll("[\\p{Cntrl}]", "?");
+        if (safe.length() > 100) {
+            safe = safe.substring(0, 100) + "...[truncated]";
+        }
+        return safe;
     }
 
     protected void close() {
