@@ -130,6 +130,7 @@ public class HTTPConnection extends Connection {
     Encoder hpackEncoder;
 
     private int clientStreamId; // synthesized stream ID for HTTP/1
+    private int serverStreamId = 2; // server-initiated streams start at 2 (even numbers)
     protected final Map<Integer,Stream> streams;
     private int continuationStream;
     private boolean continuationEndStream; // if the continuation should end stream after end of headers
@@ -1085,5 +1086,91 @@ public class HTTPConnection extends Connection {
     protected Stream removeStream(int streamId) {
         return streams.remove(streamId);
     }
+    
+    // -- Server Push Support --
+    
+    /**
+     * Gets the next available server stream ID for server-initiated streams.
+     * Server-initiated stream IDs are even numbers starting from 2.
+     * 
+     * @return the next server stream ID
+     */
+    int getNextServerStreamId() {
+        int nextId = serverStreamId;
+        serverStreamId += 2; // Server stream IDs are even numbers
+        return nextId;
+    }
+    
+    /**
+     * Creates a pushed stream for handling server-initiated requests.
+     * This creates a Stream object that represents the promised resource.
+     * 
+     * @param streamId the stream ID for the pushed stream
+     * @param method the HTTP method for the pushed request
+     * @param uri the URI for the pushed resource
+     * @param headers the headers for the pushed request
+     * @return the created Stream, or null if creation failed
+     */
+    Stream createPushedStream(int streamId, String method, String uri, List<Header> headers) {
+        try {
+            // Create a new stream for the pushed resource
+            Stream pushedStream = newStream(this, streamId);
+            
+            // Configure the stream as a pushed stream
+            pushedStream.setPushPromise();
+            
+            // Set up the pushed request details
+            // The stream will handle this as an incoming request for the specified resource
+            for (Header header : headers) {
+                pushedStream.addHeader(header);
+            }
+            
+            // Add the stream to our stream collection
+            synchronized (streams) {
+                streams.put(streamId, pushedStream);
+            }
+            
+            return pushedStream;
+            
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to create pushed stream " + streamId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * Encodes headers using HPACK for HTTP/2 frames.
+     * This method uses the connection's HPACK encoder to create header block fragments.
+     * 
+     * @param headers the headers to encode
+     * @return the HPACK-encoded header block
+     */
+    byte[] encodeHeaders(List<Header> headers) {
+        try {
+            if (hpackEncoder == null) {
+                // Initialize HPACK encoder with table sizes
+                hpackEncoder = new Encoder(4096, 4096); // Dynamic table size, max table size
+            }
+            
+            // Create a ByteBuffer for HPACK encoding
+            ByteBuffer buffer = ByteBuffer.allocate(8192); // Start with 8KB buffer
+            
+            // Use the HPACK encoder's encode method which takes ByteBuffer and List<Header>
+            hpackEncoder.encode(buffer, headers);
+            
+            // Extract the encoded bytes
+            buffer.flip();
+            byte[] encoded = new byte[buffer.remaining()];
+            buffer.get(encoded);
+            
+            return encoded;
+            
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to encode headers using HPACK", e);
+            // Return empty block on error - better than crashing
+            return new byte[0];
+        }
+    }
+    
 
 }

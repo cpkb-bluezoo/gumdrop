@@ -682,5 +682,18 @@ class Response implements HttpServletResponse {
     public Supplier<Map<String,String>> getTrailerFields() {
         return this.trailerFieldsSupplier;
     }
+    
+    /**
+     * Returns a PushBuilder for HTTP/2 server push functionality.
+     * 
+     * <p>This method delegates to the request's newPushBuilder() method since
+     * server push is initiated based on the request context.
+     * 
+     * @return a new PushBuilder instance, or null if server push is not supported
+     * @since Servlet 4.0
+     */
+    public javax.servlet.http.PushBuilder getPushBuilder() {
+        return request.newPushBuilder();
+    }
 
 }

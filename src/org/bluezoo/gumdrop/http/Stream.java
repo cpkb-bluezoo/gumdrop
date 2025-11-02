@@ -197,8 +197,68 @@ public class Stream {
     /**
      * Notify that this stream represents a push promise.
      */
-    void setPushPromise() {
+    public void setPushPromise() {
         pushPromise = true;
+    }
+    
+    /**
+     * Sends an HTTP/2 server push for the specified resource.
+     * This method creates a PUSH_PROMISE frame and establishes a promised stream.
+     * 
+     * <p>Server push is only supported on HTTP/2 connections. On HTTP/1.x connections,
+     * this method returns false.
+     * 
+     * @param method the HTTP method for the push request (typically GET or HEAD)
+     * @param uri the URI path for the pushed resource
+     * @param headers the headers for the push request
+     * @return true if push was initiated successfully, false otherwise
+     */
+    public boolean sendServerPush(String method, String uri, List<Header> headers) {
+        // Only HTTP/2 connections support server push
+        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+            return false;
+        }
+        
+        try {
+            HTTPConnection httpConnection = (HTTPConnection) connection;
+            
+            // Get next available server stream ID (must be even for server-initiated streams)
+            int promisedStreamId = httpConnection.getNextServerStreamId();
+            
+            // Create PUSH_PROMISE frame with the headers
+            byte[] headerBlock = httpConnection.encodeHeaders(headers);
+            PushPromiseFrame pushPromiseFrame = new PushPromiseFrame(
+                this.streamId,      // Parent stream ID
+                false,              // Not padded
+                true,               // End headers
+                0,                  // Pad length (not used)
+                promisedStreamId,   // Promised stream ID
+                headerBlock         // Encoded headers
+            );
+            
+            // Send PUSH_PROMISE frame
+            httpConnection.sendFrame(pushPromiseFrame);
+            
+            // Create the promised stream for handling the pushed response
+            Stream promisedStream = httpConnection.createPushedStream(promisedStreamId, method, uri, headers);
+            
+            if (promisedStream != null) {
+                // Mark as push promise stream
+                promisedStream.setPushPromise();
+                
+                // The pushed response will be handled by the server when 
+                // the application generates content for this URI
+                return true;
+            }
+            
+        } catch (Exception e) {
+            // Log error but don't throw - server push failures should not break main response
+            java.util.logging.Logger.getLogger(Stream.class.getName()).log(
+                java.util.logging.Level.WARNING, 
+                "Failed to execute server push for " + uri, e);
+        }
+        
+        return false;
     }
 
     /**

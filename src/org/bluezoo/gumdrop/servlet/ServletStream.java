@@ -23,6 +23,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.HTTPConnection;
+import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Stream;
 
@@ -318,6 +319,50 @@ class ServletStream extends Stream {
         // For HTTP/2, this will send trailer fields in a HEADERS frame with END_STREAM
         // For HTTP/1.1 with chunked encoding, this will send trailers after the final chunk
         super.sendResponseHeaders(0, trailerHeaders, true); // statusCode=0 indicates trailer headers
+    }
+    
+    // -- Servlet 4.0 Server Push Support --
+    
+    /**
+     * Checks if this stream supports HTTP/2 server push functionality.
+     * 
+     * @return true if server push is supported, false otherwise
+     */
+    boolean supportsServerPush() {
+        // Server push requires HTTP/2
+        return connection.getVersion() == HTTPVersion.HTTP_2_0;
+    }
+    
+    /**
+     * Executes an HTTP/2 server push for the specified resource.
+     * This delegates to the underlying Stream to handle protocol-specific details.
+     * 
+     * @param method the HTTP method for the push request (typically GET)
+     * @param uri the URI path for the pushed resource
+     * @param headers the headers for the push request
+     * @return true if push was initiated successfully, false otherwise
+     */
+    boolean executePush(String method, String uri, List<Header> headers) {
+        if (!supportsServerPush()) {
+            return false;
+        }
+        
+        try {
+            // Delegate to the base Stream class to handle HTTP/2 protocol specifics
+            boolean success = super.sendServerPush(method, uri, headers);
+            
+            if (success) {
+                LOGGER.fine("Server push initiated: " + method + " " + uri);
+            } else {
+                LOGGER.warning("Server push failed for: " + method + " " + uri);
+            }
+            
+            return success;
+            
+        } catch (Exception e) {
+            LOGGER.warning("Failed to execute server push for " + uri + ": " + e.getMessage());
+            return false;
+        }
     }
 
     // Buffer responses until flush is called. Then notify

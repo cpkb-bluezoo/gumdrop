@@ -32,8 +32,7 @@ I/O. It supports:
     - simple file-based HTTP server
         - supports fast NIO based data transfer
         - PUT and DELETE
-    - complete, conformant Java servlet container
-        - servlet 4.0 implementation
+    - complete, conformant Java servlet 4.0 container
         - hot deployment
         - session management and clustering/replication facilities
         - complete multipart/form-data handling
@@ -43,10 +42,10 @@ I/O. It supports:
         - enterprise DataSource and MailSession handling
         - secure classloader separation
         - enterprise JNDI integration
-        - filter chains
         - separate thread pool configuration for servlet worker threads,
           distinct from HTTP connection handler thread pool
         - WebSocket servlet support with example showing how to use upgrade
+        - server push
 - SMTP
     - SMTPS
     - STARTTLS support

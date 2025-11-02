@@ -1459,6 +1459,32 @@ class Request implements HttpServletRequest {
     @Override public DispatcherType getDispatcherType() {
         return (asyncContext != null) ? DispatcherType.ASYNC : DispatcherType.REQUEST;
     }
+    
+    // -- Servlet 4.0 --
+    
+    /**
+     * Creates a new PushBuilder for HTTP/2 server push functionality.
+     * 
+     * <p>Server push allows the server to proactively send resources that the client
+     * will likely request, reducing round-trip latency. This is only supported on
+     * HTTP/2 connections.
+     * 
+     * <p>If server push is not supported (e.g., on HTTP/1.x connections), this method
+     * returns null.
+     * 
+     * @return a new PushBuilder instance, or null if server push is not supported
+     * @since Servlet 4.0
+     */
+    @Override
+    public javax.servlet.http.PushBuilder newPushBuilder() {
+        // Check if server push is supported on this connection
+        if (stream != null && stream.supportsServerPush()) {
+            return new ServletPushBuilder(stream, this);
+        }
+        
+        // Return null if server push is not supported (per Servlet 4.0 spec)
+        return null;
+    }
 
     // -- Debugging --
 
