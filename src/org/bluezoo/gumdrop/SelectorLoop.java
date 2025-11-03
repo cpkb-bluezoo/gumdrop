@@ -78,7 +78,7 @@ public class SelectorLoop extends Thread {
     final Executor sslMainExecutor; // for main SSL operations
     final ThreadPoolExecutor sslTaskThreadPool; // for SSLEngine delayed task operations
 
-    private Collection<Connector> connectors;
+    private Collection<Server> servers;
     private Selector selector;
     private final Set<Selectable> connectionsWithPendingWrites;
     private ByteBuffer readBuffer; // reusable per selector
@@ -87,15 +87,15 @@ public class SelectorLoop extends Thread {
     private volatile boolean reload;
 
     /**
-     * Creates a new SelectorLoop instance with the provided connectors.
+     * Creates a new SelectorLoop instance with the provided servers.
      * This constructor allows for programmatic configuration of the server.
      *
-     * @param connectors the collection of connectors to serve
+     * @param servers the collection of servers to serve
      */
-    public SelectorLoop(Collection<Connector> connectors) {
+    public SelectorLoop(Collection<Server> servers) {
         super("Server");
         instance = this; // Set singleton instance
-        this.connectors = connectors;
+        this.servers = servers;
         ThreadFactory factory = Executors.defaultThreadFactory();
         sslMainExecutor = Executors.newSingleThreadExecutor(new GumdropThreadFactory(factory, "ssl-main"));
         sslTaskThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new GumdropThreadFactory(factory, "ssl-task"));
@@ -119,9 +119,9 @@ public class SelectorLoop extends Thread {
                 // Open selector
                 selector = Selector.open();
 
-                // Create server socket for each connector
-                for (Iterator i = connectors.iterator(); i.hasNext(); ) {
-                    registerConnector((Connector) i.next());
+                // Create server socket for each server
+                for (Iterator i = servers.iterator(); i.hasNext(); ) {
+                    registerServer((Server) i.next());
                 }
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, e.getMessage(), e);
@@ -131,7 +131,7 @@ public class SelectorLoop extends Thread {
             }
             t4 = System.currentTimeMillis();
             if (LOGGER.isLoggable(Level.INFO)) {
-                String message = L10N.getString("info.started_server");
+                String message = L10N.getString("info.started_gumdrop");
                 message = MessageFormat.format(message, (t4 - t3));
                 LOGGER.info(message);
             }
@@ -187,7 +187,7 @@ public class SelectorLoop extends Thread {
                 }
             }
         } while (reload);
-        LOGGER.info(L10N.getString("info.server_end_loop"));
+        LOGGER.info(L10N.getString("info.gumdrop_end_loop"));
         System.out.flush();
         System.err.flush();
     }
@@ -204,15 +204,15 @@ public class SelectorLoop extends Thread {
     }
 
     /**
-     * Register a connector with this server.
+     * Register a server with this selector loop.
      * This will bind its port.
      *
-     * @param connector the connector
+     * @param server the server
      */
-    public void registerConnector(Connector connector) throws IOException {
+    public void registerServer(Server server) throws IOException {
         long t1, t2;
-        Set<InetAddress> addresses = connector.getAddresses();
-        int port = connector.getPort();
+        Set<InetAddress> addresses = server.getAddresses();
+        int port = server.getPort();
 
         for (InetAddress address : addresses) {
             ServerSocketChannel ssc = ServerSocketChannel.open();
@@ -225,23 +225,23 @@ public class SelectorLoop extends Thread {
             ss.bind(socketAddress);
             t2 = System.currentTimeMillis();
             if (LOGGER.isLoggable(Level.FINE)) {
-                String message = L10N.getString("info.bound_connector");
-                message = MessageFormat.format(message, connector.getDescription(), port, address, (t2 - t1));
+                String message = L10N.getString("info.bound_server");
+                message = MessageFormat.format(message, server.getDescription(), port, address, (t2 - t1));
                 LOGGER.fine(message);
             }
 
             // Register selector for accept
             SelectionKey key = ssc.register(selector, SelectionKey.OP_ACCEPT);
-            key.attach(connector);
+            key.attach(server);
 
-            connector.addServerChannel(ssc);
+            server.addServerChannel(ssc);
         }
-        connector.start();
+        server.start();
     }
 
-    private void unregisterConnector(Connector connector) throws IOException {
-        connector.stop();
-        connector.closeServerChannels();
+    private void unregisterServer(Server server) throws IOException {
+        server.stop();
+        server.closeServerChannels();
     }
 
     private void processKey(SelectionKey key) throws IOException {
@@ -249,7 +249,7 @@ public class SelectorLoop extends Thread {
         if ((readyOps & SelectionKey.OP_ACCEPT) != 0) {
             // accept - batch process if multiple connections pending
             ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
-            Connector connector = (Connector) key.attachment();
+            Server server = (Server) key.attachment();
             
             // Process all pending connections to avoid selector thrashing
             SocketChannel sc;
@@ -257,7 +257,7 @@ public class SelectorLoop extends Thread {
                 try {
                     // Check if connector accepts this connection
                     InetSocketAddress remoteAddress = (InetSocketAddress) sc.getRemoteAddress();
-                    if (!connector.acceptConnection(remoteAddress)) {
+                    if (!server.acceptConnection(remoteAddress)) {
                         // Connection rejected - close immediately and continue
                         if (LOGGER.isLoggable(Level.FINE)) {
                             String message = L10N.getString("info.connection_rejected");
@@ -274,7 +274,7 @@ public class SelectorLoop extends Thread {
                     // Connection accepted - proceed with normal flow
                     sc.configureBlocking(false);
                     SelectionKey skey = sc.register(selector, SelectionKey.OP_READ);
-                    Connection connection = connector.newConnection(sc, skey);
+                    Connection connection = server.newConnection(sc, skey);
                     skey.attach(connection);
                     if (LOGGER.isLoggable(Level.FINEST)) {
                         String message = L10N.getString("info.accepted");
@@ -464,20 +464,20 @@ public class SelectorLoop extends Thread {
     }
 
     synchronized void close() {
-        if (connectors == null) {
+        if (servers == null) {
             return;
         }
-        String message = L10N.getString("info.closing_connectors");
+        String message = L10N.getString("info.closing_servers");
         LOGGER.info(message);
         try {
             // Clean up
-            for (Connector connector : connectors) {
-                unregisterConnector(connector);
+            for (Server server : servers) {
+                unregisterServer(server);
             }
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, e.getMessage(), e);
         } finally {
-            connectors = null;
+            servers = null;
         }
     }
 
@@ -498,10 +498,10 @@ public class SelectorLoop extends Thread {
         }
 
         // Parse configuration file to get connectors
-        Collection<Connector> connectors;
+        Collection<Server> servers;
         try {
             long t1 = System.currentTimeMillis();
-            connectors = new ConfigurationParser().parse(gumdroprc);
+            servers = new ConfigurationParser().parse(gumdroprc);
             long t2 = System.currentTimeMillis();
             if (LOGGER.isLoggable(Level.FINE)) {
                 String message = L10N.getString("info.read_configuration");
@@ -515,7 +515,7 @@ public class SelectorLoop extends Thread {
         }
 
         // Create and start selector loop with parsed connectors
-        instance = new SelectorLoop(connectors);
+        instance = new SelectorLoop(servers);
         System.out.println(L10N.getString("banner"));
         instance.run();
     }

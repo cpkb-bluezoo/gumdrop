@@ -105,7 +105,7 @@ class ServletStream extends Stream {
             response = new Response(this, request, bufferSize);
             connection.serviceRequest(this); // ready for servicing
         } catch (IOException e) {
-            String message = ServletConnector.L10N.getString("error.create_pipe");
+            String message = ServletServer.L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
         }
     }
@@ -134,7 +134,7 @@ class ServletStream extends Stream {
                     readListener.onDataAvailable();
                 }
             } catch (IOException e) {
-                String message = ServletConnector.L10N.getString("error.write_pipe");
+                String message = ServletServer.L10N.getString("error.write_pipe");
                 LOGGER.log(Level.SEVERE, message, e);
                 if (readListener != null) {
                     readListener.onError(e);
@@ -157,7 +157,7 @@ class ServletStream extends Stream {
                 readListener.onAllDataRead();
             }
         } catch (IOException e) {
-            String message = ServletConnector.L10N.getString("error.close_pipe");
+            String message = ServletServer.L10N.getString("error.close_pipe");
             LOGGER.log(Level.SEVERE, message, e);
             if (readListener != null) {
                 readListener.onError(e);
@@ -378,7 +378,7 @@ class ServletStream extends Stream {
             // This will invoke service on the error page if defined
             response.sendError(code);
         } catch (IOException e) {
-            String message = ServletConnector.L10N.getString("error.send_error");
+            String message = ServletServer.L10N.getString("error.send_error");
             LOGGER.log(Level.SEVERE, message, e);
         }
     }
@@ -451,7 +451,7 @@ class ServletStream extends Stream {
             }
         } catch (ProtocolException e) {
             // stream in wrong state
-            String message = ServletConnector.L10N.getString("error.protocol_error");
+            String message = ServletServer.L10N.getString("error.protocol_error");
             LOGGER.log(Level.SEVERE, message, e);
         }
     }

@@ -83,9 +83,9 @@ public class HTTPUpgradeTest {
      */
     private void createHTTPConnection() throws Exception {
         // Create HTTP connector that supports HTTP/2
-        HTTPConnector connector = new HTTPConnector();
-        connector.setSecure(false);
-        connector.setFramePadding(0);
+        HTTPServer server = new HTTPServer();
+        server.setSecure(false);
+        server.setFramePadding(0);
         
         // Create mock socket channel
         MockSocketChannel mockChannel = new MockSocketChannel();

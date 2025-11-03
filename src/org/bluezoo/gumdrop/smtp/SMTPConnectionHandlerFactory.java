@@ -65,7 +65,7 @@ package org.bluezoo.gumdrop.smtp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SMTPConnectionHandler
- * @see SMTPConnector#setHandlerFactory(SMTPConnectionHandlerFactory)
+ * @see SMTPServer#setHandlerFactory(SMTPConnectionHandlerFactory)
  */
 @FunctionalInterface
 public interface SMTPConnectionHandlerFactory {

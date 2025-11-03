@@ -83,19 +83,19 @@ public class SMTPProtocolTest {
      */
     private SMTPConnection createSMTPConnection() throws Exception {
         // Create SMTP connector
-        SMTPConnector connector = new SMTPConnector();
-        connector.setPort(2525); // Not actually used, but needed for initialization
+        SMTPServer server = new SMTPServer();
+        server.setPort(2525); // Not actually used, but needed for initialization
         
         // Create basic SMTP handler
         SMTPConnectionHandler handler = new TestSMTPHandler();
         
         // Set handler factory
         SMTPConnectionHandlerFactory factory = () -> handler;
-        connector.setHandlerFactory(factory);
+        server.setHandlerFactory(factory);
         
         // Create mock socket channel
         // Create the SMTP connection with null channel to test null safety  
-        SMTPConnection conn = new SMTPConnection(connector, null, null, false, handler);
+        SMTPConnection conn = new SMTPConnection(server, null, null, false, handler);
         
         // Channel is now set by constructor, no need to set fields manually
         
@@ -496,8 +496,8 @@ public class SMTPProtocolTest {
     private class TestSMTPConnection extends SMTPConnection {
         
         public TestSMTPConnection(SocketChannel channel, SSLEngine engine, boolean secure, 
-                                SMTPConnector connector, SMTPConnectionHandler handler) {
-            super(connector, channel, engine, secure, handler);
+                                SMTPServer smtpServer, SMTPConnectionHandler handler) {
+            super(smtpServer, channel, engine, secure, handler);
             
             // Set the base class channel field (normally done by Server)
             try {

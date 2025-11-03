@@ -1,5 +1,5 @@
 /*
- * ServletConnector.java
+ * ServletServer.java
  * Copyright (C) 2005, 2013 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.http.HTTPConnector;
+import org.bluezoo.gumdrop.http.HTTPServer;
 import org.bluezoo.gumdrop.util.MessageFormatter;
 
 import java.io.IOException;
@@ -53,7 +53,7 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ServletConnector extends HTTPConnector {
+public class ServletServer extends HTTPServer {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -62,7 +62,7 @@ public class ServletConnector extends HTTPConnector {
     private ExecutorService responseSender;
     private ThreadPoolExecutor workerThreadPool;
 
-    public ServletConnector() {
+    public ServletServer() {
         workerThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new WorkerThreadFactory());
     }
 

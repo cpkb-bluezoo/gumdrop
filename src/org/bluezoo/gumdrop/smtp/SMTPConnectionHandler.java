@@ -45,7 +45,7 @@ import java.nio.ByteBuffer;
  * thread safety and state isolation:
  * <pre><code>
  * // Configure the connector with a handler factory
- * SMTPConnector connector = new SMTPConnector();
+ * SMTPServer server = new SMTPServer();
  * connector.setHandlerFactory(() -&gt; new MyMailHandler(config, dependencies));
  * 
  * // Each connection gets its own handler instance

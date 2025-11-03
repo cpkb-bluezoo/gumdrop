@@ -51,7 +51,7 @@ public class ServletConnection extends HTTPConnection {
     private static final Logger LOGGER = Logger.getLogger(ServletConnection.class.getName());
 
     final Container container;
-    final ServletConnector connector;
+    final ServletServer server;
 
     /**
      * Response queue. This holds the streams in the same order they arrive
@@ -63,10 +63,10 @@ public class ServletConnection extends HTTPConnection {
             SSLEngine engine,
             boolean secure,
             Container container,
-            ServletConnector connector) {
+            ServletServer server) {
         super(channel, engine, secure);
         this.container = container;
-        this.connector = connector;
+        this.server = server;
     }
 
     // Friend access for Request
@@ -85,11 +85,11 @@ public class ServletConnection extends HTTPConnection {
     }
 
     void serviceRequest(ServletStream stream) {
-        connector.serviceRequest(stream);
+        server.serviceRequest(stream);
     }
 
     void responseFlushed() {
-        connector.responseFlushed(this);
+        server.responseFlushed(this);
     }
 
 }

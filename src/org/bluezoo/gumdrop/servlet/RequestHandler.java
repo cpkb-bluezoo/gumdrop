@@ -70,7 +70,7 @@ class RequestHandler implements Runnable {
                 notifyRequestDestroyed(stream.request);
 
                 // Replicate session if necessary
-                Container container = stream.connection.connector.getContainer();
+                Container container = stream.connection.server.getContainer();
                 if (container.cluster != null
                         && stream.request.sessionId != null
                         && dispatcher.context != null) {
@@ -101,7 +101,7 @@ class RequestHandler implements Runnable {
         long t2 = System.currentTimeMillis();
         // System.err.println(getName() + ": " + (t2 - t1) + "ms");
         String logEntry = createLogEntry(t1, stream.request, stream.response);
-        stream.connection.connector.log(logEntry);
+        stream.connection.server.log(logEntry);
     }
 
     void notifyRequestInitialized(Request request) {
@@ -168,16 +168,16 @@ class RequestHandler implements Runnable {
     ContextRequestDispatcher getRequestDispatcher(Request request, Response response) throws IOException {
         URI uri = request.getURI();
         String path = (uri == null) ? "" : uri.getPath();
-        ServletConnector connector = stream.connection.connector;
+        ServletServer server = stream.connection.server;
 
         // Lookup context
-        Context context = connector.getContainer().getContextByPath(path);
+        Context context = server.getContainer().getContextByPath(path);
         // Lookup request dispatcher
         if (context == null) {
             return null;
         }
         Thread.currentThread().setContextClassLoader(context.getContextClassLoader());
-        context.connector = connector;
+        context.server = server;
         request.context = context;
         request.contextPath = context.contextPath;
         response.context = context;

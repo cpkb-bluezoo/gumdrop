@@ -1,24 +1,24 @@
 <?xml version='1.0' standalone='yes'?>
-<server>
+<gumdrop>
 	<container>
 		<realm name='myRealm' type='org.bluezoo.gumdrop.BasicRealm'
 			href='myRealm.xml'/>
 		<context path='' root='web' distributable='true'/>
 		<context path='/manager' root='dist/manager.war'/>
-		<connector class='org.bluezoo.gumdrop.servlet.ServletConnector'
+		<server class='org.bluezoo.gumdrop.servlet.ServletServer'
 			port='8080'/>
-		<connector class='org.bluezoo.gumdrop.servlet.ServletConnector'
+		<server class='org.bluezoo.gumdrop.servlet.ServletServer'
 			secure='true' keystoreFile='testkeystore.p12' keystorePass='changeit'
 			port='8443'/>
 	</container>
-	<!--connector class='org.bluezoo.gumdrop.http.file.FileHTTPConnector'
+	<!--server class='org.bluezoo.gumdrop.http.file.FileHTTPServer'
 		port='8081' root='web'/-->
-	<!--connector class='org.bluezoo.gumdrop.http.file.FileHTTPConnector'
+	<!--server class='org.bluezoo.gumdrop.http.file.FileHTTPServer'
 		secure='true' keystoreFile='testkeystore.p12' keystorePass='changeit'
 		port='8082' root='web/-->
-	<!--connector class='org.bluezoo.gumdrop.ftp.FTPConnector'
+	<!--server class='org.bluezoo.gumdrop.ftp.FTPServer'
 		port='8083' root='web'/-->
-	<!--connector class="org.bluezoo.gumdrop.smtp.SMTPConnector" port="25"/-->
-	<!--connector class="org.bluezoo.gumdrop.smtp.SMTPConnector" port="465"
+	<!--server class="org.bluezoo.gumdrop.smtp.SMTPServer" port="25"/-->
+	<!--server class="org.bluezoo.gumdrop.smtp.SMTPServer" port="465"
 		secure="true" keystoreFile="server.p12" keystorePass="changeit"/-->
-</server>
+</gumdrop>

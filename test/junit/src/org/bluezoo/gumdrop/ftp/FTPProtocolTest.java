@@ -111,15 +111,15 @@ public class FTPProtocolTest {
      */
     private void createFTPConnection() throws Exception {
         // Create FTP connector
-        FTPConnector connector = new FTPConnector();
-        connector.setPort(2121); // Not actually used, but needed for initialization
+        FTPServer server = new FTPServer();
+        server.setPort(2121); // Not actually used, but needed for initialization
         
         // Create file system and handler
         BasicFTPFileSystem fileSystem = new BasicFTPFileSystem(tempRoot.toString());
         SimpleFTPHandler handler = new SimpleFTPHandler(fileSystem, null); // No realm for testing
         
         // Set handler factory
-        connector.setHandlerFactory(() -> handler);
+        server.setHandlerFactory(() -> handler);
         
         // Create mock socket channel (we won't actually use it for network)
         // Create the FTP connection with null channel to test null safety

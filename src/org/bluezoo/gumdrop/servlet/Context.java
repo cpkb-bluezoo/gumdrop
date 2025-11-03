@@ -99,7 +99,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     final File root;
     private final ContainerClassLoader containerClassLoader;
     private final ContextClassLoader contextClassLoader;
-    ServletConnector connector;
+    ServletServer server;
     byte[] digest; // MD5 digest of web.xml
 
     Map<String,Realm> realms = new LinkedHashMap<>();
@@ -192,15 +192,15 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     @Override public ThreadPoolExecutor getConnectorThreadPool() {
-        return connector.getConnectorThreadPool();
+        return server.getConnectorThreadPool();
     }
 
     @Override public String getConnectorKeepAlive() {
-        return connector.getKeepAlive();
+        return server.getKeepAlive();
     }
 
     @Override public void setConnectorKeepAlive(String val) {
-        connector.setKeepAlive(val);
+        server.setKeepAlive(val);
     }
 
     @Override public HitStatistics getHitStatistics() {

@@ -1,5 +1,5 @@
 /*
- * FileHTTPConnector.java
+ * FileHTTPServer.java
  * Copyright (C) 2005, 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.http.file;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.http.HTTPConnector;
+import org.bluezoo.gumdrop.http.HTTPServer;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;
@@ -40,9 +40,9 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FileHTTPConnector extends HTTPConnector {
+public class FileHTTPServer extends HTTPServer {
 
-    private static final Logger LOGGER = Logger.getLogger(FileHTTPConnector.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(FileHTTPServer.class.getName());
 
     private Path rootPath = Paths.get(".");
     private boolean allowWrite = false;

@@ -1,5 +1,5 @@
 /*
- * FTPDataConnector.java
+ * FTPDataServer.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.ftp;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Connector;
+import org.bluezoo.gumdrop.Server;
 
 import java.net.InetSocketAddress;
 import java.nio.channels.ServerSocketChannel;
@@ -38,14 +38,14 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class FTPDataConnector extends Connector {
+class FTPDataServer extends Server {
 
     final FTPConnection controlConnection;
     final int requestedPort;
     final FTPDataConnectionCoordinator coordinator;
     private int actualPort = -1;
 
-    FTPDataConnector(FTPConnection controlConnection, int port, FTPDataConnectionCoordinator coordinator) {
+    FTPDataServer(FTPConnection controlConnection, int port, FTPDataConnectionCoordinator coordinator) {
         this.controlConnection = controlConnection;
         this.requestedPort = port;
         this.coordinator = coordinator;
@@ -87,7 +87,7 @@ class FTPDataConnector extends Connector {
 
     /**
      * Called by Server after binding to capture the actual port.
-     * This is a custom method for FTPDataConnector since we can't override
+     * This is a custom method for FTPDataServer since we can't override
      * the package-private addServerChannel method from another package.
      */
     public void notifyBound(ServerSocketChannel channel) {

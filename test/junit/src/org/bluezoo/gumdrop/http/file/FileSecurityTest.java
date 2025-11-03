@@ -345,15 +345,15 @@ public class FileSecurityTest {
 
     @Test
     public void testConnectorRootValidation() throws Exception {
-        FileHTTPConnector connector = new FileHTTPConnector();
+        FileHTTPServer server = new FileHTTPServer();
         
         // Valid directory should work
-        connector.setRootPath(tempRootDir);
-        assertEquals("Root path should be set", tempRootDir, connector.getRootPath());
+        server.setRootPath(tempRootDir);
+        assertEquals("Root path should be set", tempRootDir, server.getRootPath());
         
         // Non-existent path should fail
         try {
-            connector.setRootPath("/non/existent/path");
+            server.setRootPath("/non/existent/path");
             fail("Should have thrown IllegalArgumentException for non-existent path");
         } catch (IllegalArgumentException e) {
             assertTrue("Should mention path access", e.getMessage().contains("Cannot access root path"));
@@ -361,7 +361,7 @@ public class FileSecurityTest {
         
         // File instead of directory should fail
         try {
-            connector.setRootPath(tempFile);
+            server.setRootPath(tempFile);
             fail("Should have thrown IllegalArgumentException for file path");
         } catch (IllegalArgumentException e) {
             assertTrue("Should mention directory requirement", e.getMessage().contains("must be a directory"));
@@ -369,7 +369,7 @@ public class FileSecurityTest {
         
         // Null path should fail
         try {
-            connector.setRootPath((Path) null);
+            server.setRootPath((Path) null);
             fail("Should have thrown IllegalArgumentException for null path");
         } catch (IllegalArgumentException e) {
             assertTrue("Should mention null path", e.getMessage().contains("cannot be null"));

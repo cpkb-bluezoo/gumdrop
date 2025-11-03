@@ -3,7 +3,7 @@
  * HTTP/2 Stream Priority Demonstration for Gumdrop Server
  * 
  * This example demonstrates HTTP/2 stream priority handling
- * with PriorityAwareHTTPConnector.
+ * with PriorityAwareHTTPServer.
  */
 
 package examples.http2priority;
@@ -291,7 +291,7 @@ public class PriorityDemoServlet extends HttpServlet {
             out.println("    </ul>");
             out.println("    ");
             out.println("    <h2>Technical Implementation</h2>");
-            out.println("    <p>This demo uses <code>PriorityAwareHTTPConnector</code> which:</p>");
+            out.println("    <p>This demo uses <code>PriorityAwareHTTPServer</code> which:</p>");
             out.println("    <ul>");
             out.println("        <li>Maintains RFC 7540 compliant dependency trees</li>");
             out.println("        <li>Schedules streams based on calculated priority</li>");
@@ -323,7 +323,7 @@ public class PriorityDemoServlet extends HttpServlet {
             out.println("</head>");
             out.println("<body>");
             out.println("    <h1>🎯 HTTP/2 Stream Priority Demo</h1>");
-            out.println("    <p>This demonstration shows HTTP/2 stream priority handling with Gumdrop's PriorityAwareHTTPConnector.</p>");
+            out.println("    <p>This demonstration shows HTTP/2 stream priority handling with Gumdrop's PriorityAwareHTTPServer.</p>");
             out.println("    ");
             out.println("    <h2>Available Demonstrations</h2>");
             out.println("    ");

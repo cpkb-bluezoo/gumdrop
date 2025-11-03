@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.ftp;
 /**
  * A factory interface for creating {@link FTPConnectionHandler} instances.
  *
- * <p>This functional interface is used by {@link FTPConnector} to create a new,
+ * <p>This functional interface is used by {@link FTPServer} to create a new,
  * dedicated {@link FTPConnectionHandler} instance for each incoming FTP connection.
  * This ensures proper thread safety and state isolation, as handler implementations
  * are typically stateful and not designed to be shared across multiple concurrent connections.
@@ -38,7 +38,7 @@ package org.bluezoo.gumdrop.ftp;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see FTPConnectionHandler
- * @see FTPConnector
+ * @see FTPServer
  */
 @FunctionalInterface
 public interface FTPConnectionHandlerFactory {

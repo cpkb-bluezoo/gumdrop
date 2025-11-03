@@ -11,14 +11,14 @@ I/O. It supports:
     - client certificates
     - SSL protocols (TLS 1.2, 1.3)
     - cipher suite selection
-    - thread pool configuration for connection handlers on a per-connector
+    - thread pool configuration for connection handlers on a per-server
       basis, completely independent of number of client connections
     - internationalization and localization facilities
     - centralized and secure realm interface for authentication and
       authorization
     - connection filtering
     - centralized authentication and authorization realm interface
-      usable by multiple connectors
+      usable by multiple servers
 - HTTP
     - versions 1.0 and 1.1
         - Chunked encoding
@@ -94,26 +94,26 @@ copyright 2005 Chris Burdess.
 
 ## Architecture
 
-The server is configured with a number of connectors, which are bound to
+Gumdrop is configured with a number of servers, which are bound to
 ports. It then sits in a `select` loop waiting for socket data.
 When an _accept_ request is received, it uses the corresponding
-connector as a factory to create a new connection object to handle that IP
+server as a factory to create a new connection object to handle that IP
 connection. Subsequent _read_ requests are demultiplexed to a thread
-pool specific to the connector. Servers based on an asynchronous, or
+pool specific to the server. Server implementations based on an asynchronous, or
 reactor, model can thus be developed quite quickly in response to incoming
 data. You implement the `receive` method to react to new data coming in, and
 call the `send` method to send out your own responses.
 
-Each connector manages a pool of threads to service the connection-specific
+Each server manages a pool of threads to service the connection-specific
 parsing of requests and responses. The size of the thread pool can be
 configured and is always independent of the main server I/O processing loop.
 
-There is an example file-based HTTP connector included in the project, you
+There is an example file-based HTTP server included in the project, you
 can just point it at a directory.
 
 The servlet container is a slightly special case because servlets use an
 InputStream to read request body data instead of having it being delivered
-them in an event-based fashion. So the servlet connector additionally manages
+them in an event-based fashion. So the servlet server additionally manages
 a pool of worker threads which are able to read from request body data
 delivered via a pipe. Thus, servlets can either block reading the request
 body, or use servlet 3.1 asynchronous methods via ReadListener to be
@@ -122,11 +122,11 @@ context cluster synchronisation and hot deployment (these need updating for
 newer NIO APIs).
 
 The server framework transparently supports TLS connections. All you have
-to do is set the `secure` connector property to `true`,
+to do is set the `secure` server property to `true`,
 and communication with the client will be encrypted. You specify the
 keystore to use for your server certificate and can configure whether to
 require client certificates. Otherwise, if you develop a new protocol
-connector you can just deal with the decrypted application data. SSL
+server you can just deal with the decrypted application data. SSL
 encryption and decryption occurs in yet another thread, which can spawn
 dependent delegated task threads as required by the SSL state engine for
 each connection.

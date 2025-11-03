@@ -99,7 +99,7 @@ public class SMTPConnection extends Connection {
 
     // Using base class protected SocketChannel channel field
     private final Map<String, IOConsumer<String>> commands;
-    private final SMTPConnector connector;
+    private final SMTPServer server;
     private final SMTPConnectionHandler handler;
     private final long connectionTimeMillis;
 
@@ -189,7 +189,7 @@ public class SMTPConnection extends Connection {
                 heloName,
                 extendedSMTP,
                 connectionTimeMillis,
-                connector.getDescription()
+                server.getDescription()
             );
         } catch (IOException e) {
             // Fallback if we can't get addresses
@@ -197,7 +197,7 @@ public class SMTPConnection extends Connection {
                 null, null, isSecure(), null, null, null,
                 authenticated, authenticatedUser, authMechanism,
                 heloName, extendedSMTP, connectionTimeMillis,
-                connector.getDescription()
+                server.getDescription()
             );
         }
     }
@@ -210,9 +210,9 @@ public class SMTPConnection extends Connection {
      * @param secure true if this connection should use TLS encryption
      * @param handler the application handler for SMTP events
      */
-    protected SMTPConnection(SMTPConnector connector, SocketChannel channel, SSLEngine engine, boolean secure, SMTPConnectionHandler handler) {
+    protected SMTPConnection(SMTPServer server, SocketChannel channel, SSLEngine engine, boolean secure, SMTPConnectionHandler handler) {
         super(engine, secure);
-        this.connector = connector;
+        this.server = server;
         this.channel = channel;
         this.handler = handler;
         this.connectionTimeMillis = System.currentTimeMillis();
@@ -745,13 +745,13 @@ public class SMTPConnection extends Connection {
         replyMultiline(250, localHostname + " Hello " + hostname);
         
         // Standard capabilities
-        reply(250, "SIZE " + connector.getMaxMessageSize()); // Configurable maximum message size
+        reply(250, "SIZE " + server.getMaxMessageSize()); // Configurable maximum message size
         reply(250, "PIPELINING");   // Support command pipelining
         reply(250, "8BITMIME");     // Support 8-bit MIME
         reply(250, "ENHANCEDSTATUSCODES"); // Enhanced status codes (already using them)
         
         // STARTTLS capability (only if TLS is not already active and SSL context available)
-        if (!isSecure() && connector.isSTARTTLSAvailable()) {
+        if (!isSecure() && server.isSTARTTLSAvailable()) {
             reply(250, "STARTTLS");
         }
         
@@ -759,7 +759,7 @@ public class SMTPConnection extends Connection {
         // Advertise AUTH if we have a realm configured and either:
         // - Connection is already secure, OR
         // - STARTTLS is available for securing the connection
-        if (connector.getRealm() != null && (isSecure() || connector.isSTARTTLSAvailable())) {
+        if (server.getRealm() != null && (isSecure() || server.isSTARTTLSAvailable())) {
             reply(250, "AUTH PLAIN LOGIN"); // Can add CRAM-MD5, DIGEST-MD5 later
         }
         
@@ -778,7 +778,7 @@ public class SMTPConnection extends Connection {
         }
 
         // Check authentication requirement (typically for MSA on port 587)
-        if (connector.isAuthRequired() && !authenticated) {
+        if (server.isAuthRequired() && !authenticated) {
             reply(530, "5.7.0 Authentication required");
             return;
         }
@@ -856,7 +856,7 @@ public class SMTPConnection extends Connection {
         }
 
         // Check authentication requirement (typically for MSA on port 587)
-        if (connector.isAuthRequired() && !authenticated) {
+        if (server.isAuthRequired() && !authenticated) {
             reply(530, "5.7.0 Authentication required");
             return;
         }
@@ -950,7 +950,7 @@ public class SMTPConnection extends Connection {
         }
 
         // Check authentication requirement (typically for MSA on port 587)
-        if (connector.isAuthRequired() && !authenticated) {
+        if (server.isAuthRequired() && !authenticated) {
             reply(530, "5.7.0 Authentication required");
             return;
         }
@@ -1044,7 +1044,7 @@ public class SMTPConnection extends Connection {
         }
         
         // Check if STARTTLS is available (connector must have SSL context)
-        if (!connector.isSTARTTLSAvailable()) {
+        if (!server.isSTARTTLSAvailable()) {
             reply(454, "4.7.0 TLS not available");
             return;
         }
@@ -1090,7 +1090,7 @@ public class SMTPConnection extends Connection {
      */
     private void auth(String args) throws IOException {
         // Check if realm is configured
-        if (connector.getRealm() == null) {
+        if (server.getRealm() == null) {
             reply(502, "5.5.1 Authentication not available");
             return;
         }
@@ -1108,7 +1108,7 @@ public class SMTPConnection extends Connection {
         }
 
         // AUTH requires secure connection or STARTTLS
-        if (!isSecure() && !connector.isSTARTTLSAvailable()) {
+        if (!isSecure() && !server.isSTARTTLSAvailable()) {
             reply(538, "5.7.11 Encryption required for requested authentication mechanism");
             return;
         }
@@ -1324,11 +1324,11 @@ public class SMTPConnection extends Connection {
      * @return true if authentication succeeds, false otherwise
      */
     private boolean authenticateUser(String username, String password) {
-        if (connector.getRealm() == null) {
+        if (server.getRealm() == null) {
             return false;
         }
 
-        return connector.getRealm().passwordMatch(username, password);
+        return server.getRealm().passwordMatch(username, password);
     }
 
     /**
@@ -1375,9 +1375,9 @@ public class SMTPConnection extends Connection {
         
         // Policy 3: Check realm roles for administrative privileges
         // If user has "admin" or "postmaster" role, allow any sender address
-        if (connector.getRealm() != null) {
-            if (connector.getRealm().isMember(authenticatedUser, "admin") || 
-                connector.getRealm().isMember(authenticatedUser, "postmaster")) {
+        if (server.getRealm() != null) {
+            if (server.getRealm().isMember(authenticatedUser, "admin") || 
+                server.getRealm().isMember(authenticatedUser, "postmaster")) {
                 return true;
             }
         }
@@ -1658,7 +1658,7 @@ public class SMTPConnection extends Connection {
         // Notify connector that connection is closed for tracking
         try {
             if (channel != null) {
-                connector.connectionClosed((InetSocketAddress) channel.getRemoteAddress());
+                server.connectionClosed((InetSocketAddress) channel.getRemoteAddress());
             }
         } catch (IOException e) {
             // Log but don't fail - cleanup is more important

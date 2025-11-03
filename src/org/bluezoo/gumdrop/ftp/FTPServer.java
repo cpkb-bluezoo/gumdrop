@@ -1,5 +1,5 @@
 /*
- * FTPConnector.java
+ * FTPServer.java
  * Copyright (C) 2006 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.ftp;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Connector;
+import org.bluezoo.gumdrop.Server;
 
 import java.nio.channels.SocketChannel;
 import java.util.logging.Level;
@@ -36,9 +36,9 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FTPConnector extends Connector {
+public class FTPServer extends Server {
 
-    private static final Logger LOGGER = Logger.getLogger(FTPConnector.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(FTPServer.class.getName());
 
     /**
      * The default FTP transmission control port.

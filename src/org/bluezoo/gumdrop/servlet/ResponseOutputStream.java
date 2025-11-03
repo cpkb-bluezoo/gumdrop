@@ -47,7 +47,7 @@ class ResponseOutputStream extends OutputStream {
 
     @Override public synchronized void write(int b) throws IOException {
         if (closed) {
-            String message = ServletConnector.L10N.getString("err.stream_closed");
+            String message = ServletServer.L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
         }
         if (buf.remaining() < 1) {
@@ -62,7 +62,7 @@ class ResponseOutputStream extends OutputStream {
 
     @Override public synchronized void write(byte[] b, int offset, int len) throws IOException {
         if (closed) {
-            String message = ServletConnector.L10N.getString("err.stream_closed");
+            String message = ServletServer.L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
         }
         int available = buf.remaining();
@@ -78,7 +78,7 @@ class ResponseOutputStream extends OutputStream {
 
     @Override public synchronized void flush() throws IOException {
         if (closed) {
-            String message = ServletConnector.L10N.getString("err.stream_closed");
+            String message = ServletServer.L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
         }
         if (buf.position() > 0) {

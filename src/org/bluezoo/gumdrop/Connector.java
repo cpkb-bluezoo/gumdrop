@@ -27,25 +27,15 @@ import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.NetworkInterface;
-import java.net.UnknownHostException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.StringTokenizer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -82,15 +72,11 @@ public abstract class Connector {
         TIME_UNITS.put(TimeUnit.NANOSECONDS, "ns");
     }
 
-    private List<ServerSocketChannel> serverChannels = new ArrayList<ServerSocketChannel>();
-    private Set<InetAddress> addresses = null;
-
     private final ThreadPoolExecutor connectorThreadPool;
 
     protected boolean secure = false;
     protected SSLContext context;
     protected String keystoreFile, keystorePass, keystoreFormat = "PKCS12";
-    protected boolean needClientAuth = false;
 
     protected Connector() {
         connectorThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new ConnectorThreadFactory());
@@ -105,12 +91,7 @@ public abstract class Connector {
             String peerHost = peerAddress.getHostName();
             int peerPort = peerAddress.getPort();
             engine = context.createSSLEngine(peerHost, peerPort);
-            engine.setUseClientMode(false); // we are a server
-            if (needClientAuth) {
-                engine.setNeedClientAuth(true);
-            } else {
-                engine.setWantClientAuth(true);
-            }
+            configureSSLEngine(engine);
         }
         Connection connection = newConnection(sc, engine);
         connection.channel = sc;
@@ -137,40 +118,15 @@ public abstract class Connector {
     }
 
     /**
-     * Configures the addresses this connector should bind to.
+     * Configures SSL engine settings. Default implementation sets useClientMode to false.
+     * Subclasses can override to add additional SSL configuration.
+     * 
+     * @param engine the SSL engine to configure
      */
-    public void setAddresses(String value) {
-        if (value == null) {
-            addresses = null;
-            return;
-        }
-        addresses = new LinkedHashSet<>();
-        StringTokenizer st = new StringTokenizer(value);
-        while (st.hasMoreTokens()) {
-            String host = st.nextToken();
-            try {
-                addresses.add(InetAddress.getByName(host));
-            } catch (UnknownHostException e) {
-                String message = SelectorLoop.L10N.getString("err.unknown_host");
-                message = MessageFormat.format(message, host);
-                LOGGER.log(Level.SEVERE, message, e);
-            }
-        }
+    protected void configureSSLEngine(javax.net.ssl.SSLEngine engine) {
+        engine.setUseClientMode(false); // we are a server by default
     }
 
-    public List<ServerSocketChannel> getServerChannels() {
-        return serverChannels;
-    }
-
-    void addServerChannel(ServerSocketChannel channel) {
-        serverChannels.add(channel);
-    }
-
-    void closeServerChannels() throws IOException {
-        for (Iterator<ServerSocketChannel> i = serverChannels.iterator(); i.hasNext(); ) {
-            i.next().close();
-        }
-    }
 
     /**
      * Indicates whether connections created by this connector should use
@@ -203,24 +159,6 @@ public abstract class Connector {
         keystoreFormat = format;
     }
 
-    public void setNeedClientAuth(boolean flag) {
-        needClientAuth = flag;
-    }
-
-    /**
-     * Determines whether to accept a connection from the specified remote address.
-     * This method is called for each incoming connection before resources are allocated.
-     * Implementations can use this to implement IP filtering, rate limiting, or other
-     * connection policies.
-     * 
-     * @param remoteAddress the remote socket address attempting to connect
-     * @return true to accept the connection, false to reject it
-     */
-    public boolean acceptConnection(InetSocketAddress remoteAddress) {
-        // Default implementation accepts all connections
-        // Subclasses can override for specific filtering policies
-        return true;
-    }
 
     public void setCorePoolSize(int corePoolSize) {
         connectorThreadPool.setCorePoolSize(corePoolSize);
@@ -334,26 +272,6 @@ public abstract class Connector {
      */
     protected abstract String getDescription();
 
-    /**
-     * Returns the IP addresses this connector should be bound to.
-     */
-    protected Set<InetAddress> getAddresses() throws IOException {
-        if (addresses == null) {
-            addresses = new LinkedHashSet<>();
-            for (Enumeration<NetworkInterface> e1 = NetworkInterface.getNetworkInterfaces(); e1.hasMoreElements(); ) {
-                NetworkInterface ni = e1.nextElement();
-                for (Enumeration<InetAddress> e2 = ni.getInetAddresses(); e2.hasMoreElements(); ) {
-                    addresses.add(e2.nextElement());
-                }
-            }
-        }
-        return addresses;
-    }
-
-    /**
-     * Returns the port number this factory should be bound to.
-     */
-    protected abstract int getPort();
 
     /**
      * ThreadFactory with connector naming strategy.
@@ -365,7 +283,7 @@ public abstract class Connector {
 
         @Override public Thread newThread(Runnable r) {
             Thread t = defaultFactory.newThread(r);
-            t.setName(getDescription() + "-" + getPort() + "-" + (threadNum++));
+            t.setName(getDescription() + "-" + (threadNum++));
             return t;
         }
 

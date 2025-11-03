@@ -64,7 +64,7 @@ import javax.xml.parsers.SAXParserFactory;
 
 /**
  * <code>gumdroprc</code> parser.
- * Constructs a list of connectors.
+ * Constructs a list of servers.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -73,10 +73,10 @@ public final class ConfigurationParser extends DefaultHandler {
     enum State {
         INIT(null),
 
-        SERVER("server"),
+        GUMDROP("gumdrop"),
         CONTAINER("container"),
         CONTEXT("context"),
-        CONNECTOR("connector"),
+        SERVER("server"),
         REALM("realm"),
         PARAMETER("parameter"),
 
@@ -104,21 +104,21 @@ public final class ConfigurationParser extends DefaultHandler {
         }
     }
 
-    private List<Connector> connectors;
+    private List<Server> servers;
     private Locator loc;
     private Deque<State> states = new ArrayDeque<>();
     private Container container;
     private Context context;
     private Resource resource;
 
-    public List<Connector> parse(File file) throws SAXException, IOException {
+    public List<Server> parse(File file) throws SAXException, IOException {
         InputStream in = null;
         try {
             in = new BufferedInputStream(new FileInputStream(file));
             InputSource source = new InputSource(in);
             source.setSystemId(file.toURL().toString());
             parse(source);
-            return connectors;
+            return servers;
         } finally {
             if (in != null) {
                 in.close();
@@ -194,29 +194,29 @@ public final class ConfigurationParser extends DefaultHandler {
         SelectorLoop.LOGGER.warning(message);
     }
 
-    Connector createConnector(Attributes atts) throws SAXException {
-        // Instantiate connector
+    Server createServer(Attributes atts) throws SAXException {
+        // Instantiate server
         String className = atts.getValue("class");
         try {
-            Class connectorClass = Class.forName(className);
-            Connector connector = (Connector) connectorClass.newInstance();
-            // Configure connector
-            Method[] methods = connectorClass.getMethods();
+            Class serverClass = Class.forName(className);
+            Server server = (Server) serverClass.newInstance();
+            // Configure server
+            Method[] methods = serverClass.getMethods();
             int len = atts.getLength();
             for (int i = 0; i < len; i++) {
                 String name = atts.getLocalName(i);
                 name = (name == null) ? atts.getQName(i) : name;
                 if (!"class".equals(name)) {
                     String value = atts.getValue(i);
-                    setValue(connector, name, value, methods);
+                    setValue(server, name, value, methods);
                 }
             }
             if (container != null) {
-                setValue(connector, "container", container, methods);
+                setValue(server, "container", container, methods);
             }
-            return connector;
+            return server;
         } catch (Exception e) {
-            String message = SelectorLoop.L10N.getString("err.bad_connector");
+            String message = SelectorLoop.L10N.getString("err.bad_server");
             message = MessageFormat.format(message, className);
             throw new SAXParseException(message, loc, e);
         }
@@ -348,7 +348,7 @@ public final class ConfigurationParser extends DefaultHandler {
     }
 
     public void startDocument() throws SAXException {
-        connectors = new ArrayList<Connector>();
+        servers = new ArrayList<Server>();
         loc = null;
         states.clear();
         pushState(State.INIT);
@@ -366,7 +366,7 @@ public final class ConfigurationParser extends DefaultHandler {
         switch (parentState) {
             case INIT:
                 switch (state) {
-                    case SERVER:
+                    case GUMDROP:
                         break;
                     default:
                         String message = SelectorLoop.L10N.getString("err.expected");
@@ -374,13 +374,13 @@ public final class ConfigurationParser extends DefaultHandler {
                         throw new SAXParseException(message, loc);
                 }
                 break;
-            case SERVER:
+            case GUMDROP:
                 switch (state) {
                     case CONTAINER:
                         container = createContainer(atts);
                         break;
-                    case CONNECTOR:
-                        connectors.add(createConnector(atts));
+                    case SERVER:
+                        servers.add(createServer(atts));
                         break;
                     default:
                         String message = SelectorLoop.L10N.getString("err.expected_child");
@@ -394,8 +394,8 @@ public final class ConfigurationParser extends DefaultHandler {
                         context = createContext(atts);
                         container.addContext(context);
                         break;
-                    case CONNECTOR:
-                        connectors.add(createConnector(atts));
+                    case SERVER:
+                        servers.add(createServer(atts));
                         break;
                     case REALM:
                         String realmName = atts.getValue("name");
@@ -456,7 +456,7 @@ public final class ConfigurationParser extends DefaultHandler {
                         throw new SAXParseException(message, loc);
                 }
                 break;
-            case CONNECTOR:
+            case SERVER:
                 // No sub-elements so far
                 break;
             case DATA_SOURCE:

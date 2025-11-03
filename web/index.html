@@ -66,36 +66,36 @@ Thanks for trying out Gumdrop!
 <h3>Architecture</h3>
 
 <p>
-The server is configured with a number of connectors, which are bound to
+Gumdrop is configured with a number of servers, which are bound to
 ports. It then sits in a <code>select</code> loop waiting for socket data.
 When an <i>accept</i> request is received, it uses the corresponding
-connector as a factory to create a new connection object to handle that IP
+server as a factory to create a new connection object to handle that IP
 connection. Subsequent <i>read</i> requests are demultiplexed to a thread
-pool specific to the connector. Servers based on an asynchronous, or
+pool specific to the server. Server implementations based on an asynchronous, or
 reactor, model can thus be developed quite quickly in response to incoming
 data. 
 </p>
 
 <p>
 The server framework transparently supports TLS connections. All you have
-to do is set the <code>secure</code> connector property to <code>true</code>
+to do is set the <code>secure</code> server property to <code>true</code>
 and communication with the client will be encrypted. You can specify the
 keystore to use as well as whether to require client certificates. Otherwise,
-if you develop a new protocol connector you can just deal with the decrypted
+if you develop a new protocol server you can just deal with the decrypted
 application data.
 </p>
 
 <p>
 The servlet container is a slightly special case because servlets use an
 InputStream to read request body data instead of having it being delivered
-them in an event-based fashion. The servlet connector additionally manages
+them in an event-based fashion. The servlet server additionally manages
 a pool of worker threads which are able to read from request body data
 delivered via a pipe. Thus, servlets can either block reading the request
 body, or use servlet 3.1 asynchronous methods via ReadListener to be
 informed when the data becomes available. The worker thread pool is
 configured separately from the application thread pool. The servlets'
 request servicing methods (e.g. doGet) will occur in the worker thread. The
-application thread pool for the servlet connector is used only for parsing
+application thread pool for the servlet server is used only for parsing
 the HTTP request and setting up the RequestDispatcher for execution.
 </p>
 
@@ -103,7 +103,7 @@ the HTTP request and setting up the RequestDispatcher for execution.
 Because the number of request-processing threads is completely independent
 of the number of client TCP connections to the server, Gumdrop scales very
 gracefully. You can specify the maximum size of the thread pool for handling
-connection reads and processing on a per-connector basis, as well as the
+connection reads and processing on a per-server basis, as well as the
 maximum size of the thread pool for servlet worker threads.
 </p>
 
@@ -139,12 +139,12 @@ known in advance. However, here is the general format of the file:
 </p>
 
 <ul>
-<li>The <code>server</code> element is the root element. This represents the
+<li>The <code>gumdrop</code> element is the root element. This represents the
         <code>org.bluezoo.gumdrop.SelectorLoop</code> object. It may contain <code>container</code>
-or <code>connector</code> elements.</li>
+or <code>server</code> elements.</li>
 <li>A <code>container</code> element represents a
 <code>org.bluezoo.gumdrop.servlet.Container</code>. It logically groups a set of
-related resources, contexts, and connectors. The configurable attributes
+related resources, contexts, and servers. The configurable attributes
 are:
   <ul>
   <li><code>hot-deploy</code> - if false, hot deployment of contexts will be
@@ -157,21 +157,21 @@ are:
   distributable contexts. Defaults to 224.0.80.80.</li>
   </ul>
 It may contain <code>realm</code>, <code>resource</code>,
-<code>context</code>, and <code>connector</code> elements.
+<code>context</code>, and <code>server</code> elements.
 </li>
-<li>A <code>connector</code> element represents a
-<code>org.bluezoo.gumdrop.Connector</code> object. This is a service that listens on
+<li>A <code>server</code> element represents a
+<code>org.bluezoo.gumdrop.Server</code> object. This is a service that listens on
 a particular server port and manages connections made to that port. Its
 attributes include:
   <ul>
   <li><b><code>class</code></b> - the subclass of
-  <code>org.bluezoo.gumdrop.Connector</code> used to realise the connector.</li>
-  <li><b><code>port</code></b> - the port to which the connector should
+  <code>org.bluezoo.gumdrop.Server</code> used to realise the server.</li>
+  <li><b><code>port</code></b> - the port which the server should
   listen on.</li>
   <li><code>addresses</code> - a space-separated list of IP addresses to
-  which the connector should bind. If absent, all known local IP addresses
+  which the server should bind. If absent, all known local IP addresses
   will be bound to.</li>
-  <li><code>secure</code> - if specified as true, marks this connector as creating
+  <li><code>secure</code> - if specified as true, marks this server as creating
   TLS connections. You will additionally need to specify key store properties to
   provide access to the server certificate.</li>
   <li><code>keystore-file</code> - path to the file containing the server keystore.</li>
@@ -181,14 +181,14 @@ attributes include:
   <li><code>need-client-auth</code> - set to true to require clients to provide their
   certificates in the TLS handshake.</li>
   <li><code>core-pool-size</code> - core size of the thread pool used for servicing
-  requests by connections for this connector.</li>
+  requests by connections for this server.</li>
   <li><code>maximum-pool-size</code> - maximum size of the thread pool used for servicing
-  requests by connections for this connector.</li>
+  requests by connections for this server.</li>
   <li><code>keep-alive</code> - keep-alive time for threads in the thread pool used for servicing
-  requests by connections for this connector. Specified as an integer immediately followed by the
+  requests by connections for this server. Specified as an integer immediately followed by the
   time unit, e.g. 20ms, 100ns, 1h (one hour).</li>
   </ul>
-The servlet connector (<code>org.bluezoo.gumdrop.servlet.ServletConnector</code>)
+The servlet server (<code>org.bluezoo.gumdrop.servlet.ServletServer</code>)
 provides the following additional attributes:
   <ul>
   <li><code>access-log</code> - the path to the log file for logging
@@ -201,7 +201,7 @@ provides the following additional attributes:
   servlets. Specified as an integer immediately followed by the
   time unit, e.g. 20ms, 100ns, 1h (one hour).</li>
   </ul>
-The file-based HTTP connector (<code>org.bluezoo.gumdrop.http.FileBasedHTTPConnector</code>)
+The file-based HTTP server (<code>org.bluezoo.gumdrop.http.file.FileHTTPServer</code>)
 provides the following additional attributes:
   <ul>
   <li><code>root</code> - the path to the directory in the filesystem that files will be served from.</li>

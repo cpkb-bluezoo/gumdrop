@@ -1,5 +1,5 @@
 /*
- * SMTPConnector.java
+ * SMTPServer.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Connector;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.Realm;
 import org.bluezoo.gumdrop.util.CIDRNetwork;
 
@@ -49,9 +49,9 @@ import javax.net.ssl.SSLEngine;
  * @see https://www.rfc-editor.org/rfc/rfc5321 (SMTP)
  * @see https://www.rfc-editor.org/rfc/rfc6409 (Message Submission)
  */
-public class SMTPConnector extends Connector {
+public class SMTPServer extends Server {
 
-    private static final Logger LOGGER = Logger.getLogger(SMTPConnector.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(SMTPServer.class.getName());
 
     /**
      * The default SMTP port (standard mail transfer).

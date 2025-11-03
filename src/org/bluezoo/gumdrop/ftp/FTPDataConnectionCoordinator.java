@@ -121,7 +121,7 @@ public class FTPDataConnectionCoordinator {
     private DataConnectionMode mode = DataConnectionMode.NONE;
     
     // Passive mode state
-    private FTPDataConnector passiveConnector;
+    private FTPDataServer passiveConnector;
     private int passivePort = -1;
     private final BlockingQueue<FTPDataConnection> incomingDataConnections;
     
@@ -151,11 +151,11 @@ public class FTPDataConnectionCoordinator {
     public synchronized int setupPassiveMode(int port) throws IOException {
         cleanup(); // Clean up any existing setup
         
-        passiveConnector = new FTPDataConnector(controlConnection, port, this);
+        passiveConnector = new FTPDataServer(controlConnection, port, this);
         
         try {
             // Register with server to start listening
-            org.bluezoo.gumdrop.SelectorLoop.getInstance().registerConnector(passiveConnector);
+            org.bluezoo.gumdrop.SelectorLoop.getInstance().registerServer(passiveConnector);
             
             // The actual port will be set by the connector after binding
             // For now, get it from the server channels
@@ -203,7 +203,7 @@ public class FTPDataConnectionCoordinator {
     }
     
     /**
-     * Called by FTPDataConnector when a client connects in passive mode.
+     * Called by FTPDataServer when a client connects in passive mode.
      *
      * @param dataConnection the established data connection
      */

@@ -1,5 +1,5 @@
 /*
- * HTTPConnector.java
+ * HTTPServer.java
  * Copyright (C) 2013, 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Connector;
+import org.bluezoo.gumdrop.Server;
 
 import java.nio.channels.SocketChannel;
 
@@ -35,7 +35,7 @@ import javax.net.ssl.SSLEngine;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HTTPConnector extends Connector {
+public class HTTPServer extends Server {
 
     protected static final int HTTP_DEFAULT_PORT = 80;
     protected static final int HTTPS_DEFAULT_PORT = 443;

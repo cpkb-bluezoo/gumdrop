@@ -1,5 +1,5 @@
 /*
- * PriorityAwareHTTPConnector.java
+ * PriorityAwareHTTPServer.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -59,7 +59,7 @@ import javax.net.ssl.SSLEngine;
  * <p><strong>Example Usage:</strong>
  * <pre>{@code
  * // Create priority-aware HTTP connector
- * PriorityAwareHTTPConnector connector = new PriorityAwareHTTPConnector();
+ * PriorityAwareHTTPServer server = new PriorityAwareHTTPServer();
  * connector.setPort(8080);
  * 
  * // Optional: Configure priority behavior
@@ -74,7 +74,7 @@ import javax.net.ssl.SSLEngine;
  * @see StreamPriorityTree
  * @see StreamPriorityScheduler
  */
-public class PriorityAwareHTTPConnector extends HTTPServer {
+public class PriorityAwareHTTPServer extends HTTPServer {
     
     /**
      * Minimum time slice for low-priority streams (milliseconds).
