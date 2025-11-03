@@ -80,7 +80,7 @@ public class SelectorLoop extends Thread {
 
     private Collection<Server> servers;
     private Selector selector;
-    private final Set<Selectable> connectionsWithPendingWrites;
+    private final Set<Connection> connectionsWithPendingWrites;
     private ByteBuffer readBuffer; // reusable per selector
 
     private volatile boolean active;
@@ -99,7 +99,7 @@ public class SelectorLoop extends Thread {
         ThreadFactory factory = Executors.defaultThreadFactory();
         sslMainExecutor = Executors.newSingleThreadExecutor(new GumdropThreadFactory(factory, "ssl-main"));
         sslTaskThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new GumdropThreadFactory(factory, "ssl-task"));
-        connectionsWithPendingWrites = ConcurrentHashMap.<Selectable>newKeySet();
+        connectionsWithPendingWrites = ConcurrentHashMap.<Connection>newKeySet();
         readBuffer = ByteBuffer.allocate(8192);
         Runtime.getRuntime().addShutdownHook(this.new Shutdown());
     }
@@ -296,17 +296,14 @@ public class SelectorLoop extends Thread {
         }
         if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
             // client channel connect (supports both Connection and SMTPClientConnection)
-            Selectable selectable = (Selectable) key.attachment();
+            Connection connection = (Connection) key.attachment();
             SocketChannel sc = (SocketChannel) key.channel();
             try {
                 if (sc.finishConnect()) {
-                    // For Connection objects, update SelectionKey registration
-                    if (selectable instanceof Connection) {
-                        Connection connection = (Connection) selectable;
-                        SelectionKey skey = sc.register(selector, SelectionKey.OP_READ);
-                        skey.attach(connection);
-                        connection.key = skey;
-                    }
+                    // Update SelectionKey registration for read operations
+                    SelectionKey skey = sc.register(selector, SelectionKey.OP_READ);
+                    skey.attach(connection);
+                    connection.setSelectionKey(skey);
                     // For client connections like SMTP, they manage their own registration
                     
                     if (LOGGER.isLoggable(Level.FINEST)) {
@@ -314,17 +311,17 @@ public class SelectorLoop extends Thread {
                         message = MessageFormat.format(message, sc.toString());
                         LOGGER.finest(message);
                     }
-                    selectable.connected();
+                    connection.connected();
                 }
             } catch (IOException ce) {
-                selectable.finishConnectFailed(ce);
+                connection.finishConnectFailed(ce);
             }
         }
         if ((readyOps & SelectionKey.OP_WRITE) != 0) {
             // write (supports both Connection and client connections like SMTP)
-            Selectable selectable = (Selectable) key.attachment();
+            Connection connection = (Connection) key.attachment();
             SocketChannel sc = (SocketChannel) key.channel();
-            BlockingQueue<ByteBuffer> queue = selectable.getOutboundQueue();
+            BlockingQueue<ByteBuffer> queue = connection.getOutboundQueue();
             ByteBuffer buffer = null;
             try {
                 while (queue.peek() != null) {
@@ -347,31 +344,31 @@ public class SelectorLoop extends Thread {
                 // If we got here all buffers in the queue were written.
                 // We can remove OP_WRITE interest for this connection.
                 key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
-                selectable.setHasOpWriteInterest(false);
-                connectionsWithPendingWrites.remove(selectable);
-                if (selectable.shouldCloseAfterSend()) {
-                    selectable.close();
+                connection.setHasOpWriteInterest(false);
+                connectionsWithPendingWrites.remove(connection);
+                if (connection.shouldCloseAfterSend()) {
+                    connection.close();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 String message = L10N.getString("err.write");
                 message = MessageFormat.format(message, sc);
                 LOGGER.log(Level.WARNING, message, e);
-                selectable.close();
+                connection.close();
                 key.cancel();
-                connectionsWithPendingWrites.remove(selectable);
+                connectionsWithPendingWrites.remove(connection);
             } catch (IOException e) {
                 String message = L10N.getString("err.write");
                 message = MessageFormat.format(message, sc);
                 LOGGER.log(Level.WARNING, message, e);
-                selectable.close();
+                connection.close();
                 key.cancel();
-                connectionsWithPendingWrites.remove(selectable);
+                connectionsWithPendingWrites.remove(connection);
             }
         }
         if ((readyOps & SelectionKey.OP_READ) != 0) {
             // read (supports both Connection and client connections like SMTP)
-            Selectable selectable = (Selectable) key.attachment();
+            Connection connection = (Connection) key.attachment();
             SocketChannel sc = (SocketChannel) key.channel();
             readBuffer.clear();
             try {
@@ -390,30 +387,30 @@ public class SelectorLoop extends Thread {
                         message = MessageFormat.format(message, len, sa);
                         LOGGER.finest(message);
                     }
-                    selectable.receive(data);
+                    connection.receive(data);
                 }
             } catch (IOException e) {
-                selectable.receiveFailed(e);
+                connection.receiveFailed(e);
                 Object sa = sc.socket().getRemoteSocketAddress();
                 String message = L10N.getString("err.read");
                 message = MessageFormat.format(message, sa);
                 LOGGER.log(Level.WARNING, message, e);
-                selectable.close();
+                connection.close();
                 key.cancel();
                 
                 // Remove from pending writes
-                connectionsWithPendingWrites.remove(selectable);
+                connectionsWithPendingWrites.remove(connection);
             }
         }
     }
 
     /**
-     * Called by a Selectable to submit a write request.
+     * Called by a Connection to submit a write request.
      * May be called either on the sslMainExecutor thread or on an
      * application connector pool thread, or by client connections.
      */
-    public void addWriteRequest(Selectable selectable) {
-        connectionsWithPendingWrites.add(selectable);
+    public void addWriteRequest(Connection connection) {
+        connectionsWithPendingWrites.add(connection);
         selector.wakeup();
     }
 
@@ -423,12 +420,12 @@ public class SelectorLoop extends Thread {
      * in the server's event loop efficiently.
      * 
      * @param channel the client socket channel
-     * @param selectable the client connection object
+     * @param connection the client connection object
      * @throws IOException if registration fails
      */
-    public void registerClientConnection(SocketChannel channel, Selectable selectable) throws IOException {
+    public void registerClientConnection(SocketChannel channel, Connection connection) throws IOException {
         SelectionKey key = channel.register(selector, SelectionKey.OP_CONNECT);
-        key.attach(selectable);
+        key.attach(connection);
         selector.wakeup(); // Wake up selector to process new registration
     }
     
@@ -437,27 +434,27 @@ public class SelectorLoop extends Thread {
      * Called after successful connection establishment.
      * 
      * @param channel the client socket channel  
-     * @param selectable the client connection object
+     * @param connection the client connection object
      * @throws IOException if registration fails
      */
-    public void registerClientForRead(SocketChannel channel, Selectable selectable) throws IOException {
+    public void registerClientForRead(SocketChannel channel, Connection connection) throws IOException {
         SelectionKey key = channel.register(selector, SelectionKey.OP_READ);
-        key.attach(selectable);
-        selectable.setSelectionKey(key); // Ensure selectable knows its key
+        key.attach(connection);
+        connection.setSelectionKey(key); // Ensure connection knows its key
         selector.wakeup(); // Wake up selector to process new registration
     }
 
     private void processIncomingWriteRequests() {
-        for (Selectable selectable : connectionsWithPendingWrites) {
-            SelectionKey key = selectable.getSelectionKey();
+        for (Connection connection : connectionsWithPendingWrites) {
+            SelectionKey key = connection.getSelectionKey();
             if (key == null || !key.isValid() || !key.channel().isOpen()) {
-                connectionsWithPendingWrites.remove(selectable);
-                selectable.getOutboundQueue().clear();
+                connectionsWithPendingWrites.remove(connection);
+                connection.getOutboundQueue().clear();
                 continue;
             }
-            if (selectable.getOutboundQueue().peek() != null && !selectable.hasOpWriteInterest()) {
+            if (connection.getOutboundQueue().peek() != null && !connection.hasOpWriteInterest()) {
                 key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
-                selectable.setHasOpWriteInterest(true);
+                connection.setHasOpWriteInterest(true);
                 selector.wakeup();
             }
         }

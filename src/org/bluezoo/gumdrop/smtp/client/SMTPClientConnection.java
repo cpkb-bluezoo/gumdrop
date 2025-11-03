@@ -1,0 +1,446 @@
+/*
+ * SMTPClientConnection.java
+ * Copyright (C) 2025 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * This software is dual-licensed:
+ *
+ * 1. GNU General Public License v3 (or later) for open source use
+ *    See LICENCE-GPL3 file for GPL terms and conditions.
+ *
+ * 2. Commercial License for proprietary use
+ *    Contact Chris Burdess <dog@gnu.org> for commercial licensing terms.
+ *    Mimecast Services Limited has been granted commercial usage rights under
+ *    separate license agreement.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ */
+
+package org.bluezoo.gumdrop.smtp.client;
+
+import org.bluezoo.gumdrop.Connection;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
+import java.util.logging.Logger;
+
+/**
+ * Event-driven, NIO-based SMTP client connection.
+ * 
+ * <p>This implementation focuses purely on SMTP protocol logic.
+ * All networking, SSL, and threading concerns are handled by the 
+ * Connection base class and SMTPClient.
+ * 
+ * <p>Key features:
+ * <ul>
+ * <li>Sequential SMTP command processing (wait for response before next command)</li>
+ * <li>Streaming message content without memory buffering</li>
+ * <li>Automatic dot stuffing across chunk boundaries</li>
+ * <li>Simple callback-based response handling</li>
+ * </ul>
+ * 
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class SMTPClientConnection extends Connection implements WritableByteChannel {
+    
+    private static final Logger logger = Logger.getLogger(SMTPClientConnection.class.getName());
+    
+    private static final int DEFAULT_BUFFER_SIZE = 8192;
+    private static final String CRLF = "\r\n";
+    
+    // SMTP Protocol state - Connection handles all networking
+    private SMTPState state = SMTPState.DISCONNECTED;
+    
+    // Current operation callback - SMTP is sequential
+    private SMTPCallback currentCallback;
+    
+    // Protocol handling
+    private final ResponseParser responseParser;
+    private final DotStuffer dotStuffer;
+    private ByteBuffer readBuffer;
+    
+    /**
+     * Creates SMTP client connection.
+     * Threading and networking handled by Connection framework.
+     */
+    public SMTPClientConnection() {
+        this.responseParser = new ResponseParser();
+        this.dotStuffer = new DotStuffer();
+        this.readBuffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
+    }
+    
+    // Connection state methods
+    
+    public boolean isConnected() {
+        return state != SMTPState.DISCONNECTED && state != SMTPState.CLOSED && state != SMTPState.ERROR;
+    }
+    
+    public SMTPState getState() {
+        return state;
+    }
+    
+    public boolean isOpen() {
+        return isConnected();
+    }
+    
+    @Override
+    public void close() {
+        if (state == SMTPState.CLOSED) {
+            return;
+        }
+        
+        logger.fine("Closing SMTP client connection in state: " + state);
+        state = SMTPState.CLOSED;
+        
+        // Channel closing is handled by Connection base class
+        super.close();
+        
+        responseParser.reset();
+        dotStuffer.reset();
+    }
+    
+    // Connection lifecycle methods
+    
+    @Override
+    public void connected() {
+        state = SMTPState.CONNECTING;
+        logger.fine("Client socket connected, waiting for server greeting");
+    }
+    
+    @Override
+    public void finishConnectFailed(IOException cause) {
+        handleConnectionError(cause);
+    }
+    
+    @Override
+    protected void received(ByteBuffer buf) {
+        try {
+            // SMTP client only receives line-based responses (never DATA content)
+            // Handle similar to server side command processing
+            
+            // Add new data to our read buffer
+            appendToReadBuffer(buf);
+            
+            // Extract and process complete responses (lines)
+            String line;
+            while ((line = extractCompleteLine()) != null) {
+                handleReply(line);
+            }
+        } catch (Exception e) {
+            handleError(new SMTPException("Error processing received data", e));
+        }
+    }
+    
+    @Override
+    protected void disconnected() throws IOException {
+        handleDisconnection();
+    }
+    
+    // WritableByteChannel implementation for DotStuffer
+    
+    @Override
+    public int write(ByteBuffer src) throws IOException {
+        if (!isConnected()) {
+            throw new IOException("Not connected");
+        }
+        
+        int bytesToWrite = src.remaining();
+        
+        // Create a copy of the data since src might be reused/modified
+        ByteBuffer copy = ByteBuffer.allocate(bytesToWrite);
+        copy.put(src);
+        copy.flip();
+        
+        // Use inherited send() method from Connection
+        send(copy);
+        
+        return bytesToWrite;
+    }
+    
+    // SMTP Command methods
+    
+    public void helo(String hostname, SMTPCallback callback) {
+        sendCommand("HELO " + hostname, SMTPState.HELO_SENT, callback);
+    }
+    
+    public void ehlo(String hostname, SMTPCallback callback) {
+        sendCommand("EHLO " + hostname, SMTPState.EHLO_SENT, callback);
+    }
+    
+    public void mailFrom(String sender, SMTPCallback callback) {
+        sendCommand("MAIL FROM:<" + sender + ">", SMTPState.MAIL_FROM_SENT, callback);
+    }
+    
+    public void rcptTo(String recipient, SMTPCallback callback) {
+        sendCommand("RCPT TO:<" + recipient + ">", SMTPState.RCPT_TO_SENT, callback);
+    }
+    
+    public void data(SMTPCallback callback) {
+        sendCommand("DATA", SMTPState.DATA_COMMAND_SENT, callback);
+    }
+    
+    public void messageContent(ByteBuffer content) throws IOException {
+        if (state != SMTPState.DATA_MODE) {
+            throw new IllegalStateException("Not in data mode");
+        }
+        dotStuffer.processChunk(content, this);
+    }
+    
+    public void endData(SMTPCallback callback) throws IOException {
+        if (state != SMTPState.DATA_MODE) {
+            throw new IllegalStateException("Not in data mode");
+        }
+        
+        dotStuffer.endMessage(this);
+        
+        this.currentCallback = callback;
+        this.state = SMTPState.DATA_END_SENT;
+    }
+    
+    public void rset(SMTPCallback callback) {
+        sendCommand("RSET", SMTPState.RSET_SENT, callback);
+    }
+    
+    public void quit(SMTPCallback callback) {
+        sendCommand("QUIT", SMTPState.QUIT_SENT, callback);
+    }
+    
+    public void starttls(SMTPCallback callback) {
+        sendCommand("STARTTLS", SMTPState.STARTTLS_SENT, callback);
+    }
+    
+    // Internal methods
+    
+    private void sendCommand(String command, SMTPState newState, SMTPCallback callback) {
+        if (!isConnected()) {
+            if (callback != null) {
+                callback.onError(new SMTPException("Not connected"));
+            }
+            return;
+        }
+        
+        this.currentCallback = callback;
+        this.state = newState;
+        
+        try {
+            String fullCommand = command + CRLF;
+            ByteBuffer commandBuffer = ByteBuffer.wrap(fullCommand.getBytes("ASCII"));
+            
+            // Create a copy since the wrapped byte array might be reused
+            ByteBuffer copy = ByteBuffer.allocate(commandBuffer.remaining());
+            copy.put(commandBuffer);
+            copy.flip();
+            
+            // Use inherited send() method from Connection
+            send(copy);
+            
+            logger.fine("Sent SMTP command: " + command);
+        } catch (IOException e) {
+            handleError(new SMTPException("Failed to send command: " + command, e));
+        }
+    }
+    
+    /**
+     * Appends new data to the read buffer, expanding if necessary.
+     */
+    private void appendToReadBuffer(ByteBuffer newData) {
+        int newDataSize = newData.remaining();
+        int currentDataSize = readBuffer.position();
+        int requiredCapacity = currentDataSize + newDataSize;
+        
+        if (requiredCapacity > readBuffer.capacity()) {
+            // Expand buffer
+            ByteBuffer newBuffer = ByteBuffer.allocate(Math.max(requiredCapacity, readBuffer.capacity() * 2));
+            readBuffer.flip();
+            newBuffer.put(readBuffer);
+            readBuffer = newBuffer;
+        }
+        
+        // Add new data
+        readBuffer.put(newData);
+    }
+    
+    /**
+     * Extracts a complete CRLF-terminated line from the read buffer.
+     * Similar to server-side extractCompleteLine method.
+     */
+    private String extractCompleteLine() throws IOException {
+        readBuffer.flip(); // Switch to read mode
+        
+        // Look for CRLF sequence
+        int crlfIndex = -1;
+        for (int i = 0; i < readBuffer.limit() - 1; i++) {
+            if (readBuffer.get(i) == '\r' && readBuffer.get(i + 1) == '\n') {
+                crlfIndex = i;
+                break;
+            }
+        }
+        
+        if (crlfIndex >= 0) {
+            // Found complete line - extract it
+            byte[] lineBytes = new byte[crlfIndex];
+            readBuffer.get(lineBytes);
+            
+            // Skip the CRLF
+            readBuffer.get(); // skip CR
+            readBuffer.get(); // skip LF
+            
+            // Compact remaining data
+            readBuffer.compact();
+            
+            // Convert to string (SMTP is ASCII-based)
+            return new String(lineBytes, "ASCII");
+        } else {
+            // No complete line yet - restore buffer state
+            readBuffer.compact();
+            return null;
+        }
+    }
+    
+    /**
+     * Handles a complete SMTP reply line.
+     * Parses the line into an SMTPResponse and determines success/failure.
+     */
+    private void handleReply(String line) {
+        try {
+            // Parse the line into an SMTPResponse
+            SMTPResponse response = parseResponseLine(line);
+            handleResponse(response);
+        } catch (Exception e) {
+            handleError(new SMTPException("Failed to parse SMTP response: " + line, e));
+        }
+    }
+    
+    /**
+     * Parses a single SMTP response line into an SMTPResponse object.
+     */
+    private SMTPResponse parseResponseLine(String line) throws SMTPException {
+        if (line == null || line.length() < 3) {
+            throw new SMTPException("Invalid SMTP response: " + line);
+        }
+        
+        try {
+            // Parse response code (first 3 characters)
+            int code = Integer.parseInt(line.substring(0, 3));
+            
+            // Get message (everything after code and space/hyphen)
+            String message = "";
+            if (line.length() > 3) {
+                if (line.charAt(3) == ' ' || line.charAt(3) == '-') {
+                    message = line.substring(4);
+                } else {
+                    throw new SMTPException("Invalid SMTP response format: " + line);
+                }
+            }
+            
+            return new SMTPResponse(code, message);
+        } catch (NumberFormatException e) {
+            throw new SMTPException("Invalid SMTP response code: " + line, e);
+        }
+    }
+    
+    private void handleResponse(SMTPResponse response) {
+        SMTPCallback callback = currentCallback;
+        currentCallback = null; // Clear callback first
+        
+        logger.fine("Received SMTP response: " + response.getCode() + " " + response.getMessage());
+        
+        // Update state based on response and current state
+        switch (state) {
+            case CONNECTING:
+                if (response.isSuccess()) {
+                    state = SMTPState.CONNECTED;
+                } else {
+                    state = SMTPState.ERROR;
+                }
+                break;
+                
+            case HELO_SENT:
+            case EHLO_SENT:
+                state = response.isSuccess() ? SMTPState.CONNECTED : SMTPState.ERROR;
+                break;
+                
+            case MAIL_FROM_SENT:
+            case RCPT_TO_SENT:
+                // Stay in same state after successful command
+                if (!response.isSuccess()) {
+                    state = SMTPState.ERROR;
+                }
+                break;
+                
+            case DATA_COMMAND_SENT:
+                if (response.isSuccess() && response.getCode() == 354) {
+                    state = SMTPState.DATA_MODE;
+                } else {
+                    state = SMTPState.ERROR;
+                }
+                break;
+                
+            case DATA_END_SENT:
+                state = response.isSuccess() ? SMTPState.CONNECTED : SMTPState.ERROR;
+                break;
+                
+            case RSET_SENT:
+                state = response.isSuccess() ? SMTPState.CONNECTED : SMTPState.ERROR;
+                break;
+                
+            case QUIT_SENT:
+                state = SMTPState.CLOSED;
+                break;
+                
+            case STARTTLS_SENT:
+                if (response.isSuccess()) {
+                    // TLS upgrade would be handled by Connection framework
+                    state = SMTPState.CONNECTED;
+                } else {
+                    state = SMTPState.ERROR;
+                }
+                break;
+                
+            default:
+                logger.warning("Unexpected response in state " + state + ": " + response);
+        }
+        
+        // Notify callback
+        if (callback != null) {
+            if (response.isSuccess()) {
+                callback.onSuccess(response);
+            } else {
+                callback.onError(new SMTPException("SMTP error: " + response.getCode() + " " + response.getMessage()));
+            }
+        }
+    }
+    
+    private void handleError(SMTPException error) {
+        logger.warning("SMTP error: " + error.getMessage());
+        
+        state = SMTPState.ERROR;
+        
+        if (currentCallback != null) {
+            SMTPCallback callback = currentCallback;
+            currentCallback = null;
+            callback.onError(error);
+        }
+    }
+    
+    private void handleConnectionError(IOException cause) {
+        handleError(new SMTPException("Connection failed", cause));
+    }
+    
+    private void handleDisconnection() {
+        logger.info("SMTP connection disconnected");
+        
+        state = SMTPState.CLOSED;
+        
+        // Notify callback of disconnection
+        if (currentCallback != null) {
+            SMTPCallback callback = currentCallback;
+            currentCallback = null;
+            callback.onError(new SMTPException("Connection closed"));
+        }
+    }
+}

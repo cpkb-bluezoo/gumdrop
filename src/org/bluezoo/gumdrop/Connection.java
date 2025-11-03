@@ -56,7 +56,7 @@ import javax.net.ssl.SSLSession;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public abstract class Connection implements Selectable {
+public abstract class Connection {
 
     private static final Logger LOGGER = Logger.getLogger(Connection.class.getName());
 
@@ -279,34 +279,28 @@ public abstract class Connection implements Selectable {
      */
     protected abstract void disconnected() throws IOException;
     
-    // Selectable interface implementation for write operations
+    // Write operations support for SelectorLoop integration
     
-    @Override
     public BlockingQueue<ByteBuffer> getOutboundQueue() {
         return outboundQueue;
     }
     
-    @Override
     public boolean hasOpWriteInterest() {
         return hasOpWriteInterest.get();
     }
     
-    @Override
     public void setHasOpWriteInterest(boolean value) {
         hasOpWriteInterest.set(value);
     }
     
-    @Override
     public SelectionKey getSelectionKey() {
         return key;
     }
     
-    @Override
     public void setSelectionKey(SelectionKey key) {
         this.key = key;
     }
     
-    @Override
     public boolean shouldCloseAfterSend() {
         return closeAfterSend;
     }

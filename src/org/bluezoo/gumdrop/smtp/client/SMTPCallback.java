@@ -1,5 +1,5 @@
 /*
- * SendCallback.java
+ * SMTPCallback.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,23 +19,28 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
-package org.bluezoo.gumdrop;
 
-import java.nio.ByteBuffer;
+package org.bluezoo.gumdrop.smtp.client;
 
 /**
- * Callback interface for handling data sent via {@link Connection#send(ByteBuffer)}.
- * This allows test classes to intercept and capture sent data without involving the server.
- *
+ * Callback interface for asynchronous SMTP operations.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface SendCallback {
-
+public interface SMTPCallback {
+    
     /**
-     * Called when data is sent via a connection.
-     * @param connection the connection sending the data
-     * @param buf the data being sent, or null to close after send
+     * Called when SMTP command completes successfully.
+     * 
+     * @param response server response to the command
      */
-    void onSend(Connection connection, ByteBuffer buf);
-
+    void onSuccess(SMTPResponse response);
+    
+    /**
+     * Called when SMTP command fails or connection error occurs.
+     * 
+     * @param error details of the failure
+     */
+    void onError(SMTPException error);
 }
+
