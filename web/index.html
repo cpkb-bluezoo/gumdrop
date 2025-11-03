@@ -37,11 +37,11 @@
 </table>
 
 <p>
-Congratulations, you've installed gumdrop!
+Congratulations, you've installed Gumdrop!
 </p>
 
 <p>
-This is the home page of the test gumdrop web application. Included is a
+This is the home page of the test Gumdrop web application. Included is a
 <a href='simple.test'>simple</a> <a href='test'>test</a> servlet
 (<a href='TestServlet.java'>source code</a>) that
 demonstrates some of the Servlet 2.4 features of gumdrop (login with
@@ -51,16 +51,16 @@ demonstrates some of the Servlet 2.4 features of gumdrop (login with
 
 <p>
 You can also use the supplied <a href='manager'><strong>Manager</strong></a>
-web application to examine and administer a running gumdrop container.
+web application to examine and administer a running Gumdrop container.
 </p>
 
 <p>
-If you have any questions about gumdrop, please direct them to
+If you have any questions about Gumdrop, please direct them to
 <a href='mailto:dog@gnu.org'>Chris Burdess</a>.
 </p>
 
 <p>
-Thanks for trying out gumdrop!
+Thanks for trying out Gumdrop!
 </p>
 
 <h3>Architecture</h3>
@@ -101,14 +101,14 @@ the HTTP request and setting up the RequestDispatcher for execution.
 
 <p>
 Because the number of request-processing threads is completely independent
-of the number of client TCP connections to the server, gumdrop scales very
+of the number of client TCP connections to the server, Gumdrop scales very
 gracefully. You can specify the maximum size of the thread pool for handling
 connection reads and processing on a per-connector basis, as well as the
 maximum size of the thread pool for servlet worker threads.
 </p>
 
 <p>
-Servlet contexts marked as <i>distributable</i> cause gumdrop to start
+Servlet contexts marked as <i>distributable</i> cause Gumdrop to start
 another thread, used for cluster synchronisation. The mechanism used is
 a simple UDP broadcast of the changed session data.
 </p>
@@ -123,7 +123,7 @@ context to be reloaded. This process is referred to as <i>hot deploy</i>.
 <h3>Configuration</h3>
 
 <p>
-The configuration of gumdrop is primarily contained in the
+The configuration of Gumdrop is primarily contained in the
 <code>gumdroprc</code> file. The remainder of the configuration is supplied
 by standard Java system properties, e.g. the logging subsystem which uses
 the <code>java.util.logging</code> package.
@@ -140,7 +140,7 @@ known in advance. However, here is the general format of the file:
 
 <ul>
 <li>The <code>server</code> element is the root element. This represents the
-<code>org.bluezoo.gumdrop.Server</code> object. It may contain <code>container</code>
+        <code>org.bluezoo.gumdrop.SelectorLoop</code> object. It may contain <code>container</code>
 or <code>connector</code> elements.</li>
 <li>A <code>container</code> element represents a
 <code>org.bluezoo.gumdrop.servlet.Container</code>. It logically groups a set of
@@ -150,7 +150,7 @@ are:
   <li><code>hot-deploy</code> - if false, hot deployment of contexts will be
   disabled</li>
   <li><code>cluster-port</code> - the UDP port on which to synchronise a
-  cluster of gumdrop containers containing distributable contexts.
+  cluster of Gumdrop containers containing distributable contexts.
   Defaults to 8080.</li>
   <li><code>cluster-group-address</code> - the IP address to specify as the
   group address for multiplexed UDP datagrams when synchronising
@@ -214,7 +214,7 @@ attributes:
   <li><b><code>path</code></b> - the context path for the context (see the
   servlet specification for further details)</li>
   <li><b><code>root</code></b> - the web application root. This may be a
-  directory or the path to a WAR file. Note that gumdrop does not unpack
+  directory or the path to a WAR file. Note that Gumdrop does not unpack
   WAR files: if you want to deploy into the filesystem, specify a directory
   instead.</li>
   </ul>
@@ -280,17 +280,17 @@ during configuration.</li>
 
 <p>
 Hopefully you will try out some of your own web applications within
-gumdrop. If the speed, simplicity, and ease of configuration appeals to you,
+Gumdrop. If the speed, simplicity, and ease of configuration appeals to you,
 please consider getting involved and developing a new feature. If it
 doesn't work the way you wanted it to, please let me know!
 </p>
 
 <p>
-There are a number of new features planned for gumdrop. If you are interested
+There are a number of new features planned for Gumdrop. If you are interested
 in implementing JSP support, I'd love to hear from you.
 </p>
 
-<p class='server-info'>gumdrop</p>
+<p class='server-info'>Gumdrop</p>
 
 </body>
 </html>

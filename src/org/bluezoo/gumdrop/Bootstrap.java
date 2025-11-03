@@ -63,7 +63,7 @@ public class Bootstrap {
         // Load the Server class in the container classloader and
         // run it
         Thread.currentThread().setContextClassLoader(containerClassLoader);
-        Class<?> serverClass = containerClassLoader.loadClass("org.bluezoo.gumdrop.Server");
+        Class<?> serverClass = containerClassLoader.loadClass("org.bluezoo.gumdrop.SelectorLoop");
         Method main = serverClass.getMethod("main", String[].class);
         main.invoke(null, new Object[] { args });
     }

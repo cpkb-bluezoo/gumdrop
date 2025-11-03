@@ -151,7 +151,7 @@ public abstract class Connector {
             try {
                 addresses.add(InetAddress.getByName(host));
             } catch (UnknownHostException e) {
-                String message = Server.L10N.getString("err.unknown_host");
+                String message = SelectorLoop.L10N.getString("err.unknown_host");
                 message = MessageFormat.format(message, host);
                 LOGGER.log(Level.SEVERE, message, e);
             }
@@ -283,7 +283,7 @@ public abstract class Connector {
                 // fall through
             }
         }
-        String message = Server.L10N.getString("err.bad_keepalive");
+        String message = SelectorLoop.L10N.getString("err.bad_keepalive");
         message = MessageFormat.format(message, keepAlive);
         throw new IllegalArgumentException(message);
     }
@@ -294,7 +294,7 @@ public abstract class Connector {
     protected void start() {
         // Validation: secure=true REQUIRES SSL configuration
         if (secure && (keystoreFile == null || keystorePass == null)) {
-            String message = Server.L10N.getString("err.no_keystore");
+            String message = SelectorLoop.L10N.getString("err.no_keystore");
             throw new RuntimeException("Secure connector requires keystore configuration: " + message);
         }
         

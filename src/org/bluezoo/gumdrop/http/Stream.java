@@ -38,7 +38,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.logging.Level;
 
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.util.LineInput;
@@ -551,7 +551,7 @@ public class Stream {
         }
 
         // Standard HTTP headers
-        headers.add(new Header("Server", "gumdrop/" + Server.VERSION));
+        headers.add(new Header("Server", "gumdrop/" + SelectorLoop.VERSION));
         headers.add(new Header("Date", dateFormat.format(new Date())));
         if (closeConnection) {
             headers.add(new Header("Connection", "close"));

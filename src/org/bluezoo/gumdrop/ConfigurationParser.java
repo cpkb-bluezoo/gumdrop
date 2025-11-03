@@ -189,9 +189,9 @@ public final class ConfigurationParser extends DefaultHandler {
                 return;
             }
         }
-        String message = Server.L10N.getString("warn.no_bean_property");
+        String message = SelectorLoop.L10N.getString("warn.no_bean_property");
         message = MessageFormat.format(message, name);
-        Server.LOGGER.warning(message);
+        SelectorLoop.LOGGER.warning(message);
     }
 
     Connector createConnector(Attributes atts) throws SAXException {
@@ -216,7 +216,7 @@ public final class ConfigurationParser extends DefaultHandler {
             }
             return connector;
         } catch (Exception e) {
-            String message = Server.L10N.getString("err.bad_connector");
+            String message = SelectorLoop.L10N.getString("err.bad_connector");
             message = MessageFormat.format(message, className);
             throw new SAXParseException(message, loc, e);
         }
@@ -237,7 +237,7 @@ public final class ConfigurationParser extends DefaultHandler {
             URL.setURLStreamHandlerFactory(new ResourceHandlerFactory(container));
             return container;
         } catch (Exception e) {
-            String message = Server.L10N.getString("err.bad_container");
+            String message = SelectorLoop.L10N.getString("err.bad_container");
             throw new SAXParseException(message, loc, e);
         }
     }
@@ -251,11 +251,11 @@ public final class ConfigurationParser extends DefaultHandler {
         File file = new File(root);
         if (file.exists() && file.canRead()) {
             try {
-                if (Server.LOGGER.isLoggable(Level.FINE)) {
-                    String message = Server.L10N.getString("info.load_context");
-                    String pathDesc = "".equals(path) ? Server.L10N.getString("root") : path;
+                if (SelectorLoop.LOGGER.isLoggable(Level.FINE)) {
+                    String message = SelectorLoop.L10N.getString("info.load_context");
+                    String pathDesc = "".equals(path) ? SelectorLoop.L10N.getString("root") : path;
                     message = MessageFormat.format(message, file, pathDesc);
-                    Server.LOGGER.fine(message);
+                    SelectorLoop.LOGGER.fine(message);
                 }
                 context = new Context(container, path, file);
                 Method[] methods = Context.class.getMethods();
@@ -271,12 +271,12 @@ public final class ConfigurationParser extends DefaultHandler {
                 context.load();
                 return context;
             } catch (Exception e) {
-                String message = Server.L10N.getString("err.bad_context");
+                String message = SelectorLoop.L10N.getString("err.bad_context");
                 message = MessageFormat.format(message, file);
                 throw new SAXParseException(message, loc, e);
             }
         } else {
-            String message = Server.L10N.getString("err.no_context");
+            String message = SelectorLoop.L10N.getString("err.no_context");
             message = MessageFormat.format(message, file);
             throw new SAXParseException(message, loc);
         }
@@ -285,7 +285,7 @@ public final class ConfigurationParser extends DefaultHandler {
     Realm createRealm(Attributes atts) throws SAXException {
         String type = atts.getValue("type");
         if (type == null) {
-            String message = Server.L10N.getString("err.missing_attribute");
+            String message = SelectorLoop.L10N.getString("err.missing_attribute");
             message = MessageFormat.format(message, "type");
             throw new SAXParseException(message, loc);
         }
@@ -369,7 +369,7 @@ public final class ConfigurationParser extends DefaultHandler {
                     case SERVER:
                         break;
                     default:
-                        String message = Server.L10N.getString("err.expected");
+                        String message = SelectorLoop.L10N.getString("err.expected");
                         message = MessageFormat.format(message, "server", name);
                         throw new SAXParseException(message, loc);
                 }
@@ -383,7 +383,7 @@ public final class ConfigurationParser extends DefaultHandler {
                         connectors.add(createConnector(atts));
                         break;
                     default:
-                        String message = Server.L10N.getString("err.expected_child");
+                        String message = SelectorLoop.L10N.getString("err.expected_child");
                         message = MessageFormat.format(message, "server", name);
                         throw new SAXParseException(message, loc);
                 }
@@ -400,7 +400,7 @@ public final class ConfigurationParser extends DefaultHandler {
                     case REALM:
                         String realmName = atts.getValue("name");
                         if (realmName == null) {
-                            String message = Server.L10N.getString("err.missing_attribute");
+                            String message = SelectorLoop.L10N.getString("err.missing_attribute");
                             message = MessageFormat.format(message, "name");
                             throw new SAXParseException(message, loc);
                         }
@@ -416,7 +416,7 @@ public final class ConfigurationParser extends DefaultHandler {
                         container.addResource(resource);
                         break;
                     default:
-                        String message = Server.L10N.getString("err.expected_child");
+                        String message = SelectorLoop.L10N.getString("err.expected_child");
                         message = MessageFormat.format(message, "container");
                         throw new SAXParseException(message, loc);
                 }
@@ -427,7 +427,7 @@ public final class ConfigurationParser extends DefaultHandler {
                         String paramName = atts.getValue("name");
                         String paramValue = atts.getValue("value");
                         if (paramName == null) {
-                            String message = Server.L10N.getString("err.missing_attribute");
+                            String message = SelectorLoop.L10N.getString("err.missing_attribute");
                             message = MessageFormat.format(message, "name");
                             throw new SAXParseException(message, loc);
                         }
@@ -436,7 +436,7 @@ public final class ConfigurationParser extends DefaultHandler {
                     case REALM:
                         String realmName = atts.getValue("name");
                         if (realmName == null) {
-                            String message = Server.L10N.getString("err.missing_attribute");
+                            String message = SelectorLoop.L10N.getString("err.missing_attribute");
                             message = MessageFormat.format(message, "name");
                             throw new SAXParseException(message, loc);
                         }
@@ -451,7 +451,7 @@ public final class ConfigurationParser extends DefaultHandler {
                         context.addResource(resource);
                         break;
                     default:                
-                        String message = Server.L10N.getString("err.expected_child");
+                        String message = SelectorLoop.L10N.getString("err.expected_child");
                         message = MessageFormat.format(message, "context");
                         throw new SAXParseException(message, loc);
                 }
@@ -470,7 +470,7 @@ public final class ConfigurationParser extends DefaultHandler {
                         String paramName = atts.getValue("name");
                         String paramValue = atts.getValue("value");
                         if (paramName == null) {
-                            String message = Server.L10N.getString("err.missing_attribute");
+                            String message = SelectorLoop.L10N.getString("err.missing_attribute");
                             message = MessageFormat.format(message, "name");
                             throw new SAXParseException(message, loc);
                         }

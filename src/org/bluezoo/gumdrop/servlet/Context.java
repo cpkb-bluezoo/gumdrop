@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.Realm;
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.servlet.manager.ContainerService;
 import org.bluezoo.gumdrop.servlet.manager.ContextService;
 import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
@@ -1714,7 +1714,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     @Override public String getServerInfo() {
-        return "gumdrop/" + Server.VERSION;
+        return "gumdrop/" + SelectorLoop.VERSION;
     }
 
     @Override public synchronized String getInitParameter(String name) {

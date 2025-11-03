@@ -56,7 +56,7 @@ import javax.net.ssl.SSLSession;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public abstract class Connection {
+public abstract class Connection implements Selectable {
 
     private static final Logger LOGGER = Logger.getLogger(Connection.class.getName());
 
@@ -109,13 +109,7 @@ public abstract class Connection {
         return secure;
     }
 
-    boolean hasOpWriteInterest() {
-        return hasOpWriteInterest.get();
-    }
-
-    void setHasOpWriteInterest(boolean value) {
-        hasOpWriteInterest.set(value);
-    }
+    // hasOpWriteInterest() and setHasOpWriteInterest() methods now provided by Selectable interface
 
     protected void init() throws IOException {
         if (channel == null) {
@@ -166,9 +160,10 @@ public abstract class Connection {
     }
 
     // Will be invoked in server main selector loop thread
-    final void receive(ByteBuffer data) {
+    // Implements Selectable.receive()
+    public final void receive(ByteBuffer data) {
         if (sslState != null) {
-            Server.getInstance().sslMainExecutor.execute(sslState.new SSLReceive(data));
+            SelectorLoop.getInstance().sslMainExecutor.execute(sslState.new SSLReceive(data));
         } else {
             threadPool.submit(this.new ReadRequest(data));
         }
@@ -188,7 +183,7 @@ public abstract class Connection {
                 int len = data.remaining();
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     Object sa = channel.socket().getRemoteSocketAddress();
-                    String message = Server.L10N.getString("info.received_plaintext");
+                    String message = SelectorLoop.L10N.getString("info.received_plaintext");
                     message = MessageFormat.format(message, len, sa);
                     LOGGER.finest(message);
                 }
@@ -267,22 +262,54 @@ public abstract class Connection {
     /**
      * Invoked when the connection is opened.
      */
-    protected void connected() throws IOException {}
+    public void connected() {}
 
     /**
      * Invoked when the connection failed during connect.
      */
-    protected void finishConnectFailed(IOException connectException) throws IOException {}
+    public void finishConnectFailed(IOException connectException) {}
 
     /**
      * Invoked when a network read failure occurred.
      */
-    protected void receiveFailed(IOException ioException) throws IOException {}
+    public void receiveFailed(IOException ioException) {}
 
     /**
      * Invoked when the peer closed the connection.
      */
     protected abstract void disconnected() throws IOException;
+    
+    // Selectable interface implementation for write operations
+    
+    @Override
+    public BlockingQueue<ByteBuffer> getOutboundQueue() {
+        return outboundQueue;
+    }
+    
+    @Override
+    public boolean hasOpWriteInterest() {
+        return hasOpWriteInterest.get();
+    }
+    
+    @Override
+    public void setHasOpWriteInterest(boolean value) {
+        hasOpWriteInterest.set(value);
+    }
+    
+    @Override
+    public SelectionKey getSelectionKey() {
+        return key;
+    }
+    
+    @Override
+    public void setSelectionKey(SelectionKey key) {
+        this.key = key;
+    }
+    
+    @Override
+    public boolean shouldCloseAfterSend() {
+        return closeAfterSend;
+    }
 
     /**
      * Sends the specified data to the underlying socket.
@@ -307,7 +334,7 @@ public abstract class Connection {
             }
             if (!channel.isOpen()) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    String message = Server.L10N.getString("err.channel_closed");
+                    String message = SelectorLoop.L10N.getString("err.channel_closed");
                     message = MessageFormat.format(message, channel);
                     LOGGER.fine(message);
                 }
@@ -317,7 +344,7 @@ public abstract class Connection {
                 try {
                     // We cannot write directly to appOut, it can only be
                     // accessed in the SSL main thread
-                    Server.getInstance().sslMainExecutor.execute(sslState.new SSLSend(buf));
+                    SelectorLoop.getInstance().sslMainExecutor.execute(sslState.new SSLSend(buf));
                 } catch (Exception e) {
                     // Handle exceptions from the executor, e.g., RejectedExecutionException
                     throw (RuntimeException) new RuntimeException().initCause(e);
@@ -325,7 +352,7 @@ public abstract class Connection {
             } else {
                 try {
                     outboundQueue.put(buf); // NB does not use appOut
-                    Server.getInstance().addWriteRequest(Connection.this);
+                    SelectorLoop.getInstance().addWriteRequest(Connection.this);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
@@ -356,7 +383,7 @@ public abstract class Connection {
      */
     public void close() {
         if (sslState != null) {
-            Server.getInstance().sslMainExecutor.execute(sslState.sslClose);
+            SelectorLoop.getInstance().sslMainExecutor.execute(sslState.sslClose);
         } else {
             doClose();
         }
@@ -438,7 +465,7 @@ public abstract class Connection {
             if (!handshakeStarted) {
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     Object sa = channel.socket().getRemoteSocketAddress();
-                    String message = Server.L10N.getString("info.ssl_begin_handshake");
+                    String message = SelectorLoop.L10N.getString("info.ssl_begin_handshake");
                     message = MessageFormat.format(message, sa);
                     LOGGER.finest(message);
                 }
@@ -450,7 +477,7 @@ public abstract class Connection {
                 case FINISHED:
                     if (LOGGER.isLoggable(Level.FINEST)) {
                         Object sa = channel.socket().getRemoteSocketAddress();
-                        String message = Server.L10N.getString("info.ssl_handshake_finished");
+                        String message = SelectorLoop.L10N.getString("info.ssl_handshake_finished");
                         message = MessageFormat.format(message, sa);
                         LOGGER.finest(message);
                     }
@@ -475,7 +502,7 @@ public abstract class Connection {
                 switch (handshakeStatus) {
                     case NEED_WRAP:
                         rawOut.clear();
-                        //System.err.println("appOut contains:\n"+Server.hexdump(appOut));
+                        //System.err.println("appOut contains:\n"+SelectorLoop.hexdump(appOut));
                         result = engine.wrap(appOut, rawOut);
                         if (rawOut.position() > 0) {
                             ByteBuffer readRawOut = rawOut.duplicate();
@@ -533,7 +560,7 @@ public abstract class Connection {
                         delegatedTasks.set(tasks.size());
                         // Now submit them to SSL task thread
                         for (Runnable task : tasks) {
-                            Server.getInstance().sslTaskThreadPool.execute(this.new DelegatedTask(task));
+                            SelectorLoop.getInstance().sslTaskThreadPool.execute(this.new DelegatedTask(task));
                         }
                         return; // processSSLEvents will be invoked by sslResume
                 }
@@ -556,7 +583,7 @@ public abstract class Connection {
                 data.put(rawOut);
                 data.flip();
                 outboundQueue.put(data);
-                Server.getInstance().addWriteRequest(Connection.this);
+                SelectorLoop.getInstance().addWriteRequest(Connection.this);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -638,7 +665,7 @@ public abstract class Connection {
 
         void handleClosed() throws IOException {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                String message = Server.L10N.getString("warn.sslengine_closed_in_read");
+                String message = SelectorLoop.L10N.getString("warn.sslengine_closed_in_read");
                 LOGGER.warning(message);
             }
             channel.close();
@@ -659,7 +686,7 @@ public abstract class Connection {
             public void run() {
                 task.run();
                 if (delegatedTasks.decrementAndGet() == 0) {
-                    Server.getInstance().sslMainExecutor.execute(sslResume);
+                    SelectorLoop.getInstance().sslMainExecutor.execute(sslResume);
                 }
             }
         }
@@ -693,7 +720,7 @@ public abstract class Connection {
 
             public void run() {
                 try {
-                    //System.err.println("Receiving bytes from client into rawIn:\n"+Server.hexdump(data));
+                    //System.err.println("Receiving bytes from client into rawIn:\n"+SelectorLoop.hexdump(data));
                     if (rawIn.position() > 0) {
                         rawIn.compact(); // prepare for write
                     }

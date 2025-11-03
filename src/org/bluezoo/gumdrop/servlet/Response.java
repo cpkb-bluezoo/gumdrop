@@ -22,7 +22,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.HTTPConstants;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Stream;

@@ -155,7 +155,7 @@ public class FTPDataConnectionCoordinator {
         
         try {
             // Register with server to start listening
-            org.bluezoo.gumdrop.Server.getInstance().registerConnector(passiveConnector);
+            org.bluezoo.gumdrop.SelectorLoop.getInstance().registerConnector(passiveConnector);
             
             // The actual port will be set by the connector after binding
             // For now, get it from the server channels

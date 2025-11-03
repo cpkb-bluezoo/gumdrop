@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.ftp;
 
 import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.SendCallback;
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.util.LineInput;
 
 import java.io.IOException;
