@@ -5,19 +5,18 @@
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
  *
- * This software is dual-licensed:
- *
- * 1. GNU General Public License v3 (or later) for open source use
- *    See LICENCE-GPL3 file for GPL terms and conditions.
- *
- * 2. Commercial License for proprietary use
- *    Contact Chris Burdess <dog@gnu.org> for commercial licensing terms.
- *    Mimecast Services Limited has been granted commercial usage rights under
- *    separate license agreement.
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
  * gumdrop is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.http.file;

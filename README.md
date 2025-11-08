@@ -61,6 +61,7 @@ I/O. It supports:
         - network block lists
         - max connections per IP
         - require authentication
+    - simple, extensible asynchronous handler mechanism for implementations
 - FTP
     - FTPS
     - pluggable realm authentication via standardized mechanism
@@ -156,19 +157,8 @@ The list of current tasks is in the TODO file in the project.
 
 ## Licensing
 
-Gumdrop is dual-licensed to provide maximum flexibility:
+Gumdrop is licensed under the GNU General Public Licence version 3.
+See `COPYING` for full terms.
 
-### Open Source License (GPL v3)
-Free for open source projects and GPL-compatible applications. 
-See `LICENCE-GPL3` for full terms.
-
-### Commercial License
-Available for proprietary and commercial use without GPL obligations.
-Contact Chris Burdess <dog@gnu.org> for commercial licensing.
-
-**Special Note**: Mimecast Services Limited has been granted commercial
-usage rights under a separate license agreement.
-
-For complete licensing information, see [LICENSING.md](LICENSING.md).
 
 -- Chris Burdess
