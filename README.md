@@ -3,8 +3,8 @@ Multipurpose asynchronous Java server and servlet container
 
 ![gumdrop logo](https://www.nongnu.org/gumdrop/gumdrop.png "gumdrop logo")
 
-This is gumdrop, a multipurpose Java server using asynchronous, event-driven
-I/O. It supports:
+This is gumdrop, a multipurpose Java server framework using asynchronous,
+non-blocking, event-driven I/O. It supports:
 - a generic, extensible server framework that can transparently handle TLS
   connections from clients
     - keystore/truststore configuration
@@ -13,7 +13,12 @@ I/O. It supports:
     - cipher suite selection
     - thread pool configuration for connection handlers on a per-server
       basis, completely independent of number of client connections
-    - internationalization and localization facilities
+    - internationalization and localization facilities, current translations
+      include:
+        - English
+        - French
+        - Spanish
+        - German
     - centralized and secure realm interface for authentication and
       authorization
     - connection filtering
@@ -102,11 +107,11 @@ I/O. It supports:
 
 The gumdroprc file is used to configure gumdrop.
 
-The gumdrop server provides a functional J2EE servlet container. An example
+The gumdrop framework provides a functional J2EE servlet container. An example
 web application and configuration is provided in the web directory. There
 is also a Manager web application that can be used to administer the
-container. Complete support for version 4.0 of the servlet specification
-is under development.
+container. Gumdrop provides complete support for version 4.0 of the servlet
+specification.
 
 The gumdrop logo is a gumdrop torus, generated using [POV-Ray](http://www.povray.org/).
 A gumdrop torus is a [mathematical construct](http://www.povray.org/documentation/view/3.6.1/448/#s02_07_07_02_i75)
