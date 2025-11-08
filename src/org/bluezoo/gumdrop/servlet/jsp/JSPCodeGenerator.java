@@ -116,6 +116,15 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     }
 
     /**
+     * Sets the class name for the generated servlet.
+     * 
+     * @param className the class name to use for the generated servlet
+     */
+    public void setClassName(String className) {
+        this.className = className;
+    }
+
+    /**
      * Applies JSP configuration properties to the code generator settings.
      * This method overrides default values with those specified in JSP configuration.
      */
@@ -298,7 +307,8 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     }
 
     private void generateServiceMethodBody() {
-        serviceMethodBody.append("        PrintWriter out = response.getWriter();\n");
+        // Declare JspWriter instead of PrintWriter to match pageContext.getOut()
+        serviceMethodBody.append("        JspWriter out = null;\n");
         
         if (session) {
             serviceMethodBody.append("        HttpSession session = request.getSession();\n");

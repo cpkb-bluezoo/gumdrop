@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.servlet.jsp;
 import javax.servlet.ServletContext;
 import javax.servlet.descriptor.JspConfigDescriptor;
 import javax.servlet.descriptor.TaglibDescriptor;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,6 +34,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.jar.JarInputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -183,21 +186,66 @@ public class TaglibRegistry {
      * Scans WEB-INF/lib JAR files for TLD files in META-INF.
      */
     private void scanWebInfLibJars() {
-        String webInfLibPath = servletContext.getRealPath("/WEB-INF/lib");
-        if (webInfLibPath == null) {
-            return; // Not a file-based deployment
-        }
-
-        File libDir = new File(webInfLibPath);
-        if (!libDir.exists() || !libDir.isDirectory()) {
-            return;
-        }
-
-        File[] jarFiles = libDir.listFiles((dir, name) -> name.endsWith(".jar"));
-        if (jarFiles != null) {
-            for (File jarFile : jarFiles) {
-                scanJarForTlds(jarFile);
+        try {
+            java.util.Set<String> resourcePaths = servletContext.getResourcePaths("/WEB-INF/lib/");
+            if (resourcePaths != null) {
+                for (String resourcePath : resourcePaths) {
+                    if (resourcePath.endsWith(".jar")) {
+                        scanJarResourceForTlds(resourcePath);
+                    }
+                }
             }
+        } catch (Exception e) {
+            LOGGER.log(Level.FINE, "Error scanning /WEB-INF/lib/ for JAR files", e);
+        }
+    }
+
+    /**
+     * Scans a JAR resource for TLD files in META-INF using resource-based access.
+     * 
+     * @param jarResourcePath the resource path to the JAR file (e.g., "/WEB-INF/lib/example.jar")
+     */
+    private void scanJarResourceForTlds(String jarResourcePath) {
+        try (InputStream jarStream = servletContext.getResourceAsStream(jarResourcePath);
+             JarInputStream jar = new JarInputStream(jarStream)) {
+            
+            if (jar == null) {
+                return; // JAR resource not accessible
+            }
+            
+            JarEntry entry;
+            while ((entry = jar.getNextJarEntry()) != null) {
+                String entryName = entry.getName();
+                
+                if (entryName.startsWith("META-INF/") && entryName.endsWith(".tld")) {
+                    try {
+                        // Create a TLD location URI using the resource path
+                        String tldLocation = "jar:resource:" + jarResourcePath + "!/" + entryName;
+                        
+                        // Read the TLD content from the JAR entry
+                        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                        byte[] data = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = jar.read(data)) != -1) {
+                            buffer.write(data, 0, bytesRead);
+                        }
+                        
+                        // Parse the TLD from the buffered content
+                        try (ByteArrayInputStream tldStream = new ByteArrayInputStream(buffer.toByteArray())) {
+                            TagLibraryDescriptor tld = TldParser.parseTld(tldStream, tldLocation);
+                            if (tld != null && tld.getUri() != null) {
+                                uriToLocationMap.put(tld.getUri(), tldLocation);
+                                LOGGER.fine("Found TLD in JAR resource: " + tld.getUri() + " -> " + entryName);
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOGGER.log(Level.FINE, "Error processing TLD entry " + entryName + " in " + jarResourcePath, e);
+                    }
+                }
+                jar.closeEntry();
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "Error scanning JAR resource for TLDs: " + jarResourcePath, e);
         }
     }
 

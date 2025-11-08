@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.xml.parsers.SAXParserFactory;
+
 /**
  * Factory for creating JSP parsers and automatically detecting JSP format.
  * 
@@ -50,13 +52,23 @@ public class JSPParserFactory {
     
     private static final Logger LOGGER = Logger.getLogger(JSPParserFactory.class.getName());
     
-    // Registry of available parsers
-    private static final List<JSPParser> AVAILABLE_PARSERS = new ArrayList<>();
+    // Working SAX parser factory from deployment descriptor parsing
+    private final SAXParserFactory saxParserFactory;
     
-    static {
-        // Register default parsers
-        AVAILABLE_PARSERS.add(new XMLJSPParser());
-        AVAILABLE_PARSERS.add(new TraditionalJSPParser());
+    // Registry of available parsers  
+    private final List<JSPParser> availableParsers = new ArrayList<>();
+    
+    /**
+     * Creates a JSP parser factory with a working SAX parser factory.
+     * 
+     * @param saxParserFactory the SAX parser factory that successfully parsed web.xml (may be null)
+     */
+    public JSPParserFactory(SAXParserFactory saxParserFactory) {
+        this.saxParserFactory = saxParserFactory;
+        
+        // Register default parsers with injected SAX factory
+        availableParsers.add(new XMLJSPParser(saxParserFactory));
+        availableParsers.add(new TraditionalJSPParser());
     }
     
     /**
@@ -71,7 +83,7 @@ public class JSPParserFactory {
      * @throws JSPParseException if parsing fails
      * @throws UnsupportedOperationException if no suitable parser is found
      */
-    public static JSPPage parseJSP(InputStream input, String encoding, String jspUri) 
+    public JSPPage parseJSP(InputStream input, String encoding, String jspUri) 
             throws IOException, JSPParseException {
         
         // Ensure the input stream supports mark/reset for format detection
@@ -105,7 +117,7 @@ public class JSPParserFactory {
      * @throws IOException if an I/O error occurs
      * @throws JSPParseException if the JSP content is malformed
      */
-    public static JSPPage parseJSP(InputStream input, String encoding, String jspUri, 
+    public JSPPage parseJSP(InputStream input, String encoding, String jspUri, 
                                   JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
             throws IOException, JSPParseException {
         
@@ -118,7 +130,7 @@ public class JSPParserFactory {
         
         // Check if isXml property forces XML parsing
         if (jspProperties != null && jspProperties.getIsXml() != null && jspProperties.getIsXml()) {
-            // Force XML parsing
+            // Force XML parsing with SAX factory if available
             parser = createParser(ParserType.XML);
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("Forcing XML parser due to isXml=true for: " + jspUri);
@@ -136,8 +148,10 @@ public class JSPParserFactory {
             LOGGER.fine("Using " + parser.getParserName() + " for: " + jspUri);
         }
         
+        // Use standard JSPParser interface - SAX factory already injected into XML parser
         return parser.parse(input, encoding, jspUri, jspProperties);
     }
+
     
     /**
      * Creates a specific parser by type.
@@ -146,10 +160,10 @@ public class JSPParserFactory {
      * @return a new parser instance
      * @throws IllegalArgumentException if the parser type is unknown
      */
-    public static JSPParser createParser(ParserType parserType) {
+    public JSPParser createParser(ParserType parserType) {
         switch (parserType) {
             case XML:
-                return new XMLJSPParser();
+                return new XMLJSPParser(saxParserFactory);
             case TRADITIONAL:
                 return new TraditionalJSPParser();
             default:
@@ -165,9 +179,9 @@ public class JSPParserFactory {
      * @return a suitable parser, or null if none found
      * @throws IOException if format detection fails
      */
-    public static JSPParser detectParser(InputStream input, String encoding) throws IOException {
+    private JSPParser detectParser(InputStream input, String encoding) throws IOException {
         
-        for (JSPParser parser : AVAILABLE_PARSERS) {
+        for (JSPParser parser : availableParsers) {
             try {
                 if (parser.canParse(input, encoding)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
@@ -190,9 +204,9 @@ public class JSPParserFactory {
      * 
      * @param parser the parser to register
      */
-    public static void registerParser(JSPParser parser) {
-        if (parser != null && !AVAILABLE_PARSERS.contains(parser)) {
-            AVAILABLE_PARSERS.add(0, parser); // Add at beginning for priority
+    public void registerParser(JSPParser parser) {
+        if (parser != null && !availableParsers.contains(parser)) {
+            availableParsers.add(0, parser); // Add at beginning for priority
         }
     }
     
@@ -201,8 +215,8 @@ public class JSPParserFactory {
      * 
      * @param parser the parser to unregister
      */
-    public static void unregisterParser(JSPParser parser) {
-        AVAILABLE_PARSERS.remove(parser);
+    public void unregisterParser(JSPParser parser) {
+        availableParsers.remove(parser);
     }
     
     /**
@@ -210,8 +224,8 @@ public class JSPParserFactory {
      * 
      * @return a list of available parsers
      */
-    public static List<JSPParser> getAvailableParsers() {
-        return new ArrayList<>(AVAILABLE_PARSERS);
+    public List<JSPParser> getAvailableParsers() {
+        return new ArrayList<>(availableParsers);
     }
     
     /**

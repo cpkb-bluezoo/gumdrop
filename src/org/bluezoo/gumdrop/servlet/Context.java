@@ -79,10 +79,12 @@ import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
 import org.bluezoo.gumdrop.servlet.jsp.JSPParseException;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
 import org.bluezoo.gumdrop.servlet.jsp.JSPPropertyGroupResolver;
+import org.bluezoo.gumdrop.servlet.jsp.JSPServlet;
 import javax.tools.JavaCompiler;
 import javax.tools.ToolProvider;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.JavaFileObject;
+import java.net.URLClassLoader;
 import javax.servlet.descriptor.JspPropertyGroupDescriptor;
 import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionAttributeListener;
@@ -146,6 +148,10 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     // JSP configuration
     JspConfigDescriptor jspConfig;
+    
+    // Working SAX parser factory and JSP parser factory
+    private javax.xml.parsers.SAXParserFactory saxParserFactory;
+    private JSPParserFactory jspParserFactory;
     Map<String,? extends FilterRegistration> filterRegistrations = new LinkedHashMap<>();
 
     ServletDef defaultServletDef;
@@ -163,6 +169,17 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         this.root = root;
         if (contextPath.endsWith("/")) {
             throw new IllegalArgumentException("Illegal context path: "+contextPath);
+        }
+
+        // Create SAX parser factory early for web.xml and JSP parsing
+        try {
+            this.saxParserFactory = javax.xml.parsers.SAXParserFactory.newInstance();
+            this.saxParserFactory.setNamespaceAware(true);
+            this.saxParserFactory.setValidating(false);
+        } catch (Exception e) {
+            // Log but continue - we'll handle missing factory later
+            LOGGER.log(Level.WARNING, "Failed to create SAX parser factory", e);
+            this.saxParserFactory = null;
         }
 
         // Work out if this context is the manager webapp
@@ -280,7 +297,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
      */
     public void load() throws IOException, SAXException {
         InputStream webXml = getResourceAsStream("/WEB-INF/web.xml");
-        DeploymentDescriptorParser parser = new DeploymentDescriptorParser();
+        DeploymentDescriptorParser parser = new DeploymentDescriptorParser(saxParserFactory);
         if (webXml != null) {
             parser.parse(this, webXml);
             resolve();
@@ -322,6 +339,35 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             defaultServletMapping.servletName = null;
             defaultServletMapping.addUrlPattern("/");
             servletMappings.add(defaultServletMapping);
+        }
+
+        // JSP servlet - configure automatically if not already mapped
+        boolean jspMapped = false;
+        for (ServletMapping sm : servletMappings) {
+            if (sm.urlPatterns.contains("*.jsp") || sm.urlPatterns.contains("*.jspx")) {
+                jspMapped = true;
+                break;
+            }
+        }
+        if (!jspMapped) {
+            ServletDef jspServletDef = new ServletDef();
+            jspServletDef.context = this;
+            jspServletDef.displayName = L10N.getString("jsp_servlet_display_name");
+            jspServletDef.name = "jsp";
+            jspServletDef.className = JSPServlet.class.getName();
+            jspServletDef.loadOnStartup = 3;
+            servletDefs.put("jsp", jspServletDef);
+            
+            ServletMapping jspServletMapping = new ServletMapping();
+            jspServletMapping.servletDef = jspServletDef;
+            jspServletMapping.servletName = "jsp";
+            jspServletMapping.addUrlPattern("*.jsp");
+            jspServletMapping.addUrlPattern("*.jspx");
+            servletMappings.add(jspServletMapping);
+            
+            if (LOGGER.isLoggable(Level.INFO)) {
+                LOGGER.info("Automatically configured JSP servlet for *.jsp and *.jspx files");
+            }
         }
 
     }
@@ -2099,9 +2145,14 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             String encoding = jspProperties.getPageEncoding();
 
             // Step 3: Parse JSP file using parser factory with resolved properties
+            // Lazy initialize JSP parser factory
+            if (jspParserFactory == null) {
+                jspParserFactory = new JSPParserFactory(saxParserFactory);
+            }
+            
             JSPPage jspPage;
             try {
-                jspPage = JSPParserFactory.parseJSP(jspInputStream, encoding, path, jspProperties);
+                jspPage = jspParserFactory.parseJSP(jspInputStream, encoding, path, jspProperties);
             } catch (JSPParseException e) {
                 throw new RuntimeException("Failed to parse JSP file: " + path, e);
             } finally {
@@ -2126,6 +2177,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             
             try (FileOutputStream sourceOut = new FileOutputStream(sourceFile)) {
                 JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, sourceOut, taglibRegistry, jspProperties);
+                generator.setClassName(className);
                 generator.generateCode();
             }
 
@@ -2296,7 +2348,21 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             // Build classpath including servlet API and context classloader
             StringBuilder classpath = new StringBuilder();
             
-            // Add servlet API jars
+            // Add current Java classpath (includes compiled Gumdrop classes with JSP API)
+            String currentClasspath = System.getProperty("java.class.path");
+            if (currentClasspath != null) {
+                classpath.append(currentClasspath);
+            }
+            
+            // Add Gumdrop build directory (where JSP API classes are compiled)
+            String gumdropBuildPath = System.getProperty("gumdrop.build.path", "build");
+            File buildDir = new File(gumdropBuildPath);
+            if (buildDir.exists()) {
+                if (classpath.length() > 0) classpath.append(File.pathSeparator);
+                classpath.append(buildDir.getAbsolutePath());
+            }
+            
+            // Add servlet API jars from lib directory
             String gumdropLibPath = System.getProperty("gumdrop.lib.path", "lib");
             File libDir = new File(gumdropLibPath);
             if (libDir.exists()) {
@@ -2314,10 +2380,22 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     classpath.append(jar.getAbsolutePath());
                 }
             }
+            
+            // Add WEB-INF/classes directory
+            File webInfClasses = new File(root, "WEB-INF" + File.separator + "classes");
+            if (webInfClasses.exists()) {
+                if (classpath.length() > 0) classpath.append(File.pathSeparator);
+                classpath.append(webInfClasses.getAbsolutePath());
+            }
 
             options.add(classpath.toString());
             options.add("-d");
             options.add(outputDir.getAbsolutePath());
+
+            // Debug logging for classpath
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("JSP compilation classpath: " + classpath.toString());
+            }
 
             // Compile the source file
             javax.tools.StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);

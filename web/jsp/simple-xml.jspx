@@ -67,37 +67,37 @@
             <div class="code-block">
 &lt;?xml version="1.0" encoding="UTF-8"?&gt;<br/>
 &lt;jsp:root xmlns:jsp="http://java.sun.com/JSP/Page" version="2.0"&gt;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&lt;jsp:directive.page contentType="text/html; charset=UTF-8"/&gt;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&lt;jsp:directive.page import="java.util.Date"/&gt;
+&#160;&#160;&#160;&#160;&lt;jsp:directive.page contentType="text/html; charset=UTF-8"/&gt;<br/>
+&#160;&#160;&#160;&#160;&lt;jsp:directive.page import="java.util.Date"/&gt;
             </div>
             
             <h3>2. XML Declaration Element</h3>
             <div class="code-block">
 &lt;jsp:declaration&gt;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;private int visitCount = 0;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;private String formatDate(Date date) {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;return sdf.format(date);<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;}<br/>
+&#160;&#160;&#160;&#160;private int visitCount = 0;<br/>
+&#160;&#160;&#160;&#160;<br/>
+&#160;&#160;&#160;&#160;private String formatDate(Date date) {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;return sdf.format(date);<br/>
+&#160;&#160;&#160;&#160;}<br/>
 &lt;/jsp:declaration&gt;
             </div>
             
             <h3>3. XML Scriptlet Element</h3>
             <div class="code-block">
 &lt;jsp:scriptlet&gt;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;visitCount++;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;Date currentTime = new Date();<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;String greeting;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;int hour = currentTime.getHours();<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;if (hour &amp;lt; 12) {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;greeting = "Good morning";<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;} else if (hour &amp;lt; 18) {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;greeting = "Good afternoon";<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;} else {<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;greeting = "Good evening";<br/>
-&nbsp;&nbsp;&nbsp;&nbsp;}<br/>
+&#160;&#160;&#160;&#160;visitCount++;<br/>
+&#160;&#160;&#160;&#160;Date currentTime = new Date();<br/>
+&#160;&#160;&#160;&#160;String greeting;<br/>
+&#160;&#160;&#160;&#160;<br/>
+&#160;&#160;&#160;&#160;int hour = currentTime.getHours();<br/>
+&#160;&#160;&#160;&#160;if (hour &amp;lt; 12) {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good morning";<br/>
+&#160;&#160;&#160;&#160;} else if (hour &amp;lt; 18) {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good afternoon";<br/>
+&#160;&#160;&#160;&#160;} else {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good evening";<br/>
+&#160;&#160;&#160;&#160;}<br/>
 &lt;/jsp:scriptlet&gt;
             </div>
             
@@ -197,5 +197,5 @@
             <hr/>
             <p><em>Powered by Gumdrop JSP Engine - Supporting Traditional and XML JSP Formats</em></p>
         </body>
-    </jsp:root>
-</html>
+    </html>
+</jsp:root>

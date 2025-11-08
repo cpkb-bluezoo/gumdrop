@@ -38,6 +38,8 @@ import java.io.InputStreamReader;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SAX-based parser for JSP pages in XML format (JSPX).
@@ -65,39 +67,30 @@ public class XMLJSPParser implements JSPParser {
     private static final String JSP_NAMESPACE = "http://java.sun.com/JSP/Page";
     private static final String XML_DECLARATION_PREFIX = "<?xml";
     private static final String JSP_ROOT_ELEMENT = "jsp:root";
+    
+    // SAX parser factory for XML parsing
+    private final SAXParserFactory saxParserFactory;
+
+    /**
+     * Creates an XML JSP parser with no SAX factory (uses fallback parser).
+     */
+    public XMLJSPParser() {
+        this(null);
+    }
+
+    /**
+     * Creates an XML JSP parser with a working SAX parser factory.
+     * 
+     * @param saxParserFactory the SAX parser factory to use (null to use fallback parser)
+     */
+    public XMLJSPParser(SAXParserFactory saxParserFactory) {
+        this.saxParserFactory = saxParserFactory;
+    }
 
     @Override
     public JSPPage parse(InputStream input, String encoding, String jspUri)
             throws IOException, JSPParseException {
-
-        try {
-            // Create SAX parser
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(true);
-            factory.setValidating(false);
-            XMLReader reader = factory.newSAXParser().getXMLReader();
-
-            // Create content handler
-            JSPContentHandler handler = new JSPContentHandler(jspUri, encoding);
-            reader.setContentHandler(handler);
-            reader.setErrorHandler(handler);
-
-            // Parse the input
-            InputSource source = new InputSource(input);
-            if (encoding != null) {
-                source.setEncoding(encoding);
-            }
-            source.setSystemId(jspUri);
-
-            reader.parse(source);
-
-            return handler.getJSPPage();
-
-        } catch (ParserConfigurationException e) {
-            throw new JSPParseException("Failed to create XML parser", jspUri, -1, -1, e);
-        } catch (SAXException e) {
-            throw new JSPParseException("XML parsing error: " + e.getMessage(), jspUri, -1, -1, e);
-        }
+        return parse(input, encoding, jspUri, null);
     }
 
     @Override
@@ -105,12 +98,17 @@ public class XMLJSPParser implements JSPParser {
                         JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
             throws IOException, JSPParseException {
 
+        if (saxParserFactory == null) {
+            // Fall back to the simple parser if no factory provided
+            return parseWithSimpleParser(input, encoding, jspUri, jspProperties);
+        }
+
         try {
-            // Create SAX parser
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(true);
-            factory.setValidating(false);
-            XMLReader reader = factory.newSAXParser().getXMLReader();
+            // Use the injected working SAX parser factory
+            saxParserFactory.setNamespaceAware(true);
+            saxParserFactory.setValidating(false);
+            javax.xml.parsers.SAXParser parser = saxParserFactory.newSAXParser();
+            XMLReader reader = parser.getXMLReader();
 
             // Create content handler with JSP properties
             JSPContentHandler handler = new JSPContentHandler(jspUri, encoding, jspProperties);
@@ -141,28 +139,38 @@ public class XMLJSPParser implements JSPParser {
             return false;
         }
 
-        // Mark the stream to allow reset
-        input.mark(1024);
+        // Mark the stream with a larger buffer to accommodate BufferedReader
+        input.mark(8192);  // Increased from 1024 to 8192 bytes
 
         try {
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(input, encoding != null ? encoding : "UTF-8"));
-
-            // Read first few lines to detect XML JSP format
-            String line;
-            int linesRead = 0;
-            while ((line = reader.readLine()) != null && linesRead < 10) {
+            // Read bytes directly to avoid BufferedReader's large internal buffering
+            byte[] buffer = new byte[2048];  // Read up to 2KB for detection
+            int bytesRead = input.read(buffer);
+            
+            if (bytesRead <= 0) {
+                return false;
+            }
+            
+            // Convert to string for analysis
+            String content = new String(buffer, 0, bytesRead, encoding != null ? encoding : "UTF-8");
+            String[] lines = content.split("\r?\n");
+            
+            // Analyze first few lines to detect XML JSP format
+            int linesAnalyzed = 0;
+            for (String line : lines) {
+                if (linesAnalyzed >= 10) break;  // Only check first 10 lines
+                
                 line = line.trim();
 
                 // Skip empty lines
                 if (line.isEmpty()) {
-                    linesRead++;
+                    linesAnalyzed++;
                     continue;
                 }
 
                 // Check for XML declaration
                 if (line.startsWith(XML_DECLARATION_PREFIX)) {
-                    linesRead++;
+                    linesAnalyzed++;
                     continue;
                 }
 
@@ -176,7 +184,7 @@ public class XMLJSPParser implements JSPParser {
                     return false;
                 }
 
-                linesRead++;
+                linesAnalyzed++;
             }
 
             return false;
@@ -399,5 +407,155 @@ public class XMLJSPParser implements JSPParser {
                       .replace("\"", "&quot;")
                       .replace("'", "&apos;");
         }
+    }
+
+    /**
+     * Simple XML parser fallback for basic JSP XML parsing when SAX is unavailable.
+     * This handles the most common JSP XML elements without requiring full SAX support.
+     */
+    private JSPPage parseWithSimpleParser(InputStream input, String encoding, String jspUri,
+                                         JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
+            throws IOException, JSPParseException {
+        
+        // Read the entire input into a string
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(input, encoding != null ? encoding : "UTF-8"))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append("\n");
+            }
+        }
+        
+        String xmlContent = content.toString();
+        JSPPage jspPage = new JSPPage(jspUri, encoding);
+        
+        // Simple regex-based parsing for basic JSP XML elements
+        parseSimpleXMLElements(xmlContent, jspPage, jspProperties);
+        
+        return jspPage;
+    }
+
+    /**
+     * Parse JSP XML elements using simple string matching (fallback method).
+     */
+    private void parseSimpleXMLElements(String xmlContent, JSPPage jspPage, 
+                                       JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
+            throws JSPParseException {
+        
+        try {
+            // Remove XML declaration and jsp:root wrapper for easier parsing
+            String content = xmlContent;
+            content = content.replaceAll("<\\?xml[^>]*>", "");
+            content = content.replaceAll("<jsp:root[^>]*>", "");
+            content = content.replaceAll("</jsp:root>", "");
+            
+            // Parse jsp:directive.page elements
+            Pattern pageDirective = Pattern.compile(
+                "<jsp:directive\\.page\\s+([^>]*)/?>");
+            Matcher matcher = pageDirective.matcher(content);
+            while (matcher.find()) {
+                String attributes = matcher.group(1);
+                DirectiveElement directive = new DirectiveElement("page", parseAttributes(attributes), -1, -1);
+                jspPage.addElement(directive);
+            }
+            
+            // Parse jsp:declaration elements
+            Pattern declaration = Pattern.compile(
+                "<jsp:declaration>(.*?)</jsp:declaration>", Pattern.DOTALL);
+            matcher = declaration.matcher(content);
+            while (matcher.find()) {
+                String code = matcher.group(1).trim();
+                if (!code.isEmpty()) {
+                    DeclarationElement decl = new DeclarationElement(unescapeXML(code), -1, -1);
+                    jspPage.addElement(decl);
+                }
+            }
+            
+            // Parse jsp:scriptlet elements  
+            Pattern scriptlet = Pattern.compile(
+                "<jsp:scriptlet>(.*?)</jsp:scriptlet>", Pattern.DOTALL);
+            matcher = scriptlet.matcher(content);
+            while (matcher.find()) {
+                String code = matcher.group(1).trim();
+                if (!code.isEmpty()) {
+                    // Check if scripting is disabled
+                    if (jspProperties != null && jspProperties.getScriptingInvalid() != null && 
+                        jspProperties.getScriptingInvalid()) {
+                        throw new JSPParseException("Scripting is disabled for this JSP page", 
+                                                  jspPage.getUri(), -1, -1);
+                    }
+                    ScriptletElement scriptletElem = new ScriptletElement(unescapeXML(code), -1, -1);
+                    jspPage.addElement(scriptletElem);
+                }
+            }
+            
+            // Parse jsp:expression elements
+            Pattern expression = Pattern.compile(
+                "<jsp:expression>(.*?)</jsp:expression>", Pattern.DOTALL);
+            matcher = expression.matcher(content);
+            while (matcher.find()) {
+                String code = matcher.group(1).trim();
+                if (!code.isEmpty()) {
+                    // Check if scripting is disabled
+                    if (jspProperties != null && jspProperties.getScriptingInvalid() != null && 
+                        jspProperties.getScriptingInvalid()) {
+                        throw new JSPParseException("Scripting is disabled for this JSP page", 
+                                                  jspPage.getUri(), -1, -1);
+                    }
+                    ExpressionElement expr = new ExpressionElement(unescapeXML(code), -1, -1);
+                    jspPage.addElement(expr);
+                }
+            }
+            
+            // Parse text content (everything else)
+            String textContent = content;
+            // Remove all JSP elements to get remaining text
+            textContent = textContent.replaceAll("<jsp:directive\\.[^>]*/?>\n*", "");
+            textContent = textContent.replaceAll("<jsp:declaration>.*?</jsp:declaration>\n*", "");
+            textContent = textContent.replaceAll("<jsp:scriptlet>.*?</jsp:scriptlet>\n*", "");
+            textContent = textContent.replaceAll("<jsp:expression>.*?</jsp:expression>\n*", "");
+            textContent = textContent.trim();
+            
+            if (!textContent.isEmpty()) {
+                TextElement text = new TextElement(unescapeXML(textContent), -1, -1);
+                jspPage.addElement(text);
+            }
+            
+        } catch (Exception e) {
+            throw new JSPParseException("Simple XML parsing error: " + e.getMessage(), 
+                                      jspPage.getUri(), -1, -1, e);
+        }
+    }
+    
+    /**
+     * Parse XML attributes into a map.
+     */
+    private Map<String, String> parseAttributes(String attributesString) {
+        Map<String, String> attributes = new HashMap<>();
+        if (attributesString == null || attributesString.trim().isEmpty()) {
+            return attributes;
+        }
+        
+        // Simple attribute parsing: name="value" or name='value'
+        Pattern attr = Pattern.compile(
+            "(\\w+)\\s*=\\s*[\"']([^\"']*)[\"']");
+        Matcher matcher = attr.matcher(attributesString);
+        while (matcher.find()) {
+            attributes.put(matcher.group(1), unescapeXML(matcher.group(2)));
+        }
+        return attributes;
+    }
+    
+    /**
+     * Simple XML unescaping.
+     */
+    private String unescapeXML(String text) {
+        if (text == null) return null;
+        return text.replace("&lt;", "<")
+                   .replace("&gt;", ">")  
+                   .replace("&amp;", "&")
+                   .replace("&quot;", "\"")
+                   .replace("&apos;", "'");
     }
 }

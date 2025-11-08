@@ -397,8 +397,16 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
 
     State mode;
     MessageDigest digest;
+    
+    // Keep reference to working SAX parser factory for reuse
+    private SAXParserFactory saxParserFactory;
 
     DeploymentDescriptorParser() {
+        this(null);
+    }
+
+    DeploymentDescriptorParser(SAXParserFactory saxParserFactory) {
+        this.saxParserFactory = saxParserFactory;
         try {
             digest = MessageDigest.getInstance("MD5");
         } catch (NoSuchAlgorithmException e) {
@@ -427,9 +435,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
 
     private void parse(InputSource in) throws IOException, SAXException {
         try {
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(true);
-            SAXParser parser = factory.newSAXParser();
+            // Use provided factory or create new one
+            if (saxParserFactory == null) {
+                saxParserFactory = SAXParserFactory.newInstance();
+                saxParserFactory.setNamespaceAware(true);
+                saxParserFactory.setValidating(false);
+            }
+            
+            SAXParser parser = saxParserFactory.newSAXParser();
             XMLReader reader = parser.getXMLReader();
             reader.setContentHandler(this);
             reader.setErrorHandler(this);
@@ -439,6 +452,16 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             e2.initCause(e);
             throw e2;
         }
+    }
+    
+    /**
+     * Returns the SAXParserFactory that was successfully used to parse the deployment descriptor.
+     * This factory can be reused for other XML parsing tasks like JSP files.
+     * 
+     * @return the working SAXParserFactory, or null if parsing hasn't been performed
+     */
+    public SAXParserFactory getSAXParserFactory() {
+        return saxParserFactory;
     }
 
     void pushText() {
