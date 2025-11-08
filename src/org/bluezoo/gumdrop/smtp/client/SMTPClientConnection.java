@@ -24,8 +24,10 @@ package org.bluezoo.gumdrop.smtp.client;
 import org.bluezoo.gumdrop.Connection;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 import java.nio.channels.WritableByteChannel;
 import java.util.logging.Logger;
+import javax.net.ssl.SSLEngine;
 
 /**
  * Event-driven, NIO-based SMTP client connection.
@@ -54,9 +56,9 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
     // SMTP Protocol state - Connection handles all networking
     private SMTPState state = SMTPState.DISCONNECTED;
     
-    // Current operation callback - SMTP is sequential
-    private SMTPCallback currentCallback;
-    
+    protected final SMTPClient client;
+    protected final SMTPClientHandler handler;
+
     // Protocol handling
     private final ResponseParser responseParser;
     private final DotStuffer dotStuffer;
@@ -66,10 +68,14 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
      * Creates SMTP client connection.
      * Threading and networking handled by Connection framework.
      */
-    public SMTPClientConnection() {
+    protected SMTPClientConnection(SMTPClient client, SocketChannel channel, SSLEngine engine, boolean secure, SMTPClientHandler handler) {
+        super(engine, secure);
+        this.client = client;
+        this.handler = handler;
         this.responseParser = new ResponseParser();
         this.dotStuffer = new DotStuffer();
         this.readBuffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
+        // Note: channel is set by SelectorLoop when connection is registered
     }
     
     // Connection state methods
@@ -108,6 +114,7 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
     public void connected() {
         state = SMTPState.CONNECTING;
         logger.fine("Client socket connected, waiting for server greeting");
+        handler.onConnected();
     }
     
     @Override
@@ -138,6 +145,18 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
     protected void disconnected() throws IOException {
         handleDisconnection();
     }
+
+    @Override
+    protected void handshakeComplete(String protocol) {
+        super.handshakeComplete(protocol);
+        
+        // After successful TLS upgrade, reset SMTP state as per RFC
+        // SMTP requires that client re-issue EHLO after STARTTLS
+        state = SMTPState.CONNECTED;
+        
+        logger.fine("TLS handshake complete, notifying handler");
+        handler.onTLSStarted();
+    }
     
     // WritableByteChannel implementation for DotStuffer
     
@@ -161,27 +180,52 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
     }
     
     // SMTP Command methods
-    
-    public void helo(String hostname, SMTPCallback callback) {
-        sendCommand("HELO " + hostname, SMTPState.HELO_SENT, callback);
+
+    /**
+     * Issue a HELO to the server.
+     * @param hostname the hostname to send
+     */    
+    public void helo(String hostname) {
+        sendCommand("HELO " + hostname, SMTPState.HELO_SENT);
     }
     
-    public void ehlo(String hostname, SMTPCallback callback) {
-        sendCommand("EHLO " + hostname, SMTPState.EHLO_SENT, callback);
+    /**
+     * Issue an EHLO to the server.
+     * @param hostname the hostname to send
+     */
+    public void ehlo(String hostname) {
+        sendCommand("EHLO " + hostname, SMTPState.EHLO_SENT);
     }
     
-    public void mailFrom(String sender, SMTPCallback callback) {
-        sendCommand("MAIL FROM:<" + sender + ">", SMTPState.MAIL_FROM_SENT, callback);
+    /**
+     * Issue a MAIL FROM command to the server.
+     * @param sender the sender from which the mail should be from
+     */
+    public void mailFrom(String sender) {
+        sendCommand("MAIL FROM:<" + sender + ">", SMTPState.MAIL_FROM_SENT);
     }
     
-    public void rcptTo(String recipient, SMTPCallback callback) {
-        sendCommand("RCPT TO:<" + recipient + ">", SMTPState.RCPT_TO_SENT, callback);
+    /**
+     * Issue a RCPT TO command to the server.
+     * @param recipient the address of the recipient
+     */
+    public void rcptTo(String recipient) {
+        sendCommand("RCPT TO:<" + recipient + ">", SMTPState.RCPT_TO_SENT);
     }
     
-    public void data(SMTPCallback callback) {
-        sendCommand("DATA", SMTPState.DATA_COMMAND_SENT, callback);
+    /**
+     * Issue a DATA command to the server.
+     * This indicates that message content will follow.
+     */
+    public void data() {
+        sendCommand("DATA", SMTPState.DATA_COMMAND_SENT);
     }
     
+    /**
+     * Sends message content to the server.
+     * The content bytes will be dot stuffed as necessary.
+     * @param content the RFC822 message content
+     */
     public void messageContent(ByteBuffer content) throws IOException {
         if (state != SMTPState.DATA_MODE) {
             throw new IllegalStateException("Not in data mode");
@@ -189,40 +233,51 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
         dotStuffer.processChunk(content, this);
     }
     
-    public void endData(SMTPCallback callback) throws IOException {
+    /**
+     * Notifies the server that we have completed sending the message.
+     */
+    public void endData() throws IOException {
         if (state != SMTPState.DATA_MODE) {
             throw new IllegalStateException("Not in data mode");
         }
         
         dotStuffer.endMessage(this);
         
-        this.currentCallback = callback;
         this.state = SMTPState.DATA_END_SENT;
     }
     
-    public void rset(SMTPCallback callback) {
-        sendCommand("RSET", SMTPState.RSET_SENT, callback);
+    /**
+     * Issues a RSET command to the server.
+     * This can be used to reset the connection to send another message.
+     */
+    public void rset() {
+        sendCommand("RSET", SMTPState.RSET_SENT);
     }
     
-    public void quit(SMTPCallback callback) {
-        sendCommand("QUIT", SMTPState.QUIT_SENT, callback);
+    /**
+     * Sends a QUIT command to the server.
+     * This is used to shut down the connection cleanly when we have no more
+     * messages to send.
+     */
+    public void quit() {
+        sendCommand("QUIT", SMTPState.QUIT_SENT);
     }
     
-    public void starttls(SMTPCallback callback) {
-        sendCommand("STARTTLS", SMTPState.STARTTLS_SENT, callback);
+    /**
+     * Requests an upgrade to a TLS connection.
+     */
+    public void starttls() {
+        sendCommand("STARTTLS", SMTPState.STARTTLS_SENT);
     }
     
     // Internal methods
     
-    private void sendCommand(String command, SMTPState newState, SMTPCallback callback) {
+    private void sendCommand(String command, SMTPState newState) {
         if (!isConnected()) {
-            if (callback != null) {
-                callback.onError(new SMTPException("Not connected"));
-            }
+            handler.onError(new SMTPException("Not connected"));
             return;
         }
         
-        this.currentCallback = callback;
         this.state = newState;
         
         try {
@@ -343,10 +398,10 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
     }
     
     private void handleResponse(SMTPResponse response) {
-        SMTPCallback callback = currentCallback;
-        currentCallback = null; // Clear callback first
-        
         logger.fine("Received SMTP response: " + response.getCode() + " " + response.getMessage());
+        
+        // Distinguish between greeting and regular replies
+        boolean isGreeting = (state == SMTPState.CONNECTING);
         
         // Update state based on response and current state
         switch (state) {
@@ -393,8 +448,16 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
                 
             case STARTTLS_SENT:
                 if (response.isSuccess()) {
-                    // TLS upgrade would be handled by Connection framework
-                    state = SMTPState.CONNECTED;
+                    // Server accepted STARTTLS, initiate TLS upgrade
+                    try {
+                        initializeSSLState();
+                        // State will be updated in handshakeComplete() after TLS handshake
+                        logger.fine("TLS upgrade initiated after STARTTLS response");
+                    } catch (IOException e) {
+                        logger.warning("Failed to initialize TLS after STARTTLS: " + e.getMessage());
+                        state = SMTPState.ERROR;
+                        handler.onError(new SMTPException("TLS initialization failed", e));
+                    }
                 } else {
                     state = SMTPState.ERROR;
                 }
@@ -404,13 +467,11 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
                 logger.warning("Unexpected response in state " + state + ": " + response);
         }
         
-        // Notify callback
-        if (callback != null) {
-            if (response.isSuccess()) {
-                callback.onSuccess(response);
-            } else {
-                callback.onError(new SMTPException("SMTP error: " + response.getCode() + " " + response.getMessage()));
-            }
+        // Notify handler with appropriate method
+        if (isGreeting) {
+            handler.onGreeting(response, this);
+        } else {
+            handler.onReply(response, this);
         }
     }
     
@@ -418,12 +479,7 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
         logger.warning("SMTP error: " + error.getMessage());
         
         state = SMTPState.ERROR;
-        
-        if (currentCallback != null) {
-            SMTPCallback callback = currentCallback;
-            currentCallback = null;
-            callback.onError(error);
-        }
+        handler.onError(error);
     }
     
     private void handleConnectionError(IOException cause) {
@@ -434,12 +490,6 @@ public class SMTPClientConnection extends Connection implements WritableByteChan
         logger.info("SMTP connection disconnected");
         
         state = SMTPState.CLOSED;
-        
-        // Notify callback of disconnection
-        if (currentCallback != null) {
-            SMTPCallback callback = currentCallback;
-            currentCallback = null;
-            callback.onError(new SMTPException("Connection closed"));
-        }
+        handler.onDisconnected();
     }
 }

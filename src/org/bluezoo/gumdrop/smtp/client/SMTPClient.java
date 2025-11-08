@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.smtp.client;
 
 import org.bluezoo.gumdrop.Client;
+import org.bluezoo.gumdrop.ClientHandler;
 import org.bluezoo.gumdrop.Connection;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -58,15 +59,17 @@ public class SMTPClient extends Client {
     }
 
     /**
-     * Creates a new SMTP client connection.
+     * Creates a new SMTP client connection with a handler.
+     * This is the preferred method for creating client connections.
      *
      * @param channel the socket channel for the connection
      * @param engine optional SSL engine for secure connections
+     * @param handler the client handler to receive SMTP events
      * @return a new SMTPClientConnection instance
      */
     @Override
-    public Connection newConnection(SocketChannel channel, javax.net.ssl.SSLEngine engine) {
-        return new SMTPClientConnection();
+    protected Connection newConnection(SocketChannel channel, javax.net.ssl.SSLEngine engine, ClientHandler handler) {
+        return new SMTPClientConnection(this, channel, engine, secure, (SMTPClientHandler) handler);
     }
 
     @Override

@@ -21,15 +21,23 @@
 
 package org.bluezoo.gumdrop;
 
+import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.nio.channels.SocketChannel;
 import javax.net.ssl.SSLEngine;
 
 /**
  * Abstract base class for client-side connection factories.
  * This class extends {@link Connector} and adds client-specific
- * functionality such as target host and port configuration
- * and client-mode SSL engine setup.
+ * functionality such as target host and port configuration,
+ * client-mode SSL engine setup, and asynchronous connection establishment.
+ * 
+ * <p>Clients create outbound connections to remote servers using the
+ * same event-driven, non-blocking architecture as server-side connections.
+ * Protocol implementations provide a {@link ClientHandler} to receive
+ * connection events and protocol-specific data.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -79,5 +87,91 @@ public abstract class Client extends Connector {
     protected void configureSSLEngine(SSLEngine engine) {
         super.configureSSLEngine(engine); // Call parent for common configuration
         engine.setUseClientMode(true); // we are a client
+    }
+
+    /**
+     * Creates a new connection instance for this client.
+     * This implementation delegates to the 3-parameter version with a null handler.
+     * 
+     * @param channel the socket channel for the connection
+     * @param engine the SSL engine if this is a secure connection, or null
+     * @return a new connection instance configured for this protocol
+     */
+    @Override
+    protected final Connection newConnection(SocketChannel channel, SSLEngine engine) {
+        // This should not be called for client connections
+        throw new UnsupportedOperationException("Client connections require a ClientHandler - use connect(ClientHandler) instead");
+    }
+
+    /**
+     * Creates a new connection instance for this client.
+     * This method is called by {@link #connect(ClientHandler)} to create
+     * the appropriate connection type for the protocol.
+     * 
+     * @param channel the socket channel for the connection
+     * @param engine the SSL engine if this is a secure connection, or null
+     * @param handler the client handler that will receive connection events
+     * @return a new connection instance configured for this protocol
+     */
+    protected abstract Connection newConnection(SocketChannel channel, SSLEngine engine, ClientHandler handler);
+
+    /**
+     * Initiates an asynchronous connection to the remote server.
+     * 
+     * <p>This method creates a non-blocking TCP connection to the configured
+     * host and port. The provided handler will receive events as the connection
+     * progresses through its lifecycle:
+     * <ul>
+     * <li>{@link ClientHandler#onConnected()} when the connection is established</li>
+     * <li>{@link ClientHandler#onError(Exception)} if connection fails</li>
+     * <li>{@link ClientHandler#onDisconnected()} when the connection closes</li>
+     * </ul>
+     * 
+     * <p>This method returns immediately and does not block. All subsequent
+     * interaction with the connection happens through the provided handler's
+     * callback methods.
+     * 
+     * <p><strong>Type Safety:</strong> While this method accepts any ClientHandler,
+     * protocol-specific client implementations should provide type-safe variants
+     * that accept their specific handler interfaces.
+     * 
+     * @param handler the handler to receive connection events and drive protocol behavior
+     * @throws IOException if the connection cannot be initiated
+     */
+    public <T extends ClientHandler> void connect(T handler) throws IOException {
+        // Create and configure the socket channel
+        SocketChannel channel = SocketChannel.open();
+        channel.configureBlocking(false);
+        
+        // Prepare SSL engine if this client uses encryption
+        SSLEngine sslEngine = null;
+        if (secure) {
+            sslEngine = context.createSSLEngine(host.getHostAddress(), port);
+            configureSSLEngine(sslEngine);
+        }
+        
+        // Create the connection instance
+        Connection connection = newConnection(channel, sslEngine, handler);
+        
+        // Attempt to connect (non-blocking)
+        InetSocketAddress remoteAddress = new InetSocketAddress(host, port);
+        boolean connected = channel.connect(remoteAddress);
+        
+        // Register with SelectorLoop for connection completion
+        SelectorLoop selectorLoop = SelectorLoop.getInstance();
+        if (connected) {
+            // Connection completed immediately (rare but possible for localhost)
+            selectorLoop.registerClientForRead(channel, connection);
+            // Connection will call handler.onConnected() during read registration
+        } else {
+            // Connection is pending - register for OP_CONNECT
+            selectorLoop.registerClientConnection(channel, connection);
+            // SelectorLoop will handle OP_CONNECT and call Connection.finishConnect()
+        }
+    }
+
+    @Override
+    protected String getDescription() {
+        return getClass().getSimpleName() + "(" + host.getHostAddress() + ":" + port + ")";
     }
 }

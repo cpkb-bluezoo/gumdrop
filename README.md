@@ -19,6 +19,8 @@ I/O. It supports:
     - connection filtering
     - centralized authentication and authorization realm interface
       usable by multiple servers
+    - client framework for creating clients to communicate with other servers
+        - uses same event-driven asynchronous architecture for peers
 - HTTP
     - versions 1.0 and 1.1
         - Chunked encoding
@@ -62,6 +64,9 @@ I/O. It supports:
         - max connections per IP
         - require authentication
     - simple, extensible asynchronous handler mechanism for implementations
+    - SMTP client implementation for MTA forward message delivery
+        - simple asynchronous handler mechanism for event-driven client
+        - supports TLS connections and STARTTLS
 - FTP
     - FTPS
     - pluggable realm authentication via standardized mechanism
@@ -75,9 +80,8 @@ I/O. It supports:
     - passive and active transfer modes
     - resume and append support
     - allows abort to cancel in-progress transfers
-    
 
-This software is dual-licensed. See the LICENSING.md file for complete details.
+## Configuration    
 
 The gumdroprc file is used to configure gumdrop.
 
