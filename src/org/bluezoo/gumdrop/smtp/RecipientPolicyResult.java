@@ -41,7 +41,7 @@ package org.bluezoo.gumdrop.smtp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SenderPolicyResult
- * @see SMTPConnectionHandler#rcptTo(java.util.List, SMTPConnectionMetadata)
+ * @see SMTPConnectionHandler#rcptTo(String, RcptToCallback)
  */
 public enum RecipientPolicyResult {
 

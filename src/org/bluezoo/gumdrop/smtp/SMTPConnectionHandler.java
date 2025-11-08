@@ -65,12 +65,13 @@ import java.nio.ByteBuffer;
  *     }
  *     
  *     &#64;Override
- *     public SenderPolicyResult mailFrom(String address, SMTPConnectionMetadata metadata) {
+ *     public void mailFrom(String address, MailFromCallback callback) {
  *         this.currentSender = address; // Safe to store state
- *         if (metadata.isAuthenticated()) {
- *             return SenderPolicyResult.ACCEPT;
- *         }
- *         return checkSenderReputation(address, metadata.getClientAddress());
+ *         // Perform async policy evaluation
+ *         executor.submit(() -> {
+ *             SenderPolicyResult result = checkSenderReputation(address);
+ *             callback.mailFromReply(result);
+ *         });
  *     }
  * }
  * </code></pre>
@@ -84,11 +85,17 @@ import java.nio.ByteBuffer;
 public interface SMTPConnectionHandler {
 
     /**
-     * Notifies that a new client connection has been established.
+     * Notifies that a new client connection has been established and allows early termination.
      * 
      * <p>This is called immediately after the TCP connection is accepted and any
      * SSL/TLS handshake is completed. It provides an opportunity to perform
      * early connection-level filtering, logging, or initialization.
+     * 
+     * <p>The return value determines the initial server response:
+     * <ul>
+     * <li><strong>true</strong> - Accept connection, send 220 banner message</li>
+     * <li><strong>false</strong> - Reject connection, send 554 error and close</li>
+     * </ul>
      * 
      * <p>The metadata at this point contains:
      * <ul>
@@ -101,15 +108,102 @@ public interface SMTPConnectionHandler {
      * <p>Note: HELO/EHLO and authentication have not yet occurred.
      * 
      * @param metadata connection metadata with client and security information
+     * @return true to accept the connection, false to reject with 554 error
      */
-    void connected(SMTPConnectionMetadata metadata);
+    boolean connected(SMTPConnectionMetadata metadata);
 
     /**
-     * Handles MAIL FROM command and makes sender policy decisions.
+     * Handles HELO/EHLO command and makes greeting policy decisions asynchronously.
+     * 
+     * <p>This method is called when the client sends a HELO or EHLO command to
+     * establish their identity and begin the SMTP session. The handler should
+     * evaluate the client's greeting and respond appropriately.
+     * 
+     * <p>This method returns immediately (non-blocking). The greeting evaluation
+     * can be performed asynchronously, allowing hostname validation, policy checks,
+     * or other time-consuming operations without blocking the connection thread.
+     * The SMTP connection will automatically send the appropriate response to the
+     * client when the callback is invoked.
+     * 
+     * <p>Policy considerations for HELO/EHLO might include:
+     * <ul>
+     * <li>Hostname validation and verification</li>
+     * <li>Client identity and reputation checking</li>
+     * <li>Feature availability based on connection context</li>
+     * <li>Rate limiting and connection policies</li>
+     * <li>Domain-specific greeting customization</li>
+     * </ul>
+     * 
+     * @param extended true if this was an EHLO command, false for HELO
+     * @param clientDomain the domain name advertised by the client
+     * @param callback callback to invoke with the greeting policy result
+     */
+    void hello(boolean extended, String clientDomain, HelloCallback callback);
+
+    /**
+     * Notifies that TLS has been successfully established on this connection.
+     * 
+     * <p>This method is called after a client STARTTLS command has successfully
+     * upgraded the connection to use TLS encryption. The handler can use this
+     * opportunity to:
+     * <ul>
+     * <li>Access client certificate information for authentication or logging</li>
+     * <li>Update connection policies based on security level</li>
+     * <li>Initialize TLS-specific resources or state</li>
+     * <li>Log security upgrade events</li>
+     * </ul>
+     * 
+     * <p>This is a notification-only method. All STARTTLS protocol responses
+     * (220 TLS go ahead, 454 TLS not available, etc.) are handled internally
+     * by the SMTP connection implementation. The handler cannot influence the
+     * STARTTLS response or prevent the TLS upgrade at this level.
+     * 
+     * <p>The updated metadata will reflect the new secure connection state,
+     * including any client certificates that were provided during the TLS
+     * handshake process.
+     * 
+     * @param metadata updated connection metadata with TLS and certificate information
+     */
+    void tlsStarted(SMTPConnectionMetadata metadata);
+
+    /**
+     * Notifies that a client has successfully authenticated.
+     * 
+     * <p>This method is called when a client has completed SMTP AUTH successfully
+     * using any supported authentication mechanism (PLAIN, LOGIN, etc.). The handler
+     * can use this notification to:
+     * <ul>
+     * <li>Log authentication events for security auditing</li>
+     * <li>Update user-specific policies or quotas</li>
+     * <li>Initialize authenticated session resources</li>
+     * <li>Apply user-specific configuration or restrictions</li>
+     * </ul>
+     * 
+     * <p>This is a notification-only method with no return value or callback.
+     * Authentication success/failure is handled entirely by the SMTP connection
+     * implementation according to the AUTH protocol specifications.
+     * 
+     * <p>After this notification, subsequent policy decisions (mailFrom, rcptTo, etc.)
+     * can assume the connection is authenticated and use the user identity for
+     * enhanced policy evaluation.
+     * 
+     * @param user the authenticated username
+     * @param method the authentication method used (e.g., "PLAIN", "LOGIN")
+     */
+    void authenticated(String user, String method);
+
+    /**
+     * Handles MAIL FROM command and makes sender policy decisions asynchronously.
      * 
      * <p>This method is called when the client sends a MAIL FROM command with a
      * sender address. The handler should evaluate the sender against all relevant
-     * policies and return the appropriate result.
+     * policies and invoke the callback with the appropriate result.
+     * 
+     * <p>This method returns immediately (non-blocking). The policy evaluation
+     * can be performed asynchronously, allowing database lookups, reputation
+     * checks, or other time-consuming operations without blocking the connection
+     * thread. The SMTP connection will automatically send the appropriate
+     * response to the client when the callback is invoked.
      * 
      * <p>Policy considerations might include:
      * <ul>
@@ -121,17 +215,22 @@ public interface SMTPConnectionHandler {
      * </ul>
      * 
      * @param senderAddress the email address from MAIL FROM command
-     * @param metadata complete connection context including authentication status
-     * @return policy decision indicating whether to accept or reject the sender
+     * @param callback callback to invoke with the policy decision result
      */
-    SenderPolicyResult mailFrom(String senderAddress, SMTPConnectionMetadata metadata);
+    void mailFrom(String senderAddress, MailFromCallback callback);
 
     /**
-     * Handles RCPT TO command and makes recipient policy decisions.
+     * Handles RCPT TO command and makes recipient policy decisions asynchronously.
      * 
      * <p>This method is called for each RCPT TO command with a recipient address.
-     * The handler should validate the recipient and determine if mail can be
-     * delivered to this address.
+     * The handler should validate the recipient and invoke the callback with
+     * the appropriate result.
+     * 
+     * <p>This method returns immediately (non-blocking). The recipient validation
+     * can be performed asynchronously, allowing mailbox existence checks, quota
+     * validations, domain lookups, or other time-consuming operations without
+     * blocking the connection thread. The SMTP connection will automatically
+     * send the appropriate response to the client when the callback is invoked.
      * 
      * <p>Policy considerations might include:
      * <ul>
@@ -143,10 +242,36 @@ public interface SMTPConnectionHandler {
      * </ul>
      * 
      * @param recipientAddress the email address from RCPT TO command
-     * @param metadata complete connection context including sender information
-     * @return policy decision indicating how to handle the recipient
+     * @param callback callback to invoke with the policy decision result
      */
-    RecipientPolicyResult rcptTo(String recipientAddress, SMTPConnectionMetadata metadata);
+    void rcptTo(String recipientAddress, RcptToCallback callback);
+
+    /**
+     * Handles DATA command initiation and makes policy decisions asynchronously.
+     * 
+     * <p>This method is called when the client sends a DATA command to begin
+     * message transmission. The handler should evaluate whether to accept message
+     * data based on current connection state, policies, and resource availability.
+     * 
+     * <p>This method returns immediately (non-blocking). The policy evaluation
+     * can be performed asynchronously, allowing storage checks, policy validations,
+     * or other time-consuming operations without blocking the connection thread.
+     * The SMTP connection will automatically send the appropriate response to the
+     * client when the callback is invoked.
+     * 
+     * <p>Policy considerations for DATA initiation might include:
+     * <ul>
+     * <li>Storage space availability and quotas</li>
+     * <li>Message size limits and anticipatory rejection</li>
+     * <li>Connection state validation (sender, recipients)</li>
+     * <li>Rate limiting and throttling policies</li>
+     * <li>Security and access control checks</li>
+     * </ul>
+     * 
+     * @param metadata connection context with sender and recipient information
+     * @param callback callback to invoke with the policy decision result
+     */
+    void startData(SMTPConnectionMetadata metadata, DataStartCallback callback);
 
     /**
      * Receives RFC822 message content for processing.
@@ -167,9 +292,35 @@ public interface SMTPConnectionHandler {
      * The handler should not modify the buffer's position or limit.
      * 
      * @param messageData chunk of RFC822 message data
-     * @param metadata connection context with sender and recipient information
      */
-    void messageContent(ByteBuffer messageData, SMTPConnectionMetadata metadata);
+    void messageContent(ByteBuffer messageData);
+
+    /**
+     * Handles completion of message data processing asynchronously.
+     * 
+     * <p>This method is called when the client has finished sending message data
+     * (after receiving the final CRLF.CRLF sequence). The handler should perform
+     * final message processing, validation, and delivery preparation.
+     * 
+     * <p>This method returns immediately (non-blocking). The message processing
+     * can be performed asynchronously, allowing content analysis, virus scanning,
+     * spam filtering, delivery queueing, or other time-consuming operations without
+     * blocking the connection thread. The SMTP connection will automatically send
+     * the appropriate response when the callback is invoked.
+     * 
+     * <p>Processing considerations for message completion might include:
+     * <ul>
+     * <li>Content analysis and filtering (spam, virus, policy)</li>
+     * <li>Message format validation and RFC compliance</li>
+     * <li>Delivery queue insertion and routing decisions</li>
+     * <li>Final storage operations and commit/rollback</li>
+     * <li>Logging and audit trail generation</li>
+     * </ul>
+     * 
+     * @param metadata connection context with complete message information
+     * @param callback callback to invoke with the processing result
+     */
+    void endData(SMTPConnectionMetadata metadata, DataEndCallback callback);
 
     /**
      * Notifies that the SMTP transaction has been reset.
@@ -186,10 +337,8 @@ public interface SMTPConnectionHandler {
      * <li>Cleaning up temporary resources</li>
      * <li>Preparing for a new mail transaction</li>
      * </ul>
-     * 
-     * @param metadata current connection context
      */
-    void reset(SMTPConnectionMetadata metadata);
+    void reset();
 
     /**
      * Notifies that the client connection has been closed.
@@ -205,9 +354,7 @@ public interface SMTPConnectionHandler {
      * <li>Logging connection summary</li>
      * <li>Releasing any held resources</li>
      * </ul>
-     * 
-     * @param metadata final connection context with duration and statistics
      */
-    void disconnected(SMTPConnectionMetadata metadata);
+    void disconnected();
 
 }

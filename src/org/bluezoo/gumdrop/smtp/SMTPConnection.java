@@ -53,7 +53,7 @@ import javax.net.ssl.SSLEngine;
  * @see https://www.rfc-editor.org/rfc/rfc6409 (Message Submission)
  * @see https://www.rfc-editor.org/rfc/rfc3207 (SMTP STARTTLS)
  */
-public class SMTPConnection extends Connection {
+public class SMTPConnection extends Connection implements MailFromCallback, RcptToCallback, HelloCallback, SMTPConnectionMetadata {
 
     private static final Logger LOGGER = Logger.getLogger(SMTPConnection.class.getName());
 
@@ -74,6 +74,7 @@ public class SMTPConnection extends Connection {
      */
     enum SMTPState {
         INITIAL,    // Initial state, waiting for HELO/EHLO
+        REJECTED,   // Connection rejected at banner, only QUIT accepted
         READY,      // After successful HELO/EHLO, ready for mail transaction
         MAIL,       // After MAIL FROM command
         RCPT,       // After one or more RCPT TO commands
@@ -155,52 +156,6 @@ public class SMTPConnection extends Connection {
         }
     }
 
-    /**
-     * Creates connection metadata for handler notifications.
-     * @return current connection metadata
-     */
-    private SMTPConnectionMetadata createMetadata() {
-        try {
-            InetSocketAddress clientAddr = null;
-            InetSocketAddress serverAddr = null;
-            if (channel != null) {
-                clientAddr = (InetSocketAddress) channel.getRemoteAddress();
-                serverAddr = (InetSocketAddress) channel.getLocalAddress();
-            }
-            
-            // SSL/TLS information - simplified since we can't access sslState directly
-            String cipherSuite = null;
-            String protocolVersion = null;
-            java.security.cert.X509Certificate[] clientCerts = null;
-            
-            // Note: SSL session details would need to be exposed by Connection class
-            // For now, we can only provide the secure status
-            
-            return new SMTPConnectionMetadata(
-                clientAddr,
-                serverAddr,
-                isSecure(),
-                clientCerts,
-                cipherSuite,
-                protocolVersion,
-                authenticated,
-                authenticatedUser,
-                authMechanism,
-                heloName,
-                extendedSMTP,
-                connectionTimeMillis,
-                server.getDescription()
-            );
-        } catch (IOException e) {
-            // Fallback if we can't get addresses
-            return new SMTPConnectionMetadata(
-                null, null, isSecure(), null, null, null,
-                authenticated, authenticatedUser, authMechanism,
-                heloName, extendedSMTP, connectionTimeMillis,
-                server.getDescription()
-            );
-        }
-    }
 
     /**
      * Creates a new SMTP connection.
@@ -252,8 +207,21 @@ public class SMTPConnection extends Connection {
     @Override
     protected void init() throws IOException {
         super.init();
-        // Send SMTP greeting after connection initialization
-        reply(220, getLocalSocketAddress().toString() + " ESMTP Service ready");
+        
+        // Check with handler if connection should be accepted
+        boolean acceptConnection = true;
+        if (handler != null) {
+            acceptConnection = handler.connected(this);
+        }
+        
+        if (acceptConnection) {
+            // Send SMTP greeting after connection accepted
+            reply(220, getLocalSocketAddress().toString() + " ESMTP Service ready");
+        } else {
+            // Connection rejected - send error and transition to REJECTED state
+            this.state = SMTPState.REJECTED;
+            reply(554, "5.0.0 Connection rejected");
+        }
     }
 
     /**
@@ -455,6 +423,16 @@ public class SMTPConnection extends Connection {
         String command = (si > 0) ? line.substring(0, si).toUpperCase() : line.toUpperCase();
         String args = (si > 0) ? line.substring(si + 1) : null;
 
+        // Handle REJECTED state - only accept QUIT
+        if (state == SMTPState.REJECTED) {
+            if ("QUIT".equals(command)) {
+                quit(args);
+            } else {
+                reply(554, "5.0.0 Connection rejected, only QUIT accepted");
+            }
+            return;
+        }
+
         IOConsumer<String> function = commands.get(command);
         if (function == null) {
             reply(500, "5.5.1 Command unrecognized: " + command);
@@ -511,7 +489,7 @@ public class SMTPConnection extends Connection {
         if (handler != null) {
             // Create a read-only view to prevent handler from modifying buffer
             ByteBuffer readOnlyBuffer = messageBuffer.asReadOnlyBuffer();
-            handler.messageContent(readOnlyBuffer, createMetadata());
+            handler.messageContent(readOnlyBuffer);
         } else {
             // Fallback logging if no handler
             if (LOGGER.isLoggable(Level.INFO)) {
@@ -800,49 +778,13 @@ public class SMTPConnection extends Connection {
             return;
         }
 
-        // Apply sender policy checks with appropriate response codes
-        SenderPolicyResult policyResult = evaluateSenderPolicy(fromAddr);
-        if (policyResult != SenderPolicyResult.ACCEPT) {
-            // Different rejection codes based on policy decision
-            switch (policyResult) {
-                case TEMP_REJECT_GREYLIST:
-                    reply(450, "4.7.1 Greylisting in effect, please try again later");
-                    return;
-                case TEMP_REJECT_RATE_LIMIT:
-                    reply(450, "4.7.1 Rate limit exceeded, please try again later");
-                    return;
-                case REJECT_BLOCKED_DOMAIN:
-                    reply(550, "5.1.1 Sender domain blocked by policy");
-                    return;
-                case REJECT_INVALID_DOMAIN:
-                    reply(550, "5.1.1 Sender domain does not exist");
-                    return;
-                case REJECT_POLICY_VIOLATION:
-                    reply(553, "5.7.1 Sender address violates local policy");
-                    return;
-                case REJECT_SPAM_REPUTATION:
-                    reply(554, "5.7.1 Sender has poor reputation");
-                    return;
-                case REJECT_SYNTAX_ERROR:
-                    reply(501, "5.1.3 Invalid sender address format");
-                    return;
-                case REJECT_RELAY_DENIED:
-                    reply(551, "5.7.1 Relaying denied");
-                    return;
-                case REJECT_STORAGE_FULL:
-                    reply(452, "4.3.1 Insufficient system storage");
-                    return;
-                default:
-                    reply(550, "5.0.0 Sender address rejected");
-                    return;
-            }
-        }
-
+        // Store sender information for use in callback
         this.mailFrom = fromAddr;
         this.recipients.clear();
-        this.state = SMTPState.MAIL;
         
-        reply(250, "2.1.0 " + fromAddr + "... Sender ok");
+        // Delegate to handler for asynchronous policy evaluation
+        // The handler will call back to mailFromReply() with the result
+        handler.mailFrom(fromAddr, this);
     }
 
     /**
@@ -884,59 +826,9 @@ public class SMTPConnection extends Connection {
             return;
         }
 
-        // Evaluate recipient policy with appropriate response codes
-        RecipientPolicyResult recipientResult = evaluateRecipientPolicy(toAddr);
-        if (recipientResult != RecipientPolicyResult.ACCEPT && recipientResult != RecipientPolicyResult.ACCEPT_FORWARD) {
-            // Different rejection codes based on recipient policy decision
-            switch (recipientResult) {
-                case TEMP_REJECT_UNAVAILABLE:
-                    reply(450, "4.2.1 Mailbox temporarily unavailable");
-                    return;
-                case TEMP_REJECT_SYSTEM_ERROR:
-                    reply(451, "4.3.0 Local error in processing");
-                    return;
-                case TEMP_REJECT_STORAGE_FULL:
-                    reply(452, "4.3.1 Insufficient system storage");
-                    return;
-                case REJECT_MAILBOX_UNAVAILABLE:
-                    reply(550, "5.1.1 Mailbox unavailable");
-                    return;
-                case REJECT_USER_NOT_LOCAL:
-                    reply(551, "5.1.1 User not local; please try <forward-path>");
-                    return;
-                case REJECT_QUOTA_EXCEEDED:
-                    reply(552, "5.2.2 Mailbox full, quota exceeded");
-                    return;
-                case REJECT_INVALID_MAILBOX:
-                    reply(553, "5.1.3 Mailbox name not allowed");
-                    return;
-                case REJECT_TRANSACTION_FAILED:
-                    reply(554, "5.0.0 Transaction failed");
-                    return;
-                case REJECT_SYNTAX_ERROR:
-                    reply(501, "5.1.3 Invalid recipient address format");
-                    return;
-                case REJECT_RELAY_DENIED:
-                    reply(551, "5.7.1 Relaying denied");
-                    return;
-                case REJECT_POLICY_VIOLATION:
-                    reply(553, "5.7.1 Recipient violates local policy");
-                    return;
-                default:
-                    reply(550, "5.1.1 Recipient address rejected");
-                    return;
-            }
-        }
-
-        this.recipients.add(toAddr);
-        this.state = SMTPState.RCPT;
-        
-        // Handle different acceptance responses
-        if (recipientResult == RecipientPolicyResult.ACCEPT_FORWARD) {
-            reply(251, "2.1.5 User not local; will forward to " + toAddr);
-        } else {
-            reply(250, "2.1.5 " + toAddr + "... Recipient ok");
-        }
+        // Delegate to handler for asynchronous policy evaluation
+        // The handler will call back to rcptToReply() with the result and recipient
+        handler.rcptTo(toAddr, this);
     }
 
     /**
@@ -980,7 +872,7 @@ public class SMTPConnection extends Connection {
         
         // Notify handler of reset
         if (handler != null) {
-            handler.reset(createMetadata());
+            handler.reset();
         }
         
         reply(250, "2.0.0 Reset state");
@@ -1183,6 +1075,11 @@ public class SMTPConnection extends Connection {
                 if (LOGGER.isLoggable(Level.INFO)) {
                     LOGGER.info("SMTP AUTH PLAIN successful for user: " + username);
                 }
+                
+                // Notify handler of successful authentication
+                if (handler != null) {
+                    handler.authenticated(username, "PLAIN");
+                }
             } else {
                 reply(535, "5.7.8 Authentication credentials invalid");
                 if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1293,6 +1190,11 @@ public class SMTPConnection extends Connection {
                         if (LOGGER.isLoggable(Level.INFO)) {
                             LOGGER.info("SMTP AUTH LOGIN successful for user: " + pendingAuthUsername);
                         }
+                        
+                        // Notify handler of successful authentication
+                        if (handler != null) {
+                            handler.authenticated(pendingAuthUsername, "LOGIN");
+                        }
                     } else {
                         reply(535, "5.7.8 Authentication credentials invalid");
                         if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1387,18 +1289,6 @@ public class SMTPConnection extends Connection {
         return false; // Default: deny
     }
 
-    /**
-     * Evaluates sender policy by delegating to the connection handler.
-     * 
-     * @param fromAddress the sender email address from MAIL FROM command
-     * @return policy result indicating accept/reject with appropriate SMTP response code
-     */
-    private SenderPolicyResult evaluateSenderPolicy(String fromAddress) {
-        if (handler != null) {
-            return handler.mailFrom(fromAddress, createMetadata());
-        }
-        return SenderPolicyResult.ACCEPT; // Default: accept if no handler
-    }
 
     /**
      * Basic email address syntax validation.
@@ -1522,18 +1412,6 @@ public class SMTPConnection extends Connection {
         return false;
     }
 
-    /**
-     * Evaluates recipient policy by delegating to the connection handler.
-     * 
-     * @param toAddress the recipient email address from RCPT TO command
-     * @return policy result indicating accept/reject with appropriate SMTP response code
-     */
-    private RecipientPolicyResult evaluateRecipientPolicy(String toAddress) {
-        if (handler != null) {
-            return handler.rcptTo(toAddress, createMetadata());
-        }
-        return RecipientPolicyResult.ACCEPT; // Default: accept if no handler
-    }
 
     /**
      * Checks if a mailbox exists for the given recipient.
@@ -1652,7 +1530,7 @@ public class SMTPConnection extends Connection {
     protected void disconnected() throws IOException {
         // Notify handler of disconnection
         if (handler != null) {
-            handler.disconnected(createMetadata());
+            handler.disconnected();
         }
 
         // Notify connector that connection is closed for tracking
@@ -1681,6 +1559,276 @@ public class SMTPConnection extends Connection {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("SMTP connection disconnected: " + getRemoteSocketAddress());
         }
+    }
+
+    // SMTPConnectionMetadata implementation
+    
+    @Override
+    public InetSocketAddress getClientAddress() {
+        try {
+            if (channel != null) {
+                return (InetSocketAddress) channel.getRemoteAddress();
+            }
+        } catch (IOException e) {
+            // Ignore - return null
+        }
+        return null;
+    }
+    
+    @Override
+    public InetSocketAddress getServerAddress() {
+        try {
+            if (channel != null) {
+                return (InetSocketAddress) channel.getLocalAddress();
+            }
+        } catch (IOException e) {
+            // Ignore - return null
+        }
+        return null;
+    }
+    
+    @Override
+    public boolean isSecure() {
+        return super.isSecure();
+    }
+    
+    @Override
+    public java.security.cert.X509Certificate[] getClientCertificates() {
+        // TODO: Need to expose SSL session details from Connection class
+        // For now, return null as SSL certificate access is not yet available
+        return null;
+    }
+    
+    @Override
+    public String getCipherSuite() {
+        // TODO: Need to expose SSL session details from Connection class
+        // For now, return null as SSL cipher suite is not yet available
+        return null;
+    }
+    
+    @Override
+    public String getProtocolVersion() {
+        // TODO: Need to expose SSL session details from Connection class
+        // For now, return null as SSL protocol version is not yet available
+        return null;
+    }
+    
+    @Override
+    public long getConnectionTimeMillis() {
+        return connectionTimeMillis;
+    }
+
+    // MailFromCallback implementation
+    
+    /**
+     * Callback implementation for asynchronous MAIL FROM policy results.
+     * This method is invoked by the handler after sender policy evaluation
+     * and sends the appropriate SMTP response to the client.
+     */
+    @Override
+    public void mailFromReply(SenderPolicyResult result) {
+        try {
+            switch (result) {
+                case ACCEPT:
+                    // Accept the sender and transition to MAIL state
+                    this.state = SMTPState.MAIL;
+                    reply(250, "2.1.0 Sender ok");
+                    break;
+                    
+                case TEMP_REJECT_GREYLIST:
+                    reply(450, "4.7.1 Greylisting in effect, please try again later");
+                    break;
+                    
+                case TEMP_REJECT_RATE_LIMIT:
+                    reply(450, "4.7.1 Rate limit exceeded, please try again later");
+                    break;
+                    
+                case REJECT_BLOCKED_DOMAIN:
+                    reply(550, "5.1.1 Sender domain blocked by policy");
+                    break;
+                    
+                case REJECT_INVALID_DOMAIN:
+                    reply(550, "5.1.1 Sender domain does not exist");
+                    break;
+                    
+                case REJECT_POLICY_VIOLATION:
+                    reply(553, "5.7.1 Sender address violates local policy");
+                    break;
+                    
+                case REJECT_SPAM_REPUTATION:
+                    reply(554, "5.7.1 Sender has poor reputation");
+                    break;
+                    
+                case REJECT_SYNTAX_ERROR:
+                    reply(501, "5.1.3 Invalid sender address format");
+                    break;
+                    
+                case REJECT_RELAY_DENIED:
+                    reply(551, "5.7.1 Relaying denied");
+                    break;
+                    
+                case REJECT_STORAGE_FULL:
+                    reply(452, "4.3.1 Insufficient system storage");
+                    break;
+                    
+                default:
+                    reply(550, "5.0.0 Sender address rejected");
+                    break;
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending MAIL FROM reply", e);
+            // Connection error - close connection
+            close();
+        }
+    }
+
+    // RcptToCallback implementation
+    
+    /**
+     * Callback implementation for asynchronous RCPT TO policy results.  
+     * This method is invoked by the handler after recipient policy evaluation
+     * and sends the appropriate SMTP response to the client.
+     */
+    @Override
+    public void rcptToReply(RecipientPolicyResult result, String recipient) {
+        try {
+            switch (result) {
+                case ACCEPT:
+                    // Accept the recipient - add to list and transition to RCPT state
+                    this.recipients.add(recipient);
+                    this.state = SMTPState.RCPT;
+                    reply(250, "2.1.5 " + recipient + "... Recipient ok");
+                    break;
+                    
+                case ACCEPT_FORWARD:
+                    // Accept for forwarding - add to list and transition to RCPT state
+                    this.recipients.add(recipient);
+                    this.state = SMTPState.RCPT;
+                    reply(251, "2.1.5 User not local; will forward to " + recipient);
+                    break;
+                    
+                case TEMP_REJECT_UNAVAILABLE:
+                    reply(450, "4.2.1 Mailbox temporarily unavailable");
+                    break;
+                    
+                case TEMP_REJECT_SYSTEM_ERROR:
+                    reply(451, "4.3.0 Local error in processing");
+                    break;
+                    
+                case TEMP_REJECT_STORAGE_FULL:
+                    reply(452, "4.3.1 Insufficient system storage");
+                    break;
+                    
+                case REJECT_MAILBOX_UNAVAILABLE:
+                    reply(550, "5.1.1 Mailbox unavailable");
+                    break;
+                    
+                case REJECT_USER_NOT_LOCAL:
+                    reply(551, "5.1.1 User not local; please try <forward-path>");
+                    break;
+                    
+                case REJECT_QUOTA_EXCEEDED:
+                    reply(552, "5.2.2 Mailbox full, quota exceeded");
+                    break;
+                    
+                case REJECT_INVALID_MAILBOX:
+                    reply(553, "5.1.3 Mailbox name not allowed");
+                    break;
+                    
+                case REJECT_TRANSACTION_FAILED:
+                    reply(554, "5.0.0 Transaction failed");
+                    break;
+                    
+                case REJECT_SYNTAX_ERROR:
+                    reply(501, "5.1.3 Invalid recipient address format");
+                    break;
+                    
+                case REJECT_RELAY_DENIED:
+                    reply(551, "5.7.1 Relaying denied");
+                    break;
+                    
+                case REJECT_POLICY_VIOLATION:
+                    reply(553, "5.7.1 Recipient violates local policy");
+                    break;
+                    
+                default:
+                    reply(550, "5.0.0 Recipient address rejected");
+                    break;
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending RCPT TO reply", e);
+            // Connection error - close connection
+            close();
+        }
+    }
+
+    // HelloCallback implementation
+    
+    /**
+     * Callback implementation for asynchronous HELO/EHLO command results.
+     * This method is invoked by the handler after greeting evaluation
+     * and sends the appropriate SMTP response to the client.
+     */
+    @Override
+    public void helloReply(HelloReply result) {
+        try {
+            switch (result) {
+                case ACCEPT_HELO:
+                    // Accept HELO and transition to READY state
+                    this.extendedSMTP = false;
+                    this.state = SMTPState.READY;
+                    String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
+                    reply(250, hostname + " Hello " + heloName);
+                    break;
+                    
+                case ACCEPT_EHLO:
+                    // Accept EHLO, set extended mode, and send feature list
+                    this.extendedSMTP = true;
+                    this.state = SMTPState.READY;
+                    sendEhloResponse();
+                    break;
+                    
+                case REJECT_NOT_IMPLEMENTED:
+                    reply(504, "5.5.2 Command not implemented");
+                    break;
+                    
+                case REJECT_SYNTAX_ERROR:
+                    reply(501, "5.0.0 Syntax: HELO/EHLO hostname");
+                    break;
+                    
+                case TEMP_REJECT_SERVICE_UNAVAILABLE:
+                    this.state = SMTPState.REJECTED;
+                    reply(421, "4.3.0 Service not available, closing transmission channel");
+                    // Don't close immediately - wait for client to send QUIT
+                    break;
+                    
+                default:
+                    reply(500, "5.0.0 Command failed");
+                    break;
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending HELO/EHLO reply", e);
+            // Connection error - close connection
+            close();
+        }
+    }
+    
+    /**
+     * Sends the EHLO response with available extensions.
+     */
+    private void sendEhloResponse() throws IOException {
+        String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
+        
+        // Start with greeting line
+        reply(250, hostname + " Hello " + heloName);
+        
+        // TODO: Add extension advertisements as needed
+        // Examples of common extensions:
+        // reply(250, "SIZE 10485760");     // Maximum message size
+        // reply(250, "STARTTLS");          // TLS support
+        // reply(250, "AUTH PLAIN LOGIN");  // Authentication methods
+        // reply(250, "8BITMIME");          // 8-bit MIME support
+        // reply(250, "PIPELINING");        // Command pipelining
     }
 
 }

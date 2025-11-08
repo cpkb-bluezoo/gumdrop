@@ -36,7 +36,7 @@ package org.bluezoo.gumdrop.smtp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RecipientPolicyResult
- * @see SMTPConnectionHandler#mailFrom(String, SMTPConnectionMetadata)
+ * @see SMTPConnectionHandler#mailFrom(String, MailFromCallback)
  */
 public enum SenderPolicyResult {
 
