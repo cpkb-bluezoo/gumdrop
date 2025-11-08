@@ -72,11 +72,11 @@ public class JspPropertyGroup implements JspPropertyGroupDescriptor {
     }
 
     @Override public Collection<String> getIncludePreludes() {
-        return Collections.unmodifiableList(urlPatterns);
+        return Collections.unmodifiableList(includePrelude);
     }
 
     @Override public Collection<String> getIncludeCodas() {
-        return Collections.unmodifiableList(urlPatterns);
+        return Collections.unmodifiableList(includeCoda);
     }
 
     @Override public String getDeferredSyntaxAllowedAsLiteral() {

@@ -73,6 +73,17 @@ import javax.servlet.annotation.WebFilter;
 import javax.servlet.annotation.WebListener;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.descriptor.JspConfigDescriptor;
+import org.bluezoo.gumdrop.servlet.jsp.JSPParserFactory;
+import org.bluezoo.gumdrop.servlet.jsp.JSPPage;
+import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
+import org.bluezoo.gumdrop.servlet.jsp.JSPParseException;
+import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
+import org.bluezoo.gumdrop.servlet.jsp.JSPPropertyGroupResolver;
+import javax.tools.JavaCompiler;
+import javax.tools.ToolProvider;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.JavaFileObject;
+import javax.servlet.descriptor.JspPropertyGroupDescriptor;
 import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionAttributeListener;
 import javax.servlet.http.HttpSessionBindingListener;
@@ -132,6 +143,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     List<String> absoluteOrdering = new ArrayList<>();
 
     Map<String,? extends ServletRegistration> servletRegistrations = new LinkedHashMap<>();
+
+    // JSP configuration
+    JspConfigDescriptor jspConfig;
     Map<String,? extends FilterRegistration> filterRegistrations = new LinkedHashMap<>();
 
     ServletDef defaultServletDef;
@@ -1096,9 +1110,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         return contextClassLoader;
     }
 
-    Servlet parseJSPFile(String path) {
-        throw new UnsupportedOperationException("JSP not yet supported");
-    }
 
     Servlet loadServlet(ServletDef servletDef) throws ServletException {
         String name = servletDef.name;
@@ -2065,6 +2076,298 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     @Override public String getVirtualServerName() {
         throw new UnsupportedOperationException(); // virtual hosts not supported
+    }
+
+    /**
+     * Parses a JSP file and returns a compiled Servlet instance.
+     * 
+     * @param path the resource path to the JSP file in the context
+     * @return a compiled Servlet instance
+     * @throws RuntimeException if parsing, compilation, or loading fails
+     */
+    public Servlet parseJSPFile(String path) {
+        try {
+            // Step 1: Get InputStream for the JSP file
+            InputStream jspInputStream = getResourceAsStream(path);
+            if (jspInputStream == null) {
+                throw new IllegalArgumentException("JSP file not found: " + path);
+            }
+
+            // Step 2: Resolve comprehensive JSP properties from configuration
+            JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties = 
+                JSPPropertyGroupResolver.resolve(path, jspConfig);
+            String encoding = jspProperties.getPageEncoding();
+
+            // Step 3: Parse JSP file using parser factory with resolved properties
+            JSPPage jspPage;
+            try {
+                jspPage = JSPParserFactory.parseJSP(jspInputStream, encoding, path, jspProperties);
+            } catch (JSPParseException e) {
+                throw new RuntimeException("Failed to parse JSP file: " + path, e);
+            } finally {
+                try {
+                    jspInputStream.close();
+                } catch (IOException e) {
+                    // Log but don't fail
+                    LOGGER.warning("Failed to close JSP input stream for: " + path);
+                }
+            }
+
+            // Step 4: Get temporary directory for generated source files
+            File tempDir = (File) attributes.get("javax.servlet.context.tempdir");
+            if (tempDir == null) {
+                throw new RuntimeException("No temporary directory available for JSP compilation");
+            }
+
+            // Step 5: Create taglib registry and generate Java source code
+            TaglibRegistry taglibRegistry = new TaglibRegistry(this);
+            String className = generateClassNameFromPath(path);
+            File sourceFile = new File(tempDir, className + ".java");
+            
+            try (FileOutputStream sourceOut = new FileOutputStream(sourceFile)) {
+                JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, sourceOut, taglibRegistry, jspProperties);
+                generator.generateCode();
+            }
+
+            // Step 6: Compile Java source to class file using internal javac
+            File classFile = new File(tempDir, className + ".class");
+            boolean compiled = compileJavaFile(sourceFile, classFile, tempDir);
+            if (!compiled) {
+                throw new RuntimeException("Failed to compile JSP-generated Java source: " + sourceFile);
+            }
+
+            // Step 7: Load class using context classloader
+            Class<?> servletClass = loadCompiledClass(className, classFile);
+
+            // Step 8: Create instance and cast to Servlet
+            Object instance = servletClass.getDeclaredConstructor().newInstance();
+            if (!(instance instanceof Servlet)) {
+                throw new RuntimeException("Generated class is not a Servlet: " + className);
+            }
+
+            return (Servlet) instance;
+
+        } catch (IOException e) {
+            throw new RuntimeException("I/O error during JSP processing: " + path, e);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("Failed to instantiate JSP servlet: " + path, e);
+        }
+    }
+
+    /**
+     * Generates a valid Java class name from a JSP file path.
+     */
+    private String generateClassNameFromPath(String path) {
+        // Remove leading slash and file extension
+        String name = path.startsWith("/") ? path.substring(1) : path;
+        int dotIndex = name.lastIndexOf('.');
+        if (dotIndex > 0) {
+            name = name.substring(0, dotIndex);
+        }
+
+        // Replace invalid characters with underscores
+        StringBuilder className = new StringBuilder();
+        boolean capitalizeNext = true;
+        
+        for (char c : name.toCharArray()) {
+            if (Character.isJavaIdentifierPart(c)) {
+                className.append(capitalizeNext ? Character.toUpperCase(c) : c);
+                capitalizeNext = false;
+            } else {
+                className.append('_');
+                capitalizeNext = true;
+            }
+        }
+
+        // Ensure it starts with a valid character
+        String result = className.toString();
+        if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
+            result = "JSP_" + result;
+        }
+
+        return result + "_jsp";
+    }
+
+    /**
+     * Extracts the character encoding for a JSP file from JSP configuration.
+     * 
+     * @param path the JSP file path to check
+     * @return the encoding specified in JSP config, or "UTF-8" as default
+     */
+    private String extractEncodingFromJspConfig(String path) {
+        // Default encoding
+        String encoding = "UTF-8";
+        
+        // Check JSP configuration for encoding settings
+        if (jspConfig != null) {
+            // Iterate through JSP property groups
+            for (JspPropertyGroupDescriptor propertyGroup : jspConfig.getJspPropertyGroups()) {
+                // Check if this property group applies to our JSP file path
+                if (matchesUrlPatterns(path, propertyGroup.getUrlPatterns())) {
+                    String pageEncoding = propertyGroup.getPageEncoding();
+                    if (pageEncoding != null && !pageEncoding.isEmpty()) {
+                        encoding = pageEncoding;
+                        LOGGER.fine("Using encoding '" + encoding + "' from JSP property group for: " + path);
+                        break; // Use the first matching property group
+                    }
+                }
+            }
+        }
+        
+        return encoding;
+    }
+
+    /**
+     * Checks if a JSP file path matches any of the URL patterns in a collection.
+     * 
+     * @param jspPath the JSP file path
+     * @param urlPatterns the collection of URL patterns to match against
+     * @return true if the path matches any pattern, false otherwise
+     */
+    private boolean matchesUrlPatterns(String jspPath, java.util.Collection<String> urlPatterns) {
+        if (urlPatterns == null || urlPatterns.isEmpty()) {
+            return false;
+        }
+        
+        for (String pattern : urlPatterns) {
+            if (matchesUrlPattern(jspPath, pattern)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Checks if a JSP file path matches a specific URL pattern.
+     * Supports exact matches, prefix matches (ending with /*), 
+     * and extension matches (starting with *.).
+     * 
+     * @param jspPath the JSP file path
+     * @param pattern the URL pattern to match against
+     * @return true if the path matches the pattern, false otherwise
+     */
+    private boolean matchesUrlPattern(String jspPath, String pattern) {
+        if (pattern == null || jspPath == null) {
+            return false;
+        }
+        
+        // Exact match
+        if (pattern.equals(jspPath)) {
+            return true;
+        }
+        
+        // Extension pattern: *.jsp, *.jspx, etc.
+        if (pattern.startsWith("*.")) {
+            String extension = pattern.substring(1); // Remove the *
+            return jspPath.endsWith(extension);
+        }
+        
+        // Prefix pattern: /admin/*, /secure/*, etc.
+        if (pattern.endsWith("/*")) {
+            String prefix = pattern.substring(0, pattern.length() - 2); // Remove the /*
+            return jspPath.startsWith(prefix + "/") || jspPath.equals(prefix);
+        }
+        
+        // Default servlet pattern: /
+        if (pattern.equals("/")) {
+            return true; // Matches everything
+        }
+        
+        return false;
+    }
+
+    /**
+     * Compiles a Java source file to a class file using the internal Java compiler.
+     */
+    private boolean compileJavaFile(File sourceFile, File classFile, File outputDir) {
+        try {
+            // Use javax.tools.JavaCompiler for compilation
+            javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+            if (compiler == null) {
+                LOGGER.severe("No Java compiler available in runtime");
+                return false;
+            }
+
+            // Set up compilation options
+            List<String> options = new ArrayList<>();
+            options.add("-cp");
+            
+            // Build classpath including servlet API and context classloader
+            StringBuilder classpath = new StringBuilder();
+            
+            // Add servlet API jars
+            String gumdropLibPath = System.getProperty("gumdrop.lib.path", "lib");
+            File libDir = new File(gumdropLibPath);
+            if (libDir.exists()) {
+                for (File jar : libDir.listFiles((dir, name) -> name.endsWith(".jar"))) {
+                    if (classpath.length() > 0) classpath.append(File.pathSeparator);
+                    classpath.append(jar.getAbsolutePath());
+                }
+            }
+            
+            // Add WEB-INF/lib jars from the context
+            File webInfLib = new File(root, "WEB-INF" + File.separator + "lib");
+            if (webInfLib.exists()) {
+                for (File jar : webInfLib.listFiles((dir, name) -> name.endsWith(".jar"))) {
+                    if (classpath.length() > 0) classpath.append(File.pathSeparator);
+                    classpath.append(jar.getAbsolutePath());
+                }
+            }
+
+            options.add(classpath.toString());
+            options.add("-d");
+            options.add(outputDir.getAbsolutePath());
+
+            // Compile the source file
+            javax.tools.StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
+            Iterable<? extends javax.tools.JavaFileObject> compilationUnits = 
+                fileManager.getJavaFileObjectsFromFiles(Arrays.asList(sourceFile));
+
+            javax.tools.JavaCompiler.CompilationTask task = compiler.getTask(
+                null, fileManager, null, options, null, compilationUnits);
+
+            boolean success = task.call();
+            fileManager.close();
+
+            return success && classFile.exists();
+
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error during JSP compilation", e);
+            return false;
+        }
+    }
+
+    /**
+     * Loads a compiled class file using a custom class loader.
+     */
+    private Class<?> loadCompiledClass(String className, File classFile) throws IOException, ClassNotFoundException {
+        // Read class file bytes
+        byte[] classBytes;
+        try (FileInputStream fis = new FileInputStream(classFile)) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = fis.read(buffer)) != -1) {
+                baos.write(buffer, 0, bytesRead);
+            }
+            classBytes = baos.toByteArray();
+        }
+
+        // Define the class using a custom class loader that can access the context
+        ClassLoader parentLoader = contextClassLoader != null ? contextClassLoader : getClass().getClassLoader();
+        
+        ClassLoader jspClassLoader = new ClassLoader(parentLoader) {
+            @Override
+            protected Class<?> findClass(String name) throws ClassNotFoundException {
+                if (className.equals(name)) {
+                    return defineClass(name, classBytes, 0, classBytes.length);
+                }
+                return super.findClass(name);
+            }
+        };
+
+        return jspClassLoader.loadClass(className);
     }
 
     @Override public ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {

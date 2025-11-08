@@ -1238,6 +1238,20 @@ class Request implements HttpServletRequest {
         return text;
     }
 
+    /**
+     * Static utility method to remove quotes from a quoted string.
+     * Used by other classes in the servlet package.
+     */
+    static String unq(String text) {
+        if (text != null) {
+            int len = text.length();
+            if (len > 1 && text.charAt(0) == '"' && text.charAt(len - 1) == '"') {
+                text = text.substring(1, len - 1);
+            }
+        }
+        return text;
+    }
+
     // -- Debugging --
 
     public String toString() {

@@ -65,5 +65,38 @@
     </auth-constraint>
   </security-constraint>
 
+  <!-- JSP Configuration for Examples -->
+  <jsp-config>
+    <!-- Basic JSP files - UTF-8 encoding, scripting allowed -->
+    <jsp-property-group>
+      <url-pattern>/jsp/*.jsp</url-pattern>
+      <url-pattern>/jsp/*.jspx</url-pattern>
+      <page-encoding>UTF-8</page-encoding>
+      <scripting-invalid>false</scripting-invalid>
+    </jsp-property-group>
+
+    <!-- Restricted area - scripting disabled for security demonstration -->
+    <jsp-property-group>
+      <url-pattern>/jsp/restricted/*</url-pattern>
+      <scripting-invalid>true</scripting-invalid>
+      <page-encoding>UTF-8</page-encoding>
+    </jsp-property-group>
+
+    <!-- Enhanced area - with automatic prelude and coda inclusion -->
+    <jsp-property-group>
+      <url-pattern>/jsp/enhanced/*</url-pattern>
+      <page-encoding>UTF-8</page-encoding>
+      <include-prelude>/WEB-INF/includes/header-prelude.jsp</include-prelude>
+      <include-coda>/WEB-INF/includes/footer-coda.jsp</include-coda>
+    </jsp-property-group>
+
+    <!-- Taglib example area - demonstrates custom tag processing -->
+    <jsp-property-group>
+      <url-pattern>/jsp/taglib-example.jsp</url-pattern>
+      <page-encoding>UTF-8</page-encoding>
+      <default-content-type>text/html; charset=UTF-8</default-content-type>
+    </jsp-property-group>
+  </jsp-config>
+
 </web-app>
 
