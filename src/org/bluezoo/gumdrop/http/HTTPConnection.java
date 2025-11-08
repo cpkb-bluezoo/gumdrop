@@ -83,6 +83,11 @@ public class HTTPConnection extends Connection {
      */
     protected HTTPVersion version = HTTPVersion.HTTP_1_0;
 
+    /**
+     * Authentication provider for this connection.
+     */
+    private HTTPAuthenticationProvider authenticationProvider;
+
     private static final int STATE_REQUEST_LINE = 0;
     private static final int STATE_HEADER = 1;
     private static final int STATE_BODY = 2;
@@ -195,6 +200,24 @@ public class HTTPConnection extends Connection {
      */
     public HTTPVersion getVersion() {
         return version;
+    }
+
+    /**
+     * Sets the authentication provider for this connection.
+     *
+     * @param provider the authentication provider, or null to disable authentication
+     */
+    public void setAuthenticationProvider(HTTPAuthenticationProvider provider) {
+        this.authenticationProvider = provider;
+    }
+
+    /**
+     * Returns the authentication provider for this connection.
+     *
+     * @return the authentication provider, or null if authentication is not configured
+     */
+    public HTTPAuthenticationProvider getAuthenticationProvider() {
+        return authenticationProvider;
     }
 
     /**

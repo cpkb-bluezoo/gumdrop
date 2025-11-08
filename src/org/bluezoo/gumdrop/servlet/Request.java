@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import org.bluezoo.gumdrop.util.Multipart;
 import gnu.inet.http.HTTPDateFormat;
@@ -455,363 +456,102 @@ class Request implements HttpServletRequest {
     }
 
     @Override public boolean authenticate(HttpServletResponse response) throws IOException, ServletException {
-        // Authentication required
-        String username = null;
-        String realm = context.getRealmName();
         String authMethod = context.getAuthMethod();
-        if (HttpServletRequest.BASIC_AUTH.equals(authMethod)) {
-            String authorization = getHeader("Authorization");
-            if (authorization == null) {
-                // Authorization required
-                requireAuthentication(response, "Basic");
-                return false;
-            }
-            int si = authorization.indexOf(' ');
-            if (si < 1) {
-                String message = Context.L10N.getString("http.bad_auth_header");
-                message = MessageFormat.format(message, authorization);
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                return false;
-            }
-            String clientScheme = authorization.substring(0, si);
-            if (!"Basic".equals(clientScheme)) {
-                // Basic authorization required
-                requireAuthentication(response, "Basic");
-                return false;
-            }
-            // Decode credentials
-            byte[] base64UserPass = authorization.substring(si + 1).getBytes("US-ASCII");
-            String userPass = new String(BASE64.decode(base64UserPass), "US-ASCII");
-            int ci = userPass.indexOf(COLON);
-            if (ci < 1) {
-                String message = Context.L10N.getString("http.bad_basic_creds");
-                message = MessageFormat.format(message, userPass);
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                return false;
-            }
-            username = userPass.substring(0, ci);
-            String password = userPass.substring(ci + 1);
-            if (!context.passwordMatch(realm, username, password)) {
-                String message = Context.L10N.getString("err.auth_fail");
-                message = MessageFormat.format(message, username, password);
-                Context.LOGGER.warning(message);
-                // Correct password required
-                requireAuthentication(response, "Basic");
-                return false;
-            }
-        } else if (HttpServletRequest.DIGEST_AUTH.equals(authMethod)) {
-            String authorization = getHeader("Authorization");
-            if (authorization == null) {
-                // Authorization required
-                requireAuthentication(response, "Digest");
-                return false;
-            }
-            int si = authorization.indexOf(' ');
-            if (si < 1) {
-                String message = Context.L10N.getString("http.bad_auth_header");
-                message = MessageFormat.format(message, authorization);
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                return false;
-            }
-            String clientScheme = authorization.substring(0, si);
-            if (!"Digest".equals(clientScheme)) {
-                // Digest authorization required
-                requireAuthentication(response, "Digest");
-                return false;
-            }
-            String drText = authorization.substring(si + 1);
-            Map digestResponse = parseDigestResponse(drText);
-            username = (String) digestResponse.get("username");
-            realm = (String) digestResponse.get("realm");
-            String ha1Hex = context.getDigestHA1(realm, username);
-            if (ha1Hex == null) {
-                // No such user
-                requireAuthentication(response, "Digest");
-                return false;
-            }
-            String nonce = (String) digestResponse.get("nonce");
-            String requestDigest = (String) digestResponse.get("response");
-            String qop = (String) digestResponse.get("qop");
-            String algorithm = (String) digestResponse.get("algorithm");
-            String cnonce = (String) digestResponse.get("cnonce");
-            String nc = (String) digestResponse.get("nc");
-            String method = getMethod();
-            String digestUri = getRequestURI();
-            String requestQueryString = getQueryString();
-            if (requestQueryString != null) {
-                digestUri = digestUri + "?" + requestQueryString;
-            }
-            if (username == null || realm == null || requestDigest == null || nonce == null || cnonce == null || nc == null) {
-                String message = Context.L10N.getString("http.bad_digest");
-                message = MessageFormat.format(message, drText);
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                return false;
-            }
-            // Check nonce
-            try {
-                int clientNonceCount = Integer.parseInt(nc, 16); // hexadecimal
-                int serverNonceCount = context.getNonceCount(nonce);
-                if (clientNonceCount != serverNonceCount || serverNonceCount < 1 || context.seenCnonce(cnonce + nc)) {
-                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                    response.setContentLength(0);
-                    return false;
-                }
-            } catch (Exception e) {
-                String message = Context.L10N.getString("http.bad_digest");
-                message = MessageFormat.format(message, drText);
-                response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                return false;
-            }
-            if (algorithm == null) {
-                algorithm = "MD5";
-            }
-            try {
-                MessageDigest md = MessageDigest.getInstance(algorithm);
+        if (authMethod == null) {
+            return true; // No authentication required
+        }
 
-                // Get H(A1) from realm
-                byte[] ha1 = hexStringToBytes(ha1Hex);
-                String finalHA1Hex;
-                if ("MD5-sess".equals(algorithm)) {
-                    if (cnonce == null) {
-                        String message = Context.L10N.getString("http.bad_digest");
-                        message = MessageFormat.format(message, drText);
-                        response.sendError(HttpServletResponse.SC_BAD_REQUEST, message);
-                        return false;
-                    }
-                    md.reset();
-                    md.update(ha1);
-                    md.update(COLON);
-                    md.update(nonce.getBytes("US-ASCII"));
-                    md.update(COLON);
-                    md.update(cnonce.getBytes("US-ASCII"));
-                    byte[] sessHA1 = md.digest();
-                    finalHA1Hex = toHexString(sessHA1);
-                    // TODO sessions
-                } else {
-                    finalHA1Hex = ha1Hex;
-                }
-
-                // Compute H(A2)
-                md.reset();
-                md.update(method.getBytes("US-ASCII"));
-                md.update(COLON);
-                md.update(digestUri.getBytes("US-ASCII"));
-                if ("auth-int".equals(qop)) {
-                    byte[] hEntity = null;
-                    // need to read entire entity body here
-                    // TODO work out how we can do this in an event driven
-                    // model
-                    throw new ProtocolException("auth-int not supported");
-                    /*md5.update(COLON);
-                      md5.update(hEntity);*/
-                }
-                byte[] ha2 = md.digest();
-                String ha2Hex = toHexString(ha2);
-
-                // Calculate response
-                md.reset();
-                md.update(finalHA1Hex.getBytes("US-ASCII"));
-                md.update(COLON);
-                md.update(nonce.getBytes("US-ASCII"));
-                if ("auth".equals(qop)) {
-                    md.update(COLON);
-                    md.update(nc.getBytes("US-ASCII"));
-                    md.update(COLON);
-                    md.update(cnonce.getBytes("US-ASCII"));
-                    md.update(COLON);
-                    md.update(qop.getBytes("US-ASCII"));
-                } else if ("auth-int".equals(qop)) {
-                    // need to read entire entity body here
-                    // TODO work out how we can do this in an event driven
-                    // model
-                    throw new ProtocolException("auth-int not supported");
-                }
-                md.update(COLON);
-                md.update(ha2Hex.getBytes("US-ASCII"));
-                String test = toHexString(md.digest());
-
-                // Compare computed response with the one specified by the
-                // client
-                if (!test.equals(requestDigest)) {
-                    // Authentication failed
-                    String message = Context.L10N.getString("err.digest_auth_fail");
-                    message = MessageFormat.format(message, username);
-                    Context.LOGGER.warning(message);
-                    requireAuthentication(response, "Digest");
-                    return false;
-                }
-            } catch (NoSuchAlgorithmException e) {
-                throw new ServletException(e);
-            }
-        } else if (HttpServletRequest.FORM_AUTH.equals(authMethod)) {
-            username = getParameter("j_username");
-            String requestPassword = getParameter("j_password");
-            if (username == null) {
-                response.sendRedirect(context.getFormLoginPage());
-                return false;
-            } else {
-                if (!context.passwordMatch(realm, username, requestPassword)) {
-                    String message = Context.L10N.getString("err.auth_fail");
-                    message = MessageFormat.format(message, username, requestPassword);
-                    Context.LOGGER.warning(message);
-                    response.sendRedirect(context.getFormErrorPage());
-                    return false;
-                }
-            }
+        // Handle servlet-specific authentication methods
+        if (HttpServletRequest.FORM_AUTH.equals(authMethod)) {
+            return authenticateForm(response);
         } else if (HttpServletRequest.CLIENT_CERT_AUTH.equals(authMethod)) {
-            // HTTP client cert
-            Certificate[] certificates = stream.connection.getPeerCertificates();
-            if (certificates != null) {
-                for (Certificate certificate : certificates) {
-                    if (certificate instanceof X509Certificate) {
-                        X509Certificate x509 = (X509Certificate) certificate;
-                        username = x509.getSubjectX500Principal().getName();
-                        break;
-                    }
-                }
-            }
-            if (username == null) {
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN); // NB not 401 Unauthorized
-                response.setContentLength(0);
-                return false;
-            }
-        } else {
+            return authenticateClientCert(response);
+        }
+
+        // All other authentication methods (BASIC, DIGEST, BEARER, OAUTH, JWT) 
+        // are handled through the Stream-based authentication
+
+        // Use Stream-based authentication for Basic, Digest, Bearer, OAuth, and JWT
+        HTTPAuthenticationProvider.AuthenticationResult result = stream.authenticateRequest();
+        
+        if (result == null) {
+            // No authentication configured at Stream level - should not happen
             String message = Context.L10N.getString("http.unknown_auth_mechanism");
             message = MessageFormat.format(message, authMethod);
             response.sendError(500, message);
             return false;
         }
-        // associate principal with request
+
+        if (!result.success) {
+            // Authentication failed - send challenge
+            try {
+                stream.sendAuthenticationChallenge();
+            } catch (Exception e) {
+                // Fallback to servlet error handling
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentLength(0);
+            }
+            return false;
+        }
+
+        // Authentication succeeded - create principal
+        userPrincipal = new ServletPrincipal(context, result.realm, result.username);
+        return true;
+    }
+
+    /**
+     * Handle FORM authentication (servlet-specific).
+     */
+    private boolean authenticateForm(HttpServletResponse response) throws IOException {
+        String username = getParameter("j_username");
+        String password = getParameter("j_password");
+        String realm = context.getRealmName();
+
+        if (username == null) {
+            response.sendRedirect(context.getFormLoginPage());
+            return false;
+        } else {
+            if (!context.passwordMatch(realm, username, password)) {
+                String message = Context.L10N.getString("err.auth_fail");
+                message = MessageFormat.format(message, username, password);
+                Context.LOGGER.warning(message);
+                response.sendRedirect(context.getFormErrorPage());
+                return false;
+            }
+        }
+
         userPrincipal = new ServletPrincipal(context, realm, username);
         return true;
     }
 
-    void requireAuthentication(HttpServletResponse response, String scheme) throws ServletException, IOException {
+    /**
+     * Handle CLIENT_CERT authentication (servlet-specific).
+     */
+    private boolean authenticateClientCert(HttpServletResponse response) throws IOException {
+        String username = null;
         String realm = context.getRealmName();
-        if ("Digest".equals(scheme)) {
-            // Digest
-            try {
-                // Create a suitable nonce value
-                MessageDigest md = MessageDigest.getInstance("MD5");
-                ByteArrayOutputStream bo = new ByteArrayOutputStream();
-                ObjectOutputStream oo = new ObjectOutputStream(bo);
-                oo.writeLong(System.currentTimeMillis());
-                md.update(bo.toByteArray());
-                bo.reset();
-                oo.writeDouble(Math.random());
-                md.update(bo.toByteArray());
-                String nonce = toHexString(BASE64.encode(md.digest()));
-                // associate nonce with context to avoid replay attacks
-                context.newNonce(nonce);
 
-                // Send UNAUTHORIZED with the WWW-Authenticate header
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                String wwwAuthenticate =
-                    "Digest realm=\"" + realm + "\", nonce=\"" + nonce + "\", qop=\"auth\"";
-                response.setHeader("WWW-Authenticate", wwwAuthenticate);
-                response.setContentLength(0);
-            } catch (NoSuchAlgorithmException e) {
-                throw new ServletException(e);
-            }
-        } else if ("Basic".equals(scheme)) {
-            // Basic
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.setHeader("WWW-Authenticate", "Basic realm=\"" + realm + "\"");
-            response.setContentLength(0);
-        } else {
-            String message = Context.L10N.getString("http.unknown_auth_mechanism");
-            message = MessageFormat.format(message, scheme);
-            response.sendError(500, message);
-        }
-    }
-
-    /**
-     * Parse the specified text into an RFC 2617 digest-response.
-     */
-    protected final Map parseDigestResponse(String text) throws IOException {
-        Map map = new LinkedHashMap();
-        boolean inQuote = false;
-        char[] chars = text.toCharArray();
-        StringBuffer buf = new StringBuffer();
-        String key = null;
-        for (int i = 0; i < chars.length; i++) {
-            char c = chars[i];
-            if (c == '"') {
-                inQuote = !inQuote;
-            } else if (!inQuote) {
-                if (c == ',') {
-                    // End of pair
-                    String val = unq(buf.toString());
-                    buf.setLength(0);
-                    if (key == null) {
-                        String message = Context.L10N.getString("http.bad_digest");
-                        message = MessageFormat.format(message, text);
-                        throw new ProtocolException(message);
-                    }
-                    map.put(key, val);
-                    key = null;
-                } else if (c == '=') {
-                    // End of key
-                    key = buf.toString().trim();
-                    buf.setLength(0);
-                } else {
-                    buf.append(c);
+        Certificate[] certificates = stream.connection.getPeerCertificates();
+        if (certificates != null) {
+            for (Certificate certificate : certificates) {
+                if (certificate instanceof X509Certificate) {
+                    X509Certificate x509 = (X509Certificate) certificate;
+                    username = x509.getSubjectX500Principal().getName();
+                    break;
                 }
-            } else {
-                buf.append(c);
             }
         }
-        if (inQuote || key == null) {
-            String message = Context.L10N.getString("http.bad_digest");
-            message = MessageFormat.format(message, text);
-            throw new ProtocolException(message);
-        } else {
-            // End of pair
-            String val = unq(buf.toString());
-            map.put(key, val);
+
+        if (username == null) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN); // NB not 401 Unauthorized
+            response.setContentLength(0);
+            return false;
         }
-        return map;
+
+        userPrincipal = new ServletPrincipal(context, realm, username);
+        return true;
     }
 
-    /**
-     * Provides the canonical representation of the specified quoted-string,
-     * i.e. without the quotes.
-     */
-    static String unq(String text) {
-        if (text != null) {
-            int len = text.length();
-            if (len > 1 && text.charAt(0) == '"' && text.charAt(len - 1) == '"') {
-                text = text.substring(1, len - 1);
-            }
-        }
-        return text;
-    }
-
-    static String toHexString(byte[] bytes) {
-        char[] ret = new char[bytes.length * 2];
-        for (int i = 0, j = 0; i < bytes.length; i++) {
-            int c = (int) bytes[i];
-            if (c < 0) {
-                c += 0x100;
-            }
-            ret[j++] = Character.forDigit(c / 0x10, 0x10);
-            ret[j++] = Character.forDigit(c % 0x10, 0x10);
-        }
-        return new String(ret);
-    }
-
-    /**
-     * Converts a hex string to byte array.
-     */
-    static byte[] hexStringToBytes(String hexString) {
-        int len = hexString.length();
-        byte[] data = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hexString.charAt(i), 16) << 4)
-                                 + Character.digit(hexString.charAt(i+1), 16));
-        }
-        return data;
-    }
 
     @Override public void login(String username, String password) throws ServletException {
         String realm = context.getRealmName();
@@ -1027,7 +767,7 @@ class Request implements HttpServletRequest {
                 String key = token.substring(0, ei);
                 if ("charset".equals(key)) {
                     String value = token.substring(ei + 1);
-                    return unq(value);
+                    return unquote(value);
                 }
             }
         }
@@ -1483,6 +1223,19 @@ class Request implements HttpServletRequest {
         
         // Return null if server push is not supported (per Servlet 4.0 spec)
         return null;
+    }
+
+    /**
+     * Remove quotes from a quoted string.
+     */
+    private String unquote(String text) {
+        if (text != null) {
+            int len = text.length();
+            if (len > 1 && text.charAt(0) == '"' && text.charAt(len - 1) == '"') {
+                text = text.substring(1, len - 1);
+            }
+        }
+        return text;
     }
 
     // -- Debugging --

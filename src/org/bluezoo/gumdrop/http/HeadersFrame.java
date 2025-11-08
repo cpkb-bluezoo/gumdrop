@@ -30,7 +30,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-final class HeadersFrame extends Frame {
+public final class HeadersFrame extends Frame {
 
     int stream;
     boolean padded;
@@ -95,7 +95,7 @@ final class HeadersFrame extends Frame {
         this.headerBlockFragment = headerBlockFragment;
     }
 
-    protected int getLength() {
+    public int getLength() {
         int length = headerBlockFragment.length;
         if (padded) {
             length += (1 + padLength);
@@ -106,18 +106,18 @@ final class HeadersFrame extends Frame {
         return length;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_HEADERS;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return (padded ? FLAG_PADDED : 0)
             | (endStream ? FLAG_END_STREAM : 0)
             | (endHeaders ? FLAG_END_HEADERS : 0)
             | (priority ? FLAG_PRIORITY : 0);
     }
 
-    protected int getStream() {
+    public int getStream() {
         return stream;
     }
 

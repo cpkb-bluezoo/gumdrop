@@ -23,33 +23,132 @@ package org.bluezoo.gumdrop.http;
 
 /**
  * Enum of possible HTTP versions.
+ * 
+ * <p>This enum handles both traditional HTTP version strings (e.g., "HTTP/1.1")
+ * and ALPN negotiation identifiers (e.g., "h2", "h2c") used during protocol
+ * negotiation.
  *
  * @author Chris Burdess
  */
 public enum HTTPVersion {
 
-    UNKNOWN(null),
-    HTTP_1_0("HTTP/1.0"),
-    HTTP_1_1("HTTP/1.1"),
-    HTTP_2_0("HTTP/2.0");
+    UNKNOWN(null, null),
+    HTTP_1_0("HTTP/1.0", "http/1.0"),
+    HTTP_1_1("HTTP/1.1", "http/1.1"),
+    HTTP_2_0("HTTP/2.0", "h2");
 
-    private final String s;
+    private final String versionString;
+    private final String alpnIdentifier;
 
-    private HTTPVersion(String s) {
-        this.s = s;
+    /**
+     * Creates an HTTP version with the specified version string and ALPN identifier.
+     * 
+     * @param versionString the HTTP version string (e.g., "HTTP/1.1")
+     * @param alpnIdentifier the ALPN negotiation identifier (e.g., "h2")
+     */
+    private HTTPVersion(String versionString, String alpnIdentifier) {
+        this.versionString = versionString;
+        this.alpnIdentifier = alpnIdentifier;
     }
 
+    /**
+     * Returns the HTTP version string (e.g., "HTTP/1.1").
+     * 
+     * @return the version string, or "(unknown)" for UNKNOWN
+     */
+    @Override
     public String toString() {
-        return s == null ? "(unknown)" : s;
+        return versionString == null ? "(unknown)" : versionString;
     }
 
-    public static HTTPVersion fromString(String s) {
+    /**
+     * Returns the ALPN identifier for this HTTP version.
+     * 
+     * @return the ALPN identifier (e.g., "h2"), or null if not applicable
+     */
+    public String getAlpnIdentifier() {
+        return alpnIdentifier;
+    }
+
+    /**
+     * Parses an HTTP version from a version string (e.g., "HTTP/1.1", "HTTP/2.0").
+     * 
+     * @param versionString the HTTP version string to parse
+     * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
+     */
+    public static HTTPVersion fromVersionString(String versionString) {
+        if (versionString == null) {
+            return UNKNOWN;
+        }
+        
         for (HTTPVersion v : values()) {
-            if (s != null && s.equals(v.s)) {
+            if (versionString.equals(v.versionString)) {
                 return v;
             }
         }
         return UNKNOWN;
     }
 
+    /**
+     * Parses an HTTP version from an ALPN identifier (e.g., "h2", "h2c", "http/1.1").
+     * 
+     * @param alpnIdentifier the ALPN identifier to parse
+     * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
+     */
+    public static HTTPVersion fromAlpnIdentifier(String alpnIdentifier) {
+        if (alpnIdentifier == null) {
+            return UNKNOWN;
+        }
+        
+        // Handle special case of HTTP/2 cleartext upgrade
+        if ("h2c".equals(alpnIdentifier)) {
+            return HTTP_2_0;
+        }
+        
+        for (HTTPVersion v : values()) {
+            if (alpnIdentifier.equals(v.alpnIdentifier)) {
+                return v;
+            }
+        }
+        return UNKNOWN;
+    }
+
+    /**
+     * Parses an HTTP version from either a version string or ALPN identifier.
+     * 
+     * <p>This method first tries to parse as an ALPN identifier, then falls back
+     * to parsing as a version string. This handles cases where the input could
+     * be either format.
+     * 
+     * @param s the string to parse (version string or ALPN identifier)
+     * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
+     */
+    public static HTTPVersion fromString(String s) {
+        // Try ALPN identifier first (more common in modern usage)
+        HTTPVersion alpnResult = fromAlpnIdentifier(s);
+        if (alpnResult != UNKNOWN) {
+            return alpnResult;
+        }
+        
+        // Fall back to version string
+        return fromVersionString(s);
+    }
+
+    /**
+     * Checks if this HTTP version supports multiplexing (multiple concurrent streams).
+     * 
+     * @return true for HTTP/2, false for HTTP/1.x
+     */
+    public boolean supportsMultiplexing() {
+        return this == HTTP_2_0;
+    }
+
+    /**
+     * Checks if this HTTP version requires a Host header.
+     * 
+     * @return true for HTTP/1.1 and HTTP/2, false for HTTP/1.0
+     */
+    public boolean requiresHostHeader() {
+        return this == HTTP_1_1 || this == HTTP_2_0;
+    }
 }

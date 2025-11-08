@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class GoawayFrame extends Frame {
+public class GoawayFrame extends Frame {
 
     int lastStream;
     int errorCode;
@@ -58,19 +58,19 @@ class GoawayFrame extends Frame {
         this.debug = debug;
     }
 
-    protected int getLength() {
+    public int getLength() {
         return debug.length + 8;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_GOAWAY;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return 0;
     }
 
-    protected int getStream() {
+    public int getStream() {
         return 0;
     }
 

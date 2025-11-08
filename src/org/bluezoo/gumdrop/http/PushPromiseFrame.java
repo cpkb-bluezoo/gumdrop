@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class PushPromiseFrame extends Frame {
+public class PushPromiseFrame extends Frame {
 
     int stream;
     boolean padded;
@@ -69,7 +69,7 @@ class PushPromiseFrame extends Frame {
         this.headerBlockFragment = headerBlockFragment;
     }
 
-    protected int getLength() {
+    public int getLength() {
         int length = headerBlockFragment.length + 4;
         if (padded) {
             length += (1 + padLength);
@@ -77,16 +77,16 @@ class PushPromiseFrame extends Frame {
         return length;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_PUSH_PROMISE;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return (padded ? FLAG_PADDED : 0)
             | (endHeaders ? FLAG_END_HEADERS : 0);
     }
 
-    protected int getStream() {
+    public int getStream() {
         return stream;
     }
 

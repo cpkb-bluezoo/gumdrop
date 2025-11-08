@@ -281,7 +281,9 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         // First, handle any buffered control sequence from previous call
         if (controlBuffer.position() > 0) {
             handleControlSequenceWithNewData(buf);
-            if (state != SMTPState.DATA) return; // Terminated
+            if (state != SMTPState.DATA) {
+                return; // Terminated
+            }
         }
         
         // Process the main buffer iteratively

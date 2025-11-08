@@ -103,8 +103,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     byte[] digest; // MD5 digest of web.xml
 
     Map<String,Realm> realms = new LinkedHashMap<>();
-    Map<String,AtomicInteger> nonces = new ConcurrentHashMap<>();
-    Set<String> cnonces = new HashSet<>();
 
     Map<String,String> initParams = new LinkedHashMap<>();
     Map<String,Object> attributes = new LinkedHashMap<>();
@@ -899,6 +897,12 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             postConstruct.execute();
         }
 
+        // Configure authentication provider if authentication is configured
+        if (getAuthMethod() != null && server != null) {
+            ServletAuthenticationProvider authProvider = new ServletAuthenticationProvider(this);
+            server.setAuthenticationProvider(authProvider);
+        }
+
         thread.setContextClassLoader(originalClassLoader);
         initialized = true;
     }
@@ -1043,35 +1047,6 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         return false;
     }
 
-    /**
-     * Associate a new nonce value. This will keep a count of the number of
-     * times the nonce has been seen, to avoid replay attacks.
-     */
-    void newNonce(String nonce) {
-        nonces.put(nonce, new AtomicInteger(0));
-    }
-
-    /**
-     * Returns the nonce count for the given nonce value.
-     * Calling this method will increment the nonce count.
-     */
-    int getNonceCount(String nonce) {
-        AtomicInteger nonceCount = nonces.get(nonce);
-        return (nonceCount == null) ? -1 : nonceCount.incrementAndGet();
-    }
-
-    /**
-     * Indicates whether the given client nonce value has already been seen.
-     * Calling this method updates the seen status for the given client
-     * nonce.
-     * Note that this is theoretically vulnerable to a collision whereby we
-     * may erroneously reject a valid request, albeit improbable.
-     */
-    boolean seenCnonce(String cnonce) {
-        synchronized (cnonces) {
-            return cnonces.add(cnonce);
-        }
-    }
 
     void addSession(Session session) {
         synchronized (sessions) {

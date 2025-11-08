@@ -33,7 +33,7 @@ import java.util.Map;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class SettingsFrame extends Frame {
+public class SettingsFrame extends Frame {
 
     static final int SETTINGS_HEADER_TABLE_SIZE = 0x1;
     static final int SETTINGS_ENABLE_PUSH = 0x2;
@@ -95,19 +95,19 @@ class SettingsFrame extends Frame {
         settings.put(identifier, value);
     }
 
-    protected int getLength() {
+    public int getLength() {
         return settings.size() * 6;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_SETTINGS;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return ack ? FLAG_ACK : 0;
     }
 
-    protected int getStream() {
+    public int getStream() {
         return 0;
     }
 

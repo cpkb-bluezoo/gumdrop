@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class ContinuationFrame extends Frame {
+public class ContinuationFrame extends Frame {
 
     int stream;
     boolean endHeaders;
@@ -54,19 +54,19 @@ class ContinuationFrame extends Frame {
         this.headerBlockFragment = headerBlockFragment;
     }
 
-    protected int getLength() {
+    public int getLength() {
         return headerBlockFragment.length;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_CONTINUATION;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return endHeaders ? FLAG_END_HEADERS : 0;
     }
 
-    protected int getStream() {
+    public int getStream() {
         return stream;
     }
 

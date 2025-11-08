@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-final class PingFrame extends Frame {
+public final class PingFrame extends Frame {
 
     boolean ack;
 
@@ -47,19 +47,19 @@ final class PingFrame extends Frame {
         this.ack = ack;
     }
 
-    protected int getLength() {
+    public int getLength() {
         return 8;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_PING;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return ack ? FLAG_ACK : 0;
     }
 
-    protected int getStream() {
+    public int getStream() {
         return 0;
     }
 

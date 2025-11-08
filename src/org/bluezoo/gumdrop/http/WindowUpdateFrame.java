@@ -30,7 +30,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class WindowUpdateFrame extends Frame {
+public class WindowUpdateFrame extends Frame {
 
     int stream;
 
@@ -59,19 +59,19 @@ class WindowUpdateFrame extends Frame {
         this.windowSizeIncrement = windowSizeIncrement;
     }
 
-    protected int getLength() {
+    public int getLength() {
         return 4;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_WINDOW_UPDATE;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return 0;
     }
 
-    protected int getStream() {
+    public int getStream() {
         return stream;
     }
 

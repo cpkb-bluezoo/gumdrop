@@ -30,103 +30,103 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-abstract class Frame {
+public abstract class Frame {
 
     /**
      * The DATA frame type.
      */
-    static final int TYPE_DATA = 0x0;
+    public static final int TYPE_DATA = 0x0;
 
     /**
      * The HEADERS frame type.
      */
-    static final int TYPE_HEADERS = 0x1;
+    public static final int TYPE_HEADERS = 0x1;
 
     /**
      * The PRIORITY frame type.
      */
-    static final int TYPE_PRIORITY = 0x2;
+    public static final int TYPE_PRIORITY = 0x2;
 
     /**
      * The RST_STREAM frame type.
      */
-    static final int TYPE_RST_STREAM = 0x3;
+    public static final int TYPE_RST_STREAM = 0x3;
 
     /**
      * The SETTINGS frame type.
      */
-    static final int TYPE_SETTINGS = 0x4;
+    public static final int TYPE_SETTINGS = 0x4;
 
     /**
      * The PUSH_PROMISE frame type.
      */
-    static final int TYPE_PUSH_PROMISE = 0x5;
+    public static final int TYPE_PUSH_PROMISE = 0x5;
 
     /**
      * The PING frame type.
      */
-    static final int TYPE_PING = 0x6;
+    public static final int TYPE_PING = 0x6;
 
     /**
      * The GOAWAY frame type.
      */
-    static final int TYPE_GOAWAY = 0x7;
+    public static final int TYPE_GOAWAY = 0x7;
 
     /**
      * The WINDOW_UPDATE frame type.
      */
-    static final int TYPE_WINDOW_UPDATE = 0x8;
+    public static final int TYPE_WINDOW_UPDATE = 0x8;
 
     /**
      * The CONTINUATION frame type.
      */
-    static final int TYPE_CONTINUATION = 0x9;
+    public static final int TYPE_CONTINUATION = 0x9;
 
     /**
      * When set, bit 0 indicates that this frame acknowledges
      * receipt and application of the peer's SETTINGS frame.
      */
-    static final int FLAG_ACK = 0x1; // SETTINGS
+    public static final int FLAG_ACK = 0x1; // SETTINGS
 
     /**
      * When set, bit 0 indicates that this frame is the
      * last that the endpoint will send for the identified stream.
      */
-    static final int FLAG_END_STREAM = 0x1; // DATA|HEADERS flag
+    public static final int FLAG_END_STREAM = 0x1; // DATA|HEADERS flag
 
     /**
      * When set, bit 2 indicates that this frame
      * contains an entire header block (Section 4.3) and is not followed
      * by any CONTINUATION frames.
      */
-    static final int FLAG_END_HEADERS = 0x4; // HEADERS|PUSH_PROMISE|CONTINUATION flag
+    public static final int FLAG_END_HEADERS = 0x4; // HEADERS|PUSH_PROMISE|CONTINUATION flag
 
     /**
      * When set, bit 3 indicates that the Pad Length field
      * and any padding that it describes are present.
      */
-    static final int FLAG_PADDED = 0x8; // DATA|HEADERS|PUSH_PROMISE flag
+    public static final int FLAG_PADDED = 0x8; // DATA|HEADERS|PUSH_PROMISE flag
 
     /**
      * When set, bit 5 indicates that the Exclusive Flag
      * (E), Stream Dependency, and Weight fields are present
      */
-    static final int FLAG_PRIORITY = 0x20; // HEADERS flag
+    public static final int FLAG_PRIORITY = 0x20; // HEADERS flag
 
-    static final int ERROR_NO_ERROR = 0x0;
-    static final int ERROR_PROTOCOL_ERROR = 0x1;
-    static final int ERROR_INTERNAL_ERROR = 0x2;
-    static final int ERROR_FLOW_CONTROL_ERROR = 0x3;
-    static final int ERROR_SETTINGS_TIMEOUT = 0x4;
-    static final int ERROR_STREAM_CLOSED = 0x5;
-    static final int ERROR_FRAME_SIZE_ERROR = 0x6;
-    static final int ERROR_REFUSED_STREAM = 0x7;
-    static final int ERROR_CANCEL = 0x8;
-    static final int ERROR_COMPRESSION_ERROR = 0x9;
-    static final int ERROR_CONNECT_ERROR = 0xa;
-    static final int ERROR_ENHANCE_YOUR_CALM = 0xb;
-    static final int ERROR_INADEQUATE_SECURITY = 0xc;
-    static final int ERROR_HTTP_1_1_REQUIRED = 0xd;
+    public static final int ERROR_NO_ERROR = 0x0;
+    public static final int ERROR_PROTOCOL_ERROR = 0x1;
+    public static final int ERROR_INTERNAL_ERROR = 0x2;
+    public static final int ERROR_FLOW_CONTROL_ERROR = 0x3;
+    public static final int ERROR_SETTINGS_TIMEOUT = 0x4;
+    public static final int ERROR_STREAM_CLOSED = 0x5;
+    public static final int ERROR_FRAME_SIZE_ERROR = 0x6;
+    public static final int ERROR_REFUSED_STREAM = 0x7;
+    public static final int ERROR_CANCEL = 0x8;
+    public static final int ERROR_COMPRESSION_ERROR = 0x9;
+    public static final int ERROR_CONNECT_ERROR = 0xa;
+    public static final int ERROR_ENHANCE_YOUR_CALM = 0xb;
+    public static final int ERROR_INADEQUATE_SECURITY = 0xc;
+    public static final int ERROR_HTTP_1_1_REQUIRED = 0xd;
 
     /**
      * Returns the length of this frame's payload.
@@ -134,27 +134,27 @@ abstract class Frame {
      * Values larger than 16384 must not be sent unless the receiver has set
      * a larger value for SETTINGS_MAX_FRAME_SIZE.
      */
-    protected abstract int getLength();
+    public abstract int getLength();
 
     /**
      * Returns the type of this frame.
      * This will be encoded as an unsigned 8-bit integer.
      */
-    protected abstract int getType();
+    public abstract int getType();
 
     /**
      * Returns the flags associated with this frame.
      * These are type-specific.
      * This will be encoded as an unsigned 8-bit integer.
      */
-    protected abstract int getFlags();
+    public abstract int getFlags();
 
     /**
      * Returns the stream identifier of the stream associated with this
      * frame.
      * This will be encoded as an unsigned 31-bit integer.
      */
-    protected abstract int getStream();
+    public abstract int getStream();
 
     protected void write(ByteBuffer buf) {
         // NB this part only writes the frame header.
@@ -235,15 +235,21 @@ abstract class Frame {
                 buf.append("END_STREAM");
             }
             if ((flags & FLAG_END_HEADERS) != 0) {
-                if (buf.length() > 0) { buf.append('|'); }
+                if (buf.length() > 0) {
+                    buf.append('|');
+                }
                 buf.append("END_HEADERS");
             }
             if ((flags & FLAG_PADDED) != 0) {
-                if (buf.length() > 0) { buf.append('|'); }
+                if (buf.length() > 0) {
+                    buf.append('|');
+                }
                 buf.append("PADDED");
             }
             if ((flags & FLAG_PRIORITY) != 0) {
-                if (buf.length() > 0) { buf.append('|'); }
+                if (buf.length() > 0) {
+                    buf.append('|');
+                }
                 buf.append("PRIORITY");
             }
         }

@@ -649,4 +649,69 @@ public class Stream {
         connection.send(null);
     }
 
+    /**
+     * Get a header value from the request headers.
+     *
+     * @param name the header name (case-insensitive)
+     * @return the header value, or null if not found
+     */
+    protected String getHeader(String name) {
+        if (headers != null) {
+            for (Header header : headers) {
+                if (header.getName().equalsIgnoreCase(name)) {
+                    return header.getValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Authenticate the request using the configured authentication provider.
+     * 
+     * @return authentication result, or null if no authentication is configured
+     */
+    public HTTPAuthenticationProvider.AuthenticationResult authenticateRequest() {
+        HTTPAuthenticationProvider provider = connection.getAuthenticationProvider();
+        if (provider == null) {
+            return null; // No authentication configured
+        }
+
+        String authHeader = getHeader("Authorization");
+        return provider.authenticate(authHeader);
+    }
+
+    /**
+     * Send 401 Unauthorized response with appropriate WWW-Authenticate challenge.
+     *
+     * @throws ProtocolException if unable to send the response
+     */
+    public void sendAuthenticationChallenge() throws ProtocolException {
+        HTTPAuthenticationProvider provider = connection.getAuthenticationProvider();
+        if (provider == null) {
+            sendError(500); // Server misconfiguration
+            return;
+        }
+
+        String challenge = provider.generateChallenge();
+        if (challenge == null) {
+            sendError(500); // Provider misconfiguration
+            return;
+        }
+
+        List<Header> headers = new ArrayList<>();
+        headers.add(new Header("WWW-Authenticate", challenge));
+        sendResponseHeaders(401, headers, true);
+    }
+
+    /**
+     * Check if authentication is required for this request.
+     * 
+     * @return true if authentication is required, false otherwise
+     */
+    protected boolean isAuthenticationRequired() {
+        HTTPAuthenticationProvider provider = connection.getAuthenticationProvider();
+        return provider != null && provider.isAuthenticationRequired();
+    }
+
 }

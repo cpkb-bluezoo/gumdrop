@@ -74,4 +74,94 @@ public interface Realm {
      */
     boolean isMember(String username, String role);
 
+    /**
+     * Validates a Bearer token and returns the associated principal information.
+     * This method is used for Bearer Token Authentication (RFC 6750).
+     * 
+     * @param token the bearer token to validate
+     * @return a TokenValidationResult containing the username, scopes, and validity, or null if token is invalid
+     */
+    default TokenValidationResult validateBearerToken(String token) {
+        return null; // Default implementation returns null (not supported)
+    }
+
+    /**
+     * Validates an OAuth access token and returns the associated principal information.
+     * This method is used for OAuth 2.0 Authentication (RFC 6749).
+     * 
+     * @param accessToken the OAuth access token to validate
+     * @return a TokenValidationResult containing the username, scopes, and validity, or null if token is invalid
+     */
+    default TokenValidationResult validateOAuthToken(String accessToken) {
+        return null; // Default implementation returns null (not supported)
+    }
+
+    /**
+     * Result of token validation containing principal and scope information.
+     */
+    public static class TokenValidationResult {
+        public final boolean valid;
+        public final String username;
+        public final String[] scopes;
+        public final long expirationTime; // Unix timestamp, 0 if no expiration
+        public final String tokenType; // "Bearer", "JWT", etc.
+
+        /**
+         * Creates a successful token validation result.
+         */
+        public static TokenValidationResult success(String username, String[] scopes, String tokenType) {
+            return new TokenValidationResult(true, username, scopes, 0, tokenType);
+        }
+
+        /**
+         * Creates a successful token validation result with expiration.
+         */
+        public static TokenValidationResult success(String username, String[] scopes, String tokenType, long expirationTime) {
+            return new TokenValidationResult(true, username, scopes, expirationTime, tokenType);
+        }
+
+        /**
+         * Creates a failed token validation result.
+         */
+        public static TokenValidationResult failure() {
+            return new TokenValidationResult(false, null, null, 0, null);
+        }
+
+        private TokenValidationResult(boolean valid, String username, String[] scopes, long expirationTime, String tokenType) {
+            this.valid = valid;
+            this.username = username;
+            this.scopes = scopes;
+            this.expirationTime = expirationTime;
+            this.tokenType = tokenType;
+        }
+
+        /**
+         * Check if the token has expired.
+         */
+        public boolean isExpired() {
+            return expirationTime > 0 && System.currentTimeMillis() / 1000 > expirationTime;
+        }
+
+        /**
+         * Check if the token includes a specific scope.
+         */
+        public boolean hasScope(String scope) {
+            if (scopes == null) return false;
+            for (String s : scopes) {
+                if (scope.equals(s)) return true;
+            }
+            return false;
+        }
+
+        @Override
+        public String toString() {
+            if (valid) {
+                return String.format("TokenValidationResult{valid=true, username='%s', tokenType='%s', scopes=%s}", 
+                    username, tokenType, java.util.Arrays.toString(scopes));
+            } else {
+                return "TokenValidationResult{valid=false}";
+            }
+        }
+    }
+
 }

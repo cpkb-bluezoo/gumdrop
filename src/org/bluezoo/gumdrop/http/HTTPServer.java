@@ -49,6 +49,11 @@ public class HTTPServer extends Server {
      */
     protected int framePadding = 0;
 
+    /**
+     * Authentication provider for HTTP connections created by this server.
+     */
+    private HTTPAuthenticationProvider authenticationProvider;
+
     public String getDescription() {
         return secure ? "https" : "http";
     }
@@ -100,9 +105,29 @@ public class HTTPServer extends Server {
         this.framePadding = framePadding;
     }
 
+    /**
+     * Sets the authentication provider for this server.
+     *
+     * @param provider the authentication provider, or null to disable authentication
+     */
+    public void setAuthenticationProvider(HTTPAuthenticationProvider provider) {
+        this.authenticationProvider = provider;
+    }
+
+    /**
+     * Returns the authentication provider for this server.
+     *
+     * @return the authentication provider, or null if authentication is not configured
+     */
+    public HTTPAuthenticationProvider getAuthenticationProvider() {
+        return authenticationProvider;
+    }
+
     @Override
     public Connection newConnection(SocketChannel channel, SSLEngine engine) {
-        return new HTTPConnection(channel, engine, secure, framePadding);
+        HTTPConnection connection = new HTTPConnection(channel, engine, secure, framePadding);
+        connection.setAuthenticationProvider(authenticationProvider);
+        return connection;
     }
 
 }

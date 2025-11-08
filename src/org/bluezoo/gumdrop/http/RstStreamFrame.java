@@ -32,7 +32,7 @@ import java.util.Map;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class RstStreamFrame extends Frame {
+public class RstStreamFrame extends Frame {
 
     int stream;
 
@@ -54,19 +54,19 @@ class RstStreamFrame extends Frame {
         this.errorCode = errorCode;
     }
 
-    protected int getLength() {
+    public int getLength() {
         return 4; // always 4 bytes
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_RST_STREAM;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return 0;
     }
 
-    protected int getStream() {
+    public int getStream() {
         return stream;
     }
 

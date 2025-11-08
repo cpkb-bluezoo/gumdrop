@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * @author Chris Burdess
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-class DataFrame extends Frame {
+public class DataFrame extends Frame {
 
     int stream;
     boolean padded;
@@ -67,7 +67,7 @@ class DataFrame extends Frame {
         this.data = data;
     }
 
-    protected int getLength() {
+    public int getLength() {
         int length = data.length;
         if (padded) {
             length += (padLength + 1);
@@ -75,16 +75,16 @@ class DataFrame extends Frame {
         return length;
     }
 
-    protected int getType() {
+    public int getType() {
         return TYPE_DATA;
     }
 
-    protected int getFlags() {
+    public int getFlags() {
         return (padded ? FLAG_PADDED : 0)
             | (endStream ? FLAG_END_STREAM : 0);
     }
 
-    protected int getStream() {
+    public int getStream() {
         return stream;
     }
 

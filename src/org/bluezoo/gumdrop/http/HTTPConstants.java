@@ -31,7 +31,7 @@ import java.util.TreeMap;
  */
 public final class HTTPConstants {
 
-    static Map<Integer, String> messages;
+    public static final Map<Integer, String> messages;
 
     static {
         messages = new TreeMap<Integer, String>();
