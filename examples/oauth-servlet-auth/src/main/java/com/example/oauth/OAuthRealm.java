@@ -36,6 +36,7 @@ import org.bluezoo.json.JSONException;
 import org.bluezoo.json.JSONLocator;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -214,14 +215,18 @@ public class OAuthRealm implements Realm {
         }
         
         if (result.statusCode != 200) {
-            LOGGER.warning("Token introspection failed with HTTP " + result.statusCode + ": " + result.responseBody);
+            // Convert bytes to string only for logging purposes
+            String responseText = (result.responseBodyBytes != null) 
+                ? new String(result.responseBodyBytes, StandardCharsets.UTF_8) 
+                : "<empty>";
+            LOGGER.warning("Token introspection failed with HTTP " + result.statusCode + ": " + responseText);
             return TokenValidationResult.failure();
         }
         
         LOGGER.fine("Token introspection successful, parsing response");
         
-        // Parse introspection response
-        return parseIntrospectionResponse(result.responseBody);
+        // Parse introspection response using bytes directly
+        return parseIntrospectionResponse(result.responseBodyBytes);
     }
     
     /**
@@ -235,7 +240,7 @@ public class OAuthRealm implements Realm {
         // Create a handler to capture the response
         HTTPClientHandler handler = new HTTPClientHandler() {
             private HTTPClientStream currentStream;
-            private StringBuilder responseBody = new StringBuilder();
+            private ByteArrayOutputStream responseBody = new ByteArrayOutputStream();
             
             @Override
             public void onConnected() {
@@ -245,7 +250,7 @@ public class OAuthRealm implements Realm {
             @Override
             public void onError(Exception e) {
                 LOGGER.log(Level.WARNING, "HTTP client error during token introspection", e);
-                result.set(new IntrospectionResult(false, 0, "", "HTTP client error: " + e.getMessage()));
+                result.set(new IntrospectionResult(false, 0, "HTTP client error: " + e.getMessage()));
                 latch.countDown();
             }
             
@@ -279,21 +284,31 @@ public class OAuthRealm implements Realm {
             
             @Override
             public void onStreamData(HTTPClientStream stream, byte[] data) {
-                responseBody.append(new String(data, StandardCharsets.UTF_8));
+                // Store bytes directly without String conversion - more efficient than String round-trip
+                // 
+                // FUTURE ENHANCEMENT: When cpkb-bluezoo jsonparser supports full event-driven streaming,
+                // we can eliminate this buffering entirely by streaming bytes directly from this method
+                // into the JSON parser. This would provide true zero-copy, constant-memory parsing
+                // regardless of response size.
+                try {
+                    responseBody.write(data);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to write response data to buffer", e);
+                }
             }
             
             @Override
             public void onStreamComplete(HTTPClientStream stream, HTTPResponse response) {
                 LOGGER.fine("Token introspection stream complete");
                 result.set(new IntrospectionResult(true, response.getStatusCode(), 
-                                                 responseBody.toString(), null));
+                                                 responseBody.toByteArray(), null));
                 latch.countDown();
             }
             
             @Override
             public void onStreamError(HTTPClientStream stream, Exception error) {
                 LOGGER.log(Level.WARNING, "Stream error during token introspection", error);
-                result.set(new IntrospectionResult(false, 0, "", "Stream error: " + error.getMessage()));
+                result.set(new IntrospectionResult(false, 0, "Stream error: " + error.getMessage()));
                 latch.countDown();
             }
             
@@ -320,22 +335,24 @@ public class OAuthRealm implements Realm {
             // Wait for response with timeout
             boolean completed = latch.await(httpTimeoutMs, TimeUnit.MILLISECONDS);
             if (!completed) {
-                return new IntrospectionResult(false, 0, "", "Request timeout");
+                return new IntrospectionResult(false, 0, "Request timeout");
             }
             
             return result.get();
             
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Failed to send token introspection request", e);
-            return new IntrospectionResult(false, 0, "", "Request failed: " + e.getMessage());
+            return new IntrospectionResult(false, 0, "Request failed: " + e.getMessage());
         }
     }
     
     /**
      * Parses the JSON response from token introspection using event-driven parsing.
      * Uses the cpkb-bluezoo jsonparser library for robust, streaming JSON processing.
+     * 
+     * @param jsonResponseBytes the raw JSON response bytes from the OAuth server
      */
-    private TokenValidationResult parseIntrospectionResponse(String jsonResponse) {
+    private TokenValidationResult parseIntrospectionResponse(byte[] jsonResponseBytes) {
         try {
             LOGGER.fine("Parsing introspection response using streaming JSON parser");
             
@@ -346,8 +363,8 @@ public class OAuthRealm implements Realm {
             JSONParser parser = new JSONParser();
             parser.setContentHandler(handler);
             
-            // Parse the JSON response
-            ByteArrayInputStream inputStream = new ByteArrayInputStream(jsonResponse.getBytes(StandardCharsets.UTF_8));
+            // Parse the JSON response bytes directly - no UTF-8 round-trip conversion
+            ByteArrayInputStream inputStream = new ByteArrayInputStream(jsonResponseBytes);
             parser.parse(inputStream);
             
             // Check if token is active
@@ -547,14 +564,19 @@ public class OAuthRealm implements Realm {
     private static class IntrospectionResult {
         final boolean success;
         final int statusCode;
-        final String responseBody;
+        final byte[] responseBodyBytes;
         final String errorMessage;
         
-        IntrospectionResult(boolean success, int statusCode, String responseBody, String errorMessage) {
+        IntrospectionResult(boolean success, int statusCode, byte[] responseBodyBytes, String errorMessage) {
             this.success = success;
             this.statusCode = statusCode;
-            this.responseBody = responseBody;
+            this.responseBodyBytes = responseBodyBytes;
             this.errorMessage = errorMessage;
+        }
+        
+        // Convenience constructor for error cases with String message
+        IntrospectionResult(boolean success, int statusCode, String errorMessage) {
+            this(success, statusCode, null, errorMessage);
         }
     }
     
