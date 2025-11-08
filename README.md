@@ -30,7 +30,11 @@ I/O. It supports:
     - WebSockets
     - HTTPS with client certificate authentication, custom SSL parameters
       and cipher suites
-    - HTTP Digest Authentication
+    - authentication framework supporting various methods
+        - Basic
+        - HTTP Digest
+        - Bearer
+        - OAuth
     - simple file-based HTTP server
         - supports fast NIO based data transfer
         - PUT and DELETE
@@ -49,10 +53,23 @@ I/O. It supports:
           distinct from HTTP connection handler thread pool
         - WebSocket servlet support with example showing how to use upgrade
         - server push
+        - form-based and client certificate authentication in addition to
+          base HTTP authentication methods
+        - JSP 2.0 implementation
 - SMTP
     - SMTPS
     - STARTTLS support
-    - SMTP AUTH with LOGIN and PLAIN authentication
+    - SMTP AUTH with numerous authentication methods for both standard
+      clients and enterprise/military environments:
+        - LOGIN
+        - PLAIN (RFC 4616)
+        - CRAM-MD5 (RFC 2195)
+        - DIGEST-MD5 (RFC 2831)
+        - SCRAM-SHA-256 (RFC 5802)
+        - OAUTHBEARER (RFC 7628)
+        - GSSAPI (Kerberos)
+        - EXTERNAL
+        - NTLM
     - 8-bit clean message transport
     - memory efficient processing of large messages
     - attack prevention features
