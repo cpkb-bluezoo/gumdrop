@@ -26,7 +26,6 @@ import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import org.bluezoo.gumdrop.util.Multipart;
 import gnu.inet.http.HTTPDateFormat;
-import gnu.inet.util.BASE64;
 
 import java.io.*;
 import java.net.InetSocketAddress;

@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Realm;
-import gnu.inet.util.BASE64;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -30,6 +29,7 @@ import java.io.ObjectOutputStream;
 import java.net.ProtocolException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -328,7 +328,7 @@ public abstract class HTTPAuthenticationProvider {
     private AuthenticationResult authenticateBasic(String credentials) {
         try {
             byte[] base64UserPass = credentials.getBytes("US-ASCII");
-            String userPass = new String(BASE64.decode(base64UserPass), "US-ASCII");
+            String userPass = new String(Base64.getDecoder().decode(base64UserPass), "US-ASCII");
             int ci = userPass.indexOf(COLON);
             if (ci < 1) {
                 return AuthenticationResult.failure("Invalid Basic credentials format");
@@ -565,7 +565,7 @@ public abstract class HTTPAuthenticationProvider {
             throw new RuntimeException(e); // Should not happen
         }
 
-        String nonce = toHexString(BASE64.encode(md.digest()));
+        String nonce = toHexString(Base64.getEncoder().encode(md.digest()));
         newNonce(nonce);
         return nonce;
     }
