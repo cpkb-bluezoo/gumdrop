@@ -42,8 +42,6 @@ import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.util.LineInput;
 
-import gnu.inet.http.HTTPDateFormat;
-
 /**
  * A stream.
  * This represents a single request/response.

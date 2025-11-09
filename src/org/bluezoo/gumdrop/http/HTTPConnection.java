@@ -53,8 +53,6 @@ import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.util.LineInput;
 
-import gnu.inet.http.HTTPDateFormat;
-
 /**
  * Connection handler for the HTTP protocol.
  * This manages potentially multiple requests within a single TCP

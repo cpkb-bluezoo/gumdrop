@@ -22,9 +22,9 @@
 package org.bluezoo.gumdrop.http.file;
 
 import org.bluezoo.gumdrop.http.HTTPConnection;
+import org.bluezoo.gumdrop.http.HTTPDateFormat;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Stream;
-import gnu.inet.http.HTTPDateFormat;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;

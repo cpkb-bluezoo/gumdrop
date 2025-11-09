@@ -23,9 +23,9 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.HTTPConstants;
+import org.bluezoo.gumdrop.http.HTTPDateFormat;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Stream;
-import gnu.inet.http.HTTPDateFormat;
 
 import java.io.*;
 import java.net.URLEncoder;
