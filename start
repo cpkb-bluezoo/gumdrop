@@ -1,0 +1,8 @@
+#!/bin/bash
+java=java
+LOGGING_PROPERTIES=logging.properties
+if [[ -n "$LOGGING_PROPERTIES" ]]; then
+	logging=-Djava.util.logging.config.file=$LOGGING_PROPERTIES
+fi
+GUMDROP_JAR=./dist/gumdrop.jar
+$java $logging -jar $GUMDROP_JAR $*

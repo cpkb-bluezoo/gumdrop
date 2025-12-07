@@ -1,0 +1,11 @@
+Host: localhost:8080
+Content-Type: multipart/form-data; boundary=Illegal{BoundaryString}
+Content-Length: 200
+X-Num-Parts: 0
+X-Expect-Fail: true
+
+--Illegal{BoundaryString}
+Content-Disposition: form-data; name="data"
+
+This data should not be processed.
+--Illegal{BoundaryString}--

@@ -1,0 +1,2 @@
+This directory holds jar files that should need to be accessible to gumdrop
+itself, such as JDBC drivers.

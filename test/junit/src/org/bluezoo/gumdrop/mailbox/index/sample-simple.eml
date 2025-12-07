@@ -1,0 +1,21 @@
+From: Alice Smith <alice@example.com>
+To: Bob Jones <bob@example.com>
+Cc: Charlie Brown <charlie@example.com>
+Subject: Weekly Status Report
+Date: Mon, 15 Jan 2024 10:30:00 +0000
+Message-ID: <20240115103000.12345@mail.example.com>
+Content-Type: text/plain; charset=utf-8
+
+Hello Bob,
+
+Here is the weekly status report for the project.
+
+- Task 1: Completed
+- Task 2: In Progress
+- Task 3: Not Started
+
+Let me know if you have any questions.
+
+Best regards,
+Alice
+

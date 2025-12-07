@@ -1,0 +1,12 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- POP3 server with mbox mailbox store on port 11110 -->
+    <server id="testPop3Mbox" class="org.bluezoo.gumdrop.pop3.POP3Server">
+        <property name="port">11110</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="enableAPOP">false</property>
+        <!-- Realm and mailboxFactory configured programmatically -->
+    </server>
+</gumdrop>
+
+

@@ -1,0 +1,2 @@
+#!/bin/sh
+java -cp test/integration/classes:test/junit/lib/junit-4.13.1.jar:test/junit/lib/hamcrest-3.0.jar:build:lib/javax.mail-1.6.2.jar org.junit.runner.JUnitCore org.bluezoo.gumdrop.http.HTTPSServerIntegrationTest

@@ -1,0 +1,9 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- Raw SMTP server on port 12526 - no handler, accepts all and drops -->
+    <server id="testSmtp" class="org.bluezoo.gumdrop.smtp.SMTPServer">
+        <property name="port">12599</property>
+        <property name="addresses">127.0.0.1</property>
+    </server>
+</gumdrop>
+

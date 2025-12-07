@@ -1,0 +1,1008 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Servlet Container - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop Servlet Container</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a complete, conformant Java Servlet 4.0 container as part
+of its multiserver framework. This document describes the architecture,
+configuration, and features of the servlet container.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#async">Asynchronous Processing</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#clustering">Cluster Session Replication</a></li>
+<li><a href="#hot-deploy">Hot Deployment</a></li>
+<li><a href="#deployment-descriptors">Deployment Descriptors</a></li>
+<li><a href="#jndi">JNDI Resources</a></li>
+<li><a href="#jsp">JavaServer Pages</a>
+  <ul>
+  <li><a href="#jsp">Compilation Architecture</a></li>
+  <li><a href="#jsp">Dependency Tracking and Hot Reload</a></li>
+  <li><a href="#jsp">Expression Language (EL)</a></li>
+  <li><a href="#jsp">Tag Libraries</a></li>
+  <li><a href="#jsp">JSP Configuration</a></li>
+  <li><a href="#jsp">Precompilation</a></li>
+  </ul>
+</li>
+</ul>
+
+<h4>Related Resources</h4>
+<ul>
+<li><a href="jsp/"><strong>JSP Examples</strong></a> - JSP 2.0+ support with
+property groups, taglibs, and automatic includes</li>
+<li><a href="manager"><strong>Manager</strong></a> - web application to examine
+and administer a running Gumdrop container</li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The servlet container was the original motivation for the Gumdrop project,
+first released in early 2005 as a complete implementation of the Servlet
+2.4 API. At that time, mainstream enterprise servlet
+containers used blocking <code>java.net.Socket</code> implementations which
+directly linked the number of incoming TCP connections to threads in the JVM.
+This created a significant scalability bottleneck: a server with 1,000
+concurrent connections required 1,000 threads, consuming memory and CPU
+resources for context switching. Practically, simultaneous client connections
+above this number were impossible.
+</p>
+
+<p>
+Gumdrop was designed from the ground up to use non-blocking I/O via the
+then-new Java NIO Selector API. This architecture completely decouples
+the number of client connections from the number of servlet worker threads,
+which are drawn from a separate thread pool (ThreadPoolExecutorService) of
+configurable size.
+</p>
+
+<h4>Loose Coupling via Pipes</h4>
+
+<p>
+The servlet specification requires that servlets read request body data
+from an <code>InputStream</code>, a blocking API that doesn't naturally
+fit an event-driven architecture. Gumdrop solves this with a pipe-based
+multiplexing approach:
+</p>
+
+<ol>
+<li><b>I/O Worker Loops</b> - A small pool of SelectorLoop threads handle
+all network I/O for all connections. When request body data arrives, it
+is written to a pipe associated with that request.</li>
+<li><b>Servlet Worker Pool</b> - A separate thread pool services servlet
+requests. Each servlet thread reads request body data from the pipe's
+input stream, which blocks only until data is available.</li>
+<li><b>Asynchronous Support</b> - For Servlet 3.1+ asynchronous processing,
+servlets can register a <code>ReadListener</code> to be notified when data
+becomes available, avoiding blocking entirely.</li>
+</ol>
+
+<p>
+This design means that even with tens of thousands of concurrent connections,
+the server requires only a small number of threads: the I/O worker pool
+(defaulting to twice the number of processors) plus the servlet worker pool
+(configured separately). Both pools are independent of connection count.
+</p>
+
+<h4>Request Flow</h4>
+
+<p style="text-align: center;">
+<img src="servlet-threads.svg" alt="Servlet Container Request Flow Diagram" style="max-width: 100%; height: auto;" />
+</p>
+
+<h3 id="async">Asynchronous Processing</h3>
+
+<p>
+Gumdrop provides complete Servlet 3.0+ asynchronous processing support,
+allowing servlets to perform long-running operations without blocking
+worker threads. This is particularly valuable for applications that need
+to wait for external resources (databases, remote APIs, message queues)
+while maintaining high throughput.
+</p>
+
+<h4>How Async Processing Works</h4>
+
+<p>
+When a servlet calls <code>request.startAsync()</code>, Gumdrop:
+</p>
+
+<ol>
+<li><b>Releases the worker thread</b> - The servlet worker thread returns
+to the pool immediately after the <code>service()</code> method completes,
+freeing it to handle other requests.</li>
+<li><b>Schedules a timeout</b> - A configurable timeout (default 30 seconds)
+is set. If the async context is not completed before timeout, listeners
+are notified and an error response is sent.</li>
+<li><b>Maintains the connection</b> - The underlying I/O connection remains
+open and managed by the SelectorLoop, ready to send the response when
+the application completes processing.</li>
+</ol>
+
+<h4>Async Context API</h4>
+
+<p>
+The <code>AsyncContext</code> provides methods for completing or
+re-dispatching the request:
+</p>
+
+<ul>
+<li><code>start(Runnable)</code> - Executes the runnable on a container-managed
+thread pool (<code>ASYNC_EXECUTOR</code>), not on the calling thread.</li>
+<li><code>complete()</code> - Flushes the response, notifies listeners, and
+ends the request/response cycle.</li>
+<li><code>dispatch()</code> - Re-invokes the servlet on a container thread,
+useful for completing processing after an async operation.</li>
+<li><code>dispatch(path)</code> - Forwards to a different servlet path for
+completion.</li>
+<li><code>setTimeout(long)</code> - Sets the timeout in milliseconds.</li>
+</ul>
+
+<h4>Non-Blocking I/O</h4>
+
+<p>
+Servlet 3.1 introduced non-blocking I/O through the <code>ReadListener</code>
+and <code>WriteListener</code> interfaces. Gumdrop implements these by
+integrating with the underlying SelectorLoop event system:
+</p>
+
+<ul>
+<li><b>ReadListener</b> - The <code>onDataAvailable()</code> callback is
+triggered when data arrives on the pipe from the SelectorLoop. The
+<code>onAllDataRead()</code> callback fires when the request body is
+complete.</li>
+<li><b>WriteListener</b> - The <code>onWritePossible()</code> callback is
+triggered when the output buffer has capacity. The implementation checks
+the <code>ResponseOutputStream</code> buffer state to determine readiness.</li>
+</ul>
+
+<pre>
+// Example: Non-blocking read
+input.setReadListener(new ReadListener() {
+    public void onDataAvailable() throws IOException {
+        while (input.isReady()) {
+            int b = input.read();
+            // process byte
+        }
+    }
+    
+    public void onAllDataRead() throws IOException {
+        asyncContext.complete();
+    }
+    
+    public void onError(Throwable t) {
+        // handle error
+    }
+});
+</pre>
+
+<h4>Error Handling and Telemetry</h4>
+
+<p>
+Async processing integrates with Gumdrop's telemetry system. Errors during
+async processing are recorded in OpenTelemetry spans with appropriate
+<code>ErrorCategory</code> classification:
+</p>
+
+<ul>
+<li><b>Timeout</b> - If the async context times out, <code>ErrorCategory.TIMEOUT</code>
+is recorded and listeners receive <code>onTimeout()</code> callbacks.</li>
+<li><b>Connection close</b> - If the TCP connection closes unexpectedly during
+async processing, <code>onError()</code> is called with an IOException and
+the error is recorded in the span.</li>
+<li><b>Application errors</b> - Exceptions thrown from <code>start()</code>
+runnables are caught, logged, and propagated to <code>onError()</code>
+listeners.</li>
+</ul>
+
+<h4>Async Processing Flow</h4>
+
+<p style="text-align: center;">
+<img src="servlet-async.svg" alt="Async Servlet Processing Flow Diagram" style="max-width: 100%; height: auto;" />
+</p>
+
+<h4>Async Configuration</h4>
+
+<p>
+To enable async support for a servlet, set <code>async-supported</code>
+in the deployment descriptor or use the <code>@WebServlet</code> annotation:
+</p>
+
+<pre>
+&lt;servlet&gt;
+  &lt;servlet-name&gt;AsyncServlet&lt;/servlet-name&gt;
+  &lt;servlet-class&gt;com.example.AsyncServlet&lt;/servlet-class&gt;
+  &lt;async-supported&gt;true&lt;/async-supported&gt;
+&lt;/servlet&gt;
+</pre>
+
+<p>Or using annotations:</p>
+
+<pre>
+@WebServlet(urlPatterns = "/async", asyncSupported = true)
+public class AsyncServlet extends HttpServlet {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
+        AsyncContext ctx = req.startAsync();
+        ctx.start(new Runnable() {
+            public void run() {
+                // Perform async work
+                resp.getWriter().println("Async response");
+                ctx.complete();
+            }
+        });
+    }
+}
+</pre>
+
+<p>
+Note that all filters in the filter chain must also have
+<code>async-supported=true</code> for the servlet to use async processing.
+</p>
+
+<h3 id="configuration">Container and Context Configuration</h3>
+
+<h4>Container Properties</h4>
+
+<p>
+A <code>container</code> element in <code>gumdroprc</code> groups web
+application contexts and their shared resources:
+</p>
+
+<ul>
+<li><code>hotDeploy</code> - enable automatic redeployment when files
+change (default: <code>true</code>)</li>
+<li><code>clusterPort</code> - UDP port for session replication multicast</li>
+<li><code>clusterGroupAddress</code> - multicast group address for clustering</li>
+<li><code>clusterSecretKey</code> - shared secret key for cluster encryption
+(base64-encoded, 256 bits)</li>
+<li><code>realms</code> - map of named realms available to contexts</li>
+<li><code>contexts</code> - list of web application contexts</li>
+</ul>
+
+<h4>Servlet Server Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.servlet.ServletServer</code> extends the base
+HTTP server with servlet-specific configuration:
+</p>
+
+<ul>
+<li><code>container</code> - reference to the Container with contexts</li>
+<li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
+<li><code>workerCorePoolSize</code> - minimum servlet worker threads</li>
+<li><code>workerMaximumPoolSize</code> - maximum servlet worker threads</li>
+<li><code>workerKeepAlive</code> - idle timeout for excess workers</li>
+</ul>
+
+<p>
+The servlet worker pool is distinct from the I/O worker loops, allowing
+independent tuning based on workload characteristics.
+</p>
+
+<p>
+The servlet server inherits from the base Gumdrop HTTP server which it uses for
+all the protocol level, thus benefiting from features such as HTTP/2,
+chunked encoding, HTTPS, OpenTelemetry integration, etc.
+</p>
+
+<h4>Context Configuration</h4>
+
+<p>
+Within the container's contexts list, define web applications:
+</p>
+
+<pre>
+&lt;contexts&gt;
+  &lt;list&gt;
+    &lt;context path="" root="web"/&gt;
+    &lt;context path="/app" root="myapp.war" distributable="true"/&gt;
+  &lt;/list&gt;
+&lt;/contexts&gt;
+</pre>
+
+<ul>
+<li><code>path</code> - the context path (empty string for root)</li>
+<li><code>root</code> - path to the web application directory or WAR file</li>
+<li><code>distributable</code> - enable session replication (default: <code>false</code>)</li>
+</ul>
+
+<h4>Configuring Realms</h4>
+
+<p>
+Realms provide authentication and authorisation for protected resources.
+Configure realms at the container level and reference them in web
+application <code>login-config</code> elements:
+</p>
+
+<pre>
+&lt;realm id="myRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+  &lt;property name="href"&gt;myRealm.xml&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;container id="container"&gt;
+  &lt;property name="realms"&gt;
+    &lt;map&gt;
+      &lt;entry key="myRealm" ref="#myRealm"/&gt;
+    &lt;/map&gt;
+  &lt;/property&gt;
+  ...
+&lt;/container&gt;
+</pre>
+
+<p>
+The <code>BasicRealm</code> reads users, passwords, and roles from an XML file.
+Custom realm implementations can integrate with LDAP, databases, or other
+authentication backends.
+</p>
+
+<h3 id="clustering">Cluster Session Replication</h3>
+
+<p>
+Web applications marked as <code>distributable</code> participate in
+session replication across cluster nodes. When a session attribute is
+modified, the change is broadcast to other nodes via UDP multicast,
+allowing any node to service requests for that session.
+</p>
+
+<h4>How It Works</h4>
+
+<p>
+Gumdrop uses a UDP multicast protocol to replicate session data:
+</p>
+
+<ol>
+<li>When <code>setAttribute</code> is called on a distributed session, the
+container serializes the session attribute and broadcasts it to the cluster
+multicast group.</li>
+<li>Other nodes receive the message, authenticate and decrypt it, then
+update their local copy of the session.</li>
+<li>Session invalidation and timeout events are also replicated.</li>
+</ol>
+
+<h4>Security Features</h4>
+
+<p>
+Session replication uses AES-256-GCM encryption with a shared secret key.
+All cluster traffic is authenticated and encrypted. The protocol includes:
+</p>
+
+<ul>
+<li><b>Replay protection</b> - Messages include sequence numbers and timestamps.
+Each node tracks per-peer sequence states using a sliding window to detect
+replayed or reordered messages. Messages with timestamps more than 30 seconds
+from current time are rejected.</li>
+<li><b>Protobuf serialization</b> - Session attributes are serialized using a
+binary protobuf format. Primitive types (String, Boolean, Long, Double) are
+encoded directly. Complex objects use Java serialization with strict
+deserialization filtering.</li>
+<li><b>Deserialization filtering</b> - For complex session attributes, a filter
+restricts deserialization to known-safe JDK classes and classes from the
+webapp's classloader. Known gadget classes are explicitly blocked.</li>
+</ul>
+
+<h4>Network Considerations</h4>
+
+<p>
+Multicast traffic respects network boundaries but relies on proper network
+segmentation. Cluster nodes should be deployed on an isolated network
+segment or VLAN. The shared secret key must be distributed securely to all
+nodes via the <code>clusterSecretKey</code> container property.
+</p>
+
+<h3 id="hot-deploy">Hot Deployment</h3>
+
+<p>
+Unless disabled, the servlet container monitors web applications for changes
+and automatically redeploys them when modifications are detected. This
+enables rapid development cycles without manual server restarts.
+</p>
+
+<h4>File Monitoring</h4>
+
+<p>
+Gumdrop uses the Java NIO <code>WatchService</code> API (introduced in Java 7)
+to monitor the filesystem for changes. This provides efficient, event-based
+notification rather than polling:
+</p>
+
+<ul>
+<li><b>Directory-based applications</b> - The <code>WEB-INF</code> directory
+and all its subdirectories are registered with the watch service. Changes
+to deployment descriptors, class files, JAR libraries, or configuration
+files trigger redeployment.</li>
+<li><b>WAR-based applications</b> - The WAR file's last-modified timestamp
+is checked periodically. Changes trigger redeployment. In Gumdrop, WAR files
+are not unpacked but used in situ.</li>
+</ul>
+
+<h4>Redeployment Process</h4>
+
+<p>
+When a change is detected:
+</p>
+
+<ol>
+<li>Active requests are allowed to complete</li>
+<li>The context's classloader is closed, releasing loaded classes</li>
+<li>The deployment descriptor is re-parsed</li>
+<li>A new classloader is created for the context</li>
+<li>Servlets, filters, and listeners are re-initialised</li>
+</ol>
+
+<p>
+Session data is preserved across redeployments when possible.
+</p>
+
+<h3 id="deployment-descriptors">Deployment Descriptors</h3>
+
+<p>
+Gumdrop supports the standard <code>web.xml</code> deployment descriptor
+format through Servlet 4.0, including:
+</p>
+
+<h4>Core Elements</h4>
+
+<ul>
+<li><code>servlet</code> and <code>servlet-mapping</code> - servlet definitions
+and URL mappings</li>
+<li><code>filter</code> and <code>filter-mapping</code> - filter chain configuration</li>
+<li><code>listener</code> - lifecycle and event listeners</li>
+<li><code>context-param</code> - context-wide initialisation parameters</li>
+<li><code>welcome-file-list</code> - default files for directory requests</li>
+<li><code>error-page</code> - error handling configuration</li>
+<li><code>mime-mapping</code> - content type associations</li>
+</ul>
+
+<h4>Security Elements</h4>
+
+<ul>
+<li><code>security-constraint</code> - declarative security with URL patterns</li>
+<li><code>login-config</code> - authentication method (BASIC, FORM, CLIENT-CERT)</li>
+<li><code>security-role</code> - role definitions</li>
+</ul>
+
+<h4>Advanced Features</h4>
+
+<ul>
+<li><code>jsp-config</code> - JSP property groups and taglib declarations</li>
+<li><code>session-config</code> - session timeout and tracking modes</li>
+<li><code>multipart-config</code> - file upload configuration</li>
+<li><code>async-supported</code> - asynchronous processing enablement</li>
+</ul>
+
+<h4>Annotations</h4>
+
+<p>
+Gumdrop supports annotation-driven configuration as specified in Servlet 3.0+:
+</p>
+
+<ul>
+<li><code>@WebServlet</code> - servlet declaration and mapping</li>
+<li><code>@WebFilter</code> - filter declaration and mapping</li>
+<li><code>@WebListener</code> - listener declaration</li>
+<li><code>@MultipartConfig</code> - multipart request handling</li>
+<li><code>@ServletSecurity</code> - declarative security constraints</li>
+</ul>
+
+<p>
+Annotations are processed during context initialisation by scanning classes
+in <code>WEB-INF/classes</code> and JAR files in <code>WEB-INF/lib</code>.
+</p>
+
+<h4>Web Fragments</h4>
+
+<p>
+Library JAR files may include <code>META-INF/web-fragment.xml</code> to
+contribute servlets, filters, and listeners. Fragments are merged with
+the main deployment descriptor according to ordering rules.
+</p>
+
+<h3 id="jndi">JNDI Resources</h3>
+
+<p>
+Gumdrop supports Java Naming and Directory Interface (JNDI) resources that
+can be configured externally and looked up by web applications at runtime.
+This allows configuration data, database connections, mail sessions, and
+messaging resources to be managed by the container rather than hardcoded
+in application code.
+</p>
+
+<p>
+Resources are defined in <code>gumdroprc</code> and bound to the container's
+JNDI naming tree. Web applications reference these resources in their
+deployment descriptors using <code>resource-ref</code>, <code>resource-env-ref</code>,
+or through annotation-based injection.
+</p>
+
+<h4>DataSource (JDBC Connection Pooling)</h4>
+
+<p>
+The <code>data-source</code> element defines a JDBC DataSource with built-in
+connection pooling. Gumdrop manages a pool of database connections that
+are reused across requests, reducing connection overhead.
+</p>
+
+<pre>
+&lt;data-source name="jdbc/myDB"
+             class-name="org.postgresql.Driver"
+             server-name="localhost"
+             port-number="5432"
+             database-name="myapp"
+             user="dbuser"
+             password="dbpass"
+             initial-pool-size="5"
+             min-pool-size="5"
+             max-pool-size="20"
+             max-idle-time="300"/&gt;
+</pre>
+
+<p>DataSource properties:</p>
+
+<ul>
+<li><code>name</code> - JNDI name (e.g., <code>jdbc/myDB</code>)</li>
+<li><code>class-name</code> - JDBC driver class</li>
+<li><code>server-name</code> - database server hostname</li>
+<li><code>port-number</code> - database server port</li>
+<li><code>database-name</code> - name of the database</li>
+<li><code>url</code> - full JDBC URL (alternative to server/port/database)</li>
+<li><code>user</code> - database username</li>
+<li><code>password</code> - database password</li>
+<li><code>initial-pool-size</code> - connections created at startup</li>
+<li><code>min-pool-size</code> - minimum connections maintained in pool</li>
+<li><code>max-pool-size</code> - maximum connections allowed</li>
+<li><code>max-idle-time</code> - seconds before idle connections are closed</li>
+<li><code>isolation-level</code> - default transaction isolation level</li>
+</ul>
+
+<p>
+Gumdrop recognises common JDBC driver classes and automatically constructs
+the connection URL from the server, port, and database properties. Supported
+drivers include PostgreSQL, MySQL/MariaDB, Oracle, SQL Server, DB2, Derby,
+SQLite, and H2.
+</p>
+
+<p>Reference in deployment descriptor:</p>
+
+<pre>
+&lt;resource-ref&gt;
+  &lt;res-ref-name&gt;jdbc/myDB&lt;/res-ref-name&gt;
+  &lt;res-type&gt;javax.sql.DataSource&lt;/res-type&gt;
+  &lt;res-auth&gt;Container&lt;/res-auth&gt;
+&lt;/resource-ref&gt;
+</pre>
+
+<p>Usage in servlet code:</p>
+
+<pre>
+Context ctx = new InitialContext();
+DataSource ds = (DataSource) ctx.lookup("java:comp/env/jdbc/myDB");
+Connection conn = ds.getConnection();
+try {
+    // Use connection
+} finally {
+    conn.close(); // Returns to pool
+}
+</pre>
+
+<h4>Mail Session (JavaMail)</h4>
+
+<p>
+The <code>mail-session</code> element defines a JavaMail Session for sending
+and receiving email. The session is pre-configured with server details and
+authentication credentials.
+</p>
+
+<pre>
+&lt;mail-session name="mail/smtp"
+              host="smtp.example.com"
+              user="mailuser"
+              password="mailpass"
+              from="noreply@example.com"
+              transport-protocol="smtp"
+              store-protocol="imap"&gt;
+  &lt;property name="mail.smtp.port" value="587"/&gt;
+  &lt;property name="mail.smtp.starttls.enable" value="true"/&gt;
+&lt;/mail-session&gt;
+</pre>
+
+<p>Mail session properties:</p>
+
+<ul>
+<li><code>name</code> - JNDI name (e.g., <code>mail/smtp</code>)</li>
+<li><code>host</code> - mail server hostname</li>
+<li><code>user</code> - authentication username</li>
+<li><code>password</code> - authentication password</li>
+<li><code>from</code> - default sender address</li>
+<li><code>transport-protocol</code> - outgoing protocol (default: <code>smtp</code>)</li>
+<li><code>transport-protocol-class</code> - custom transport provider class</li>
+<li><code>store-protocol</code> - incoming protocol (default: <code>imap</code>)</li>
+<li><code>store-protocol-class</code> - custom store provider class</li>
+</ul>
+
+<p>
+Additional JavaMail properties can be specified using nested
+<code>property</code> elements. Common properties include STARTTLS
+enablement, port numbers, and SSL configuration.
+</p>
+
+<p>Usage in servlet code:</p>
+
+<pre>
+Context ctx = new InitialContext();
+Session session = (Session) ctx.lookup("java:comp/env/mail/smtp");
+MimeMessage msg = new MimeMessage(session);
+msg.setRecipients(Message.RecipientType.TO, "user@example.com");
+msg.setSubject("Hello");
+msg.setText("Message body");
+Transport.send(msg);
+</pre>
+
+<h4>JMS Connection Factory</h4>
+
+<p>
+The <code>jms-connection-factory</code> element defines a JMS ConnectionFactory
+for messaging. This requires a JMS provider implementation in the classpath.
+</p>
+
+<pre>
+&lt;jms-connection-factory name="jms/ConnectionFactory"
+                        class-name="org.apache.activemq.ActiveMQConnectionFactory"
+                        user="jmsuser"
+                        password="jmspass"
+                        client-id="gumdrop-client"&gt;
+  &lt;property name="brokerURL" value="tcp://localhost:61616"/&gt;
+&lt;/jms-connection-factory&gt;
+</pre>
+
+<p>JMS connection factory properties:</p>
+
+<ul>
+<li><code>name</code> - JNDI name</li>
+<li><code>class-name</code> - JMS provider factory class</li>
+<li><code>interface-name</code> - factory interface (default: <code>javax.jms.ConnectionFactory</code>)</li>
+<li><code>user</code> - authentication username</li>
+<li><code>password</code> - authentication password</li>
+<li><code>client-id</code> - JMS client identifier for durable subscriptions</li>
+</ul>
+
+<h4>JMS Destination</h4>
+
+<p>
+The <code>jms-destination</code> element defines a JMS queue or topic.
+</p>
+
+<pre>
+&lt;jms-destination name="jms/queue/OrderQueue"
+                 class-name="org.apache.activemq.command.ActiveMQQueue"&gt;
+  &lt;property name="physicalName" value="OrderQueue"/&gt;
+&lt;/jms-destination&gt;
+
+&lt;jms-destination name="jms/topic/Notifications"
+                 class-name="org.apache.activemq.command.ActiveMQTopic"&gt;
+  &lt;property name="physicalName" value="Notifications"/&gt;
+&lt;/jms-destination&gt;
+</pre>
+
+<p>
+The interface type (<code>javax.jms.Queue</code> or <code>javax.jms.Topic</code>)
+is inferred from the JNDI name prefix (<code>queue/</code> or <code>topic/</code>)
+if not explicitly specified.
+</p>
+
+<h4>Environment Entries</h4>
+
+<p>
+Environment entries (<code>env-entry</code>) provide simple configuration
+values to web applications. These are defined in the deployment descriptor
+rather than <code>gumdroprc</code>.
+</p>
+
+<pre>
+&lt;env-entry&gt;
+  &lt;env-entry-name&gt;maxItemsPerPage&lt;/env-entry-name&gt;
+  &lt;env-entry-type&gt;java.lang.Integer&lt;/env-entry-type&gt;
+  &lt;env-entry-value&gt;25&lt;/env-entry-value&gt;
+&lt;/env-entry&gt;
+
+&lt;env-entry&gt;
+  &lt;env-entry-name&gt;adminEmail&lt;/env-entry-name&gt;
+  &lt;env-entry-type&gt;java.lang.String&lt;/env-entry-type&gt;
+  &lt;env-entry-value&gt;admin@example.com&lt;/env-entry-value&gt;
+&lt;/env-entry&gt;
+</pre>
+
+<p>
+Supported types include <code>java.lang.String</code>, <code>java.lang.Integer</code>,
+<code>java.lang.Long</code>, <code>java.lang.Double</code>, <code>java.lang.Float</code>,
+<code>java.lang.Boolean</code>, and <code>java.lang.Character</code>.
+</p>
+
+<h4>JCA Administered Objects</h4>
+
+<p>
+The <code>administered-object</code> element defines arbitrary managed objects
+for Java Connector Architecture (JCA) integration. These are instantiated
+by Gumdrop and bound to JNDI with properties set via JavaBean conventions.
+</p>
+
+<pre>
+&lt;administered-object jndi-name="custom/MyConfig"
+                     administered-object-class="com.example.ConfigBean"
+                     administered-object-interface="com.example.Config"&gt;
+  &lt;property name="serverUrl" value="https://api.example.com"/&gt;
+  &lt;property name="timeout" value="30000"/&gt;
+  &lt;property name="enableCache" value="true"/&gt;
+&lt;/administered-object&gt;
+</pre>
+
+<h4>Resource Injection</h4>
+
+<p>
+Servlet 3.0+ supports annotation-based resource injection. Annotate fields
+or setter methods with <code>@Resource</code> and Gumdrop will inject the
+resource automatically:
+</p>
+
+<pre>
+@WebServlet("/orders")
+public class OrderServlet extends HttpServlet {
+
+    @Resource(name = "jdbc/myDB")
+    private DataSource dataSource;
+
+    @Resource(name = "mail/smtp")
+    private Session mailSession;
+
+    @Resource(name = "maxItemsPerPage")
+    private int pageSize;
+
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
+        Connection conn = dataSource.getConnection();
+        // ...
+    }
+}
+</pre>
+
+<p>
+For injection to work, the resource must either be defined in
+<code>gumdroprc</code> (for DataSources, mail sessions, etc.) or in the
+deployment descriptor (for environment entries).
+</p>
+
+<h3 id="jsp">JavaServer Pages</h3>
+
+<p>
+Gumdrop includes a comprehensive JSP 2.0+ implementation providing
+server-side template rendering for web applications. The implementation
+supports the complete JSP specification including scripting elements,
+directives, standard actions, expression language, and custom tag libraries.
+</p>
+
+<h4>Compilation Architecture</h4>
+
+<p>
+JSP pages are compiled to Java servlets on first access and cached for
+subsequent requests. Gumdrop uses an <b>in-memory compilation</b> architecture
+that eliminates temporary file I/O:
+</p>
+
+<ol>
+<li><b>Parsing</b> - The JSP source is parsed by either the traditional
+JSP parser (for <code>.jsp</code> files with <code>&lt;% %&gt;</code> syntax)
+or the XML parser (for <code>.jspx</code> files with pure XML syntax).
+The result is an abstract syntax tree of JSP elements.</li>
+<li><b>Code Generation</b> - A code generator traverses the AST and produces
+Java servlet source code. Line number mappings are maintained for accurate
+error reporting.</li>
+<li><b>In-Memory Compilation</b> - The generated Java source is compiled
+directly in memory using the <code>javax.tools.JavaCompiler</code> API.
+No temporary <code>.java</code> files are written to disk.</li>
+<li><b>Class Loading</b> - The compiled bytecode is loaded by a custom
+classloader that serves the class directly from memory.</li>
+</ol>
+
+<p>
+This approach improves performance and security by avoiding filesystem
+writes, and simplifies deployment since no writable temporary directory
+is required.
+</p>
+
+<h4>Dependency Tracking and Hot Reload</h4>
+
+<p>
+In development mode, Gumdrop monitors JSP files for changes and automatically
+recompiles them when modifications are detected. The dependency tracker
+maintains relationships between JSP files and their includes:
+</p>
+
+<ul>
+<li><b>Static includes</b> - Files included via <code>&lt;%@ include file="..." %&gt;</code>
+are tracked as compile-time dependencies.</li>
+<li><b>Tag libraries</b> - TLD files and tag files are monitored for changes.</li>
+<li><b>Cascade invalidation</b> - When a dependency changes, all JSP files
+that include it are marked for recompilation.</li>
+</ul>
+
+<p>
+The hot reload feature uses Java NIO's <code>WatchService</code> for efficient
+filesystem monitoring without polling.
+</p>
+
+<h4>Expression Language (EL)</h4>
+
+<p>
+Gumdrop implements EL 3.0 for accessing application data within JSP pages.
+The expression evaluator supports:
+</p>
+
+<ul>
+<li><b>Implicit objects</b> - <code>pageContext</code>, <code>pageScope</code>,
+<code>requestScope</code>, <code>sessionScope</code>, <code>applicationScope</code>,
+<code>param</code>, <code>paramValues</code>, <code>header</code>,
+<code>headerValues</code>, <code>cookie</code>, <code>initParam</code></li>
+<li><b>Property access</b> - JavaBean properties (<code>${user.name}</code>),
+map entries (<code>${map['key']}</code>), list/array elements (<code>${list[0]}</code>)</li>
+<li><b>Operators</b> - Arithmetic (<code>+ - * / div % mod</code>), comparison
+(<code>== != &lt; &gt; &lt;= &gt;= eq ne lt gt le ge</code>), logical
+(<code>&amp;&amp; || ! and or not</code>), empty, ternary (<code>? :</code>)</li>
+<li><b>Method invocation</b> - <code>${bean.method(arg)}</code></li>
+</ul>
+
+<h4>Tag Libraries</h4>
+
+<p>
+Custom tag libraries extend JSP functionality through reusable components.
+Gumdrop supports:
+</p>
+
+<ul>
+<li><b>Classic tags</b> - Tags implementing <code>Tag</code>, <code>IterationTag</code>,
+or <code>BodyTag</code> interfaces</li>
+<li><b>Simple tags</b> - Tags extending <code>SimpleTagSupport</code></li>
+<li><b>Tag files</b> - JSP-based custom tags in <code>.tag</code> files</li>
+<li><b>JSTL</b> - Standard Tag Library support when JSTL JARs are present</li>
+</ul>
+
+<p>
+Tag libraries are discovered from TLD files in <code>WEB-INF</code>,
+<code>WEB-INF/lib/*.jar!/META-INF</code>, and via <code>&lt;taglib&gt;</code>
+declarations in the deployment descriptor.
+</p>
+
+<h4>JSP Configuration</h4>
+
+<p>
+The <code>jsp-config</code> element in <code>web.xml</code> controls JSP
+processing for groups of pages:
+</p>
+
+<pre>
+&lt;jsp-config&gt;
+  &lt;taglib&gt;
+    &lt;taglib-uri&gt;http://example.com/tags&lt;/taglib-uri&gt;
+    &lt;taglib-location&gt;/WEB-INF/tlds/example.tld&lt;/taglib-location&gt;
+  &lt;/taglib&gt;
+  
+  &lt;jsp-property-group&gt;
+    &lt;url-pattern&gt;*.jsp&lt;/url-pattern&gt;
+    &lt;page-encoding&gt;UTF-8&lt;/page-encoding&gt;
+    &lt;scripting-invalid&gt;false&lt;/scripting-invalid&gt;
+    &lt;el-ignored&gt;false&lt;/el-ignored&gt;
+    &lt;is-xml&gt;false&lt;/is-xml&gt;
+    &lt;include-prelude&gt;/WEB-INF/jspf/header.jspf&lt;/include-prelude&gt;
+    &lt;include-coda&gt;/WEB-INF/jspf/footer.jspf&lt;/include-coda&gt;
+    &lt;trim-directive-whitespaces&gt;true&lt;/trim-directive-whitespaces&gt;
+    &lt;default-content-type&gt;text/html; charset=UTF-8&lt;/default-content-type&gt;
+    &lt;buffer&gt;16kb&lt;/buffer&gt;
+  &lt;/jsp-property-group&gt;
+&lt;/jsp-config&gt;
+</pre>
+
+<p>Property group options:</p>
+
+<ul>
+<li><code>url-pattern</code> - URL patterns this group applies to</li>
+<li><code>page-encoding</code> - character encoding for JSP source</li>
+<li><code>scripting-invalid</code> - disable scriptlets, expressions, declarations</li>
+<li><code>el-ignored</code> - treat EL expressions as literal text</li>
+<li><code>is-xml</code> - parse JSP as XML document (JSPX)</li>
+<li><code>include-prelude</code> - files to include at start of each page</li>
+<li><code>include-coda</code> - files to include at end of each page</li>
+<li><code>trim-directive-whitespaces</code> - remove whitespace around directives</li>
+<li><code>default-content-type</code> - default response content type</li>
+<li><code>buffer</code> - output buffer size</li>
+</ul>
+
+<h4>Precompilation</h4>
+
+<p>
+For production deployments, JSP pages can be precompiled at build time
+using the <code>JSPPrecompiler</code> utility:
+</p>
+
+<pre>
+java org.bluezoo.gumdrop.servlet.jsp.JSPPrecompiler \
+    -webapp /path/to/webapp \
+    -output /path/to/classes \
+    -package org.example.jsp \
+    -threads 4 \
+    -verbose
+</pre>
+
+<p>
+Precompilation benefits include faster startup time (no compilation on first
+request), early detection of JSP syntax errors, and reduced runtime memory
+usage (no compiler in memory). The precompiler supports parallel compilation
+for large applications.
+</p>
+
+<h4>Error Reporting</h4>
+
+<p>
+When JSP compilation fails, Gumdrop maps Java compilation errors back to
+the original JSP source locations. Error messages include the JSP filename,
+line number, and column position, making it easy to locate and fix problems.
+</p>
+
+<h4>Examples</h4>
+
+<p>
+For practical examples demonstrating JSP features including scriptlets,
+expressions, directives, JSTL usage, custom tags, and EL expressions, see the
+<a href="jsp/"><strong>JSP Examples</strong></a> page.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop Servlet Container</p>
+
+</body>
+</html>
+

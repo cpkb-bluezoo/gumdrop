@@ -1,0 +1,442 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>DNS Server - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop DNS Server</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop includes a full DNS proxy server that demonstrates the framework's UDP
+protocol support. The DNS server can resolve queries locally or proxy them to
+upstream servers, and is designed to be easily subclassed for custom name
+resolution. It serves both as a practical DNS proxy and as a reference
+implementation for developers building UDP-based services.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#features">Features</a></li>
+<li><a href="#custom">Custom Resolution</a></li>
+<li><a href="#records">Record Types</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#udp">UDP Protocol Support</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The DNS server is built on Gumdrop's <code>DatagramServer</code> abstraction,
+which provides non-blocking UDP I/O using the same SelectorLoop architecture as
+TCP servers. Each DNS query arrives as a datagram, is parsed, processed, and
+the response is sent back—all within the event-driven framework.
+</p>
+
+<h4>Query Processing Flow</h4>
+
+<ol>
+<li><b>Receive</b> - UDP datagram arrives, parsed into <code>DNSMessage</code></li>
+<li><b>Cache lookup</b> - check for cached response (if caching enabled)</li>
+<li><b>Custom resolution</b> - call <code>resolve()</code> for local handling</li>
+<li><b>Upstream proxy</b> - forward to upstream DNS servers if not resolved locally</li>
+<li><b>Cache storage</b> - cache the response respecting TTL</li>
+<li><b>Send</b> - serialize response and send UDP datagram back to client</li>
+</ol>
+
+<h4>Core Components</h4>
+
+<ul>
+<li><code>DNSServer</code> - the main server class; handles queries and proxying</li>
+<li><code>DNSMessage</code> - parses and serializes DNS wire format</li>
+<li><code>DNSQuestion</code> - represents a query question</li>
+<li><code>DNSResourceRecord</code> - represents answer records</li>
+<li><code>DNSCache</code> - in-memory response cache with TTL support</li>
+</ul>
+
+<h3 id="features">Features</h3>
+
+<h4>Upstream Proxying</h4>
+
+<p>
+When the server cannot resolve a query locally, it forwards the request to
+configured upstream DNS servers. Multiple upstreams can be specified; they are
+tried in order until one responds.
+</p>
+
+<ul>
+<li>Configurable upstream servers (Google, Cloudflare, local routers)</li>
+<li>Automatic fallback to system resolvers from <code>/etc/resolv.conf</code></li>
+<li>Per-query timeout handling</li>
+<li>Query ID remapping for upstream requests</li>
+</ul>
+
+<h4>Response Caching</h4>
+
+<p>
+The server maintains an in-memory cache to reduce upstream queries:
+</p>
+
+<ul>
+<li>TTL-aware caching respects record time-to-live</li>
+<li>Negative caching for NXDOMAIN responses (configurable TTL)</li>
+<li>Automatic cache eviction when entries expire</li>
+<li>Configurable maximum cache size (default: 10,000 entries)</li>
+</ul>
+
+<h4>DTLS Support</h4>
+
+<p>
+For secure DNS (DNS over DTLS), the server can be configured with TLS
+credentials. DTLS session state is maintained per remote address, providing
+encrypted DNS for privacy-conscious deployments.
+</p>
+
+<h3 id="custom">Custom Resolution</h3>
+
+<p>
+The DNS server is designed for extension. By subclassing <code>DNSServer</code>
+and overriding the <code>resolve()</code> method, you can implement custom name
+resolution for any use case.
+</p>
+
+<h4>The resolve() Method</h4>
+
+<pre>
+protected DNSMessage resolve(DNSMessage query)
+</pre>
+
+<p>
+Return a <code>DNSMessage</code> response to handle the query locally, or return
+<code>null</code> to proxy the query to upstream servers. This simple contract
+makes it easy to:
+</p>
+
+<ul>
+<li>Implement internal DNS for private networks</li>
+<li>Create DNS-based service discovery</li>
+<li>Build split-horizon DNS (different answers for internal/external)</li>
+<li>Implement DNS filtering or blocking</li>
+<li>Add custom record types or dynamic responses</li>
+</ul>
+
+<h4>Example: Internal Domain Resolution</h4>
+
+<pre>
+public class InternalDNSServer extends DNSServer {
+    
+    private Map&lt;String, InetAddress&gt; internalHosts = new HashMap&lt;&gt;();
+    
+    public InternalDNSServer() {
+        internalHosts.put("app.internal", InetAddress.getByName("10.0.1.10"));
+        internalHosts.put("db.internal", InetAddress.getByName("10.0.1.20"));
+        internalHosts.put("cache.internal", InetAddress.getByName("10.0.1.30"));
+    }
+    
+    @Override
+    protected DNSMessage resolve(DNSMessage query) {
+        DNSQuestion question = query.getQuestions().get(0);
+        String name = question.getName();
+        
+        // Handle .internal domain
+        if (name.endsWith(".internal")) {
+            InetAddress addr = internalHosts.get(name);
+            if (addr != null) {
+                List&lt;DNSResourceRecord&gt; answers = new ArrayList&lt;&gt;();
+                answers.add(DNSResourceRecord.a(name, 300, addr));
+                return query.createResponse(answers);
+            }
+            // Name not found in internal domain
+            return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+        }
+        
+        // All other queries go to upstream
+        return null;
+    }
+}
+</pre>
+
+<h4>Example: DNS-Based Ad Blocking</h4>
+
+<pre>
+public class AdBlockingDNSServer extends DNSServer {
+    
+    private Set&lt;String&gt; blockedDomains = new HashSet&lt;&gt;();
+    
+    public void loadBlocklist(Path file) throws IOException {
+        blockedDomains.addAll(Files.readAllLines(file));
+    }
+    
+    @Override
+    protected DNSMessage resolve(DNSMessage query) {
+        DNSQuestion question = query.getQuestions().get(0);
+        String name = question.getName().toLowerCase();
+        
+        // Check against blocklist
+        if (blockedDomains.contains(name)) {
+            // Return NXDOMAIN for blocked domains
+            return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+        }
+        
+        // Allow through to upstream
+        return null;
+    }
+}
+</pre>
+
+<h4>Example: Dynamic Service Discovery</h4>
+
+<pre>
+public class ServiceDiscoveryDNS extends DNSServer {
+    
+    private ServiceRegistry registry;
+    
+    @Override
+    protected DNSMessage resolve(DNSMessage query) {
+        DNSQuestion question = query.getQuestions().get(0);
+        
+        // Handle SRV queries for service discovery
+        if (question.getType() == DNSType.SRV) {
+            String serviceName = question.getName();
+            List&lt;ServiceInstance&gt; instances = registry.lookup(serviceName);
+            
+            if (!instances.isEmpty()) {
+                List&lt;DNSResourceRecord&gt; answers = new ArrayList&lt;&gt;();
+                for (ServiceInstance inst : instances) {
+                    answers.add(DNSResourceRecord.srv(serviceName, 300,
+                        inst.getPriority(), inst.getWeight(),
+                        inst.getPort(), inst.getHostname()));
+                }
+                return query.createResponse(answers);
+            }
+        }
+        
+        return null;
+    }
+}
+</pre>
+
+<h3 id="records">Record Types</h3>
+
+<p>
+The <code>DNSResourceRecord</code> class provides factory methods for common
+record types:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Type</th><th>Factory Method</th><th>Description</th></tr>
+<tr><td>A</td><td><code>DNSResourceRecord.a(name, ttl, address)</code></td>
+<td>IPv4 address</td></tr>
+<tr><td>AAAA</td><td><code>DNSResourceRecord.aaaa(name, ttl, address)</code></td>
+<td>IPv6 address</td></tr>
+<tr><td>CNAME</td><td><code>DNSResourceRecord.cname(name, ttl, canonical)</code></td>
+<td>Canonical name (alias)</td></tr>
+<tr><td>MX</td><td><code>DNSResourceRecord.mx(name, ttl, priority, exchange)</code></td>
+<td>Mail exchange</td></tr>
+<tr><td>NS</td><td><code>DNSResourceRecord.ns(name, ttl, nameserver)</code></td>
+<td>Authoritative name server</td></tr>
+<tr><td>PTR</td><td><code>DNSResourceRecord.ptr(name, ttl, hostname)</code></td>
+<td>Pointer (reverse DNS)</td></tr>
+<tr><td>SOA</td><td><code>DNSResourceRecord.soa(...)</code></td>
+<td>Start of authority</td></tr>
+<tr><td>TXT</td><td><code>DNSResourceRecord.txt(name, ttl, text)</code></td>
+<td>Text record</td></tr>
+<tr><td>SRV</td><td><code>DNSResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
+<td>Service location</td></tr>
+</table>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>DNSServer Properties</h4>
+
+<ul>
+<li><code>port</code> - listening port (default: 53)</li>
+<li><code>upstreamServers</code> - space-separated list of upstream DNS servers</li>
+<li><code>useSystemResolvers</code> - use <code>/etc/resolv.conf</code> nameservers
+(default: true)</li>
+<li><code>cacheEnabled</code> - enable response caching (default: true)</li>
+<li><code>addresses</code> - bind addresses (default: all interfaces)</li>
+</ul>
+
+<h4>DTLS Properties</h4>
+
+<ul>
+<li><code>secure</code> - enable DTLS (default: false)</li>
+<li><code>keyStore</code> - path to keystore file</li>
+<li><code>keyStorePassword</code> - keystore password</li>
+<li><code>needClientAuth</code> - require client certificates (default: false)</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;!-- DNS proxy on non-privileged port --&gt;
+&lt;server id="dns" class="org.bluezoo.gumdrop.dns.DNSServer"&gt;
+    &lt;property name="port"&gt;5353&lt;/property&gt;
+    &lt;property name="upstreamServers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
+    &lt;property name="cacheEnabled"&gt;true&lt;/property&gt;
+&lt;/server&gt;
+
+&lt;!-- DNS over DTLS --&gt;
+&lt;server id="dns-secure" class="org.bluezoo.gumdrop.dns.DNSServer"&gt;
+    &lt;property name="port"&gt;853&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keyStore"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keyStorePassword"&gt;secret&lt;/property&gt;
+    &lt;property name="upstreamServers"&gt;8.8.8.8&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Upstream Server Format</h4>
+
+<p>
+Upstream servers can be specified with optional ports:
+</p>
+
+<ul>
+<li><code>8.8.8.8</code> - Google DNS (default port 53)</li>
+<li><code>1.1.1.1</code> - Cloudflare DNS</li>
+<li><code>192.168.1.1:53</code> - local router with explicit port</li>
+<li><code>[2001:4860:4860::8888]:53</code> - IPv6 with port</li>
+</ul>
+
+<h3 id="udp">UDP Protocol Support</h3>
+
+<p>
+The DNS server showcases Gumdrop's UDP protocol support through the
+<code>DatagramServer</code> and <code>DatagramClient</code> abstractions.
+These classes demonstrate how to build UDP-based services within the
+event-driven framework.
+</p>
+
+<h4>DatagramServer</h4>
+
+<p>
+<code>DatagramServer</code> is the UDP equivalent of <code>Server</code> for
+TCP. Unlike TCP, there are no per-client connection objects—the server receives
+datagrams directly and sends responses to the source address.
+</p>
+
+<pre>
+public abstract class DatagramServer {
+    
+    // Override to handle incoming datagrams
+    protected abstract void receive(ByteBuffer data, InetSocketAddress source);
+    
+    // Send a response datagram
+    public void send(ByteBuffer data, InetSocketAddress destination);
+    
+    // Server identification
+    protected abstract int getPort();
+    protected abstract String getDescription();
+}
+</pre>
+
+<h4>Key Differences from TCP</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Aspect</th><th>TCP (Server)</th><th>UDP (DatagramServer)</th></tr>
+<tr><td>Connection model</td><td>Per-client Connection objects</td>
+<td>Single server, multiple sources</td></tr>
+<tr><td>Message boundaries</td><td>Stream-based, must frame</td>
+<td>Preserved per datagram</td></tr>
+<tr><td>Reliability</td><td>Guaranteed delivery</td>
+<td>Best-effort, may lose/reorder</td></tr>
+<tr><td>TLS support</td><td>SSL/TLS</td>
+<td>DTLS</td></tr>
+</table>
+
+<h4>Building Custom UDP Services</h4>
+
+<p>
+The DNS server serves as a template for building other UDP-based services:
+</p>
+
+<pre>
+public class MyUDPService extends DatagramServer {
+    
+    @Override
+    protected int getPort() {
+        return 9000;
+    }
+    
+    @Override
+    protected String getDescription() {
+        return "my-service";
+    }
+    
+    @Override
+    protected void receive(ByteBuffer data, InetSocketAddress source) {
+        // Parse the datagram
+        MyProtocolMessage request = MyProtocolMessage.parse(data);
+        
+        // Process and generate response
+        MyProtocolMessage response = process(request);
+        
+        // Send response back to sender
+        send(response.serialize(), source);
+    }
+}
+</pre>
+
+<h4>Use Cases</h4>
+
+<p>
+The DNS server demonstrates patterns applicable to other UDP protocols:
+</p>
+
+<ul>
+<li><b>Game servers</b> - low-latency game state updates</li>
+<li><b>VoIP/media</b> - real-time audio/video streaming</li>
+<li><b>SNMP agents</b> - network management</li>
+<li><b>Syslog servers</b> - log collection</li>
+<li><b>TFTP servers</b> - simple file transfer</li>
+<li><b>Custom protocols</b> - any datagram-oriented service</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop DNS Server</p>
+
+</body>
+</html>
+

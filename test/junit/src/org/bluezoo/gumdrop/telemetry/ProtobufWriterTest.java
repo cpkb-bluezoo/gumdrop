@@ -1,0 +1,420 @@
+package org.bluezoo.gumdrop.telemetry;
+
+import org.junit.Test;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import java.nio.ByteBuffer;
+
+import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.gumdrop.telemetry.protobuf.WriteResult;
+
+/**
+ * JUnit 4 test class for ProtobufWriter.
+ * Tests the binary protobuf encoding following the wire format specification
+ * from https://protobuf.dev/programming-guides/encoding/
+ */
+public class ProtobufWriterTest {
+
+    // -- Varint encoding tests --
+
+    @Test
+    public void testVarintSmallValue() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Value 1 should encode to single byte 0x01
+        writer.writeVarint(1);
+
+        buffer.flip();
+        assertEquals(1, buffer.remaining());
+        assertEquals((byte) 0x01, buffer.get());
+        assertFalse(writer.isOverflow());
+    }
+
+    @Test
+    public void testVarintValue150() {
+        // From protobuf encoding spec: 150 encodes to 0x9601
+        // 150 = 10010110 binary
+        // Split into 7-bit chunks: 0010110 (22) and 0000001 (1)
+        // With continuation bits: 10010110 (0x96) and 00000001 (0x01)
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeVarint(150);
+
+        buffer.flip();
+        assertEquals(2, buffer.remaining());
+        assertEquals((byte) 0x96, buffer.get());
+        assertEquals((byte) 0x01, buffer.get());
+    }
+
+    @Test
+    public void testVarintValue300() {
+        // 300 = 100101100 binary
+        // Split into 7-bit chunks: 0101100 (44) and 0000010 (2)
+        // With continuation bits: 10101100 (0xAC) and 00000010 (0x02)
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeVarint(300);
+
+        buffer.flip();
+        assertEquals(2, buffer.remaining());
+        assertEquals((byte) 0xAC, buffer.get());
+        assertEquals((byte) 0x02, buffer.get());
+    }
+
+    @Test
+    public void testVarintLargeValue() {
+        // Test a larger value that requires more bytes
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // 16384 = 2^14 requires 3 bytes
+        writer.writeVarint(16384);
+
+        buffer.flip();
+        assertEquals(3, buffer.remaining());
+        // 16384 = 0x4000 = 100 0000 0000 0000 binary
+        // 7-bit chunks: 0000000, 0000000, 0000001
+        // With continuation: 10000000, 10000000, 00000001
+        assertEquals((byte) 0x80, buffer.get());
+        assertEquals((byte) 0x80, buffer.get());
+        assertEquals((byte) 0x01, buffer.get());
+    }
+
+    @Test
+    public void testVarintMaxInt() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeVarint(Integer.MAX_VALUE);
+
+        buffer.flip();
+        // Max int (2^31 - 1) requires 5 bytes
+        assertEquals(5, buffer.remaining());
+        assertFalse(writer.isOverflow());
+    }
+
+    @Test
+    public void testVarintMaxLong() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeVarint(Long.MAX_VALUE);
+
+        buffer.flip();
+        // Max long requires 9 bytes
+        assertEquals(9, buffer.remaining());
+        assertFalse(writer.isOverflow());
+    }
+
+    // -- ZigZag encoding tests --
+
+    @Test
+    public void testSVarintZigZag() {
+        // ZigZag encoding: 0 -> 0, -1 -> 1, 1 -> 2, -2 -> 3
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // 0 encodes to 0
+        writer.writeSVarint(0);
+        buffer.flip();
+        assertEquals((byte) 0x00, buffer.get());
+        buffer.clear();
+
+        // -1 encodes to 1
+        writer = new ProtobufWriter(buffer);
+        writer.writeSVarint(-1);
+        buffer.flip();
+        assertEquals((byte) 0x01, buffer.get());
+        buffer.clear();
+
+        // 1 encodes to 2
+        writer = new ProtobufWriter(buffer);
+        writer.writeSVarint(1);
+        buffer.flip();
+        assertEquals((byte) 0x02, buffer.get());
+        buffer.clear();
+
+        // -2 encodes to 3
+        writer = new ProtobufWriter(buffer);
+        writer.writeSVarint(-2);
+        buffer.flip();
+        assertEquals((byte) 0x03, buffer.get());
+    }
+
+    // -- Fixed-size type tests --
+
+    @Test
+    public void testFixed64() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Little-endian encoding
+        writer.writeFixed64(0x0102030405060708L);
+
+        buffer.flip();
+        assertEquals(8, buffer.remaining());
+        // Should be in little-endian order
+        assertEquals((byte) 0x08, buffer.get());
+        assertEquals((byte) 0x07, buffer.get());
+        assertEquals((byte) 0x06, buffer.get());
+        assertEquals((byte) 0x05, buffer.get());
+        assertEquals((byte) 0x04, buffer.get());
+        assertEquals((byte) 0x03, buffer.get());
+        assertEquals((byte) 0x02, buffer.get());
+        assertEquals((byte) 0x01, buffer.get());
+    }
+
+    @Test
+    public void testFixed32() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Little-endian encoding
+        writer.writeFixed32(0x01020304);
+
+        buffer.flip();
+        assertEquals(4, buffer.remaining());
+        assertEquals((byte) 0x04, buffer.get());
+        assertEquals((byte) 0x03, buffer.get());
+        assertEquals((byte) 0x02, buffer.get());
+        assertEquals((byte) 0x01, buffer.get());
+    }
+
+    // -- Tag encoding tests --
+
+    @Test
+    public void testTagEncoding() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Field 1, wire type VARINT (0): (1 << 3) | 0 = 0x08
+        writer.writeTag(1, ProtobufWriter.WIRETYPE_VARINT);
+
+        buffer.flip();
+        assertEquals((byte) 0x08, buffer.get());
+    }
+
+    @Test
+    public void testTagEncodingField2Len() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Field 2, wire type LEN (2): (2 << 3) | 2 = 0x12
+        writer.writeTag(2, ProtobufWriter.WIRETYPE_LEN);
+
+        buffer.flip();
+        assertEquals((byte) 0x12, buffer.get());
+    }
+
+    @Test
+    public void testTagEncodingLargeFieldNumber() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Field 16, wire type VARINT (0): (16 << 3) | 0 = 128 = 0x80 0x01
+        writer.writeTag(16, ProtobufWriter.WIRETYPE_VARINT);
+
+        buffer.flip();
+        assertEquals(2, buffer.remaining());
+        assertEquals((byte) 0x80, buffer.get());
+        assertEquals((byte) 0x01, buffer.get());
+    }
+
+    // -- Field writer tests --
+
+    @Test
+    public void testVarintField() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Field 1 = 150
+        writer.writeVarintField(1, 150);
+
+        buffer.flip();
+        assertEquals(3, buffer.remaining());
+        assertEquals((byte) 0x08, buffer.get()); // tag: field 1, varint
+        assertEquals((byte) 0x96, buffer.get()); // value: 150 (byte 1)
+        assertEquals((byte) 0x01, buffer.get()); // value: 150 (byte 2)
+    }
+
+    @Test
+    public void testBoolField() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeBoolField(1, true);
+        writer.writeBoolField(2, false);
+
+        buffer.flip();
+        assertEquals(4, buffer.remaining());
+        assertEquals((byte) 0x08, buffer.get()); // tag: field 1, varint
+        assertEquals((byte) 0x01, buffer.get()); // true
+        assertEquals((byte) 0x10, buffer.get()); // tag: field 2, varint
+        assertEquals((byte) 0x00, buffer.get()); // false
+    }
+
+    @Test
+    public void testStringField() {
+        ByteBuffer buffer = ByteBuffer.allocate(32);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeStringField(1, "hello");
+
+        buffer.flip();
+        assertEquals(7, buffer.remaining());
+        assertEquals((byte) 0x0A, buffer.get()); // tag: field 1, LEN
+        assertEquals((byte) 0x05, buffer.get()); // length: 5
+        assertEquals((byte) 'h', buffer.get());
+        assertEquals((byte) 'e', buffer.get());
+        assertEquals((byte) 'l', buffer.get());
+        assertEquals((byte) 'l', buffer.get());
+        assertEquals((byte) 'o', buffer.get());
+    }
+
+    @Test
+    public void testBytesField() {
+        ByteBuffer buffer = ByteBuffer.allocate(32);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        byte[] data = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+        writer.writeBytesField(1, data);
+
+        buffer.flip();
+        assertEquals(6, buffer.remaining());
+        assertEquals((byte) 0x0A, buffer.get()); // tag: field 1, LEN
+        assertEquals((byte) 0x04, buffer.get()); // length: 4
+        assertEquals((byte) 0x01, buffer.get());
+        assertEquals((byte) 0x02, buffer.get());
+        assertEquals((byte) 0x03, buffer.get());
+        assertEquals((byte) 0x04, buffer.get());
+    }
+
+    @Test
+    public void testFixed64Field() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeFixed64Field(1, 0x0807060504030201L);
+
+        buffer.flip();
+        assertEquals(9, buffer.remaining());
+        assertEquals((byte) 0x09, buffer.get()); // tag: field 1, I64
+        // Little-endian value
+        assertEquals((byte) 0x01, buffer.get());
+        assertEquals((byte) 0x02, buffer.get());
+        assertEquals((byte) 0x03, buffer.get());
+        assertEquals((byte) 0x04, buffer.get());
+        assertEquals((byte) 0x05, buffer.get());
+        assertEquals((byte) 0x06, buffer.get());
+        assertEquals((byte) 0x07, buffer.get());
+        assertEquals((byte) 0x08, buffer.get());
+    }
+
+    // -- Embedded message tests --
+
+    @Test
+    public void testMessageField() {
+        ByteBuffer buffer = ByteBuffer.allocate(64);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Write an embedded message with field 1 = "test"
+        writer.writeMessageField(1, new TestMessageContent());
+
+        buffer.flip();
+        // tag (1 byte) + length (1 byte) + inner tag (1 byte) + inner length (1 byte) + "test" (4 bytes)
+        assertEquals(8, buffer.remaining());
+        assertEquals((byte) 0x0A, buffer.get()); // tag: field 1, LEN
+        assertEquals((byte) 0x06, buffer.get()); // length of inner message
+        assertEquals((byte) 0x0A, buffer.get()); // inner tag: field 1, LEN
+        assertEquals((byte) 0x04, buffer.get()); // inner length: 4
+        assertEquals((byte) 't', buffer.get());
+        assertEquals((byte) 'e', buffer.get());
+        assertEquals((byte) 's', buffer.get());
+        assertEquals((byte) 't', buffer.get());
+    }
+
+    private static class TestMessageContent implements ProtobufWriter.MessageContent {
+        @Override
+        public void writeTo(ProtobufWriter writer) {
+            writer.writeStringField(1, "test");
+        }
+    }
+
+    // -- Overflow tests --
+
+    @Test
+    public void testOverflow() {
+        ByteBuffer buffer = ByteBuffer.allocate(2);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Try to write more data than the buffer can hold
+        writer.writeStringField(1, "hello world");
+
+        assertTrue(writer.isOverflow());
+        assertEquals(WriteResult.OVERFLOW, writer.getResult());
+    }
+
+    @Test
+    public void testNoOverflow() {
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        writer.writeStringField(1, "hello");
+        writer.writeVarintField(2, 42);
+        writer.writeBoolField(3, true);
+
+        assertFalse(writer.isOverflow());
+        assertEquals(WriteResult.SUCCESS, writer.getResult());
+    }
+
+    // -- Varint size calculation tests --
+
+    @Test
+    public void testVarintSize() {
+        assertEquals(1, ProtobufWriter.varintSize(0));
+        assertEquals(1, ProtobufWriter.varintSize(1));
+        assertEquals(1, ProtobufWriter.varintSize(127));
+        assertEquals(2, ProtobufWriter.varintSize(128));
+        assertEquals(2, ProtobufWriter.varintSize(150));
+        assertEquals(2, ProtobufWriter.varintSize(16383));
+        assertEquals(3, ProtobufWriter.varintSize(16384));
+        assertEquals(5, ProtobufWriter.varintSize(Integer.MAX_VALUE));
+        assertEquals(9, ProtobufWriter.varintSize(Long.MAX_VALUE));
+    }
+
+    // -- Null handling tests --
+
+    @Test
+    public void testNullString() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Null strings should be skipped
+        writer.writeStringField(1, null);
+
+        buffer.flip();
+        assertEquals(0, buffer.remaining());
+        assertFalse(writer.isOverflow());
+    }
+
+    @Test
+    public void testNullBytes() {
+        ByteBuffer buffer = ByteBuffer.allocate(16);
+        ProtobufWriter writer = new ProtobufWriter(buffer);
+
+        // Null bytes should be skipped
+        writer.writeBytesField(1, null);
+
+        buffer.flip();
+        assertEquals(0, buffer.remaining());
+        assertFalse(writer.isOverflow());
+    }
+
+}
+

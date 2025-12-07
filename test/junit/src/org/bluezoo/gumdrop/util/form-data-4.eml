@@ -1,0 +1,16 @@
+Host: localhost:8080
+Content-Type: multipart/form-data; boundary=MyRandomBoundaryString12345--
+Content-Length: 200
+X-Num-Parts: 2
+X-Expect-Fail: true
+
+--MyRandomBoundaryString12345--
+Content-Disposition: form-data; name="username"
+
+user123
+--MyRandomBoundaryString12345--
+Content-Disposition: form-data; name="file1"; filename="image.jpg"
+Content-Type: image/jpeg
+
+[binary content]
+--MyRandomBoundaryString12345---

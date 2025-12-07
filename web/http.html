@@ -1,0 +1,476 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>HTTP Server &amp; Client - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop HTTP Server &amp; Client</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a comprehensive HTTP implementation supporting modern
+protocol versions and features. The HTTP layer serves as the foundation
+for higher-level services including the <a href="servlet.html">servlet
+container</a> and static file server.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#versions">HTTP Versions</a></li>
+<li><a href="#http2">HTTP/2 Support</a></li>
+<li><a href="#upgrades">Protocol Upgrades</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#client">HTTP Client</a></li>
+<li><a href="#file-server">File HTTP Server</a></li>
+</ul>
+
+<h3 id="versions">HTTP Versions</h3>
+
+<p>
+Gumdrop supports HTTP/1.0, HTTP/1.1, and HTTP/2 protocols, with automatic
+version detection and negotiation. Originally built to support HTTP/1.1
+as a native protocol, Gumdrop was first adapted to use the SPDY protocol
+developed by Google, and then, as that was deprecated and consensus
+established on the newer HTTP/2 protocol, Gumdrop embraced the efficiency
+and extensibility of the latter and promotes its usage.
+</p>
+
+<h4>HTTP/1.0</h4>
+
+<p>
+Basic HTTP support for legacy clients. Connections are closed after each
+request/response unless explicitly kept alive.
+</p>
+
+<h4>HTTP/1.1</h4>
+
+<p>
+Full HTTP/1.1 support including:
+</p>
+<ul>
+<li><b>Persistent connections</b> - connections remain open for multiple
+request/response cycles by default</li>
+<li><b>Chunked transfer encoding</b> - streaming of request and response
+bodies without a priori content length</li>
+<li><b>Host header requirement</b> - virtual hosting support</li>
+<li><b>Pipelining</b> - multiple requests can be sent without waiting for
+responses (though this is rarely used in practice)</li>
+</ul>
+
+<h4>HTTP/2</h4>
+
+<p>
+Complete HTTP/2 implementation (RFC 7540) with multiplexing and header
+compression. HTTP/2 can be negotiated via ALPN during TLS handshake or
+via cleartext upgrade (h2c).
+</p>
+
+<h3 id="http2">HTTP/2 Support</h3>
+
+<p>
+Gumdrop's HTTP/2 implementation provides all mandatory features of
+RFC 7540 plus several optional features.
+</p>
+
+<h4>Frame Types</h4>
+
+<p>
+All HTTP/2 frame types are supported:
+</p>
+<ul>
+<li><b>DATA</b> - request and response body content</li>
+<li><b>HEADERS</b> - header blocks with optional priority</li>
+<li><b>PRIORITY</b> - stream dependency and weight updates</li>
+<li><b>RST_STREAM</b> - stream termination</li>
+<li><b>SETTINGS</b> - connection-level configuration exchange</li>
+<li><b>PUSH_PROMISE</b> - server push initiation</li>
+<li><b>PING</b> - connection liveness checks</li>
+<li><b>GOAWAY</b> - graceful connection shutdown</li>
+<li><b>WINDOW_UPDATE</b> - flow control</li>
+<li><b>CONTINUATION</b> - header block continuation</li>
+</ul>
+
+<h4>HPACK Header Compression</h4>
+
+<p>
+Gumdrop includes a complete HPACK implementation (RFC 7541) for HTTP/2
+header compression:
+</p>
+<ul>
+<li><b>Static table</b> - 61 pre-defined header entries for common headers
+like <code>:method</code>, <code>:path</code>, <code>:status</code>, etc.</li>
+<li><b>Dynamic table</b> - per-connection header index that adapts to
+application-specific headers</li>
+<li><b>Huffman encoding</b> - optional string compression using the HPACK
+Huffman code table</li>
+<li><b>Indexed header fields</b> - efficient encoding of repeated headers</li>
+</ul>
+
+<p>
+The HPACK encoder and decoder maintain separate dynamic tables for each
+direction of communication, with configurable maximum table sizes.
+</p>
+
+<h4>Frame Padding</h4>
+
+<p>
+For security-sensitive applications, HTTP/2 frame padding can be enabled
+to obscure message sizes. Padding adds random-length padding to DATA,
+HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
+</p>
+
+<pre>
+&lt;server class="org.bluezoo.gumdrop.http.HTTPServer"&gt;
+  &lt;property name="port"&gt;443&lt;/property&gt;
+  &lt;property name="secure"&gt;true&lt;/property&gt;
+  &lt;property name="framePadding"&gt;64&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Priority-Aware Server</h4>
+
+<p>
+The <code>PriorityAwareHTTPServer</code> extends the base HTTP server with
+sophisticated HTTP/2 stream priority handling. This is beneficial for
+complex web applications serving multiple resource types (HTML, CSS, JS,
+images, API responses).
+</p>
+
+<p>
+Features of the priority-aware server:
+</p>
+<ul>
+<li><b>Priority-based scheduling</b> - processes high-priority streams first</li>
+<li><b>Bandwidth allocation</b> - distributes resources based on stream weights</li>
+<li><b>Starvation prevention</b> - ensures low-priority streams receive fair
+access through configurable time slices</li>
+<li><b>Dependency tree</b> - respects HTTP/2 priority dependency relationships</li>
+</ul>
+
+<p>
+Configuration properties:
+</p>
+<ul>
+<li><code>minLowPriorityTimeSlice</code> - minimum milliseconds before starved
+streams are promoted (default: 100)</li>
+<li><code>maxHighPriorityBurst</code> - maximum consecutive operations for
+high-priority streams before yielding (default: 10)</li>
+<li><code>priorityLogging</code> - enable detailed scheduling logs</li>
+</ul>
+
+<p>
+The priority-aware server adds approximately 6-10KB memory overhead per
+connection and 5-10% CPU overhead under load. For simple file servers or
+single-resource APIs, the standard <code>HTTPServer</code> is sufficient.
+</p>
+
+<h3 id="upgrades">Protocol Upgrades</h3>
+
+<h4>HTTP/2 Cleartext Upgrade (h2c)</h4>
+
+<p>
+For non-TLS connections, HTTP/2 can be negotiated via the HTTP/1.1 Upgrade
+mechanism. The client sends:
+</p>
+
+<pre>
+GET / HTTP/1.1
+Host: example.com
+Connection: Upgrade, HTTP2-Settings
+Upgrade: h2c
+HTTP2-Settings: AAMAAABkAARAAAAAAAIAAAAA
+</pre>
+
+<p>
+If the server supports HTTP/2, it responds with 101 Switching Protocols
+and both sides switch to HTTP/2 framing:
+</p>
+
+<pre>
+HTTP/1.1 101 Switching Protocols
+Connection: Upgrade
+Upgrade: h2c
+</pre>
+
+<p>
+The <code>HTTP2-Settings</code> header contains base64url-encoded SETTINGS
+frame payload, allowing the client to communicate initial settings before
+the upgrade completes.
+</p>
+
+<h4>WebSocket Upgrade</h4>
+
+<p>
+Gumdrop supports WebSocket protocol upgrades per RFC 6455. A WebSocket
+handshake request looks like:
+</p>
+
+<pre>
+GET /websocket HTTP/1.1
+Host: example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+</pre>
+
+<p>
+The server validates the request and computes the accept value by
+concatenating the client's key with the WebSocket GUID and hashing
+with SHA-1:
+</p>
+
+<pre>
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+</pre>
+
+<p>
+After the handshake completes, the connection switches to WebSocket framing
+and the HTTP layer hands off to a <code>WebSocketConnection</code> for
+message-based communication.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>HTTPServer Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.http.HTTPServer</code> is the base class for HTTP
+servers. All subclasses inherit these properties:
+</p>
+
+<ul>
+<li><code>port</code> - listening port (default: 80 or 443 for secure)</li>
+<li><code>secure</code> - enable implicit TLS</li>
+<li><code>keystoreFile</code> - path to keystore for TLS</li>
+<li><code>keystorePass</code> - keystore password</li>
+<li><code>keystoreFormat</code> - keystore format (default: PKCS12)</li>
+<li><code>needClientAuth</code> - require client certificates</li>
+<li><code>framePadding</code> - HTTP/2 frame padding (0-255 bytes)</li>
+<li><code>authenticationProvider</code> - HTTP authentication configuration</li>
+</ul>
+
+<h4>Authentication</h4>
+
+<p>
+Gumdrop supports HTTP authentication methods:
+</p>
+<ul>
+<li><b>Basic</b> - RFC 7617 basic authentication</li>
+<li><b>Digest</b> - RFC 7616 digest authentication</li>
+<li><b>Bearer</b> - RFC 6750 bearer token authentication</li>
+<li><b>OAuth</b> - OAuth 2.0 integration</li>
+</ul>
+
+<p>
+Authentication is configured via an <code>HTTPAuthenticationProvider</code>
+which can be shared across multiple servers or customised per server. It is
+integrated into the centralised <code>org.bluezoo.gumdrop.Realm</code>-based
+facility for managing authentication and authorisation across all servers
+and servlet containers running in the framework.
+</p>
+
+<h3 id="client">HTTP Client</h3>
+
+<p>
+Gumdrop includes a non-blocking HTTP client that shares the same event-driven
+architecture as the server. The client supports HTTP/1.1 and HTTP/2 with
+automatic protocol negotiation.
+</p>
+
+<h4>SelectorLoop Affinity</h4>
+
+<p>
+When an HTTP client connection is initiated by a Gumdrop server connection,
+it can be assigned to the same Gumdrop worker SelectorLoop as is used by
+used by the server connection. This provides several advantages:
+</p>
+
+<ul>
+<li><b>Unified I/O model</b> - client and server connections share the same
+non-blocking infrastructure, avoiding thread context switches and complex
+race conditions when making outbound requests from within server handlers</li>
+<li><b>Connection affinity</b> - once assigned, a client connection remains
+bound to its worker thread for the duration of its lifecycle, eliminating
+race conditions</li>
+<li><b>Resource efficiency</b> - no additional thread pools are required for
+client connections; they multiplex with server I/O on the existing workers</li>
+<li><b>TLS integration</b> - SSL handshakes and encryption are handled inline
+on the assigned worker, just as with server connections</li>
+</ul>
+
+<p>
+This makes the HTTP client particularly well-suited for server-side use cases
+such as proxying, service-to-service communication, and telemetry export
+where the client operates within the context of an existing Gumdrop server.
+</p>
+
+<p>
+The existing OpenTelemetry implementation within Gumdrop uses this exact
+mechanism for efficiency, and server processes that need to call REST
+endpoints, for instance, can easily benefit from high performance asynchronous
+non-blocking connections to them via this feature.
+</p>
+
+<h4>Features</h4>
+
+<ul>
+<li><b>Asynchronous operation</b> - integrates with Gumdrop's SelectorLoop</li>
+<li><b>HTTP/2 support</b> - ALPN negotiation for TLS, h2c upgrade for plaintext</li>
+<li><b>Stream multiplexing</b> - concurrent requests over a single HTTP/2 connection</li>
+<li><b>Authentication</b> - Basic, Digest, Bearer, and OAuth support</li>
+<li><b>Automatic retry</b> - authentication challenges handled transparently</li>
+</ul>
+
+<h4>Usage</h4>
+
+<pre>
+HTTPClient client = new HTTPClient("example.com", 443, true);
+client.setVersion(HTTPVersion.HTTP_2_0);
+
+client.connect(new HTTPClientHandler() {
+    @Override
+    public void onProtocolNegotiated(HTTPVersion version, HTTPClientConnection conn) {
+        conn.createStream();
+    }
+    
+    @Override
+    public void onStreamCreated(HTTPClientStream stream) {
+        HTTPRequest request = new HTTPRequest("GET", "/api/data");
+        stream.sendRequest(request);
+    }
+    
+    @Override
+    public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
+        System.out.println("Status: " + response.getStatusCode());
+    }
+    
+    // ... other handler methods
+});
+</pre>
+
+<p>
+All handler callbacks are invoked on the client connection's assigned worker
+thread. Long-running operations within handlers should be offloaded to avoid
+blocking the SelectorLoop.
+</p>
+
+<h3 id="file-server">File HTTP Server</h3>
+
+<p>
+The <code>FileHTTPServer</code> demonstrates a complete, production-ready
+HTTP server built on the Gumdrop framework. It serves static files from
+a filesystem directory with high performance.
+</p>
+
+<h4>Features</h4>
+
+<ul>
+<li><b>NIO-based transfers</b> - uses Java NIO for efficient file-to-socket
+data transfer</li>
+<li><b>Content type detection</b> - automatic MIME type detection based on
+file extension</li>
+<li><b>Directory listings</b> - configurable welcome file for directory requests</li>
+<li><b>HTTP methods</b> - GET, HEAD, and optionally PUT/DELETE for writes</li>
+<li><b>Range requests</b> - partial content delivery for large files</li>
+<li><b>Conditional requests</b> - ETag and Last-Modified support</li>
+<li><b>Path security</b> - prevents directory traversal attacks</li>
+</ul>
+
+<h4>Configuration</h4>
+
+<pre>
+&lt;server id="files" class="org.bluezoo.gumdrop.http.file.FileHTTPServer"&gt;
+  &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;property name="rootPath"&gt;/var/www/html&lt;/property&gt;
+  &lt;property name="welcomeFile"&gt;index.html&lt;/property&gt;
+  &lt;property name="allowWrite"&gt;false&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+Properties:
+</p>
+<ul>
+<li><code>rootPath</code> - filesystem directory to serve (required)</li>
+<li><code>welcomeFile</code> - default file for directory requests (default:
+<code>index.html</code>)</li>
+<li><code>allowWrite</code> - enable PUT and DELETE methods (default:
+<code>false</code>)</li>
+</ul>
+
+<h4>Security</h4>
+
+<p>
+The file server validates all paths to ensure they remain within the
+configured root directory. Symbolic links are resolved to their real
+paths before access checks. The root path must be a readable directory;
+if write operations are enabled, the server logs a warning if the directory
+is not writable.
+</p>
+
+<h4>Performance</h4>
+
+<p>
+File transfers use Java NIO's <code>FileChannel.transferTo()</code> where
+possible, enabling zero-copy transfers directly from the filesystem to the
+socket. This minimises memory allocation and CPU usage for large file
+transfers.
+</p>
+
+<p>
+For HTTP/2 connections, the file server can benefit from the priority-aware
+server when serving mixed content (HTML, CSS, JavaScript, images) by
+prioritising critical resources.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="dns.html">DNS Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop HTTP Server</p>
+
+</body>
+</html>
+

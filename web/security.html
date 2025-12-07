@@ -1,0 +1,563 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Security - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop Security</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+This document covers security features available across all Gumdrop servers,
+including identity and access management, rate limiting, and transport security.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#iam">Identity and Access Management (IAM)</a>
+  <ul>
+  <li><a href="#realm">The Realm Interface</a></li>
+  <li><a href="#basicrealm">BasicRealm Implementation</a></li>
+  <li><a href="#sasl">SASL Authentication</a></li>
+  <li><a href="#rbac">Role-Based Access Control</a></li>
+  </ul>
+</li>
+<li><a href="#ratelimit">Rate Limiting</a>
+  <ul>
+  <li><a href="#connection-rate">Connection Rate Limiting</a></li>
+  <li><a href="#auth-rate">Authentication Rate Limiting</a></li>
+  <li><a href="#cidr">Network Filtering (CIDR)</a></li>
+  </ul>
+</li>
+<li><a href="#tls">Transport Layer Security</a>
+  <ul>
+  <li><a href="#sni">SNI (Server Name Indication)</a></li>
+  </ul>
+</li>
+<li><a href="#telemetry-security">Security Telemetry</a></li>
+</ul>
+
+<h2 id="iam">Identity and Access Management (IAM)</h2>
+
+<p>
+Gumdrop provides a unified identity and access management framework used across
+all protocol implementations. At its core is the <code>Realm</code> interface,
+which abstracts credential storage and verification.
+</p>
+
+<h3 id="realm">The Realm Interface</h3>
+
+<p>
+A <code>Realm</code> represents a collection of authenticatable principals with
+associated passwords and roles. The interface supports multiple authentication
+mechanisms without exposing stored credentials:
+</p>
+
+<pre>
+public interface Realm {
+    // Basic password verification
+    boolean passwordMatch(String username, String password);
+    
+    // Digest authentication support
+    byte[] getDigestHA1(String username, String realmName);
+    
+    // CRAM-MD5 challenge-response
+    String getCramMD5Response(String username, byte[] challenge);
+    
+    // SCRAM-SHA-256 derived keys
+    ScramCredentials getScramCredentials(String username);
+    
+    // OAuth/Bearer token validation
+    String validateBearerToken(String token);
+    
+    // Role-based access control
+    boolean isUserInRole(String username, String role);
+}
+</pre>
+
+<p>
+This design allows the realm to store passwords in any form (plaintext, hashed,
+or derived keys) without requiring the authentication layer to know the storage
+format.
+</p>
+
+<h3 id="basicrealm">BasicRealm Implementation</h3>
+
+<p>
+The built-in <code>BasicRealm</code> reads users and groups from an XML file:
+</p>
+
+<pre>
+&lt;realm&gt;
+  &lt;!-- Group definitions --&gt;
+  &lt;group id="readers" name="mail-read imap-read pop3-read"/&gt;
+  &lt;group id="writers" name="mail-read mail-write imap-read imap-write"/&gt;
+  &lt;group id="admins" name="admin mail-admin ftp-admin"/&gt;
+  
+  &lt;!-- User definitions --&gt;
+  &lt;user name="alice" password="secret123" groups="#readers #writers"/&gt;
+  &lt;user name="bob" password="password456" groups="#readers"/&gt;
+  &lt;user name="admin" password="adminpass" groups="#admins"/&gt;
+  
+  &lt;!-- Inline roles (legacy format) --&gt;
+  &lt;user name="guest" password="guest" roles="guest read-only"/&gt;
+&lt;/realm&gt;
+</pre>
+
+<h4>Group References</h4>
+
+<p>
+Groups are defined with an <code>id</code> for referencing and a <code>name</code>
+containing space-separated role names. Users reference groups using the
+<code>#id</code> syntax in their <code>groups</code> attribute.
+</p>
+
+<h4>Configuration</h4>
+
+<pre>
+&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;property name="href"&gt;users.xml&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;!-- Or inline --&gt;
+&lt;realm id="simpleRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;user name="testuser" password="testpass" roles="user"/&gt;
+&lt;/realm&gt;
+</pre>
+
+<h4>Custom Realm Implementations</h4>
+
+<p>
+For production deployments, implement the <code>Realm</code> interface to
+integrate with your identity provider:
+</p>
+
+<ul>
+<li><b>LDAP/Active Directory</b> - query directory for authentication</li>
+<li><b>Database</b> - store credentials in SQL/NoSQL database</li>
+<li><b>OAuth 2.0/OIDC</b> - validate tokens against identity provider</li>
+<li><b>PAM</b> - integrate with system authentication</li>
+</ul>
+
+<h3 id="sasl">SASL Authentication</h3>
+
+<p>
+SMTP, IMAP, POP3, and FTP servers support SASL (Simple Authentication and
+Security Layer) mechanisms for secure credential exchange.
+</p>
+
+<h4>Supported Mechanisms</h4>
+
+<table border="1" cellpadding="5">
+<tr>
+  <th>Mechanism</th>
+  <th>Security</th>
+  <th>Requirements</th>
+  <th>Recommended</th>
+</tr>
+<tr>
+  <td><b>PLAIN</b></td>
+  <td>Password transmitted (base64)</td>
+  <td>TLS required</td>
+  <td>Over TLS only</td>
+</tr>
+<tr>
+  <td><b>LOGIN</b></td>
+  <td>Password transmitted (base64)</td>
+  <td>TLS required</td>
+  <td>Legacy compatibility</td>
+</tr>
+<tr>
+  <td><b>CRAM-MD5</b></td>
+  <td>Challenge-response, no password sent</td>
+  <td>Realm must store plaintext</td>
+  <td>No</td>
+</tr>
+<tr>
+  <td><b>DIGEST-MD5</b></td>
+  <td>Digest authentication</td>
+  <td>Realm must provide H(A1)</td>
+  <td>No (deprecated)</td>
+</tr>
+<tr>
+  <td><b>SCRAM-SHA-256</b></td>
+  <td>Mutual auth, no password sent</td>
+  <td>Realm provides derived keys</td>
+  <td><b>Yes</b></td>
+</tr>
+<tr>
+  <td><b>OAUTHBEARER</b></td>
+  <td>Bearer token</td>
+  <td>OAuth 2.0 infrastructure</td>
+  <td>For OAuth deployments</td>
+</tr>
+</table>
+
+<h4>SCRAM-SHA-256 (Recommended)</h4>
+
+<p>
+SCRAM-SHA-256 is the recommended mechanism because:
+</p>
+
+<ul>
+<li>Password is never transmitted, even encrypted</li>
+<li>Mutual authentication (server proves identity too)</li>
+<li>Realm can store only derived keys (no plaintext)</li>
+<li>Protection against server compromise</li>
+</ul>
+
+<p>
+The realm stores <code>StoredKey</code> and <code>ServerKey</code> instead of
+the password. Even if the credential store is compromised, attackers cannot
+recover the original password.
+</p>
+
+<h3 id="rbac">Role-Based Access Control</h3>
+
+<p>
+Many Gumdrop servers support role-based access control (RBAC) for fine-grained
+authorization. Roles are assigned to users in the realm and checked by the
+server during operations.
+</p>
+
+<h4>Protocol-Specific Roles</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Protocol</th><th>Roles</th><th>Description</th></tr>
+<tr>
+  <td rowspan="4"><b>FTP</b></td>
+  <td>ftp-read</td>
+  <td>Download files, list directories</td>
+</tr>
+<tr>
+  <td>ftp-write</td>
+  <td>Upload files (implies ftp-read)</td>
+</tr>
+<tr>
+  <td>ftp-delete</td>
+  <td>Delete files/directories (implies ftp-write)</td>
+</tr>
+<tr>
+  <td>ftp-admin</td>
+  <td>Full access, SITE commands, quota management</td>
+</tr>
+<tr>
+  <td rowspan="2"><b>Servlet</b></td>
+  <td>(custom)</td>
+  <td>Roles defined in web.xml security constraints</td>
+</tr>
+<tr>
+  <td>manager</td>
+  <td>Access to manager application</td>
+</tr>
+</table>
+
+<h4>Example: FTP Role Configuration</h4>
+
+<pre>
+&lt;!-- Define role groups --&gt;
+&lt;realm&gt;
+  &lt;group id="readers" name="ftp-read"/&gt;
+  &lt;group id="uploaders" name="ftp-read ftp-write"/&gt;
+  &lt;group id="managers" name="ftp-read ftp-write ftp-delete"/&gt;
+  &lt;group id="admins" name="ftp-admin"/&gt;
+  
+  &lt;user name="guest" password="guest" groups="#readers"/&gt;
+  &lt;user name="contributor" password="secret" groups="#uploaders"/&gt;
+  &lt;user name="editor" password="secret" groups="#managers"/&gt;
+  &lt;user name="admin" password="secret" groups="#admins"/&gt;
+&lt;/realm&gt;
+</pre>
+
+<h2 id="ratelimit">Rate Limiting</h2>
+
+<p>
+Gumdrop provides comprehensive rate limiting to protect servers from abuse,
+denial-of-service attacks, and brute-force authentication attempts.
+</p>
+
+<h3 id="connection-rate">Connection Rate Limiting</h3>
+
+<p>
+The <code>ConnectionRateLimiter</code> provides two types of protection:
+</p>
+
+<h4>Concurrent Connection Limits</h4>
+
+<p>
+Limits the number of simultaneous connections from a single IP address,
+preventing resource exhaustion from connection flooding.
+</p>
+
+<pre>
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="maxConnectionsPerIP"&gt;10&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Connection Rate Limits</h4>
+
+<p>
+Limits the number of connection attempts per IP address within a time window,
+preventing rapid reconnection attacks.
+</p>
+
+<pre>
+&lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
+    &lt;!-- 100 connections per minute per IP --&gt;
+    &lt;property name="rateLimit"&gt;100/60s&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Rate Limit Format</h4>
+
+<p>
+The <code>rateLimit</code> property accepts the format <code>count/duration</code>:
+</p>
+
+<ul>
+<li><code>100/60s</code> - 100 per minute</li>
+<li><code>1000/1h</code> - 1000 per hour</li>
+<li><code>50/30s</code> - 50 per 30 seconds</li>
+</ul>
+
+<h4>Implementation</h4>
+
+<p>
+Rate limiting uses a sliding window algorithm that efficiently tracks connection
+timestamps. Old entries are automatically expired, and a background cleanup task
+removes stale tracking data to prevent memory leaks.
+</p>
+
+<h3 id="auth-rate">Authentication Rate Limiting</h3>
+
+<p>
+The <code>AuthenticationRateLimiter</code> protects against brute-force password
+attacks by tracking failed authentication attempts and temporarily locking out
+offending clients.
+</p>
+
+<pre>
+&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;!-- Lock out after 5 failures --&gt;
+    &lt;property name="maxAuthFailures"&gt;5&lt;/property&gt;
+    
+    &lt;!-- 5-minute lockout --&gt;
+    &lt;property name="authLockoutTime"&gt;5m&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Exponential Backoff</h4>
+
+<p>
+By default, lockout duration increases exponentially for repeat offenders:
+</p>
+
+<ul>
+<li>1st lockout: 5 minutes</li>
+<li>2nd lockout: 10 minutes</li>
+<li>3rd lockout: 20 minutes</li>
+<li>... up to maximum (default: 1 hour)</li>
+</ul>
+
+<h4>Tracking Keys</h4>
+
+<p>
+Authentication failures can be tracked by:
+</p>
+
+<ul>
+<li><b>IP address</b> - protects against distributed attacks from one source</li>
+<li><b>Username</b> - protects against credential stuffing</li>
+<li><b>IP + Username</b> - most precise tracking</li>
+</ul>
+
+<h3 id="cidr">Network Filtering (CIDR)</h3>
+
+<p>
+SMTP servers support CIDR-based network filtering for allow/block lists:
+</p>
+
+<pre>
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;!-- Only accept from these networks --&gt;
+    &lt;property name="allowedNetworks"&gt;
+        192.168.0.0/16,10.0.0.0/8,2001:db8::/32
+    &lt;/property&gt;
+    
+    &lt;!-- Block these networks --&gt;
+    &lt;property name="blockedNetworks"&gt;
+        192.168.100.0/24,2001:db8:bad::/48
+    &lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+Blocked networks are checked first, then allowed networks. If allowed networks
+are configured, only connections from those networks are accepted.
+</p>
+
+<h2 id="tls">Transport Layer Security</h2>
+
+<p>
+All Gumdrop servers support TLS for encrypted connections:
+</p>
+
+<h4>Implicit TLS</h4>
+
+<p>
+Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
+</p>
+
+<pre>
+&lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;property name="port"&gt;993&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>STARTTLS</h4>
+
+<p>
+Connection starts unencrypted and upgrades to TLS on client request:
+</p>
+
+<pre>
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;25&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;!-- Advertises STARTTLS capability --&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Client Certificate Authentication</h4>
+
+<p>
+Servers can require or request client certificates:
+</p>
+
+<pre>
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="needClientAuth"&gt;true&lt;/property&gt;
+    &lt;property name="truststoreFile"&gt;truststore.p12&lt;/property&gt;
+    &lt;property name="truststorePass"&gt;secret&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4 id="sni">SNI (Server Name Indication)</h4>
+
+<p>
+SNI allows a server to present different certificates based on the hostname
+the client requests during the TLS handshake. This enables hosting multiple
+secure domains on a single IP address and port.
+</p>
+
+<pre>
+&lt;server id="https" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;multi-domain.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="sniHostnames"&gt;
+        &lt;map&gt;
+            &lt;entry key="example.com" value="example-cert"/&gt;
+            &lt;entry key="*.example.com" value="example-wildcard"/&gt;
+            &lt;entry key="other.com" value="other-cert"/&gt;
+        &lt;/map&gt;
+    &lt;/property&gt;
+    &lt;property name="sniDefaultAlias"&gt;default-cert&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+The <code>sniHostnames</code> map specifies hostname-to-certificate-alias mappings.
+Hostnames can be exact (<code>example.com</code>) or wildcard patterns
+(<code>*.example.com</code>). The keystore must contain certificates with the
+specified aliases. If no match is found, <code>sniDefaultAlias</code> is used.
+</p>
+
+<h2 id="telemetry-security">Security Telemetry</h2>
+
+<p>
+Security-related events are integrated with Gumdrop's <a href="telemetry.html">
+telemetry system</a> for monitoring and alerting:
+</p>
+
+<h4>Error Categories</h4>
+
+<ul>
+<li><code>ErrorCategory.RATE_LIMITED</code> - connection/command rate limiting</li>
+<li><code>ErrorCategory.AUTHENTICATION_FAILED</code> - auth failures</li>
+<li><code>ErrorCategory.AUTHORIZATION_DENIED</code> - permission denied</li>
+<li><code>ErrorCategory.TLS_ERROR</code> - TLS handshake failures</li>
+</ul>
+
+<h4>Telemetry Events</h4>
+
+<ul>
+<li><code>AUTH_SUCCESS</code> - successful authentication</li>
+<li><code>AUTH_FAILURE</code> - failed authentication attempt</li>
+<li><code>AUTH_LOCKED</code> - account locked out</li>
+<li><code>CONNECTION_REJECTED</code> - rate limit or policy rejection</li>
+</ul>
+
+<h4>Example: Monitoring Authentication Failures</h4>
+
+<p>
+Configure your OpenTelemetry backend to alert on authentication failures:
+</p>
+
+<pre>
+// Prometheus query example
+sum(rate(span_events{event="AUTH_FAILURE"}[5m])) by (server) > 10
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="smtp.html">SMTP Server</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="ftp.html">FTP Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop Security</p>
+
+</body>
+</html>
+

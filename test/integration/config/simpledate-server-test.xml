@@ -1,0 +1,13 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- SimpleDate server with SSL on port 15678 for integration testing -->
+    <server id="testSimpleDate" class="org.bluezoo.gumdrop.simpledate.SimpleDateServer">
+        <property name="port">15678</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="secure">true</property>
+        <property name="keystoreFile">test/integration/certs/test-keystore.p12</property>
+        <property name="keystorePass">testpass</property>
+    </server>
+</gumdrop>
+
+

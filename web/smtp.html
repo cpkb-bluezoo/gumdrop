@@ -1,0 +1,513 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>SMTP Server &amp; Client - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop SMTP Server &amp; Client</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a complete SMTP implementation for both server and client
+roles. The server supports RFC 5321 (SMTP) and RFC 6409 (Message Submission)
+with full ESMTP extensions. Like all Gumdrop protocols, the SMTP implementation
+is event-driven and non-blocking, achieving high performance with minimal
+resource consumption.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#handler">Connection Handler</a></li>
+<li><a href="#policy">Security Policies</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#client">SMTP Client</a></li>
+<li><a href="#telemetry">Telemetry</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The SMTP server follows an "event-driven first" design philosophy. Rather than
+allocating a thread per connection—a model that limits scalability to the
+thousands—Gumdrop multiplexes all SMTP connections across a small pool of
+worker threads using Java NIO selectors. This approach has been proven in
+production since 2005 and enables a single server to handle tens of thousands
+of concurrent connections.
+</p>
+
+<h4>Protocol State Machine</h4>
+
+<p>
+Each SMTP connection maintains a finite state machine that tracks its progress
+through the protocol:
+</p>
+
+<ul>
+<li><b>INITIAL</b> - connection established, awaiting HELO/EHLO</li>
+<li><b>READY</b> - after successful greeting, ready for mail transaction</li>
+<li><b>MAIL</b> - after MAIL FROM accepted</li>
+<li><b>RCPT</b> - after one or more RCPT TO accepted</li>
+<li><b>DATA</b> - receiving message content</li>
+<li><b>QUIT</b> - connection closing</li>
+</ul>
+
+<p>
+State transitions are validated strictly according to RFC 5321, with appropriate
+error responses for out-of-sequence commands.
+</p>
+
+<h4>Non-Blocking DATA Processing</h4>
+
+<p>
+Message content during the DATA phase is processed as a stream without buffering
+the entire message in memory. The protocol handles dot-stuffing, CRLF
+normalisation, and termination detection (<code>CRLF.CRLF</code>) incrementally
+as data arrives, allowing arbitrarily large messages to be processed efficiently.
+</p>
+
+<h3 id="handler">Connection Handler</h3>
+
+<p>
+Gumdrop separates protocol mechanics from business logic through the
+<code>SMTPConnectionHandler</code> interface. The handler receives high-level
+events about the SMTP session and makes policy decisions without dealing with
+protocol syntax, response codes, or network I/O.
+</p>
+
+<h4>Handler Interface</h4>
+
+<p>
+Key handler methods:
+</p>
+
+<ul>
+<li><code>connected(SMTPConnectionMetadata)</code> - connection established,
+return false to reject early</li>
+<li><code>hello(extended, clientDomain, HelloCallback)</code> - HELO/EHLO received</li>
+<li><code>tlsStarted(SMTPConnectionMetadata)</code> - STARTTLS completed</li>
+<li><code>authenticated(user, method)</code> - AUTH succeeded</li>
+<li><code>mailFrom(senderAddress, MailFromCallback)</code> - sender evaluation</li>
+<li><code>rcptTo(recipientAddress, RcptToCallback)</code> - recipient validation</li>
+<li><code>startData(SMTPConnectionMetadata, DataStartCallback)</code> - DATA initiation</li>
+<li><code>messageContent(ByteBuffer)</code> - streaming message data</li>
+<li><code>endData(SMTPConnectionMetadata, DataEndCallback)</code> - message complete</li>
+<li><code>reset()</code> - RSET command, clear transaction state</li>
+<li><code>disconnected()</code> - connection closed</li>
+</ul>
+
+<h4>Asynchronous Callbacks</h4>
+
+<p>
+Policy methods use callbacks rather than return values, enabling asynchronous
+evaluation. A handler can consult external services—databases, reputation
+systems, content filters—without blocking the I/O thread. The callback must
+be invoked on the connection's SelectorLoop thread:
+</p>
+
+<pre>
+@Override
+public void mailFrom(final String sender, final MailFromCallback callback) {
+    final SelectorLoop loop = connection.getSelectorLoop();
+    
+    // Offload reputation check to worker thread
+    executor.submit(new Runnable() {
+        @Override
+        public void run() {
+            final SenderPolicyResult result = reputationService.checkSender(sender);
+            
+            // Re-dispatch callback to the connection's SelectorLoop thread
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    callback.mailFromReply(result);
+                }
+            });
+        }
+    });
+}
+</pre>
+
+<p>
+The SMTP connection automatically sends the appropriate protocol response when
+the callback is invoked. Invoking the callback on the correct thread ensures
+thread safety for all subsequent protocol operations.
+</p>
+
+<h4>Connection Metadata</h4>
+
+<p>
+Handlers receive rich context through <code>SMTPConnectionMetadata</code>:
+</p>
+
+<ul>
+<li><b>Network information</b> - client IP, server address</li>
+<li><b>Security context</b> - TLS status, cipher suite, protocol version</li>
+<li><b>Client certificates</b> - X.509 certificates if provided</li>
+<li><b>Authentication state</b> - authenticated user and mechanism</li>
+<li><b>Connection timing</b> - establishment time, duration</li>
+</ul>
+
+<h4>Handler Factory</h4>
+
+<p>
+Handlers are created per-connection via a factory, ensuring thread safety and
+state isolation:
+</p>
+
+<pre>
+SMTPServer server = new SMTPServer();
+server.setHandlerFactory(new SMTPConnectionHandlerFactory() {
+    @Override
+    public SMTPConnectionHandler createHandler() {
+        return new MyMailHandler(config, dependencies);
+    }
+});
+</pre>
+
+<h3 id="policy">Security Policies</h3>
+
+<p>
+Gumdrop provides comprehensive policy evaluation through typed result enums
+that abstract SMTP response codes.
+</p>
+
+<h4>Sender Policy Results</h4>
+
+<p>
+<code>SenderPolicyResult</code> for MAIL FROM evaluation:
+</p>
+
+<ul>
+<li><b>ACCEPT</b> - sender is valid (250)</li>
+<li><b>TEMP_REJECT_GREYLIST</b> - greylisting delay (450)</li>
+<li><b>TEMP_REJECT_RATE_LIMIT</b> - rate limit exceeded (450)</li>
+<li><b>REJECT_BLOCKED_DOMAIN</b> - domain on blocklist (550)</li>
+<li><b>REJECT_INVALID_DOMAIN</b> - domain does not exist (550)</li>
+<li><b>REJECT_POLICY_VIOLATION</b> - business rule violation (553)</li>
+<li><b>REJECT_SPAM_REPUTATION</b> - known spam source (554)</li>
+<li><b>REJECT_SYNTAX_ERROR</b> - malformed address (501)</li>
+<li><b>REJECT_RELAY_DENIED</b> - relaying not permitted (551)</li>
+<li><b>REJECT_STORAGE_FULL</b> - system storage unavailable (452)</li>
+</ul>
+
+<h4>Recipient Policy Results</h4>
+
+<p>
+<code>RecipientPolicyResult</code> for RCPT TO evaluation:
+</p>
+
+<ul>
+<li><b>ACCEPT</b> - recipient is valid (250)</li>
+<li><b>ACCEPT_FORWARD</b> - will forward to another host (251)</li>
+<li><b>TEMP_REJECT_UNAVAILABLE</b> - mailbox temporarily unavailable (450)</li>
+<li><b>TEMP_REJECT_SYSTEM_ERROR</b> - local processing error (451)</li>
+<li><b>TEMP_REJECT_STORAGE_FULL</b> - insufficient storage (452)</li>
+<li><b>REJECT_MAILBOX_UNAVAILABLE</b> - mailbox does not exist (550)</li>
+<li><b>REJECT_USER_NOT_LOCAL</b> - user not handled here (551)</li>
+<li><b>REJECT_QUOTA_EXCEEDED</b> - user quota full (552)</li>
+<li><b>REJECT_INVALID_MAILBOX</b> - mailbox name not allowed (553)</li>
+<li><b>REJECT_TRANSACTION_FAILED</b> - transaction failure (554)</li>
+<li><b>REJECT_SYNTAX_ERROR</b> - malformed address (501)</li>
+<li><b>REJECT_RELAY_DENIED</b> - relaying not permitted (551)</li>
+<li><b>REJECT_POLICY_VIOLATION</b> - policy violation (553)</li>
+</ul>
+
+<h4>Connection-Level Filtering</h4>
+
+<p>
+The SMTP server performs connection-level filtering before any protocol
+exchange:
+</p>
+
+<ul>
+<li><b>CIDR allow/block lists</b> - fast network matching with pre-parsed
+CIDR blocks supporting both IPv4 and IPv6</li>
+<li><b>Concurrent connection limits</b> - per-IP connection cap prevents
+resource exhaustion</li>
+<li><b>Rate limiting</b> - sliding window rate limits per IP address</li>
+</ul>
+
+<p>
+Blocked connections are rejected immediately without consuming handler resources.
+</p>
+
+<h3 id="authentication">Authentication</h3>
+
+<p>
+Gumdrop supports the full range of SMTP AUTH mechanisms:
+</p>
+
+<ul>
+<li><b>PLAIN</b> - simple username/password (RFC 4616)</li>
+<li><b>LOGIN</b> - legacy base64-encoded credentials</li>
+<li><b>CRAM-MD5</b> - challenge-response (RFC 2195)</li>
+<li><b>DIGEST-MD5</b> - digest authentication (RFC 2831)</li>
+<li><b>SCRAM-SHA-256</b> - salted challenge-response (RFC 7677)</li>
+<li><b>OAUTHBEARER</b> - OAuth 2.0 bearer tokens (RFC 7628)</li>
+<li><b>GSSAPI</b> - Kerberos authentication (RFC 4752)</li>
+<li><b>EXTERNAL</b> - TLS client certificate (RFC 4422)</li>
+</ul>
+
+<p>
+Authentication integrates with Gumdrop's centralised
+<code>org.bluezoo.gumdrop.Realm</code> facility for unified credential
+management across all servers.
+</p>
+
+<h4>STARTTLS</h4>
+
+<p>
+The server supports opportunistic TLS upgrade via STARTTLS (RFC 3207). When
+a keystore is configured, STARTTLS is advertised in EHLO responses. After
+successful TLS negotiation, the SMTP session resets and the client must
+re-issue EHLO.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>SMTPServer Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.smtp.SMTPServer</code> supports:
+</p>
+
+<ul>
+<li><code>port</code> - listening port (default: 25, or 465 for secure)</li>
+<li><code>secure</code> - enable implicit TLS (SMTPS)</li>
+<li><code>keystoreFile</code> - keystore for TLS/STARTTLS</li>
+<li><code>keystorePass</code> - keystore password</li>
+<li><code>realm</code> - reference to a Realm for authentication</li>
+<li><code>handlerFactory</code> - reference to an SMTPConnectionHandlerFactory</li>
+<li><code>maxMessageSize</code> - maximum message size in bytes (default: ~35MB)</li>
+<li><code>authRequired</code> - require authentication (for submission port)</li>
+<li><code>maxConnectionsPerIP</code> - concurrent connection limit per IP (default: 10)</li>
+<li><code>allowedNetworks</code> - CIDR networks to allow (e.g., "192.168.0.0/16")</li>
+<li><code>blockedNetworks</code> - CIDR networks to block</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;!-- Authentication realm --&gt;
+&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;!-- Handler factory --&gt;
+&lt;handlerFactory id="mailHandler" 
+                class="com.example.MyMailHandlerFactory"/&gt;
+
+&lt;!-- SMTP server (port 25) --&gt;
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;25&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="handlerFactory" ref="#mailHandler"/&gt;
+    &lt;property name="maxMessageSize"&gt;52428800&lt;/property&gt;
+    &lt;property name="maxConnectionsPerIP"&gt;20&lt;/property&gt;
+    &lt;property name="blockedNetworks"&gt;10.0.0.0/8&lt;/property&gt;
+&lt;/server&gt;
+
+&lt;!-- Submission server (port 587) --&gt;
+&lt;server id="submission" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;587&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+    &lt;property name="authRequired"&gt;true&lt;/property&gt;
+    &lt;property name="handlerFactory" ref="#mailHandler"/&gt;
+&lt;/server&gt;
+</pre>
+
+<h3 id="client">SMTP Client</h3>
+
+<p>
+Gumdrop includes a non-blocking SMTP client that shares the same event-driven
+architecture as the server. The client is designed for integration into MTA
+forward delivery components and service-to-service communication.
+</p>
+
+<h4>SelectorLoop Affinity</h4>
+
+<p>
+When an SMTP client connection is initiated from within a Gumdrop server
+context—such as a mail relay or gateway—it can be assigned to the same
+SelectorLoop as the originating server connection. This provides the same
+benefits described for the <a href="http.html#client">HTTP client</a>:
+</p>
+
+<ul>
+<li><b>Unified I/O model</b> - client and server connections share the same
+non-blocking infrastructure, avoiding thread context switches and complex
+race conditions when forwarding mail from an inbound connection</li>
+<li><b>Connection affinity</b> - outbound delivery connections remain bound
+to their worker thread, simplifying state management for pipelined operations</li>
+<li><b>Resource efficiency</b> - forward delivery multiplexes with inbound I/O
+on existing workers rather than requiring additional thread pools</li>
+<li><b>TLS integration</b> - STARTTLS negotiation on outbound connections is
+handled inline on the assigned worker</li>
+</ul>
+
+<p>
+This makes the SMTP client particularly well-suited for MTA implementations
+where inbound mail must be relayed to downstream servers. The relay operation
+executes entirely within the I/O worker without blocking.
+</p>
+
+<h4>Client Features</h4>
+
+<ul>
+<li><b>Asynchronous operation</b> - integrates with Gumdrop's SelectorLoop</li>
+<li><b>ESMTP support</b> - EHLO with extension discovery</li>
+<li><b>STARTTLS</b> - opportunistic TLS upgrade</li>
+<li><b>Streaming DATA</b> - dot-stuffing handled automatically without buffering</li>
+<li><b>Pipelining</b> - multiple commands in flight (when server supports)</li>
+</ul>
+
+<h4>Client Handler Interface</h4>
+
+<p>
+The client is driven by an <code>SMTPClientHandler</code> that receives
+protocol events:
+</p>
+
+<pre>
+SMTPClient client = new SMTPClient("mail.example.com", 25);
+client.connect(new SMTPClientHandler() {
+    @Override
+    public void onConnected() {
+        // TCP connection established, awaiting greeting
+    }
+    
+    @Override
+    public void onGreeting(SMTPResponse greeting, SMTPClientConnection conn) {
+        conn.ehlo("myhost.example.com");
+    }
+    
+    @Override
+    public void onReply(SMTPResponse response, SMTPClientConnection conn) {
+        // Handle command responses
+        if (response.isSuccess()) {
+            // Proceed with next command
+        }
+    }
+    
+    @Override
+    public void onTLSStarted() {
+        // TLS negotiation complete, re-issue EHLO
+    }
+    
+    @Override
+    public void onError(SMTPException error) {
+        // Handle protocol or connection errors
+    }
+    
+    @Override
+    public void onDisconnected() {
+        // Connection closed
+    }
+});
+</pre>
+
+<h4>Message Transmission</h4>
+
+<p>
+Message content is sent as a stream with automatic dot-stuffing:
+</p>
+
+<pre>
+// After MAIL FROM and RCPT TO accepted, DATA command sent
+conn.data();  // Sends DATA command
+
+// In onReply(), when 354 received:
+ByteBuffer content = getMessageContent();
+conn.messageContent(content);  // Dot-stuffed automatically
+conn.endData();  // Sends CRLF.CRLF terminator
+</pre>
+
+<h3 id="telemetry">Telemetry</h3>
+
+<p>
+The SMTP server integrates with Gumdrop's OpenTelemetry implementation for
+distributed tracing. When telemetry is enabled, the server creates traces
+and spans that provide visibility into mail flow.
+</p>
+
+<h4>Trace Structure</h4>
+
+<ul>
+<li><b>Connection trace</b> - root span covering the entire TCP connection
+with attributes for client IP, transport protocol, and connection duration</li>
+<li><b>Session spans</b> - child spans for each SMTP session (transaction),
+where a session runs from MAIL FROM to message acceptance or RSET/QUIT</li>
+</ul>
+
+<p>
+Session spans capture:
+</p>
+
+<ul>
+<li><code>smtp.session_number</code> - session index within connection</li>
+<li><code>smtp.client_hostname</code> - HELO/EHLO hostname</li>
+<li><code>smtp.esmtp_mode</code> - EHLO vs HELO</li>
+<li><code>smtp.mail_from</code> - sender address</li>
+<li><code>smtp.auth.mechanism</code> - authentication method if used</li>
+<li><code>smtp.auth.user</code> - authenticated username</li>
+<li>Events for RCPT TO recipients, STARTTLS, message acceptance</li>
+</ul>
+
+<p>
+Telemetry data is exported to an OpenTelemetry Collector using the OTLP/HTTP
+protocol. The exporter uses Gumdrop's native HTTP client with SelectorLoop
+affinity for efficient, non-blocking delivery.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="dns.html">DNS Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop SMTP Server</p>
+
+</body>
+</html>
+

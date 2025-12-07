@@ -1,0 +1,792 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Mailbox API - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop Mailbox API</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides an abstraction layer for mailbox access that decouples mail
+servers from storage implementation details. The IMAP, POP3, and SMTP servers
+can all access mailboxes through this API, allowing the storage backend to be
+changed or extended without modifying the protocol implementations.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#abstraction">The Abstraction Layer</a></li>
+<li><a href="#encoding">Mailbox Name Encoding</a></li>
+<li><a href="#api">Core Interfaces</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#mbox">Mbox Implementation</a></li>
+<li><a href="#maildir">Maildir Implementation</a></li>
+<li><a href="#search-index">Search Indexing</a></li>
+<li><a href="#custom">Custom Implementations</a></li>
+</ul>
+
+<h3 id="abstraction">The Abstraction Layer</h3>
+
+<p>
+The mailbox abstraction provides several important benefits:
+</p>
+
+<ul>
+<li><b>Protocol independence</b> - IMAP, POP3, and SMTP servers share the same
+mailbox interfaces, ensuring consistent behaviour regardless of how mail is
+accessed</li>
+<li><b>Storage flexibility</b> - switch between filesystem formats (mbox, Maildir)
+or implement custom backends (database, cloud storage) without protocol changes</li>
+<li><b>Thread safety</b> - the API defines clear session isolation semantics,
+allowing concurrent access from multiple clients</li>
+<li><b>NIO integration</b> - message content is accessed via
+<code>ReadableByteChannel</code>, consistent with Gumdrop's non-blocking
+architecture and enabling zero-copy transfers where possible</li>
+</ul>
+
+<p>
+The abstraction is organised into three tiers:
+</p>
+
+<ul>
+<li><b>MailboxFactory</b> - creates store instances, configured once at startup</li>
+<li><b>MailboxStore</b> - represents a user's complete mail storage, created
+per session for isolation</li>
+<li><b>Mailbox</b> - a single folder containing messages</li>
+</ul>
+
+<h3 id="encoding">Mailbox Name Encoding</h3>
+
+<p>
+Mailbox names may contain Unicode characters (e.g., "Données", "日本語") and
+special characters that are problematic on certain filesystems. Gumdrop uses
+a modified Quoted-Printable encoding based on RFC 2047 to ensure mailbox names
+are safely stored on all platforms.
+</p>
+
+<h4>Encoding Format</h4>
+
+<p>
+The <code>MailboxNameCodec</code> encodes characters as <code>=XX</code> hex
+sequences (where XX are uppercase hex digits) for:
+</p>
+
+<ul>
+<li><b>Non-ASCII characters</b> - all UTF-8 bytes with value &gt; 127</li>
+<li><b>Path separators</b> - <code>/</code> and <code>\</code></li>
+<li><b>Windows-forbidden characters</b> - <code>: * ? " &lt; &gt; |</code></li>
+<li><b>The escape character</b> - <code>=</code> itself</li>
+<li><b>Control characters</b> - bytes 0x00-0x1F</li>
+</ul>
+
+<p>
+Examples:
+</p>
+
+<pre>
+"Données/été"   → "Donn=C3=A9es=2F=C3=A9t=C3=A9"
+"Reports:2025"  → "Reports=3A2025"
+"日本語"        → "=E6=97=A5=E6=9C=AC=E8=AA=9E"
+</pre>
+
+<h4>Filesystem Compatibility</h4>
+
+<p>
+The encoding produces output containing only safe characters:
+<code>A-Z a-z 0-9 . _ - =</code>. This is compatible with:
+</p>
+
+<ul>
+<li><b>Unix/Linux</b> - all characters except <code>/</code> and null are valid;
+both are encoded</li>
+<li><b>Windows</b> - forbidden characters <code>\ / : * ? " &lt; &gt; |</code>
+are all encoded; NTFS reserved names (CON, PRN, etc.) are rare in mailbox names</li>
+<li><b>macOS</b> - similar to Unix; <code>:</code> is encoded for HFS+ legacy
+compatibility</li>
+</ul>
+
+<p>
+Unlike full RFC 2047 which uses the <code>=?charset?Q?...?=</code> wrapper format,
+this encoding omits the wrapper because the <code>?</code> character is forbidden
+in Windows filenames. The encoding is always UTF-8.
+</p>
+
+<h3 id="api">Core Interfaces</h3>
+
+<h4>MailboxFactory</h4>
+
+<p>
+The factory interface creates store instances. Each authenticated session
+receives its own store to ensure thread safety:
+</p>
+
+<pre>
+public interface MailboxFactory {
+    MailboxStore createStore();
+}
+</pre>
+
+<p>
+Factories are configured in <code>gumdroprc</code> and referenced by servers
+that require mailbox access.
+</p>
+
+<h4>MailboxStore</h4>
+
+<p>
+A store represents a user's complete mail hierarchy. After authentication,
+the server opens the store for the user:
+</p>
+
+<pre>
+MailboxStore store = factory.createStore();
+store.open(username);
+</pre>
+
+<p>
+The store provides:
+</p>
+
+<ul>
+<li><b>Mailbox listing</b> - <code>listMailboxes()</code> with wildcard patterns
+supporting IMAP's <code>*</code> and <code>%</code> wildcards</li>
+<li><b>Subscriptions</b> - <code>subscribe()</code>, <code>unsubscribe()</code>,
+<code>listSubscribed()</code> for IMAP folder subscriptions</li>
+<li><b>Mailbox management</b> - <code>createMailbox()</code>,
+<code>deleteMailbox()</code>, <code>renameMailbox()</code></li>
+<li><b>Mailbox access</b> - <code>openMailbox(name, readOnly)</code></li>
+<li><b>Hierarchy delimiter</b> - typically <code>/</code> or <code>.</code></li>
+<li><b>Quota support</b> - optional quota root and usage tracking</li>
+</ul>
+
+<h4>Mailbox</h4>
+
+<p>
+A mailbox is a single folder containing messages. For POP3, only INBOX is
+used; IMAP accesses the full hierarchy.
+</p>
+
+<p>
+Message operations:
+</p>
+
+<ul>
+<li><b>Enumeration</b> - <code>getMessageCount()</code>,
+<code>getMessageList()</code>, <code>getMessage(int)</code></li>
+<li><b>Content access</b> - <code>getMessageContent(int)</code> returns a
+<code>ReadableByteChannel</code> for streaming</li>
+<li><b>TOP command</b> - <code>getMessageTop(int, lines)</code> for POP3
+header + body line retrieval</li>
+<li><b>Deletion</b> - <code>deleteMessage(int)</code>, <code>isDeleted(int)</code>,
+<code>undeleteAll()</code>, <code>expunge()</code></li>
+<li><b>Unique IDs</b> - <code>getUniqueId(int)</code> for persistent message
+identification (POP3 UIDL, IMAP UID)</li>
+</ul>
+
+<p>
+IMAP-specific operations:
+</p>
+
+<ul>
+<li><b>Flags</b> - <code>getFlags()</code>, <code>setFlags()</code>,
+<code>replaceFlags()</code> for \Seen, \Answered, \Flagged, \Deleted, \Draft</li>
+<li><b>Append</b> - streaming message append via <code>startAppendMessage()</code>,
+<code>appendMessageContent()</code>, <code>endAppendMessage()</code></li>
+<li><b>Copy/Move</b> - <code>copyMessages()</code>, <code>moveMessages()</code></li>
+<li><b>Search</b> - <code>search(SearchCriteria)</code> with extensible criteria</li>
+<li><b>UIDVALIDITY</b> - <code>getUidValidity()</code>, <code>getUidNext()</code></li>
+</ul>
+
+<h4>MessageDescriptor</h4>
+
+<p>
+Message metadata without loading content:
+</p>
+
+<ul>
+<li><code>getMessageNumber()</code> - sequence number (1-based, may change on expunge)</li>
+<li><code>getSize()</code> - message size in octets</li>
+<li><code>getUniqueId()</code> - persistent identifier</li>
+</ul>
+
+<h3 id="configuration">Configuration</h3>
+
+<p>
+Mailbox factories are configured in <code>gumdroprc</code> and referenced by
+servers:
+</p>
+
+<pre>
+&lt;!-- Mbox mailbox factory --&gt;
+&lt;mailboxFactory id="mboxFactory" 
+                class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
+    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+    &lt;property name="extension"&gt;.mbox&lt;/property&gt;
+&lt;/mailboxFactory&gt;
+
+&lt;!-- Maildir mailbox factory --&gt;
+&lt;mailboxFactory id="maildirFactory"
+                class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;/mailboxFactory&gt;
+
+&lt;!-- IMAP server using Maildir --&gt;
+&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;property name="port"&gt;143&lt;/property&gt;
+    &lt;property name="mailboxFactory" ref="#maildirFactory"/&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+&lt;/server&gt;
+
+&lt;!-- POP3 server using mbox --&gt;
+&lt;server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
+    &lt;property name="port"&gt;110&lt;/property&gt;
+    &lt;property name="mailboxFactory" ref="#mboxFactory"/&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+SMTP servers can also reference a mailbox factory for local delivery:
+</p>
+
+<pre>
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;25&lt;/property&gt;
+    &lt;property name="handlerFactory" ref="#localDeliveryHandler"/&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+The SMTP handler factory can then use the mailbox factory to deliver messages
+to local recipients.
+</p>
+
+<h3 id="mbox">Mbox Implementation</h3>
+
+<p>
+The mbox format stores all messages in a single file, separated by
+"From " envelope lines. This format originated in Unix systems and remains
+widely used due to its simplicity.
+</p>
+
+<h4>Format</h4>
+
+<p>
+Each message begins with a "From " line containing the sender and timestamp:
+</p>
+
+<pre>
+From sender@example.com Mon Jan  1 00:00:00 2025
+[RFC 822 headers]
+
+[message body]
+
+From another@example.com Tue Jan  2 00:00:00 2025
+[next message...]
+</pre>
+
+<p>
+Lines in the message body beginning with "From " are escaped by prepending
+"&gt;" to prevent confusion with message boundaries.
+</p>
+
+<h4>Implementation Details</h4>
+
+<ul>
+<li><b>File locking</b> - exclusive locks prevent concurrent modification;
+shared locks allow concurrent read access</li>
+<li><b>Message indexing</b> - the file is scanned on open to build an
+in-memory index of message offsets</li>
+<li><b>Deletion</b> - messages are marked for deletion in memory; the file is
+rewritten on expunge</li>
+<li><b>Unique IDs</b> - computed as MD5 hash of message content</li>
+<li><b>From escaping</b> - handled transparently on read and write</li>
+</ul>
+
+<h4>Configuration</h4>
+
+<pre>
+&lt;mailboxFactory id="mbox" 
+                class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
+    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+    &lt;property name="extension"&gt;.mbox&lt;/property&gt;
+&lt;/mailboxFactory&gt;
+</pre>
+
+<ul>
+<li><code>basedir</code> - directory containing user mailboxes</li>
+<li><code>extension</code> - file extension for mbox files (default: <code>.mbox</code>)</li>
+</ul>
+
+<p>
+User mailboxes are located at <code>{basedir}/{username}/INBOX{extension}</code>.
+Subfolders follow the same pattern with folder names as subdirectories.
+</p>
+
+<h4>Strengths</h4>
+
+<ul>
+<li><b>Simplicity</b> - single file per mailbox, easy to backup and restore</li>
+<li><b>Compatibility</b> - widely supported by Unix mail tools</li>
+<li><b>Efficiency for small mailboxes</b> - minimal overhead for few messages</li>
+<li><b>Atomic operations</b> - file locking ensures consistency</li>
+</ul>
+
+<h4>Limitations</h4>
+
+<ul>
+<li><b>Scalability</b> - large mailboxes require scanning the entire file</li>
+<li><b>Concurrent access</b> - write operations require exclusive lock</li>
+<li><b>Deletion overhead</b> - expunge requires rewriting the entire file</li>
+<li><b>Flag storage</b> - IMAP flags require external metadata files</li>
+</ul>
+
+<h4>Use Cases</h4>
+
+<p>
+Mbox is suitable for:
+</p>
+
+<ul>
+<li>Small to medium mailboxes (hundreds of messages)</li>
+<li>POP3 access where full downloads are common</li>
+<li>Simple deployments with limited concurrent access</li>
+<li>Integration with traditional Unix mail infrastructure</li>
+</ul>
+
+<h3 id="maildir">Maildir Implementation</h3>
+
+<p>
+Maildir stores each message as a separate file within a directory structure.
+Developed by Daniel J. Bernstein for qmail, Maildir is designed for reliable
+delivery and concurrent access.
+</p>
+
+<h4>Directory Structure</h4>
+
+<p>
+Each mailbox consists of three subdirectories:
+</p>
+
+<ul>
+<li><code>new/</code> - newly delivered messages not yet seen by client</li>
+<li><code>cur/</code> - messages that have been accessed</li>
+<li><code>tmp/</code> - temporary files during delivery (atomic rename)</li>
+</ul>
+
+<p>
+Subfolders follow the Maildir++ convention, represented as directories
+starting with a dot (e.g., <code>.Sent</code>, <code>.Drafts</code>).
+</p>
+
+<h4>Filename Format</h4>
+
+<p>
+Message metadata is encoded in the filename:
+</p>
+
+<pre>
+{timestamp}.{unique}.{hostname},S={size}:2,{flags}
+</pre>
+
+<p>
+Example: <code>1704067200.12345.mail.example.com,S=4096:2,S</code>
+</p>
+
+<p>
+Flag characters: S=Seen, R=Replied, F=Flagged, T=Trashed, D=Draft.
+This allows flag changes without modifying file contents—only a rename is
+required.
+</p>
+
+<h4>Implementation Details</h4>
+
+<ul>
+<li><b>Atomic delivery</b> - messages are written to <code>tmp/</code> then
+renamed to <code>new/</code>, ensuring complete delivery</li>
+<li><b>No locking required</b> - directory operations are atomic; multiple
+clients can access simultaneously</li>
+<li><b>UID management</b> - a <code>.uidlist</code> file tracks UIDs
+for IMAP compatibility</li>
+<li><b>Keywords</b> - custom keywords stored in <code>.keywords</code></li>
+<li><b>new to cur</b> - messages move from <code>new/</code> to <code>cur/</code>
+when first seen by a client</li>
+</ul>
+
+<h4>Configuration</h4>
+
+<pre>
+&lt;mailboxFactory id="maildir"
+                class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;/mailboxFactory&gt;
+</pre>
+
+<ul>
+<li><code>basedir</code> - directory containing user Maildirs</li>
+</ul>
+
+<p>
+User mailboxes are located at <code>{basedir}/{username}/</code> with the
+standard <code>cur/</code>, <code>new/</code>, <code>tmp/</code> subdirectories.
+</p>
+
+<h4>Strengths</h4>
+
+<ul>
+<li><b>Concurrent access</b> - multiple clients can read and write
+simultaneously without conflicts</li>
+<li><b>Reliable delivery</b> - atomic rename ensures messages are never
+partially written</li>
+<li><b>Efficient flag updates</b> - rename operation only, no file rewrite</li>
+<li><b>No rewrite on delete</b> - messages are simply unlinked</li>
+<li><b>NFS safe</b> - designed to work correctly over network filesystems</li>
+<li><b>Scalable</b> - performance independent of mailbox size</li>
+</ul>
+
+<h4>Limitations</h4>
+
+<ul>
+<li><b>Filesystem overhead</b> - many small files may impact some filesystems</li>
+<li><b>Directory scanning</b> - initial indexing requires reading directory</li>
+<li><b>Backup complexity</b> - thousands of files vs single mbox file</li>
+</ul>
+
+<h4>Use Cases</h4>
+
+<p>
+Maildir is recommended for:
+</p>
+
+<ul>
+<li>Large mailboxes (thousands of messages)</li>
+<li>IMAP access with concurrent clients</li>
+<li>High-availability deployments requiring reliable delivery</li>
+<li>Systems using NFS or other network storage</li>
+<li>Production mail servers with significant traffic</li>
+</ul>
+
+<h3 id="search-index">Search Indexing</h3>
+
+<p>
+Both mbox and Maildir implementations include a search indexing facility that
+dramatically accelerates IMAP SEARCH operations. Without indexing, each search
+requires parsing every message in the mailbox—a prohibitively slow operation
+for large mailboxes. The index pre-extracts searchable metadata, enabling
+most searches to complete without touching the underlying message files.
+</p>
+
+<h4>What the Index Stores</h4>
+
+<p>
+The search index (<code>.gidx</code> file) stores the following for each message:
+</p>
+
+<ul>
+<li><b>UID and message number</b> - for mapping search results to messages</li>
+<li><b>Size</b> - message size in octets for LARGER/SMALLER searches</li>
+<li><b>Internal date</b> - when the message was received (BEFORE/ON/SINCE)</li>
+<li><b>Sent date</b> - Date header value (SENTBEFORE/SENTON/SENTSINCE)</li>
+<li><b>Flags</b> - \Seen, \Answered, \Flagged, \Deleted, \Draft</li>
+<li><b>Keywords</b> - custom IMAP keywords</li>
+<li><b>From, To, Cc, Bcc</b> - email addresses (extracted, not raw headers)</li>
+<li><b>Subject</b> - decoded subject line</li>
+<li><b>Message-ID</b> - for threading and duplicate detection</li>
+<li><b>Location</b> - message position (mbox offset or Maildir filename)</li>
+</ul>
+
+<p>
+All string values are stored in lowercase for case-insensitive searching.
+Structured data is extracted using the RFC 5322 message parser—for example,
+<code>EmailAddress</code> objects provide just the address without display
+names or angle brackets.
+</p>
+
+<h4>What the Index Does NOT Store</h4>
+
+<p>
+To keep the index compact, the following are <b>not</b> indexed:
+</p>
+
+<ul>
+<li><b>Full message body</b> - TEXT and BODY searches require message parsing</li>
+<li><b>Full headers</b> - only commonly searched headers are indexed</li>
+<li><b>Arbitrary headers</b> - HEADER searches for non-indexed headers fall back to parsing</li>
+</ul>
+
+<p>
+When a search requires body content (e.g., <code>SEARCH BODY "invoice"</code>),
+the implementation falls back to the default parsing-based search for those
+messages. However, the index can still accelerate compound searches by first
+narrowing candidates using indexed criteria.
+</p>
+
+<h4>Sub-Indexes for Fast Lookups</h4>
+
+<p>
+Beyond the primary entry list, the index maintains auxiliary data structures
+for O(1) and O(log n) lookups:
+</p>
+
+<ul>
+<li><b>Flag BitSets</b> - one <code>BitSet</code> per flag enables instant
+retrieval of all messages with a given flag (e.g., all unseen messages)</li>
+<li><b>Date TreeMaps</b> - sorted maps for efficient date range queries</li>
+<li><b>Size TreeMap</b> - for LARGER/SMALLER searches</li>
+<li><b>Address maps</b> - reverse lookup from email address to messages</li>
+<li><b>Keyword map</b> - reverse lookup from keyword to messages</li>
+</ul>
+
+<h4>Index File Format</h4>
+
+<p>
+The index is stored as a binary file with the <code>.gidx</code> extension:
+</p>
+
+<ul>
+<li><b>Mbox</b> - <code>{mailbox}.mbox.gidx</code> alongside the mbox file</li>
+<li><b>Maildir</b> - <code>.gidx</code> in the Maildir directory</li>
+</ul>
+
+<p>
+The file format includes:
+</p>
+
+<pre>
+HEADER (32 bytes):
+  magic: 4 bytes ("GIDX")
+  version: 2 bytes
+  flags: 2 bytes (reserved)
+  uidValidity: 8 bytes
+  uidNext: 8 bytes
+  entryCount: 4 bytes
+  headerChecksum: 4 bytes (CRC32)
+
+ENTRIES SECTION:
+  For each message: [fixed header + property descriptors + variable data]
+  sectionChecksum: 4 bytes (CRC32)
+</pre>
+
+<p>
+Each entry uses "property descriptors" (offset + length pairs) for
+variable-length strings, allowing fast random access without parsing the
+entire entry. All strings are UTF-8 encoded.
+</p>
+
+<h4>Index Lifecycle</h4>
+
+<p>
+The index is managed automatically:
+</p>
+
+<ul>
+<li><b>Creation</b> - when a mailbox is first opened and no index exists,
+a full index build is performed synchronously</li>
+<li><b>Loading</b> - on subsequent opens, the existing index is loaded and
+validated against the mailbox state</li>
+<li><b>Incremental updates</b> - new messages are indexed on append; deleted
+messages are removed on expunge; flag changes update the index</li>
+<li><b>Rebuild</b> - if the index is corrupt or inconsistent with the mailbox,
+it is automatically rebuilt</li>
+<li><b>Persistence</b> - the index is saved when the mailbox is closed
+(if modified)</li>
+</ul>
+
+<h4>Corruption Detection</h4>
+
+<p>
+The index includes multiple layers of corruption detection:
+</p>
+
+<ul>
+<li><b>Magic number</b> - validates file type</li>
+<li><b>Version check</b> - ensures compatibility</li>
+<li><b>Header checksum</b> - CRC32 of header fields</li>
+<li><b>Structural validation</b> - UID uniqueness, bounds checking</li>
+<li><b>Cross-validation</b> - UID validity and message count vs mailbox</li>
+</ul>
+
+<p>
+If corruption is detected, the index is discarded and rebuilt from the
+mailbox contents. No data is lost—the index is purely a cache of derived
+information.
+</p>
+
+<h4>Performance Characteristics</h4>
+
+<table border="1" cellpadding="5" cellspacing="0">
+<tr><th>Search Type</th><th>Without Index</th><th>With Index</th></tr>
+<tr><td>Flag search (e.g., UNSEEN)</td><td>O(n) message parses</td><td>O(1) BitSet lookup</td></tr>
+<tr><td>Date range (SINCE/BEFORE)</td><td>O(n) message parses</td><td>O(log n) TreeMap</td></tr>
+<tr><td>Size (LARGER/SMALLER)</td><td>O(n) stat calls</td><td>O(log n) TreeMap</td></tr>
+<tr><td>Address (FROM/TO/CC)</td><td>O(n) header parses</td><td>O(n) scan, no parsing</td></tr>
+<tr><td>Subject</td><td>O(n) header parses</td><td>O(n) scan, no parsing</td></tr>
+<tr><td>Body text (BODY/TEXT)</td><td>O(n) full parses</td><td>O(n) full parses*</td></tr>
+</table>
+
+<p>
+<i>* Body searches cannot be accelerated by indexing and always require
+parsing. However, compound searches like <code>UNSEEN BODY "invoice"</code>
+first filter by flag, reducing the messages that need parsing.</i>
+</p>
+
+<h4>Design Considerations</h4>
+
+<p>
+The index is designed with these principles:
+</p>
+
+<ul>
+<li><b>Per-session</b> - each session loads its own index copy, avoiding
+locking and enabling session-local views</li>
+<li><b>Rebuild-safe</b> - the index can always be rebuilt from the mailbox;
+it's a cache, not authoritative data</li>
+<li><b>Incremental</b> - only changed messages are re-indexed, not the
+entire mailbox</li>
+<li><b>Compact</b> - only searchable metadata is stored, not message content</li>
+<li><b>Validated</b> - checksums and structural checks detect corruption</li>
+</ul>
+
+<h4>Future Enhancements</h4>
+
+<p>
+Potential improvements noted for future development:
+</p>
+
+<ul>
+<li><b>Progressive building</b> - build index in background while allowing
+searches to fall back to parsing for not-yet-indexed messages</li>
+<li><b>Full-text indexing</b> - optional body text indexing for BODY/TEXT
+searches (significantly increases index size)</li>
+<li><b>Shared indexes</b> - inter-session index sharing with proper
+synchronisation for reduced memory usage</li>
+</ul>
+
+<h3 id="custom">Custom Implementations</h3>
+
+<p>
+The mailbox API can be implemented for alternative storage backends. Potential
+implementations include:
+</p>
+
+<ul>
+<li><b>Database storage</b> - SQL or NoSQL databases for messages and metadata,
+enabling advanced search and horizontal scaling</li>
+<li><b>Cloud storage</b> - object storage (S3, GCS) for message content with
+metadata in a fast index</li>
+<li><b>IMAP proxy</b> - delegate to an upstream IMAP server, enabling Gumdrop
+to act as a caching proxy or protocol translator</li>
+<li><b>Virtual mailboxes</b> - computed mailboxes aggregating messages from
+multiple sources</li>
+</ul>
+
+<h4>Implementation Guidelines</h4>
+
+<p>
+When implementing a custom backend:
+</p>
+
+<ul>
+<li><b>Thread safety</b> - stores are created per session, but mailboxes may
+be accessed by multiple sessions. Ensure thread-safe access to shared resources.</li>
+<li><b>UID persistence</b> - UIDs must be unique and persistent across sessions.
+UIDVALIDITY should change only if UIDs are reassigned.</li>
+<li><b>Atomic operations</b> - expunge, append, and flag updates should be
+atomic to prevent inconsistent state.</li>
+<li><b>Streaming content</b> - return <code>ReadableByteChannel</code> for
+message content to enable efficient transfer without loading entire messages
+into memory.</li>
+<li><b>Session isolation</b> - deletion marks are session-local until expunge;
+other sessions should see consistent state.</li>
+</ul>
+
+<h4>Example Skeleton</h4>
+
+<pre>
+public class DatabaseMailboxFactory implements MailboxFactory {
+    
+    private final DataSource dataSource;
+    
+    public DatabaseMailboxFactory(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+    
+    @Override
+    public MailboxStore createStore() {
+        return new DatabaseMailboxStore(dataSource);
+    }
+}
+
+public class DatabaseMailboxStore implements MailboxStore {
+    
+    private final DataSource dataSource;
+    private Connection connection;
+    private String username;
+    
+    @Override
+    public void open(String username) throws IOException {
+        this.username = username;
+        try {
+            this.connection = dataSource.getConnection();
+        } catch (SQLException e) {
+            throw new IOException("Database connection failed", e);
+        }
+    }
+    
+    @Override
+    public Mailbox openMailbox(String name, boolean readOnly) throws IOException {
+        return new DatabaseMailbox(connection, username, name, readOnly);
+    }
+    
+    // ... implement remaining methods
+}
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="dns.html">DNS Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop Mailbox API</p>
+
+</body>
+</html>
+

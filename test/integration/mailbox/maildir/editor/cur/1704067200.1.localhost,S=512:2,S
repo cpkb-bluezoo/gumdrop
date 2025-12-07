@@ -1,0 +1,22 @@
+From: Gumdrop Team <welcome@gumdrop.local>
+To: Test User <testuser@gumdrop.local>
+Subject: Welcome to Gumdrop!
+Date: Thu, 1 Jan 2025 00:00:00 +0000
+Message-ID: <welcome-001@gumdrop.local>
+Content-Type: text/plain; charset=UTF-8
+
+Hello and welcome to Gumdrop!
+
+Gumdrop is a multipurpose Java server framework that provides:
+- HTTP/HTTPS server with servlet support
+- SMTP server for email delivery
+- POP3 server for email retrieval
+- IMAP server for email access
+- FTP server for file transfer
+- DNS server for name resolution
+
+Thank you for testing Gumdrop!
+
+Best regards,
+The Gumdrop Team
+

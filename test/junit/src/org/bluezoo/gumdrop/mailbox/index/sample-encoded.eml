@@ -1,0 +1,13 @@
+From: =?UTF-8?B?5pel5pys6Kqe44Om44O844K244O8?= <japanese@example.com>
+To: recipient@example.com
+Subject: =?UTF-8?B?44GT44KT44Gr44Gh44Gv5LiW55WMIQ==?=
+Date: Wed, 17 Jan 2024 09:00:00 +0900
+Message-ID: <encoded-headers@example.com>
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+This message has encoded headers using RFC 2047 MIME encoding.
+
+The From header should decode to Japanese characters.
+The Subject should decode to "Hello World!" in Japanese (こんにちは世界!).
+

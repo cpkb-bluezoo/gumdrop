@@ -1,0 +1,102 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<web-app version='2.4'>
+
+  <!--distributable/-->
+
+  <display-name>Test web application</display-name>
+  <description>The test web application that ships with gumdrop</description>
+
+  <servlet>
+    <servlet-name>TestServlet</servlet-name>
+    <servlet-class>test.TestServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>TestServlet</servlet-name>
+    <url-pattern>/test</url-pattern>
+  </servlet-mapping>
+  <servlet-mapping>
+    <servlet-name>TestServlet</servlet-name>
+    <url-pattern>*.test</url-pattern>
+  </servlet-mapping>
+
+  <welcome-file-list>
+    <welcome-file>index.html</welcome-file>
+  </welcome-file-list>
+
+  <mime-mapping>
+    <mime-type>text/css</mime-type>
+    <extension>.css</extension>
+  </mime-mapping>
+
+  <mime-mapping>
+    <mime-type>text/x-java-source</mime-type>
+    <extension>.java</extension>
+  </mime-mapping>
+
+  <login-config>
+    <auth-method>BASIC</auth-method>
+    <realm-name>myRealm</realm-name>
+  </login-config>
+
+  <security-constraint>
+    <web-resource-collection>
+      <url-pattern>/test</url-pattern>
+      <url-pattern>*.test</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+      <role-name>Editors</role-name>
+    </auth-constraint>
+  </security-constraint>
+
+  <!-- JSP Configuration for Examples -->
+  <jsp-config>
+    <!-- Basic JSP files - UTF-8 encoding, scripting allowed -->
+    <jsp-property-group>
+      <url-pattern>/jsp/*.jsp</url-pattern>
+      <url-pattern>/jsp/*.jspx</url-pattern>
+      <page-encoding>UTF-8</page-encoding>
+      <scripting-invalid>false</scripting-invalid>
+    </jsp-property-group>
+
+    <!-- Restricted area - scripting disabled for security demonstration -->
+    <jsp-property-group>
+      <url-pattern>/jsp/restricted/*</url-pattern>
+      <scripting-invalid>true</scripting-invalid>
+      <page-encoding>UTF-8</page-encoding>
+    </jsp-property-group>
+
+    <!-- Enhanced area - with automatic prelude and coda inclusion -->
+    <jsp-property-group>
+      <url-pattern>/jsp/enhanced/*</url-pattern>
+      <page-encoding>UTF-8</page-encoding>
+      <include-prelude>/WEB-INF/includes/header-prelude.jsp</include-prelude>
+      <include-coda>/WEB-INF/includes/footer-coda.jsp</include-coda>
+    </jsp-property-group>
+
+    <!-- Taglib example area - demonstrates custom tag processing -->
+    <jsp-property-group>
+      <url-pattern>/jsp/taglib-example.jsp</url-pattern>
+      <page-encoding>UTF-8</page-encoding>
+      <default-content-type>text/html; charset=UTF-8</default-content-type>
+    </jsp-property-group>
+  </jsp-config>
+
+</web-app>
+

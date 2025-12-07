@@ -1,0 +1,28 @@
+From: sender@example.com
+To: recipient@example.com
+Subject: Multipart Email with Attachment
+Date: Tue, 16 Jan 2024 14:00:00 +0000
+Message-ID: <multipart-test@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="----=_Part_123456"
+
+This is a multi-part message in MIME format.
+
+------=_Part_123456
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+This is the plain text body of the message.
+
+It contains multiple lines and paragraphs.
+
+------=_Part_123456
+Content-Type: application/pdf; name="report.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="report.pdf"
+
+JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIK
+Pj4KZW5kb2JqCg==
+
+------=_Part_123456--
+
