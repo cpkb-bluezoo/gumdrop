@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 800 400" width="800" height="400">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
   <defs>
     <!-- Background gradient -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -17,6 +17,38 @@
     <radialGradient id="particleGlow" cx="50%" cy="50%" r="50%">
       <stop offset="0%" style="stop-color:#4ade80;stop-opacity:1"/>
       <stop offset="100%" style="stop-color:#22c55e;stop-opacity:0"/>
+    </radialGradient>
+
+    <!-- Logo gradients (from gumdrop-logo.svg) -->
+    <linearGradient id="torusBase" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3d6b4a"/>
+      <stop offset="40%" style="stop-color:#2a5438"/>
+      <stop offset="70%" style="stop-color:#1f4029"/>
+      <stop offset="100%" style="stop-color:#152d1c"/>
+    </linearGradient>
+    
+    <radialGradient id="highlightTL" cx="25%" cy="20%" r="35%">
+      <stop offset="0%" style="stop-color:#70ff90;stop-opacity:1"/>
+      <stop offset="30%" style="stop-color:#40d060;stop-opacity:0.7"/>
+      <stop offset="100%" style="stop-color:#2a5438;stop-opacity:0"/>
+    </radialGradient>
+    
+    <radialGradient id="highlightBR" cx="75%" cy="75%" r="30%">
+      <stop offset="0%" style="stop-color:#50e070;stop-opacity:0.6"/>
+      <stop offset="50%" style="stop-color:#30a048;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#1f4029;stop-opacity:0"/>
+    </radialGradient>
+    
+    <linearGradient id="gumdropGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3d6b4a"/>
+      <stop offset="50%" style="stop-color:#2a5438"/>
+      <stop offset="100%" style="stop-color:#1a3525"/>
+    </linearGradient>
+    
+    <radialGradient id="gumdropHighlight" cx="30%" cy="25%" r="40%">
+      <stop offset="0%" style="stop-color:#70ff90;stop-opacity:0.9"/>
+      <stop offset="40%" style="stop-color:#40d060;stop-opacity:0.5"/>
+      <stop offset="100%" style="stop-color:#2a5438;stop-opacity:0"/>
     </radialGradient>
 
     <!-- Filters -->
@@ -168,12 +200,62 @@
       <circle cx="110" cy="200" r="5" fill="#ef4444" filter="url(#glow)"/>
     </g>
 
-    <!-- GUMDROP LOGO - included from external SVG file -->
-    <!-- Centered at 190, 200 with scale 1.15 -->
-    <!-- Logo viewBox is 160x140, so offset by half: -80, -70 plus center 190, 200 = 110, 130 -->
-    <!-- With scale 1.15: actual size 184x161, so offset: 190 - 92 = 98, 200 - 80.5 = 119.5 -->
+    <!-- GUMDROP LOGO - embedded directly, centered at 190, 200 with scale 1.15 -->
     <g class="logo-float" filter="url(#logoShadow)" style="transform-origin: 190px 200px;">
-      <image href="gumdrop-logo.svg" x="98" y="119" width="184" height="161"/>
+      <g transform="translate(190, 200) scale(1.15) translate(-80, -70)">
+        <g transform="translate(80, 70)">
+          <!-- TORUS BODY - the main doughnut shape -->
+          <ellipse cx="-5" cy="0" rx="55" ry="50" fill="url(#torusBase)"/>
+          
+          <!-- Path with hole cut out -->
+          <path d="
+            M -60 0
+            A 55 50 0 1 1 50 0
+            A 55 50 0 1 1 -60 0
+            Z
+            M 0 -18
+            A 12 18 0 1 0 24 0
+            A 12 18 0 1 0 0 -18
+            Z
+          " fill="url(#torusBase)" fill-rule="evenodd"/>
+          
+          <!-- Inner rim shadow (the back wall of the hole) -->
+          <ellipse cx="15" cy="2" rx="12" ry="20" fill="#121810" opacity="0.6"/>
+          
+          <!-- Top-left highlight on torus body -->
+          <ellipse cx="-30" cy="-28" rx="20" ry="16" fill="url(#highlightTL)"/>
+          
+          <!-- Smaller highlight on top -->
+          <ellipse cx="-8" cy="-40" rx="12" ry="8" fill="url(#highlightTL)" opacity="0.5"/>
+          
+          <!-- Lower-right reflection -->
+          <ellipse cx="15" cy="32" rx="15" ry="12" fill="url(#highlightBR)"/>
+          
+          <!-- Top rim specular highlight -->
+          <path d="M -50 -15 Q -30 -45, 0 -48 Q 25 -45, 42 -25" 
+                fill="none" stroke="#80ffa0" stroke-width="1.5" opacity="0.3" stroke-linecap="round"/>
+          
+          <!-- GUMDROP CANDY emerging from hole to the right -->
+          <g transform="translate(42, 3)">
+            <path d="
+              M 0 -15
+              Q 5 -18, 12 -16
+              Q 28 -12, 35 0
+              Q 28 12, 12 16
+              Q 5 18, 0 15
+              Q -8 10, -8 0
+              Q -8 -10, 0 -15
+              Z
+            " fill="url(#gumdropGrad)"/>
+            
+            <!-- Gumdrop highlight -->
+            <ellipse cx="8" cy="-8" rx="10" ry="7" fill="url(#gumdropHighlight)" opacity="0.9"/>
+            
+            <!-- Small specular on tip -->
+            <ellipse cx="28" cy="-3" rx="4" ry="3" fill="#60ff80" opacity="0.3"/>
+          </g>
+        </g>
+      </g>
     </g>
 
     <!-- Protocol labels -->
