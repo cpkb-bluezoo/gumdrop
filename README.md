@@ -1,7 +1,7 @@
 # gumdrop
 
 <p align="center">
-  <img src="hero.svg" alt="Gumdrop - Pure Java Multi-Protocol Server" width="800"/>
+  <img src="https://bluezoo.org/gumdrop/hero.svg" alt="Gumdrop - Pure Java Multi-Protocol Server" width="800"/>
 </p>
 
 <p align="center">
