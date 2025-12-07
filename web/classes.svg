@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 950 750" width="950" height="750">
+  <defs>
+    <marker id="extends" markerWidth="15" markerHeight="15" refX="15" refY="7.5" orient="auto">
+      <polygon points="0 0, 15 7.5, 0 15" fill="none" stroke="#333" stroke-width="1"/>
+    </marker>
+    <marker id="assoc" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
+      <polygon points="0 0, 10 5, 0 10" fill="#666"/>
+    </marker>
+  </defs>
+  
+  <style>
+    .class-name { font: bold 12px sans-serif; fill: #333; }
+    .abstract-name { font: bold italic 12px sans-serif; fill: #333; }
+    .interface-name { font: italic 12px sans-serif; fill: #333; }
+    .stereotype { font: italic 10px sans-serif; fill: #666; }
+    .note { font: 10px sans-serif; fill: #555; }
+    .package { font: 10px sans-serif; fill: #888; }
+    .title { font: bold 16px sans-serif; fill: #333; }
+  </style>
+  
+  <!-- Background -->
+  <rect width="950" height="750" fill="#fefefe"/>
+  
+  <!-- Title -->
+  <text x="475" y="25" text-anchor="middle" class="title">Gumdrop Class Hierarchy</text>
+  
+  <!-- Gumdrop Container at top -->
+  <rect x="250" y="45" width="450" height="100" rx="8" fill="#fce8e8" stroke="#c0392b" stroke-width="2"/>
+  <text x="475" y="65" text-anchor="middle" class="class-name" style="font-size:14px">Gumdrop</text>
+  <text x="475" y="80" text-anchor="middle" class="note">Central lifecycle manager</text>
+  
+  <rect x="270" y="90" width="130" height="40" rx="4" fill="#fcf8e8" stroke="#d4a017"/>
+  <text x="335" y="115" text-anchor="middle" class="class-name" style="font-size:10px">AcceptSelectorLoop</text>
+  
+  <rect x="420" y="90" width="130" height="40" rx="4" fill="#fcf8e8" stroke="#d4a017"/>
+  <text x="485" y="108" text-anchor="middle" class="class-name" style="font-size:10px">SelectorLoop[]</text>
+  <text x="485" y="122" text-anchor="middle" class="note" style="font-size:9px">Worker pool</text>
+  
+  <rect x="570" y="90" width="110" height="40" rx="4" fill="#fcf8e8" stroke="#d4a017"/>
+  <text x="625" y="108" text-anchor="middle" class="class-name" style="font-size:10px">ConfigParser</text>
+  <text x="625" y="122" text-anchor="middle" class="note" style="font-size:9px">DI Framework</text>
+  
+  <!-- Core Package -->
+  <rect x="20" y="155" width="910" height="145" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="30" y="172" class="package">org.bluezoo.gumdrop</text>
+  
+  <!-- Connector (abstract) -->
+  <rect x="380" y="185" width="180" height="50" fill="#e8f4fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="380" y1="203" x2="560" y2="203" stroke="#4a90d9"/>
+  <text x="470" y="198" text-anchor="middle" class="stereotype">&lt;&lt;abstract&gt;&gt;</text>
+  <text x="470" y="222" text-anchor="middle" class="abstract-name">Connector</text>
+  
+  <!-- Server -->
+  <rect x="260" y="250" width="130" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="260" y1="266" x2="390" y2="266" stroke="#4a90d9"/>
+  <text x="325" y="281" text-anchor="middle" class="abstract-name">Server</text>
+  
+  <!-- Client -->
+  <rect x="550" y="250" width="130" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="550" y1="266" x2="680" y2="266" stroke="#4a90d9"/>
+  <text x="615" y="281" text-anchor="middle" class="abstract-name">Client</text>
+  
+  <!-- DatagramConnector -->
+  <rect x="720" y="185" width="160" height="50" fill="#e8f4fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="720" y1="203" x2="880" y2="203" stroke="#4a90d9"/>
+  <text x="800" y="198" text-anchor="middle" class="stereotype">&lt;&lt;abstract&gt;&gt;</text>
+  <text x="800" y="222" text-anchor="middle" class="abstract-name">DatagramConnector</text>
+  
+  <!-- DatagramServer -->
+  <rect x="720" y="250" width="140" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="720" y1="266" x2="860" y2="266" stroke="#4a90d9"/>
+  <text x="790" y="281" text-anchor="middle" class="abstract-name">DatagramServer</text>
+  
+  <!-- Connection -->
+  <rect x="30" y="250" width="140" height="40" fill="#fce8d4" stroke="#f0932b" stroke-width="2"/>
+  <line x1="30" y1="266" x2="170" y2="266" stroke="#f0932b"/>
+  <text x="100" y="281" text-anchor="middle" class="abstract-name">Connection</text>
+  
+  <!-- Realm interface -->
+  <rect x="30" y="185" width="120" height="40" fill="#e8fce8" stroke="#5a9a3c" stroke-width="2"/>
+  <line x1="30" y1="203" x2="150" y2="203" stroke="#5a9a3c"/>
+  <text x="90" y="198" text-anchor="middle" class="stereotype">&lt;&lt;interface&gt;&gt;</text>
+  <text x="90" y="218" text-anchor="middle" class="interface-name">Realm</text>
+  
+  <!-- ChannelHandler interface -->
+  <rect x="170" y="185" width="130" height="40" fill="#e8fce8" stroke="#5a9a3c" stroke-width="2"/>
+  <line x1="170" y1="203" x2="300" y2="203" stroke="#5a9a3c"/>
+  <text x="235" y="198" text-anchor="middle" class="stereotype">&lt;&lt;interface&gt;&gt;</text>
+  <text x="235" y="218" text-anchor="middle" class="interface-name">ChannelHandler</text>
+  
+  <!-- Inheritance arrows - Server/Client from Connector -->
+  <line x1="325" y1="250" x2="400" y2="235" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  <line x1="615" y1="250" x2="540" y2="235" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- DatagramServer from DatagramConnector -->
+  <line x1="790" y1="250" x2="800" y2="235" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- HTTP Package -->
+  <rect x="20" y="310" width="310" height="145" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="30" y="327" class="package">org.bluezoo.gumdrop.http</text>
+  
+  <!-- HTTPConnection (left) -->
+  <rect x="35" y="340" width="120" height="40" fill="#fce8d4" stroke="#f0932b" stroke-width="2"/>
+  <line x1="35" y1="356" x2="155" y2="356" stroke="#f0932b"/>
+  <text x="95" y="371" text-anchor="middle" class="class-name">HTTPConnection</text>
+  
+  <!-- Stream (below HTTPConnection) -->
+  <rect x="35" y="395" width="120" height="40" fill="#fcf8e8" stroke="#d4a017" stroke-width="2"/>
+  <line x1="35" y1="411" x2="155" y2="411" stroke="#d4a017"/>
+  <text x="95" y="426" text-anchor="middle" class="class-name">Stream</text>
+  
+  <!-- HTTPServer (right of HTTPConnection) -->
+  <rect x="170" y="340" width="110" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="170" y1="356" x2="280" y2="356" stroke="#4a90d9"/>
+  <text x="225" y="371" text-anchor="middle" class="class-name">HTTPServer</text>
+  
+  <!-- HTTPClient -->
+  <rect x="170" y="395" width="100" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="170" y1="411" x2="270" y2="411" stroke="#4a90d9"/>
+  <text x="220" y="426" text-anchor="middle" class="class-name">HTTPClient</text>
+  
+  <!-- Servlet Package -->
+  <rect x="20" y="465" width="310" height="85" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="30" y="482" class="package">org.bluezoo.gumdrop.servlet</text>
+  
+  <!-- ServletServer -->
+  <rect x="35" y="495" width="110" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="35" y1="511" x2="145" y2="511" stroke="#4a90d9"/>
+  <text x="90" y="526" text-anchor="middle" class="class-name">ServletServer</text>
+  
+  <!-- Container -->
+  <rect x="160" y="495" width="100" height="40" fill="#fcf8e8" stroke="#d4a017" stroke-width="2"/>
+  <line x1="160" y1="511" x2="260" y2="511" stroke="#d4a017"/>
+  <text x="210" y="526" text-anchor="middle" class="class-name">Container</text>
+  
+  <!-- Context -->
+  <rect x="275" y="495" width="50" height="40" fill="#fcf8e8" stroke="#d4a017" stroke-width="2"/>
+  <line x1="275" y1="511" x2="325" y2="511" stroke="#d4a017"/>
+  <text x="300" y="526" text-anchor="middle" class="class-name" style="font-size:10px">Context</text>
+  
+  <!-- SMTP Package -->
+  <rect x="350" y="310" width="200" height="145" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="360" y="327" class="package">org.bluezoo.gumdrop.smtp</text>
+  
+  <!-- SMTPServer -->
+  <rect x="365" y="340" width="100" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="365" y1="356" x2="465" y2="356" stroke="#4a90d9"/>
+  <text x="415" y="371" text-anchor="middle" class="class-name">SMTPServer</text>
+  
+  <!-- SMTPConnection -->
+  <rect x="365" y="395" width="110" height="40" fill="#fce8d4" stroke="#f0932b" stroke-width="2"/>
+  <line x1="365" y1="411" x2="475" y2="411" stroke="#f0932b"/>
+  <text x="420" y="426" text-anchor="middle" class="class-name" style="font-size:11px">SMTPConnection</text>
+  
+  <!-- SMTPClient -->
+  <rect x="485" y="340" width="55" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="485" y1="356" x2="540" y2="356" stroke="#4a90d9"/>
+  <text x="512" y="371" text-anchor="middle" class="class-name" style="font-size:9px">SMTPClient</text>
+  
+  <!-- IMAP/POP3 Package -->
+  <rect x="570" y="310" width="170" height="145" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="580" y="327" class="package">org.bluezoo.gumdrop.{imap,pop3}</text>
+  
+  <!-- IMAPServer -->
+  <rect x="585" y="340" width="90" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="585" y1="356" x2="675" y2="356" stroke="#4a90d9"/>
+  <text x="630" y="371" text-anchor="middle" class="class-name">IMAPServer</text>
+  
+  <!-- POP3Server -->
+  <rect x="585" y="395" width="90" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="585" y1="411" x2="675" y2="411" stroke="#4a90d9"/>
+  <text x="630" y="426" text-anchor="middle" class="class-name">POP3Server</text>
+  
+  <!-- IMAPConnection -->
+  <rect x="685" y="365" width="50" height="35" fill="#fce8d4" stroke="#f0932b" stroke-width="2"/>
+  <text x="710" y="387" text-anchor="middle" class="class-name" style="font-size:8px">IMAPConn</text>
+  
+  <!-- Mailbox Package (now on left bottom) -->
+  <rect x="20" y="560" width="230" height="85" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="30" y="577" class="package">org.bluezoo.gumdrop.mailbox</text>
+  
+  <!-- MailboxFactory -->
+  <rect x="35" y="590" width="95" height="40" fill="#e8fce8" stroke="#5a9a3c" stroke-width="2"/>
+  <line x1="35" y1="606" x2="130" y2="606" stroke="#5a9a3c"/>
+  <text x="82" y="600" text-anchor="middle" class="stereotype" style="font-size:8px">&lt;&lt;interface&gt;&gt;</text>
+  <text x="82" y="620" text-anchor="middle" class="interface-name" style="font-size:10px">MailboxFactory</text>
+  
+  <!-- MailboxStore -->
+  <rect x="145" y="590" width="95" height="40" fill="#e8fce8" stroke="#5a9a3c" stroke-width="2"/>
+  <line x1="145" y1="606" x2="240" y2="606" stroke="#5a9a3c"/>
+  <text x="192" y="600" text-anchor="middle" class="stereotype" style="font-size:8px">&lt;&lt;interface&gt;&gt;</text>
+  <text x="192" y="620" text-anchor="middle" class="interface-name" style="font-size:10px">MailboxStore</text>
+  
+  <!-- DNS Package (now on right bottom) -->
+  <rect x="760" y="310" width="170" height="145" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="770" y="327" class="package">org.bluezoo.gumdrop.dns</text>
+  
+  <!-- DNSServer -->
+  <rect x="775" y="345" width="100" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="775" y1="361" x2="875" y2="361" stroke="#4a90d9"/>
+  <text x="825" y="376" text-anchor="middle" class="class-name">DNSServer</text>
+  
+  <!-- DNSMessage -->
+  <rect x="775" y="400" width="100" height="40" fill="#fcf8e8" stroke="#d4a017" stroke-width="2"/>
+  <line x1="775" y1="416" x2="875" y2="416" stroke="#d4a017"/>
+  <text x="825" y="431" text-anchor="middle" class="class-name">DNSMessage</text>
+  
+  <!-- Telemetry Package -->
+  <rect x="270" y="560" width="200" height="85" rx="5" fill="none" stroke="#aaa" stroke-dasharray="4,2"/>
+  <text x="280" y="577" class="package">org.bluezoo.gumdrop.telemetry</text>
+  
+  <!-- OTLPExporter -->
+  <rect x="285" y="590" width="100" height="40" fill="#d4e8fc" stroke="#4a90d9" stroke-width="2"/>
+  <line x1="285" y1="606" x2="385" y2="606" stroke="#4a90d9"/>
+  <text x="335" y="621" text-anchor="middle" class="class-name">OTLPExporter</text>
+  
+  <!-- Trace -->
+  <rect x="400" y="590" width="60" height="40" fill="#fcf8e8" stroke="#d4a017" stroke-width="2"/>
+  <line x1="400" y1="606" x2="460" y2="606" stroke="#d4a017"/>
+  <text x="430" y="621" text-anchor="middle" class="class-name" style="font-size:11px">Trace</text>
+  
+  <!-- Inheritance lines -->
+  <!-- HTTPServer extends Server -->
+  <line x1="225" y1="340" x2="290" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- HTTPConnection extends Connection -->
+  <line x1="95" y1="340" x2="100" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- HTTPClient extends Client -->
+  <line x1="270" y1="415" x2="550" y2="280" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- ServletServer extends HTTPServer -->
+  <line x1="90" y1="495" x2="200" y2="380" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- SMTPServer extends Server -->
+  <line x1="415" y1="340" x2="370" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- SMTPClient extends Client -->
+  <line x1="512" y1="340" x2="580" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- IMAPServer extends Server -->
+  <line x1="630" y1="340" x2="380" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- POP3Server extends Server -->
+  <line x1="630" y1="395" x2="380" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- DNSServer extends DatagramServer -->
+  <line x1="825" y1="345" x2="810" y2="290" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- OTLPExporter extends HTTPClient (uses) -->
+  <line x1="335" y1="590" x2="240" y2="435" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  
+  <!-- Association lines -->
+  <!-- HTTPConnection has Streams -->
+  <line x1="95" y1="380" x2="95" y2="393" stroke="#666" stroke-width="1" stroke-dasharray="3,2"/>
+  
+  <!-- ServletServer has Container -->
+  <line x1="145" y1="515" x2="158" y2="515" stroke="#666" stroke-width="1.5" marker-end="url(#assoc)"/>
+  
+  <!-- Container has Contexts -->
+  <line x1="260" y1="515" x2="273" y2="515" stroke="#666" stroke-width="1.5" marker-end="url(#assoc)"/>
+  
+  <!-- Legend -->
+  <rect x="20" y="665" width="910" height="70" rx="5" fill="#f8f8f8" stroke="#ddd"/>
+  <text x="30" y="685" class="note" style="font-weight:bold">Legend:</text>
+  
+  <rect x="90" y="677" width="60" height="20" fill="#d4e8fc" stroke="#4a90d9"/>
+  <text x="170" y="691" class="note">Server/Client</text>
+  
+  <rect x="240" y="677" width="60" height="20" fill="#fce8d4" stroke="#f0932b"/>
+  <text x="320" y="691" class="note">Connection</text>
+  
+  <rect x="390" y="677" width="60" height="20" fill="#e8fce8" stroke="#5a9a3c"/>
+  <text x="470" y="691" class="note">Interface</text>
+  
+  <rect x="520" y="677" width="60" height="20" fill="#fcf8e8" stroke="#d4a017"/>
+  <text x="600" y="691" class="note">Support</text>
+  
+  <rect x="650" y="677" width="60" height="20" fill="#fce8e8" stroke="#c0392b"/>
+  <text x="730" y="691" class="note">Manager</text>
+  
+  <line x1="780" y1="687" x2="830" y2="687" stroke="#333" stroke-width="1.5" marker-end="url(#extends)"/>
+  <text x="850" y="691" class="note">extends</text>
+  
+  <line x1="30" y1="715" x2="80" y2="715" stroke="#666" stroke-width="1.5" marker-end="url(#assoc)"/>
+  <text x="100" y="719" class="note">has-a</text>
+  
+</svg>

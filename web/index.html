@@ -1,0 +1,390 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>gumdrop</h1>
+</td>
+</table>
+
+<p>
+Congratulations, you've installed Gumdrop!
+</p>
+
+<p>
+Gumdrop is a multipurpose Java server framework using asynchronous,
+non-blocking, event-driven I/O. It provides a generic, extensible server
+architecture with transparent TLS support, and includes implementations for
+HTTP, SMTP, IMAP, POP3, FTP, and DNS protocols.
+</p>
+
+<h3>Documentation</h3>
+
+<ul>
+<li><a href="servlet.html"><strong>Servlet Container</strong></a> - features,
+architecture, configuration, clustering, and deployment</li>
+<li><a href="http.html"><strong>HTTP Server &amp; Client</strong></a> - HTTP/1.x,
+HTTP/2, HPACK, WebSockets, and the file server</li>
+<li><a href="smtp.html"><strong>SMTP Server &amp; Client</strong></a> - mail
+submission, relay, security policies, and authentication</li>
+<li><a href="imap.html"><strong>IMAP Server</strong></a> - IMAP4rev2 with IDLE,
+NAMESPACE, MOVE, QUOTA, and SASL authentication</li>
+<li><a href="pop3.html"><strong>POP3 Server</strong></a> - POP3 with APOP,
+SASL authentication, and UTF-8 support</li>
+<li><a href="ftp.html"><strong>FTP Server</strong></a> - FTP with TLS,
+role-based access control, and quota management</li>
+<li><a href="dns.html"><strong>DNS Server</strong></a> - DNS proxy with caching,
+custom resolution, and DTLS support</li>
+<li><a href="mailbox.html"><strong>Mailbox API</strong></a> - storage abstraction
+for IMAP, POP3, and SMTP with mbox and Maildir implementations</li>
+<li><a href="telemetry.html"><strong>Telemetry</strong></a> - OpenTelemetry
+distributed tracing and metrics with OTLP export</li>
+<li><a href="security.html"><strong>Security</strong></a> - IAM, rate limiting,
+TLS, and authentication across all protocols</li>
+</ul>
+
+<h3>Architecture</h3>
+
+<p>
+Gumdrop uses an event-driven, non-blocking I/O architecture first developed in
+2005 based on the then-new Java NIO Selector API. This architecture was the
+original motivator for the project at a time when mainstream enterprise servlet
+containers still used blocking <code>java.net.Socket</code> implementations
+that directly tied the number of incoming connections to JVM threads,
+preventing scalability.
+</p>
+
+<p>
+<img src="architecture.svg" alt="Gumdrop Architecture Diagram" style="max-width:100%"/>
+</p>
+
+<h4>Asynchronous vs Synchronous</h4>
+
+<p>
+Traditional synchronous servers allocate one thread per connection. A thread
+blocks on socket read, processes the request, blocks on socket write, and
+repeats. This model is simple but has fundamental scalability limitations:
+</p>
+
+<ul>
+<li><b>Thread overhead</b> - each thread consumes stack memory (typically 1MB)
+and kernel resources; 10,000 connections require 10,000 threads</li>
+<li><b>Context switching</b> - the OS scheduler must switch between thousands
+of threads, consuming CPU cycles</li>
+<li><b>Blocking I/O waste</b> - threads spend most time waiting for network I/O,
+not doing useful work</li>
+<li><b>Thundering herd</b> - bursts of activity can exhaust thread pools</li>
+</ul>
+
+<p>
+Gumdrop's asynchronous architecture inverts this model. A small, fixed pool of
+worker threads (default: 2× CPU cores) handles I/O for all connections:
+</p>
+
+<ul>
+<li><b>Minimal threads</b> - 10,000 connections can be served by 16 threads</li>
+<li><b>No blocking</b> - workers never block; when data isn't available, they
+move to the next ready connection</li>
+<li><b>Efficient multiplexing</b> - the OS <code>Selector</code> notifies
+workers when connections are ready</li>
+<li><b>Predictable resource usage</b> - memory and CPU scale with traffic, not
+connection count</li>
+</ul>
+
+<h4>Event-Driven Model</h4>
+
+<p>
+The event-driven model is particularly suited to modern distributed enterprise
+systems where services communicate over HTTP, message queues, and databases.
+These systems are inherently I/O-bound: services spend most time waiting for
+network responses. An event-driven server maximises throughput by never
+waiting—when one connection is idle, the worker immediately serves another.
+</p>
+
+<h4>SelectorLoop Architecture</h4>
+
+<p>
+A single <code>AcceptSelectorLoop</code> thread handles accepting new
+connections on all server ports. When a connection is accepted, it is assigned
+to one of a pool of worker <code>SelectorLoop</code> threads using round-robin
+distribution. Each connection is bound to a single worker for its entire
+lifetime, eliminating race conditions and simplifying state management.
+</p>
+
+<p>
+<img src="classes.svg" alt="Gumdrop Class Hierarchy" style="max-width:100%"/>
+</p>
+
+<h3>Servers</h3>
+
+<p>
+The <code>Server</code> abstract class represents a TCP server listening on a
+port. When the <code>AcceptSelectorLoop</code> accepts a connection on a
+server's port, it delegates to the server to create a protocol-specific
+<code>Connection</code> instance.
+</p>
+
+<p>
+Server implementations define:
+</p>
+
+<ul>
+<li><code>getPort()</code> - the port to listen on</li>
+<li><code>newConnection()</code> - factory method for protocol connections</li>
+<li><code>acceptConnection()</code> - optional connection filtering (IP blocking,
+rate limiting)</li>
+</ul>
+
+<p>
+All servers share common TLS configuration inherited from <code>Connector</code>:
+keystore file, password, format, client authentication requirements, and ALPN
+protocol negotiation.
+</p>
+
+<h3>Clients</h3>
+
+<p>
+The <code>Client</code> abstract class represents an outbound TCP connection.
+Clients share the same event-driven infrastructure as servers—outbound
+connections are assigned to worker <code>SelectorLoop</code> threads and
+benefit from the same non-blocking I/O model.
+</p>
+
+<p>
+When a client is created within a server context (e.g., an SMTP relay
+forwarding mail), it can be assigned to the same <code>SelectorLoop</code> as
+the originating server connection. This <i>SelectorLoop affinity</i> provides:
+</p>
+
+<ul>
+<li><b>Unified I/O</b> - server and client I/O multiplexed on the same thread</li>
+<li><b>No context switching</b> - data flows without thread handoffs</li>
+<li><b>Simplified state</b> - no synchronisation needed between connections</li>
+<li><b>Efficient relay</b> - proxies and gateways operate entirely within
+their worker thread</li>
+</ul>
+
+<h3>Connections</h3>
+
+<p>
+The <code>Connection</code> abstract class represents a TCP protocol handler.
+All I/O and TLS processing for a connection occurs on its assigned
+<code>SelectorLoop</code> thread. Subclasses implement protocol-specific logic:
+</p>
+
+<ul>
+<li><code>receive(ByteBuffer)</code> - called when data arrives</li>
+<li><code>send(ByteBuffer)</code> - queues data for transmission</li>
+<li><code>startTLS()</code> - initiates STARTTLS upgrade</li>
+<li><code>close()</code> - closes the connection</li>
+</ul>
+
+<p>
+Protocol implementations (HTTP, SMTP, IMAP, etc.) extend <code>Connection</code>
+and implement protocol parsing, state machines, and business logic. The
+framework handles read/write buffering, TLS encryption/decryption, and
+connection lifecycle.
+</p>
+
+<h3>Datagram Facilities</h3>
+
+<p>
+For UDP-based protocols, <code>DatagramServer</code> provides the same
+event-driven model. Unlike TCP, there are no per-client connection objects—the
+server receives datagrams directly and sends responses to the source address.
+</p>
+
+<p>
+The DNS server demonstrates this abstraction, providing a complete DNS proxy
+that can be subclassed for custom name resolution. DTLS (TLS for UDP) is
+supported transparently, with per-remote-address session management handled
+automatically.
+</p>
+
+<h3>Transparent TLS</h3>
+
+<p>
+All connections support transparent TLS encryption. The framework handles:
+</p>
+
+<ul>
+<li><b>Implicit TLS</b> - connection starts encrypted (HTTPS, IMAPS, POP3S)</li>
+<li><b>STARTTLS</b> - upgrade from cleartext to TLS mid-connection</li>
+<li><b>Client authentication</b> - optional or required client certificates</li>
+<li><b>SNI</b> - Server Name Indication for virtual hosting</li>
+<li><b>ALPN</b> - Application Layer Protocol Negotiation (HTTP/2)</li>
+<li><b>DTLS</b> - TLS for UDP protocols</li>
+</ul>
+
+<p>
+To enable TLS, configure the keystore on any server:
+</p>
+
+<pre>
+&lt;server class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;465&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Connection Lifecycle</h4>
+
+<p>
+Servers provide configurable connection lifecycle management:
+</p>
+
+<ul>
+<li><b>Idle timeout</b> - close connections with no activity (default: 5 minutes)</li>
+<li><b>Read timeout</b> - maximum wait for data during active read (default: 30 seconds)</li>
+<li><b>Connection timeout</b> - time allowed for initial connection and TLS handshake
+(default: 60 seconds)</li>
+</ul>
+
+<p>
+Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</code>,
+<code>m</code>, <code>h</code>):
+</p>
+
+<pre>
+&lt;server class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;property name="idleTimeout"&gt;30m&lt;/property&gt;
+    &lt;property name="readTimeout"&gt;60s&lt;/property&gt;
+    &lt;property name="connectionTimeout"&gt;2m&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+Connections track timestamps for creation, last activity, and connection establishment
+(after TLS handshake for secure connections). These are accessible via
+<code>getTimestampCreated()</code>, <code>getTimestampLastActivity()</code>, and
+<code>getTimestampConnected()</code>.
+</p>
+
+<h3>Configuration</h3>
+
+<p>
+Gumdrop uses a lightweight dependency injection (DI) framework to wire together
+its components. The <code>gumdroprc</code> XML file defines components with
+properties and references.
+</p>
+
+<h4>Key DI Concepts</h4>
+
+<ul>
+<li><b>Components</b> - XML elements with <code>id</code> and <code>class</code>
+attributes define objects registered in the component registry</li>
+<li><b>Properties</b> - <code>&lt;property name="..."&gt;</code> child elements
+set bean properties with automatic type conversion</li>
+<li><b>References</b> - <code>ref="#componentId"</code> injects references to
+other components</li>
+<li><b>Collections</b> - <code>&lt;list&gt;</code> and <code>&lt;map&gt;</code>
+elements configure collection properties</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;gumdrop&gt;
+    &lt;!-- Authentication realm --&gt;
+    &lt;realm id="myRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+        &lt;property name="href"&gt;users.xml&lt;/property&gt;
+    &lt;/realm&gt;
+    
+    &lt;!-- Mailbox storage --&gt;
+    &lt;mailboxFactory id="maildir"
+                    class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+        &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+    &lt;/mailboxFactory&gt;
+    
+    &lt;!-- Telemetry --&gt;
+    &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
+        &lt;property name="enabled"&gt;true&lt;/property&gt;
+        &lt;property name="serviceName"&gt;mail-server&lt;/property&gt;
+        &lt;property name="endpoint"&gt;http://collector:4318&lt;/property&gt;
+    &lt;/component&gt;
+    
+    &lt;!-- IMAP server with TLS --&gt;
+    &lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+        &lt;property name="port"&gt;993&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+        &lt;property name="realm" ref="#myRealm"/&gt;
+        &lt;property name="mailboxFactory" ref="#maildir"/&gt;
+        &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;/server&gt;
+&lt;/gumdrop&gt;
+</pre>
+
+<h4>System Properties</h4>
+
+<ul>
+<li><code>gumdrop.workers</code> - number of worker SelectorLoop threads
+(default: 2× CPU cores)</li>
+<li><code>java.util.logging.config.file</code> - logging configuration</li>
+</ul>
+
+<h3>About the Logo</h3>
+
+<p>
+The Gumdrop logo is a gumdrop torus, generated using
+<a href="http://www.povray.org/">POV-Ray</a>. A gumdrop torus is a
+<a href="http://www.povray.org/documentation/view/3.6.1/448/#s02_07_07_02_i75">mathematical
+construct</a>—the logo is such a torus viewed from an angle that makes it
+resemble the letter G. All images were created using POV-Ray and/or GIMP and
+are copyright 2005 Chris Burdess.
+</p>
+
+<h3>Where to go from here</h3>
+
+<p>
+Explore the protocol-specific documentation linked above, or examine the
+example configurations and test applications. If the speed, simplicity, and
+ease of configuration appeals to you, please consider getting involved and
+developing a new feature.
+</p>
+
+<p>
+If you have any questions about Gumdrop, please direct them to
+<a href='mailto:dog@gnu.org'>Chris Burdess</a>.
+</p>
+
+<p>
+Thanks for trying out Gumdrop.
+</p>
+
+<p class='server-info'>Gumdrop</p>
+
+</body>
+</html>

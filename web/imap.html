@@ -1,0 +1,500 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>IMAP Server - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop IMAP Server</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a complete IMAP server implementation following RFC 9051
+(IMAP4rev2). Like all Gumdrop protocol implementations, the IMAP server uses
+the event-driven, non-blocking architecture that enables high concurrency
+with minimal resource consumption.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#protocol">Protocol Support</a></li>
+<li><a href="#extensions">Extensions</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#mailbox">Mailbox Integration</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#quota">Quota Management</a></li>
+</ul>
+
+<h3 id="protocol">Protocol Support</h3>
+
+<p>
+The IMAP server implements the IMAP4rev2 protocol as defined in RFC 9051, the
+modernised successor to RFC 3501. IMAP4rev2 incorporates lessons learned from
+two decades of IMAP deployment and mandates several previously optional features.
+</p>
+
+<h4>Protocol States</h4>
+
+<p>
+IMAP sessions progress through four states:
+</p>
+
+<ul>
+<li><b>NOT_AUTHENTICATED</b> - initial state; authentication required before
+accessing mailboxes</li>
+<li><b>AUTHENTICATED</b> - logged in; can list, create, delete, and select
+mailboxes</li>
+<li><b>SELECTED</b> - mailbox selected; can access messages, flags, and perform
+searches</li>
+<li><b>LOGOUT</b> - connection closing</li>
+</ul>
+
+<h4>Supported Commands</h4>
+
+<p>
+All standard IMAP4rev2 commands are implemented:
+</p>
+
+<ul>
+<li><b>Any state:</b> CAPABILITY, NOOP, LOGOUT</li>
+<li><b>NOT_AUTHENTICATED:</b> STARTTLS, AUTHENTICATE, LOGIN</li>
+<li><b>AUTHENTICATED:</b> SELECT, EXAMINE, CREATE, DELETE, RENAME, SUBSCRIBE,
+UNSUBSCRIBE, LIST, LSUB, STATUS, APPEND</li>
+<li><b>SELECTED:</b> CHECK, CLOSE, UNSELECT, EXPUNGE, SEARCH, FETCH, STORE,
+COPY, UID</li>
+</ul>
+
+<h3 id="extensions">Extensions</h3>
+
+<p>
+The server supports several IMAP extensions that enhance functionality:
+</p>
+
+<h4>IDLE (RFC 2177)</h4>
+
+<p>
+Push notifications for mailbox changes. When a client issues the IDLE command,
+the server holds the connection open and sends unsolicited responses when
+new messages arrive or flags change. This eliminates the need for polling.
+</p>
+
+<pre>
+C: A001 IDLE
+S: + idling
+... (server sends updates as mailbox changes)
+S: * 4 EXISTS
+C: DONE
+S: A001 OK IDLE terminated
+</pre>
+
+<h4>NAMESPACE (RFC 2342)</h4>
+
+<p>
+Exposes the mailbox hierarchy structure, distinguishing between personal
+mailboxes, other users' shared mailboxes, and public folders. Helps clients
+discover the hierarchy delimiter and namespace prefixes.
+</p>
+
+<h4>MOVE (RFC 6851)</h4>
+
+<p>
+Atomic move operation combining COPY and STORE \Deleted + EXPUNGE. More
+efficient than the three-command sequence and avoids race conditions.
+</p>
+
+<h4>QUOTA (RFC 9208)</h4>
+
+<p>
+Storage quota reporting. Clients can query quota roots and current usage,
+enabling display of storage limits in mail client interfaces.
+</p>
+
+<h4>Additional Capabilities</h4>
+
+<ul>
+<li><b>UIDPLUS</b> - extended UID responses for APPEND, COPY, MOVE</li>
+<li><b>CHILDREN</b> - mailbox \HasChildren and \HasNoChildren attributes</li>
+<li><b>UNSELECT</b> - unselect mailbox without expunge</li>
+<li><b>LIST-EXTENDED</b> - enhanced LIST command with selection options</li>
+<li><b>LIST-STATUS</b> - return STATUS data with LIST responses</li>
+</ul>
+
+<h3 id="authentication">Authentication</h3>
+
+<p>
+Authentication uses Gumdrop's centralised <code>Realm</code> interface, which
+provides a unified credential store across all servers. The IMAP server supports
+multiple SASL mechanisms.
+</p>
+
+<h4>The Realm Interface</h4>
+
+<p>
+A <code>Realm</code> represents a collection of authenticatable principals with
+associated passwords and roles. The interface supports both plaintext password
+verification and pre-computed credential hashes for secure storage:
+</p>
+
+<ul>
+<li><code>passwordMatch(username, password)</code> - verifies credentials without
+exposing the stored password</li>
+<li><code>getDigestHA1(username, realmName)</code> - returns H(A1) for Digest
+authentication</li>
+<li><code>getCramMD5Response(username, challenge)</code> - computes CRAM-MD5
+response</li>
+<li><code>getScramCredentials(username)</code> - returns SCRAM-SHA-256 derived
+keys</li>
+<li><code>validateBearerToken(token)</code> - validates OAuth/Bearer tokens</li>
+<li><code>isMember(username, role)</code> - checks role membership</li>
+</ul>
+
+<p>
+The built-in <code>BasicRealm</code> reads users from an XML file:
+</p>
+
+<pre>
+&lt;realm&gt;
+  &lt;user name="alice" password="secret" roles="user,admin"/&gt;
+  &lt;user name="bob" password="password123" roles="user"/&gt;
+&lt;/realm&gt;
+</pre>
+
+<p>
+Custom realm implementations can integrate with LDAP, databases, or external
+identity providers.
+</p>
+
+<h4>SASL Mechanisms</h4>
+
+<p>
+The server advertises available mechanisms in the CAPABILITY response:
+</p>
+
+<ul>
+<li><b>PLAIN</b> - simple username/password (RFC 4616); requires TLS</li>
+<li><b>LOGIN</b> - legacy base64-encoded username/password; requires TLS</li>
+<li><b>CRAM-MD5</b> - challenge-response; password not transmitted</li>
+<li><b>DIGEST-MD5</b> - digest authentication (RFC 2831)</li>
+<li><b>SCRAM-SHA-256</b> - salted challenge-response (RFC 7677); recommended</li>
+</ul>
+
+<p>
+SCRAM-SHA-256 is the recommended mechanism as it provides mutual authentication
+and does not transmit the password in any form. The realm can store only the
+derived keys (StoredKey, ServerKey) without keeping the plaintext password.
+</p>
+
+<h4>LOGINDISABLED</h4>
+
+<p>
+By default, the LOGIN command is disabled over unencrypted connections. The
+server advertises <code>LOGINDISABLED</code> in capabilities until TLS is
+established via STARTTLS or implicit IMAPS. This prevents credential exposure
+over plaintext connections.
+</p>
+
+<h3 id="mailbox">Mailbox Integration</h3>
+
+<p>
+The IMAP server accesses mail storage through the <a href="mailbox.html">Mailbox
+API</a>. A <code>MailboxFactory</code> is configured to provide
+<code>MailboxStore</code> instances for authenticated users.
+</p>
+
+<h4>Store Lifecycle</h4>
+
+<p>
+When a user authenticates successfully:
+</p>
+
+<ol>
+<li>The server calls <code>mailboxFactory.createStore()</code></li>
+<li>The store is opened with <code>store.open(username)</code></li>
+<li>Mailbox operations use the store throughout the session</li>
+<li>On logout or disconnect, the store is closed</li>
+</ol>
+
+<h4>Available Implementations</h4>
+
+<ul>
+<li><b>MboxMailboxFactory</b> - Unix mbox file format</li>
+<li><b>MaildirMailboxFactory</b> - Maildir++ directory format (recommended for
+IMAP due to concurrent access support)</li>
+</ul>
+
+<p>
+See the <a href="mailbox.html">Mailbox API documentation</a> for details on
+each format's characteristics and configuration.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>IMAPServer Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.imap.IMAPServer</code> supports:
+</p>
+
+<ul>
+<li><code>port</code> - listening port (default: 143, or 993 for secure)</li>
+<li><code>secure</code> - enable implicit TLS (IMAPS)</li>
+<li><code>keystoreFile</code> - keystore for TLS/STARTTLS</li>
+<li><code>keystorePass</code> - keystore password</li>
+<li><code>realm</code> - reference to a Realm for authentication</li>
+<li><code>mailboxFactory</code> - reference to a MailboxFactory</li>
+</ul>
+
+<h4>Extension Toggles</h4>
+
+<ul>
+<li><code>enableIDLE</code> - enable IDLE extension (default: true)</li>
+<li><code>enableNAMESPACE</code> - enable NAMESPACE extension (default: true)</li>
+<li><code>enableQUOTA</code> - enable QUOTA extension (default: true)</li>
+<li><code>enableMOVE</code> - enable MOVE extension (default: true)</li>
+</ul>
+
+<h4>Timeouts</h4>
+
+<ul>
+<li><code>loginTimeout</code> - maximum time for authentication (default: 60000ms)</li>
+<li><code>idleTimeout</code> - connection idle timeout (default: 1800000ms / 30 min)</li>
+<li><code>commandTimeout</code> - maximum time per command (default: 300000ms)</li>
+</ul>
+
+<h4>Limits</h4>
+
+<ul>
+<li><code>maxLineLength</code> - maximum command line length (default: 8192)</li>
+<li><code>maxLiteralSize</code> - maximum literal size for APPEND (default: 25MB)</li>
+</ul>
+
+<h4>Security Options</h4>
+
+<ul>
+<li><code>allowPlaintextLogin</code> - allow LOGIN over non-TLS (default: false;
+<b>testing only</b>)</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;!-- Authentication realm --&gt;
+&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;!-- Maildir storage --&gt;
+&lt;mailboxFactory id="maildir"
+                class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;/mailboxFactory&gt;
+
+&lt;!-- IMAP server (port 143 with STARTTLS) --&gt;
+&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;property name="port"&gt;143&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+    &lt;property name="mailboxFactory" ref="#maildir"/&gt;
+    &lt;property name="idleTimeout"&gt;1800000&lt;/property&gt;
+&lt;/server&gt;
+
+&lt;!-- IMAPS server (port 993 with implicit TLS) --&gt;
+&lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;property name="port"&gt;993&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+    &lt;property name="mailboxFactory" ref="#maildir"/&gt;
+&lt;/server&gt;
+</pre>
+
+<h3 id="security">Security</h3>
+
+<h4>Transport Security</h4>
+
+<ul>
+<li><b>IMAPS (port 993)</b> - implicit TLS; connection is encrypted from the
+start</li>
+<li><b>STARTTLS (port 143)</b> - upgrade cleartext connection to TLS</li>
+</ul>
+
+<p>
+TLS is required before credentials are transmitted. The server advertises
+<code>LOGINDISABLED</code> until encryption is established.
+</p>
+
+<h4>Credential Protection</h4>
+
+<p>
+Challenge-response mechanisms (CRAM-MD5, SCRAM-SHA-256) never transmit the
+password, even over TLS. SCRAM additionally protects against server compromise
+by using derived keys.
+</p>
+
+<h4>Literal Size Limits</h4>
+
+<p>
+The <code>maxLiteralSize</code> setting prevents denial-of-service attacks via
+oversized APPEND commands. The default 25MB limit can be adjusted based on
+expected message sizes.
+</p>
+
+<h4>Connection Limits</h4>
+
+<p>
+Timeouts prevent resource exhaustion from idle or slow connections. The
+30-minute idle timeout follows RFC 9051 recommendations while allowing
+reasonable IDLE sessions.
+</p>
+
+<h3 id="quota">Quota Management</h3>
+
+<p>
+The IMAP server supports storage quotas via the QUOTA extension (RFC 9208).
+Users can query their quota status, and administrators can set per-user
+storage limits.
+</p>
+
+<h4>QUOTA Commands</h4>
+
+<p>
+Three commands provide quota functionality:
+</p>
+
+<ul>
+<li><b>GETQUOTAROOT</b> - returns quota roots for a mailbox</li>
+<li><b>GETQUOTA</b> - returns quota limits and usage for a quota root</li>
+<li><b>SETQUOTA</b> - sets quota limits (administrators only)</li>
+</ul>
+
+<pre>
+C: A001 GETQUOTAROOT INBOX
+S: * QUOTAROOT INBOX user/alice
+S: * QUOTA user/alice (STORAGE 52428 102400)
+S: A001 OK GETQUOTAROOT completed
+
+C: A002 GETQUOTA user/alice
+S: * QUOTA user/alice (STORAGE 52428 102400)
+S: A002 OK GETQUOTA completed
+</pre>
+
+<p>
+The STORAGE resource reports usage and limits in kilobytes.
+</p>
+
+<h4>QuotaManager Configuration</h4>
+
+<p>
+Quotas are enforced through a <code>QuotaManager</code> configured on the
+IMAP server. The <code>RoleBasedQuotaManager</code> supports user-specific
+overrides, role-based policies, and a system default:
+</p>
+
+<pre>
+&lt;!-- Quota manager with role-based policies --&gt;
+&lt;quotaManager id="mailQuota"
+              class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager"&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+    &lt;property name="storageDir"&gt;/var/mail/quota&lt;/property&gt;
+    &lt;property name="defaultQuota"&gt;100MB&lt;/property&gt;
+    &lt;property name="roleQuota.premium"&gt;10GB&lt;/property&gt;
+    &lt;property name="roleQuota.enterprise"&gt;unlimited&lt;/property&gt;
+&lt;/quotaManager&gt;
+
+&lt;!-- Link to IMAP server --&gt;
+&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
+    &lt;property name="quotaManager" ref="#mailQuota"/&gt;
+    &lt;!-- ... other properties ... --&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Quota Policy Hierarchy</h4>
+
+<p>
+When determining a user's quota, the manager checks in order:
+</p>
+
+<ol>
+<li><b>User-specific quota</b> - set via SETQUOTA or direct configuration</li>
+<li><b>Role-based quota</b> - from the user's highest-priority role</li>
+<li><b>System default</b> - fallback for users without role quotas</li>
+</ol>
+
+<p>
+Sizes can be specified with standard suffixes: KB, MB, GB, TB. Use
+<code>unlimited</code> or <code>-1</code> for no limit.
+</p>
+
+<h4>APPEND Quota Enforcement</h4>
+
+<p>
+When a client issues an APPEND command, the server checks whether adding the
+message would exceed the user's quota. If so, the server returns an
+<code>[OVERQUOTA]</code> response code:
+</p>
+
+<pre>
+C: A003 APPEND INBOX {1048576}
+S: A003 NO [OVERQUOTA] Quota exceeded
+</pre>
+
+<h4>Telemetry</h4>
+
+<p>
+Quota operations are integrated with Gumdrop's telemetry. Events include:
+</p>
+
+<ul>
+<li><code>QUOTA_CHECK</code> - GETQUOTA/GETQUOTAROOT queries</li>
+<li><code>QUOTA_SET</code> - administrator quota changes</li>
+<li><code>QUOTA_EXCEEDED</code> - APPEND denied due to quota</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="dns.html">DNS Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop IMAP Server</p>
+
+</body>
+</html>
+

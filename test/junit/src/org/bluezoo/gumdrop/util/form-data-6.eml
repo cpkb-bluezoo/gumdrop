@@ -1,0 +1,16 @@
+Host: localhost:8080
+Content-Type: multipart/form-data; boundary=MyRandomBoundaryString12345
+Content-Length: 200
+X-Num-Parts: 2
+
+--MyRandomBoundaryString12345
+Content-Disposition: form-data; name="text_field"
+
+This is a very tricky string containing the boundary --MyRandomBoundaryString12345 within the content.
+The parser should not terminate the part here.
+
+--MyRandomBoundaryString12345
+Content-Disposition: form-data; name="final_field"
+
+This is the last part.
+--MyRandomBoundaryString12345--

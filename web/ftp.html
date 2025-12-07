@@ -1,0 +1,433 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>FTP Server - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop FTP Server</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a complete FTP server implementation following RFC 959 and
+its security extensions (RFC 4217 for FTP-TLS). Like all Gumdrop protocol
+implementations, the FTP server uses the event-driven, non-blocking architecture
+that enables high concurrency with minimal resource consumption.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#protocol">Protocol Support</a></li>
+<li><a href="#security">Security Extensions</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#filesystem">File System Handler</a></li>
+<li><a href="#rbac">Role-Based Access Control</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#quota">Quota Management</a></li>
+</ul>
+
+<h3 id="protocol">Protocol Support</h3>
+
+<p>
+The FTP server implements the File Transfer Protocol as defined in RFC 959,
+with modern extensions for security and IPv6.
+</p>
+
+<h4>Supported Commands</h4>
+
+<p>
+All standard FTP commands are implemented:
+</p>
+
+<ul>
+<li><b>Access Control:</b> USER, PASS, ACCT, CWD, CDUP, QUIT, REIN</li>
+<li><b>Transfer Parameters:</b> PORT, PASV, TYPE, STRU, MODE</li>
+<li><b>Service Commands:</b> RETR, STOR, STOU, APPE, ALLO, REST, RNFR, RNTO,
+ABOR, DELE, RMD, MKD, PWD, LIST, NLST, SITE, SYST, STAT, HELP, NOOP</li>
+</ul>
+
+<h4>Extended Commands</h4>
+
+<ul>
+<li><b>EPRT/EPSV</b> - extended port commands for IPv6 (RFC 2428)</li>
+<li><b>FEAT</b> - feature negotiation (RFC 2389)</li>
+<li><b>SIZE</b> - file size query</li>
+<li><b>MDTM</b> - file modification time</li>
+<li><b>MLST/MLSD</b> - machine-readable directory listings (RFC 3659)</li>
+</ul>
+
+<h4>Data Connection Modes</h4>
+
+<p>
+Both active and passive modes are supported:
+</p>
+
+<ul>
+<li><b>Active (PORT/EPRT)</b> - server connects to client-specified address</li>
+<li><b>Passive (PASV/EPSV)</b> - client connects to server-specified address;
+preferred for firewalled clients</li>
+</ul>
+
+<h3 id="security">Security Extensions</h3>
+
+<p>
+The server implements RFC 4217 (Securing FTP with TLS):
+</p>
+
+<h4>AUTH TLS</h4>
+
+<p>
+Upgrades the control connection to TLS. After successful AUTH TLS, credentials
+and commands are encrypted:
+</p>
+
+<pre>
+C: AUTH TLS
+S: 234 AUTH TLS successful
+[TLS negotiation]
+C: USER alice
+...
+</pre>
+
+<h4>Implicit FTPS</h4>
+
+<p>
+When configured with <code>secure="true"</code>, the server expects TLS from
+connection establishment (typically on port 990).
+</p>
+
+<h4>Data Connection Protection</h4>
+
+<ul>
+<li><b>PBSZ 0</b> - protection buffer size (required before PROT)</li>
+<li><b>PROT P</b> - enable protected (encrypted) data connections</li>
+<li><b>PROT C</b> - clear (unencrypted) data connections</li>
+</ul>
+
+<p>
+Use <code>requireTLSForData="true"</code> to mandate encrypted data transfers.
+</p>
+
+<h3 id="authentication">Authentication</h3>
+
+<p>
+Authentication uses Gumdrop's centralised <code>Realm</code> interface. The
+FTP server supports traditional USER/PASS authentication:
+</p>
+
+<pre>
+C: USER alice
+S: 331 User name okay, need password
+C: PASS secret123
+S: 230 User logged in
+</pre>
+
+<h4>The Realm Interface</h4>
+
+<p>
+A <code>Realm</code> represents a collection of authenticatable principals. The
+built-in <code>BasicRealm</code> reads users from an XML file:
+</p>
+
+<pre>
+&lt;realm&gt;
+  &lt;group id="readers" name="ftp-read"/&gt;
+  &lt;group id="writers" name="ftp-read ftp-write"/&gt;
+  &lt;group id="admins" name="ftp-admin"/&gt;
+  
+  &lt;user name="alice" password="secret" groups="#writers"/&gt;
+  &lt;user name="bob" password="password123" groups="#readers"/&gt;
+  &lt;user name="admin" password="admin123" groups="#admins"/&gt;
+&lt;/realm&gt;
+</pre>
+
+<p>
+Custom realm implementations can integrate with LDAP, databases, or external
+identity providers.
+</p>
+
+<h3 id="filesystem">File System Handler</h3>
+
+<p>
+File operations are delegated to an <code>FTPConnectionHandler</code>, which
+provides access to the underlying storage:
+</p>
+
+<h4>FTPConnectionHandler Interface</h4>
+
+<p>
+The handler interface defines methods for all file operations:
+</p>
+
+<ul>
+<li><code>getFileSystem()</code> - returns the FTPFileSystem for the session</li>
+<li><code>isAuthorized(operation, path, metadata)</code> - checks access rights</li>
+<li><code>handleSiteCommand(command, metadata)</code> - processes SITE commands</li>
+</ul>
+
+<h4>Built-in Handlers</h4>
+
+<ul>
+<li><b>DefaultFTPHandler</b> - local filesystem access with configurable root</li>
+<li><b>RoleBasedFTPHandler</b> - adds role-based access control</li>
+</ul>
+
+<h3 id="rbac">Role-Based Access Control</h3>
+
+<p>
+The <code>RoleBasedFTPHandler</code> enforces fine-grained access control
+based on user roles defined in the realm.
+</p>
+
+<h4>FTP Roles</h4>
+
+<ul>
+<li><b>ftp-read</b> - read files and list directories</li>
+<li><b>ftp-write</b> - create and modify files (implies ftp-read)</li>
+<li><b>ftp-delete</b> - delete files and directories (implies ftp-write)</li>
+<li><b>ftp-admin</b> - full access including SITE commands</li>
+</ul>
+
+<h4>Operation Mapping</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Commands</th><th>Required Role</th></tr>
+<tr><td>RETR, LIST, NLST, STAT</td><td>ftp-read</td></tr>
+<tr><td>STOR, STOU, APPE, MKD</td><td>ftp-write</td></tr>
+<tr><td>DELE, RMD</td><td>ftp-delete</td></tr>
+<tr><td>RNFR, RNTO</td><td>ftp-write (source) + ftp-delete (if replacing)</td></tr>
+<tr><td>SITE commands</td><td>ftp-admin</td></tr>
+</table>
+
+<h4>Configuration Example</h4>
+
+<pre>
+&lt;realm id="ftpRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;property name="href"&gt;ftp-users.xml&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;handlerFactory id="ftpHandler"
+                class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory"&gt;
+    &lt;property name="realm" ref="#ftpRealm"/&gt;
+    &lt;property name="rootDirectory"&gt;/srv/ftp&lt;/property&gt;
+&lt;/handlerFactory&gt;
+
+&lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
+    &lt;property name="handlerFactory" ref="#ftpHandler"/&gt;
+    &lt;!-- ... other properties ... --&gt;
+&lt;/server&gt;
+</pre>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>FTPServer Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.ftp.FTPServer</code> supports:
+</p>
+
+<ul>
+<li><code>port</code> - listening port (default: 21, or 990 for FTPS)</li>
+<li><code>secure</code> - enable implicit TLS (FTPS)</li>
+<li><code>keystoreFile</code> - keystore for TLS</li>
+<li><code>keystorePass</code> - keystore password</li>
+<li><code>handlerFactory</code> - reference to FTPConnectionHandlerFactory</li>
+<li><code>requireTLSForData</code> - mandate TLS for data connections</li>
+</ul>
+
+<h4>Passive Mode Configuration</h4>
+
+<ul>
+<li><code>passivePortMin</code> - minimum port for passive data connections</li>
+<li><code>passivePortMax</code> - maximum port for passive data connections</li>
+<li><code>passiveAddress</code> - external IP for passive mode (for NAT)</li>
+</ul>
+
+<h4>Timeouts</h4>
+
+<ul>
+<li><code>loginTimeout</code> - maximum time for authentication</li>
+<li><code>idleTimeout</code> - control connection idle timeout</li>
+<li><code>dataTimeout</code> - data transfer timeout</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;!-- FTP with explicit TLS (port 21 + STARTTLS) --&gt;
+&lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
+    &lt;property name="port"&gt;21&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="handlerFactory" ref="#ftpHandler"/&gt;
+    &lt;property name="passivePortMin"&gt;50000&lt;/property&gt;
+    &lt;property name="passivePortMax"&gt;50100&lt;/property&gt;
+    &lt;property name="requireTLSForData"&gt;true&lt;/property&gt;
+&lt;/server&gt;
+
+&lt;!-- FTPS with implicit TLS (port 990) --&gt;
+&lt;server id="ftps" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
+    &lt;property name="port"&gt;990&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="handlerFactory" ref="#ftpHandler"/&gt;
+&lt;/server&gt;
+</pre>
+
+<h3 id="quota">Quota Management</h3>
+
+<p>
+The FTP server supports storage quotas to limit disk usage per user. Quotas
+are enforced on upload operations and can be queried via SITE commands.
+</p>
+
+<h4>SITE QUOTA Command</h4>
+
+<p>
+Users can query their current quota status:
+</p>
+
+<pre>
+ftp&gt; quote SITE QUOTA
+211-Quota Status for user 'alice'
+211-Source: Role-based quota (premium)
+211-Storage: 2.5 GB used of 10 GB (25%)
+211 End
+</pre>
+
+<p>
+Administrators with the <code>ftp-admin</code> role can check other users:
+</p>
+
+<pre>
+ftp&gt; quote SITE QUOTA bob
+211-Quota Status for user 'bob'
+211-Source: System default quota
+211-Storage: 45 MB used of 100 MB (45%)
+211 End
+</pre>
+
+<h4>SITE SETQUOTA Command</h4>
+
+<p>
+Administrators can set per-user quotas:
+</p>
+
+<pre>
+ftp&gt; quote SITE SETQUOTA alice 20GB
+200 Quota set for user 'alice': 20 GB
+</pre>
+
+<p>
+Sizes accept standard suffixes: KB, MB, GB, TB. Use <code>unlimited</code>
+for no limit.
+</p>
+
+<h4>Upload Quota Enforcement</h4>
+
+<p>
+When a user attempts to upload a file that would exceed their quota, the
+server returns a 552 error:
+</p>
+
+<pre>
+ftp&gt; put largefile.zip
+552 Quota exceeded: 98 MB used of 100 MB
+</pre>
+
+<h4>QuotaManager Configuration</h4>
+
+<p>
+Quotas are managed through a <code>QuotaManager</code> configured on the
+handler factory:
+</p>
+
+<pre>
+&lt;quotaManager id="ftpQuota"
+              class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager"&gt;
+    &lt;property name="realm" ref="#ftpRealm"/&gt;
+    &lt;property name="storageDir"&gt;/var/ftp/quota&lt;/property&gt;
+    &lt;property name="defaultQuota"&gt;100MB&lt;/property&gt;
+    &lt;property name="roleQuota.premium"&gt;10GB&lt;/property&gt;
+    &lt;property name="roleQuota.enterprise"&gt;unlimited&lt;/property&gt;
+&lt;/quotaManager&gt;
+
+&lt;handlerFactory id="ftpHandler"
+                class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory"&gt;
+    &lt;property name="realm" ref="#ftpRealm"/&gt;
+    &lt;property name="rootDirectory"&gt;/srv/ftp&lt;/property&gt;
+    &lt;property name="quotaManager" ref="#ftpQuota"/&gt;
+&lt;/handlerFactory&gt;
+</pre>
+
+<h4>Quota Policy Hierarchy</h4>
+
+<p>
+The <code>RoleBasedQuotaManager</code> determines a user's quota by checking:
+</p>
+
+<ol>
+<li><b>User-specific quota</b> - set via SITE SETQUOTA</li>
+<li><b>Role-based quota</b> - from <code>roleQuota.{rolename}</code> properties</li>
+<li><b>System default</b> - from <code>defaultQuota</code> property</li>
+</ol>
+
+<h4>Telemetry</h4>
+
+<p>
+Quota operations integrate with Gumdrop's telemetry:
+</p>
+
+<ul>
+<li><code>QUOTA_CHECK</code> - SITE QUOTA queries</li>
+<li><code>QUOTA_SET</code> - SITE SETQUOTA changes</li>
+<li><code>QUOTA_EXCEEDED</code> - upload denied with limit details</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="pop3.html">POP3 Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop FTP Server</p>
+
+</body>
+</html>
+

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Gumdrop Torus Logo - SVG version -->
+<!-- A torus (fat tire) with hole facing 45° right, gumdrop candy emerging -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 140" width="160" height="140">
+  <defs>
+    <!-- Main metallic green gradient for torus -->
+    <linearGradient id="torusBase" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3d6b4a"/>
+      <stop offset="40%" style="stop-color:#2a5438"/>
+      <stop offset="70%" style="stop-color:#1f4029"/>
+      <stop offset="100%" style="stop-color:#152d1c"/>
+    </linearGradient>
+    
+    <!-- Top-left highlight (main light source) -->
+    <radialGradient id="highlightTL" cx="25%" cy="20%" r="35%">
+      <stop offset="0%" style="stop-color:#70ff90;stop-opacity:1"/>
+      <stop offset="30%" style="stop-color:#40d060;stop-opacity:0.7"/>
+      <stop offset="100%" style="stop-color:#2a5438;stop-opacity:0"/>
+    </radialGradient>
+    
+    <!-- Secondary highlight -->
+    <radialGradient id="highlightBR" cx="75%" cy="75%" r="30%">
+      <stop offset="0%" style="stop-color:#50e070;stop-opacity:0.6"/>
+      <stop offset="50%" style="stop-color:#30a048;stop-opacity:0.3"/>
+      <stop offset="100%" style="stop-color:#1f4029;stop-opacity:0"/>
+    </radialGradient>
+    
+    <!-- Gumdrop candy gradient -->
+    <linearGradient id="gumdropGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3d6b4a"/>
+      <stop offset="50%" style="stop-color:#2a5438"/>
+      <stop offset="100%" style="stop-color:#1a3525"/>
+    </linearGradient>
+    
+    <!-- Gumdrop highlight -->
+    <radialGradient id="gumdropHighlight" cx="30%" cy="25%" r="40%">
+      <stop offset="0%" style="stop-color:#70ff90;stop-opacity:0.9"/>
+      <stop offset="40%" style="stop-color:#40d060;stop-opacity:0.5"/>
+      <stop offset="100%" style="stop-color:#2a5438;stop-opacity:0"/>
+    </radialGradient>
+    
+    <!-- Clip path for the torus hole - ellipse facing 45° right -->
+    <!-- Smaller diameter, offset to right, narrower due to angle -->
+    <clipPath id="torusHole">
+      <ellipse cx="12" cy="0" rx="12" ry="24"/>
+    </clipPath>
+  </defs>
+
+  <g transform="translate(80, 70)">
+    <!-- TORUS BODY - the main doughnut shape -->
+    <!-- We draw it as a filled shape, then cut out the hole -->
+    
+    <!-- Outer torus body -->
+    <ellipse cx="-5" cy="0" rx="55" ry="50" fill="url(#torusBase)"/>
+    
+    <!-- Cut out the hole (transparent) using a mask approach -->
+    <!-- Draw inner part that gets "removed" by matching background -->
+    <!-- Actually, we'll use the torus as a ring shape -->
+    
+    <!-- Redraw as a path with the hole cut out -->
+    <!-- The hole faces 45° right: appears as narrow ellipse, offset right -->
+    <path d="
+      M -60 0
+      A 55 50 0 1 1 50 0
+      A 55 50 0 1 1 -60 0
+      Z
+      M 0 -18
+      A 12 18 0 1 0 24 0
+      A 12 18 0 1 0 0 -18
+      Z
+    " fill="url(#torusBase)" fill-rule="evenodd"/>
+    
+    <!-- Inner rim shadow (the back wall of the hole we can see) -->
+    <ellipse cx="15" cy="2" rx="12" ry="20" fill="#121810" opacity="0.6"/>
+    
+    <!-- Top-left highlight on torus body -->
+    <ellipse cx="-30" cy="-28" rx="20" ry="16" fill="url(#highlightTL)"/>
+    
+    <!-- Smaller highlight on top -->
+    <ellipse cx="-8" cy="-40" rx="12" ry="8" fill="url(#highlightTL)" opacity="0.5"/>
+    
+    <!-- Lower-right reflection -->
+    <ellipse cx="15" cy="32" rx="15" ry="12" fill="url(#highlightBR)"/>
+    
+    <!-- Top rim specular highlight -->
+    <path d="M -50 -15 Q -30 -45, 0 -48 Q 25 -45, 42 -25" 
+          fill="none" stroke="#80ffa0" stroke-width="1.5" opacity="0.3" stroke-linecap="round"/>
+    
+    <!-- GUMDROP CANDY emerging from hole to the right -->
+    <g transform="translate(42, 3)">
+      <!-- Gumdrop body - dome shape pointing right, like candy propelling out -->
+      <path d="
+        M 0 -15
+        Q 5 -18, 12 -16
+        Q 28 -12, 35 0
+        Q 28 12, 12 16
+        Q 5 18, 0 15
+        Q -8 10, -8 0
+        Q -8 -10, 0 -15
+        Z
+      " fill="url(#gumdropGrad)"/>
+      
+      <!-- Gumdrop highlight (top-left lighting) -->
+      <ellipse cx="8" cy="-8" rx="10" ry="7" fill="url(#gumdropHighlight)" opacity="0.9"/>
+      
+      <!-- Small specular on tip -->
+      <ellipse cx="28" cy="-3" rx="4" ry="3" fill="#60ff80" opacity="0.3"/>
+    </g>
+  </g>
+</svg>

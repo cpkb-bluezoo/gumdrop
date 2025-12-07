@@ -1,0 +1,422 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>POP3 Server - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop POP3 Server</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a complete POP3 server implementation following RFC 1939 with
+modern extensions. POP3 (Post Office Protocol version 3) provides simple,
+download-oriented mailbox access—clients retrieve messages and optionally
+delete them from the server. Like all Gumdrop protocol implementations, the
+POP3 server uses the event-driven, non-blocking architecture.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#protocol">Protocol Support</a></li>
+<li><a href="#extensions">Extensions</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#mailbox">Mailbox Integration</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#security">Security</a></li>
+</ul>
+
+<h3 id="protocol">Protocol Support</h3>
+
+<p>
+The POP3 server implements the base protocol as defined in RFC 1939 with
+extensions from RFC 2449 (POP3 Extension Mechanism) and RFC 5034 (SASL
+Authentication).
+</p>
+
+<h4>Protocol States</h4>
+
+<p>
+POP3 sessions progress through three states:
+</p>
+
+<ul>
+<li><b>AUTHORIZATION</b> - initial state; client must authenticate using
+USER/PASS, APOP, or AUTH with a SASL mechanism</li>
+<li><b>TRANSACTION</b> - authenticated; client can retrieve messages, mark
+deletions, and query mailbox status</li>
+<li><b>UPDATE</b> - after QUIT; server commits deletions and releases the
+mailbox lock</li>
+</ul>
+
+<h4>Required Commands (RFC 1939)</h4>
+
+<ul>
+<li><b>USER/PASS</b> - basic username/password authentication</li>
+<li><b>STAT</b> - returns message count and total size</li>
+<li><b>LIST</b> - lists messages with their sizes</li>
+<li><b>RETR</b> - retrieves a complete message</li>
+<li><b>DELE</b> - marks a message for deletion</li>
+<li><b>NOOP</b> - keeps connection alive</li>
+<li><b>RSET</b> - unmarks all deletions</li>
+<li><b>QUIT</b> - ends session, commits deletions</li>
+</ul>
+
+<h4>Optional Commands (RFC 1939)</h4>
+
+<ul>
+<li><b>APOP</b> - challenge-response authentication (MD5-based)</li>
+<li><b>TOP</b> - retrieves headers and first N lines of body</li>
+<li><b>UIDL</b> - returns unique identifiers for messages</li>
+</ul>
+
+<h3 id="extensions">Extensions</h3>
+
+<h4>CAPA (RFC 2449)</h4>
+
+<p>
+The CAPA command allows clients to discover server capabilities. The server
+responds with a list of supported extensions:
+</p>
+
+<pre>
+C: CAPA
+S: +OK Capability list follows
+S: USER
+S: STLS
+S: UIDL
+S: TOP
+S: SASL PLAIN LOGIN CRAM-MD5 SCRAM-SHA-256
+S: UTF8
+S: PIPELINING
+S: .
+</pre>
+
+<h4>STLS (RFC 2595)</h4>
+
+<p>
+Upgrades a cleartext connection to TLS. After successful STLS, the client
+should re-issue CAPA to discover post-TLS capabilities (authentication
+mechanisms may change).
+</p>
+
+<pre>
+C: STLS
+S: +OK Begin TLS negotiation
+(TLS handshake)
+C: CAPA
+...
+</pre>
+
+<h4>AUTH (RFC 5034)</h4>
+
+<p>
+SASL authentication mechanism support. The server advertises available
+mechanisms in CAPA response. See <a href="#authentication">Authentication</a>
+for supported mechanisms.
+</p>
+
+<h4>UTF8 (RFC 6816)</h4>
+
+<p>
+Enables UTF-8 mode for international mailbox content. When enabled, message
+headers and bodies may contain UTF-8 encoded text.
+</p>
+
+<pre>
+C: UTF8
+S: +OK UTF-8 mode enabled
+</pre>
+
+<h4>PIPELINING (RFC 2449)</h4>
+
+<p>
+When enabled, clients can send multiple commands without waiting for responses.
+This reduces round-trip latency for batch operations.
+</p>
+
+<h3 id="authentication">Authentication</h3>
+
+<p>
+Authentication uses Gumdrop's centralised <code>Realm</code> interface, shared
+with IMAP, SMTP, and other servers. Multiple authentication methods are
+supported.
+</p>
+
+<h4>Basic Authentication (USER/PASS)</h4>
+
+<p>
+The simplest method—client sends username and password in cleartext. Should
+only be used over TLS.
+</p>
+
+<pre>
+C: USER alice
+S: +OK User accepted
+C: PASS secret
+S: +OK Mailbox locked and ready
+</pre>
+
+<h4>APOP (RFC 1939)</h4>
+
+<p>
+Challenge-response authentication using MD5. The server includes a unique
+timestamp in its greeting; the client responds with MD5(timestamp + password).
+The password is never transmitted.
+</p>
+
+<pre>
+S: +OK POP3 server ready &lt;1896.697170952@example.com&gt;
+C: APOP alice c4c9334bac560ecc979e58001b3e22fb
+S: +OK Mailbox locked and ready
+</pre>
+
+<h4>SASL Mechanisms</h4>
+
+<p>
+The AUTH command supports multiple SASL mechanisms:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Mechanism</th><th>RFC</th><th>Description</th></tr>
+<tr><td>PLAIN</td><td>RFC 4616</td><td>Simple username/password; requires TLS</td></tr>
+<tr><td>LOGIN</td><td>-</td><td>Legacy base64 username/password; requires TLS</td></tr>
+<tr><td>CRAM-MD5</td><td>RFC 2195</td><td>HMAC-MD5 challenge-response</td></tr>
+<tr><td>DIGEST-MD5</td><td>RFC 2831</td><td>HTTP Digest-style authentication</td></tr>
+<tr><td>SCRAM-SHA-256</td><td>RFC 7677</td><td>Salted challenge-response; recommended</td></tr>
+<tr><td>OAUTHBEARER</td><td>RFC 7628</td><td>OAuth 2.0 bearer tokens</td></tr>
+<tr><td>GSSAPI</td><td>RFC 4752</td><td>Kerberos/enterprise SSO</td></tr>
+<tr><td>EXTERNAL</td><td>RFC 4422</td><td>TLS client certificate</td></tr>
+<tr><td>NTLM</td><td>-</td><td>Windows domain authentication</td></tr>
+</table>
+
+<p>
+SCRAM-SHA-256 is recommended as it provides mutual authentication and never
+transmits the password. The realm can store only derived keys without keeping
+plaintext passwords.
+</p>
+
+<h4>Authentication Example (SCRAM-SHA-256)</h4>
+
+<pre>
+C: AUTH SCRAM-SHA-256
+S: + (server first message, base64)
+C: (client first message, base64)
+S: + (server final message, base64)
+C: (client final message, base64)
+S: +OK Authentication successful
+</pre>
+
+<h3 id="mailbox">Mailbox Integration</h3>
+
+<p>
+The POP3 server accesses mail storage through the <a href="mailbox.html">Mailbox
+API</a>. A <code>MailboxFactory</code> provides <code>MailboxStore</code>
+instances for authenticated users.
+</p>
+
+<h4>Store Lifecycle</h4>
+
+<ol>
+<li>User authenticates successfully</li>
+<li>Server calls <code>mailboxFactory.createStore()</code></li>
+<li>Store is opened with <code>store.open(username)</code></li>
+<li>Server opens the user's INBOX mailbox</li>
+<li>Client retrieves messages, marks deletions</li>
+<li>On QUIT, server calls <code>mailbox.expunge()</code> to commit deletions</li>
+<li>Store is closed</li>
+</ol>
+
+<h4>Mailbox Locking</h4>
+
+<p>
+POP3 requires exclusive access to the mailbox during a session. The server
+acquires a lock when entering TRANSACTION state and releases it in UPDATE
+state. Concurrent POP3 connections to the same mailbox are rejected.
+</p>
+
+<h4>Message Identifiers</h4>
+
+<p>
+The UIDL command returns unique identifiers for each message. These identifiers
+are persistent across sessions, allowing clients to track which messages have
+been downloaded.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>POP3Server Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.pop3.POP3Server</code> supports:
+</p>
+
+<ul>
+<li><code>port</code> - listening port (default: 110, or 995 for secure)</li>
+<li><code>secure</code> - enable implicit TLS (POP3S)</li>
+<li><code>keystoreFile</code> - keystore for TLS/STLS</li>
+<li><code>keystorePass</code> - keystore password</li>
+<li><code>realm</code> - reference to a Realm for authentication</li>
+<li><code>mailboxFactory</code> - reference to a MailboxFactory</li>
+</ul>
+
+<h4>Feature Toggles</h4>
+
+<ul>
+<li><code>enableAPOP</code> - enable APOP authentication (default: true)</li>
+<li><code>enableUTF8</code> - enable UTF-8 support (default: true)</li>
+<li><code>enablePipelining</code> - enable command pipelining (default: false)</li>
+</ul>
+
+<h4>Security Settings</h4>
+
+<ul>
+<li><code>loginDelay</code> - delay after failed authentication in milliseconds
+(default: 0); helps mitigate brute-force attacks</li>
+<li><code>transactionTimeout</code> - session timeout in milliseconds
+(default: 600000 / 10 minutes); RFC 1939 recommends at least 10 minutes</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;!-- Authentication realm --&gt;
+&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;!-- Mbox storage --&gt;
+&lt;mailboxFactory id="mbox"
+                class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
+    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;/mailboxFactory&gt;
+
+&lt;!-- POP3 server (port 110 with STLS) --&gt;
+&lt;server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
+    &lt;property name="port"&gt;110&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+    &lt;property name="mailboxFactory" ref="#mbox"/&gt;
+    &lt;property name="enableAPOP"&gt;true&lt;/property&gt;
+    &lt;property name="loginDelay"&gt;3000&lt;/property&gt;
+&lt;/server&gt;
+
+&lt;!-- POP3S server (port 995 with implicit TLS) --&gt;
+&lt;server id="pop3s" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
+    &lt;property name="port"&gt;995&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="realm" ref="#mailRealm"/&gt;
+    &lt;property name="mailboxFactory" ref="#mbox"/&gt;
+&lt;/server&gt;
+</pre>
+
+<h3 id="security">Security</h3>
+
+<h4>Transport Security</h4>
+
+<ul>
+<li><b>POP3S (port 995)</b> - implicit TLS; connection is encrypted from the
+start</li>
+<li><b>STLS (port 110)</b> - upgrade cleartext connection to TLS</li>
+</ul>
+
+<p>
+RFC 8314 recommends implicit TLS (port 995) over STLS for new deployments.
+STLS remains available for compatibility with older clients.
+</p>
+
+<h4>Credential Protection</h4>
+
+<ul>
+<li><b>APOP</b> - password never transmitted; MD5(timestamp + password)</li>
+<li><b>CRAM-MD5</b> - HMAC-MD5 challenge-response</li>
+<li><b>SCRAM-SHA-256</b> - mutual authentication with derived keys</li>
+</ul>
+
+<p>
+USER/PASS and AUTH PLAIN transmit credentials in cleartext and should only be
+used over TLS. The server can be configured to reject these mechanisms without
+TLS.
+</p>
+
+<h4>Brute-Force Mitigation</h4>
+
+<p>
+The <code>loginDelay</code> setting introduces a delay after failed
+authentication attempts:
+</p>
+
+<ul>
+<li>Set to 3000 (3 seconds) to slow down automated attacks</li>
+<li>Applies per-connection; subsequent attempts within a session are delayed</li>
+<li>Does not affect successful authentications</li>
+</ul>
+
+<h4>Session Timeout</h4>
+
+<p>
+The <code>transactionTimeout</code> setting closes idle connections:
+</p>
+
+<ul>
+<li>Default 10 minutes per RFC 1939 recommendation</li>
+<li>Prevents resource exhaustion from abandoned connections</li>
+<li>Timer resets on each client command</li>
+</ul>
+
+<h4>Mailbox Locking</h4>
+
+<p>
+Exclusive mailbox access prevents data corruption from concurrent modifications.
+If a mailbox is already locked by another session, authentication fails with an
+appropriate error.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="dns.html">DNS Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop POP3 Server</p>
+
+</body>
+</html>
+

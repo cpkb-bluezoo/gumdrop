@@ -1,0 +1,12 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- Raw HTTPS server on port 18443 - no content, just 404s -->
+    <server id="testHttps" class="org.bluezoo.gumdrop.http.HTTPServer">
+        <property name="port">18443</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="secure">true</property>
+        <property name="keystoreFile">test/integration/certs/test-keystore.p12</property>
+        <property name="keystorePass">testpass</property>
+    </server>
+</gumdrop>
+

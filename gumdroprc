@@ -1,0 +1,183 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Authentication realm -->
+	<realm id="myRealm" class="org.bluezoo.gumdrop.BasicRealm">
+		<property name="href">myRealm.xml</property>
+	</realm>
+	
+	<!-- Servlet container with contexts and realms -->
+	<container id="mainContainer">
+		<property name="hotDeploy">true</property>
+		
+		<!-- Map of named realms available to contexts -->
+		<property name="realms">
+			<map>
+				<entry key="myRealm" ref="#myRealm"/>
+			</map>
+		</property>
+		
+		<!-- List of web application contexts -->
+		<property name="contexts">
+			<list>
+				<!-- Main web application -->
+				<context path="" root="web" distributable="true"/>
+				<!-- Manager web application -->
+				<context path="/manager" root="dist/manager.war"/>
+			</list>
+		</property>
+	</container>
+	
+	<!-- HTTP servlet server on port 8080 -->
+	<server id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
+		<property name="port">8080</property>
+		<property name="container" ref="#mainContainer"/>
+	</server>
+	
+	<!-- HTTPS servlet server on port 8443 -->
+	<server id="https" class="org.bluezoo.gumdrop.servlet.ServletServer">
+		<property name="port">8443</property>
+		<property name="secure">true</property>
+		<property name="keystoreFile">testkeystore.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="container" ref="#mainContainer"/>
+	</server>
+	
+	<!-- Additional server examples (commented out) -->
+	
+	<!-- HTTPS with SNI (Server Name Indication) support
+	     Serve different certificates based on the hostname the client requests.
+	     The keystore must contain certificates with the specified aliases.
+	<server id="httpsSni" class="org.bluezoo.gumdrop.servlet.ServletServer">
+		<property name="port">8444</property>
+		<property name="secure">true</property>
+		<property name="keystoreFile">multi-domain.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="sniHostnames">
+			<map>
+				<entry key="example.com" value="example-cert"/>
+				<entry key="*.example.com" value="example-wildcard"/>
+				<entry key="other.com" value="other-cert"/>
+			</map>
+		</property>
+		<property name="sniDefaultAlias">default-cert</property>
+		<property name="container" ref="#mainContainer"/>
+	</server>
+	-->
+	
+	<!-- File-based HTTP server
+	<server id="fileHttp" class="org.bluezoo.gumdrop.http.file.FileHTTPServer">
+		<property name="port">8081</property>
+		<property name="rootPath">web</property>
+		<property name="allowWrite">false</property>
+		<property name="welcomeFile">index.html</property>
+	</server>
+	-->
+	
+	<!-- File-based HTTPS server
+	<server id="fileHttps" class="org.bluezoo.gumdrop.http.file.FileHTTPServer">
+		<property name="port">8082</property>
+		<property name="secure">true</property>
+		<property name="keystoreFile">testkeystore.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="rootPath">web</property>
+	</server>
+	-->
+	
+	<!-- FTP server (requires handler factory implementation)
+	<ftp-handler-factory id="ftpHandler" class="com.example.MyFTPHandlerFactory">
+		<property name="root">web</property>
+	</ftp-handler-factory>
+	
+	<server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer">
+		<property name="port">8083</property>
+		<property name="handlerFactory" ref="#ftpHandler"/>
+	</server>
+	-->
+	
+	<!-- SMTP server (requires handler factory implementation)
+	<smtp-handler-factory id="smtpHandler" class="com.example.MySmtpHandlerFactory">
+		<property name="queueDir">/var/spool/mail</property>
+	</smtp-handler-factory>
+	
+	<server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer">
+		<property name="port">25</property>
+		<property name="realm" ref="#myRealm"/>
+		<property name="handlerFactory" ref="#smtpHandler"/>
+	</server>
+	-->
+	
+	<!-- SMTPS server
+	<server id="smtps" class="org.bluezoo.gumdrop.smtp.SMTPServer">
+		<property name="port">465</property>
+		<property name="secure">true</property>
+		<property name="keystoreFile">server.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="realm" ref="#myRealm"/>
+		<property name="handlerFactory" ref="#smtpHandler"/>
+	</server>
+	-->
+	
+	<!-- Mail servers (IMAP and POP3) require a mailbox factory for storage -->
+	
+	<!-- Mailbox factory for mbox-format mail storage
+	<mailbox-factory id="mboxStorage" class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory">
+		<property name="basedir">/var/mail/boxes</property>
+		<property name="extension">.mbox</property>
+	</mailbox-factory>
+	-->
+	
+	<!-- IMAP server for mail access (cleartext with STARTTLS support)
+	<server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer">
+		<property name="port">143</property>
+		<property name="keystoreFile">testkeystore.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="realm" ref="#myRealm"/>
+		<property name="mailboxFactory" ref="#mboxStorage"/>
+		<property name="enableIDLE">true</property>
+		<property name="enableNAMESPACE">true</property>
+		<property name="enableQUOTA">true</property>
+		<property name="enableMOVE">true</property>
+		<property name="idleTimeout">1800000</property>
+		<property name="maxLiteralSize">26214400</property>
+	</server>
+	-->
+	
+	<!-- IMAPS server (implicit TLS)
+	<server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer">
+		<property name="port">993</property>
+		<property name="secure">true</property>
+		<property name="keystoreFile">testkeystore.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="realm" ref="#myRealm"/>
+		<property name="mailboxFactory" ref="#mboxStorage"/>
+		<property name="enableIDLE">true</property>
+		<property name="enableQUOTA">true</property>
+	</server>
+	-->
+	
+	<!-- POP3 server for legacy mail access (cleartext with STARTTLS support)
+	<server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server">
+		<property name="port">110</property>
+		<property name="keystoreFile">testkeystore.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="realm" ref="#myRealm"/>
+		<property name="mailboxFactory" ref="#mboxStorage"/>
+		<property name="enableAPOP">true</property>
+		<property name="enableUTF8">true</property>
+		<property name="transactionTimeout">600000</property>
+	</server>
+	-->
+	
+	<!-- POP3S server (implicit TLS)
+	<server id="pop3s" class="org.bluezoo.gumdrop.pop3.POP3Server">
+		<property name="port">995</property>
+		<property name="secure">true</property>
+		<property name="keystoreFile">testkeystore.p12</property>
+		<property name="keystorePass">changeit</property>
+		<property name="realm" ref="#myRealm"/>
+		<property name="mailboxFactory" ref="#mboxStorage"/>
+		<property name="enableAPOP">true</property>
+		<property name="enableUTF8">true</property>
+	</server>
+	-->
+</gumdrop>

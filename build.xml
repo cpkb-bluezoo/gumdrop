@@ -1,0 +1,320 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Copyright (C) 2005, 2025 Chris Burdess
+
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<project name='gumdrop' default='dist'>
+
+  <property name='src' location='src'/>
+  <property name='lib' location='lib'/>
+  <property name='build' location='build'/>
+  <property name='build-bootstrap' location='build-bootstrap'/>
+  <property name='manager' location='manager'/>
+  <property name='dist' location='dist'/>
+  <property name='test' location='test'/>
+  <property name='server.jar' location='${dist}/server.jar'/>
+  <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
+  <property name='manager.war' location='${dist}/manager.war'/>
+  
+  <!--
+    Java version compatibility settings.
+    Gumdrop targets Java 8 (1.8) to ensure broad compatibility with:
+    - Legacy enterprise Java runtimes still in production use
+    - Embedded systems and appliances with older JVMs
+    - Organizations with strict upgrade policies
+    This is enforced at compile time with source/target settings.
+  -->
+  <property name='java.source.version' value='1.8'/>
+  <property name='java.target.version' value='1.8'/>
+  
+  <property name='servlet.jar' value='javax.servlet-api-4.0.1.jar'/>
+  <property name='javamail.jar' value='javax.mail-1.6.2.jar'/>
+  <property name='annotation.jar' value='javax.annotation-api-1.3.2.jar'/>
+  <property name='ejb.jar' value='javax.ejb-api-3.2.2.jar'/>
+  <property name='persistence.jar' value='javax.persistence-api-2.2.jar'/>
+  <property name='jaxws.jar' value='jaxws-api-2.3.1.jar'/>
+
+  <!-- JUnit dependencies -->
+  <property name='junit.jar' value='junit-4.13.1.jar'/>
+  <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
+  <property name='jsonparser.jar' value='jsonparser-20251102.jar'/>
+
+  <!-- Remove compiled classes and build directories -->
+  <target name='clean' depends='clean-junit,clean-integration'>
+    <delete dir='${build-bootstrap}'/>
+    <delete dir='${build}'/>
+    <delete dir='${dist}'/>
+    <delete dir='${manager}/WEB-INF/classes'/>
+    <delete dir='${test}/cluster/WEB-INF/classes'/>
+  </target>
+
+  <target name='clean-junit'>
+    <delete dir='${test}/junit/classes'/>
+    <delete dir='${test}/junit/results'/>
+  </target>
+
+  <target name='clean-integration'>
+    <delete dir='${test}/integration/classes'/>
+    <delete dir='${test}/integration/results'/>
+  </target>
+
+  <!-- Target for the server/servlet container and all its resources -->
+  <target name='build'>
+    <mkdir dir='${build}'/>
+    <javac srcdir='${src}' destdir='${build}' debug='true'
+           source='${java.source.version}' target='${java.target.version}'
+           includeantruntime='false'>
+      <classpath>
+        <pathelement location='${lib}/${servlet.jar}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
+        <pathelement location='${lib}/${annotation.jar}'/>
+        <pathelement location='${lib}/${ejb.jar}'/>
+        <pathelement location='${lib}/${persistence.jar}'/>
+        <pathelement location='${lib}/${jaxws.jar}'/>
+      </classpath>
+      <include name="**/*.java"/>
+      <exclude name="org/bluezoo/gumdrop/Bootstrap.java"/>
+    </javac>
+    <copy todir='${build}'>
+      <fileset dir='${src}'>
+        <include name='**/*.properties'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <!-- server.jar contains the server and servlet container -->
+  <target name='jar' depends='build'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${server.jar}' basedir='${build}'/>
+  </target>
+
+  <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
+  <!-- the server.jar, and the J2EE dependencies for the server and container. -->
+  <!-- Bootstrap will create a new classloader to load these jars -->
+  <target name='build-bootstrap' depends='jar'>
+    <mkdir dir='${build-bootstrap}'/>
+    <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'
+           source='${java.source.version}' target='${java.target.version}'
+           includeantruntime='false'>
+      <include name="org/bluezoo/gumdrop/Bootstrap.java"/>
+      <include name="org/bluezoo/gumdrop/ContainerClassLoader.java"/>
+    </javac>
+    <copy todir='${build-bootstrap}' file='${server.jar}'/>
+    <copy todir='${build-bootstrap}'>
+      <fileset dir='${lib}'>
+        <include name='${servlet.jar}'/>
+        <include name='${javamail.jar}'/>
+        <include name='${annotation.jar}'/>
+        <include name='${ejb.jar}'/>
+        <include name='${persistence.jar}'/>
+        <include name='${jaxws.jar}'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <!-- The bootstrap jar contains the only class loaded by the bootstrap classloader -->
+  <target name='bootstrap-jar' depends='build-bootstrap'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.jar}' basedir='build-bootstrap'>
+      <manifest>
+        <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
+        <attribute name='Container-Jar' value='server.jar'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar}'/>
+      </manifest>
+    </jar>
+  </target>
+
+  <!-- manager.war contains the manager web application -->
+  <target name='manager-war'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${manager.war}' basedir='${manager}'/>
+  </target>
+
+  <target name='dist' depends='bootstrap-jar,manager-war'/>
+
+  <target name='cluster-test'>
+    <mkdir dir='${test}/cluster/WEB-INF/classes'/>
+    <javac srcdir='${test}/cluster' destdir='${test}/cluster/WEB-INF/classes' debug='true'
+           source='${java.source.version}' target='${java.target.version}'
+           includeantruntime='false'>
+      <classpath>
+        <pathelement location='${lib}/${servlet.jar}'/>
+      </classpath>
+    </javac>
+  </target>
+
+  <target name='junit-build' depends='build'>
+    <mkdir dir='${test}/junit/classes'/>
+    <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'
+           source='${java.source.version}' target='${java.target.version}'
+           includeantruntime='false'>
+      <classpath>
+        <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
+        <pathelement location='${build}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
+        <pathelement location='${lib}/${servlet.jar}'/>
+        <pathelement location='${lib}/${jsp.jar}'/>
+      </classpath>
+    </javac>
+    <copy todir='${test}/junit/classes'>
+      <fileset dir='${test}/junit/src'>
+        <include name='**/*.eml'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name='junit-test' depends='junit-build'>
+    <mkdir dir='${test}/junit/results'/>
+    <junit printsummary='yes' haltonfailure='no'>
+      <classpath>
+        <pathelement location='${test}/junit/classes'/>
+        <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+        <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
+        <pathelement location='${build}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
+        <pathelement location='${lib}/${servlet.jar}'/>
+        <pathelement location='${lib}/${jsp.jar}'/>
+      </classpath>
+      <batchtest fork="yes" todir="${test}/junit/results">
+        <fileset dir="${test}/junit/src">
+          <include name="**/*Test.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" />
+      <!--formatter type="xml" /-->
+    </junit>
+  </target>
+
+  <!-- Main test target that runs all available tests -->
+  <target name='test' depends='junit-test' description='Run all unit tests'>
+  </target>
+
+  <!-- Build integration tests -->
+  <target name='integration-build' depends='build'>
+    <mkdir dir='${test}/integration/classes'/>
+    <javac srcdir='${test}/integration/src'
+           destdir='${test}/integration/classes'
+           source='${java.source.version}' target='${java.target.version}'
+           includeantruntime='false'
+           debug='true'>
+      <classpath>
+        <pathelement location='${build}'/>
+        <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
+      </classpath>
+    </javac>
+  </target>
+
+  <!-- Common integration test classpath -->
+  <path id='integration.classpath'>
+    <pathelement location='${test}/integration/classes'/>
+    <pathelement location='${test}/junit/lib/${junit.jar}'/>
+    <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+    <pathelement location='${build}'/>
+    <pathelement location='${lib}/${javamail.jar}'/>
+  </path>
+
+  <!-- Run HTTP integration tests -->
+  <target name='integration-test-http' depends='integration-build'
+          description='Run HTTP server integration tests'>
+    <mkdir dir='${test}/integration/results'/>
+    <junit printsummary='yes' haltonfailure='no' fork='yes'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork="yes" todir="${test}/integration/results">
+        <fileset dir="${test}/integration/src">
+          <include name="**/http/*IntegrationTest.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" usefile="false" />
+    </junit>
+  </target>
+
+  <!-- Run SMTP integration tests -->
+  <target name='integration-test-smtp' depends='integration-build'
+          description='Run SMTP server integration tests'>
+    <mkdir dir='${test}/integration/results'/>
+    <junit printsummary='yes' haltonfailure='no' fork='yes'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork="yes" todir="${test}/integration/results">
+        <fileset dir="${test}/integration/src">
+          <include name="**/smtp/*IntegrationTest.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" usefile="false" />
+    </junit>
+  </target>
+
+  <!-- Run POP3 integration tests -->
+  <target name='integration-test-pop3' depends='integration-build'
+          description='Run POP3 server integration tests'>
+    <mkdir dir='${test}/integration/results'/>
+    <junit printsummary='yes' haltonfailure='no' fork='yes'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork="yes" todir="${test}/integration/results">
+        <fileset dir="${test}/integration/src">
+          <include name="**/pop3/*IntegrationTest.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" usefile="false" />
+    </junit>
+  </target>
+
+  <!-- Run IMAP integration tests -->
+  <target name='integration-test-imap' depends='integration-build'
+          description='Run IMAP server integration tests'>
+    <mkdir dir='${test}/integration/results'/>
+    <junit printsummary='yes' haltonfailure='no' fork='yes'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork="yes" todir="${test}/integration/results">
+        <fileset dir="${test}/integration/src">
+          <include name="**/imap/*IntegrationTest.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" usefile="false" />
+    </junit>
+  </target>
+
+  <!-- Run telemetry integration tests -->
+  <target name='integration-test-telemetry' depends='integration-build'
+          description='Run telemetry integration tests'>
+    <mkdir dir='${test}/integration/results'/>
+    <junit printsummary='yes' haltonfailure='no' fork='yes'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork="yes" todir="${test}/integration/results">
+        <fileset dir="${test}/integration/src">
+          <include name="**/telemetry/*IntegrationTest.java" />
+        </fileset>
+      </batchtest>
+      <formatter type="plain" usefile="false" />
+    </junit>
+  </target>
+
+  <!-- Run all integration tests -->
+  <target name='integration-test' 
+          depends='integration-test-http,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-telemetry'
+          description='Run all integration tests'>
+  </target>
+
+  <!-- Run all tests -->
+  <target name='test-all' depends='junit-test,integration-test' 
+          description='Run all unit and integration tests'>
+  </target>
+
+</project>

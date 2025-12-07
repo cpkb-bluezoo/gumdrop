@@ -1,0 +1,588 @@
+/*
+ * SelectorLoop.java
+ * Copyright (C) 2005, 2025 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.CancelledKeyException;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectableChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
+import java.text.MessageFormat;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Worker selector loop for handling I/O events.
+ *
+ * <p>Handles OP_READ and OP_WRITE events for both TCP connections and
+ * UDP datagrams. Uses the {@link ChannelHandler} interface to dispatch
+ * events to the appropriate handler type.
+ *
+ * <p>All I/O and TLS/DTLS processing for a handler occurs on its
+ * assigned SelectorLoop thread.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class SelectorLoop extends Thread {
+
+    private static final Logger LOGGER = Logger.getLogger(SelectorLoop.class.getName());
+
+    private final int index;
+    private Selector selector;
+    private volatile boolean active;
+
+    // Reusable read buffer (per selector loop)
+    // Sized for max UDP datagram (65507) plus some headroom
+    private final ByteBuffer readBuffer;
+
+    // Queue for registrations (cross-thread)
+    private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
+
+    // Queue for timer callbacks (cross-thread, from ScheduledTimer)
+    private final ConcurrentLinkedQueue<ScheduledTimer.TimerEntry> pendingTimers;
+
+    // Queue for general tasks (cross-thread, from invokeLater)
+    private final ConcurrentLinkedQueue<Runnable> pendingTasks;
+
+    /**
+     * Creates a new SelectorLoop with the given index (1-based for display).
+     *
+     * @param index the 1-based index for naming
+     */
+    SelectorLoop(int index) {
+        super("SelectorLoop-" + index);
+        this.index = index;
+        this.readBuffer = ByteBuffer.allocate(65536);
+        this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
+        this.pendingTimers = new ConcurrentLinkedQueue<ScheduledTimer.TimerEntry>();
+        this.pendingTasks = new ConcurrentLinkedQueue<Runnable>();
+    }
+
+    public void run() {
+        active = true;
+        try {
+            selector = Selector.open();
+
+            while (active) {
+                try {
+                    // Process any pending registrations
+                    processPendingRegistrations();
+
+                    // Process any pending timer callbacks
+                    processPendingTimers();
+
+                    // Process any pending tasks
+                    processPendingTasks();
+
+                    // Select with timeout to check registrations periodically
+                    selector.select(100);
+
+                    Set<SelectionKey> keys = selector.selectedKeys();
+                    for (Iterator<SelectionKey> i = keys.iterator(); i.hasNext(); ) {
+                        SelectionKey key = i.next();
+                        i.remove();
+
+                        if (!key.isValid()) {
+                            continue;
+                        }
+
+                        ChannelHandler handler = (ChannelHandler) key.attachment();
+
+                        if (key.isReadable()) {
+                            doRead(key, handler);
+                        }
+
+                        if (key.isValid() && key.isWritable()) {
+                            doWrite(key, handler);
+                        }
+
+                        if (key.isValid() && key.isConnectable()) {
+                            // Only TCP connections have OP_CONNECT
+                            doConnect(key, (Connection) handler);
+                        }
+                    }
+                } catch (CancelledKeyException e) {
+                    // Key was cancelled, continue
+                } catch (IOException e) {
+                    if ("Bad file descriptor".equals(e.getMessage())) {
+                        // Selector was closed
+                    } else {
+                        LOGGER.log(Level.WARNING, "Error in selector loop", e);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Failed to initialize SelectorLoop", e);
+        } finally {
+            if (selector != null) {
+                try {
+                    selector.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error closing selector", e);
+                }
+            }
+        }
+    }
+
+    private void processPendingRegistrations() {
+        PendingRegistration reg;
+        while ((reg = pendingRegistrations.poll()) != null) {
+            try {
+                int ops = reg.connect ? SelectionKey.OP_CONNECT : SelectionKey.OP_READ;
+                SelectionKey key = reg.channel.register(selector, ops);
+                key.attach(reg.handler);
+                reg.handler.setSelectionKey(key);
+                reg.handler.setSelectorLoop(this);
+            } catch (ClosedChannelException e) {
+                // Channel was closed before we could register
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Channel closed before registration");
+                }
+            }
+        }
+    }
+
+    private void processPendingTimers() {
+        ScheduledTimer.TimerEntry entry;
+        while ((entry = pendingTimers.poll()) != null) {
+            if (!entry.cancelled) {
+                try {
+                    entry.callback.run();
+                } catch (Exception e) {
+                    LOGGER.log(Level.WARNING, "Error in timer callback", e);
+                }
+            }
+        }
+    }
+
+    private void processPendingTasks() {
+        Runnable task;
+        while ((task = pendingTasks.poll()) != null) {
+            try {
+                task.run();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error in pending task", e);
+            }
+        }
+    }
+
+    /**
+     * Called by ScheduledTimer when a timer fires.
+     * Adds the timer entry to the pending queue and wakes up the selector.
+     */
+    void dispatchTimer(ScheduledTimer.TimerEntry entry) {
+        pendingTimers.offer(entry);
+        if (selector != null) {
+            selector.wakeup();
+        }
+    }
+
+    // -- Dispatch methods --
+
+    private void doRead(SelectionKey key, ChannelHandler handler) {
+        switch (handler.getChannelType()) {
+            case TCP:
+                doTcpRead(key, (Connection) handler);
+                break;
+            case DATAGRAM_SERVER:
+                doDatagramServerRead(key, (DatagramServer) handler);
+                break;
+            case DATAGRAM_CLIENT:
+                doDatagramClientRead(key, (DatagramClient) handler);
+                break;
+        }
+    }
+
+    private void doWrite(SelectionKey key, ChannelHandler handler) {
+        switch (handler.getChannelType()) {
+            case TCP:
+                doTcpWrite(key, (Connection) handler);
+                break;
+            case DATAGRAM_SERVER:
+                doDatagramServerWrite(key, (DatagramServer) handler);
+                break;
+            case DATAGRAM_CLIENT:
+                doDatagramClientWrite(key, (DatagramClient) handler);
+                break;
+        }
+    }
+
+    // -- TCP methods --
+
+    private void doTcpRead(SelectionKey key, Connection connection) {
+        SocketChannel sc = (SocketChannel) key.channel();
+        readBuffer.clear();
+
+        try {
+            int len = sc.read(readBuffer);
+
+            if (len == -1) {
+                // EOF - peer closed the connection
+                connection.handleEOF();
+            } else if (len > 0) {
+                readBuffer.flip();
+
+                // Copy the data (readBuffer is reused)
+                ByteBuffer data = ByteBuffer.allocate(len);
+                data.put(readBuffer);
+                data.flip();
+
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    Object sa = sc.socket().getRemoteSocketAddress();
+                    String message = Gumdrop.L10N.getString("info.received");
+                    message = MessageFormat.format(message, len, sa);
+                    LOGGER.finest(message);
+                }
+
+                // Process data directly on this thread (no handoff)
+                // This handles SSL unwrap and calls receive() on the connection
+                connection.netReceive(data);
+            }
+        } catch (IOException e) {
+            connection.handleReadError(e);
+        }
+    }
+
+    private void doTcpWrite(SelectionKey key, Connection connection) {
+        SocketChannel sc = (SocketChannel) key.channel();
+        Deque<ByteBuffer> queue = connection.getOutboundQueue();
+
+        try {
+            ByteBuffer buffer;
+            while ((buffer = queue.peek()) != null) {
+                // Check for close sentinel
+                if (buffer == Connection.CLOSE_SENTINEL) {
+                    queue.poll();
+                    connection.doClose();
+                    key.cancel();
+                    return;
+                }
+
+                int len = sc.write(buffer);
+
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    Object sa = sc.socket().getRemoteSocketAddress();
+                    String message = Gumdrop.L10N.getString("info.sent");
+                    message = MessageFormat.format(message, len, sa);
+                    LOGGER.finest(message);
+                }
+
+                if (buffer.hasRemaining()) {
+                    // Socket buffer full, wait for next OP_WRITE
+                    return;
+                }
+
+                // Buffer completely written, remove from queue
+                queue.poll();
+            }
+
+            // All data written, clear OP_WRITE interest
+            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+
+        } catch (IOException e) {
+            connection.handleWriteError(e);
+        }
+    }
+
+    private void doConnect(SelectionKey key, Connection connection) {
+        SocketChannel sc = (SocketChannel) key.channel();
+
+        try {
+            if (sc.finishConnect()) {
+                // Remove OP_CONNECT, add OP_READ
+                key.interestOps((key.interestOps() & ~SelectionKey.OP_CONNECT) | SelectionKey.OP_READ);
+
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    String message = Gumdrop.L10N.getString("info.connected");
+                    message = MessageFormat.format(message, sc.toString());
+                    LOGGER.finest(message);
+                }
+
+                connection.connected();
+            }
+        } catch (IOException e) {
+            connection.handleConnectError(e);
+        }
+    }
+
+    // -- Datagram Server methods --
+
+    private void doDatagramServerRead(SelectionKey key, DatagramServer server) {
+        DatagramChannel dc = (DatagramChannel) key.channel();
+        readBuffer.clear();
+
+        try {
+            InetSocketAddress source = (InetSocketAddress) dc.receive(readBuffer);
+            if (source == null) {
+                return;
+            }
+
+            readBuffer.flip();
+
+            // Copy the data (readBuffer is reused)
+            ByteBuffer data = ByteBuffer.allocate(readBuffer.remaining());
+            data.put(readBuffer);
+            data.flip();
+
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                String message = Gumdrop.L10N.getString("info.received");
+                message = MessageFormat.format(message, data.remaining(), source);
+                LOGGER.finest(message);
+            }
+
+            server.netReceive(data, source);
+
+        } catch (IOException e) {
+            server.handleReadError(e);
+        }
+    }
+
+    private void doDatagramServerWrite(SelectionKey key, DatagramServer server) {
+        DatagramChannel dc = (DatagramChannel) key.channel();
+        Deque<OutboundDatagram> queue = server.getOutboundQueue();
+
+        try {
+            OutboundDatagram od;
+            while ((od = queue.peek()) != null) {
+                int len = dc.send(od.data, od.destination);
+
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    String message = Gumdrop.L10N.getString("info.sent");
+                    message = MessageFormat.format(message, len, od.destination);
+                    LOGGER.finest(message);
+                }
+
+                if (od.data.hasRemaining()) {
+                    // Couldn't send all data (shouldn't happen with UDP)
+                    return;
+                }
+
+                queue.poll();
+            }
+
+            // All data written, clear OP_WRITE interest
+            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+
+        } catch (IOException e) {
+            server.handleWriteError(e);
+        }
+    }
+
+    // -- Datagram Client methods --
+
+    private void doDatagramClientRead(SelectionKey key, DatagramClient client) {
+        DatagramChannel dc = (DatagramChannel) key.channel();
+        readBuffer.clear();
+
+        try {
+            // For connected channel, receive() returns null for address
+            dc.receive(readBuffer);
+            readBuffer.flip();
+
+            if (!readBuffer.hasRemaining()) {
+                return;
+            }
+
+            // Copy the data (readBuffer is reused)
+            ByteBuffer data = ByteBuffer.allocate(readBuffer.remaining());
+            data.put(readBuffer);
+            data.flip();
+
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                String message = Gumdrop.L10N.getString("info.received");
+                message = MessageFormat.format(message, data.remaining(), client.getRemoteAddress());
+                LOGGER.finest(message);
+            }
+
+            client.netReceive(data);
+
+        } catch (IOException e) {
+            client.handleReadError(e);
+        }
+    }
+
+    private void doDatagramClientWrite(SelectionKey key, DatagramClient client) {
+        DatagramChannel dc = (DatagramChannel) key.channel();
+        Deque<ByteBuffer> queue = client.getOutboundQueue();
+
+        try {
+            ByteBuffer buf;
+            while ((buf = queue.peek()) != null) {
+                int len = dc.write(buf);  // Connected channel, no address needed
+
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    String message = Gumdrop.L10N.getString("info.sent");
+                    message = MessageFormat.format(message, len, client.getRemoteAddress());
+                    LOGGER.finest(message);
+                }
+
+                if (buf.hasRemaining()) {
+                    // Couldn't send all data
+                    return;
+                }
+
+                queue.poll();
+            }
+
+            // All data written, clear OP_WRITE interest
+            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+
+        } catch (IOException e) {
+            client.handleWriteError(e);
+        }
+    }
+
+    // -- Registration methods --
+
+    /**
+     * Registers a new TCP connection with this SelectorLoop.
+     * Called by AcceptSelectorLoop to hand off a newly accepted connection.
+     * Thread-safe.
+     *
+     * @param channel the socket channel
+     * @param connection the connection object
+     */
+    void register(SocketChannel channel, Connection connection) {
+        pendingRegistrations.add(new PendingRegistration(channel, connection, false));
+        selector.wakeup();
+    }
+
+    /**
+     * Registers a TCP client connection for CONNECT events.
+     * Used for outbound connections (e.g., SMTP relay).
+     * Thread-safe.
+     *
+     * @param channel the socket channel
+     * @param connection the connection object
+     */
+    void registerForConnect(SocketChannel channel, Connection connection) {
+        pendingRegistrations.add(new PendingRegistration(channel, connection, true));
+        selector.wakeup();
+    }
+
+    /**
+     * Registers a datagram channel with this SelectorLoop.
+     * Thread-safe.
+     *
+     * @param channel the datagram channel
+     * @param handler the datagram server or client
+     */
+    void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
+        pendingRegistrations.add(new PendingRegistration(channel, handler, false));
+        selector.wakeup();
+    }
+
+    // -- Write request methods --
+
+    /**
+     * Schedules a task to run on this SelectorLoop thread.
+     * If called from this thread, the task is executed immediately.
+     * Otherwise, it is queued and the selector is woken up.
+     *
+     * @param task the task to execute
+     */
+    public void invokeLater(Runnable task) {
+        if (Thread.currentThread() == this) {
+            // We're on the SelectorLoop thread, execute immediately
+            try {
+                task.run();
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error in invokeLater task", e);
+            }
+        } else {
+            // Queue for execution on next selector wakeup
+            pendingTasks.offer(task);
+            if (selector != null) {
+                selector.wakeup();
+            }
+        }
+    }
+
+    /**
+     * Requests OP_WRITE interest for a TCP connection.
+     * Called when a connection has data to send.
+     * May be called from any thread.
+     *
+     * @param connection the connection with pending data
+     */
+    void requestWrite(Connection connection) {
+        requestWriteInternal(connection);
+    }
+
+    /**
+     * Requests OP_WRITE interest for a datagram handler.
+     * Called when a datagram server/client has data to send.
+     * May be called from any thread.
+     *
+     * @param handler the handler with pending data
+     */
+    void requestDatagramWrite(ChannelHandler handler) {
+        requestWriteInternal(handler);
+    }
+
+    private void requestWriteInternal(ChannelHandler handler) {
+        SelectionKey key = handler.getSelectionKey();
+        if (key != null && key.isValid()) {
+            key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
+
+            // Wake up selector if called from a different thread
+            if (Thread.currentThread() != this) {
+                selector.wakeup();
+            }
+        }
+    }
+
+    /**
+     * Shuts down this SelectorLoop.
+     */
+    void shutdown() {
+        active = false;
+        if (selector != null) {
+            selector.wakeup();
+        }
+    }
+
+    /**
+     * Pending registration for any channel type.
+     */
+    private static class PendingRegistration {
+        final SelectableChannel channel;
+        final ChannelHandler handler;
+        final boolean connect;
+
+        PendingRegistration(SelectableChannel channel, ChannelHandler handler, boolean connect) {
+            this.channel = channel;
+            this.handler = handler;
+            this.connect = connect;
+        }
+    }
+
+}

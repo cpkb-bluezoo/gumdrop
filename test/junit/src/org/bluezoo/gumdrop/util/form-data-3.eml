@@ -1,0 +1,15 @@
+Host: localhost:8080
+Content-Type: multipart/form-data; boundary=MyRandomBoundaryString12345
+Content-Length: 200
+X-Num-Parts: 2
+
+--MyRandomBoundaryString12345
+Content-Disposition: form-data; name="username"
+
+user123
+--MyRandomBoundaryString12345
+Content-Disposition: form-data; name="file1"; filename="report.txt"
+Content-Type: text/plain
+
+This is the content of the file.
+--MyRandomBoundaryString12345--

@@ -1,0 +1,49 @@
+From welcome@gumdrop.local Thu Jan  1 00:00:00 2025
+From: Gumdrop Team <welcome@gumdrop.local>
+To: Test User <testuser@gumdrop.local>
+Subject: Welcome to Gumdrop!
+Date: Thu, 1 Jan 2025 00:00:00 +0000
+Message-ID: <welcome-001@gumdrop.local>
+Content-Type: text/plain; charset=UTF-8
+
+Hello and welcome to Gumdrop!
+
+Gumdrop is a multipurpose Java server framework that provides:
+- HTTP/HTTPS server with servlet support
+- SMTP server for email delivery
+- POP3 server for email retrieval
+- IMAP server for email access
+- FTP server for file transfer
+- DNS server for name resolution
+
+Thank you for testing Gumdrop!
+
+Best regards,
+The Gumdrop Team
+
+From lottery@example.com Thu Jan  2 12:00:00 2025
+From: Lottery Commission <lottery@example.com>
+To: Test User <testuser@gumdrop.local>
+Subject: You have WON the LOTTERY!!
+Date: Thu, 2 Jan 2025 12:00:00 +0000
+Message-ID: <lottery-001@example.com>
+Content-Type: text/plain; charset=UTF-8
+
+CONGRATULATIONS!!!
+
+You have been selected as the WINNER of our international lottery!
+
+Your prize: $10,000,000 (Ten Million Dollars)
+
+To claim your prize, please reply with:
+- Full name
+- Bank account details
+- Mother's maiden name
+- Social security number
+
+This is TOTALLY LEGITIMATE and not a scam at all!
+
+Act now before this offer expires!
+
+Sincerely,
+The Lottery Commission

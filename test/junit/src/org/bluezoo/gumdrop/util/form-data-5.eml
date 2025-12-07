@@ -1,0 +1,13 @@
+Host: localhost:8080
+Content-Type: multipart/form-data; boundary=MyRandomBoundaryString12345
+Content-Length: 200
+X-Num-Parts: 1
+
+--MyRandomBoundaryString12345
+Content-Disposition: form-data; name="field1"
+
+data
+--MyRandomBoundaryString12345Content-Disposition: form-data; name="field2"
+
+more data
+--MyRandomBoundaryString12345--

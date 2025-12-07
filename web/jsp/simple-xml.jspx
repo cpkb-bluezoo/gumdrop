@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jsp:root xmlns:jsp="http://java.sun.com/JSP/Page" version="2.0">
+    <jsp:directive.page contentType="text/html; charset=UTF-8"/>
+    <jsp:directive.page import="java.util.Date"/>
+    <jsp:directive.page import="java.text.SimpleDateFormat"/>
+    
+    <jsp:declaration>
+        // Declaration: Instance variable and method (XML JSP format)
+        private int visitCount = 0;
+        
+        private String formatDate(Date date) {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            return sdf.format(date);
+        }
+    </jsp:declaration>
+    
+    <html xmlns="http://www.w3.org/1999/xhtml">
+        <head>
+            <title>Simple XML JSP Example - Gumdrop</title>
+            <link href="../main.css" rel="stylesheet" type="text/css"/>
+            <style>
+                .code-block { 
+                    background-color: #f4f4f4; 
+                    padding: 10px; 
+                    border-left: 4px solid #28a745; 
+                    margin: 10px 0; 
+                    font-family: monospace; 
+                }
+                .jsp-result { 
+                    background-color: #e8f5e8; 
+                    padding: 10px; 
+                    border: 1px solid #4CAF50; 
+                    margin: 10px 0; 
+                }
+                .xml-highlight {
+                    background-color: #e8f8e8;
+                    padding: 15px;
+                    border-radius: 5px;
+                    margin: 15px 0;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>Simple XML JSP Example (JSPX Format)</h1>
+            
+            <p><a href="index.html">← Back to JSP Examples</a></p>
+            
+            <div class="xml-highlight">
+                <strong>🌟 XML Format:</strong> This JSP uses XML syntax (JSPX) instead of traditional 
+                JSP syntax, demonstrating Gumdrop's dual parser architecture with automatic format detection.
+            </div>
+            
+            <p>This XML JSP demonstrates the same functionality as the traditional JSP but uses 
+               XML-compliant syntax throughout:</p>
+            <ul>
+                <li>XML document declaration</li>
+                <li>JSP root element with namespace</li>
+                <li>JSP directive elements (jsp:directive.page)</li>
+                <li>JSP declaration elements (jsp:declaration)</li>
+                <li>JSP scriptlet elements (jsp:scriptlet)</li>
+                <li>JSP expression elements (jsp:expression)</li>
+            </ul>
+            
+            <h2>XML JSP Code Examples</h2>
+            
+            <h3>1. XML Document Declaration and JSP Root</h3>
+            <div class="code-block">
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;<br/>
+&lt;jsp:root xmlns:jsp="http://java.sun.com/JSP/Page" version="2.0"&gt;<br/>
+&#160;&#160;&#160;&#160;&lt;jsp:directive.page contentType="text/html; charset=UTF-8"/&gt;<br/>
+&#160;&#160;&#160;&#160;&lt;jsp:directive.page import="java.util.Date"/&gt;
+            </div>
+            
+            <h3>2. XML Declaration Element</h3>
+            <div class="code-block">
+&lt;jsp:declaration&gt;<br/>
+&#160;&#160;&#160;&#160;private int visitCount = 0;<br/>
+&#160;&#160;&#160;&#160;<br/>
+&#160;&#160;&#160;&#160;private String formatDate(Date date) {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;return sdf.format(date);<br/>
+&#160;&#160;&#160;&#160;}<br/>
+&lt;/jsp:declaration&gt;
+            </div>
+            
+            <h3>3. XML Scriptlet Element</h3>
+            <div class="code-block">
+&lt;jsp:scriptlet&gt;<br/>
+&#160;&#160;&#160;&#160;visitCount++;<br/>
+&#160;&#160;&#160;&#160;Date currentTime = new Date();<br/>
+&#160;&#160;&#160;&#160;String greeting;<br/>
+&#160;&#160;&#160;&#160;<br/>
+&#160;&#160;&#160;&#160;int hour = currentTime.getHours();<br/>
+&#160;&#160;&#160;&#160;if (hour &amp;lt; 12) {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good morning";<br/>
+&#160;&#160;&#160;&#160;} else if (hour &amp;lt; 18) {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good afternoon";<br/>
+&#160;&#160;&#160;&#160;} else {<br/>
+&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good evening";<br/>
+&#160;&#160;&#160;&#160;}<br/>
+&lt;/jsp:scriptlet&gt;
+            </div>
+            
+            <h3>4. XML Expression Elements</h3>
+            <div class="code-block">
+&lt;p&gt;&lt;jsp:expression&gt;greeting&lt;/jsp:expression&gt;! Welcome to Gumdrop XML JSP.&lt;/p&gt;<br/>
+&lt;p&gt;Current time: &lt;jsp:expression&gt;formatDate(currentTime)&lt;/jsp:expression&gt;&lt;/p&gt;<br/>
+&lt;p&gt;This page has been visited &lt;jsp:expression&gt;visitCount&lt;/jsp:expression&gt; time(s).&lt;/p&gt;
+            </div>
+            
+            <h2>Generated Output</h2>
+            <div class="jsp-result">
+                <jsp:scriptlet>
+                    // XML Scriptlet: increment visit counter and generate greeting
+                    visitCount++;
+                    Date currentTime = new Date();
+                    String greeting;
+                    
+                    int hour = currentTime.getHours();
+                    if (hour <![CDATA[<]]> 12) {
+                        greeting = "Good morning";
+                    } else if (hour <![CDATA[<]]> 18) {
+                        greeting = "Good afternoon";
+                    } else {
+                        greeting = "Good evening";
+                    }
+                </jsp:scriptlet>
+                
+                <p><jsp:expression>greeting</jsp:expression>! Welcome to Gumdrop XML JSP.</p>
+                <p>Current time: <jsp:expression>formatDate(currentTime)</jsp:expression></p>
+                <p>This page has been visited <jsp:expression>visitCount</jsp:expression> time(s) this session.</p>
+            </div>
+            
+            <h2>XML vs Traditional JSP Syntax Comparison</h2>
+            
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <tr style="background-color: #f8f9fa; border: 1px solid #dee2e6;">
+                    <th style="padding: 10px; border: 1px solid #dee2e6;">JSP Element</th>
+                    <th style="padding: 10px; border: 1px solid #dee2e6;">Traditional Syntax</th>
+                    <th style="padding: 10px; border: 1px solid #dee2e6;">XML Syntax</th>
+                </tr>
+                <tr style="border: 1px solid #dee2e6;">
+                    <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Page Directive</strong></td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;%@ page ... %&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:directive.page .../&gt;</td>
+                </tr>
+                <tr style="border: 1px solid #dee2e6;">
+                    <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Declaration</strong></td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;%! ... %&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:declaration&gt;...&lt;/jsp:declaration&gt;</td>
+                </tr>
+                <tr style="border: 1px solid #dee2e6;">
+                    <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Scriptlet</strong></td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;% ... %&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:scriptlet&gt;...&lt;/jsp:scriptlet&gt;</td>
+                </tr>
+                <tr style="border: 1px solid #dee2e6;">
+                    <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Expression</strong></td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;%= ... %&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:expression&gt;...&lt;/jsp:expression&gt;</td>
+                </tr>
+            </table>
+            
+            <h2>How Gumdrop Processes XML JSP</h2>
+            
+            <p>Gumdrop's JSP implementation automatically detects the format and uses the appropriate parser:</p>
+            
+            <ol>
+                <li><strong>Format Detection:</strong> JSPParserFactory examines file content for XML declaration and jsp:root elements</li>
+                <li><strong>XML Parser Selection:</strong> XMLJSPParser is chosen for JSPX format files</li>
+                <li><strong>SAX Processing:</strong> Uses SAX-based parsing for efficient XML processing</li>
+                <li><strong>Unified AST:</strong> Creates the same internal representation as traditional JSP parser</li>
+                <li><strong>Code Generation:</strong> Identical servlet code generation regardless of source format</li>
+            </ol>
+            
+            <h2>Benefits of XML JSP Format</h2>
+            
+            <ul>
+                <li><strong>XML Tool Support:</strong> Can be processed by standard XML tools and editors</li>
+                <li><strong>Schema Validation:</strong> XML structure can be validated against JSP schema</li>
+                <li><strong>Namespace Support:</strong> Clean separation of JSP elements from HTML content</li>
+                <li><strong>Tool Integration:</strong> Better IDE support with XML syntax highlighting</li>
+                <li><strong>Well-Formed Guarantee:</strong> XML parser ensures proper nesting and structure</li>
+            </ul>
+            
+            <h2>Gumdrop's Dual Parser Architecture</h2>
+            
+            <p>Gumdrop supports both formats seamlessly:</p>
+            <ul>
+                <li><strong>TraditionalJSPParser:</strong> Handles classic &lt;% %&gt; syntax</li>
+                <li><strong>XMLJSPParser:</strong> SAX-based processing for &lt;jsp:* /&gt; elements</li>
+                <li><strong>Automatic Detection:</strong> No configuration needed - format detected at runtime</li>
+                <li><strong>Unified Processing:</strong> Both parsers create identical AST representations</li>
+                <li><strong>Same Configuration:</strong> JSP property groups apply to both formats equally</li>
+            </ul>
+            
+            <hr/>
+            <p><em>Powered by Gumdrop JSP Engine - Supporting Traditional and XML JSP Formats</em></p>
+        </body>
+    </html>
+</jsp:root>

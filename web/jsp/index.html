@@ -1,0 +1,245 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <link href="../main.css" rel="stylesheet" type="text/css"/>
+    <link rel="icon" href="../favicon.ico"/>
+    <title>JSP Examples - Gumdrop</title>
+    <style>
+        .example-card {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+        }
+        .example-card h3 {
+            margin-top: 0;
+            color: #007acc;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status-working { background-color: #d4edda; color: #155724; }
+        .status-demo { background-color: #fff3cd; color: #856404; }
+        .status-blocked { background-color: #f8d7da; color: #721c24; }
+        .feature-list {
+            background-color: #e8f4f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .architecture-note {
+            background-color: #e1f5fe;
+            border-left: 4px solid #0277bd;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="../gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop JSP Examples</h1>
+</td>
+</table>
+
+<p><a href="../index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Welcome to the Gumdrop JSP Examples! This collection demonstrates the comprehensive 
+JSP 2.0+ support implemented in Gumdrop's servlet container, including advanced 
+features like JSP property groups, taglib processing, and automatic includes.
+</p>
+
+<div class="feature-list">
+    <h3>🚀 JSP Features Demonstrated</h3>
+    <ul>
+        <li><strong>Dual JSP Syntax Support:</strong> Traditional JSP (&lt;% %&gt;) and XML format (&lt;jsp:* /&gt;)</li>
+        <li><strong>Automatic Format Detection:</strong> Seamless handling of both JSP and JSPX formats</li>
+        <li><strong>JSP Property Groups:</strong> URL pattern-based configuration from web.xml</li>
+        <li><strong>Scripting Control:</strong> Selective disabling of Java scripting for security</li>
+        <li><strong>Taglib Support:</strong> Custom tag recognition and TLD processing</li>
+        <li><strong>Automatic Includes:</strong> Prelude and coda insertion via configuration</li>
+        <li><strong>Dynamic Compilation:</strong> Runtime JSP-to-servlet transformation</li>
+    </ul>
+</div>
+
+<h2>JSP Example Gallery</h2>
+
+<div class="example-card">
+    <h3>1. <a href="simple.jsp">Basic JSP Example</a> <span class="status-badge status-working">✅ Fully Working</span></h3>
+    <p><strong>Demonstrates:</strong> Core JSP syntax elements including page directives, 
+       imports, declarations, scriptlets, and expressions.</p>
+    <p><strong>Features shown:</strong></p>
+    <ul>
+        <li>Page directives and import statements</li>
+        <li>Instance variable declarations (<code>&lt;%! %&gt;</code>)</li>
+        <li>Java scriptlets (<code>&lt;% %&gt;</code>)</li>
+        <li>Expression evaluation (<code>&lt;%= %&gt;</code>)</li>
+        <li>Dynamic content generation with date/time</li>
+        <li>Session-based visit counting</li>
+    </ul>
+    <p><strong>What you'll learn:</strong> How Gumdrop parses JSP syntax, generates servlet code, 
+       compiles it dynamically, and executes the resulting servlet to handle requests.</p>
+</div>
+
+<div class="example-card">
+    <h3>1b. <a href="simple-xml.jspx">XML JSP Example (JSPX Format)</a> <span class="status-badge status-working">✅ Fully Working</span></h3>
+    <p><strong>Demonstrates:</strong> Same functionality as the basic JSP but using XML-compliant 
+       JSP syntax (JSPX format) to showcase Gumdrop's dual parser architecture.</p>
+    <p><strong>Features shown:</strong></p>
+    <ul>
+        <li>XML document declaration and JSP root element</li>
+        <li>JSP directive elements (<code>&lt;jsp:directive.page/&gt;</code>)</li>
+        <li>XML declaration elements (<code>&lt;jsp:declaration&gt;</code>)</li>
+        <li>XML scriptlet elements (<code>&lt;jsp:scriptlet&gt;</code>)</li>
+        <li>XML expression elements (<code>&lt;jsp:expression&gt;</code>)</li>
+        <li>Automatic format detection and appropriate parser selection</li>
+    </ul>
+    <p><strong>What you'll learn:</strong> How Gumdrop's JSPParserFactory automatically detects 
+       JSP format and uses either TraditionalJSPParser or XMLJSPParser, both generating 
+       identical servlet code from different syntax formats.</p>
+</div>
+
+<div class="example-card">
+    <h3>2. <a href="restricted/blocked-scripting.jsp">Scripting Restrictions Demo</a> <span class="status-badge status-blocked">🚫 Intentionally Blocked</span></h3>
+    <p><strong>Demonstrates:</strong> JSP property group enforcement with <code>scripting-invalid</code> 
+       configuration that prevents Java code execution.</p>
+    <p><strong>Features shown:</strong></p>
+    <ul>
+        <li>URL pattern-based JSP property group matching (<code>/jsp/restricted/*</code>)</li>
+        <li>Parse-time enforcement of scripting restrictions</li>
+        <li>Detailed error reporting when violations occur</li>
+        <li>Security implications of scripting controls</li>
+    </ul>
+    <p><strong>What you'll learn:</strong> How Gumdrop's JSP implementation enforces 
+       configuration-based restrictions during parsing, providing administrators control 
+       over script usage for security and architectural compliance.</p>
+    <p><strong>Expected Result:</strong> <em>JSPParseException: Scripting is disabled for this JSP page</em></p>
+</div>
+
+<div class="example-card">
+    <h3>3. <a href="taglib-example.jsp">Custom Taglib Support</a> <span class="status-badge status-demo">📚 Framework Demo</span></h3>
+    <p><strong>Demonstrates:</strong> Taglib directive processing, TLD resolution, and 
+       custom tag recognition (requires JSTL JARs for full functionality).</p>
+    <p><strong>Features shown:</strong></p>
+    <ul>
+        <li>Taglib directive processing and prefix registration</li>
+        <li>Tag Library Descriptor (TLD) resolution from JARs</li>
+        <li>Custom tag recognition during parsing</li>
+        <li>Tag handler code generation framework</li>
+        <li>JSTL core and formatting tag examples</li>
+    </ul>
+    <p><strong>What you'll learn:</strong> How Gumdrop's TaglibRegistry resolves taglib URIs, 
+       parses TLD files, and generates appropriate Java code for custom tag instantiation 
+       and lifecycle management.</p>
+    <p><strong>Note:</strong> Full JSTL functionality requires adding JSTL JAR files to WEB-INF/lib.</p>
+</div>
+
+<div class="example-card">
+    <h3>4. <a href="enhanced/prelude-coda-example.jsp">Prelude & Coda Processing</a> <span class="status-badge status-working">✅ Fully Working</span></h3>
+    <p><strong>Demonstrates:</strong> Automatic content inclusion via JSP property groups 
+       with prelude and coda configuration.</p>
+    <p><strong>Features shown:</strong></p>
+    <ul>
+        <li>Include prelude processing (automatic header insertion)</li>
+        <li>Include coda processing (automatic footer insertion)</li>
+        <li>Cumulative property group application</li>
+        <li>Shared variable and method declarations</li>
+        <li>Performance timing and request information</li>
+    </ul>
+    <p><strong>What you'll learn:</strong> How Gumdrop's JSPPropertyGroupResolver handles 
+       multiple property groups, applies preludes and codas cumulatively, and integrates 
+       them seamlessly into the generated servlet code.</p>
+</div>
+
+<h2>JSP Property Groups Configuration</h2>
+
+<p>These examples are configured in <code>web.xml</code> with JSP property groups that demonstrate 
+different aspects of JSP configuration:</p>
+
+<pre style="background-color: #f4f4f4; padding: 15px; border-radius: 5px;">
+&lt;jsp-config&gt;
+  &lt;!-- Basic JSP files - no restrictions --&gt;
+  &lt;jsp-property-group&gt;
+    &lt;url-pattern&gt;/jsp/*.jsp&lt;/url-pattern&gt;
+    &lt;page-encoding&gt;UTF-8&lt;/page-encoding&gt;
+    &lt;scripting-invalid&gt;false&lt;/scripting-invalid&gt;
+  &lt;/jsp-property-group&gt;
+
+  &lt;!-- Restricted area - scripting disabled --&gt;
+  &lt;jsp-property-group&gt;
+    &lt;url-pattern&gt;/jsp/restricted/*&lt;/url-pattern&gt;
+    &lt;scripting-invalid&gt;true&lt;/scripting-invalid&gt;
+  &lt;/jsp-property-group&gt;
+
+  &lt;!-- Enhanced area - with preludes and codas --&gt;
+  &lt;jsp-property-group&gt;
+    &lt;url-pattern&gt;/jsp/enhanced/*&lt;/url-pattern&gt;
+    &lt;include-prelude&gt;/WEB-INF/includes/header-prelude.jsp&lt;/include-prelude&gt;
+    &lt;include-coda&gt;/WEB-INF/includes/footer-coda.jsp&lt;/include-coda&gt;
+  &lt;/jsp-property-group&gt;
+&lt;/jsp-config&gt;
+</pre>
+
+<div class="architecture-note">
+    <h3>🏗️ Gumdrop JSP Architecture</h3>
+    <p>Gumdrop's JSP implementation provides a complete JSP 2.0+ processing pipeline:</p>
+    <ol>
+        <li><strong>JSPPropertyGroupResolver:</strong> Matches URLs to configuration and merges properties</li>
+        <li><strong>JSPParserFactory:</strong> Auto-detects JSP format and selects appropriate parser</li>
+        <li><strong>Dual Parser Architecture:</strong> TraditionalJSPParser and XMLJSPParser with automatic format detection</li>
+        <li><strong>AST Generation:</strong> Creates in-memory representation of JSP structure</li>
+        <li><strong>TaglibRegistry:</strong> Resolves taglib URIs and processes TLD files</li>
+        <li><strong>Code Generation:</strong> Transforms JSP AST into Java servlet source</li>
+        <li><strong>Dynamic Compilation:</strong> Uses internal Java compiler for runtime compilation</li>
+        <li><strong>Class Loading:</strong> Loads and instantiates compiled servlets</li>
+    </ol>
+</div>
+
+<h2>Getting Started</h2>
+
+<p>To explore these examples:</p>
+<ol>
+    <li><strong>Start with the <a href="simple.jsp">Basic JSP Example</a></strong> to see fundamental JSP processing</li>
+    <li><strong>Compare with the <a href="simple-xml.jspx">XML JSP Example</a></strong> to see the same functionality in JSPX format</li>
+    <li><strong>Try the <a href="enhanced/prelude-coda-example.jsp">Prelude & Coda Example</a></strong> to see advanced configuration</li>
+    <li><strong>Examine the <a href="restricted/blocked-scripting.jsp">Blocked Scripting Demo</a></strong> to understand security controls</li>
+    <li><strong>Review the <a href="taglib-example.jsp">Taglib Support</a></strong> to see custom tag processing</li>
+</ol>
+
+<h2>Source Code</h2>
+
+<p>The complete JSP implementation source code is available in the <code>src/org/bluezoo/gumdrop/servlet/jsp/</code> 
+directory, including:</p>
+
+<ul>
+    <li><code>JSPParser</code> interface and implementations</li>
+    <li><code>JSPPropertyGroupResolver</code> for configuration processing</li>
+    <li><code>TaglibRegistry</code> and <code>TldParser</code> for custom tag support</li>
+    <li><code>JSPCodeGenerator</code> for servlet code generation</li>
+    <li>Complete AST element hierarchy for JSP representation</li>
+</ul>
+
+<hr/>
+
+<p>
+<a href="../index.html">&larr; Back to Main Page</a> | 
+<a href="../manager">Manager Application</a>
+</p>
+
+<p class='server-info'>Gumdrop JSP Engine - Full JSP 2.0+ Support</p>
+
+</body>
+</html>

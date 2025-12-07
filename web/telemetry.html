@@ -1,0 +1,719 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Telemetry - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop Telemetry</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop includes a native OpenTelemetry implementation for distributed tracing,
+metrics, and observability. The telemetry system integrates with Gumdrop's
+event-driven architecture and exports data via OTLP/HTTP to any OpenTelemetry
+Collector. Built-in instrumentation is provided for HTTP, SMTP, IMAP, POP3, and
+FTP servers, and the API enables custom instrumentation for any Gumdrop-based
+service.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#builtin">Built-in Instrumentation</a></li>
+<li><a href="#custom">Custom Instrumentation</a></li>
+<li><a href="#metrics">Metrics</a></li>
+<li><a href="#distributed">Distributed Tracing</a></li>
+<li><a href="#exporter">OTLP Exporter</a></li>
+</ul>
+
+<h3 id="overview">Overview</h3>
+
+<p>
+The telemetry system provides:
+</p>
+
+<ul>
+<li><b>Distributed tracing</b> - trace requests across service boundaries using
+W3C Trace Context (traceparent header)</li>
+<li><b>Metrics collection</b> - counters, histograms, and gauges with configurable
+aggregation temporality (delta or cumulative)</li>
+<li><b>Hierarchical spans</b> - represent operations as a tree of spans with
+timing, attributes, and events</li>
+<li><b>OpenTelemetry compatibility</b> - exports via OTLP/HTTP to any
+OpenTelemetry Collector</li>
+<li><b>Native integration</b> - uses Gumdrop's HTTP client for non-blocking
+export with SelectorLoop affinity and connection pooling</li>
+<li><b>Zero-dependency</b> - self-contained protobuf serialization, no external
+OpenTelemetry SDK required</li>
+</ul>
+
+<h4>Core Concepts</h4>
+
+<ul>
+<li><b>Trace</b> - a collection of spans representing a single request flow;
+identified by a 128-bit trace ID</li>
+<li><b>Span</b> - a unit of work with name, timing, attributes, events, and
+status; forms parent-child relationships</li>
+<li><b>SpanKind</b> - categorises the span's role: SERVER, CLIENT, PRODUCER,
+CONSUMER, or INTERNAL</li>
+<li><b>Attribute</b> - key-value metadata attached to spans (string, boolean,
+integer, or double)</li>
+<li><b>Event</b> - timestamped occurrence within a span (e.g., "message sent",
+"exception thrown")</li>
+</ul>
+
+<h3 id="configuration">Configuration</h3>
+
+<p>
+Telemetry is configured via the <code>TelemetryConfig</code> component in
+gumdroprc:
+</p>
+
+<pre>
+&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
+    &lt;!-- Service identification --&gt;
+    &lt;property name="serviceName"&gt;my-mail-server&lt;/property&gt;
+    &lt;property name="serviceVersion"&gt;1.0.0&lt;/property&gt;
+    &lt;property name="serviceNamespace"&gt;production&lt;/property&gt;
+    &lt;property name="deploymentEnvironment"&gt;prod-east&lt;/property&gt;
+    
+    &lt;!-- OTLP endpoint (OpenTelemetry Collector) --&gt;
+    &lt;property name="endpoint"&gt;http://otel-collector:4318&lt;/property&gt;
+    
+    &lt;!-- Metrics configuration --&gt;
+    &lt;property name="metricsTemporalityName"&gt;cumulative&lt;/property&gt;
+    &lt;property name="metricsIntervalMs"&gt;60000&lt;/property&gt;
+&lt;/component&gt;
+</pre>
+
+<p>
+The presence of a <code>TelemetryConfig</code> on a server enables telemetry;
+there is no separate "enabled" flag. Individual signal types (traces, logs,
+metrics) can be disabled if needed.
+</p>
+
+<h4>Configuration Properties</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>tracesEnabled</code></td><td>true</td><td>Enable trace collection</td></tr>
+<tr><td><code>logsEnabled</code></td><td>true</td><td>Enable log collection</td></tr>
+<tr><td><code>metricsEnabled</code></td><td>true</td><td>Enable metrics collection</td></tr>
+<tr><td><code>serviceName</code></td><td>"gumdrop"</td><td>Service name in resource attributes</td></tr>
+<tr><td><code>serviceVersion</code></td><td>-</td><td>Service version</td></tr>
+<tr><td><code>serviceNamespace</code></td><td>-</td><td>Service namespace</td></tr>
+<tr><td><code>serviceInstanceId</code></td><td>-</td><td>Unique instance identifier</td></tr>
+<tr><td><code>deploymentEnvironment</code></td><td>-</td><td>Environment (prod, staging, dev)</td></tr>
+<tr><td><code>endpoint</code></td><td>-</td><td>Base OTLP endpoint URL</td></tr>
+<tr><td><code>tracesEndpoint</code></td><td>endpoint + /v1/traces</td><td>Traces-specific endpoint</td></tr>
+<tr><td><code>logsEndpoint</code></td><td>endpoint + /v1/logs</td><td>Logs-specific endpoint</td></tr>
+<tr><td><code>metricsEndpoint</code></td><td>endpoint + /v1/metrics</td><td>Metrics-specific endpoint</td></tr>
+<tr><td><code>metricsTemporalityName</code></td><td>"cumulative"</td><td>Aggregation: "delta" or "cumulative"</td></tr>
+<tr><td><code>metricsIntervalMs</code></td><td>60000</td><td>Metrics collection interval</td></tr>
+<tr><td><code>headers</code></td><td>-</td><td>Extra HTTP headers (key1=value1,key2=value2)</td></tr>
+<tr><td><code>timeoutMs</code></td><td>10000</td><td>Export timeout in milliseconds</td></tr>
+<tr><td><code>batchSize</code></td><td>512</td><td>Spans per export batch</td></tr>
+<tr><td><code>flushIntervalMs</code></td><td>5000</td><td>Maximum time between exports</td></tr>
+<tr><td><code>maxQueueSize</code></td><td>2048</td><td>Maximum queued spans before dropping</td></tr>
+</table>
+
+<h4>Associating Telemetry with Servers</h4>
+
+<p>
+To enable telemetry for a server, reference the configuration:
+</p>
+
+<pre>
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;25&lt;/property&gt;
+    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;!-- other properties --&gt;
+&lt;/server&gt;
+
+&lt;server id="http" class="org.bluezoo.gumdrop.servlet.HTTPServletServer"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;!-- other properties --&gt;
+&lt;/server&gt;
+</pre>
+
+<h3 id="builtin">Built-in Instrumentation</h3>
+
+<h4>HTTP Server</h4>
+
+<p>
+When telemetry is enabled, the HTTP server automatically creates spans for each
+request:
+</p>
+
+<ul>
+<li><b>Span name</b>: "HTTP {method}" (e.g., "HTTP GET")</li>
+<li><b>SpanKind</b>: SERVER</li>
+<li><b>Attributes</b>:
+  <ul>
+  <li><code>http.method</code> - request method</li>
+  <li><code>http.url</code> - request URL</li>
+  <li><code>http.status_code</code> - response status</li>
+  <li><code>http.client.address</code> - client IP</li>
+  </ul>
+</li>
+<li><b>Distributed tracing</b>: respects incoming <code>traceparent</code> header</li>
+<li><b>Response</b>: includes <code>traceparent</code> header in response</li>
+</ul>
+
+<h4>SMTP Server</h4>
+
+<p>
+The SMTP server creates hierarchical traces for connections and sessions:
+</p>
+
+<ul>
+<li><b>Connection trace</b>: root span covering the TCP connection
+  <ul>
+  <li><code>net.peer.ip</code> - client IP address</li>
+  <li><code>net.transport</code> - TCP</li>
+  </ul>
+</li>
+<li><b>Session spans</b>: child spans for each SMTP transaction (MAIL FROM to
+RSET/QUIT)
+  <ul>
+  <li><code>smtp.session_number</code> - session index</li>
+  <li><code>smtp.client_hostname</code> - HELO/EHLO hostname</li>
+  <li><code>smtp.mail_from</code> - sender address</li>
+  <li><code>smtp.auth.mechanism</code> - authentication method</li>
+  <li><code>smtp.auth.user</code> - authenticated user</li>
+  </ul>
+</li>
+<li><b>Events</b>: RCPT TO recipients, STARTTLS, message acceptance</li>
+</ul>
+
+<h4>IMAP Server</h4>
+
+<p>
+The IMAP server creates hierarchical traces for connections and sessions:
+</p>
+
+<ul>
+<li><b>Connection trace</b>: root span covering the TCP connection</li>
+<li><b>Session span</b>: child span for the IMAP session
+  <ul>
+  <li><code>net.peer.ip</code> - client IP address</li>
+  <li><code>net.transport</code> - TCP</li>
+  </ul>
+</li>
+<li><b>Authenticated span</b>: child span from authentication to logout
+  <ul>
+  <li><code>enduser.id</code> - authenticated username</li>
+  <li><code>imap.auth.mechanism</code> - authentication method</li>
+  </ul>
+</li>
+<li><b>Events</b>: STARTTLS, SELECT mailbox, APPEND operations</li>
+</ul>
+
+<h4>POP3 Server</h4>
+
+<p>
+The POP3 server creates traces similar to IMAP:
+</p>
+
+<ul>
+<li><b>Connection trace</b>: root span covering the TCP connection</li>
+<li><b>Session span</b>: child span for the POP3 session</li>
+<li><b>Authenticated span</b>: child span from authentication to QUIT
+  <ul>
+  <li><code>enduser.id</code> - authenticated username</li>
+  <li><code>pop3.mailbox.count</code> - number of messages</li>
+  <li><code>pop3.mailbox.size</code> - total mailbox size</li>
+  </ul>
+</li>
+<li><b>Events</b>: STARTTLS, message retrieval, message deletion</li>
+</ul>
+
+<h4>FTP Server</h4>
+
+<p>
+The FTP server creates traces for connections and file operations:
+</p>
+
+<ul>
+<li><b>Connection trace</b>: root span covering the control connection</li>
+<li><b>Session span</b>: child span for the FTP session</li>
+<li><b>Authenticated span</b>: child span from login to QUIT
+  <ul>
+  <li><code>enduser.id</code> - authenticated username</li>
+  <li><code>ftp.cwd</code> - current working directory</li>
+  </ul>
+</li>
+<li><b>Events</b>: AUTH TLS, file transfers (RETR, STOR), deletions</li>
+</ul>
+
+<h3 id="custom">Custom Instrumentation</h3>
+
+<p>
+Custom servers and handlers can add their own instrumentation using the
+telemetry API.
+</p>
+
+<h4>Creating Traces</h4>
+
+<pre>
+// Get telemetry config (from server or connection)
+TelemetryConfig config = server.getTelemetryConfig();
+
+// Create a new trace with root span
+Trace trace = config.createTrace("Process Order", SpanKind.SERVER);
+
+// Or continue from incoming traceparent
+String traceparent = request.getHeader("traceparent");
+Trace trace = config.createTraceFromTraceparent(traceparent, "Process Order", SpanKind.SERVER);
+</pre>
+
+<h4>Working with Spans</h4>
+
+<pre>
+// Add attributes to current span
+trace.addAttribute("order.id", orderId);
+trace.addAttribute("customer.id", customerId);
+trace.addAttribute("order.total", 149.99);
+
+// Add events to mark significant points
+trace.addEvent("Payment validated");
+trace.addEvent("Inventory reserved");
+
+// Start a child span for a sub-operation
+Span childSpan = trace.startSpan("Query Database", SpanKind.CLIENT);
+try {
+    // ... database operation ...
+    childSpan.setStatusOk();
+} catch (Exception e) {
+    childSpan.recordException(e);
+} finally {
+    childSpan.end();
+}
+
+// End the trace (exports automatically)
+trace.end();
+</pre>
+
+<h4>Span Status</h4>
+
+<pre>
+// Set status explicitly
+span.setStatusOk();
+span.setStatusError("Validation failed");
+span.setStatus(SpanStatus.UNSET);
+
+// Record exception (sets ERROR status and adds event)
+span.recordException(exception);
+</pre>
+
+<h4>Example: Custom Connection Handler</h4>
+
+<pre>
+public class MyProtocolConnection extends Connection {
+    
+    private Trace connectionTrace;
+    
+    @Override
+    public void init() throws IOException {
+        super.init();
+        
+        // Create connection-level trace
+        TelemetryConfig config = server.getTelemetryConfig();
+        if (config != null && config.isTracesEnabled()) {
+            connectionTrace = config.createTrace("MyProtocol connection", SpanKind.SERVER);
+            connectionTrace.addAttribute("net.peer.ip", getRemoteAddress());
+        }
+    }
+    
+    protected void processRequest(MyRequest request) {
+        // Start a span for this request
+        Span requestSpan = null;
+        if (connectionTrace != null) {
+            requestSpan = connectionTrace.startSpan("Process request");
+            requestSpan.addAttribute("request.type", request.getType());
+        }
+        
+        try {
+            // Process request...
+            if (requestSpan != null) {
+                requestSpan.addEvent("Request processed");
+                requestSpan.setStatusOk();
+            }
+        } catch (Exception e) {
+            if (requestSpan != null) {
+                requestSpan.recordException(e);
+            }
+            throw e;
+        } finally {
+            if (requestSpan != null) {
+                requestSpan.end();
+            }
+        }
+    }
+    
+    @Override
+    public void close() {
+        if (connectionTrace != null) {
+            connectionTrace.end();
+        }
+        super.close();
+    }
+}
+</pre>
+
+<h4>Example: Servlet Instrumentation</h4>
+
+<pre>
+public class InstrumentedServlet extends HttpServlet {
+    
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+        
+        // Get the stream's span (created automatically by HTTP server)
+        Span httpSpan = ((GumdropHttpServletRequest) req).getSpan();
+        
+        if (httpSpan != null) {
+            // Add application-specific attributes
+            httpSpan.addAttribute("app.action", req.getParameter("action"));
+            httpSpan.addAttribute("app.user", req.getRemoteUser());
+            
+            // Start child span for business logic
+            Span bizSpan = httpSpan.startChild("Business Logic", SpanKind.INTERNAL);
+            try {
+                processBusinessLogic(req, resp);
+                bizSpan.setStatusOk();
+            } catch (Exception e) {
+                bizSpan.recordException(e);
+                throw e;
+            } finally {
+                bizSpan.end();
+            }
+        } else {
+            // Telemetry disabled, just process normally
+            processBusinessLogic(req, resp);
+        }
+    }
+}
+</pre>
+
+<h3 id="metrics">Metrics</h3>
+
+<p>
+Gumdrop provides OpenTelemetry-compatible metrics collection with synchronous
+and asynchronous instruments.
+</p>
+
+<h4>Instrument Types</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Instrument</th><th>Type</th><th>Description</th><th>Use Case</th></tr>
+<tr><td><code>LongCounter</code></td><td>Sync</td><td>Monotonically increasing</td><td>Request count, bytes sent</td></tr>
+<tr><td><code>LongUpDownCounter</code></td><td>Sync</td><td>Can increase or decrease</td><td>Active connections, queue size</td></tr>
+<tr><td><code>DoubleHistogram</code></td><td>Sync</td><td>Distribution of values</td><td>Request latency, response size</td></tr>
+<tr><td><code>ObservableGauge</code></td><td>Async</td><td>Point-in-time value</td><td>Memory usage, temperature</td></tr>
+<tr><td><code>ObservableCounter</code></td><td>Async</td><td>Async monotonic counter</td><td>CPU time, page faults</td></tr>
+<tr><td><code>ObservableUpDownCounter</code></td><td>Async</td><td>Async bidirectional</td><td>Thread count, file handles</td></tr>
+</table>
+
+<h4>Creating Instruments</h4>
+
+<pre>
+// Get a meter from TelemetryConfig
+Meter meter = config.getMeter("org.bluezoo.gumdrop.http");
+
+// Synchronous counter
+LongCounter requestCounter = meter.counterBuilder("http.server.requests")
+    .setDescription("Total HTTP requests received")
+    .setUnit("requests")
+    .build();
+
+// Synchronous histogram with explicit buckets
+DoubleHistogram latencyHistogram = meter.histogramBuilder("http.server.duration")
+    .setDescription("HTTP request latency")
+    .setUnit("ms")
+    .setExplicitBuckets(5, 10, 25, 50, 100, 250, 500, 1000)
+    .build();
+
+// Up-down counter for current state
+LongUpDownCounter activeConnections = meter.upDownCounterBuilder("http.server.active_connections")
+    .setDescription("Currently active connections")
+    .build();
+</pre>
+
+<h4>Recording Measurements</h4>
+
+<pre>
+// Record with attributes
+requestCounter.add(1, Attributes.of(
+    "http.method", "GET",
+    "http.status_code", 200
+));
+
+latencyHistogram.record(45.2, Attributes.of("http.method", "GET"));
+
+// Track active connections
+activeConnections.add(1);   // Connection opened
+activeConnections.add(-1);  // Connection closed
+</pre>
+
+<h4>Observable Instruments</h4>
+
+<p>
+Observable instruments use callbacks invoked at collection time, ideal for
+values maintained externally:
+</p>
+
+<pre>
+// Observable gauge for memory usage
+meter.gaugeBuilder("process.memory.used")
+    .setDescription("Used memory in bytes")
+    .setUnit("bytes")
+    .buildWithCallback(new ObservableCallback() {
+        public void observe(ObservableMeasurement measurement) {
+            Runtime rt = Runtime.getRuntime();
+            measurement.record(rt.totalMemory() - rt.freeMemory());
+        }
+    });
+
+// Observable counter for OS statistics
+meter.observableCounterBuilder("process.cpu.time")
+    .setDescription("CPU time used by process")
+    .setUnit("ns")
+    .buildWithCallback(new ObservableCallback() {
+        public void observe(ObservableMeasurement measurement) {
+            measurement.record(getProcessCpuTime());
+        }
+    });
+</pre>
+
+<h4>Aggregation Temporality</h4>
+
+<p>
+Metrics can be exported with different temporalities:
+</p>
+
+<ul>
+<li><b>DELTA</b> - Values represent change since last export. Preferred for
+push-based systems and stateless collectors.</li>
+<li><b>CUMULATIVE</b> - Values represent total since process start. Preferred
+for Prometheus-style scrapers.</li>
+</ul>
+
+<pre>
+&lt;property name="metricsTemporalityName"&gt;delta&lt;/property&gt;
+</pre>
+
+<h3 id="distributed">Distributed Tracing</h3>
+
+<p>
+Gumdrop supports W3C Trace Context for distributed tracing across services.
+</p>
+
+<h4>Incoming Traces</h4>
+
+<p>
+When a request includes a <code>traceparent</code> header, the server continues
+that trace rather than starting a new one. The format is:
+</p>
+
+<pre>
+traceparent: 00-{trace-id}-{span-id}-{flags}
+</pre>
+
+<p>
+Example: <code>00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01</code>
+</p>
+
+<h4>Outgoing Requests</h4>
+
+<p>
+When making outbound requests to other services, propagate the trace context:
+</p>
+
+<pre>
+// Get traceparent for the current span
+String traceparent = trace.getTraceparent();
+
+// Add to outbound HTTP request
+HTTPRequest request = new HTTPRequest("POST", "http://downstream/api");
+request.addHeader("traceparent", traceparent);
+client.send(request);
+</pre>
+
+<p>
+This creates a connected chain of spans across services, visible in trace
+visualization tools.
+</p>
+
+<h4>SpanKind for Distributed Calls</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Kind</th><th>Use Case</th></tr>
+<tr><td>SERVER</td><td>Handling an incoming request</td></tr>
+<tr><td>CLIENT</td><td>Making an outbound request</td></tr>
+<tr><td>PRODUCER</td><td>Creating a message for async processing</td></tr>
+<tr><td>CONSUMER</td><td>Processing a message from a queue</td></tr>
+<tr><td>INTERNAL</td><td>Internal operation (no network)</td></tr>
+</table>
+
+<h3 id="exporter">OTLP Exporter</h3>
+
+<p>
+The <code>OTLPExporter</code> sends telemetry data to an OpenTelemetry Collector
+using OTLP/HTTP with Protocol Buffers encoding.
+</p>
+
+<h4>Architecture</h4>
+
+<ul>
+<li>Uses Gumdrop's native HTTP client with SelectorLoop affinity</li>
+<li>Asynchronous batching reduces network overhead</li>
+<li>Background thread handles serialization and export</li>
+<li>Large payloads are chunked for efficient transfer</li>
+</ul>
+
+<h4>Collector Configuration</h4>
+
+<p>
+Example OpenTelemetry Collector configuration to receive Gumdrop traces:
+</p>
+
+<pre>
+# otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  jaeger:
+    endpoint: jaeger:14250
+    tls:
+      insecure: true
+  
+  # Or export to other backends
+  # zipkin:
+  #   endpoint: http://zipkin:9411/api/v2/spans
+  # otlp:
+  #   endpoint: tempo:4317
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [jaeger]
+</pre>
+
+<h4>Authentication</h4>
+
+<p>
+For authenticated endpoints, use the <code>headers</code> property:
+</p>
+
+<pre>
+&lt;property name="headers"&gt;Authorization=Bearer token123,X-Org-Id=my-org&lt;/property&gt;
+</pre>
+
+<h4>Complete Example Configuration</h4>
+
+<pre>
+&lt;!-- Telemetry configuration --&gt;
+&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
+    &lt;property name="serviceName"&gt;mail-gateway&lt;/property&gt;
+    &lt;property name="serviceVersion"&gt;2.1.0&lt;/property&gt;
+    &lt;property name="deploymentEnvironment"&gt;production&lt;/property&gt;
+    &lt;property name="serviceInstanceId"&gt;mail-gw-01&lt;/property&gt;
+    &lt;property name="endpoint"&gt;http://otel-collector.monitoring:4318&lt;/property&gt;
+    &lt;property name="batchSize"&gt;256&lt;/property&gt;
+    &lt;property name="flushIntervalMs"&gt;3000&lt;/property&gt;
+    &lt;property name="metricsIntervalMs"&gt;30000&lt;/property&gt;
+&lt;/component&gt;
+
+&lt;!-- SMTP server with telemetry --&gt;
+&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+    &lt;property name="port"&gt;25&lt;/property&gt;
+    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;property name="handlerFactory" ref="#smtpHandler"/&gt;
+&lt;/server&gt;
+
+&lt;!-- HTTP server with telemetry --&gt;
+&lt;server id="http" class="org.bluezoo.gumdrop.servlet.HTTPServletServer"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;property name="webApp" ref="#webapp"/&gt;
+&lt;/server&gt;
+</pre>
+
+<h4>Shutdown Guarantees</h4>
+
+<p>
+Gumdrop ensures telemetry data is not lost during connection errors or JVM shutdown:
+</p>
+
+<ul>
+<li><b>Connection error handling</b> - Read errors, write errors, and unexpected
+disconnects are recorded in telemetry with exception details before the trace ends</li>
+<li><b>Try-finally patterns</b> - All protocol connections use try-finally blocks
+to guarantee telemetry spans are ended even when exceptions occur</li>
+<li><b>JVM shutdown hook</b> - When an exporter is configured, a shutdown hook
+is automatically registered to flush pending telemetry data before the JVM exits</li>
+<li><b>Force flush</b> - The <code>OTLPExporter.forceFlush()</code> method can be
+called programmatically to immediately export all pending data</li>
+</ul>
+
+<p>
+The shutdown hook ensures that telemetry data buffered for batching is exported
+when the server is stopped gracefully. For immediate data visibility during
+development, reduce <code>flushIntervalMs</code> to export more frequently.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="imap.html">IMAP Server</a> |
+<a href="pop3.html">POP3 Server</a>
+</p>
+
+<p class='server-info'>Gumdrop Telemetry</p>
+
+</body>
+</html>
+
