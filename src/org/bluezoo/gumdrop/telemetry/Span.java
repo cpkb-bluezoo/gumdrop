@@ -239,45 +239,38 @@ public class Span {
      * Sets the span status.
      *
      * @param status the status
-     * @return this span for chaining
      */
-    public Span setStatus(SpanStatus status) {
+    public void setStatus(SpanStatus status) {
         if (!ended && status != null) {
             this.status = status;
         }
-        return this;
     }
 
     /**
      * Sets the span status to OK.
-     *
-     * @return this span for chaining
      */
-    public Span setStatusOk() {
-        return setStatus(SpanStatus.OK);
+    public void setStatusOk() {
+        setStatus(SpanStatus.OK);
     }
 
     /**
      * Sets the span status to ERROR with a message.
      *
      * @param message the error message
-     * @return this span for chaining
      */
-    public Span setStatusError(String message) {
-        return setStatus(SpanStatus.error(message));
+    public void setStatusError(String message) {
+        setStatus(SpanStatus.error(message));
     }
 
     /**
      * Adds an attribute to this span.
      *
      * @param attribute the attribute
-     * @return this span for chaining
      */
-    public Span addAttribute(Attribute attribute) {
+    public void addAttribute(Attribute attribute) {
         if (!ended && attribute != null) {
             attributes.add(attribute);
         }
-        return this;
     }
 
     /**
@@ -285,10 +278,9 @@ public class Span {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this span for chaining
      */
-    public Span addAttribute(String key, String value) {
-        return addAttribute(Attribute.string(key, value));
+    public void addAttribute(String key, String value) {
+        addAttribute(Attribute.string(key, value));
     }
 
     /**
@@ -296,10 +288,9 @@ public class Span {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this span for chaining
      */
-    public Span addAttribute(String key, boolean value) {
-        return addAttribute(Attribute.bool(key, value));
+    public void addAttribute(String key, boolean value) {
+        addAttribute(Attribute.bool(key, value));
     }
 
     /**
@@ -307,10 +298,9 @@ public class Span {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this span for chaining
      */
-    public Span addAttribute(String key, long value) {
-        return addAttribute(Attribute.integer(key, value));
+    public void addAttribute(String key, long value) {
+        addAttribute(Attribute.integer(key, value));
     }
 
     /**
@@ -318,56 +308,49 @@ public class Span {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this span for chaining
      */
-    public Span addAttribute(String key, double value) {
-        return addAttribute(Attribute.doubleValue(key, value));
+    public void addAttribute(String key, double value) {
+        addAttribute(Attribute.doubleValue(key, value));
     }
 
     /**
      * Adds an event to this span.
      *
      * @param event the event
-     * @return this span for chaining
      */
-    public Span addEvent(SpanEvent event) {
+    public void addEvent(SpanEvent event) {
         if (!ended && event != null) {
             events.add(event);
         }
-        return this;
     }
 
     /**
      * Adds a named event to this span.
      *
      * @param name the event name
-     * @return this span for chaining
      */
-    public Span addEvent(String name) {
-        return addEvent(new SpanEvent(name));
+    public void addEvent(String name) {
+        addEvent(new SpanEvent(name));
     }
 
     /**
      * Adds a link to this span.
      *
      * @param link the link
-     * @return this span for chaining
      */
-    public Span addLink(SpanLink link) {
+    public void addLink(SpanLink link) {
         if (!ended && link != null) {
             links.add(link);
         }
-        return this;
     }
 
     /**
      * Adds a link to another span context.
      *
      * @param context the span context to link to
-     * @return this span for chaining
      */
-    public Span addLink(SpanContext context) {
-        return addLink(new SpanLink(context));
+    public void addLink(SpanContext context) {
+        addLink(new SpanLink(context));
     }
 
     /**
@@ -398,11 +381,10 @@ public class Span {
      * Adds an event with exception details and sets the status to ERROR.
      *
      * @param exception the exception
-     * @return this span for chaining
      */
-    public Span recordException(Throwable exception) {
+    public void recordException(Throwable exception) {
         if (ended || exception == null) {
-            return this;
+            return;
         }
         SpanEvent event = new SpanEvent("exception");
         event.addAttribute("exception.type", exception.getClass().getName());
@@ -411,7 +393,6 @@ public class Span {
         }
         addEvent(event);
         setStatusError(exception.getMessage());
-        return this;
     }
 
     /**
@@ -420,11 +401,10 @@ public class Span {
      *
      * @param exception the exception
      * @param category the error category
-     * @return this span for chaining
      */
-    public Span recordException(Throwable exception, ErrorCategory category) {
+    public void recordException(Throwable exception, ErrorCategory category) {
         if (ended || exception == null) {
-            return this;
+            return;
         }
         SpanEvent event = new SpanEvent("exception");
         event.addAttribute("exception.type", exception.getClass().getName());
@@ -439,7 +419,6 @@ public class Span {
         }
 
         setStatusError(exception.getMessage());
-        return this;
     }
 
     /**
@@ -449,11 +428,10 @@ public class Span {
      * @param category the error category
      * @param protocolCode the protocol-specific error code (e.g., HTTP 404, SMTP 550)
      * @param message the error message
-     * @return this span for chaining
      */
-    public Span recordError(ErrorCategory category, int protocolCode, String message) {
+    public void recordError(ErrorCategory category, int protocolCode, String message) {
         if (ended) {
-            return this;
+            return;
         }
         SpanEvent event = new SpanEvent("error");
         if (message != null) {
@@ -472,7 +450,6 @@ public class Span {
         addAttribute("error.code", (long) protocolCode);
 
         setStatusError(message != null ? message : category.getCode());
-        return this;
     }
 
     /**
@@ -480,11 +457,10 @@ public class Span {
      *
      * @param category the error category
      * @param message the error message
-     * @return this span for chaining
      */
-    public Span recordError(ErrorCategory category, String message) {
+    public void recordError(ErrorCategory category, String message) {
         if (ended) {
-            return this;
+            return;
         }
         SpanEvent event = new SpanEvent("error");
         if (message != null) {
@@ -497,7 +473,6 @@ public class Span {
         addEvent(event);
 
         setStatusError(message != null ? message : (category != null ? category.getCode() : "error"));
-        return this;
     }
 
     /**
@@ -505,14 +480,13 @@ public class Span {
      * Uses {@link ErrorCategory#fromException} to classify the exception.
      *
      * @param exception the exception
-     * @return this span for chaining
      */
-    public Span recordExceptionWithCategory(Throwable exception) {
+    public void recordExceptionWithCategory(Throwable exception) {
         if (exception == null) {
-            return this;
+            return;
         }
         ErrorCategory category = ErrorCategory.fromException(exception);
-        return recordException(exception, category);
+        recordException(exception, category);
     }
 
     /**

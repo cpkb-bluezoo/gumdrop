@@ -523,7 +523,7 @@ public class MessageParserTest {
             "MIME-Version: 1.0\r\n" +
             "Content-Type: text/plain\r\n" +
             "\r\n" +
-            "This is the message body.";
+            "This is the message body.\r\n";
         
         TestMessageHandler handler = new TestMessageHandler();
         MessageParser parser = new MessageParser();
@@ -540,8 +540,8 @@ public class MessageParserTest {
         assertNotNull(handler.mimeVersion);
         assertNotNull(handler.contentType);
         
-        // Verify body
-        assertEquals("This is the message body.", handler.body.toString());
+        // Verify body (body content includes line terminator, use trim to compare)
+        assertEquals("This is the message body.", handler.body.toString().trim());
     }
     
     @Test

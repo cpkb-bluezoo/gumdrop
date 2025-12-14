@@ -22,10 +22,15 @@
 package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
+
+import java.util.EnumSet;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -72,8 +77,7 @@ public class POP3ServerIntegrationTest {
         .withLookingForStuckThread(true)
         .build();
     
-    private Gumdrop mboxGumdrop;
-    private Gumdrop maildirGumdrop;
+    private Gumdrop gumdrop;
     private POP3Server mboxServer;
     private POP3Server maildirServer;
     
@@ -111,12 +115,12 @@ public class POP3ServerIntegrationTest {
         maildirServer.setRealm(realm);
         maildirServer.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
         
-        // Start servers
-        mboxGumdrop = new Gumdrop(Collections.singletonList(mboxServer), 1);
-        mboxGumdrop.start();
-        
-        maildirGumdrop = new Gumdrop(Collections.singletonList(maildirServer), 1);
-        maildirGumdrop.start();
+        // Start servers using singleton with lifecycle management
+        System.setProperty("gumdrop.workers", "2");
+        gumdrop = Gumdrop.getInstance();
+        gumdrop.addServer(mboxServer);
+        gumdrop.addServer(maildirServer);
+        gumdrop.start();
         
         // Wait for servers to be ready
         waitForPort(MBOX_PORT, 5000);
@@ -126,13 +130,9 @@ public class POP3ServerIntegrationTest {
     @After
     public void tearDown() throws Exception {
         try {
-            if (mboxGumdrop != null) {
-                mboxGumdrop.shutdown();
-                mboxGumdrop.join();
-            }
-            if (maildirGumdrop != null) {
-                maildirGumdrop.shutdown();
-                maildirGumdrop.join();
+            if (gumdrop != null) {
+                gumdrop.shutdown();
+                gumdrop.join();
             }
             Thread.sleep(1500); // Allow ports to be released
         } finally {
@@ -414,6 +414,19 @@ public class POP3ServerIntegrationTest {
      * Test realm that accepts editor/editor credentials.
      */
     private static class TestRealm implements Realm {
+        
+        private static final Set<SASLMechanism> SUPPORTED = 
+            Collections.unmodifiableSet(EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+        
+        @Override
+        public Realm forSelectorLoop(SelectorLoop loop) {
+            return this; // Simple synchronous realm
+        }
+        
+        @Override
+        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+            return SUPPORTED;
+        }
         
         @Override
         public boolean passwordMatch(String username, String password) {

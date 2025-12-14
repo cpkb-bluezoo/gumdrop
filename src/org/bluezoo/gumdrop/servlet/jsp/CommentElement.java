@@ -56,7 +56,7 @@ public class CommentElement implements JSPElement {
     /**
      * Creates a new comment element.
      * 
-     * @param comment the comment text (without the <%-- --%> delimiters)
+     * @param comment the comment text (without the &lt;%-- --%&gt; delimiters)
      * @param lineNumber the line number where this element begins (1-based)
      * @param columnNumber the column number where this element begins (1-based)
      */

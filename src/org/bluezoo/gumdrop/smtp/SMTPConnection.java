@@ -21,33 +21,48 @@
 
 package org.bluezoo.gumdrop.smtp;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Realm;
-import org.bluezoo.gumdrop.SendCallback;
-import org.bluezoo.gumdrop.sasl.SASLUtils;
+import org.bluezoo.gumdrop.LineBasedConnection;
+import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.smtp.handler.*;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+import org.bluezoo.gumdrop.mime.rfc5322.EmailAddressParser;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
-import org.bluezoo.gumdrop.util.LineInput;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.security.Principal;
 import java.nio.CharBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.security.auth.Subject;
@@ -67,7 +82,10 @@ import javax.net.ssl.SSLEngine;
  * @see https://www.rfc-editor.org/rfc/rfc6409 (Message Submission)
  * @see https://www.rfc-editor.org/rfc/rfc3207 (SMTP STARTTLS)
  */
-public class SMTPConnection extends Connection implements MailFromCallback, RcptToCallback, HelloCallback, SMTPConnectionMetadata {
+public class SMTPConnection extends LineBasedConnection 
+        implements ConnectedState, HelloState, AuthenticateState, 
+                   MailFromState, RecipientState, MessageStartState, MessageEndState, 
+                   ResetState, SMTPConnectionMetadata {
 
     private static final Logger LOGGER = Logger.getLogger(SMTPConnection.class.getName());
 
@@ -77,19 +95,21 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
     /**
-     * SMTP uses US-ASCII for commands and responses.
+     * SMTP uses US-ASCII for commands and responses, except when SMTPUTF8 is active.
      */
     static final Charset US_ASCII = Charset.forName("US-ASCII");
     static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
+    static final Charset UTF_8 = Charset.forName("UTF-8");
+    static final CharsetDecoder UTF_8_DECODER = UTF_8.newDecoder();
 
     // RFC 5321 limits to prevent memory exhaustion attacks
     private static final int MAX_LINE_LENGTH = 998;           // RFC 5321 section 4.5.3.1.6 (excluding CRLF)
-    private static final int MAX_RECIPIENTS = 1000;           // Reasonable limit, RFC suggests minimum 100
     private static final int MAX_CONTROL_BUFFER_SIZE = 8;     // Max bytes for control sequences (\r\n.\r\n = 4 bytes + safety)
+    // Note: Recipient limit (RCPTMAX) is now configurable via SMTPServer.setMaxRecipients()
     private static final int MAX_COMMAND_LINE_LENGTH = 1000;  // MAX_LINE_LENGTH + CRLF
 
     /**
-     * SMTP session states according to RFC 5321.
+     * SMTP session states according to RFC 5321 and RFC 3030 (BDAT/CHUNKING).
      */
     enum SMTPState {
         INITIAL,    // Initial state, waiting for HELO/EHLO
@@ -97,7 +117,8 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         READY,      // After successful HELO/EHLO, ready for mail transaction
         MAIL,       // After MAIL FROM command
         RCPT,       // After one or more RCPT TO commands
-        DATA,       // During DATA command (receiving message content)
+        DATA,       // During DATA command (receiving message content with dot-stuffing)
+        BDAT,       // During BDAT command (receiving exact byte count, no dot-stuffing)
         QUIT        // After QUIT command
     }
 
@@ -123,15 +144,33 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
     // Using base class protected SocketChannel channel field
     private final SMTPServer server;
-    private final SMTPConnectionHandler handler;
     private final long connectionTimeMillis;
+    
+    // Staged handler pattern - the current handler for each protocol state
+    private ClientConnected connectedHandler;     // The initial handler that owns this connection
+    private HelloHandler helloHandler;            // Receives HELO/EHLO, authenticated Principal
+    private MailFromHandler mailFromHandler;      // Receives MAIL FROM
+    private RecipientHandler recipientHandler;    // Receives RCPT TO, DATA/BDAT
+    private MessageDataHandler messageHandler;    // Receives message completion
+    private SMTPPipeline currentPipeline;         // Current transaction's processing pipeline
+    
+    // Bound realm for this connection's SelectorLoop
+    private Realm realm;
 
     // SMTP session state
     private SMTPState state = SMTPState.INITIAL;
     private String heloName;
-    private String mailFrom;
-    private List<String> recipients;
+    private EmailAddress mailFrom;
+    private List<EmailAddress> recipients;
     private boolean extendedSMTP = false; // true if EHLO was used
+    private boolean smtputf8 = false;     // true if SMTPUTF8 parameter was used (RFC 6531)
+    private BodyType bodyType = BodyType.SEVEN_BIT; // BODY parameter value (default 7BIT)
+    private DefaultDeliveryRequirements deliveryRequirements; // Delivery options (REQUIRETLS, MT-PRIORITY, etc.)
+    
+    // DSN state (RFC 3461 - Delivery Status Notifications)
+    // Note: DSN envelope params (RET, ENVID) are now in deliveryRequirements
+    private Map<EmailAddress, DSNRecipientParameters> dsnRecipients = null; // DSN params per recipient
+    private DSNRecipientParameters pendingRecipientDSN = null; // Temporary storage during rcptTo callback
     
     // Authentication state
     private boolean authenticated = false;
@@ -155,8 +194,17 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     private byte[] ntlmChallenge = null;      // NTLM: server challenge
     private String ntlmTargetName = null;     // NTLM: target name info
     
-    // Buffer management for partial lines and DATA control sequences
-    private ByteBuffer lineBuffer; // Accumulates partial lines across receive() calls
+    // XCLIENT state (Postfix XCLIENT extension)
+    // These override the real connection values when set by an authorized proxy
+    private InetSocketAddress xclientAddr = null;     // Overridden client address (ADDR/PORT)
+    private InetSocketAddress xclientDestAddr = null; // Overridden server address (DESTADDR/DESTPORT)
+    private String xclientName = null;                // Overridden client hostname (NAME)
+    private String xclientHelo = null;                // Overridden HELO name (HELO)
+    private String xclientProto = null;               // Overridden protocol SMTP/ESMTP (PROTO)
+    private String xclientLogin = null;               // Overridden authenticated user (LOGIN)
+    
+    // Buffer management for command decoding and DATA control sequences
+    private CharBuffer charBuffer; // Character buffer for decoding command lines
     private ByteBuffer controlBuffer; // Small buffer for partial control sequences (CRLF, dots, termination)
     
     // DATA state tracking for control sequences only
@@ -168,60 +216,57 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         SAW_DOT_CR  // Saw CRLF.CR, checking for final LF of termination
     }
     private DataState dataState = DataState.NORMAL;
-
-    private ByteBuffer in; // input buffer for received data
-    private LineReader lineReader;
+    private long dataBytesReceived = 0L; // Total message bytes received for current DATA/BDAT
+    private boolean sizeExceeded = false; // True if message exceeded SIZE limit (avoid multiple errors)
+    
+    // BDAT (RFC 3030 CHUNKING) state tracking
+    private long bdatBytesRemaining = 0L;  // Bytes remaining in current BDAT chunk
+    private boolean bdatLast = false;      // True if current BDAT has LAST parameter
+    private boolean bdatStarted = false;   // True if any BDAT has been received for this transaction
 
     // Telemetry tracking
     private Span sessionSpan;      // Current session span (reset on RSET)
     private int sessionNumber = 0; // Session counter for span naming
 
     /**
-     * LineInput implementation for reading SMTP commands line by line.
-     */
-    class LineReader implements LineInput {
-
-        private CharBuffer sink; // character buffer to receive decoded characters
-
-        @Override 
-        public ByteBuffer getLineInputBuffer() {
-            return in;
-        }
-
-        @Override 
-        public CharBuffer getOrCreateLineInputCharacterSink(int capacity) {
-            if (sink == null || sink.capacity() < capacity) {
-                sink = CharBuffer.allocate(capacity);
-            }
-            return sink;
-        }
-    }
-
-
-    /**
      * Creates a new SMTP connection.
-     * @param connector the SMTP connector that created this connection
+     * @param server the SMTP server that created this connection
      * @param channel the socket channel for this connection
      * @param engine the SSL engine if this is a secure connection, null for plaintext
      * @param secure true if this connection should use TLS encryption
      * @param handler the application handler for SMTP events
      */
-    protected SMTPConnection(SMTPServer server, SocketChannel channel, SSLEngine engine, boolean secure, SMTPConnectionHandler handler) {
+    protected SMTPConnection(SMTPServer server, SocketChannel channel, SSLEngine engine, boolean secure, ClientConnected handler) {
         super(engine, secure);
         this.server = server;
         this.channel = channel;
-        this.handler = handler;
+        this.connectedHandler = handler;
         this.connectionTimeMillis = System.currentTimeMillis();
-        this.in = ByteBuffer.allocate(4096);
-        this.lineReader = new LineReader();
         this.recipients = new ArrayList<>();
-        this.lineBuffer = ByteBuffer.allocate(MAX_COMMAND_LINE_LENGTH);
+        this.dsnRecipients = new HashMap<>();
+        this.charBuffer = CharBuffer.allocate(MAX_COMMAND_LINE_LENGTH);
         this.controlBuffer = ByteBuffer.allocate(MAX_CONTROL_BUFFER_SIZE);
     }
 
-    @Override
-    public void setSendCallback(SendCallback callback) {
-        super.setSendCallback(callback);
+    /**
+     * Returns the realm for authentication, bound to this connection's SelectorLoop.
+     * Lazily initializes the bound realm on first access.
+     *
+     * @return the realm, or null if none configured
+     */
+    private Realm getRealm() {
+        if (realm == null) {
+            Realm serverRealm = server.getRealm();
+            if (serverRealm != null) {
+                SelectorLoop loop = getSelectorLoop();
+                if (loop != null) {
+                    realm = serverRealm.forSelectorLoop(loop);
+                } else {
+                    realm = serverRealm;
+                }
+            }
+        }
+        return realm;
     }
 
     @Override
@@ -230,22 +275,22 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
         // Initialize telemetry trace for this connection
         initConnectionTrace();
-        
-        // Check with handler if connection should be accepted
-        boolean acceptConnection = true;
-        if (handler != null) {
-            acceptConnection = handler.connected(this);
+
+        // Record connection opened metric
+        SMTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.connectionOpened();
         }
         
-        if (acceptConnection) {
-            // Start the first session span
-            startSessionSpan();
-            // Send SMTP greeting after connection accepted
-            reply(220, getLocalSocketAddress().toString() + " ESMTP Service ready");
+        // Notify the handler that a client has connected
+        // The handler will call acceptConnection() or rejectConnection() on this (the ConnectedState)
+        if (connectedHandler != null) {
+            ConnectionInfo info = createConnectionInfo();
+            connectedHandler.connected(info, this);
         } else {
-            // Connection rejected - send error and transition to REJECTED state
-            this.state = SMTPState.REJECTED;
-            reply(554, "5.0.0 Connection rejected");
+            // No handler configured - accept with default greeting
+            startSessionSpan();
+            reply(220, getLocalSocketAddress().toString() + " ESMTP Service ready");
         }
     }
 
@@ -269,6 +314,13 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             rootSpan.addAttribute("net.peer.ip", getRemoteSocketAddress().toString());
             rootSpan.addAttribute("rpc.system", "smtp");
         }
+    }
+
+    /**
+     * Gets the SMTP server metrics from the server.
+     */
+    private SMTPServerMetrics getServerMetrics() {
+        return server != null ? server.getMetrics() : null;
     }
 
     /**
@@ -330,44 +382,271 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
      * Invoked when application data is received from the client.
      * The connection framework handles TLS decryption transparently,
      * so this method receives plain SMTP protocol data.
-     * Properly handles partial lines and DATA state byte processing.
+     * Routes data to appropriate handler based on current protocol state.
      * 
      * @param buf the application data received from the client
      */
     @Override
     public void receive(ByteBuffer buf) {
         try {
-            if (state == SMTPState.DATA) {
-                // Special handling for DATA state - work with bytes, not lines
+            if (state == SMTPState.BDAT) {
+                // BDAT state - count exact bytes, no dot-stuffing
+                handleBdatContent(buf);
+            } else if (state == SMTPState.DATA) {
+                // DATA state - work with bytes, handle dot-stuffing
                 handleDataContent(buf);
             } else {
-                // Normal command processing - accumulate and parse complete lines
-                handleCommandData(buf);
+                // Command mode - process line-based commands
+                receiveLine(buf);
+                
+                // If state changed during line processing and there's remaining data
+                if (buf.hasRemaining()) {
+                    if (state == SMTPState.BDAT) {
+                        handleBdatContent(buf);
+                    } else if (state == SMTPState.DATA) {
+                        handleDataContent(buf);
+                    }
+                }
             }
         } catch (IOException e) {
             try {
-                reply(500, "5.5.2 Syntax error"); // Syntax error
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "Error processing SMTP data", e);
-                }
+                reply(500, L10N.getString("smtp.err.syntax_error"));
+                String msg = L10N.getString("log.error_processing_data");
+                LOGGER.log(Level.WARNING, msg, e);
             } catch (IOException e2) {
-                LOGGER.log(Level.SEVERE, "Cannot write error reply", e2);
+                String msg = L10N.getString("log.error_sending_response");
+                LOGGER.log(Level.SEVERE, msg, e2);
             }
         }
     }
 
     /**
-     * Handles command data by accumulating partial lines and processing complete lines.
-     * @param buf the buffer containing new data
+     * Returns false when transitioning to DATA or BDAT mode to stop line processing.
      */
-    private void handleCommandData(ByteBuffer buf) throws IOException {
-        // Add new data to our line buffer
-        appendToBuffer(lineBuffer, buf);
-        
-        // Extract and process complete lines
-        String line;
-        while ((line = extractCompleteLine(lineBuffer)) != null) {
-            lineRead(line);
+    @Override
+    protected boolean continueLineProcessing() {
+        return state != SMTPState.DATA && state != SMTPState.BDAT;
+    }
+
+    /**
+     * Called when a complete CRLF-terminated line has been received.
+     * Decodes the line and dispatches the command.
+     *
+     * <p>Encoding handling per RFC 6531 (SMTPUTF8):
+     * <ul>
+     *   <li>Before MAIL FROM: decode as US-ASCII, reject non-ASCII</li>
+     *   <li>MAIL FROM command: decode as UTF-8 (may contain internationalized address),
+     *       then post-verify ASCII-only if SMTPUTF8 parameter was not specified</li>
+     *   <li>After MAIL FROM with SMTPUTF8: decode as UTF-8</li>
+     *   <li>After MAIL FROM without SMTPUTF8: decode as US-ASCII, reject non-ASCII</li>
+     * </ul>
+     *
+     * @param line buffer containing the complete line including CRLF
+     */
+    @Override
+    protected void lineReceived(ByteBuffer line) {
+        try {
+            // Check line length (excluding CRLF)
+            int lineLength = line.remaining();
+            if (lineLength > MAX_COMMAND_LINE_LENGTH) {
+                reply(500, L10N.getString("smtp.err.line_too_long"));
+                return;
+            }
+
+            // Determine if this might be a MAIL command (needs UTF-8 for potential i18n address)
+            // We peek at the first 4 bytes to check for "MAIL" before choosing decoder
+            boolean mightBeMailCommand = (state == SMTPState.READY && lineLength >= 4 &&
+                    isMailCommandPrefix(line));
+
+            // Choose decoder based on current state and SMTPUTF8 mode
+            // - MAIL command: always UTF-8 (may contain i18n address)
+            // - After MAIL with SMTPUTF8: UTF-8
+            // - Otherwise: US-ASCII
+            CharsetDecoder decoder;
+            boolean requireAscii;
+            if (mightBeMailCommand) {
+                decoder = UTF_8_DECODER;
+                requireAscii = false; // Post-verify after parsing SMTPUTF8 param
+            } else if (smtputf8) {
+                decoder = UTF_8_DECODER;
+                requireAscii = false;
+            } else {
+                decoder = US_ASCII_DECODER;
+                requireAscii = true;
+            }
+
+            // Decode line from buffer
+            charBuffer.clear();
+            decoder.reset();
+            CoderResult result = decoder.decode(line, charBuffer, true);
+            if (result.isError()) {
+                reply(500, L10N.getString("smtp.err.invalid_encoding"));
+                return;
+            }
+            charBuffer.flip();
+
+            // For strict ASCII mode, verify no non-ASCII characters
+            if (requireAscii && containsNonAscii(charBuffer)) {
+                reply(500, L10N.getString("smtp.err.invalid_encoding"));
+                return;
+            }
+
+            // Adjust limit to exclude CRLF terminator
+            int len = charBuffer.limit();
+            if (len >= 2 && charBuffer.get(len - 2) == '\r' && charBuffer.get(len - 1) == '\n') {
+                charBuffer.limit(len - 2);
+                len -= 2;
+            }
+
+            // Handle authentication data if auth is in progress
+            if (authState != AuthState.NONE) {
+                String lineStr = charBuffer.toString();
+                handleAuthData(lineStr);
+                return;
+            }
+
+            // Find space separator to split command and arguments
+            int spaceIndex = -1;
+            for (int i = 0; i < len; i++) {
+                if (charBuffer.get(i) == ' ') {
+                    spaceIndex = i;
+                    break;
+                }
+            }
+
+            // Extract command and arguments directly from CharBuffer
+            String command;
+            String args;
+            if (spaceIndex > 0) {
+                charBuffer.limit(spaceIndex);
+                command = charBuffer.toString().toUpperCase(Locale.ENGLISH);
+                charBuffer.limit(len);
+                charBuffer.position(spaceIndex + 1);
+                args = charBuffer.toString();
+            } else {
+                command = charBuffer.toString().toUpperCase(Locale.ENGLISH);
+                args = null;
+            }
+
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                String msg = L10N.getString("log.smtp_command");
+                msg = MessageFormat.format(msg, command, args != null ? args : "");
+                LOGGER.finest(msg);
+            }
+
+            // Dispatch command
+            dispatchCommand(command, args);
+
+            // Post-verify MAIL command: if SMTPUTF8 was not specified but line
+            // contained non-ASCII characters, that's an error
+            if (mightBeMailCommand && "MAIL".equals(command) && !smtputf8) {
+                // Reset charBuffer to check entire line for non-ASCII
+                charBuffer.position(0);
+                charBuffer.limit(len);
+                if (containsNonAscii(charBuffer)) {
+                    // MAIL command contained non-ASCII but SMTPUTF8 wasn't specified
+                    // Reset transaction and return error
+                    resetTransaction();
+                    reply(553, L10N.getString("smtp.err.smtputf8_required"));
+                    return;
+                }
+            }
+
+        } catch (IOException e) {
+            String msg = L10N.getString("log.error_processing_data");
+            LOGGER.log(Level.WARNING, msg, e);
+            try {
+                reply(500, L10N.getString("smtp.err.internal_error"));
+            } catch (IOException e2) {
+                String errMsg = L10N.getString("log.error_sending_response");
+                LOGGER.log(Level.SEVERE, errMsg, e2);
+            }
+        }
+    }
+
+    /**
+     * Checks if the buffer starts with "MAIL" (case-insensitive).
+     * Used to detect MAIL command for SMTPUTF8 handling.
+     */
+    private boolean isMailCommandPrefix(ByteBuffer buf) {
+        int pos = buf.position();
+        if (buf.remaining() < 4) {
+            return false;
+        }
+        byte b0 = buf.get(pos);
+        byte b1 = buf.get(pos + 1);
+        byte b2 = buf.get(pos + 2);
+        byte b3 = buf.get(pos + 3);
+        // Check for "MAIL" or "mail" (case-insensitive)
+        return (b0 == 'M' || b0 == 'm') &&
+               (b1 == 'A' || b1 == 'a') &&
+               (b2 == 'I' || b2 == 'i') &&
+               (b3 == 'L' || b3 == 'l');
+    }
+
+    /**
+     * Checks if the CharBuffer contains any non-ASCII characters (code points > 127).
+     */
+    private boolean containsNonAscii(CharBuffer buf) {
+        int pos = buf.position();
+        int lim = buf.limit();
+        for (int i = pos; i < lim; i++) {
+            if (buf.get(i) > 127) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Dispatches a parsed SMTP command to the appropriate handler.
+     *
+     * @param command the command verb (uppercase)
+     * @param args the command arguments, or null if none
+     */
+    private void dispatchCommand(String command, String args) throws IOException {
+        if (state == SMTPState.REJECTED) {
+            if ("QUIT".equals(command)) {
+                quit(args);
+            } else {
+                reply(554, L10N.getString("smtp.err.connection_rejected"));
+            }
+            return;
+        }
+
+        if ("HELO".equals(command)) {
+            helo(args);
+        } else if ("EHLO".equals(command)) {
+            ehlo(args);
+        } else if ("MAIL".equals(command)) {
+            mail(args);
+        } else if ("RCPT".equals(command)) {
+            rcpt(args);
+        } else if ("DATA".equals(command)) {
+            data(args);
+        } else if ("BDAT".equals(command)) {
+            bdat(args);
+        } else if ("RSET".equals(command)) {
+            rset(args);
+        } else if ("QUIT".equals(command)) {
+            quit(args);
+        } else if ("NOOP".equals(command)) {
+            noop(args);
+        } else if ("HELP".equals(command)) {
+            help(args);
+        } else if ("VRFY".equals(command)) {
+            vrfy(args);
+        } else if ("EXPN".equals(command)) {
+            expn(args);
+        } else if ("STARTTLS".equals(command) && !secure && engine != null && !starttlsUsed) {
+            starttls(args);
+        } else if ("AUTH".equals(command)) {
+            auth(args);
+        } else if ("XCLIENT".equals(command)) {
+            xclient(args);
+        } else {
+            String msg = L10N.getString("smtp.err.command_unrecognized");
+            reply(500, MessageFormat.format(msg, command));
         }
     }
 
@@ -385,12 +664,40 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         if (controlBuffer.position() > 0) {
             handleControlSequenceWithNewData(buf);
             if (state != SMTPState.DATA) {
-                return; // Terminated
+                // Terminated - check for pipelined commands after CRLF.CRLF
+                if (buf.hasRemaining()) {
+                    handlePipelinedCommands(buf);
+                }
+                return;
             }
         }
         
         // Process the main buffer iteratively
         processDataBuffer(buf);
+        
+        // PIPELINING support: If DATA terminated and there's remaining data, 
+        // it's pipelined commands (e.g., MAIL FROM after the message)
+        if (state != SMTPState.DATA && buf.hasRemaining()) {
+            handlePipelinedCommands(buf);
+        }
+    }
+    
+    /**
+     * Handles pipelined commands after DATA/BDAT content.
+     * Routes remaining buffer data back through the receive method.
+     */
+    private void handlePipelinedCommands(ByteBuffer buf) throws IOException {
+        // Process remaining data as commands
+        receiveLine(buf);
+        
+        // If state changed during line processing and there's remaining data
+        if (buf.hasRemaining()) {
+            if (state == SMTPState.BDAT) {
+                handleBdatContent(buf);
+            } else if (state == SMTPState.DATA) {
+                handleDataContent(buf);
+            }
+        }
     }
     
     /**
@@ -465,9 +772,37 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                         }
                         
                         // Message complete
+                        long messageSize = dataBytesReceived;
+                        int recipientCount = recipients != null ? recipients.size() : 0;
+                        boolean exceeded = sizeExceeded;
+                        long maxSize = server.getMaxMessageSize();
                         resetDataState();
                         state = SMTPState.READY;
+                        
+                        // Check if size limit was exceeded
+                        if (exceeded) {
+                            addSessionEvent("DATA rejected (size exceeded)");
+                            reply(552, "5.3.4 Message size exceeds maximum (" + maxSize + " bytes)");
+                            return;
+                        }
+                        
                         addSessionEvent("DATA complete");
+
+                        // Record message received metric
+                        SMTPServerMetrics metrics = getServerMetrics();
+                        if (metrics != null) {
+                            metrics.messageReceived(messageSize, recipientCount);
+                        }
+
+                        // Notify handler that message is complete
+                        // Handler will call acceptMessageDelivery() or reject methods
+                        if (messageHandler != null) {
+                            messageHandler.messageComplete(this);
+                            // Response is sent by handler via MessageEndState
+                            return;
+                        }
+
+                        // No handler - auto-accept
                         reply(250, "2.0.0 Message accepted for delivery");
                         return;
                     } else {
@@ -484,13 +819,39 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         
         // Handle end of buffer
         if (needsControlBuffering()) {
-            // We're in a control sequence that spans buffer boundary - save it
-            saveControlSequence(buf, chunkStart);
+            // We're in a control sequence that spans buffer boundary
+            // First, send any data before the control sequence started
+            int controlStart = getControlSequenceStart(buf.position());
+            if (controlStart > chunkStart) {
+                sendChunk(buf, chunkStart, controlStart);
+            }
+            // Now save just the control sequence bytes
+            saveControlSequence(buf, controlStart);
         } else {
             // Send any remaining data - can include multiple lines
             if (buf.position() > chunkStart) {
                 sendChunk(buf, chunkStart, buf.position());
             }
+        }
+    }
+    
+    /**
+     * Calculates where the current partial control sequence started.
+     * @param currentPos current buffer position
+     * @return position where the control sequence started
+     */
+    private int getControlSequenceStart(int currentPos) {
+        switch (dataState) {
+            case SAW_CR:
+                return currentPos - 1;  // Just the \r
+            case SAW_CRLF:
+                return currentPos - 2;  // The \r\n
+            case SAW_DOT:
+                return currentPos - 1;  // Just the .
+            case SAW_DOT_CR:
+                return currentPos - 2;  // The .\r
+            default:
+                return currentPos;
         }
     }
 
@@ -503,67 +864,6 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                dataState == DataState.SAW_CRLF || 
                dataState == DataState.SAW_DOT || 
                dataState == DataState.SAW_DOT_CR;
-    }
-
-    /**
-     * Invoked when a complete CRLF-terminated line has been read.
-     * Parses SMTP commands and dispatches to appropriate handlers.
-     * If authentication is in progress, handles auth data instead.
-     *
-     * @param line the line read (without CRLF)
-     */
-    void lineRead(String line) throws IOException {
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("SMTP command received: " + line);
-        }
-
-        if (authState != AuthState.NONE) {
-            handleAuthData(line);
-            return;
-        }
-
-        int si = line.indexOf(' ');
-        String command = (si > 0) ? line.substring(0, si).toUpperCase() : line.toUpperCase();
-        String args = (si > 0) ? line.substring(si + 1) : null;
-
-        if (state == SMTPState.REJECTED) {
-            if ("QUIT".equals(command)) {
-                quit(args);
-            } else {
-                reply(554, "5.0.0 Connection rejected, only QUIT accepted");
-            }
-            return;
-        }
-
-        if ("HELO".equals(command)) {
-            helo(args);
-        } else if ("EHLO".equals(command)) {
-            ehlo(args);
-        } else if ("MAIL".equals(command)) {
-            mail(args);
-        } else if ("RCPT".equals(command)) {
-            rcpt(args);
-        } else if ("DATA".equals(command)) {
-            data(args);
-        } else if ("RSET".equals(command)) {
-            rset(args);
-        } else if ("QUIT".equals(command)) {
-            quit(args);
-        } else if ("NOOP".equals(command)) {
-            noop(args);
-        } else if ("HELP".equals(command)) {
-            help(args);
-        } else if ("VRFY".equals(command)) {
-            vrfy(args);
-        } else if ("EXPN".equals(command)) {
-            expn(args);
-        } else if ("STARTTLS".equals(command) && !secure && engine != null && !starttlsUsed) {
-            starttls(args);
-        } else if ("AUTH".equals(command)) {
-            auth(args);
-        } else {
-            reply(500, "5.5.1 Command unrecognized: " + command);
-        }
     }
 
     /**
@@ -607,109 +907,65 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
     /**
      * Processes RFC822 message content received during DATA command.
-     * Delegates to the connection handler for actual message processing.
+     * Delivers to the handler's messageContent method and also writes to
+     * the pipeline's channel if one is configured.
      * @param messageBuffer the message content as bytes
      */
     private void messageContent(ByteBuffer messageBuffer) {
-        if (handler != null) {
-            // Create a read-only view to prevent handler from modifying buffer
-            ByteBuffer readOnlyBuffer = messageBuffer.asReadOnlyBuffer();
-            handler.messageContent(readOnlyBuffer);
-        } else {
-            // Fallback logging if no handler
-            if (LOGGER.isLoggable(Level.INFO)) {
-                int messageSize = messageBuffer.remaining();
-                LOGGER.info("Received message from " + mailFrom + " to " + recipients + 
-                           " (" + messageSize + " bytes) - no handler configured");
+        // Always deliver to handler if available
+        if (messageHandler != null) {
+            // Mark position so we can reset after handler consumes
+            int originalPosition = messageBuffer.position();
+            messageHandler.messageContent(messageBuffer);
+            
+            // Reset buffer position for pipeline if needed
+            if (currentPipeline != null) {
+                messageBuffer.position(originalPosition);
+            }
+        }
+        
+        // Also deliver to pipeline if configured
+        if (currentPipeline != null) {
+            try {
+                java.nio.channels.WritableByteChannel channel = currentPipeline.getMessageChannel();
+                if (channel != null) {
+                    channel.write(messageBuffer);
+                }
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error writing to pipeline", e);
             }
         }
     }
 
     // ===== Buffer Management Helper Methods =====
 
-    /**
-     * Appends new data from source buffer to destination buffer, expanding if necessary.
-     * @param dest the destination buffer to append to
-     * @param source the source buffer containing new data
-     */
-    private void appendToBuffer(ByteBuffer dest, ByteBuffer source) {
-        // Ensure destination has enough capacity
-        if (dest.remaining() < source.remaining()) {
-            // Need to expand the buffer
-            int newCapacity = dest.capacity() + Math.max(source.remaining(), 4096);
-            ByteBuffer newDest = ByteBuffer.allocate(newCapacity);
-            
-            // Copy existing data from dest to newDest
-            dest.flip();  // Switch dest to read mode
-            newDest.put(dest);  // Copy existing data
-            
-            // Replace the buffer reference and update dest pointer
-            if (dest == lineBuffer) {
-                lineBuffer = newDest;
-                dest = lineBuffer;  // Update local reference
-            } else if (dest == controlBuffer) {
-                controlBuffer = newDest;  
-                dest = controlBuffer;  // Update local reference
-            }
-        }
-        
-        // Append source data to dest (now properly sized and positioned)
-        dest.put(source);
-    }
-
-    /**
-     * Extracts a complete CRLF-terminated line from the buffer.
-     * @param buffer the buffer to extract from
-     * @return the line without CRLF, or null if no complete line available
-     * @throws IOException if line length exceeds RFC 5321 limits
-     */
-    private String extractCompleteLine(ByteBuffer buffer) throws IOException {
-        buffer.flip(); // Switch to read mode
-        
-        // Look for CRLF sequence
-        int crlfIndex = -1;
-        for (int i = 0; i < buffer.limit() - 1; i++) {
-            if (buffer.get(i) == '\r' && buffer.get(i + 1) == '\n') {
-                crlfIndex = i;
-                break;
-            }
-        }
-        
-        if (crlfIndex == -1) {
-            // Check for line length limit exceeded
-            if (buffer.limit() > MAX_LINE_LENGTH) {
-                // Line too long - this is an error condition
-                buffer.clear(); // Clear the invalid line
-                throw new IOException("Line length exceeds maximum of " + MAX_LINE_LENGTH + " characters");
-            }
-            // No complete line yet - compact and return null
-            buffer.compact();
-            return null;
-        }
-
-        // Check line length limit (excluding CRLF)
-        if (crlfIndex > MAX_LINE_LENGTH) {
-            buffer.clear(); // Clear the invalid line
-            throw new IOException("Line length exceeds maximum of " + MAX_LINE_LENGTH + " characters");
-        }
-
-        // Extract the line (without CRLF)
-        byte[] lineBytes = new byte[crlfIndex];
-        buffer.get(lineBytes);
-        buffer.get(); // Skip CR
-        buffer.get(); // Skip LF
-
-        // Compact buffer to remove processed data
-        buffer.compact();
-
-        // Convert to string
-        return new String(lineBytes, US_ASCII);
-    }
-
     // ===== Streaming DATA Processing Helper Methods =====
 
     /**
+     * Appends new data from source buffer to control buffer, expanding if necessary.
+     * @param source the source buffer containing new data
+     */
+    private void appendToControlBuffer(ByteBuffer source) {
+        // Ensure control buffer has enough capacity
+        if (controlBuffer.remaining() < source.remaining()) {
+            // Need to expand the buffer
+            int newCapacity = controlBuffer.capacity() + Math.max(source.remaining(), MAX_CONTROL_BUFFER_SIZE);
+            ByteBuffer newBuffer = ByteBuffer.allocate(newCapacity);
+            
+            // Copy existing data
+            controlBuffer.flip();
+            newBuffer.put(controlBuffer);
+            
+            controlBuffer = newBuffer;
+        }
+        
+        // Append source data
+        controlBuffer.put(source);
+    }
+
+    /**
      * Sends a chunk of data immediately to messageContent().
+     * Checks SIZE limit and sets sizeExceeded flag if exceeded.
      * @param source the source buffer
      * @param start the start position (inclusive)
      * @param end the end position (exclusive)
@@ -722,6 +978,20 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             // Ensure start and end are within buffer bounds
             int actualStart = Math.max(0, Math.min(start, source.limit()));
             int actualEnd = Math.max(actualStart, Math.min(end, source.limit()));
+            
+            // Track bytes received for metrics
+            dataBytesReceived += (actualEnd - actualStart);
+            
+            // Check SIZE limit
+            long maxSize = server.getMaxMessageSize();
+            if (maxSize > 0 && dataBytesReceived > maxSize) {
+                sizeExceeded = true;
+                // Don't send to handler if size exceeded - continue consuming until termination
+                // Restore buffer state and return
+                source.limit(savedLimit);
+                source.position(Math.min(savedPosition, source.limit()));
+                return;
+            }
             
             // Create a view of just the chunk we want to send
             source.position(actualStart);
@@ -745,7 +1015,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
      */
     private void handleControlSequenceWithNewData(ByteBuffer newData) throws IOException {                                                                  
         // Append new data to control buffer
-        appendToBuffer(controlBuffer, newData);
+        appendToControlBuffer(newData);
         
         // Try to process the control sequence
         controlBuffer.flip();
@@ -806,6 +1076,108 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     private void resetDataState() {
         controlBuffer.clear();
         dataState = DataState.NORMAL;
+        dataBytesReceived = 0L;
+        sizeExceeded = false;
+        resetBdatState();
+    }
+
+    /**
+     * Resets BDAT state tracking variables.
+     */
+    private void resetBdatState() {
+        bdatBytesRemaining = 0L;
+        bdatLast = false;
+        bdatStarted = false;
+    }
+
+    /**
+     * Handles BDAT content - simply counts bytes and writes to pipeline.
+     * Unlike DATA, BDAT has no dot-stuffing or special termination sequence.
+     * The exact number of bytes specified in the BDAT command is expected.
+     */
+    private void handleBdatContent(ByteBuffer buf) throws IOException {
+        while (buf.hasRemaining() && bdatBytesRemaining > 0) {
+            // Calculate how many bytes we can process in this iteration
+            int available = buf.remaining();
+            int toProcess = (int) Math.min(available, bdatBytesRemaining);
+            
+            // Save position for later advancement
+            int startPos = buf.position();
+            int oldLimit = buf.limit();
+            
+            // Create a view for this chunk
+            buf.limit(startPos + toProcess);
+            
+            // Pass to handler for processing
+            messageContent(buf);
+            
+            // Update counters
+            dataBytesReceived += toProcess;
+            bdatBytesRemaining -= toProcess;
+            
+            // Restore limit and advance position from saved start
+            buf.limit(oldLimit);
+            buf.position(startPos + toProcess);
+        }
+        
+        // Check if we've received all bytes for this chunk
+        if (bdatBytesRemaining == 0) {
+            handleBdatChunkComplete();
+            
+            // If there's more data in the buffer and we're back in command mode, process it
+            if (buf.hasRemaining() && state != SMTPState.BDAT) {
+                handlePipelinedCommands(buf);
+            }
+        }
+    }
+
+    /**
+     * Called when a BDAT chunk has been completely received.
+     * Sends appropriate response and handles transaction completion if this was LAST chunk.
+     */
+    private void handleBdatChunkComplete() throws IOException {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("BDAT chunk complete, total bytes: " + dataBytesReceived + 
+                       (bdatLast ? " (LAST)" : ""));
+        }
+
+        if (bdatLast) {
+            // This was the final chunk - message is complete
+            long messageSize = dataBytesReceived;
+            int recipientCount = recipients != null ? recipients.size() : 0;
+            
+            addSessionEvent("BDAT LAST complete");
+
+            // Record message received metric
+            SMTPServerMetrics metrics = getServerMetrics();
+            if (metrics != null) {
+                metrics.messageReceived(messageSize, recipientCount);
+            }
+
+            // End pipeline data if set
+            if (currentPipeline != null) {
+                currentPipeline.endData();
+            }
+
+            // Notify handler that message is complete
+            // Handler will call acceptMessageDelivery() or reject methods
+            if (messageHandler != null) {
+                messageHandler.messageComplete(this);
+                // Response is sent by handler via MessageEndState
+                return;
+            }
+
+            // No handler - auto-accept
+            // Reset state for next transaction
+            resetDataState();
+            state = SMTPState.READY;
+            
+            reply(250, "2.0.0 Message accepted for delivery (" + messageSize + " bytes)");
+        } else {
+            // Not the last chunk - acknowledge and wait for more
+            state = SMTPState.RCPT; // Go back to RCPT state to accept more BDAT commands
+            reply(250, "2.0.0 " + dataBytesReceived + " bytes received");
+        }
     }
 
     // ===== SMTP Command Handlers =====
@@ -822,14 +1194,20 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
         this.heloName = hostname.trim();
         this.extendedSMTP = false;
-        this.state = SMTPState.READY;
 
         // Add telemetry attributes
         addSessionAttribute("smtp.helo", this.heloName);
         addSessionEvent("HELO");
         
-        String localHostname = getLocalSocketAddress().toString(); // TODO: get proper hostname                                                                 
-        reply(250, localHostname + " Hello " + hostname);
+        // Delegate to handler - it will call acceptHello() to transition state
+        if (helloHandler != null) {
+            helloHandler.hello(false, this.heloName, this);
+        } else {
+            // No handler - auto-accept
+            this.state = SMTPState.READY;
+            String localHostname = getLocalSocketAddress().toString();
+            reply(250, localHostname + " Hello " + hostname);
+        }
     }
 
     /**
@@ -844,24 +1222,68 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
         this.heloName = hostname.trim();
         this.extendedSMTP = true;
-        this.state = SMTPState.READY;
 
         // Add telemetry attributes
         addSessionAttribute("smtp.ehlo", this.heloName);
         addSessionAttribute("smtp.esmtp", true);
         addSessionEvent("EHLO");
         
+        // Delegate to handler - it will call acceptHello() to transition state
+        if (helloHandler != null) {
+            helloHandler.hello(true, this.heloName, this);
+        } else {
+            // No handler - auto-accept
+            this.state = SMTPState.READY;
+            sendEhloResponse();
+        }
+    }
+    
+    /**
+     * Sends the full EHLO response with capabilities.
+     */
+    private void sendEhloResponse() throws IOException {
         String localHostname = getLocalSocketAddress().toString(); // TODO: get proper hostname
         
         // Send multiline EHLO response with capabilities
         // All lines except the last use hyphen (replyMultiline), last line uses space (sendResponse)
-        replyMultiline(250, localHostname + " Hello " + hostname);
+        replyMultiline(250, localHostname + " Hello " + heloName);
         
         // Standard capabilities (using replyMultiline for continuation lines)
         replyMultiline(250, "SIZE " + server.getMaxMessageSize()); // Configurable maximum message size
         replyMultiline(250, "PIPELINING");   // Support command pipelining
         replyMultiline(250, "8BITMIME");     // Support 8-bit MIME
+        replyMultiline(250, "SMTPUTF8");     // Support internationalized email (RFC 6531)
         replyMultiline(250, "ENHANCEDSTATUSCODES"); // Enhanced status codes (already using them)
+        replyMultiline(250, "CHUNKING");     // Support BDAT command (RFC 3030)
+        replyMultiline(250, "BINARYMIME");   // Support binary message content (RFC 3030)
+        replyMultiline(250, "DSN");          // Delivery Status Notifications (RFC 3461)
+        
+        // LIMITS extension (RFC 9422) - advertise operational limits
+        StringBuilder limits = new StringBuilder("LIMITS");
+        int maxRecipients = server.getMaxRecipients();
+        if (maxRecipients > 0) {
+            limits.append(" RCPTMAX=").append(maxRecipients);
+        }
+        int maxTransactions = server.getMaxTransactionsPerSession();
+        if (maxTransactions > 0) {
+            limits.append(" MAILMAX=").append(maxTransactions);
+        }
+        replyMultiline(250, limits.toString());
+        
+        // REQUIRETLS (RFC 8689) - only advertise if TLS is available
+        if (secure || engine != null) {
+            replyMultiline(250, "REQUIRETLS");
+        }
+        
+        // Message delivery options
+        replyMultiline(250, "MT-PRIORITY MIXER STANAG4406 NSEP"); // RFC 6710 - all priority levels
+        replyMultiline(250, "FUTURERELEASE 604800 2012-01-01T00:00:00Z"); // RFC 4865 - max 7 days
+        replyMultiline(250, "DELIVERBY 604800"); // RFC 2852 - max 7 days
+        
+        // XCLIENT capability (Postfix extension) - only advertise to authorized clients
+        if (isXclientAuthorized()) {
+            replyMultiline(250, "XCLIENT NAME ADDR PORT PROTO HELO LOGIN DESTADDR DESTPORT");
+        }
         
         // STARTTLS capability (only if TLS is not already active and SSL context available)
         if (!isSecure() && server.isSTARTTLSAvailable()) {
@@ -872,8 +1294,24 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         // Advertise AUTH if we have a realm configured and either:
         // - Connection is already secure, OR
         // - STARTTLS is available for securing the connection
-        if (server.getRealm() != null && (isSecure() || server.isSTARTTLSAvailable())) {
-            replyMultiline(250, "AUTH PLAIN LOGIN CRAM-MD5 DIGEST-MD5 SCRAM-SHA-256 OAUTHBEARER GSSAPI EXTERNAL NTLM");
+        Realm realm = getRealm();
+        if (realm != null && (isSecure() || server.isSTARTTLSAvailable())) {
+            java.util.Set<SASLMechanism> supported = realm.getSupportedSASLMechanisms();
+            if (!supported.isEmpty()) {
+                StringBuilder authLine = new StringBuilder("AUTH");
+                for (SASLMechanism mech : supported) {
+                    // Skip mechanisms that require TLS if not secure
+                    if (!isSecure() && mech.requiresTLS()) {
+                        continue;
+                    }
+                    // Skip EXTERNAL if not secure (needs client certificate)
+                    if (mech == SASLMechanism.EXTERNAL && !isSecure()) {
+                        continue;
+                    }
+                    authLine.append(" ").append(mech.getMechanismName());
+                }
+                replyMultiline(250, authLine.toString());
+            }
         }
         
         // Final capability line (required to end with space, not hyphen)
@@ -882,11 +1320,19 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
     /**
      * MAIL command - Begin mail transaction.
-     * @param args the arguments (FROM:<email>)
+     * @param args the arguments (FROM:<email> [SIZE=n])
      */
     private void mail(String args) throws IOException {
         if (state != SMTPState.READY) {
             reply(503, "5.0.0 Bad sequence of commands");
+            return;
+        }
+
+        // Check transaction limit (MAILMAX from RFC 9422 LIMITS)
+        int maxTransactions = server.getMaxTransactionsPerSession();
+        if (maxTransactions > 0 && sessionNumber >= maxTransactions) {
+            reply(421, "4.7.0 Too many transactions, closing connection");
+            close();
             return;
         }
 
@@ -901,29 +1347,263 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             return;
         }
 
-        // Parse email address from FROM:<email>
-        String fromAddr = args.substring(5).trim();
-        if (fromAddr.startsWith("<") && fromAddr.endsWith(">")) {
-            fromAddr = fromAddr.substring(1, fromAddr.length() - 1);
+        // Parse email address and optional parameters from FROM:<email> [SIZE=n] [BODY=...]
+        String fromArg = args.substring(5).trim();
+        
+        // Extract address (may be bracketed) and parameters
+        String addressPart;
+        String paramsPart = null;
+        if (fromArg.startsWith("<")) {
+            int closeAngle = fromArg.indexOf('>');
+            if (closeAngle < 0) {
+                reply(501, "5.1.7 Invalid sender address syntax");
+                return;
+            }
+            addressPart = fromArg.substring(1, closeAngle);
+            if (closeAngle + 1 < fromArg.length()) {
+                paramsPart = fromArg.substring(closeAngle + 1).trim();
+            }
+        } else {
+            // Non-bracketed address (legacy format) - space separates address from params
+            int spaceIdx = fromArg.indexOf(' ');
+            if (spaceIdx > 0) {
+                addressPart = fromArg.substring(0, spaceIdx);
+                paramsPart = fromArg.substring(spaceIdx + 1).trim();
+            } else {
+                addressPart = fromArg;
+            }
+        }
+        String fromAddrStr = addressPart;
+        
+        // Parse MAIL FROM parameters (SIZE, SMTPUTF8, BODY, RET, ENVID, etc.)
+        long declaredSize = -1;
+        boolean useSmtputf8 = false;
+        if (paramsPart != null && !paramsPart.isEmpty()) {
+            for (String param : paramsPart.split("\\s+")) {
+                String upperParam = param.toUpperCase();
+                if (upperParam.startsWith("SIZE=")) {
+                    try {
+                        declaredSize = Long.parseLong(param.substring(5));
+                        if (declaredSize < 0) {
+                            reply(501, "5.5.4 Invalid SIZE parameter");
+                            return;
+                        }
+                    } catch (NumberFormatException e) {
+                        reply(501, "5.5.4 Invalid SIZE parameter");
+                        return;
+                    }
+                } else if (upperParam.equals("SMTPUTF8")) {
+                    // RFC 6531 - Internationalized Email
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 SMTPUTF8 requires EHLO");
+                        return;
+                    }
+                    useSmtputf8 = true;
+                } else if (upperParam.startsWith("RET=")) {
+                    // RFC 3461 - DSN return type
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 RET requires EHLO");
+                        return;
+                    }
+                    try {
+                        DSNReturn dsnRet = DSNReturn.parse(param.substring(4));
+                        if (deliveryRequirements == null) {
+                            deliveryRequirements = new DefaultDeliveryRequirements();
+                        }
+                        deliveryRequirements.setDsnReturn(dsnRet);
+                    } catch (IllegalArgumentException e) {
+                        reply(501, "5.5.4 Invalid RET parameter (must be FULL or HDRS)");
+                        return;
+                    }
+                } else if (upperParam.startsWith("ENVID=")) {
+                    // RFC 3461 - DSN envelope ID
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 ENVID requires EHLO");
+                        return;
+                    }
+                    // ENVID value is encoded as xtext - decode it
+                    String dsnEnvid = decodeXtext(param.substring(6));
+                    if (dsnEnvid.isEmpty()) {
+                        reply(501, "5.5.4 Invalid ENVID parameter");
+                        return;
+                    }
+                    if (deliveryRequirements == null) {
+                        deliveryRequirements = new DefaultDeliveryRequirements();
+                    }
+                    deliveryRequirements.setDsnEnvelopeId(dsnEnvid);
+                } else if (upperParam.startsWith("BODY=")) {
+                    // RFC 6152 (8BITMIME) and RFC 3030 (BINARYMIME)
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 BODY requires EHLO");
+                        return;
+                    }
+                    try {
+                        this.bodyType = BodyType.parse(param.substring(5));
+                    } catch (IllegalArgumentException e) {
+                        reply(501, "5.5.4 Invalid BODY parameter");
+                        return;
+                    }
+                } else if (upperParam.equals("REQUIRETLS")) {
+                    // RFC 8689 - Require TLS for message transmission
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 REQUIRETLS requires EHLO");
+                        return;
+                    }
+                    // REQUIRETLS only valid on TLS-protected connections
+                    if (!isSecure()) {
+                        reply(530, "5.7.10 REQUIRETLS requires TLS connection");
+                        return;
+                    }
+                    if (deliveryRequirements == null) {
+                        deliveryRequirements = new DefaultDeliveryRequirements();
+                    }
+                    deliveryRequirements.setRequireTls(true);
+                } else if (upperParam.startsWith("MT-PRIORITY=")) {
+                    // RFC 6710 - Message Transfer Priority
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 MT-PRIORITY requires EHLO");
+                        return;
+                    }
+                    try {
+                        int priority = Integer.parseInt(param.substring(12));
+                        if (priority < -9 || priority > 9) {
+                            reply(501, "5.5.4 MT-PRIORITY must be between -9 and 9");
+                            return;
+                        }
+                        if (deliveryRequirements == null) {
+                            deliveryRequirements = new DefaultDeliveryRequirements();
+                        }
+                        deliveryRequirements.setPriority(priority);
+                    } catch (NumberFormatException e) {
+                        reply(501, "5.5.4 Invalid MT-PRIORITY value");
+                        return;
+                    }
+                } else if (upperParam.startsWith("HOLDFOR=")) {
+                    // RFC 4865 - FUTURERELEASE HOLDFOR
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 HOLDFOR requires EHLO");
+                        return;
+                    }
+                    try {
+                        long seconds = Long.parseLong(param.substring(8));
+                        if (seconds < 0) {
+                            reply(501, "5.5.4 HOLDFOR value must be non-negative");
+                            return;
+                        }
+                        if (deliveryRequirements == null) {
+                            deliveryRequirements = new DefaultDeliveryRequirements();
+                        }
+                        deliveryRequirements.setReleaseTime(Instant.now().plusSeconds(seconds));
+                    } catch (NumberFormatException e) {
+                        reply(501, "5.5.4 Invalid HOLDFOR value");
+                        return;
+                    }
+                } else if (upperParam.startsWith("HOLDUNTIL=")) {
+                    // RFC 4865 - FUTURERELEASE HOLDUNTIL
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 HOLDUNTIL requires EHLO");
+                        return;
+                    }
+                    try {
+                        // ISO 8601 format
+                        Instant releaseTime = Instant.parse(param.substring(10));
+                        if (deliveryRequirements == null) {
+                            deliveryRequirements = new DefaultDeliveryRequirements();
+                        }
+                        deliveryRequirements.setReleaseTime(releaseTime);
+                    } catch (DateTimeParseException e) {
+                        reply(501, "5.5.4 Invalid HOLDUNTIL value (use ISO 8601 format)");
+                        return;
+                    }
+                } else if (upperParam.startsWith("BY=")) {
+                    // RFC 2852 - DELIVERBY
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 BY requires EHLO");
+                        return;
+                    }
+                    String byValue = param.substring(3);
+                    // Format: <seconds>;R or <seconds>;N
+                    boolean returnOnFail = true; // Default to return
+                    int semiIdx = byValue.indexOf(';');
+                    String secondsStr;
+                    if (semiIdx > 0) {
+                        secondsStr = byValue.substring(0, semiIdx);
+                        String trace = byValue.substring(semiIdx + 1).toUpperCase();
+                        if ("R".equals(trace)) {
+                            returnOnFail = true;
+                        } else if ("N".equals(trace)) {
+                            returnOnFail = false;
+                        } else {
+                            reply(501, "5.5.4 Invalid BY trace modifier (must be R or N)");
+                            return;
+                        }
+                    } else {
+                        secondsStr = byValue;
+                    }
+                    try {
+                        long seconds = Long.parseLong(secondsStr);
+                        if (seconds <= 0) {
+                            reply(501, "5.5.4 BY value must be positive");
+                            return;
+                        }
+                        if (deliveryRequirements == null) {
+                            deliveryRequirements = new DefaultDeliveryRequirements();
+                        }
+                        deliveryRequirements.setDeliverByDeadline(Instant.now().plusSeconds(seconds));
+                        deliveryRequirements.setDeliverByReturn(returnOnFail);
+                    } catch (NumberFormatException e) {
+                        reply(501, "5.5.4 Invalid BY value");
+                        return;
+                    }
+                }
+                // Other parameters can be parsed here if needed
+            }
+        }
+        
+        // Store SMTPUTF8 flag for this transaction
+        this.smtputf8 = useSmtputf8;
+        
+        // Check declared SIZE against maximum (early rejection per RFC 1870)
+        long maxSize = server.getMaxMessageSize();
+        if (maxSize > 0 && declaredSize > maxSize) {
+            reply(552, "5.3.4 Message size exceeds maximum (" + maxSize + " bytes)");
+            return;
+        }
+
+        // Handle null sender (bounce messages per RFC 5321)
+        EmailAddress sender = null;
+        if (!fromAddrStr.isEmpty()) {
+            sender = EmailAddressParser.parseEnvelopeAddress(fromAddrStr, smtputf8);
+            if (sender == null) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Invalid MAIL FROM address: " + fromAddrStr);
+                }
+                reply(501, "5.1.7 Invalid sender address syntax");
+                return;
+            }
         }
 
         // For authenticated sessions, verify sender authorization
+        String fromAddr = (sender != null) ? sender.getEnvelopeAddress() : "";
         if (authenticated && !isAuthorizedSender(fromAddr, authenticatedUser)) {
             reply(550, "5.7.1 Not authorized to send from this address");
             return;
         }
 
         // Store sender information for use in callback
-        this.mailFrom = fromAddr;
+        this.mailFrom = sender;
         this.recipients.clear();
+        this.dsnRecipients.clear();
         
         // Delegate to handler for asynchronous policy evaluation
-        // The handler will call back to mailFromReply() with the result
-        if (handler != null) {
-            handler.mailFrom(fromAddr, this);
+        // The handler will call acceptSender() or rejectSender*() on this (the MailFromState)
+        if (mailFromHandler != null) {
+            DeliveryRequirements delivery = deliveryRequirements != null ? deliveryRequirements : DefaultDeliveryRequirements.EMPTY;
+            mailFromHandler.mailFrom(sender, smtputf8, delivery, this);
         } else {
             // No handler configured - accept all senders (blackhole mode)
-            mailFromReply(SenderPolicyResult.ACCEPT);
+            this.state = SMTPState.MAIL;
+            reply(250, "2.1.0 Sender ok");
         }
     }
 
@@ -948,31 +1628,124 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             return;
         }
 
-        // Check recipient limit to prevent memory exhaustion
-        if (recipients.size() >= MAX_RECIPIENTS) {
-            reply(452, "4.5.3 Too many recipients (maximum " + MAX_RECIPIENTS + ")");
+        // Check recipient limit (RCPTMAX from RFC 9422 LIMITS)
+        int maxRecipients = server.getMaxRecipients();
+        if (recipients.size() >= maxRecipients) {
+            reply(452, "4.5.3 Too many recipients (maximum " + maxRecipients + ")");
             return;
         }
 
-        // Parse email address from TO:<email>
-        String toAddr = args.substring(3).trim();
-        if (toAddr.startsWith("<") && toAddr.endsWith(">")) {
-            toAddr = toAddr.substring(1, toAddr.length() - 1);
+        // Parse email address and optional parameters from TO:<email> [NOTIFY=...] [ORCPT=...]
+        String toArg = args.substring(3).trim();
+        
+        // Extract address (may be bracketed) and parameters
+        String addressPart;
+        String paramsPart = null;
+        if (toArg.startsWith("<")) {
+            int closeAngle = toArg.indexOf('>');
+            if (closeAngle < 0) {
+                reply(501, "5.1.3 Invalid recipient address syntax");
+                return;
+            }
+            addressPart = toArg.substring(1, closeAngle);
+            if (closeAngle + 1 < toArg.length()) {
+                paramsPart = toArg.substring(closeAngle + 1).trim();
+            }
+        } else {
+            // Non-bracketed address (legacy format) - space separates address from params
+            int spaceIdx = toArg.indexOf(' ');
+            if (spaceIdx > 0) {
+                addressPart = toArg.substring(0, spaceIdx);
+                paramsPart = toArg.substring(spaceIdx + 1).trim();
+            } else {
+                addressPart = toArg;
+            }
+        }
+        
+        // Parse RCPT TO parameters (NOTIFY, ORCPT per RFC 3461)
+        Set<DSNNotify> dsnNotify = null;
+        String orcptType = null;
+        String orcptAddress = null;
+        if (paramsPart != null && !paramsPart.isEmpty()) {
+            for (String param : paramsPart.split("\\s+")) {
+                String upperParam = param.toUpperCase();
+                if (upperParam.startsWith("NOTIFY=")) {
+                    // RFC 3461 - DSN notify conditions
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 NOTIFY requires EHLO");
+                        return;
+                    }
+                    String notifyValue = param.substring(7);
+                    dsnNotify = EnumSet.noneOf(DSNNotify.class);
+                    try {
+                        for (String keyword : notifyValue.split(",")) {
+                            dsnNotify.add(DSNNotify.parse(keyword.trim()));
+                        }
+                    } catch (IllegalArgumentException e) {
+                        reply(501, "5.5.4 Invalid NOTIFY parameter");
+                        return;
+                    }
+                    // Validate: NEVER cannot be combined with other values
+                    if (dsnNotify.contains(DSNNotify.NEVER) && dsnNotify.size() > 1) {
+                        reply(501, "5.5.4 NOTIFY=NEVER cannot be combined with other values");
+                        return;
+                    }
+                } else if (upperParam.startsWith("ORCPT=")) {
+                    // RFC 3461 - Original recipient
+                    if (!extendedSMTP) {
+                        reply(503, "5.5.1 ORCPT requires EHLO");
+                        return;
+                    }
+                    String orcptValue = param.substring(6);
+                    int semicolon = orcptValue.indexOf(';');
+                    if (semicolon <= 0) {
+                        reply(501, "5.5.4 Invalid ORCPT syntax (expected type;address)");
+                        return;
+                    }
+                    orcptType = orcptValue.substring(0, semicolon);
+                    orcptAddress = decodeXtext(orcptValue.substring(semicolon + 1));
+                    if (orcptAddress.isEmpty()) {
+                        reply(501, "5.5.4 Invalid ORCPT address");
+                        return;
+                    }
+                }
+            }
         }
 
-        // Basic validation of address length (RFC 5321: local@domain, local<=64, domain<=255)
-        if (toAddr.length() > 320) { // 64 + 1 + 255 = 320 theoretical max
-            reply(501, "5.1.3 Invalid recipient address - too long");
+        // Parse and validate the recipient address
+        if (addressPart.isEmpty()) {
+            reply(501, "5.1.3 Invalid recipient address - empty");
             return;
         }
+
+        EmailAddress recipient = EmailAddressParser.parseEnvelopeAddress(addressPart, smtputf8);
+        if (recipient == null) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Invalid RCPT TO address: " + addressPart);
+            }
+            reply(501, "5.1.3 Invalid recipient address syntax");
+            return;
+        }
+        
+        // Store DSN recipient parameters for this recipient (will be associated after acceptance)
+        DSNRecipientParameters pendingDsnParams = null;
+        if (dsnNotify != null || orcptType != null) {
+            pendingDsnParams = new DSNRecipientParameters(dsnNotify, orcptType, orcptAddress);
+        }
+        
+        // Store temporarily for acceptRecipient callback
+        this.pendingRecipientDSN = pendingDsnParams;
+        this.pendingRecipient = recipient;
 
         // Delegate to handler for asynchronous policy evaluation
-        // The handler will call back to rcptToReply() with the result and recipient
-        if (handler != null) {
-            handler.rcptTo(toAddr, this);
+        // The handler will call acceptRecipient() or rejectRecipient*() on this (the RecipientState)
+        if (recipientHandler != null) {
+            recipientHandler.rcptTo(recipient, server.getMailboxFactory(), this);
         } else {
             // No handler configured - accept all recipients (blackhole mode)
-            rcptToReply(RecipientPolicyResult.ACCEPT, toAddr);
+            this.recipients.add(recipient);
+            this.state = SMTPState.RCPT;
+            reply(250, "2.1.5 " + recipient.getEnvelopeAddress() + "... Recipient ok");
         }
     }
 
@@ -997,11 +1770,143 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             return;
         }
 
+        // BINARYMIME content cannot use DATA (dot-stuffing could corrupt binary)
+        if (bodyType.requiresBdat()) {
+            reply(503, "5.6.1 BODY=BINARYMIME requires BDAT, not DATA");
+            return;
+        }
+
+        // Notify handler that message transfer is starting
+        // Handler will call acceptMessage() to provide the MessageDataHandler
+        if (recipientHandler != null) {
+            recipientHandler.startMessage(this);
+        } else {
+            // No handler - just accept
+            doAcceptMessage();
+        }
+    }
+    
+    /**
+     * Completes the acceptance of a message and sends the 354 response.
+     * Called from MessageStartState.acceptMessage() or directly if no handler.
+     */
+    private void doAcceptMessage() {
         // Initialize DATA state with proper buffer management
         resetDataState();
         this.state = SMTPState.DATA;
         
-        reply(354, "Start mail input; end with <CRLF>.<CRLF>");
+        try {
+            reply(354, "Start mail input; end with <CRLF>.<CRLF>");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending 354 response", e);
+            close();
+        }
+    }
+
+    /**
+     * BDAT command - Begin binary/chunked message content transmission (RFC 3030).
+     * 
+     * <p>BDAT allows sending message data in chunks with explicit byte counts,
+     * avoiding the need for dot-stuffing. Multiple BDAT commands can be used
+     * to send a message in parts, with the final chunk marked with LAST.
+     * 
+     * <p>Syntax: BDAT &lt;size&gt; [LAST]
+     * 
+     * @param args the arguments (size and optional LAST keyword)
+     */
+    private void bdat(String args) throws IOException {
+        // BDAT requires ESMTP (EHLO must have been used)
+        if (!extendedSMTP) {
+            reply(503, "5.0.0 BDAT requires EHLO");
+            return;
+        }
+
+        // BDAT only valid after RCPT TO
+        if (state != SMTPState.RCPT) {
+            reply(503, "5.0.0 Bad sequence of commands");
+            return;
+        }
+
+        // Check authentication requirement (typically for MSA on port 587)
+        if (server.isAuthRequired() && !authenticated) {
+            reply(530, "5.7.0 Authentication required");
+            return;
+        }
+
+        if (recipients.isEmpty()) {
+            reply(503, "5.0.0 Need RCPT (recipient)");
+            return;
+        }
+
+        // Parse BDAT arguments: <size> [LAST]
+        if (args == null || args.trim().isEmpty()) {
+            reply(501, "5.5.4 Syntax: BDAT size [LAST]");
+            return;
+        }
+
+        String[] parts = args.trim().split("\\s+");
+        if (parts.length < 1 || parts.length > 2) {
+            reply(501, "5.5.4 Syntax: BDAT size [LAST]");
+            return;
+        }
+
+        // Parse chunk size
+        long chunkSize;
+        try {
+            chunkSize = Long.parseLong(parts[0]);
+        } catch (NumberFormatException e) {
+            reply(501, "5.5.4 Invalid BDAT size: " + parts[0]);
+            return;
+        }
+
+        if (chunkSize < 0) {
+            reply(501, "5.5.4 Invalid BDAT size: negative value");
+            return;
+        }
+
+        // Check against maximum message size
+        long maxSize = server.getMaxMessageSize();
+        if (maxSize > 0 && dataBytesReceived + chunkSize > maxSize) {
+            reply(552, "5.3.4 Message size exceeds maximum permitted");
+            resetBdatState();
+            return;
+        }
+
+        // Parse LAST parameter
+        boolean last = false;
+        if (parts.length == 2) {
+            if ("LAST".equalsIgnoreCase(parts[1])) {
+                last = true;
+            } else {
+                reply(501, "5.5.4 Invalid BDAT parameter: " + parts[1]);
+                return;
+            }
+        }
+
+        // If this is the first BDAT for this transaction, notify handler
+        if (!bdatStarted) {
+            bdatStarted = true;
+            // For BDAT, we need to set up the message handler but NOT send the 354 response
+            // (354 is only for DATA command). Use the special BDAT start message method.
+            if (recipientHandler != null) {
+                recipientHandler.startMessage(new BdatStartState());
+            }
+        }
+
+        // Store BDAT state
+        bdatBytesRemaining = chunkSize;
+        bdatLast = last;
+        state = SMTPState.BDAT;
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("BDAT: expecting " + chunkSize + " bytes" + (last ? " (LAST)" : ""));
+        }
+
+        // If chunk size is 0, handle immediately
+        if (chunkSize == 0) {
+            handleBdatChunkComplete();
+        }
+        // Otherwise, bytes will be processed in receive() -> handleBdatContent()
     }
 
     /**
@@ -1009,22 +1914,20 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
      * @param args should be null or empty for RSET command
      */
     private void rset(String args) throws IOException {
-        // End current session span and start a new one
+        // End current session span
         endSessionSpan("RSET");
-        startSessionSpan();
-
-        // Reset transaction state
-        this.mailFrom = null;
-        this.recipients.clear();
         resetDataState();
-        this.state = SMTPState.READY;
         
-        // Notify handler of reset
-        if (handler != null) {
-            handler.reset();
+        // Delegate to handler - it will call acceptReset()
+        if (mailFromHandler != null) {
+            mailFromHandler.reset(this);
+        } else if (recipientHandler != null) {
+            recipientHandler.reset(this);
+        } else {
+            // No handler - auto-accept reset
+            resetTransaction();
+            reply(250, "2.0.0 Reset state");
         }
-        
-        reply(250, "2.0.0 Reset state");
     }
 
     /**
@@ -1038,6 +1941,11 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         this.state = SMTPState.QUIT;
         reply(221, "2.0.0 Goodbye");
         close(); // Close the connection
+        
+        // Notify handler of disconnect
+        if (connectedHandler != null) {
+            connectedHandler.disconnected();
+        }
     }
 
     /**
@@ -1054,9 +1962,69 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
      */
     private void help(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
-            reply(214, "2.0.0 This is Gumdrop SMTP server");
+            // List supported commands
+            replyMultiline(214, "2.0.0 Gumdrop SMTP server - supported commands:");
+            replyMultiline(214, "  HELO EHLO MAIL RCPT DATA BDAT RSET");
+            replyMultiline(214, "  VRFY NOOP QUIT HELP");
+            if (!secure && engine != null && !starttlsUsed) {
+                replyMultiline(214, "  STARTTLS");
+            }
+            if (getRealm() != null) {
+                replyMultiline(214, "  AUTH");
+            }
+            if (isXclientAuthorized()) {
+                replyMultiline(214, "  XCLIENT");
+            }
+            reply(214, "2.0.0 For more info: https://www.nongnu.org/gumdrop/smtp.html");
         } else {
-            reply(502, "5.5.1 Help not available for " + args);
+            // Help for specific command
+            String cmd = args.trim().toUpperCase();
+            switch (cmd) {
+                case "HELO":
+                    reply(214, "2.0.0 HELO <hostname> - Identify client to server");
+                    break;
+                case "EHLO":
+                    reply(214, "2.0.0 EHLO <hostname> - Extended HELO with capability negotiation");
+                    break;
+                case "MAIL":
+                    replyMultiline(214, "2.0.0 MAIL FROM:<sender> [parameters...]");
+                    replyMultiline(214, "  SIZE=<n> BODY=7BIT|8BITMIME|BINARYMIME SMTPUTF8");
+                    replyMultiline(214, "  REQUIRETLS MT-PRIORITY=<-9..9> HOLDFOR=<s> HOLDUNTIL=<time>");
+                    reply(214, "  BY=<s>;R|N RET=FULL|HDRS ENVID=<id>");
+                    break;
+                case "RCPT":
+                    reply(214, "2.0.0 RCPT TO:<recipient> [NOTIFY=NEVER|SUCCESS|FAILURE|DELAY] [ORCPT=<type>;<addr>]");
+                    break;
+                case "DATA":
+                    reply(214, "2.0.0 DATA - Start message content (end with <CRLF>.<CRLF>)");
+                    break;
+                case "BDAT":
+                    reply(214, "2.0.0 BDAT <size> [LAST] - Send message chunk (RFC 3030 CHUNKING)");
+                    break;
+                case "RSET":
+                    reply(214, "2.0.0 RSET - Reset transaction state");
+                    break;
+                case "VRFY":
+                    reply(214, "2.0.0 VRFY <address> - Verify address (limited support)");
+                    break;
+                case "NOOP":
+                    reply(214, "2.0.0 NOOP - No operation");
+                    break;
+                case "QUIT":
+                    reply(214, "2.0.0 QUIT - Close connection");
+                    break;
+                case "STARTTLS":
+                    reply(214, "2.0.0 STARTTLS - Upgrade to TLS encryption");
+                    break;
+                case "AUTH":
+                    reply(214, "2.0.0 AUTH <mechanism> [initial-response] - Authenticate");
+                    break;
+                case "XCLIENT":
+                    reply(214, "2.0.0 XCLIENT attr=value [...] - Override connection attributes (Postfix extension)");
+                    break;
+                default:
+                    reply(504, "5.5.1 HELP not available for: " + args);
+            }
         }
     }
 
@@ -1077,7 +2045,222 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     }
 
     /**
+     * XCLIENT command - Override connection attributes (Postfix extension).
+     * This allows authorized proxies/filters to pass original client information.
+     * @param args attribute=value pairs
+     * @see <a href="https://www.postfix.org/XCLIENT_README.html">Postfix XCLIENT</a>
+     */
+    private void xclient(String args) throws IOException {
+        // Check authorization
+        if (!isXclientAuthorized()) {
+            reply(550, "5.7.0 XCLIENT not authorized");
+            return;
+        }
+
+        // XCLIENT not allowed during mail transaction (between MAIL and end of DATA/BDAT)
+        if (state == SMTPState.MAIL || state == SMTPState.RCPT || 
+            state == SMTPState.DATA || state == SMTPState.BDAT) {
+            reply(503, "5.5.1 Mail transaction in progress");
+            return;
+        }
+
+        if (args == null || args.trim().isEmpty()) {
+            reply(501, "5.5.4 Syntax: XCLIENT attribute=value [...]");
+            return;
+        }
+
+        // Parse attribute=value pairs
+        String[] pairs = args.trim().split("\\s+");
+        for (String pair : pairs) {
+            int eqIdx = pair.indexOf('=');
+            if (eqIdx <= 0) {
+                reply(501, "5.5.4 Invalid XCLIENT attribute syntax: " + pair);
+                return;
+            }
+
+            String attr = pair.substring(0, eqIdx).toUpperCase();
+            String value = decodeXtext(pair.substring(eqIdx + 1));
+
+            // Handle [UNAVAILABLE] and [TEMPUNAVAIL] special values
+            if ("[UNAVAILABLE]".equalsIgnoreCase(value) || "[TEMPUNAVAIL]".equalsIgnoreCase(value)) {
+                value = null;
+            }
+
+            switch (attr) {
+                case "NAME":
+                    xclientName = value;
+                    break;
+                case "ADDR":
+                    if (value != null) {
+                        try {
+                            // Parse IP address, keeping existing port if set
+                            InetAddress addr = InetAddress.getByName(value);
+                            int port = xclientAddr != null ? xclientAddr.getPort() : 0;
+                            xclientAddr = new InetSocketAddress(addr, port);
+                        } catch (UnknownHostException e) {
+                            reply(501, "5.5.4 Invalid ADDR value: " + value);
+                            return;
+                        }
+                    } else {
+                        xclientAddr = null;
+                    }
+                    break;
+                case "PORT":
+                    if (value != null) {
+                        try {
+                            int port = Integer.parseInt(value);
+                            if (port < 0 || port > 65535) {
+                                reply(501, "5.5.4 Invalid PORT value: " + value);
+                                return;
+                            }
+                            // Update port, keeping existing address
+                            InetAddress addr = xclientAddr != null ? 
+                                xclientAddr.getAddress() : InetAddress.getLoopbackAddress();
+                            xclientAddr = new InetSocketAddress(addr, port);
+                        } catch (NumberFormatException e) {
+                            reply(501, "5.5.4 Invalid PORT value: " + value);
+                            return;
+                        }
+                    }
+                    break;
+                case "PROTO":
+                    if (value != null && !"SMTP".equalsIgnoreCase(value) && !"ESMTP".equalsIgnoreCase(value)) {
+                        reply(501, "5.5.4 Invalid PROTO value: " + value);
+                        return;
+                    }
+                    xclientProto = value;
+                    if ("ESMTP".equalsIgnoreCase(value)) {
+                        extendedSMTP = true;
+                    }
+                    break;
+                case "HELO":
+                    xclientHelo = value;
+                    if (value != null) {
+                        heloName = value;
+                    }
+                    break;
+                case "LOGIN":
+                    xclientLogin = value;
+                    if (value != null) {
+                        authenticated = true;
+                        authenticatedUser = value;
+                    } else {
+                        authenticated = false;
+                        authenticatedUser = null;
+                    }
+                    break;
+                case "DESTADDR":
+                    if (value != null) {
+                        try {
+                            InetAddress addr = InetAddress.getByName(value);
+                            int port = xclientDestAddr != null ? xclientDestAddr.getPort() : 25;
+                            xclientDestAddr = new InetSocketAddress(addr, port);
+                        } catch (UnknownHostException e) {
+                            reply(501, "5.5.4 Invalid DESTADDR value: " + value);
+                            return;
+                        }
+                    } else {
+                        xclientDestAddr = null;
+                    }
+                    break;
+                case "DESTPORT":
+                    if (value != null) {
+                        try {
+                            int port = Integer.parseInt(value);
+                            if (port < 0 || port > 65535) {
+                                reply(501, "5.5.4 Invalid DESTPORT value: " + value);
+                                return;
+                            }
+                            InetAddress addr = xclientDestAddr != null ?
+                                xclientDestAddr.getAddress() : InetAddress.getLoopbackAddress();
+                            xclientDestAddr = new InetSocketAddress(addr, port);
+                        } catch (NumberFormatException e) {
+                            reply(501, "5.5.4 Invalid DESTPORT value: " + value);
+                            return;
+                        }
+                    }
+                    break;
+                default:
+                    reply(501, "5.5.4 Unknown XCLIENT attribute: " + attr);
+                    return;
+            }
+        }
+
+        // Reset session state to post-greeting (client must re-EHLO)
+        state = SMTPState.INITIAL;
+        heloName = xclientHelo; // Use XCLIENT HELO if set, otherwise cleared
+        mailFrom = null;
+        recipients.clear();
+        dsnRecipients.clear();
+        smtputf8 = false;
+        bodyType = BodyType.SEVEN_BIT;
+        deliveryRequirements = null;
+        resetDataState();
+
+        // Log XCLIENT usage
+        if (LOGGER.isLoggable(Level.INFO)) {
+            LOGGER.info("XCLIENT from " + getRemoteSocketAddress() + 
+                       ": NAME=" + xclientName +
+                       " ADDR=" + (xclientAddr != null ? xclientAddr.getAddress().getHostAddress() : "null"));
+        }
+
+        // Send 220 greeting as per XCLIENT spec
+        String localHostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
+        reply(220, localHostname + " ESMTP Gumdrop");
+    }
+
+    /**
+     * Decodes xtext encoding per RFC 1891.
+     * In xtext, '+' followed by two hex digits represents a character.
+     */
+    private String decodeXtext(String value) {
+        if (value == null || !value.contains("+")) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '+' && i + 2 < value.length()) {
+                try {
+                    int hex = Integer.parseInt(value.substring(i + 1, i + 3), 16);
+                    sb.append((char) hex);
+                    i += 2;
+                } catch (NumberFormatException e) {
+                    sb.append(c);
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Checks if the current client is authorized to use XCLIENT.
+     * Checks if the client address is in the server's XCLIENT authorized list.
+     */
+    private boolean isXclientAuthorized() {
+        if (channel == null) {
+            return false;
+        }
+        try {
+            InetSocketAddress clientAddr = (InetSocketAddress) channel.getRemoteAddress();
+            if (clientAddr != null && server != null) {
+                return server.isXclientAuthorized(clientAddr.getAddress());
+            }
+        } catch (IOException e) {
+            // Ignore
+        }
+        return false;
+    }
+
+    /**
      * STARTTLS command - Start TLS encryption.
+     * 
+     * <p>STARTTLS is handled automatically by the connection when available.
+     * After successful TLS upgrade, the handler is notified via
+     * {@link HelloHandler#tlsEstablished}.
+     * 
      * @param args should be null or empty for STARTTLS command
      */
     private void starttls(String args) throws IOException {
@@ -1099,12 +2282,20 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             return;
         }
         
+        // STARTTLS is automatically accepted - no handler decision needed
+        doStarttls();
+    }
+    
+    /**
+     * Performs the actual STARTTLS upgrade after handler acceptance.
+     */
+    private void doStarttls() {
         try {
-                // Send success response - after this, client expects TLS handshake
-                reply(220, "2.0.0 Ready to start TLS");
+            // Send success response - after this, client expects TLS handshake
+            reply(220, "2.0.0 Ready to start TLS");
 
-                // Initialize SSL state using the existing engine
-                initializeSSLState();
+            // Initialize SSL state using the existing engine
+            initializeSSLState();
             
             // Reset SMTP state after TLS upgrade
             state = SMTPState.INITIAL;
@@ -1113,19 +2304,43 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             starttlsUsed = true;
             addSessionAttribute("smtp.starttls", true);
             addSessionEvent("STARTTLS");
+
+            // Record STARTTLS metric
+            SMTPServerMetrics metrics = getServerMetrics();
+            if (metrics != null) {
+                metrics.starttlsUpgraded();
+            }
             
             if (LOGGER.isLoggable(Level.INFO)) {
                 LOGGER.info("STARTTLS upgrade initiated for " + getRemoteSocketAddress());
             }
             
         } catch (Exception e) {
-            reply(454, "4.3.0 TLS not available due to temporary reason");
+            try {
+                reply(454, "4.3.0 TLS not available due to temporary reason");
+            } catch (IOException ioe) {
+                // Ignore
+            }
             if (LOGGER.isLoggable(Level.WARNING)) {
                 LOGGER.log(Level.WARNING, "STARTTLS failed", e);
             }
         }
     }
     
+    /**
+     * Called when TLS handshake completes.
+     * Notifies the handler that TLS is now established.
+     */
+    @Override
+    protected void handshakeComplete(String protocol) {
+        super.handshakeComplete(protocol);
+        
+        // Notify handler of TLS establishment
+        if (helloHandler != null && starttlsUsed) {
+            TLSInfo tlsInfo = createTLSInfo();
+            helloHandler.tlsEstablished(tlsInfo);
+        }
+    }
 
     /**
      * AUTH command - SMTP authentication.
@@ -1134,7 +2349,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
      */
     private void auth(String args) throws IOException {
         // Check if realm is configured
-        if (server.getRealm() == null) {
+        if (getRealm() == null) {
             reply(502, "5.5.1 Authentication not available");
             return;
         }
@@ -1259,24 +2474,9 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
 
             // Authenticate against realm
             if (authenticateUser(username, password)) {
-                authenticated = true;
-                authenticatedUser = username;
-                recordAuthenticationSuccess(username, "PLAIN");
-                reply(235, "2.7.0 Authentication successful");
-                if (LOGGER.isLoggable(Level.INFO)) {
-                    LOGGER.info("SMTP AUTH PLAIN successful for user: " + username);
-                }
-                
-                // Notify handler of successful authentication
-                if (handler != null) {
-                    handler.authenticated(username, "PLAIN");
-                }
+                notifyAuthenticationSuccess(username, "PLAIN");
             } else {
-                addSessionEvent("AUTH PLAIN failed");
-                reply(535, "5.7.8 Authentication credentials invalid");
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("SMTP AUTH PLAIN failed for user: " + username);
-                }
+                notifyAuthenticationFailure(username, "PLAIN");
             }
             resetAuthState();
 
@@ -1383,10 +2583,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                             LOGGER.info("SMTP AUTH LOGIN successful for user: " + pendingAuthUsername);
                         }
                         
-                        // Notify handler of successful authentication
-                        if (handler != null) {
-                            handler.authenticated(pendingAuthUsername, "LOGIN");
-                        }
+                        // Authentication state is tracked internally
                     } else {
                         reply(535, "5.7.8 Authentication credentials invalid");
                         if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1411,9 +2608,9 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                     String expectedHmac = cramResponse.substring(spaceIndex + 1);
                     
                     // Validate against realm using getCramMD5Response
-                    if (server.getRealm() != null) {
+                    if (getRealm() != null) {
                         try {
-                            String computedHmac = server.getRealm().getCramMD5Response(cramUsername, authChallenge);
+                            String computedHmac = getRealm().getCramMD5Response(cramUsername, authChallenge);
                             if (computedHmac != null && expectedHmac.equalsIgnoreCase(computedHmac)) {
                                 authenticated = true;
                                 authenticatedUser = cramUsername;
@@ -1423,10 +2620,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                                     LOGGER.info("SMTP CRAM-MD5 successful for user: " + cramUsername);
                                 }
                                 
-                                // Notify handler of successful authentication
-                                if (handler != null) {
-                                    handler.authenticated(cramUsername, "CRAM-MD5");
-                                }
+                                // Authentication state is tracked internally
                             } else {
                                 reply(535, "5.7.8 Authentication credentials invalid");
                                 if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1457,9 +2651,9 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                     
                     if (digestUsername != null && responseHash != null) {
                         // Simplified validation for DIGEST-MD5 - check if user exists by trying to get HA1
-                        if (server.getRealm() != null) {
+                        if (getRealm() != null) {
                             String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
-                            String ha1 = server.getRealm().getDigestHA1(digestUsername, hostname);
+                            String ha1 = getRealm().getDigestHA1(digestUsername, hostname);
                             if (ha1 != null) {
                                 // User exists - for simplified implementation, accept the response
                                 // A full implementation would validate the computed response hash
@@ -1471,10 +2665,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                                     LOGGER.info("SMTP DIGEST-MD5 successful for user: " + digestUsername);
                                 }
                                 
-                                // Notify handler of successful authentication
-                                if (handler != null) {
-                                    handler.authenticated(digestUsername, "DIGEST-MD5");
-                                }
+                                // Authentication state is tracked internally
                             } else {
                                 reply(535, "5.7.8 Authentication credentials invalid");
                                 if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1500,9 +2691,9 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                     decoded = Base64.getDecoder().decode(data);
                     String scramFinal = new String(decoded, US_ASCII);
                     
-                    if (pendingAuthUsername != null && server.getRealm() != null) {
+                    if (pendingAuthUsername != null && getRealm() != null) {
                         try {
-                            Realm.ScramCredentials creds = server.getRealm().getScramCredentials(pendingAuthUsername);
+                            Realm.ScramCredentials creds = getRealm().getScramCredentials(pendingAuthUsername);
                             if (creds != null) {
                                 // User exists and SCRAM credentials available
                                 // TODO: Validate SCRAM proof using creds.storedKey
@@ -1515,10 +2706,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                                     LOGGER.info("SMTP SCRAM-SHA-256 successful for user: " + pendingAuthUsername);
                                 }
                                 
-                                // Notify handler of successful authentication
-                                if (handler != null) {
-                                    handler.authenticated(pendingAuthUsername, "SCRAM-SHA-256");
-                                }
+                                // Authentication state is tracked internally
                             } else {
                                 reply(535, "5.7.8 Authentication credentials invalid");
                                 if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1561,10 +2749,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                                 LOGGER.info("SMTP GSSAPI successful for user: " + authzid);
                             }
                             
-                            // Notify handler of successful authentication
-                            if (handler != null) {
-                                handler.authenticated(authzid, "GSSAPI");
-                            }
+                            // Authentication state is tracked internally
                             resetAuthState();
                         } else {
                             // Continue the exchange
@@ -1616,10 +2801,10 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                         // Parse Type 3 message to extract username (simplified)
                         String ntlmUsername = parseNTLMType3Username(decoded);
                         
-                        if (ntlmUsername != null && server.getRealm() != null) {
+                        if (ntlmUsername != null && getRealm() != null) {
                             // Check if user exists using the new userExists() method
                             // A full implementation would validate the NTLM response hash
-                            if (server.getRealm().userExists(ntlmUsername)) {
+                            if (getRealm().userExists(ntlmUsername)) {
                                 authenticated = true;
                                 authenticatedUser = ntlmUsername;
                                 reply(235, "2.7.0 Authentication successful");
@@ -1628,10 +2813,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                                     LOGGER.info("SMTP NTLM successful for user: " + ntlmUsername);
                                 }
                                 
-                                // Notify handler of successful authentication
-                                if (handler != null) {
-                                    handler.authenticated(ntlmUsername, "NTLM");
-                                }
+                                // Authentication state is tracked internally
                             } else {
                                 reply(535, "5.7.8 Authentication credentials invalid");
                                 if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1847,10 +3029,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                     LOGGER.info("SMTP GSSAPI successful for user: " + authzid);
                 }
                 
-                // Notify handler of successful authentication
-                if (handler != null) {
-                    handler.authenticated(authzid, "GSSAPI");
-                }
+                // Authentication state is tracked internally
                 resetAuthState();
             } else {
                 // Send challenge and continue
@@ -1913,8 +3092,8 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             }
             
             // Validate certificate against realm using userExists()
-            if (server.getRealm() != null) {
-                if (server.getRealm().userExists(username)) {
+            if (getRealm() != null) {
+                if (getRealm().userExists(username)) {
                     // User exists - certificate authentication successful
                     authenticated = true;
                     authenticatedUser = authzid;
@@ -1924,10 +3103,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                         LOGGER.info("SMTP EXTERNAL successful for user: " + authzid + " (cert: " + username + ")");
                     }
                     
-                    // Notify handler of successful authentication
-                    if (handler != null) {
-                        handler.authenticated(authzid, "EXTERNAL");
-                    }
+                    // Authentication state is tracked internally
                 } else {
                     reply(535, "5.7.8 Certificate authentication failed");
                     if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1999,11 +3175,11 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
      * @return true if authentication succeeds, false otherwise
      */
     private boolean authenticateUser(String username, String password) {
-        if (server.getRealm() == null) {
+        if (getRealm() == null) {
             return false;
         }
 
-        return server.getRealm().passwordMatch(username, password);
+        return getRealm().passwordMatch(username, password);
     }
 
     /**
@@ -2100,12 +3276,11 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             }
             
             // Validate bearer token using realm (if it supports token validation)
-            if (server.getRealm() instanceof org.bluezoo.gumdrop.Realm) {
-                org.bluezoo.gumdrop.Realm realm = server.getRealm();
-                
+            Realm realm = getRealm();
+            if (realm != null) {
                 // Check if realm supports bearer token validation
                 try {
-                    org.bluezoo.gumdrop.Realm.TokenValidationResult result = realm.validateBearerToken(token);
+                    Realm.TokenValidationResult result = realm.validateBearerToken(token);
                     if (result != null && result.valid && result.username.equals(username)) {
                         authenticated = true;
                         authenticatedUser = username;
@@ -2115,10 +3290,7 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
                             LOGGER.info("SMTP OAUTHBEARER successful for user: " + username);
                         }
                         
-                        // Notify handler of successful authentication
-                        if (handler != null) {
-                            handler.authenticated(username, "OAUTHBEARER");
-                        }
+                        // Authentication state is tracked internally
                     } else {
                         reply(535, "5.7.8 Invalid bearer token");
                         if (LOGGER.isLoggable(Level.WARNING)) {
@@ -2340,9 +3512,9 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         
         // Policy 3: Check realm roles for administrative privileges
         // If user has "admin" or "postmaster" role, allow any sender address
-        if (server.getRealm() != null) {
-            if (server.getRealm().isUserInRole(authenticatedUser, "admin") || 
-                server.getRealm().isUserInRole(authenticatedUser, "postmaster")) {
+        if (getRealm() != null) {
+            if (getRealm().isUserInRole(authenticatedUser, "admin") || 
+                getRealm().isUserInRole(authenticatedUser, "postmaster")) {
                 return true;
             }
         }
@@ -2592,6 +3764,13 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     @Override
     protected void disconnected() throws IOException {
         try {
+            // Record connection closed metric
+            SMTPServerMetrics metrics = getServerMetrics();
+            if (metrics != null) {
+                double durationMs = System.currentTimeMillis() - getTimestampCreated();
+                metrics.connectionClosed(durationMs);
+            }
+
             // End telemetry session span if still active
             if (sessionSpan != null && !sessionSpan.isEnded()) {
                 if (state == SMTPState.QUIT) {
@@ -2602,8 +3781,8 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             }
 
             // Notify handler of disconnection
-            if (handler != null) {
-                handler.disconnected();
+            if (connectedHandler != null) {
+                connectedHandler.disconnected();
             }
 
             // Notify connector that connection is closed for tracking
@@ -2622,12 +3801,11 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
             if (recipients != null) {
                 recipients.clear();
             }
-            resetDataState();
-
-            // Clear line buffer
-            if (lineBuffer != null) {
-                lineBuffer.clear();
+            if (dsnRecipients != null) {
+                dsnRecipients.clear();
             }
+            deliveryRequirements = null;
+            resetDataState();
 
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("SMTP connection disconnected: " + getRemoteSocketAddress());
@@ -2639,6 +3817,10 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     
     @Override
     public InetSocketAddress getClientAddress() {
+        // Return XCLIENT-overridden address if set
+        if (xclientAddr != null) {
+            return xclientAddr;
+        }
         try {
             if (channel != null) {
                 return (InetSocketAddress) channel.getRemoteAddress();
@@ -2651,6 +3833,10 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
     
     @Override
     public InetSocketAddress getServerAddress() {
+        // Return XCLIENT-overridden destination address if set
+        if (xclientDestAddr != null) {
+            return xclientDestAddr;
+        }
         try {
             if (channel != null) {
                 return (InetSocketAddress) channel.getLocalAddress();
@@ -2692,224 +3878,620 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         return connectionTimeMillis;
     }
 
-    // MailFromCallback implementation
-    
-    /**
-     * Callback implementation for asynchronous MAIL FROM policy results.
-     * This method is invoked by the handler after sender policy evaluation
-     * and sends the appropriate SMTP response to the client.
-     */
     @Override
-    public void mailFromReply(SenderPolicyResult result) {
-        try {
-            switch (result) {
-                case ACCEPT:
-                    // Accept the sender and transition to MAIL state
-                    this.state = SMTPState.MAIL;
-                    addSessionAttribute("smtp.mail_from", mailFrom);
-                    addSessionEvent("MAIL FROM accepted");
-                    reply(250, "2.1.0 Sender ok");
-                    break;
-                    
-                case TEMP_REJECT_GREYLIST:
-                    reply(450, "4.7.1 Greylisting in effect, please try again later");
-                    break;
-                    
-                case TEMP_REJECT_RATE_LIMIT:
-                    reply(450, "4.7.1 Rate limit exceeded, please try again later");
-                    break;
-                    
-                case REJECT_BLOCKED_DOMAIN:
-                    reply(550, "5.1.1 Sender domain blocked by policy");
-                    break;
-                    
-                case REJECT_INVALID_DOMAIN:
-                    reply(550, "5.1.1 Sender domain does not exist");
-                    break;
-                    
-                case REJECT_POLICY_VIOLATION:
-                    reply(553, "5.7.1 Sender address violates local policy");
-                    break;
-                    
-                case REJECT_SPAM_REPUTATION:
-                    reply(554, "5.7.1 Sender has poor reputation");
-                    break;
-                    
-                case REJECT_SYNTAX_ERROR:
-                    reply(501, "5.1.3 Invalid sender address format");
-                    break;
-                    
-                case REJECT_RELAY_DENIED:
-                    reply(551, "5.7.1 Relaying denied");
-                    break;
-                    
-                case REJECT_STORAGE_FULL:
-                    reply(452, "4.3.1 Insufficient system storage");
-                    break;
-                    
-                default:
-                    reply(550, "5.0.0 Sender address rejected");
-                    break;
-            }
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending MAIL FROM reply", e);
-            // Connection error - close connection
-            close();
+    public DSNEnvelopeParameters getDSNEnvelopeParameters() {
+        if (deliveryRequirements == null || !deliveryRequirements.hasDsnParameters()) {
+            return null;
         }
+        return new DSNEnvelopeParameters(deliveryRequirements.getDsnReturn(), 
+                                         deliveryRequirements.getDsnEnvelopeId());
     }
 
-    // RcptToCallback implementation
-    
-    /**
-     * Callback implementation for asynchronous RCPT TO policy results.  
-     * This method is invoked by the handler after recipient policy evaluation
-     * and sends the appropriate SMTP response to the client.
-     */
     @Override
-    public void rcptToReply(RecipientPolicyResult result, String recipient) {
-        try {
-            switch (result) {
-                case ACCEPT:
-                    // Accept the recipient - add to list and transition to RCPT state
-                    this.recipients.add(recipient);
-                    this.state = SMTPState.RCPT;
-                    addSessionAttribute("smtp.rcpt_count", recipients.size());
-                    addSessionEvent("RCPT TO: " + recipient);
-                    reply(250, "2.1.5 " + recipient + "... Recipient ok");
-                    break;
-                    
-                case ACCEPT_FORWARD:
-                    // Accept for forwarding - add to list and transition to RCPT state
-                    this.recipients.add(recipient);
-                    this.state = SMTPState.RCPT;
-                    addSessionAttribute("smtp.rcpt_count", recipients.size());
-                    addSessionEvent("RCPT TO (forward): " + recipient);
-                    reply(251, "2.1.5 User not local; will forward to " + recipient);
-                    break;
-                    
-                case TEMP_REJECT_UNAVAILABLE:
-                    reply(450, "4.2.1 Mailbox temporarily unavailable");
-                    break;
-                    
-                case TEMP_REJECT_SYSTEM_ERROR:
-                    reply(451, "4.3.0 Local error in processing");
-                    break;
-                    
-                case TEMP_REJECT_STORAGE_FULL:
-                    reply(452, "4.3.1 Insufficient system storage");
-                    break;
-                    
-                case REJECT_MAILBOX_UNAVAILABLE:
-                    reply(550, "5.1.1 Mailbox unavailable");
-                    break;
-                    
-                case REJECT_USER_NOT_LOCAL:
-                    reply(551, "5.1.1 User not local; please try <forward-path>");
-                    break;
-                    
-                case REJECT_QUOTA_EXCEEDED:
-                    reply(552, "5.2.2 Mailbox full, quota exceeded");
-                    break;
-                    
-                case REJECT_INVALID_MAILBOX:
-                    reply(553, "5.1.3 Mailbox name not allowed");
-                    break;
-                    
-                case REJECT_TRANSACTION_FAILED:
-                    reply(554, "5.0.0 Transaction failed");
-                    break;
-                    
-                case REJECT_SYNTAX_ERROR:
-                    reply(501, "5.1.3 Invalid recipient address format");
-                    break;
-                    
-                case REJECT_RELAY_DENIED:
-                    reply(551, "5.7.1 Relaying denied");
-                    break;
-                    
-                case REJECT_POLICY_VIOLATION:
-                    reply(553, "5.7.1 Recipient violates local policy");
-                    break;
-                    
-                default:
-                    reply(550, "5.0.0 Recipient address rejected");
-                    break;
-            }
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending RCPT TO reply", e);
-            // Connection error - close connection
-            close();
+    public DSNRecipientParameters getDSNRecipientParameters(EmailAddress recipient) {
+        if (dsnRecipients == null || recipient == null) {
+            return null;
         }
+        return dsnRecipients.get(recipient);
     }
 
-    // HelloCallback implementation
-    
-    /**
-     * Callback implementation for asynchronous HELO/EHLO command results.
-     * This method is invoked by the handler after greeting evaluation
-     * and sends the appropriate SMTP response to the client.
-     */
     @Override
-    public void helloReply(HelloReply result) {
+    public boolean isRequireTls() {
+        return deliveryRequirements != null && deliveryRequirements.isRequireTls();
+    }
+
+    // ========================================================================
+    // ConnectedState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptConnection(String greeting, HelloHandler handler) {
+        this.helloHandler = handler;
         try {
-            switch (result) {
-                case ACCEPT_HELO:
-                    // Accept HELO and transition to READY state
-                    this.extendedSMTP = false;
-                    this.state = SMTPState.READY;
-                    String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
-                    reply(250, hostname + " Hello " + heloName);
-                    break;
-                    
-                case ACCEPT_EHLO:
-                    // Accept EHLO, set extended mode, and send feature list
-                    this.extendedSMTP = true;
-                    this.state = SMTPState.READY;
-                    sendEhloResponse();
-                    break;
-                    
-                case REJECT_NOT_IMPLEMENTED:
-                    reply(504, "5.5.2 Command not implemented");
-                    break;
-                    
-                case REJECT_SYNTAX_ERROR:
-                    reply(501, "5.0.0 Syntax: HELO/EHLO hostname");
-                    break;
-                    
-                case TEMP_REJECT_SERVICE_UNAVAILABLE:
-                    this.state = SMTPState.REJECTED;
-                    reply(421, "4.3.0 Service not available, closing transmission channel");
-                    // Don't close immediately - wait for client to send QUIT
-                    break;
-                    
-                default:
-                    reply(500, "5.0.0 Command failed");
-                    break;
-            }
+            startSessionSpan();
+            reply(220, greeting);
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, "Error sending HELO/EHLO reply", e);
-            // Connection error - close connection
+            LOGGER.log(Level.SEVERE, "Error sending greeting", e);
             close();
         }
     }
     
-    /**
-     * Sends the EHLO response with available extensions.
-     */
-    private void sendEhloResponse() throws IOException {
-        String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
-        
-        // Start with greeting line
-        reply(250, hostname + " Hello " + heloName);
-        
-        // TODO: Add extension advertisements as needed
-        // Examples of common extensions:
-        // reply(250, "SIZE 10485760");     // Maximum message size
-        // reply(250, "STARTTLS");          // TLS support
-        // reply(250, "AUTH PLAIN LOGIN");  // Authentication methods
-        // reply(250, "8BITMIME");          // 8-bit MIME support
-        // reply(250, "PIPELINING");        // Command pipelining
+    @Override
+    public void rejectConnection() {
+        rejectConnection("Connection rejected");
     }
+    
+    @Override
+    public void rejectConnection(String message) {
+        this.state = SMTPState.REJECTED;
+        try {
+            reply(554, "5.0.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+        }
+        close();
+        if (connectedHandler != null) {
+            connectedHandler.disconnected();
+        }
+    }
+    
+    // ========================================================================
+    // HelloState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptHello(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        this.state = SMTPState.READY;
+        try {
+            sendEhloResponse();
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending EHLO response", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectHelloTemporary(String message, HelloHandler handler) {
+        this.helloHandler = handler;
+        try {
+            reply(421, "4.3.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectHello(String message, HelloHandler handler) {
+        this.helloHandler = handler;
+        try {
+            reply(550, "5.0.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectHelloAndClose(String message) {
+        this.state = SMTPState.REJECTED;
+        try {
+            reply(554, "5.0.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+        }
+        close();
+    }
+    
+    @Override
+    public void serverShuttingDown() {
+        try {
+            reply(421, "4.3.0 Server shutting down");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending shutdown notice", e);
+        }
+        close();
+    }
+    
+    // ========================================================================
+    // AuthenticateState implementation
+    // ========================================================================
+    
+    @Override
+    public void accept(MailFromHandler handler) {
+        this.authenticated = true;
+        this.mailFromHandler = handler;
+        this.state = SMTPState.READY;
+        recordAuthenticationSuccess(authenticatedUser, authMechanism);
+        try {
+            reply(235, "2.7.0 Authentication successful");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending auth success", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void reject(HelloHandler handler) {
+        this.helloHandler = handler;
+        SMTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.authAttempt(authMechanism);
+            metrics.authFailure(authMechanism);
+        }
+        try {
+            reply(535, "5.7.8 Authentication rejected");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending auth failure", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectAndClose() {
+        SMTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.authAttempt(authMechanism);
+            metrics.authFailure(authMechanism);
+        }
+        try {
+            reply(535, "5.7.8 Authentication rejected");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending auth failure", e);
+        }
+        close();
+    }
+    
+    // ========================================================================
+    // MailFromState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptSender(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        this.state = SMTPState.MAIL;
+        
+        // Get pipeline from the mail from handler if available
+        if (mailFromHandler != null) {
+            this.currentPipeline = mailFromHandler.getPipeline();
+            if (currentPipeline != null) {
+                // Notify pipeline of sender
+                currentPipeline.mailFrom(mailFrom);
+            }
+        }
+        
+        String senderAddr = (mailFrom != null) ? mailFrom.getEnvelopeAddress() : "";
+        addSessionAttribute("smtp.mail_from", senderAddr);
+        addSessionEvent("MAIL FROM: " + senderAddr);
+        try {
+            reply(250, "2.1.0 Sender ok");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderGreylist(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(450, "4.7.1 Greylisting in effect, please try again later");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderRateLimit(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(450, "4.7.1 Rate limit exceeded, please try again later");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderStorageFull(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(452, "4.3.1 Insufficient system storage");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderBlockedDomain(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(550, "5.1.1 Sender domain blocked by policy");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderInvalidDomain(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(550, "5.1.1 Sender domain does not exist");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderPolicy(String message, MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(553, "5.7.1 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderSpam(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(554, "5.7.1 Sender has poor reputation");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectSenderSyntax(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        try {
+            reply(501, "5.1.3 Invalid sender address format");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    // ========================================================================
+    // RecipientState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptRecipient(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        EmailAddress recipient = pendingRecipient;
+        this.recipients.add(recipient);
+        if (pendingRecipientDSN != null) {
+            this.dsnRecipients.put(recipient, pendingRecipientDSN);
+            pendingRecipientDSN = null;
+        }
+        this.state = SMTPState.RCPT;
+        
+        // Notify pipeline of recipient
+        if (currentPipeline != null) {
+            currentPipeline.rcptTo(recipient);
+        }
+        
+        String addr = recipient.getEnvelopeAddress();
+        addSessionAttribute("smtp.rcpt_count", recipients.size());
+        addSessionEvent("RCPT TO: " + addr);
+        try {
+            reply(250, "2.1.5 " + addr + "... Recipient ok");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void acceptRecipientForward(String forwardPath, RecipientHandler handler) {
+        this.recipientHandler = handler;
+        EmailAddress recipient = pendingRecipient;
+        this.recipients.add(recipient);
+        if (pendingRecipientDSN != null) {
+            this.dsnRecipients.put(recipient, pendingRecipientDSN);
+            pendingRecipientDSN = null;
+        }
+        this.state = SMTPState.RCPT;
+        addSessionAttribute("smtp.rcpt_count", recipients.size());
+        addSessionEvent("RCPT TO (forward): " + recipient.getEnvelopeAddress());
+        try {
+            reply(251, "2.1.5 User not local; will forward to " + forwardPath);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientUnavailable(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(450, "4.2.1 Mailbox temporarily unavailable");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientSystemError(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(451, "4.3.0 Local error in processing");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientStorageFull(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(452, "4.3.1 Insufficient system storage");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientNotFound(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(550, "5.1.1 Mailbox unavailable");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientNotLocal(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(551, "5.1.1 User not local");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientQuota(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(552, "5.2.2 Mailbox full, quota exceeded");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientInvalid(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(553, "5.1.3 Mailbox name not allowed");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientRelayDenied(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(551, "5.7.1 Relaying denied");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectRecipientPolicy(String message, RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(553, "5.7.1 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    // ========================================================================
+    // MessageStartState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptMessage(MessageDataHandler handler) {
+        this.messageHandler = handler;
+        doAcceptMessage();
+    }
+    
+    @Override
+    public void rejectMessageStorageFull(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(452, "4.3.1 Insufficient system storage");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectMessageProcessingError(RecipientHandler handler) {
+        this.recipientHandler = handler;
+        try {
+            reply(451, "4.3.0 Local processing error");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectMessage(String message, MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        resetTransaction();
+        try {
+            reply(550, "5.7.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    // ========================================================================
+    // BdatStartState - MessageStartState for BDAT (no 354 response)
+    // ========================================================================
+    
+    /**
+     * A MessageStartState implementation for BDAT that sets the handler
+     * without sending the 354 response (which is only for DATA).
+     */
+    private class BdatStartState implements MessageStartState {
+        @Override
+        public void acceptMessage(MessageDataHandler handler) {
+            // Just set the handler - don't call doAcceptMessage() which sends 354
+            messageHandler = handler;
+        }
+        
+        @Override
+        public void rejectMessageStorageFull(RecipientHandler handler) {
+            SMTPConnection.this.rejectMessageStorageFull(handler);
+        }
+        
+        @Override
+        public void rejectMessageProcessingError(RecipientHandler handler) {
+            SMTPConnection.this.rejectMessageProcessingError(handler);
+        }
+        
+        @Override
+        public void rejectMessage(String message, MailFromHandler handler) {
+            SMTPConnection.this.rejectMessage(message, handler);
+        }
+        
+        @Override
+        public void serverShuttingDown() {
+            SMTPConnection.this.serverShuttingDown();
+        }
+    }
+    
+    // ========================================================================
+    // MessageEndState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptMessageDelivery(String queueId, MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        resetTransaction();
+        try {
+            String msg = "2.0.0 Message accepted for delivery";
+            if (queueId != null) {
+                msg = msg + " " + queueId;
+            }
+            reply(250, msg);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectMessageTemporary(String message, MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        resetTransaction();
+        try {
+            reply(450, "4.0.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectMessagePermanent(String message, MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        resetTransaction();
+        try {
+            reply(550, "5.0.0 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    @Override
+    public void rejectMessagePolicy(String message, MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        resetTransaction();
+        try {
+            reply(553, "5.7.1 " + message);
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending rejection", e);
+            close();
+        }
+    }
+    
+    // ========================================================================
+    // ResetState implementation
+    // ========================================================================
+    
+    @Override
+    public void acceptReset(MailFromHandler handler) {
+        this.mailFromHandler = handler;
+        resetTransaction();
+        try {
+            reply(250, "2.0.0 Reset OK");
+        } catch (IOException e) {
+            LOGGER.log(Level.SEVERE, "Error sending reset response", e);
+            close();
+        }
+    }
+    
+    // ========================================================================
+    // Helper methods for state transitions
+    // ========================================================================
+    
+    /**
+     * Resets transaction state (preserves session state like authentication).
+     */
+    private void resetTransaction() {
+        this.state = SMTPState.READY;
+        this.mailFrom = null;
+        this.recipients.clear();
+        this.dsnRecipients.clear();
+        this.deliveryRequirements = null;
+        this.smtputf8 = false;
+        this.bodyType = BodyType.SEVEN_BIT;
+        this.pendingRecipient = null;
+        this.pendingRecipientDSN = null;
+        
+        // Reset pipeline
+        if (currentPipeline != null) {
+            currentPipeline.reset();
+            currentPipeline = null;
+        }
+        
+        // Start a new session span for the next transaction
+        startSessionSpan();
+    }
+    
+    // Temporary storage for pending recipient during callback
+    private EmailAddress pendingRecipient;
 
     // -- Telemetry helpers --
 
@@ -3011,6 +4593,73 @@ public class SMTPConnection extends Connection implements MailFromCallback, Rcpt
         addSessionAttribute("smtp.auth_user", username);
         addSessionAttribute("smtp.auth_mechanism", mechanism);
         addSessionEvent("AUTH success: " + mechanism);
+
+        // Record authentication success metric
+        SMTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.authAttempt(mechanism);
+            metrics.authSuccess(mechanism);
+        }
+    }
+    
+    /**
+     * Called after successful SASL authentication to notify the handler.
+     * 
+     * <p>Creates a Principal for the authenticated user and calls the
+     * handler's authenticated() method for policy decision.
+     * 
+     * @param username the authenticated username
+     * @param mechanism the authentication mechanism used
+     */
+    private void notifyAuthenticationSuccess(String username, String mechanism) throws IOException {
+        this.authenticatedUser = username;
+        this.authMechanism = mechanism;
+        
+        if (helloHandler != null) {
+            // Create a simple Principal for the username
+            Principal principal = new Principal() {
+                @Override
+                public String getName() {
+                    return username;
+                }
+                
+                @Override
+                public String toString() {
+                    return username;
+                }
+            };
+            
+            // Handler makes policy decision - calls accept() or reject()
+            helloHandler.authenticated(principal, this);
+        } else {
+            // No handler - auto-accept
+            this.authenticated = true;
+            recordAuthenticationSuccess(username, mechanism);
+            reply(235, "2.7.0 Authentication successful");
+            if (LOGGER.isLoggable(Level.INFO)) {
+                LOGGER.info("SMTP AUTH " + mechanism + " successful for user: " + username);
+            }
+        }
+    }
+    
+    /**
+     * Called after failed SASL authentication.
+     * 
+     * @param username the username that failed (may be null)
+     * @param mechanism the authentication mechanism used
+     */
+    private void notifyAuthenticationFailure(String username, String mechanism) throws IOException {
+        SMTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.authAttempt(mechanism);
+            metrics.authFailure(mechanism);
+        }
+        addSessionEvent("AUTH " + mechanism + " failed");
+        reply(535, "5.7.8 Authentication credentials invalid");
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning("SMTP AUTH " + mechanism + " failed for user: " + 
+                (username != null ? username : "(unknown)"));
+        }
     }
 
 }

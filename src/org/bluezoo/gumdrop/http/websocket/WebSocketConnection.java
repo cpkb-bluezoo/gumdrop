@@ -188,7 +188,7 @@ public abstract class WebSocketConnection {
      * Called when the WebSocket connection is successfully established.
      * Override this method to handle connection open events.
      */
-    protected abstract void onOpen();
+    protected abstract void opened();
 
     /**
      * Called when a text message is received.
@@ -196,7 +196,7 @@ public abstract class WebSocketConnection {
      *
      * @param message the received text message
      */
-    protected abstract void onMessage(String message);
+    protected abstract void textMessageReceived(String message);
 
     /**
      * Called when a binary message is received.
@@ -204,7 +204,7 @@ public abstract class WebSocketConnection {
      *
      * @param data the received binary data
      */
-    protected abstract void onMessage(byte[] data);
+    protected abstract void binaryMessageReceived(ByteBuffer data);
 
     /**
      * Called when the WebSocket connection is closed.
@@ -213,15 +213,15 @@ public abstract class WebSocketConnection {
      * @param code the close code
      * @param reason the close reason (may be null or empty)
      */
-    protected abstract void onClose(int code, String reason);
+    protected abstract void closed(int code, String reason);
 
     /**
      * Called when an error occurs on the WebSocket connection.
      * Override this method to handle error conditions.
      *
-     * @param error the error that occurred
+     * @param cause the error that occurred
      */
-    protected abstract void onError(Throwable error);
+    protected abstract void error(Throwable cause);
     
     /**
      * Records an error in telemetry.
@@ -255,12 +255,12 @@ public abstract class WebSocketConnection {
      *
      * @param payload the ping payload (may be empty)
      */
-    protected void onPing(byte[] payload) {
+    protected void pingReceived(ByteBuffer payload) {
         try {
             sendPong(payload);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to send pong response", e);
-            onError(e);
+            error(e);
         }
     }
 
@@ -270,9 +270,11 @@ public abstract class WebSocketConnection {
      *
      * @param payload the pong payload (may be empty)
      */
-    protected void onPong(byte[] payload) {
+    protected void pongReceived(ByteBuffer payload) {
         // Default implementation does nothing
-        LOGGER.fine("Received pong frame with " + payload.length + " bytes");
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(MessageFormat.format(L10N.getString("log.received_pong"), payload.remaining()));
+        }
     }
 
     /**
@@ -295,7 +297,7 @@ public abstract class WebSocketConnection {
      * @throws IOException if an I/O error occurs
      * @throws IllegalStateException if the connection is not open
      */
-    public final void sendBinary(byte[] data) throws IOException {
+    public final void sendBinary(ByteBuffer data) throws IOException {
         checkConnectionOpen();
         WebSocketFrame frame = WebSocketFrame.createBinaryFrame(data, false); // Server doesn't mask
         sendFrame(frame);
@@ -308,10 +310,10 @@ public abstract class WebSocketConnection {
      * @throws IOException if an I/O error occurs
      * @throws IllegalStateException if the connection is not open
      */
-    public final void sendPing(byte[] payload) throws IOException {
+    public final void sendPing(ByteBuffer payload) throws IOException {
         checkConnectionOpen();
-        if (payload != null && payload.length > 125) {
-            throw new IllegalArgumentException("Ping payload too large: " + payload.length);
+        if (payload != null && payload.remaining() > 125) {
+            throw new IllegalArgumentException("Ping payload too large: " + payload.remaining());
         }
         WebSocketFrame frame = WebSocketFrame.createPingFrame(payload, false);
         sendFrame(frame);
@@ -323,13 +325,13 @@ public abstract class WebSocketConnection {
      * @param payload optional payload (may be null, max 125 bytes)
      * @throws IOException if an I/O error occurs
      */
-    public final void sendPong(byte[] payload) throws IOException {
+    public final void sendPong(ByteBuffer payload) throws IOException {
         // Pong can be sent even if connection is closing
         if (state == State.CLOSED) {
-            throw new IllegalStateException("Connection is closed");
+            throw new IllegalStateException(L10N.getString("err.connection_closed"));
         }
-        if (payload != null && payload.length > 125) {
-            throw new IllegalArgumentException("Pong payload too large: " + payload.length);
+        if (payload != null && payload.remaining() > 125) {
+            throw new IllegalArgumentException("Pong payload too large: " + payload.remaining());
         }
         WebSocketFrame frame = WebSocketFrame.createPongFrame(payload, false);
         sendFrame(frame);
@@ -388,7 +390,7 @@ public abstract class WebSocketConnection {
             LOGGER.log(Level.WARNING, "WebSocket protocol error", e);
             recordTelemetryError(e);
             close(CloseCodes.PROTOCOL_ERROR, "Protocol error");
-            onError(e);
+            error(e);
         }
     }
 
@@ -407,10 +409,10 @@ public abstract class WebSocketConnection {
             }
             
             try {
-                onOpen();
+                opened();
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Error in onOpen handler", e);
-                onError(e);
+                LOGGER.log(Level.SEVERE, "Error in opened handler", e);
+                error(e);
             }
         }
     }
@@ -434,13 +436,13 @@ public abstract class WebSocketConnection {
                 processCloseFrame(frame);
                 break;
             case WebSocketFrame.OPCODE_PING:
-                onPing(frame.getPayload());
+                pingReceived(frame.getPayload());
                 break;
             case WebSocketFrame.OPCODE_PONG:
-                onPong(frame.getPayload());
+                pongReceived(frame.getPayload());
                 break;
             default:
-                LOGGER.warning("Unknown WebSocket frame opcode: " + frame.getOpcode());
+                LOGGER.warning(MessageFormat.format(L10N.getString("log.unknown_opcode"), frame.getOpcode()));
                 close(CloseCodes.PROTOCOL_ERROR, "Unknown opcode");
         }
     }
@@ -455,14 +457,15 @@ public abstract class WebSocketConnection {
             return;
         }
 
+        byte[] payloadBytes = frame.getPayloadBytes();
         if (frame.isFin()) {
             // Complete message in single frame
-            deliverMessage(frame.getOpcode(), frame.getPayload());
+            deliverMessage(frame.getOpcode(), payloadBytes);
         } else {
             // Start of fragmented message
             messageOpcode = frame.getOpcode();
-            messageBuffer = ByteBuffer.allocate(frame.getPayload().length);
-            messageBuffer.put(frame.getPayload());
+            messageBuffer = ByteBuffer.allocate(payloadBytes.length);
+            messageBuffer.put(payloadBytes);
         }
     }
 
@@ -476,15 +479,16 @@ public abstract class WebSocketConnection {
             return;
         }
 
+        byte[] payloadBytes = frame.getPayloadBytes();
         // Append to message buffer
-        if (messageBuffer.remaining() < frame.getPayload().length) {
+        if (messageBuffer.remaining() < payloadBytes.length) {
             // Expand buffer
-            ByteBuffer newBuffer = ByteBuffer.allocate(messageBuffer.capacity() + frame.getPayload().length);
+            ByteBuffer newBuffer = ByteBuffer.allocate(messageBuffer.capacity() + payloadBytes.length);
             messageBuffer.flip();
             newBuffer.put(messageBuffer);
             messageBuffer = newBuffer;
         }
-        messageBuffer.put(frame.getPayload());
+        messageBuffer.put(payloadBytes);
 
         if (frame.isFin()) {
             // Message complete
@@ -533,13 +537,13 @@ public abstract class WebSocketConnection {
         try {
             if (opcode == WebSocketFrame.OPCODE_TEXT) {
                 String message = new String(payload, java.nio.charset.StandardCharsets.UTF_8);
-                onMessage(message);
+                textMessageReceived(message);
             } else if (opcode == WebSocketFrame.OPCODE_BINARY) {
-                onMessage(payload);
+                binaryMessageReceived(ByteBuffer.wrap(payload));
             }
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Error delivering WebSocket message", e);
-            onError(e);
+            error(e);
         }
     }
 
@@ -585,11 +589,12 @@ public abstract class WebSocketConnection {
             
             try {
                 if (transport != null) {
-                    transport.close();
+                    boolean normalClose = (code == CloseCodes.NORMAL_CLOSURE || code == CloseCodes.GOING_AWAY);
+                    transport.close(normalClose);
                 }
-                onClose(code, reason);
+                closed(code, reason);
             } catch (Exception e) {
-                LOGGER.log(Level.SEVERE, "Error in onClose handler", e);
+                LOGGER.log(Level.SEVERE, "Error in closed handler", e);
             }
         }
     }
@@ -599,7 +604,7 @@ public abstract class WebSocketConnection {
      */
     private void sendFrame(WebSocketFrame frame) throws IOException {
         if (transport == null) {
-            throw new IllegalStateException("WebSocket transport not set");
+            throw new IllegalStateException(L10N.getString("err.transport_not_set"));
         }
         
         ByteBuffer encoded = frame.encode();
@@ -607,7 +612,7 @@ public abstract class WebSocketConnection {
         // Track telemetry for data frames
         if (frame.isDataFrame()) {
             messagesSent.incrementAndGet();
-            bytesSent.addAndGet(frame.getPayload().length);
+            bytesSent.addAndGet(frame.getPayloadBytes().length);
         }
         
         transport.sendFrame(encoded);
@@ -638,8 +643,10 @@ public abstract class WebSocketConnection {
         /**
          * Closes the underlying transport.
          *
+         * @param normalClose true if this is a normal close (codes 1000 or 1001),
+         *                    false if abnormal
          * @throws IOException if an I/O error occurs
          */
-        void close() throws IOException;
+        void close(boolean normalClose) throws IOException;
     }
 }

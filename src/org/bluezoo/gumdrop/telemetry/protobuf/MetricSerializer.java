@@ -29,12 +29,17 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import org.bluezoo.gumdrop.telemetry.metrics.NumberDataPoint;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Serializes metric data to OTLP protobuf format.
+ *
+ * <p>The serializer can write directly to a {@link WritableByteChannel} for
+ * streaming output, or to a {@link ByteBuffer} for buffered output.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -56,33 +61,81 @@ public final class MetricSerializer {
     }
 
     /**
-     * Serializes a list of metrics to OTLP MetricsData protobuf.
+     * Serializes a list of metrics to OTLP MetricsData format, writing to a channel.
+     *
+     * <p>This is the primary serialization method. Data is streamed to the
+     * channel as it is serialized.
+     *
+     * @param metrics the metrics to serialize
+     * @param meterName the meter name
+     * @param meterVersion the meter version
+     * @param channel the channel to write to
+     * @throws IOException if an I/O error occurs
      */
-    public WriteResult serialize(List<MetricData> metrics, String meterName, 
-                                String meterVersion, ByteBuffer buffer) {
+    public void serialize(List<MetricData> metrics, String meterName, 
+                         String meterVersion, WritableByteChannel channel) throws IOException {
         if (metrics == null || metrics.isEmpty()) {
-            return WriteResult.SUCCESS;
+            return;
         }
 
-        ProtobufWriter writer = new ProtobufWriter(buffer);
+        ProtobufWriter writer = new ProtobufWriter(channel);
 
         // MetricsData { repeated ResourceMetrics resource_metrics = 1; }
         writer.writeMessageField(OTLPFieldNumbers.METRICS_DATA_RESOURCE_METRICS,
                 new ResourceMetricsWriter(metrics, meterName, meterVersion));
-
-        return writer.getResult();
     }
 
     /**
-     * Serializes metrics from a single meter.
+     * Serializes a list of metrics to OTLP MetricsData format, returning a ByteBuffer.
+     *
+     * <p>Convenience method for callers who need buffered output.
+     *
+     * @param metrics the metrics to serialize
+     * @param meterName the meter name
+     * @param meterVersion the meter version
+     * @return a ByteBuffer containing the serialized metrics (ready for reading)
+     * @throws IOException if serialization fails
      */
-    public WriteResult serialize(Meter meter, AggregationTemporality temporality,
-                                ByteBuffer buffer) {
+    public ByteBuffer serialize(List<MetricData> metrics, String meterName, 
+                               String meterVersion) throws IOException {
+        if (metrics == null || metrics.isEmpty()) {
+            return ByteBuffer.allocate(0);
+        }
+        ByteBufferChannel channel = new ByteBufferChannel();
+        serialize(metrics, meterName, meterVersion, channel);
+        return channel.toByteBuffer();
+    }
+
+    /**
+     * Serializes metrics from a single meter, writing to a channel.
+     *
+     * @param meter the meter
+     * @param temporality the aggregation temporality
+     * @param channel the channel to write to
+     * @throws IOException if an I/O error occurs
+     */
+    public void serialize(Meter meter, AggregationTemporality temporality,
+                         WritableByteChannel channel) throws IOException {
+        List<MetricData> metrics = meter.collect(temporality);
+        if (!metrics.isEmpty()) {
+            serialize(metrics, meter.getName(), meter.getVersion(), channel);
+        }
+    }
+
+    /**
+     * Serializes metrics from a single meter, returning a ByteBuffer.
+     *
+     * @param meter the meter
+     * @param temporality the aggregation temporality
+     * @return a ByteBuffer containing the serialized metrics (ready for reading)
+     * @throws IOException if serialization fails
+     */
+    public ByteBuffer serialize(Meter meter, AggregationTemporality temporality) throws IOException {
         List<MetricData> metrics = meter.collect(temporality);
         if (metrics.isEmpty()) {
-            return WriteResult.SUCCESS;
+            return ByteBuffer.allocate(0);
         }
-        return serialize(metrics, meter.getName(), meter.getVersion(), buffer);
+        return serialize(metrics, meter.getName(), meter.getVersion());
     }
 
     // -- Inner classes for message content --
@@ -99,7 +152,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
             writer.writeMessageField(OTLPFieldNumbers.RESOURCE_METRICS_RESOURCE,
                     new ResourceWriter());
@@ -115,7 +168,7 @@ public final class MetricSerializer {
 
     private class ResourceWriter implements ProtobufWriter.MessageContent {
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated KeyValue attributes = 1
             writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
                     "service.name", serviceName);
@@ -139,7 +192,7 @@ public final class MetricSerializer {
         }
     }
 
-    private class ScopeMetricsWriter implements ProtobufWriter.MessageContent {
+    private static class ScopeMetricsWriter implements ProtobufWriter.MessageContent {
         private final List<MetricData> metrics;
         private final String meterName;
         private final String meterVersion;
@@ -151,7 +204,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
             writer.writeMessageField(OTLPFieldNumbers.SCOPE_METRICS_SCOPE,
                     new InstrumentationScopeWriter(meterName, meterVersion));
@@ -174,7 +227,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
             writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME,
                     name != null ? name : "gumdrop");
@@ -193,7 +246,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
             writer.writeStringField(OTLPFieldNumbers.METRIC_NAME, metric.getName());
 
@@ -233,7 +286,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated NumberDataPoint data_points = 1
             for (NumberDataPoint point : metric.getNumberDataPoints()) {
                 writer.writeMessageField(OTLPFieldNumbers.GAUGE_DATA_POINTS,
@@ -250,7 +303,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated NumberDataPoint data_points = 1
             for (NumberDataPoint point : metric.getNumberDataPoints()) {
                 writer.writeMessageField(OTLPFieldNumbers.SUM_DATA_POINTS,
@@ -274,7 +327,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated HistogramDataPoint data_points = 1
             for (HistogramDataPoint point : metric.getHistogramDataPoints()) {
                 writer.writeMessageField(OTLPFieldNumbers.HISTOGRAM_DATA_POINTS,
@@ -295,7 +348,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 start_time_unix_nano = 2
             writer.writeFixed64Field(OTLPFieldNumbers.NUMBER_DATA_POINT_START_TIME_UNIX_NANO,
                     point.getStartTimeUnixNano());
@@ -332,7 +385,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 start_time_unix_nano = 2
             writer.writeFixed64Field(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_START_TIME_UNIX_NANO,
                     point.getStartTimeUnixNano());
@@ -385,7 +438,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string key = 1
             writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, attr.getKey());
 
@@ -403,7 +456,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             switch (attr.getType()) {
                 case Attribute.TYPE_STRING:
                     writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE,
@@ -428,7 +481,7 @@ public final class MetricSerializer {
     // -- Helper method --
 
     private static void writeKeyValue(ProtobufWriter writer, int fieldNumber,
-                                       String key, String value) {
+                                       String key, String value) throws IOException {
         writer.writeMessageField(fieldNumber, new StringKeyValueWriter(key, value));
     }
 
@@ -442,7 +495,7 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, key);
             writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
                     new StringAnyValueWriter(value));
@@ -457,9 +510,8 @@ public final class MetricSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE, value);
         }
     }
-
 }

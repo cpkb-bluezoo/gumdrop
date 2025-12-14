@@ -31,35 +31,48 @@ import java.nio.ByteBuffer;
  */
 public class GoawayFrame extends Frame {
 
+    private static final int FIXED_FIELDS_LENGTH = 8; // lastStream (4) + errorCode (4)
+
     int lastStream;
     int errorCode;
-    byte[] debug;
+    ByteBuffer debug;
 
-    protected GoawayFrame(byte[] payload) {
-        int offset = 0;
-        lastStream = ((int) payload[offset++] & 0x7f) << 24
-                | ((int) payload[offset++] & 0xff) << 16
-                | ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
-        errorCode = ((int) payload[offset++] & 0xff) << 24
-                | ((int) payload[offset++] & 0xff) << 16
-                | ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
-        debug = new byte[payload.length - 8];
-        System.arraycopy(payload, 8, debug, 0, debug.length);
+    /**
+     * Constructor for a GOAWAY frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
+     */
+    protected GoawayFrame(ByteBuffer payload) {
+        lastStream = (payload.get() & 0x7f) << 24
+                | (payload.get() & 0xff) << 16
+                | (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
+        errorCode = (payload.get() & 0xff) << 24
+                | (payload.get() & 0xff) << 16
+                | (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
+        debug = payload.slice();
+        payload.position(payload.limit()); // consume all
     }
 
     /**
-     * Construct a GOAWAY frame.
+     * Construct a GOAWAY frame to send to the client.
      */
-    protected GoawayFrame(int lastStream, int errorCode, byte[] debug) {
+    protected GoawayFrame(int lastStream, int errorCode, ByteBuffer debug) {
         this.lastStream = lastStream;
         this.errorCode = errorCode;
         this.debug = debug;
     }
 
+    /**
+     * Construct a GOAWAY frame to send to the client (convenience for byte[]).
+     */
+    protected GoawayFrame(int lastStream, int errorCode, byte[] debug) {
+        this(lastStream, errorCode, ByteBuffer.wrap(debug));
+    }
+
     public int getLength() {
-        return debug.length + 8;
+        return debug.remaining() + FIXED_FIELDS_LENGTH;
     }
 
     public int getType() {
@@ -84,7 +97,10 @@ public class GoawayFrame extends Frame {
         buf.put((byte) ((errorCode >> 16) & 0xff));
         buf.put((byte) ((errorCode >> 8) & 0xff));
         buf.put((byte) (errorCode & 0xff));
+        // Save position to restore after put
+        int savedPos = debug.position();
         buf.put(debug);
+        debug.position(savedPos); // restore position for potential reuse
     }
 
 }

@@ -21,13 +21,32 @@
 
 package org.bluezoo.gumdrop.pop3;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.LineBasedConnection;
+import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.DefaultConnectionInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
+import java.security.Principal;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
-import org.bluezoo.gumdrop.sasl.SASLUtils;
+import org.bluezoo.gumdrop.pop3.handler.AuthenticateState;
+import org.bluezoo.gumdrop.pop3.handler.AuthorizationHandler;
+import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
+import org.bluezoo.gumdrop.pop3.handler.ClientConnectedFactory;
+import org.bluezoo.gumdrop.pop3.handler.ConnectedState;
+import org.bluezoo.gumdrop.pop3.handler.ListState;
+import org.bluezoo.gumdrop.pop3.handler.MailboxStatusState;
+import org.bluezoo.gumdrop.pop3.handler.MarkDeletedState;
+import org.bluezoo.gumdrop.pop3.handler.ResetState;
+import org.bluezoo.gumdrop.pop3.handler.RetrieveState;
+import org.bluezoo.gumdrop.pop3.handler.TopState;
+import org.bluezoo.gumdrop.pop3.handler.TransactionHandler;
+import org.bluezoo.gumdrop.pop3.handler.UidlState;
+import org.bluezoo.gumdrop.pop3.handler.UpdateState;
 import org.bluezoo.util.ByteArrays;
 
 import java.io.ByteArrayOutputStream;
@@ -38,6 +57,7 @@ import java.nio.ByteOrder;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
 import java.net.InetSocketAddress;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -81,7 +101,9 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see https://www.rfc-editor.org/rfc/rfc2449 (POP3 Extensions)
  * @see https://www.rfc-editor.org/rfc/rfc2595 (STLS)
  */
-public class POP3Connection extends Connection {
+public class POP3Connection extends LineBasedConnection
+        implements ConnectedState, AuthenticateState, MailboxStatusState, ListState,
+                   RetrieveState, MarkDeletedState, ResetState, TopState, UidlState, UpdateState {
 
     private static final Logger LOGGER = Logger.getLogger(POP3Connection.class.getName());
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
@@ -129,6 +151,14 @@ public class POP3Connection extends Connection {
     private final POP3Server server;
     private final long connectionTimeMillis;
     private final String apopTimestamp; // For APOP authentication
+    
+    // Bound realm for this connection's SelectorLoop
+    private Realm realm;
+
+    // Handler interfaces for staged handler pattern
+    private ClientConnected clientConnected;
+    private AuthorizationHandler authorizationHandler;
+    private TransactionHandler transactionHandler;
 
     // POP3 session state
     private POP3State state = POP3State.AUTHORIZATION;
@@ -150,8 +180,7 @@ public class POP3Connection extends Connection {
     private int authIterations = 4096;         // Iteration count for SCRAM-SHA-256
     private byte[] ntlmChallenge = null;       // NTLM: server challenge
 
-    // Buffer management for command parsing
-    private ByteBuffer lineBuffer;
+    // Buffer for decoding command lines
     private CharBuffer charBuffer;
 
     // Telemetry
@@ -171,8 +200,7 @@ public class POP3Connection extends Connection {
         this.server = server;
         this.connectionTimeMillis = System.currentTimeMillis();
         this.lastActivityTime = connectionTimeMillis;
-        this.lineBuffer = ByteBuffer.allocate(MAX_LINE_LENGTH + 2); // +2 for CRLF
-        this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH + 2);
+        this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH + 2); // +2 for CRLF
         
         // Generate APOP timestamp if enabled (RFC 1939 section 7)
         if (server.isEnableAPOP()) {
@@ -180,6 +208,27 @@ public class POP3Connection extends Connection {
         } else {
             this.apopTimestamp = null;
         }
+    }
+
+    /**
+     * Returns the realm for authentication, bound to this connection's SelectorLoop.
+     * Lazily initializes the bound realm on first access.
+     *
+     * @return the realm, or null if none configured
+     */
+    private Realm getRealm() {
+        if (realm == null) {
+            Realm serverRealm = server.getRealm();
+            if (serverRealm != null) {
+                SelectorLoop loop = getSelectorLoop();
+                if (loop != null) {
+                    realm = serverRealm.forSelectorLoop(loop);
+                } else {
+                    realm = serverRealm;
+                }
+            }
+        }
+        return realm;
     }
 
     /**
@@ -203,6 +252,27 @@ public class POP3Connection extends Connection {
         initConnectionTrace();
         startSessionSpan();
         
+        // Check for handler factory
+        ClientConnectedFactory handlerFactory = server.getHandlerFactory();
+        if (handlerFactory != null) {
+            // Use handler pattern - create handler and let it decide
+            clientConnected = handlerFactory.createHandler();
+            ConnectionInfo info = new DefaultConnectionInfo(
+                    getRemoteSocketAddress(),
+                    getLocalSocketAddress(),
+                    secure,
+                    createTLSInfo());
+            clientConnected.connected(info, this);
+        } else {
+            // Default behavior - send greeting directly
+            sendGreeting();
+        }
+    }
+
+    /**
+     * Sends the standard POP3 greeting.
+     */
+    private void sendGreeting() throws IOException {
         // Send POP3 greeting (RFC 1939 section 3)
         if (apopTimestamp != null) {
             // APOP-capable greeting
@@ -212,6 +282,52 @@ public class POP3Connection extends Connection {
             sendOK(L10N.getString("pop3.greeting"));
         }
     }
+
+    // ========== ConnectedState IMPLEMENTATION ==========
+
+    @Override
+    public void acceptConnection(String greeting, AuthorizationHandler handler) {
+        this.authorizationHandler = handler;
+        try {
+            sendOK(greeting);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send greeting", e);
+            close();
+        }
+    }
+
+    @Override
+    public void acceptConnectionWithApop(String greeting, String timestamp, AuthorizationHandler handler) {
+        this.authorizationHandler = handler;
+        try {
+            sendOK(greeting + " " + timestamp);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send APOP greeting", e);
+            close();
+        }
+    }
+
+    @Override
+    public void rejectConnection() {
+        try {
+            sendERR(L10N.getString("pop3.err.connection_rejected"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send rejection", e);
+        }
+        close();
+    }
+
+    @Override
+    public void rejectConnection(String message) {
+        try {
+            sendERR(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send rejection", e);
+        }
+        close();
+    }
+
+    // ConnectedState.serverShuttingDown() - implemented below in shared section
 
     /**
      * Invoked when application data is received from the client.
@@ -223,82 +339,86 @@ public class POP3Connection extends Connection {
     @Override
     public void receive(ByteBuffer buf) {
         lastActivityTime = System.currentTimeMillis();
-        
-        try {
-            // Add incoming data to line buffer
-            while (buf.hasRemaining()) {
-                if (!lineBuffer.hasRemaining()) {
-                    // Line too long - protocol violation
-                    sendERR(L10N.getString("pop3.err.line_too_long"));
-                    close();
-                    return;
-                }
-                lineBuffer.put(buf.get());
-                
-                // Check for complete line (CRLF)
-                if (lineBuffer.position() >= 2) {
-                    int pos = lineBuffer.position();
-                    if (lineBuffer.get(pos - 2) == '\r' && lineBuffer.get(pos - 1) == '\n') {
-                        // Complete line received
-                        processLine();
-                    }
-                }
-            }
-            
-            // Check for session timeout
-            long elapsed = System.currentTimeMillis() - lastActivityTime;
-            if (state == POP3State.TRANSACTION && elapsed > server.getTransactionTimeout()) {
-                sendERR(L10N.getString("pop3.err.session_timeout"));
-                close();
-            }
-            
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error processing POP3 data", e);
-            try {
-                sendERR(L10N.getString("pop3.err.internal_error"));
-            } catch (IOException e2) {
-                LOGGER.log(Level.SEVERE, "Cannot send error response", e2);
-            }
-            close();
-        }
+        receiveLine(buf);
     }
 
     /**
-     * Processes a complete command line.
+     * Called when a complete CRLF-terminated line has been received.
+     * Decodes the line and dispatches the command.
+     *
+     * @param line buffer containing the complete line including CRLF
      */
-    private void processLine() throws IOException {
-        // Decode line from buffer
-        lineBuffer.flip();
-        charBuffer.clear();
-        US_ASCII_DECODER.decode(lineBuffer, charBuffer, true);
-        charBuffer.flip();
-        
-        // Extract command line without CRLF
-        String line = charBuffer.toString();
-        if (line.endsWith(CRLF)) {
-            line = line.substring(0, line.length() - 2);
+    @Override
+    protected void lineReceived(ByteBuffer line) {
+        try {
+            // Check line length (excluding CRLF)
+            int lineLength = line.remaining();
+            if (lineLength > MAX_LINE_LENGTH + 2) {
+                sendERR(L10N.getString("pop3.err.line_too_long"));
+                close();
+                return;
+            }
+
+            // Decode line from buffer
+            charBuffer.clear();
+            US_ASCII_DECODER.reset();
+            CoderResult result = US_ASCII_DECODER.decode(line, charBuffer, true);
+            if (result.isError()) {
+                sendERR(L10N.getString("pop3.err.invalid_command_encoding"));
+                return;
+            }
+            charBuffer.flip();
+
+            // Adjust limit to exclude CRLF terminator
+            int len = charBuffer.limit();
+            if (len >= 2 && charBuffer.get(len - 2) == '\r' && charBuffer.get(len - 1) == '\n') {
+                charBuffer.limit(len - 2);
+                len -= 2;
+            }
+
+            // Find space separator to split command and arguments
+            int spaceIndex = -1;
+            for (int i = 0; i < len; i++) {
+                if (charBuffer.get(i) == ' ') {
+                    spaceIndex = i;
+                    break;
+                }
+            }
+
+            // Extract command and arguments directly from CharBuffer
+            String command;
+            String args;
+            if (spaceIndex > 0) {
+                charBuffer.limit(spaceIndex);
+                command = charBuffer.toString().toUpperCase(Locale.ENGLISH);
+                charBuffer.limit(len);
+                charBuffer.position(spaceIndex + 1);
+                args = charBuffer.toString();
+            } else {
+                command = charBuffer.toString().toUpperCase(Locale.ENGLISH);
+                args = "";
+            }
+
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                String msg = L10N.getString("log.pop3_command");
+                msg = MessageFormat.format(msg, command, args);
+                LOGGER.finest(msg);
+            }
+
+            // Dispatch command based on current state
+            handleCommand(command, args);
+
+        } catch (IOException e) {
+            String logMsg = L10N.getString("log.error_processing_data");
+            LOGGER.log(Level.WARNING, logMsg, e);
+            try {
+                sendERR(L10N.getString("pop3.err.internal_error"));
+            } catch (IOException e2) {
+                String errMsg = L10N.getString("log.error_sending_response");
+                LOGGER.log(Level.SEVERE, errMsg, e2);
+            }
+            close();
         }
-        
-        // Clear buffers for next line
-        lineBuffer.clear();
-        
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("POP3 command: " + line);
-        }
-        
-        // Parse command and arguments
-        String command;
-        String args = "";
-        int spaceIndex = line.indexOf(' ');
-        if (spaceIndex > 0) {
-            command = line.substring(0, spaceIndex).toUpperCase(Locale.ENGLISH);
-            args = line.substring(spaceIndex + 1);
-        } else {
-            command = line.toUpperCase(Locale.ENGLISH);
-        }
-        
-        // Dispatch command based on current state
-        handleCommand(command, args);
     }
 
     /**
@@ -426,7 +546,7 @@ public class POP3Connection extends Connection {
         
         // Enforce login delay after failed attempts
         if (failedAuthAttempts > 0) {
-            long delay = server.getLoginDelay();
+            long delay = server.getLoginDelayMs();
             long elapsed = System.currentTimeMillis() - lastFailedAuthTime;
             if (elapsed < delay) {
                 try {
@@ -438,7 +558,7 @@ public class POP3Connection extends Connection {
         }
         
         // Authenticate with realm using passwordMatch (preferred method)
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendERR(L10N.getString("pop3.err.auth_not_configured"));
             close();
@@ -488,7 +608,7 @@ public class POP3Connection extends Connection {
         
         // Enforce login delay
         if (failedAuthAttempts > 0) {
-            long delay = server.getLoginDelay();
+            long delay = server.getLoginDelayMs();
             long elapsed = System.currentTimeMillis() - lastFailedAuthTime;
             if (elapsed < delay) {
                 try {
@@ -500,7 +620,7 @@ public class POP3Connection extends Connection {
         }
         
         // Use realm's getApopResponse for APOP challenge-response
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendERR(L10N.getString("pop3.err.auth_not_configured"));
             close();
@@ -590,45 +710,25 @@ public class POP3Connection extends Connection {
     private void handleAUTH(String args) throws IOException {
         if (args.isEmpty()) {
             // List supported mechanisms
-            sendOK(L10N.getString("pop3.auth_mechanisms"));
-            sendLine("PLAIN");
-            sendLine("LOGIN");
-            if (server.getRealm() != null) {
-                // DIGEST-MD5 uses getDigestHA1
-                String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
-                sendLine("DIGEST-MD5"); // Always advertise, will fail at runtime if not supported
-                
-                // Test if realm supports CRAM-MD5
-                try {
-                    server.getRealm().getCramMD5Response("__test__", "<test@test>");
-                    sendLine("CRAM-MD5");
-                } catch (UnsupportedOperationException e) {
-                    // CRAM-MD5 not available
+            Realm realm = getRealm();
+            if (realm != null) {
+                sendOK(L10N.getString("pop3.auth_mechanisms"));
+                java.util.Set<SASLMechanism> supported = realm.getSupportedSASLMechanisms();
+                for (SASLMechanism mech : supported) {
+                    // Skip mechanisms that require TLS if not secure
+                    if (!secure && mech.requiresTLS()) {
+                        continue;
+                    }
+                    // Skip EXTERNAL if not secure (needs client certificate)
+                    if (mech == SASLMechanism.EXTERNAL && !secure) {
+                        continue;
+                    }
+                    sendLine(mech.getMechanismName());
                 }
-                
-                // Test if realm supports SCRAM
-                try {
-                    server.getRealm().getScramCredentials("__test__");
-                    sendLine("SCRAM-SHA-256");
-                } catch (UnsupportedOperationException e) {
-                    // SCRAM not available
-                }
-                // Check for token-based auth
-                try {
-                    Realm.TokenValidationResult result = server.getRealm().validateBearerToken("");
-                    sendLine("OAUTHBEARER");
-                } catch (Exception e) {
-                    // Token validation not available
-                }
+                sendLine(".");
+            } else {
+                sendERR(L10N.getString("pop3.err.auth_not_configured"));
             }
-            // GSSAPI is always advertised (may fail at runtime if not configured)
-            sendLine("GSSAPI");
-            // EXTERNAL requires TLS with client certificate
-            if (secure) {
-                sendLine("EXTERNAL");
-            }
-            sendLine("NTLM");
-            sendLine(".");
             return;
         }
         
@@ -718,7 +818,7 @@ public class POP3Connection extends Connection {
      */
     private void handleAuthCRAMMD5(String initialResponse) throws IOException {
         // Check if realm supports getPassword (required for CRAM-MD5)
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendERR(L10N.getString("pop3.err.auth_not_configured"));
             return;
@@ -761,7 +861,7 @@ public class POP3Connection extends Connection {
             return;
         }
         
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendERR(L10N.getString("pop3.err.auth_not_configured"));
             return;
@@ -787,7 +887,7 @@ public class POP3Connection extends Connection {
      * Uses Realm.getScramCredentials() for authentication.
      */
     private void handleAuthSCRAM(String initialResponse) throws IOException {
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendERR(L10N.getString("pop3.err.auth_not_configured"));
             return;
@@ -854,7 +954,7 @@ public class POP3Connection extends Connection {
         }
         
         // Verify user exists in realm
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm != null && realm.passwordMatch(certUsername, "")) {
             // User exists (password check with empty string just checks existence in some realms)
             // For EXTERNAL, we trust the certificate
@@ -1163,7 +1263,7 @@ public class POP3Connection extends Connection {
             String user = response.substring(0, spaceIndex);
             String clientDigest = response.substring(spaceIndex + 1);
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             if (realm == null) {
                 sendERR(L10N.getString("pop3.err.auth_not_configured"));
                 resetAuthState();
@@ -1224,7 +1324,7 @@ public class POP3Connection extends Connection {
                 return;
             }
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             if (realm != null) {
                 Realm.TokenValidationResult result = realm.validateBearerToken(token);
                 if (result == null) {
@@ -1275,7 +1375,7 @@ public class POP3Connection extends Connection {
             String responseHash = params.get("response");
             
             if (digestUsername != null && responseHash != null) {
-                Realm realm = server.getRealm();
+                Realm realm = getRealm();
                 if (realm != null) {
                     String hostname = ((InetSocketAddress) getLocalSocketAddress()).getHostName();
                     String ha1 = realm.getDigestHA1(digestUsername, hostname);
@@ -1324,7 +1424,7 @@ public class POP3Connection extends Connection {
             
             // Simplified SCRAM validation using getScramCredentials
             if (pendingAuthUsername != null) {
-                Realm realm = server.getRealm();
+                Realm realm = getRealm();
                 if (realm != null) {
                     try {
                         Realm.ScramCredentials creds = realm.getScramCredentials(pendingAuthUsername);
@@ -1401,7 +1501,7 @@ public class POP3Connection extends Connection {
             String ntlmUsername = parseNTLMType3Username(type3Message);
             
             if (ntlmUsername != null) {
-                Realm realm = server.getRealm();
+                Realm realm = getRealm();
                 if (realm != null) {
                     // Check if user exists using userExists()
                     // A full implementation would validate the NTLM response hash
@@ -1444,7 +1544,7 @@ public class POP3Connection extends Connection {
         // Enforce login delay
         enforceLoginDelay();
         
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendERR(L10N.getString("pop3.err.auth_not_configured"));
             return false;
@@ -1477,7 +1577,7 @@ public class POP3Connection extends Connection {
      */
     private void enforceLoginDelay() {
         if (failedAuthAttempts > 0) {
-            long delay = server.getLoginDelay();
+            long delay = server.getLoginDelayMs();
             long elapsed = System.currentTimeMillis() - lastFailedAuthTime;
             if (elapsed < delay) {
                 try {
@@ -1510,6 +1610,315 @@ public class POP3Connection extends Connection {
         sendLine("+ " + data);
     }
 
+    // ========== STATE INTERFACE IMPLEMENTATIONS ==========
+
+    // --- AuthenticateState ---
+
+    @Override
+    public void accept(Mailbox mailbox, TransactionHandler handler) {
+        this.mailbox = mailbox;
+        this.transactionHandler = handler;
+        this.state = POP3State.TRANSACTION;
+        try {
+            sendOK(L10N.getString("pop3.mailbox_opened"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send mailbox opened response", e);
+            close();
+        }
+    }
+
+    @Override
+    public void reject(String message, AuthorizationHandler handler) {
+        this.authorizationHandler = handler;
+        failedAuthAttempts++;
+        lastFailedAuthTime = System.currentTimeMillis();
+        try {
+            sendERR(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send auth rejection", e);
+        }
+    }
+
+    @Override
+    public void rejectAndClose(String message) {
+        try {
+            sendERR(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send rejection", e);
+        }
+        close();
+    }
+
+    // --- serverShuttingDown() - shared by multiple State interfaces ---
+
+    @Override
+    public void serverShuttingDown() {
+        try {
+            sendERR(L10N.getString("pop3.err.server_shutting_down"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send shutdown message", e);
+        }
+        close();
+    }
+
+    // --- MailboxStatusState ---
+
+    @Override
+    public void sendStatus(int messageCount, long totalSize, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(messageCount + " " + totalSize);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send mailbox status response", e);
+        }
+    }
+
+    // MailboxStatusState.error - see shared error() below
+
+    // --- ListState ---
+
+    @Override
+    public void sendListing(int messageNumber, long size, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(messageNumber + " " + size);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send LIST response", e);
+        }
+    }
+
+    @Override
+    public ListWriter beginListing(int messageCount) {
+        try {
+            sendOK(messageCount + " messages");
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send LIST header", e);
+        }
+        return new ListWriterImpl();
+    }
+
+    @Override
+    public void noSuchMessage(TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendERR(L10N.getString("pop3.err.no_such_message"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send no such message", e);
+        }
+    }
+
+    @Override
+    public void messageDeleted(TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendERR(L10N.getString("pop3.err.message_deleted"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send message deleted", e);
+        }
+    }
+
+    @Override
+    public void error(String message, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendERR(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send error", e);
+        }
+    }
+
+    // --- ListWriter inner class ---
+
+    private class ListWriterImpl implements ListWriter {
+        @Override
+        public void message(int messageNumber, long size) {
+            try {
+                sendLine(messageNumber + " " + size);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send LIST entry", e);
+            }
+        }
+
+        @Override
+        public void end(TransactionHandler handler) {
+            transactionHandler = handler;
+            try {
+                sendLine(".");
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send LIST terminator", e);
+            }
+        }
+    }
+
+    // --- RetrieveState ---
+
+    @Override
+    public void sendMessage(long size, ReadableByteChannel content, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(size + " octets");
+            sendMessageContent(content);
+            sendLine(".");
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send message", e);
+        }
+    }
+
+    // RetrieveState.noSuchMessage, messageDeleted, error - already implemented above
+
+    // --- MarkDeletedState ---
+
+    @Override
+    public void markedDeleted(TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(L10N.getString("pop3.message_deleted"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send marked deleted response", e);
+        }
+    }
+
+    @Override
+    public void markedDeleted(String message, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send marked deleted response", e);
+        }
+    }
+
+    @Override
+    public void alreadyDeleted(TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendERR(L10N.getString("pop3.err.message_deleted"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send already deleted", e);
+        }
+    }
+
+    // MarkDeletedState.noSuchMessage, error - already implemented above
+
+    // --- ResetState ---
+
+    @Override
+    public void resetComplete(int messageCount, long totalSize, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(MessageFormat.format(L10N.getString("pop3.reset_response"), messageCount, totalSize));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send reset response", e);
+        }
+    }
+
+    // ResetState.error - already implemented above
+
+    // --- TopState ---
+
+    @Override
+    public void sendTop(ReadableByteChannel content, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(L10N.getString("pop3.top_follows"));
+            sendMessageContent(content);
+            sendLine(".");
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send TOP", e);
+        }
+    }
+
+    // TopState.noSuchMessage, messageDeleted, error - already implemented above
+
+    // --- UidlState ---
+
+    @Override
+    public void sendUid(int messageNumber, String uid, TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(messageNumber + " " + uid);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send UIDL response", e);
+        }
+    }
+
+    @Override
+    public UidlWriter beginListing() {
+        try {
+            sendOK(L10N.getString("pop3.uidl_follows"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send UIDL header", e);
+        }
+        return new UidlWriterImpl();
+    }
+
+    // UidlState.noSuchMessage, messageDeleted, error - already implemented above
+
+    // --- UidlWriter inner class ---
+
+    private class UidlWriterImpl implements UidlWriter {
+        @Override
+        public void message(int messageNumber, String uid) {
+            try {
+                sendLine(messageNumber + " " + uid);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send UIDL entry", e);
+            }
+        }
+
+        @Override
+        public void end(TransactionHandler handler) {
+            transactionHandler = handler;
+            try {
+                sendLine(".");
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send UIDL terminator", e);
+            }
+        }
+    }
+
+    // --- UpdateState ---
+
+    @Override
+    public void commitAndClose() {
+        try {
+            sendOK(L10N.getString("pop3.quit_response"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send QUIT response", e);
+        }
+        close();
+    }
+
+    @Override
+    public void commitAndClose(String message) {
+        try {
+            sendOK(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send QUIT response", e);
+        }
+        close();
+    }
+
+    @Override
+    public void partialCommit(String message) {
+        try {
+            sendERR(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send partial commit", e);
+        }
+        close();
+    }
+
+    @Override
+    public void updateFailed(String message) {
+        try {
+            sendERR(message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send update failed", e);
+        }
+        close();
+    }
+
     // ========== TRANSACTION STATE COMMANDS ==========
 
     /**
@@ -1521,6 +1930,12 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        if (transactionHandler != null) {
+            transactionHandler.mailboxStatus(mailbox, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             int count = mailbox.getMessageCount();
             long size = mailbox.getMailboxSize();
@@ -1540,6 +1955,18 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        int msgNum = args.isEmpty() ? 0 : parseMessageNumber(args);
+        if (!args.isEmpty() && msgNum < 0) {
+            sendERR(L10N.getString("pop3.err.invalid_message_number"));
+            return;
+        }
+        
+        if (transactionHandler != null) {
+            transactionHandler.list(mailbox, msgNum, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             if (args.isEmpty()) {
                 // List all messages
@@ -1555,12 +1982,6 @@ public class POP3Connection extends Connection {
                 sendLine(".");
             } else {
                 // List specific message
-                int msgNum = parseMessageNumber(args);
-                if (msgNum < 0) {
-                    sendERR(L10N.getString("pop3.err.invalid_message_number"));
-                    return;
-                }
-                
                 MessageDescriptor msg = mailbox.getMessage(msgNum);
                 if (msg == null || mailbox.isDeleted(msgNum)) {
                     sendERR(L10N.getString("pop3.err.no_such_message"));
@@ -1589,6 +2010,12 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        if (transactionHandler != null) {
+            transactionHandler.retrieveMessage(mailbox, msgNum, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             if (mailbox.isDeleted(msgNum)) {
                 sendERR(L10N.getString("pop3.err.message_deleted"));
@@ -1634,6 +2061,12 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        if (transactionHandler != null) {
+            transactionHandler.markDeleted(mailbox, msgNum, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             MessageDescriptor msg = mailbox.getMessage(msgNum);
             if (msg == null) {
@@ -1666,6 +2099,12 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        if (transactionHandler != null) {
+            transactionHandler.reset(mailbox, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             mailbox.undeleteAll();
             int count = mailbox.getMessageCount();
@@ -1706,6 +2145,12 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        if (transactionHandler != null) {
+            transactionHandler.top(mailbox, msgNum, lines, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             if (mailbox.isDeleted(msgNum)) {
                 sendERR(L10N.getString("pop3.err.message_deleted"));
@@ -1742,6 +2187,18 @@ public class POP3Connection extends Connection {
             return;
         }
         
+        int msgNum = args.isEmpty() ? 0 : parseMessageNumber(args);
+        if (!args.isEmpty() && msgNum < 0) {
+            sendERR(L10N.getString("pop3.err.invalid_message_number"));
+            return;
+        }
+        
+        if (transactionHandler != null) {
+            transactionHandler.uidl(mailbox, msgNum, this);
+            return;
+        }
+        
+        // Default behavior
         try {
             if (args.isEmpty()) {
                 // List all unique IDs
@@ -1757,12 +2214,6 @@ public class POP3Connection extends Connection {
                 sendLine(".");
             } else {
                 // Get unique ID for specific message
-                int msgNum = parseMessageNumber(args);
-                if (msgNum < 0) {
-                    sendERR(L10N.getString("pop3.err.invalid_message_number"));
-                    return;
-                }
-                
                 MessageDescriptor msg = mailbox.getMessage(msgNum);
                 if (msg == null || mailbox.isDeleted(msgNum)) {
                     sendERR(L10N.getString("pop3.err.no_such_message"));
@@ -1792,51 +2243,25 @@ public class POP3Connection extends Connection {
         
         // SASL authentication mechanisms (RFC 5034)
         // Build list of supported mechanisms based on Realm capabilities
-        StringBuilder saslLine = new StringBuilder("SASL");
-        saslLine.append(" PLAIN LOGIN"); // Always available with passwordMatch
-        
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm != null) {
-            // DIGEST-MD5 uses getDigestHA1
-            saslLine.append(" DIGEST-MD5");
-            
-            // Check for CRAM-MD5 support
-            try {
-                realm.getCramMD5Response("__test__", "<test@test>");
-                saslLine.append(" CRAM-MD5");
-            } catch (UnsupportedOperationException e) {
-                // CRAM-MD5 not available
-            }
-            
-            // Check for SCRAM support
-            try {
-                realm.getScramCredentials("__test__");
-                saslLine.append(" SCRAM-SHA-256");
-            } catch (UnsupportedOperationException e) {
-                // SCRAM not available
-            }
-            
-            // Check for token-based auth via Realm
-            try {
-                realm.validateBearerToken("");
-                saslLine.append(" OAUTHBEARER");
-            } catch (Exception e) {
-                // Token validation not available
+            java.util.Set<SASLMechanism> supported = realm.getSupportedSASLMechanisms();
+            if (!supported.isEmpty()) {
+                StringBuilder saslLine = new StringBuilder("SASL");
+                for (SASLMechanism mech : supported) {
+                    // Skip mechanisms that require TLS if not secure
+                    if (!secure && mech.requiresTLS()) {
+                        continue;
+                    }
+                    // Skip EXTERNAL if not secure (needs client certificate)
+                    if (mech == SASLMechanism.EXTERNAL && !secure) {
+                        continue;
+                    }
+                    saslLine.append(" ").append(mech.getMechanismName());
+                }
+                sendLine(saslLine.toString());
             }
         }
-        
-        // GSSAPI - always advertise, may fail at runtime
-        saslLine.append(" GSSAPI");
-        
-        // EXTERNAL requires TLS with client certificate
-        if (secure) {
-            saslLine.append(" EXTERNAL");
-        }
-        
-        // NTLM for Windows environments
-        saslLine.append(" NTLM");
-        
-        sendLine(saslLine.toString());
         
         // Optional capabilities
         if (apopTimestamp != null) {
@@ -1874,6 +2299,13 @@ public class POP3Connection extends Connection {
         if (state == POP3State.TRANSACTION) {
             // Enter UPDATE state and commit changes
             state = POP3State.UPDATE;
+            
+            if (transactionHandler != null) {
+                transactionHandler.quit(mailbox, this);
+                return;
+            }
+            
+            // Default behavior
             try {
                 if (mailbox != null) {
                     mailbox.close(true); // Expunge deleted messages
@@ -1901,6 +2333,10 @@ public class POP3Connection extends Connection {
 
     /**
      * Opens a mailbox for the authenticated user.
+     * 
+     * <p>If an authorization handler is configured, calls it with the 
+     * authenticated principal and lets it make the policy decision.
+     * Otherwise, opens the mailbox directly.
      */
     private boolean openMailbox(String user) throws IOException {
         MailboxFactory factory = server.getMailboxFactory();
@@ -1909,6 +2345,28 @@ public class POP3Connection extends Connection {
             return false;
         }
         
+        // If handler is configured, let it make the policy decision
+        if (authorizationHandler != null) {
+            final String finalUser = user;
+            Principal principal = new Principal() {
+                @Override
+                public String getName() {
+                    return finalUser;
+                }
+                
+                @Override
+                public String toString() {
+                    return "POP3Principal[" + finalUser + "]";
+                }
+            };
+            authorizationHandler.authenticate(principal, factory, this);
+            // The handler will call accept() or reject() on us
+            // Return true to indicate we're handling it asynchronously
+            // The state will be set by accept() if successful
+            return state == POP3State.TRANSACTION;
+        }
+        
+        // Default behavior - open mailbox directly
         try {
             store = factory.createStore();
             store.open(user);
@@ -2045,6 +2503,11 @@ public class POP3Connection extends Connection {
     @Override
     protected void disconnected() throws IOException {
         try {
+            // Notify handler of disconnection
+            if (clientConnected != null) {
+                clientConnected.disconnected();
+            }
+            
             // End telemetry spans first
             endAuthenticatedSpan();
             if (state == POP3State.UPDATE) {

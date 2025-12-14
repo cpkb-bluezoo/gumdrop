@@ -42,24 +42,27 @@ public class SettingsFrame extends Frame {
     static final int SETTINGS_MAX_FRAME_SIZE = 0x5;
     static final int SETTINGS_MAX_HEADER_LIST_SIZE = 0x6;
 
+    private static final int SETTING_ENTRY_SIZE = 6;
+
     boolean ack;
 
     Map<Integer,Integer> settings;
 
     /**
      * Constructor for a settings frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
      */
-    protected SettingsFrame(int flags, byte[] payload) throws ProtocolException {
+    protected SettingsFrame(int flags, ByteBuffer payload) throws ProtocolException {
         ack = (flags & FLAG_ACK) != 0;
         settings = new LinkedHashMap<>();
-        int offset = 0;
-        while (offset < payload.length) {
-            int identifier = ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
-            int value = ((int) payload[offset++] & 0xff) << 24
-                | ((int) payload[offset++] & 0xff) << 16
-                | ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
+        while (payload.hasRemaining()) {
+            int identifier = (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
+            int value = (payload.get() & 0xff) << 24
+                | (payload.get() & 0xff) << 16
+                | (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
             switch (identifier) {
                 case SETTINGS_ENABLE_PUSH:
                     if (value > 1) { // values other than 0 or 1 must be treated as PROTOCOL_ERROR
@@ -96,7 +99,7 @@ public class SettingsFrame extends Frame {
     }
 
     public int getLength() {
-        return settings.size() * 6;
+        return settings.size() * SETTING_ENTRY_SIZE;
     }
 
     public int getType() {
@@ -113,7 +116,7 @@ public class SettingsFrame extends Frame {
 
     protected void write(ByteBuffer buf) {
         super.write(buf);
-        // If ACK is set, pyload of SETTINGS frame must be empty
+        // If ACK is set, payload of SETTINGS frame must be empty
         if (!ack) {
             for (int identifier : settings.keySet()) {
                 int value = settings.get(identifier);
@@ -148,6 +151,8 @@ public class SettingsFrame extends Frame {
                     break;
                 case SETTINGS_MAX_HEADER_LIST_SIZE:
                     c.maxHeaderListSize = value;
+                    break;
+                default:
                     break;
             }
         }

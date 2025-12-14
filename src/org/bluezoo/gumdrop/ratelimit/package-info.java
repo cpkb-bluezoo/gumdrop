@@ -58,12 +58,12 @@
  * <pre>
  * &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
  *     &lt;!-- Connection rate limiting --&gt;
- *     &lt;property name="maxConnectionsPerIP"&gt;10&lt;/property&gt;
- *     &lt;property name="rateLimit"&gt;100/60s&lt;/property&gt;
+ *     &lt;property name="max-connections-per-ip"&gt;10&lt;/property&gt;
+ *     &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
  *     
  *     &lt;!-- Authentication rate limiting --&gt;
- *     &lt;property name="maxAuthFailures"&gt;5&lt;/property&gt;
- *     &lt;property name="authLockoutTime"&gt;5m&lt;/property&gt;
+ *     &lt;property name="max-auth-failures"&gt;5&lt;/property&gt;
+ *     &lt;property name="auth-lockout-time"&gt;5m&lt;/property&gt;
  * &lt;/server&gt;
  * </pre>
  *

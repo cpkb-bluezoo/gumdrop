@@ -22,8 +22,9 @@
 package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Realm;
 import org.bluezoo.gumdrop.SendCallback;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -348,27 +349,62 @@ public class POP3ProtocolTest {
     
     // ============== FUZZING TESTS ==============
     
+    /**
+     * Helper class that simulates the proper non-blocking buffer management
+     * done by Connection.processInbound() and SelectorLoop.
+     * 
+     * <p>The contract is:
+     * <ol>
+     *   <li>Append new data to the buffer (in write mode)</li>
+     *   <li>Flip to read mode</li>
+     *   <li>Call receive() - it processes complete lines and leaves position at unconsumed data</li>
+     *   <li>Compact to preserve unconsumed data for next append</li>
+     * </ol>
+     */
+    private static class BufferSimulator {
+        private ByteBuffer buffer = ByteBuffer.allocate(4096);
+        private final POP3Connection conn;
+        
+        BufferSimulator(POP3Connection conn) {
+            this.conn = conn;
+        }
+        
+        /**
+         * Simulates receiving data as the SelectorLoop would.
+         * Appends data to persistent buffer, then processes with proper compact().
+         */
+        void receive(byte[] data) {
+            // Append new data (buffer is in write mode after compact)
+            buffer.put(data);
+            
+            // Flip to read mode for processing
+            buffer.flip();
+            
+            // Call receive - leaves position at unconsumed data
+            conn.receive(buffer);
+            
+            // Compact to preserve unconsumed data for next append
+            buffer.compact();
+        }
+        
+        void receive(String data) {
+            receive(data.getBytes(StandardCharsets.US_ASCII));
+        }
+    }
+    
     @Test
     public void testFragmentedCommand() {
         // Test that POP3 commands can be sent in fragments
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Send command in multiple parts
-            String part1 = "CA";
-            String part2 = "PA";
-            String part3 = "\r";
-            String part4 = "\n";
-            
-            conn.receive(ByteBuffer.wrap(part1.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap(part2.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap(part3.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap(part4.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("CA");
+            sim.receive("PA");
+            sim.receive("\r");
+            sim.receive("\n");
             
             assertFalse("Should receive response to fragmented command", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -385,15 +421,12 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             String command = "NOOP\r\n";
             for (int i = 0; i < command.length(); i++) {
-                byte[] singleByte = new byte[] { (byte) command.charAt(i) };
-                conn.receive(ByteBuffer.wrap(singleByte));
-                Thread.sleep(1);
+                sim.receive(new byte[] { (byte) command.charAt(i) });
             }
-            
-            Thread.sleep(20);
             
             assertFalse("Should handle byte-by-byte delivery", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -432,12 +465,11 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Split in middle of command
-            conn.receive(ByteBuffer.wrap("NO".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("OP\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("NO");
+            sim.receive("OP\r\n");
             
             assertTrue("Should handle command split", 
                       String.join("\n", responses).contains("+OK"));
@@ -445,10 +477,8 @@ public class POP3ProtocolTest {
             responses.clear();
             
             // Split in middle of arguments
-            conn.receive(ByteBuffer.wrap("USER test".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("user\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("USER test");
+            sim.receive("user\r\n");
             
             assertTrue("Should handle argument split", 
                       String.join("\n", responses).contains("+OK"));
@@ -464,6 +494,7 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Send USER in many fragments
             String[] userFragments = {
@@ -478,11 +509,9 @@ public class POP3ProtocolTest {
             };
             
             for (String fragment : userFragments) {
-                conn.receive(ByteBuffer.wrap(fragment.getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(fragment);
             }
             
-            Thread.sleep(20);
             assertTrue("Should handle fragmented USER", 
                       String.join("\n", responses).contains("+OK"));
             
@@ -501,11 +530,8 @@ public class POP3ProtocolTest {
             };
             
             for (String fragment : passFragments) {
-                conn.receive(ByteBuffer.wrap(fragment.getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(fragment);
             }
-            
-            Thread.sleep(20);
             
             assertFalse("Should handle fragmented PASS", responses.isEmpty());
             
@@ -520,6 +546,7 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             String command = "CAPA\r\n";
             int pos = 0;
@@ -528,12 +555,9 @@ public class POP3ProtocolTest {
             while (pos < command.length()) {
                 int chunkSize = 1 + random.nextInt(Math.min(5, command.length() - pos));
                 String chunk = command.substring(pos, pos + chunkSize);
-                conn.receive(ByteBuffer.wrap(chunk.getBytes(StandardCharsets.US_ASCII)));
+                sim.receive(chunk);
                 pos += chunkSize;
-                Thread.sleep(2);
             }
-            
-            Thread.sleep(20);
             
             assertFalse("Should handle random chunk sizes", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -550,12 +574,11 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Split between CR and LF
-            conn.receive(ByteBuffer.wrap("NOOP\r".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("NOOP\r");
+            sim.receive("\n");
             
             assertFalse("Should handle CRLF split", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -572,6 +595,7 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Build a command with a very long username
             StringBuilder longUser = new StringBuilder("USER ");
@@ -585,11 +609,8 @@ public class POP3ProtocolTest {
             for (int i = 0; i < command.length(); i += 5) {
                 int end = Math.min(i + 5, command.length());
                 String chunk = command.substring(i, end);
-                conn.receive(ByteBuffer.wrap(chunk.getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(chunk);
             }
-            
-            Thread.sleep(30);
             
             assertFalse("Should handle long fragmented command", responses.isEmpty());
             // Will fail authentication but should parse correctly
@@ -608,22 +629,19 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Send USER in fragments
-            conn.receive(ByteBuffer.wrap("USER te".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("stuser\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("USER te");
+            sim.receive("stuser\r\n");
             
             // Verify USER succeeded
             String userResponse = String.join("\n", responses);
             responses.clear();
             
             // Send PASS in fragments  
-            conn.receive(ByteBuffer.wrap("PASS te".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("stpass\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("PASS te");
+            sim.receive("stpass\r\n");
             
             // Should work if state was preserved
             String passResponse = String.join("\n", responses);
@@ -632,10 +650,8 @@ public class POP3ProtocolTest {
             responses.clear();
             
             // Send STAT in fragments to verify authenticated state
-            conn.receive(ByteBuffer.wrap("ST".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("AT\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("ST");
+            sim.receive("AT\r\n");
             
             String statResponse = String.join("\n", responses);
             assertTrue("Should be in authenticated state", 
@@ -652,6 +668,7 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             String sequence = "USER testuser\r\nPASS testpass\r\nSTAT\r\nQUIT\r\n";
             
@@ -659,11 +676,8 @@ public class POP3ProtocolTest {
             for (int i = 0; i < sequence.length(); i += 2) {
                 int end = Math.min(i + 2, sequence.length());
                 String chunk = sequence.substring(i, end);
-                conn.receive(ByteBuffer.wrap(chunk.getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(chunk);
             }
-            
-            Thread.sleep(50);
             
             assertFalse("Should handle extreme fragmentation", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -681,29 +695,25 @@ public class POP3ProtocolTest {
         try {
             POP3Connection conn = createPOP3Connection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // USER with 1-byte fragments
             String user = "USER testuser\r\n";
             for (int i = 0; i < user.length(); i++) {
-                conn.receive(ByteBuffer.wrap(new byte[] {(byte) user.charAt(i)}));
-                Thread.sleep(1);
+                sim.receive(new byte[] {(byte) user.charAt(i)});
             }
-            Thread.sleep(20);
             responses.clear();
             
             // PASS with 3-byte fragments
             String pass = "PASS testpass\r\n";
             for (int i = 0; i < pass.length(); i += 3) {
                 int end = Math.min(i + 3, pass.length());
-                conn.receive(ByteBuffer.wrap(pass.substring(i, end).getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(pass.substring(i, end));
             }
-            Thread.sleep(20);
             responses.clear();
             
             // STAT as complete command
-            conn.receive(ByteBuffer.wrap("STAT\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("STAT\r\n");
             
             assertFalse("Should handle mixed fragmentation patterns", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -739,6 +749,16 @@ public class POP3ProtocolTest {
         @Override
         public boolean isUserInRole(String username, String role) {
             return true;
+        }
+        
+        @Override
+        public java.util.Set<SASLMechanism> getSupportedSASLMechanisms() {
+            return java.util.EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN);
+        }
+        
+        @Override
+        public Realm forSelectorLoop(org.bluezoo.gumdrop.SelectorLoop loop) {
+            return this;
         }
     }
     
@@ -798,7 +818,7 @@ public class POP3ProtocolTest {
         public void renameMailbox(String oldName, String newName) throws IOException {}
         
         @Override
-        public java.util.Set<String> getMailboxAttributes(String mailboxName) throws IOException {
+        public java.util.Set<org.bluezoo.gumdrop.mailbox.MailboxAttribute> getMailboxAttributes(String mailboxName) throws IOException {
             return java.util.Collections.emptySet();
         }
     }

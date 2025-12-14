@@ -59,6 +59,7 @@ import java.util.logging.Level;
 final class ContextClassLoader extends ClassLoader {
 
     private final ContainerClassLoader parent;
+    private final ClassLoader fallbackParent; // For test environments
     private final Context context;
     private final boolean manager; // if this is the manager webapp
 
@@ -68,6 +69,18 @@ final class ContextClassLoader extends ClassLoader {
     ContextClassLoader(ContainerClassLoader parent, Context context, boolean manager) {
         super(parent);
         this.parent = parent;
+        this.fallbackParent = null;
+        this.context = context;
+        this.manager = manager;
+    }
+
+    /**
+     * Constructor for test environments where ContainerClassLoader is not available.
+     */
+    ContextClassLoader(ClassLoader fallbackParent, Context context, boolean manager) {
+        super(fallbackParent);
+        this.parent = null;
+        this.fallbackParent = fallbackParent;
         this.context = context;
         this.manager = manager;
     }
@@ -104,7 +117,7 @@ final class ContextClassLoader extends ClassLoader {
                 return t;
             }
             // Dependency or JRE bootstrap class
-            if (!parent.isContainerClass(name)) {
+            if (parent == null || !parent.isContainerClass(name)) {
                 return super.loadClass(name, resolve);
             }
             throw new ClassNotFoundException(name);
@@ -221,21 +234,31 @@ final class ContextClassLoader extends ClassLoader {
             return resourceUrl;
         }
         // Resource is not in context. Delegate to parent
-        for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
-            resourceUrl = parent.findResource(url, name);
-            if (resourceUrl != null) {
-                return resourceUrl;
+        if (parent != null) {
+            for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
+                resourceUrl = parent.findResource(url, name);
+                if (resourceUrl != null) {
+                    return resourceUrl;
+                }
             }
+            // Resource is not in dependency jars
+            ClassLoader bootstrapClassLoader = parent.getParent();
+            return bootstrapClassLoader.getResource(name);
+        } else {
+            return fallbackParent.getResource(name);
         }
-        // Resource is not in dependency jars
-        ClassLoader bootstrapClassLoader = parent.getParent();
-        return bootstrapClassLoader.getResource(name);
     }
 
     @Override protected URL findResource(String name) {
         try {
-            return context.getResource("/WEB-INF/classes/" + name);
-            // TODO WEB-INF/resources inside WEB_INF/lib
+            // First check WEB-INF/classes
+            URL url = context.getResource("/WEB-INF/classes/" + name);
+            if (url != null) {
+                return url;
+            }
+            // Check META-INF/resources inside JARs in WEB-INF/lib
+            // This is handled by context.getResource() which searches JAR resources
+            return context.getResource("/" + name);
         } catch (MalformedURLException e) {
             String message = Context.L10N.getString("err.load_resource");
             message = MessageFormat.format(message, name);
@@ -253,15 +276,19 @@ final class ContextClassLoader extends ClassLoader {
             return in;
         }
         // Resource is not in context. Delegate to parent
-        for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
-            in = parent.findResourceAsStream(url, name);
-            if (in != null) {
-                return in;
+        if (parent != null) {
+            for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
+                in = parent.findResourceAsStream(url, name);
+                if (in != null) {
+                    return in;
+                }
             }
+            // Resource is not in dependency jars
+            ClassLoader bootstrapClassLoader = parent.getParent();
+            return bootstrapClassLoader.getResourceAsStream(name);
+        } else {
+            return fallbackParent.getResourceAsStream(name);
         }
-        // Resource is not in dependency jars
-        ClassLoader bootstrapClassLoader = parent.getParent();
-        return bootstrapClassLoader.getResourceAsStream(name);
     }
 
     private InputStream findResourceAsStream(String name) {
@@ -276,11 +303,15 @@ final class ContextClassLoader extends ClassLoader {
         if (contextResource != null) {
             acc.add(contextResource);
         }
-        for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
-            acc.add(parent.findResource(url, name));
+        if (parent != null) {
+            for (URL url : parent.getURLs()) { // This is only the dependency jars, not the container jar
+                acc.add(parent.findResource(url, name));
+            }
+            ClassLoader bootstrapClassLoader = parent.getParent();
+            addResources(acc, bootstrapClassLoader.getResources(name));
+        } else {
+            addResources(acc, fallbackParent.getResources(name));
         }
-        ClassLoader bootstrapClassLoader = parent.getParent();
-        addResources(acc, bootstrapClassLoader.getResources(name));
         return new IteratorEnumeration<URL>(acc.iterator());
     }
 

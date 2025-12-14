@@ -1,6 +1,6 @@
 <?xml version='1.0' standalone='yes'?>
 <!--
-	Copyright (C) 2005 Chris Burdess
+	Copyright (C) 2005, 2025 Chris Burdess
 
   This file is part of gumdrop.
 
@@ -18,7 +18,7 @@
   along with gumdrop; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 -->
-<web-app version='2.4'>
+<web-app version='4.0' xmlns='http://xmlns.jcp.org/xml/ns/javaee'>
 
   <display-name>Manager</display-name>
   <description>Servlet context administration facility</description>
@@ -36,5 +36,31 @@
   <welcome-file-list>
     <welcome-file>manager</welcome-file>
   </welcome-file-list>
+
+  <!-- Security configuration -->
+  
+  <!-- Protect all URLs in this webapp -->
+  <security-constraint>
+    <display-name>Manager Security Constraint</display-name>
+    <web-resource-collection>
+      <web-resource-name>Protected Area</web-resource-name>
+      <url-pattern>/*</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+      <role-name>manager</role-name>
+    </auth-constraint>
+  </security-constraint>
+
+  <!-- Use HTTP Basic authentication -->
+  <login-config>
+    <auth-method>BASIC</auth-method>
+    <realm-name>Gumdrop Manager</realm-name>
+  </login-config>
+
+  <!-- Declare the manager role -->
+  <security-role>
+    <description>Users who can access the manager application</description>
+    <role-name>manager</role-name>
+  </security-role>
 
 </web-app>

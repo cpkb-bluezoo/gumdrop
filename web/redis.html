@@ -1,0 +1,907 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Redis Client - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop Redis Client</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a fully asynchronous Redis client that integrates with the
+framework's event-driven architecture. Like all Gumdrop clients, the Redis
+client uses non-blocking I/O and callbacks, making it ideal for use within
+server implementations that need to access Redis for caching, session storage,
+rate limiting, or pub/sub messaging.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#basic-usage">Basic Usage</a></li>
+<li><a href="#selector-affinity">SelectorLoop Affinity</a></li>
+<li><a href="#commands">Supported Commands</a></li>
+<li><a href="#handlers">Result Handlers</a></li>
+<li><a href="#pubsub">Pub/Sub</a></li>
+<li><a href="#transactions">Transactions</a></li>
+<li><a href="#tls">TLS Connections</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#examples">Server Integration Examples</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The Redis client follows the same patterns as other Gumdrop clients (LDAP,
+SMTP, HTTP). It uses the RESP (Redis Serialization Protocol) for wire-level
+communication, with a streaming decoder that handles partial data gracefully.
+</p>
+
+<h4>Key Components</h4>
+
+<ul>
+<li><code>org.bluezoo.gumdrop.redis.client.RedisClient</code> - connection
+factory that creates connections to a Redis server</li>
+<li><code>org.bluezoo.gumdrop.redis.client.RedisClientConnection</code> -
+protocol handler implementing the RESP protocol</li>
+<li><code>org.bluezoo.gumdrop.redis.client.RedisSession</code> - interface
+exposing all Redis operations</li>
+<li><code>org.bluezoo.gumdrop.redis.client.RedisConnectionReady</code> -
+entry point handler receiving the ready notification</li>
+<li><code>org.bluezoo.gumdrop.redis.codec</code> - RESP encoder/decoder</li>
+</ul>
+
+<h4>Asynchronous Model</h4>
+
+<p>
+All Redis operations are asynchronous. When you call a command method, it
+immediately encodes and sends the command, then returns. When the response
+arrives (possibly much later), your callback is invoked on the connection's
+SelectorLoop thread.
+</p>
+
+<p>
+This model supports natural pipelining—you can issue many commands without
+waiting for responses:
+</p>
+
+<pre>
+session.set("key1", "value1", handler);
+session.set("key2", "value2", handler);
+session.set("key3", "value3", handler);
+session.get("key1", getHandler);
+// All commands sent immediately; responses arrive in order
+</pre>
+
+<h3 id="basic-usage">Basic Usage</h3>
+
+<p>
+Connect to Redis and execute commands using callback handlers:
+</p>
+
+<pre>
+RedisClient client = new RedisClient(selectorLoop, "localhost", 6379);
+
+client.connect(new RedisConnectionReady() {
+    @Override
+    public void handleReady(RedisSession session) {
+        // Connection established, start using Redis
+        session.ping(new StringResultHandler() {
+            @Override
+            public void handleResult(String result, RedisSession s) {
+                // result is "PONG"
+                System.out.println("Redis says: " + result);
+            }
+            
+            @Override
+            public void handleError(String error, RedisSession s) {
+                System.err.println("Error: " + error);
+            }
+        });
+    }
+    
+    @Override
+    public void onConnected(ConnectionInfo info) {
+        // TCP connection established
+    }
+    
+    @Override
+    public void onDisconnected() {
+        // Connection closed
+    }
+    
+    @Override
+    public void onTLSStarted(TLSInfo info) {
+        // TLS handshake complete (for secure connections)
+    }
+    
+    @Override
+    public void onError(Exception e) {
+        e.printStackTrace();
+    }
+});
+</pre>
+
+<h4>Storing and Retrieving Values</h4>
+
+<pre>
+session.set("user:1:name", "Alice", new StringResultHandler() {
+    @Override
+    public void handleResult(String result, RedisSession s) {
+        // result is "OK"
+        // Now retrieve the value
+        s.get("user:1:name", new BulkResultHandler() {
+            @Override
+            public void handleResult(byte[] value, RedisSession session) {
+                String name = new String(value, StandardCharsets.UTF_8);
+                System.out.println("Name: " + name);  // "Alice"
+            }
+            
+            @Override
+            public void handleNull(RedisSession session) {
+                System.out.println("Key not found");
+            }
+            
+            @Override
+            public void handleError(String error, RedisSession session) {
+                System.err.println("Error: " + error);
+            }
+        });
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession s) {
+        System.err.println("SET failed: " + error);
+    }
+});
+</pre>
+
+<h3 id="selector-affinity">SelectorLoop Affinity</h3>
+
+<p>
+When using the Redis client from within a Gumdrop server (such as an HTTP
+servlet, SMTP handler, or any other protocol implementation), the client
+connection should be assigned to the same SelectorLoop as the originating
+server connection. This provides several important benefits:
+</p>
+
+<ul>
+<li><b>Unified I/O</b> - server and Redis client I/O are multiplexed on the
+same thread, avoiding context switching overhead</li>
+<li><b>No synchronisation</b> - callbacks execute on the same thread as the
+server request handler, eliminating race conditions</li>
+<li><b>Efficient relay</b> - data flows through the server without thread
+handoffs</li>
+<li><b>Simplified state</b> - request context is naturally available in Redis
+callbacks</li>
+</ul>
+
+<h4>Obtaining the SelectorLoop</h4>
+
+<p>
+Within a Gumdrop connection handler, obtain the current SelectorLoop from the
+connection object:
+</p>
+
+<pre>
+// Inside an HTTP servlet or protocol handler
+SelectorLoop loop = connection.getSelectorLoop();
+
+// Create Redis client bound to this loop
+RedisClient redis = new RedisClient(loop, "localhost", 6379);
+</pre>
+
+<h4>Callback Threading</h4>
+
+<p>
+When using SelectorLoop affinity, Redis callbacks execute on the same thread
+as your server connection. This means you can safely access connection state
+without synchronisation:
+</p>
+
+<pre>
+// Inside SMTP handler's mailFrom() callback
+public void mailFrom(String sender, MailFromCallback callback) {
+    SelectorLoop loop = connection.getSelectorLoop();
+    
+    // Check sender reputation in Redis
+    redisSession.get("reputation:" + sender, new BulkResultHandler() {
+        @Override
+        public void handleResult(byte[] value, RedisSession session) {
+            int score = Integer.parseInt(new String(value, UTF_8));
+            if (score &lt; 0) {
+                callback.mailFromReply(SenderPolicyResult.REJECT_SPAM_REPUTATION);
+            } else {
+                callback.mailFromReply(SenderPolicyResult.ACCEPT);
+            }
+        }
+        
+        @Override
+        public void handleNull(RedisSession session) {
+            // Unknown sender, accept for now
+            callback.mailFromReply(SenderPolicyResult.ACCEPT);
+        }
+        
+        @Override
+        public void handleError(String error, RedisSession session) {
+            // Redis unavailable, fail open
+            callback.mailFromReply(SenderPolicyResult.ACCEPT);
+        }
+    });
+}
+</pre>
+
+<p>
+Note how the <code>callback.mailFromReply()</code> is invoked directly from
+the Redis handler—this is safe because both are on the same SelectorLoop
+thread.
+</p>
+
+<h4>Connection Pooling Pattern</h4>
+
+<p>
+For high-throughput servers, maintain a pool of Redis connections per
+SelectorLoop. This avoids connection setup overhead and supports pipelining:
+</p>
+
+<pre>
+public class RedisPool {
+    private final Map&lt;SelectorLoop, RedisSession&gt; sessions = new ConcurrentHashMap&lt;&gt;();
+    private final String host;
+    private final int port;
+    
+    public RedisPool(String host, int port) {
+        this.host = host;
+        this.port = port;
+    }
+    
+    public void getSession(SelectorLoop loop, final SessionCallback callback) {
+        RedisSession existing = sessions.get(loop);
+        if (existing != null) {
+            callback.onSession(existing);
+            return;
+        }
+        
+        // Create new connection for this SelectorLoop
+        RedisClient client = new RedisClient(loop, host, port);
+        client.connect(new RedisConnectionReady() {
+            @Override
+            public void handleReady(RedisSession session) {
+                sessions.put(loop, session);
+                callback.onSession(session);
+            }
+            
+            @Override
+            public void onConnected(ConnectionInfo info) { }
+            
+            @Override
+            public void onDisconnected() {
+                sessions.remove(loop);
+            }
+            
+            @Override
+            public void onTLSStarted(TLSInfo info) { }
+            
+            @Override
+            public void onError(Exception e) {
+                callback.onError(e);
+            }
+        });
+    }
+    
+    public interface SessionCallback {
+        void onSession(RedisSession session);
+        void onError(Exception e);
+    }
+}
+</pre>
+
+<h3 id="commands">Supported Commands</h3>
+
+<p>
+The <code>RedisSession</code> interface provides methods for all common Redis
+commands, organised by data type.
+</p>
+
+<h4>Connection Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>auth(password, handler)</code></td><td>AUTH</td><td>Authenticate (Redis 5 and earlier)</td></tr>
+<tr><td><code>auth(user, password, handler)</code></td><td>AUTH</td><td>Authenticate with ACL (Redis 6+)</td></tr>
+<tr><td><code>ping(handler)</code></td><td>PING</td><td>Test connection</td></tr>
+<tr><td><code>select(index, handler)</code></td><td>SELECT</td><td>Select database</td></tr>
+<tr><td><code>echo(message, handler)</code></td><td>ECHO</td><td>Echo message</td></tr>
+<tr><td><code>quit()</code></td><td>QUIT</td><td>Close connection</td></tr>
+</table>
+
+<h4>String Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>get(key, handler)</code></td><td>GET</td><td>Get value</td></tr>
+<tr><td><code>set(key, value, handler)</code></td><td>SET</td><td>Set value</td></tr>
+<tr><td><code>setex(key, seconds, value, handler)</code></td><td>SETEX</td><td>Set with expiration</td></tr>
+<tr><td><code>setnx(key, value, handler)</code></td><td>SETNX</td><td>Set if not exists</td></tr>
+<tr><td><code>incr(key, handler)</code></td><td>INCR</td><td>Increment</td></tr>
+<tr><td><code>incrby(key, amount, handler)</code></td><td>INCRBY</td><td>Increment by amount</td></tr>
+<tr><td><code>decr(key, handler)</code></td><td>DECR</td><td>Decrement</td></tr>
+<tr><td><code>mget(handler, keys...)</code></td><td>MGET</td><td>Get multiple</td></tr>
+<tr><td><code>mset(handler, keysAndValues...)</code></td><td>MSET</td><td>Set multiple</td></tr>
+</table>
+
+<h4>Key Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>del(handler, keys...)</code></td><td>DEL</td><td>Delete keys</td></tr>
+<tr><td><code>exists(key, handler)</code></td><td>EXISTS</td><td>Check existence</td></tr>
+<tr><td><code>expire(key, seconds, handler)</code></td><td>EXPIRE</td><td>Set expiration</td></tr>
+<tr><td><code>ttl(key, handler)</code></td><td>TTL</td><td>Get time to live</td></tr>
+<tr><td><code>persist(key, handler)</code></td><td>PERSIST</td><td>Remove expiration</td></tr>
+<tr><td><code>keys(pattern, handler)</code></td><td>KEYS</td><td>Find keys by pattern</td></tr>
+<tr><td><code>type(key, handler)</code></td><td>TYPE</td><td>Get key type</td></tr>
+</table>
+
+<h4>Hash Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>hget(key, field, handler)</code></td><td>HGET</td><td>Get field</td></tr>
+<tr><td><code>hset(key, field, value, handler)</code></td><td>HSET</td><td>Set field</td></tr>
+<tr><td><code>hgetall(key, handler)</code></td><td>HGETALL</td><td>Get all fields</td></tr>
+<tr><td><code>hdel(key, handler, fields...)</code></td><td>HDEL</td><td>Delete fields</td></tr>
+<tr><td><code>hexists(key, field, handler)</code></td><td>HEXISTS</td><td>Check field exists</td></tr>
+<tr><td><code>hincrby(key, field, amount, handler)</code></td><td>HINCRBY</td><td>Increment field</td></tr>
+</table>
+
+<h4>List Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>lpush(key, handler, values...)</code></td><td>LPUSH</td><td>Push to head</td></tr>
+<tr><td><code>rpush(key, handler, values...)</code></td><td>RPUSH</td><td>Push to tail</td></tr>
+<tr><td><code>lpop(key, handler)</code></td><td>LPOP</td><td>Pop from head</td></tr>
+<tr><td><code>rpop(key, handler)</code></td><td>RPOP</td><td>Pop from tail</td></tr>
+<tr><td><code>lrange(key, start, stop, handler)</code></td><td>LRANGE</td><td>Get range</td></tr>
+<tr><td><code>llen(key, handler)</code></td><td>LLEN</td><td>Get length</td></tr>
+</table>
+
+<h4>Set Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>sadd(key, handler, members...)</code></td><td>SADD</td><td>Add members</td></tr>
+<tr><td><code>srem(key, handler, members...)</code></td><td>SREM</td><td>Remove members</td></tr>
+<tr><td><code>smembers(key, handler)</code></td><td>SMEMBERS</td><td>Get all members</td></tr>
+<tr><td><code>sismember(key, member, handler)</code></td><td>SISMEMBER</td><td>Check membership</td></tr>
+<tr><td><code>scard(key, handler)</code></td><td>SCARD</td><td>Get cardinality</td></tr>
+</table>
+
+<h4>Sorted Set Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>zadd(key, score, member, handler)</code></td><td>ZADD</td><td>Add with score</td></tr>
+<tr><td><code>zrange(key, start, stop, handler)</code></td><td>ZRANGE</td><td>Get by rank</td></tr>
+<tr><td><code>zrevrange(key, start, stop, handler)</code></td><td>ZREVRANGE</td><td>Get by rank (descending)</td></tr>
+<tr><td><code>zscore(key, member, handler)</code></td><td>ZSCORE</td><td>Get score</td></tr>
+<tr><td><code>zrank(key, member, handler)</code></td><td>ZRANK</td><td>Get rank</td></tr>
+<tr><td><code>zincrby(key, increment, member, handler)</code></td><td>ZINCRBY</td><td>Increment score</td></tr>
+</table>
+
+<h4>Generic Command</h4>
+
+<p>
+For commands not covered by specific methods, use the generic
+<code>command()</code> method:
+</p>
+
+<pre>
+session.command(handler, "OBJECT", "ENCODING", "mykey");
+</pre>
+
+<h3 id="handlers">Result Handlers</h3>
+
+<p>
+Each command type has a corresponding result handler interface:
+</p>
+
+<ul>
+<li><code>StringResultHandler</code> - for commands returning simple strings
+("OK", "PONG")</li>
+<li><code>BulkResultHandler</code> - for commands returning bulk strings or
+null (GET, HGET)</li>
+<li><code>IntegerResultHandler</code> - for commands returning integers
+(INCR, LPUSH, DEL)</li>
+<li><code>BooleanResultHandler</code> - convenience for integer-as-boolean
+(EXISTS, SISMEMBER)</li>
+<li><code>ArrayResultHandler</code> - for commands returning arrays
+(KEYS, LRANGE, HGETALL)</li>
+<li><code>MessageHandler</code> - for Pub/Sub messages</li>
+</ul>
+
+<h4>BulkResultHandler Example</h4>
+
+<pre>
+session.get("key", new BulkResultHandler() {
+    @Override
+    public void handleResult(byte[] value, RedisSession session) {
+        // Value found - convert bytes to string if needed
+        String s = new String(value, StandardCharsets.UTF_8);
+    }
+    
+    @Override
+    public void handleNull(RedisSession session) {
+        // Key doesn't exist
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession session) {
+        // Redis error (e.g., WRONGTYPE)
+    }
+});
+</pre>
+
+<h4>ArrayResultHandler Example</h4>
+
+<pre>
+session.hgetall("user:1", new ArrayResultHandler() {
+    @Override
+    public void handleResult(List&lt;RESPValue&gt; array, RedisSession session) {
+        // HGETALL returns alternating field/value pairs
+        for (int i = 0; i &lt; array.size(); i += 2) {
+            String field = array.get(i).asString();
+            String value = array.get(i + 1).asString();
+            System.out.println(field + " = " + value);
+        }
+    }
+    
+    @Override
+    public void handleNull(RedisSession session) {
+        // Key doesn't exist
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession session) {
+        // Error occurred
+    }
+});
+</pre>
+
+<h3 id="pubsub">Pub/Sub</h3>
+
+<p>
+Redis Pub/Sub enables real-time messaging between services. When you subscribe
+to channels, the connection enters Pub/Sub mode and messages are delivered
+through the <code>MessageHandler</code>.
+</p>
+
+<pre>
+session.subscribe(new MessageHandler() {
+    @Override
+    public void handleMessage(String channel, byte[] message) {
+        String text = new String(message, StandardCharsets.UTF_8);
+        System.out.println("Received on " + channel + ": " + text);
+    }
+    
+    @Override
+    public void handlePatternMessage(String pattern, String channel, byte[] message) {
+        // For psubscribe patterns
+    }
+    
+    @Override
+    public void handleSubscribed(String channel, int subscriptionCount) {
+        System.out.println("Subscribed to " + channel);
+    }
+    
+    @Override
+    public void handlePatternSubscribed(String pattern, int subscriptionCount) {
+        System.out.println("Pattern subscribed: " + pattern);
+    }
+    
+    @Override
+    public void handleUnsubscribed(String channel, int subscriptionCount) {
+        System.out.println("Unsubscribed from " + channel);
+    }
+    
+    @Override
+    public void handlePatternUnsubscribed(String pattern, int subscriptionCount) {
+        System.out.println("Pattern unsubscribed: " + pattern);
+    }
+    
+    @Override
+    public void handleError(String error) {
+        System.err.println("Pub/Sub error: " + error);
+    }
+}, "events", "notifications");
+</pre>
+
+<h4>Pattern Subscriptions</h4>
+
+<pre>
+// Subscribe to all channels matching a pattern
+session.psubscribe(messageHandler, "user:*", "order:*");
+</pre>
+
+<h4>Publishing</h4>
+
+<p>
+Publishing is done on a separate connection (not in Pub/Sub mode):
+</p>
+
+<pre>
+session.publish("events", "user logged in", new IntegerResultHandler() {
+    @Override
+    public void handleResult(long subscriberCount, RedisSession session) {
+        System.out.println("Message sent to " + subscriberCount + " subscribers");
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession session) {
+        System.err.println("Publish failed: " + error);
+    }
+});
+</pre>
+
+<h3 id="transactions">Transactions</h3>
+
+<p>
+Redis transactions provide atomic execution of multiple commands:
+</p>
+
+<pre>
+// Start transaction
+session.multi(new StringResultHandler() {
+    @Override
+    public void handleResult(String result, RedisSession session) {
+        // Queue commands (responses will be QUEUED)
+        session.incr("counter", null);
+        session.get("counter", null);
+        session.set("last_updated", String.valueOf(System.currentTimeMillis()), null);
+        
+        // Execute all queued commands
+        session.exec(new ArrayResultHandler() {
+            @Override
+            public void handleResult(List&lt;RESPValue&gt; results, RedisSession session) {
+                // results[0] = INCR result (integer)
+                // results[1] = GET result (bulk string)
+                // results[2] = SET result ("OK")
+                long newValue = results.get(0).asLong();
+                String current = results.get(1).asString();
+            }
+            
+            @Override
+            public void handleNull(RedisSession session) {
+                // Transaction aborted (WATCH key was modified)
+            }
+            
+            @Override
+            public void handleError(String error, RedisSession session) {
+                System.err.println("Transaction failed: " + error);
+            }
+        });
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession session) {
+        System.err.println("MULTI failed: " + error);
+    }
+});
+</pre>
+
+<h4>Optimistic Locking with WATCH</h4>
+
+<pre>
+// Watch key for changes
+session.watch(new StringResultHandler() {
+    @Override
+    public void handleResult(String result, RedisSession session) {
+        // Read current value
+        session.get("balance", new BulkResultHandler() {
+            @Override
+            public void handleResult(byte[] value, RedisSession session) {
+                int balance = Integer.parseInt(new String(value, UTF_8));
+                int newBalance = balance - 100;
+                
+                // Start transaction
+                session.multi(new StringResultHandler() {
+                    @Override
+                    public void handleResult(String r, RedisSession s) {
+                        s.set("balance", String.valueOf(newBalance), null);
+                        s.exec(new ArrayResultHandler() {
+                            @Override
+                            public void handleResult(List&lt;RESPValue&gt; results, RedisSession s) {
+                                // Transaction succeeded
+                            }
+                            
+                            @Override
+                            public void handleNull(RedisSession s) {
+                                // Someone modified balance - retry
+                            }
+                            
+                            @Override
+                            public void handleError(String e, RedisSession s) { }
+                        });
+                    }
+                    
+                    @Override
+                    public void handleError(String e, RedisSession s) { }
+                });
+            }
+            
+            @Override
+            public void handleNull(RedisSession session) { }
+            
+            @Override
+            public void handleError(String error, RedisSession session) { }
+        });
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession session) { }
+}, "balance");
+</pre>
+
+<h3 id="tls">TLS Connections</h3>
+
+<p>
+Connect to Redis over TLS by enabling secure mode and configuring the
+truststore:
+</p>
+
+<pre>
+RedisClient client = new RedisClient(selectorLoop, "redis.example.com", 6379);
+client.setSecure(true);
+client.setKeystoreFile("/path/to/truststore.p12");
+client.setKeystorePass("password");
+client.connect(handler);
+</pre>
+
+<p>
+For mutual TLS (client certificates), configure the keystore containing your
+client certificate:
+</p>
+
+<pre>
+client.setSecure(true);
+client.setKeystoreFile("/path/to/client-keystore.p12");
+client.setKeystorePass("password");
+client.setTruststoreFile("/path/to/truststore.p12");
+client.setTruststorePass("password");
+</pre>
+
+<h3 id="authentication">Authentication</h3>
+
+<h4>Password Authentication (Redis 5 and earlier)</h4>
+
+<pre>
+client.connect(new RedisConnectionReady() {
+    @Override
+    public void handleReady(RedisSession session) {
+        session.auth("your-password", new StringResultHandler() {
+            @Override
+            public void handleResult(String result, RedisSession s) {
+                // Authenticated - start using Redis
+                s.set("key", "value", myHandler);
+            }
+            
+            @Override
+            public void handleError(String error, RedisSession s) {
+                System.err.println("Authentication failed: " + error);
+                s.close();
+            }
+        });
+    }
+    // ... other callbacks
+});
+</pre>
+
+<h4>ACL Authentication (Redis 6+)</h4>
+
+<pre>
+session.auth("username", "password", new StringResultHandler() {
+    @Override
+    public void handleResult(String result, RedisSession s) {
+        // Authenticated as specific user
+    }
+    
+    @Override
+    public void handleError(String error, RedisSession s) {
+        // Authentication failed
+    }
+});
+</pre>
+
+<h3 id="examples">Server Integration Examples</h3>
+
+<h4>Rate Limiting in SMTP Handler</h4>
+
+<pre>
+public class RateLimitingMailHandler implements SMTPConnectionHandler {
+    private final RedisSession redis;
+    private final int maxMessagesPerMinute = 60;
+    
+    @Override
+    public void mailFrom(String sender, MailFromCallback callback) {
+        String key = "rate:" + sender;
+        
+        redis.incr(key, new IntegerResultHandler() {
+            @Override
+            public void handleResult(long count, RedisSession session) {
+                if (count == 1) {
+                    // First message - set expiry
+                    session.expire(key, 60, new BooleanResultHandler() {
+                        @Override
+                        public void handleResult(boolean set, RedisSession s) {
+                            checkLimit(count, callback);
+                        }
+                        
+                        @Override
+                        public void handleError(String error, RedisSession s) {
+                            callback.mailFromReply(SenderPolicyResult.ACCEPT);
+                        }
+                    });
+                } else {
+                    checkLimit(count, callback);
+                }
+            }
+            
+            @Override
+            public void handleError(String error, RedisSession session) {
+                // Redis unavailable - fail open
+                callback.mailFromReply(SenderPolicyResult.ACCEPT);
+            }
+        });
+    }
+    
+    private void checkLimit(long count, MailFromCallback callback) {
+        if (count &gt; maxMessagesPerMinute) {
+            callback.mailFromReply(SenderPolicyResult.TEMP_REJECT_RATE_LIMIT);
+        } else {
+            callback.mailFromReply(SenderPolicyResult.ACCEPT);
+        }
+    }
+}
+</pre>
+
+<h4>Session Storage in Servlet</h4>
+
+<pre>
+public class RedisSessionServlet extends HttpServlet {
+    private RedisPool redisPool;
+    
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
+            throws IOException {
+        String sessionId = req.getSession().getId();
+        SelectorLoop loop = ((Request) req).getConnection().getSelectorLoop();
+        
+        redisPool.getSession(loop, new RedisPool.SessionCallback() {
+            @Override
+            public void onSession(RedisSession redis) {
+                redis.hgetall("session:" + sessionId, new ArrayResultHandler() {
+                    @Override
+                    public void handleResult(List&lt;RESPValue&gt; array, RedisSession s) {
+                        Map&lt;String, String&gt; attrs = new HashMap&lt;&gt;();
+                        for (int i = 0; i &lt; array.size(); i += 2) {
+                            attrs.put(array.get(i).asString(), 
+                                     array.get(i + 1).asString());
+                        }
+                        req.setAttribute("redisSession", attrs);
+                        // Continue processing...
+                    }
+                    
+                    @Override
+                    public void handleNull(RedisSession s) {
+                        req.setAttribute("redisSession", Collections.emptyMap());
+                    }
+                    
+                    @Override
+                    public void handleError(String error, RedisSession s) {
+                        resp.sendError(500, "Redis error: " + error);
+                    }
+                });
+            }
+            
+            @Override
+            public void onError(Exception e) {
+                resp.sendError(500, "Redis unavailable");
+            }
+        });
+    }
+}
+</pre>
+
+<h4>Caching with Expiration</h4>
+
+<pre>
+public class CachingService {
+    private final RedisSession redis;
+    private final int cacheTTLSeconds = 300; // 5 minutes
+    
+    public void getCached(String key, CacheCallback callback) {
+        redis.get("cache:" + key, new BulkResultHandler() {
+            @Override
+            public void handleResult(byte[] value, RedisSession session) {
+                callback.onHit(new String(value, UTF_8));
+            }
+            
+            @Override
+            public void handleNull(RedisSession session) {
+                callback.onMiss();
+            }
+            
+            @Override
+            public void handleError(String error, RedisSession session) {
+                callback.onError(new Exception(error));
+            }
+        });
+    }
+    
+    public void cache(String key, String value) {
+        redis.setex("cache:" + key, cacheTTLSeconds, value, 
+            new StringResultHandler() {
+                @Override
+                public void handleResult(String r, RedisSession s) { }
+                
+                @Override
+                public void handleError(String e, RedisSession s) {
+                    // Log error but don't fail
+                }
+            });
+    }
+    
+    public interface CacheCallback {
+        void onHit(String value);
+        void onMiss();
+        void onError(Exception e);
+    }
+}
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop Redis Client</p>
+
+</body>
+</html>
+

@@ -63,7 +63,7 @@
  * <ul>
  *   <li>IMAPS (implicit TLS on port 993)</li>
  *   <li>STARTTLS for connection upgrade</li>
- *   <li>SASL authentication mechanisms via {@link org.bluezoo.gumdrop.sasl}</li>
+ *   <li>SASL authentication mechanisms via {@link org.bluezoo.gumdrop.auth}</li>
  *   <li>LOGINDISABLED until TLS established</li>
  * </ul>
  *
@@ -84,7 +84,7 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 - IMAP4rev2</a>
  * @see org.bluezoo.gumdrop.mailbox
- * @see org.bluezoo.gumdrop.sasl
+ * @see org.bluezoo.gumdrop.auth
  */
 package org.bluezoo.gumdrop.imap;
 

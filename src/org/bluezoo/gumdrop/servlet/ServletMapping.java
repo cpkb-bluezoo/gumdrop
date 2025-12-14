@@ -21,14 +21,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
-import java.util.EnumSet;
 import java.util.Set;
-import javax.servlet.DispatcherType;
-
-
-import javax.servlet.ServletSecurityElement;
 
 /**
  * A servlet mapping entry.
@@ -38,8 +32,7 @@ import javax.servlet.ServletSecurityElement;
 final class ServletMapping {
 
     String servletName;
-    Set<String> urlPatterns = new LinkedHashSet<>();
-    ServletSecurityElement constraint; // TODO
+    Set<String> urlPatterns = new LinkedHashSet<String>();
 
     ServletDef servletDef; // resolved link to servlet definition
 

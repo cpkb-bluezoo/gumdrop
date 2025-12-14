@@ -44,10 +44,10 @@ public class HTTP2FrameTest {
         int flags = 0;
         int stream = 1;
         
-        DataFrame frame = new DataFrame(flags, stream, payload);
+        DataFrame frame = new DataFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertEquals("Stream ID should match", 1, frame.getStream());
-        assertEquals("Data should match", "Hello", new String(frame.data));
+        assertEquals("Data should match", "Hello", bufferToString(frame.data));
         assertFalse("Should not be padded", frame.padded);
         assertFalse("Should not be end of stream", frame.endStream);
         assertEquals("Type should be DATA", Frame.TYPE_DATA, frame.getType());
@@ -64,11 +64,11 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_PADDED;
         int stream = 1;
         
-        DataFrame frame = new DataFrame(flags, stream, payload);
+        DataFrame frame = new DataFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertTrue("Should be padded", frame.padded);
         assertEquals("Pad length should be 3", 3, frame.padLength);
-        assertEquals("Data should be 'Hi'", "Hi", new String(frame.data));
+        assertEquals("Data should be 'Hi'", "Hi", bufferToString(frame.data));
     }
     
     @Test
@@ -77,7 +77,7 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_END_STREAM;
         int stream = 1;
         
-        DataFrame frame = new DataFrame(flags, stream, payload);
+        DataFrame frame = new DataFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertTrue("Should be end of stream", frame.endStream);
     }
@@ -85,7 +85,7 @@ public class HTTP2FrameTest {
     @Test
     public void testDataFrameSerialization() {
         byte[] data = "Test data".getBytes();
-        DataFrame frame = new DataFrame(1, false, true, 0, data);
+        DataFrame frame = new DataFrame(1, false, true, 0, ByteBuffer.wrap(data));
         
         ByteBuffer buf = ByteBuffer.allocate(100);
         frame.write(buf);
@@ -114,7 +114,7 @@ public class HTTP2FrameTest {
     public void testDataFrameWithPaddingSerialization() {
         byte[] data = "Padded".getBytes();
         int padLength = 5;
-        DataFrame frame = new DataFrame(1, true, false, padLength, data);
+        DataFrame frame = new DataFrame(1, true, false, padLength, ByteBuffer.wrap(data));
         
         ByteBuffer buf = ByteBuffer.allocate(100);
         frame.write(buf);
@@ -138,13 +138,13 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_END_HEADERS;
         int stream = 1;
         
-        HeadersFrame frame = new HeadersFrame(flags, stream, headerBlock);
+        HeadersFrame frame = new HeadersFrame(flags, stream, ByteBuffer.wrap(headerBlock));
         
         assertEquals("Stream ID should match", 1, frame.getStream());
         assertFalse("Should not be padded", frame.padded);
         assertFalse("Should not have priority", frame.priority);
         assertTrue("Should have END_HEADERS", frame.endHeaders);
-        assertArrayEquals("Header block should match", headerBlock, frame.headerBlockFragment);
+        assertArrayEquals("Header block should match", headerBlock, bufferToBytes(frame.headerBlockFragment));
     }
     
     @Test
@@ -158,13 +158,13 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_PRIORITY | Frame.FLAG_END_HEADERS;
         int stream = 1;
         
-        HeadersFrame frame = new HeadersFrame(flags, stream, payload);
+        HeadersFrame frame = new HeadersFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertTrue("Should have priority", frame.priority);
         assertTrue("Should be exclusive", frame.streamDependencyExclusive);
         assertEquals("Stream dependency should be 0", 0, frame.streamDependency);
         assertEquals("Weight should be 16", 16, frame.weight);
-        assertEquals("Header block should be 1 byte", 1, frame.headerBlockFragment.length);
+        assertEquals("Header block should be 1 byte", 1, frame.headerBlockFragment.remaining());
     }
     
     @Test
@@ -177,11 +177,11 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_PADDED | Frame.FLAG_END_HEADERS;
         int stream = 1;
         
-        HeadersFrame frame = new HeadersFrame(flags, stream, payload);
+        HeadersFrame frame = new HeadersFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertTrue("Should be padded", frame.padded);
         assertEquals("Pad length should be 2", 2, frame.padLength);
-        assertEquals("Header block should be 1 byte", 1, frame.headerBlockFragment.length);
+        assertEquals("Header block should be 1 byte", 1, frame.headerBlockFragment.remaining());
     }
     
     @Test
@@ -213,7 +213,7 @@ public class HTTP2FrameTest {
         };
         int flags = 0;
         
-        SettingsFrame frame = new SettingsFrame(flags, payload);
+        SettingsFrame frame = new SettingsFrame(flags, ByteBuffer.wrap(payload));
         
         assertFalse("Should not be ACK", frame.ack);
         assertEquals("Should have 2 settings", 2, frame.settings.size());
@@ -228,7 +228,7 @@ public class HTTP2FrameTest {
         byte[] payload = new byte[0];
         int flags = Frame.FLAG_ACK;
         
-        SettingsFrame frame = new SettingsFrame(flags, payload);
+        SettingsFrame frame = new SettingsFrame(flags, ByteBuffer.wrap(payload));
         
         assertTrue("Should be ACK", frame.ack);
         assertTrue("Settings should be empty for ACK", frame.settings.isEmpty());
@@ -240,7 +240,7 @@ public class HTTP2FrameTest {
         byte[] payload = new byte[] {
             0x00, 0x02, 0x00, 0x00, 0x00, 0x02  // SETTINGS_ENABLE_PUSH = 2 (invalid)
         };
-        new SettingsFrame(0, payload);
+        new SettingsFrame(0, ByteBuffer.wrap(payload));
     }
     
     @Test(expected = ProtocolException.class)
@@ -249,7 +249,7 @@ public class HTTP2FrameTest {
         byte[] payload = new byte[] {
             0x00, 0x05, 0x00, 0x00, 0x10, 0x00  // SETTINGS_MAX_FRAME_SIZE = 4096 (too small)
         };
-        new SettingsFrame(0, payload);
+        new SettingsFrame(0, ByteBuffer.wrap(payload));
     }
     
     @Test
@@ -294,7 +294,7 @@ public class HTTP2FrameTest {
         };
         int stream = 0;  // Connection-level
         
-        WindowUpdateFrame frame = new WindowUpdateFrame(stream, payload);
+        WindowUpdateFrame frame = new WindowUpdateFrame(stream, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 0", 0, frame.getStream());
         assertEquals("Window increment should be 65535", 65535, frame.windowSizeIncrement);
@@ -307,7 +307,7 @@ public class HTTP2FrameTest {
         };
         int stream = 5;  // Stream-level
         
-        WindowUpdateFrame frame = new WindowUpdateFrame(stream, payload);
+        WindowUpdateFrame frame = new WindowUpdateFrame(stream, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 5", 5, frame.getStream());
         assertEquals("Window increment should be 65536", 65536, frame.windowSizeIncrement);
@@ -317,7 +317,7 @@ public class HTTP2FrameTest {
     public void testWindowUpdateFrameZeroIncrement() throws ProtocolException {
         // Zero increment is a protocol error
         byte[] payload = new byte[] { 0x00, 0x00, 0x00, 0x00 };
-        new WindowUpdateFrame(0, payload);
+        new WindowUpdateFrame(0, ByteBuffer.wrap(payload));
     }
     
     @Test
@@ -356,7 +356,7 @@ public class HTTP2FrameTest {
         };
         int stream = 5;
         
-        PriorityFrame frame = new PriorityFrame(stream, payload);
+        PriorityFrame frame = new PriorityFrame(stream, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 5", 5, frame.getStream());
         assertTrue("Should be exclusive", frame.streamDependencyExclusive);
@@ -372,7 +372,7 @@ public class HTTP2FrameTest {
         };
         int stream = 1;
         
-        PriorityFrame frame = new PriorityFrame(stream, payload);
+        PriorityFrame frame = new PriorityFrame(stream, ByteBuffer.wrap(payload));
         
         assertFalse("Should not be exclusive", frame.streamDependencyExclusive);
         assertEquals("Dependency should be 0", 0, frame.streamDependency);
@@ -389,7 +389,7 @@ public class HTTP2FrameTest {
         };
         int stream = 1;
         
-        RstStreamFrame frame = new RstStreamFrame(stream, payload);
+        RstStreamFrame frame = new RstStreamFrame(stream, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 1", 1, frame.getStream());
         assertEquals("Error code should be CANCEL", Frame.ERROR_CANCEL, frame.errorCode);
@@ -422,7 +422,7 @@ public class HTTP2FrameTest {
                 (byte) (errorCode & 0xFF)
             };
             
-            RstStreamFrame frame = new RstStreamFrame(1, payload);
+            RstStreamFrame frame = new RstStreamFrame(1, ByteBuffer.wrap(payload));
             assertEquals("Error code should match", errorCode, frame.errorCode);
         }
     }
@@ -457,7 +457,7 @@ public class HTTP2FrameTest {
             0x00, 0x00, 0x00, 0x00   // NO_ERROR
         };
         
-        GoawayFrame frame = new GoawayFrame(payload);
+        GoawayFrame frame = new GoawayFrame(ByteBuffer.wrap(payload));
         
         assertEquals("Last stream ID should be 7", 7, frame.lastStream);
         assertEquals("Error code should be NO_ERROR", Frame.ERROR_NO_ERROR, frame.errorCode);
@@ -474,7 +474,7 @@ public class HTTP2FrameTest {
             'T', 'e', 's', 't'       // debug data
         };
         
-        GoawayFrame frame = new GoawayFrame(payload);
+        GoawayFrame frame = new GoawayFrame(ByteBuffer.wrap(payload));
         
         assertEquals("Last stream ID should be 5", 5, frame.lastStream);
         assertEquals("Error code should be INTERNAL_ERROR", Frame.ERROR_INTERNAL_ERROR, frame.errorCode);
@@ -488,11 +488,11 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_END_HEADERS;
         int stream = 1;
         
-        ContinuationFrame frame = new ContinuationFrame(flags, stream, headerBlock);
+        ContinuationFrame frame = new ContinuationFrame(flags, stream, ByteBuffer.wrap(headerBlock));
         
         assertEquals("Stream should be 1", 1, frame.getStream());
         assertTrue("Should have END_HEADERS", frame.endHeaders);
-        assertArrayEquals("Header block should match", headerBlock, frame.headerBlockFragment);
+        assertArrayEquals("Header block should match", headerBlock, bufferToBytes(frame.headerBlockFragment));
         assertEquals("Type should be CONTINUATION", Frame.TYPE_CONTINUATION, frame.getType());
     }
     
@@ -508,7 +508,7 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_END_HEADERS;
         int stream = 1;
         
-        PushPromiseFrame frame = new PushPromiseFrame(flags, stream, payload);
+        PushPromiseFrame frame = new PushPromiseFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 1", 1, frame.getStream());
         assertEquals("Promised stream should be 2", 2, frame.promisedStream);
@@ -526,7 +526,7 @@ public class HTTP2FrameTest {
         int flags = Frame.FLAG_PADDED | Frame.FLAG_END_HEADERS;
         int stream = 1;
         
-        PushPromiseFrame frame = new PushPromiseFrame(flags, stream, payload);
+        PushPromiseFrame frame = new PushPromiseFrame(flags, stream, ByteBuffer.wrap(payload));
         
         assertTrue("Should be padded", frame.padded);
         assertEquals("Pad length should be 2", 2, frame.padLength);
@@ -539,11 +539,11 @@ public class HTTP2FrameTest {
     public void testFrameHeaderLength() {
         // Test that frame length can be encoded correctly for various sizes
         byte[] smallData = new byte[100];
-        DataFrame smallFrame = new DataFrame(1, false, false, 0, smallData);
+        DataFrame smallFrame = new DataFrame(1, false, false, 0, ByteBuffer.wrap(smallData));
         assertEquals("Small frame length", 100, smallFrame.getLength());
         
         byte[] mediumData = new byte[16384];  // Max default frame size
-        DataFrame mediumFrame = new DataFrame(1, false, false, 0, mediumData);
+        DataFrame mediumFrame = new DataFrame(1, false, false, 0, ByteBuffer.wrap(mediumData));
         assertEquals("Medium frame length", 16384, mediumFrame.getLength());
     }
     
@@ -554,7 +554,7 @@ public class HTTP2FrameTest {
         
         for (int streamId : streamIds) {
             byte[] data = "test".getBytes();
-            DataFrame frame = new DataFrame(streamId, false, false, 0, data);
+            DataFrame frame = new DataFrame(streamId, false, false, 0, ByteBuffer.wrap(data));
             
             ByteBuffer buf = ByteBuffer.allocate(20);
             frame.write(buf);
@@ -597,6 +597,24 @@ public class HTTP2FrameTest {
         // SETTINGS/PING ACK flag
         assertEquals("ACK", Frame.flagsToString(Frame.TYPE_SETTINGS, Frame.FLAG_ACK));
         assertEquals("ACK", Frame.flagsToString(Frame.TYPE_PING, Frame.FLAG_ACK));
+    }
+
+    // ========== Helper Methods ==========
+
+    private static String bufferToString(ByteBuffer buf) {
+        byte[] bytes = new byte[buf.remaining()];
+        int pos = buf.position();
+        buf.get(bytes);
+        buf.position(pos); // restore position
+        return new String(bytes);
+    }
+
+    private static byte[] bufferToBytes(ByteBuffer buf) {
+        byte[] bytes = new byte[buf.remaining()];
+        int pos = buf.position();
+        buf.get(bytes);
+        buf.position(pos); // restore position
+        return bytes;
     }
 }
 

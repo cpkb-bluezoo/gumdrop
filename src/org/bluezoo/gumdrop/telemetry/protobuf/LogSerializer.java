@@ -24,12 +24,17 @@ package org.bluezoo.gumdrop.telemetry.protobuf;
 import org.bluezoo.gumdrop.telemetry.Attribute;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Serializes log records to OTLP protobuf format.
+ *
+ * <p>The serializer can write directly to a {@link WritableByteChannel} for
+ * streaming output, or to a {@link ByteBuffer} for buffered output.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -68,33 +73,62 @@ public class LogSerializer {
     }
 
     /**
-     * Serializes log records to OTLP LogsData format.
+     * Serializes log records to OTLP LogsData format, writing to a channel.
+     *
+     * <p>This is the primary serialization method. Data is streamed to the
+     * channel as it is serialized.
      *
      * @param records the log records to serialize
-     * @param buffer the buffer to write to
-     * @return the write result
+     * @param channel the channel to write to
+     * @throws IOException if an I/O error occurs
      */
-    public WriteResult serialize(List<LogRecord> records, ByteBuffer buffer) {
-        ProtobufWriter writer = new ProtobufWriter(buffer);
+    public void serialize(List<LogRecord> records, WritableByteChannel channel) throws IOException {
+        ProtobufWriter writer = new ProtobufWriter(channel);
         writeLogsData(writer, records);
-        return writer.getResult();
     }
 
     /**
-     * Serializes a single log record to OTLP LogsData format.
+     * Serializes log records to OTLP LogsData format, returning a ByteBuffer.
      *
-     * @param record the log record to serialize
-     * @param buffer the buffer to write to
-     * @return the write result
+     * <p>Convenience method for callers who need buffered output.
+     *
+     * @param records the log records to serialize
+     * @return a ByteBuffer containing the serialized logs (ready for reading)
+     * @throws IOException if serialization fails
      */
-    public WriteResult serialize(LogRecord record, ByteBuffer buffer) {
-        ProtobufWriter writer = new ProtobufWriter(buffer);
-        writer.writeMessageField(OTLPFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
-                new ResourceLogsWriter(record));
-        return writer.getResult();
+    public ByteBuffer serialize(List<LogRecord> records) throws IOException {
+        ByteBufferChannel channel = new ByteBufferChannel();
+        serialize(records, channel);
+        return channel.toByteBuffer();
     }
 
-    private void writeLogsData(ProtobufWriter writer, List<LogRecord> records) {
+    /**
+     * Serializes a single log record to OTLP LogsData format, writing to a channel.
+     *
+     * @param record the log record to serialize
+     * @param channel the channel to write to
+     * @throws IOException if an I/O error occurs
+     */
+    public void serialize(LogRecord record, WritableByteChannel channel) throws IOException {
+        ProtobufWriter writer = new ProtobufWriter(channel);
+        writer.writeMessageField(OTLPFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
+                new ResourceLogsWriter(record));
+    }
+
+    /**
+     * Serializes a single log record to OTLP LogsData format, returning a ByteBuffer.
+     *
+     * @param record the log record to serialize
+     * @return a ByteBuffer containing the serialized log (ready for reading)
+     * @throws IOException if serialization fails
+     */
+    public ByteBuffer serialize(LogRecord record) throws IOException {
+        ByteBufferChannel channel = new ByteBufferChannel();
+        serialize(record, channel);
+        return channel.toByteBuffer();
+    }
+
+    private void writeLogsData(ProtobufWriter writer, List<LogRecord> records) throws IOException {
         // LogsData { repeated ResourceLogs resource_logs = 1; }
         writer.writeMessageField(OTLPFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
                 new ResourceLogsListWriter(records));
@@ -110,7 +144,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
             writer.writeMessageField(OTLPFieldNumbers.RESOURCE_LOGS_RESOURCE,
                     new ResourceWriter());
@@ -132,7 +166,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
             writer.writeMessageField(OTLPFieldNumbers.RESOURCE_LOGS_RESOURCE,
                     new ResourceWriter());
@@ -148,7 +182,7 @@ public class LogSerializer {
 
     private class ResourceWriter implements ProtobufWriter.MessageContent {
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated KeyValue attributes = 1
             writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
                     "service.name", serviceName);
@@ -180,7 +214,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
             writer.writeMessageField(OTLPFieldNumbers.SCOPE_LOGS_SCOPE,
                     new InstrumentationScopeWriter());
@@ -199,7 +233,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
             writer.writeMessageField(OTLPFieldNumbers.SCOPE_LOGS_SCOPE,
                     new InstrumentationScopeWriter());
@@ -212,9 +246,9 @@ public class LogSerializer {
         }
     }
 
-    private class InstrumentationScopeWriter implements ProtobufWriter.MessageContent {
+    private static class InstrumentationScopeWriter implements ProtobufWriter.MessageContent {
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
             writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
             // string version = 2
@@ -222,7 +256,7 @@ public class LogSerializer {
         }
     }
 
-    private class LogRecordWriter implements ProtobufWriter.MessageContent {
+    private static class LogRecordWriter implements ProtobufWriter.MessageContent {
         private final LogRecord record;
 
         LogRecordWriter(LogRecord record) {
@@ -230,7 +264,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 time_unix_nano = 1
             writer.writeFixed64Field(OTLPFieldNumbers.LOG_RECORD_TIME_UNIX_NANO,
                     record.getTimeUnixNano());
@@ -271,7 +305,7 @@ public class LogSerializer {
         }
     }
 
-    private class AttributeWriter implements ProtobufWriter.MessageContent {
+    private static class AttributeWriter implements ProtobufWriter.MessageContent {
         private final Attribute attr;
 
         AttributeWriter(Attribute attr) {
@@ -279,7 +313,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string key = 1
             writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, attr.getKey());
 
@@ -289,7 +323,7 @@ public class LogSerializer {
         }
     }
 
-    private class AnyValueWriter implements ProtobufWriter.MessageContent {
+    private static class AnyValueWriter implements ProtobufWriter.MessageContent {
         private final Attribute attr;
 
         AnyValueWriter(Attribute attr) {
@@ -297,7 +331,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             switch (attr.getType()) {
                 case Attribute.TYPE_STRING:
                     writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE,
@@ -322,7 +356,7 @@ public class LogSerializer {
     // -- Helper methods --
 
     private static void writeKeyValue(ProtobufWriter writer, int fieldNumber,
-                                       String key, String value) {
+                                       String key, String value) throws IOException {
         writer.writeMessageField(fieldNumber, new StringKeyValueWriter(key, value));
     }
 
@@ -336,7 +370,7 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, key);
             writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
                     new StringAnyValueWriter(value));
@@ -351,10 +385,8 @@ public class LogSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE, value);
         }
     }
-
 }
-

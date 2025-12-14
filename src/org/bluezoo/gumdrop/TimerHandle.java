@@ -27,6 +27,7 @@ package org.bluezoo.gumdrop;
  * <p>Returned by timer scheduling methods to allow the caller to
  * cancel a pending timer before it fires.
  *
+ * @see ChannelHandler
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface TimerHandle {

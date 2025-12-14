@@ -22,73 +22,34 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.HTTPConnection;
-import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.Stream;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
 
 /**
- * A servlet connection is an HTTP connection implementation for servlet streams.
+ * A servlet connection is an HTTP connection implementation for the servlet container.
+ * Uses the {@link ServletHandlerFactory} from {@link ServletServer} to create
+ * request handlers for each incoming request.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class ServletConnection extends HTTPConnection {
 
-    private static final Logger LOGGER = Logger.getLogger(ServletConnection.class.getName());
-
-    final Container container;
     final ServletServer server;
-
-    /**
-     * Response queue. This holds the streams in the same order they arrive
-     * in, so as to coordinate sending responses in the correct order.
-     */
-    final BlockingQueue<ServletStream> responseQueue = new LinkedBlockingQueue<>();
 
     ServletConnection(SocketChannel channel,
             SSLEngine engine,
             boolean secure,
-            Container container,
             ServletServer server) {
         super(channel, engine, secure);
-        this.container = container;
         this.server = server;
+        setHandlerFactory(server.getServletHandlerFactory());
     }
 
     // Friend access for Request
     SocketChannel getChannel() {
         return channel;
-    }
-
-    protected Stream newStream(HTTPConnection connection, int streamId) {
-        ServletStream stream = new ServletStream(this, streamId, bufferSize);
-        try {
-            responseQueue.put(stream);
-        } catch (InterruptedException e) {
-            throw (RuntimeException) new RuntimeException().initCause(e);
-        }
-        return stream;
-    }
-
-    void serviceRequest(ServletStream stream) {
-        server.serviceRequest(stream);
-    }
-
-    void responseFlushed() {
-        server.responseFlushed(this);
     }
 
 }

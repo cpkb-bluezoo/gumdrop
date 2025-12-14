@@ -95,7 +95,13 @@ public class MessageIndexBuilder {
             while (channel.read(buffer) > 0) {
                 buffer.flip();
                 parser.receive(buffer);
-                buffer.clear();
+                
+                // Preserve unconsumed data (partial lines)
+                if (parser.isUnderflow()) {
+                    buffer.compact();
+                } else {
+                    buffer.clear();
+                }
                 
                 // Stop after headers are parsed - we don't need body for indexing
                 if (handler.isHeadersComplete()) {

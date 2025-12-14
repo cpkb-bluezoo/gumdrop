@@ -37,6 +37,8 @@ package org.bluezoo.gumdrop;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Client#connect(ClientHandler)
+ * @see ConnectionInfo
+ * @see TLSInfo
  */
 public interface ClientHandler {
 
@@ -47,10 +49,20 @@ public interface ClientHandler {
      * any SSL handshake (if applicable) has finished successfully. The
      * connection is ready for protocol-specific communication.
      * 
+     * <p>The {@link ConnectionInfo} parameter provides details about the
+     * connection including:
+     * <ul>
+     * <li>Local and remote socket addresses</li>
+     * <li>Whether the connection is secure (TLS)</li>
+     * <li>TLS details if secure (protocol, cipher, certificates)</li>
+     * </ul>
+     * 
      * <p>Protocol implementations typically use this event to initiate
      * the protocol handshake or send initial commands.
+     * 
+     * @param info details about the established connection
      */
-    void onConnected();
+    void onConnected(ConnectionInfo info);
 
     /**
      * Called when a connection or protocol error occurs.
@@ -89,6 +101,15 @@ public interface ClientHandler {
      * and the completion of the TLS handshake. The connection is now secure
      * and all subsequent communication will be encrypted.
      * 
+     * <p>The {@link TLSInfo} parameter provides details about the TLS session:
+     * <ul>
+     * <li>Protocol version (TLSv1.2, TLSv1.3)</li>
+     * <li>Cipher suite</li>
+     * <li>Peer and local certificates</li>
+     * <li>Whether session resumption was used</li>
+     * <li>ALPN negotiated protocol</li>
+     * </ul>
+     * 
      * <p>Protocol implementations can use this event to:
      * <ul>
      * <li>Reset protocol state (as required by some protocols like SMTP)</li>
@@ -97,8 +118,7 @@ public interface ClientHandler {
      * <li>Log security upgrade events</li>
      * </ul>
      * 
-     * <p>This is a notification-only method called after the TLS upgrade
-     * is complete and the connection is ready for secure communication.
+     * @param info details about the TLS session
      */
-    void onTLSStarted();
+    void onTLSStarted(TLSInfo info);
 }

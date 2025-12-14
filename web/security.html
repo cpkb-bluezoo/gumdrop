@@ -146,12 +146,12 @@ containing space-separated role names. Users reference groups using the
 <h4>Configuration</h4>
 
 <pre>
-&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
     &lt;property name="href"&gt;users.xml&lt;/property&gt;
 &lt;/realm&gt;
 
 &lt;!-- Or inline --&gt;
-&lt;realm id="simpleRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+&lt;realm id="simpleRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
     &lt;user name="testuser" password="testpass" roles="user"/&gt;
 &lt;/realm&gt;
 </pre>
@@ -322,7 +322,7 @@ preventing resource exhaustion from connection flooding.
 
 <pre>
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="maxConnectionsPerIP"&gt;10&lt;/property&gt;
+    &lt;property name="max-connections-per-ip"&gt;10&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -336,14 +336,14 @@ preventing rapid reconnection attacks.
 <pre>
 &lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
     &lt;!-- 100 connections per minute per IP --&gt;
-    &lt;property name="rateLimit"&gt;100/60s&lt;/property&gt;
+    &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
 <h4>Rate Limit Format</h4>
 
 <p>
-The <code>rateLimit</code> property accepts the format <code>count/duration</code>:
+The <code>rate-limit</code> property accepts the format <code>count/duration</code>:
 </p>
 
 <ul>
@@ -371,10 +371,10 @@ offending clients.
 <pre>
 &lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
     &lt;!-- Lock out after 5 failures --&gt;
-    &lt;property name="maxAuthFailures"&gt;5&lt;/property&gt;
+    &lt;property name="max-auth-failures"&gt;5&lt;/property&gt;
     
     &lt;!-- 5-minute lockout --&gt;
-    &lt;property name="authLockoutTime"&gt;5m&lt;/property&gt;
+    &lt;property name="auth-lockout-time"&gt;5m&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -412,12 +412,12 @@ SMTP servers support CIDR-based network filtering for allow/block lists:
 <pre>
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
     &lt;!-- Only accept from these networks --&gt;
-    &lt;property name="allowedNetworks"&gt;
+    &lt;property name="allowed-networks"&gt;
         192.168.0.0/16,10.0.0.0/8,2001:db8::/32
     &lt;/property&gt;
     
     &lt;!-- Block these networks --&gt;
-    &lt;property name="blockedNetworks"&gt;
+    &lt;property name="blocked-networks"&gt;
         192.168.100.0/24,2001:db8:bad::/48
     &lt;/property&gt;
 &lt;/server&gt;
@@ -444,8 +444,8 @@ Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
 &lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
     &lt;property name="port"&gt;993&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -458,8 +458,8 @@ Connection starts unencrypted and upgrades to TLS on client request:
 <pre>
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
     &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;!-- Advertises STARTTLS capability --&gt;
 &lt;/server&gt;
 </pre>
@@ -472,9 +472,9 @@ Servers can require or request client certificates:
 
 <pre>
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="needClientAuth"&gt;true&lt;/property&gt;
-    &lt;property name="truststoreFile"&gt;truststore.p12&lt;/property&gt;
-    &lt;property name="truststorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="need-client-auth"&gt;true&lt;/property&gt;
+    &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
+    &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -490,16 +490,16 @@ secure domains on a single IP address and port.
 &lt;server id="https" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;multi-domain.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
-    &lt;property name="sniHostnames"&gt;
+    &lt;property name="keystore-file"&gt;multi-domain.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;property name="sni-hostnames"&gt;
         &lt;map&gt;
             &lt;entry key="example.com" value="example-cert"/&gt;
             &lt;entry key="*.example.com" value="example-wildcard"/&gt;
             &lt;entry key="other.com" value="other-cert"/&gt;
         &lt;/map&gt;
     &lt;/property&gt;
-    &lt;property name="sniDefaultAlias"&gt;default-cert&lt;/property&gt;
+    &lt;property name="sni-default-alias"&gt;default-cert&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 

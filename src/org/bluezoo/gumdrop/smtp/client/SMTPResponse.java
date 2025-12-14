@@ -41,7 +41,7 @@ import java.util.List;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class SMTPResponse {
+class SMTPResponse {
     
     private final int code;
     private final String message;

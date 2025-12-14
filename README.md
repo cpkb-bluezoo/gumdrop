@@ -38,7 +38,7 @@ non-blocking, event-driven I/O. It supports:
         - German
     - centralized and secure realm interface for authentication and
       authorization
-    - connection filtering, rate limiting, quota features
+    - CIDR connection filtering, rate limiting, quota features
     - centralized authentication and authorization realm interface
       usable by multiple servers
     - client framework for creating clients to communicate with other servers
@@ -61,19 +61,17 @@ non-blocking, event-driven I/O. It supports:
         - supports fast NIO based data transfer
         - PUT and DELETE
     - complete, conformant Java servlet 4.0 container
-        - hot deployment
-        - session management and clustering/replication facilities
-        - complete multipart/form-data handling
-        - annotation-driven configuration and web fragments
-        - programmatic registration of web descriptors
-        - asynchronous processing
-        - enterprise DataSource and MailSession handling, JCA connection
-          factories and administered objects
         - secure classloader separation
-        - enterprise JNDI integration
         - separate thread pool configuration for servlet worker threads,
           distinct from I/O worker loops
+        - asynchronous processing
+        - enterprise DataSource and MailSession handling, JCA connection
+          factories, administered objects and all JNDI resources
+        - hot deployment
         - WebSocket servlet support with example showing how to use upgrade
+        - programmatic registration of web descriptors
+        - complete multipart/form-data handling
+        - annotation-driven configuration and web fragments
         - server push
         - form-based and client certificate authentication in addition to
           base HTTP authentication methods
@@ -84,6 +82,7 @@ non-blocking, event-driven I/O. It supports:
             - per-node sequence tracking with sliding window
             - protobuf serialization for session attributes
             - deserialization filtering for complex objects
+            - cluster node telemetry metrics
 - SMTP
     - SMTPS
     - STARTTLS support
@@ -99,10 +98,28 @@ non-blocking, event-driven I/O. It supports:
         - network block lists
         - max connections per IP
         - require authentication
+    - extensible pipeline system for processing messages and performing
+      authorisation checks:
+        - SPF
+        - DKIM
+        - DMARC
+        - custom parsed message processing
     - simple, extensible asynchronous handler mechanism for implementations
+    - CHUNKING/BDAT
+    - SMTPUTF8 internationalised email addresses
+    - Postfix XCLIENT proxy support
+    - message delivery requirements
+        - Delivery Status Notifications
+        - REQUIRETLS
+        - MT-PRIORITY
+        - FUTURERELEASE
+        - DELIVERBY
+    - LIMITS support
     - SMTP client implementation for MTA forward message delivery
-        - simple asynchronous handler mechanism for event-driven client
+        - step-by-step asynchronous handler interfaces for event-driven
+          client
         - supports TLS connections and STARTTLS
+        - will use CHUNKING for efficiency if server supports it
 - IMAP4rev2
     - complete IMAP4rev2 implementation (RFC 9051)
     - IMAPS (implicit TLS on port 993)
@@ -209,6 +226,11 @@ non-blocking, event-driven I/O. It supports:
         - GSSAPI/Kerberos
         - EXTERNAL for TLS client certificates
         - NTLM (Microsoft domains)
+- Redis client
+    - Redis 6+ ACL auth
+    - full message subscription with pattern matching
+    - TLS support, fully async
+    - pipelining
 
 ### TLS Support
 

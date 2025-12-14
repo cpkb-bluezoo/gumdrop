@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700">
+  <defs>
+    <style>
+      .state { fill: #e8f4f8; stroke: #2c5282; stroke-width: 2; }
+      .state-session { fill: #c6f6d5; stroke: #276749; stroke-width: 2; }
+      .state-exchange { fill: #fef3c7; stroke: #92400e; stroke-width: 2; }
+      .state-success { fill: #c6f6d5; stroke: #276749; stroke-width: 2; }
+      .label { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 13px; fill: #1a202c; }
+      .label-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; font-weight: 600; fill: #1a202c; }
+      .label-small { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 11px; fill: #4a5568; }
+      .label-method { font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; fill: #2d3748; }
+      .label-code { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; font-weight: 600; }
+      .arrow { fill: none; stroke: #4a5568; stroke-width: 1.5; }
+      .arrow-success { fill: none; stroke: #276749; stroke-width: 2; }
+      .arrow-fail { fill: none; stroke: #c53030; stroke-width: 1.5; stroke-dasharray: 4,2; }
+      .arrow-challenge { fill: none; stroke: #d69e2e; stroke-width: 2; }
+      .arrow-head { fill: #4a5568; }
+      .arrow-head-success { fill: #276749; }
+      .arrow-head-challenge { fill: #d69e2e; }
+      .arrow-head-fail { fill: #c53030; }
+      .interface-box { fill: #f7fafc; stroke: #a0aec0; stroke-width: 1; rx: 4; }
+      .handler-box { fill: #fffaf0; stroke: #dd6b20; stroke-width: 1; rx: 4; }
+      .title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 20px; font-weight: 700; fill: #1a202c; }
+      .subtitle { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; fill: #718096; }
+      .example-box { fill: #f0fff4; stroke: #68d391; stroke-width: 1; rx: 6; }
+      .example-title { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12px; font-weight: 600; fill: #276749; }
+      .example-text { font-family: 'Consolas', 'Monaco', monospace; font-size: 10px; fill: #2d3748; }
+      .legend-box { fill: #ffffff; stroke: #e2e8f0; stroke-width: 1; rx: 4; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="arrow-head"/>
+    </marker>
+    <marker id="arrowhead-success" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="arrow-head-success"/>
+    </marker>
+    <marker id="arrowhead-challenge" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="arrow-head-challenge"/>
+    </marker>
+    <marker id="arrowhead-fail" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="arrow-head-fail"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="700" fill="#ffffff"/>
+  
+  <!-- Title -->
+  <text x="450" y="35" text-anchor="middle" class="title">SMTP Client Authentication Flow</text>
+  <text x="450" y="55" text-anchor="middle" class="subtitle">SASL Challenge-Response Exchange</text>
+
+  <!-- Legend -->
+  <rect x="20" y="75" width="220" height="90" class="legend-box"/>
+  <text x="30" y="95" class="label-small" font-weight="600">Response Codes:</text>
+  <line x1="30" y1="108" x2="50" y2="108" stroke="#276749" stroke-width="2"/>
+  <text x="55" y="112" class="label-small">235 - Auth Success</text>
+  <line x1="30" y1="126" x2="50" y2="126" stroke="#d69e2e" stroke-width="2"/>
+  <text x="55" y="130" class="label-small">334 - Challenge</text>
+  <line x1="30" y1="144" x2="50" y2="144" stroke="#c53030" stroke-width="2" stroke-dasharray="4,2"/>
+  <text x="55" y="148" class="label-small">535/504/454 - Failure</text>
+
+  <!-- ClientSession (entry point) -->
+  <rect x="350" y="100" width="200" height="55" class="state-session" rx="6"/>
+  <text x="450" y="125" text-anchor="middle" class="label-title">ClientSession</text>
+  <text x="450" y="143" text-anchor="middle" class="label-small">(authenticated or not)</text>
+
+  <!-- ClientSession interface relevant method -->
+  <rect x="580" y="100" width="280" height="35" class="interface-box"/>
+  <text x="590" y="122" class="label-method">auth(mechanism, initialResponse, callback)</text>
+
+  <!-- Arrow: Session -> AUTH_SENT -->
+  <path d="M 450 155 L 450 195" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="465" y="180" class="label-small">auth()</text>
+
+  <!-- AUTH_SENT State -->
+  <rect x="350" y="205" width="200" height="50" class="state" rx="6"/>
+  <text x="450" y="228" text-anchor="middle" class="label-title">AUTH SENT</text>
+  <text x="450" y="244" text-anchor="middle" class="label-small">Waiting for response</text>
+
+  <!-- Response branches -->
+  <!-- 235 Success -->
+  <path d="M 350 230 L 180 230 L 180 350" class="arrow-success" marker-end="url(#arrowhead-success)"/>
+  <text x="250" y="220" class="label-code" fill="#276749">235</text>
+  <text x="195" y="290" class="label-small" fill="#276749">Success</text>
+
+  <!-- 334 Challenge -->
+  <path d="M 450 255 L 450 330" class="arrow-challenge" marker-end="url(#arrowhead-challenge)"/>
+  <text x="465" y="280" class="label-code" fill="#d69e2e">334</text>
+  <text x="465" y="295" class="label-small" fill="#d69e2e">Challenge</text>
+
+  <!-- 535/504/454 Failure -->
+  <path d="M 550 230 L 700 230 L 700 350" class="arrow-fail" marker-end="url(#arrowhead-fail)"/>
+  <text x="620" y="220" class="label-code" fill="#c53030">535/504/454</text>
+  <text x="715" y="290" class="label-small" fill="#c53030">Failure</text>
+
+  <!-- ServerAuthReplyHandler box -->
+  <rect x="580" y="260" width="200" height="70" class="handler-box"/>
+  <text x="590" y="280" class="label-method">handleAuthSuccess(session)</text>
+  <text x="590" y="295" class="label-method">handleChallenge(data, exchange)</text>
+  <text x="590" y="310" class="label-method">handleAuthFailed(session)</text>
+  <text x="590" y="325" class="label-method">handleMechanismNotSupported(s)</text>
+
+  <!-- AUTH SUCCESS (back to session) -->
+  <rect x="100" y="360" width="160" height="55" class="state-success" rx="6"/>
+  <text x="180" y="385" text-anchor="middle" class="label-title">AUTH SUCCESS</text>
+  <text x="180" y="403" text-anchor="middle" class="label-small">handleAuthSuccess()</text>
+
+  <!-- Arrow: Success -> Session -->
+  <path d="M 180 360 L 180 155 L 350 127" class="arrow-success" marker-end="url(#arrowhead-success)"/>
+  <text x="130" y="250" class="label-small" fill="#276749">Back to</text>
+  <text x="130" y="265" class="label-small" fill="#276749">ClientSession</text>
+  <text x="130" y="280" class="label-small" fill="#276749">(now authenticated)</text>
+
+  <!-- AUTH EXCHANGE State -->
+  <rect x="350" y="340" width="200" height="55" class="state-exchange" rx="6"/>
+  <text x="450" y="365" text-anchor="middle" class="label-title">AUTH EXCHANGE</text>
+  <text x="450" y="383" text-anchor="middle" class="label-small">ClientAuthExchange</text>
+
+  <!-- ClientAuthExchange interface box -->
+  <rect x="350" y="405" width="200" height="45" class="interface-box"/>
+  <text x="360" y="423" class="label-method">respond(response, callback)</text>
+  <text x="360" y="438" class="label-method">abort(callback)</text>
+
+  <!-- AUTH FAILURE (back to session) -->
+  <rect x="620" y="360" width="160" height="55" class="state" rx="6"/>
+  <text x="700" y="385" text-anchor="middle" class="label-title">AUTH FAILED</text>
+  <text x="700" y="403" text-anchor="middle" class="label-small">handleAuthFailed()</text>
+
+  <!-- Arrow: Failure -> Session -->
+  <path d="M 780 380 L 820 380 L 820 127 L 550 127" class="arrow-fail" marker-end="url(#arrowhead-fail)"/>
+  <text x="830" y="250" class="label-small" fill="#c53030">Back to</text>
+  <text x="830" y="265" class="label-small" fill="#c53030">ClientSession</text>
+  <text x="830" y="280" class="label-small" fill="#c53030">(can retry)</text>
+
+  <!-- respond() path -->
+  <path d="M 450 450 L 450 490" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="465" y="475" class="label-small">respond()</text>
+
+  <!-- RESPONSE_SENT State -->
+  <rect x="350" y="500" width="200" height="50" class="state" rx="6"/>
+  <text x="450" y="523" text-anchor="middle" class="label-title">RESPONSE SENT</text>
+  <text x="450" y="539" text-anchor="middle" class="label-small">Waiting for result</text>
+
+  <!-- Response branches from RESPONSE_SENT -->
+  <!-- 235 Success from response -->
+  <path d="M 350 525 L 180 525 L 180 415" class="arrow-success" marker-end="url(#arrowhead-success)"/>
+  <text x="250" y="515" class="label-code" fill="#276749">235</text>
+
+  <!-- 334 Another challenge (loop) -->
+  <path d="M 550 525 L 600 525 L 600 470 L 550 380" class="arrow-challenge" marker-end="url(#arrowhead-challenge)"/>
+  <text x="610" y="490" class="label-code" fill="#d69e2e">334</text>
+  <text x="610" y="505" class="label-small" fill="#d69e2e">More</text>
+  <text x="610" y="520" class="label-small" fill="#d69e2e">challenges</text>
+
+  <!-- 535 Failure from response -->
+  <path d="M 450 550 L 450 580 L 700 580 L 700 415" class="arrow-fail" marker-end="url(#arrowhead-fail)"/>
+  <text x="550" y="570" class="label-code" fill="#c53030">535</text>
+
+  <!-- abort() path -->
+  <path d="M 350 425 L 280 425 L 280 480" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="255" y="455" class="label-small">abort()</text>
+
+  <!-- ABORT State -->
+  <rect x="200" y="490" width="160" height="50" class="state" rx="6"/>
+  <text x="280" y="513" text-anchor="middle" class="label-title">ABORT SENT</text>
+  <text x="280" y="529" text-anchor="middle" class="label-small">Sent "*" to server</text>
+
+  <!-- ServerAuthAbortHandler box -->
+  <rect x="200" y="550" width="160" height="30" class="handler-box"/>
+  <text x="210" y="570" class="label-method">handleAborted(session)</text>
+
+  <!-- Arrow: Abort -> Session -->
+  <path d="M 200 515 L 100 515 L 100 127 L 350 127" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="50" y="320" class="label-small">Back to</text>
+  <text x="50" y="335" class="label-small">ClientSession</text>
+  <text x="50" y="350" class="label-small">(not authenticated)</text>
+
+  <!-- Example: PLAIN -->
+  <rect x="30" y="595" width="250" height="85" class="example-box"/>
+  <text x="40" y="615" class="example-title">Example: AUTH PLAIN</text>
+  <text x="40" y="632" class="example-text">C: AUTH PLAIN dXNlcgBwYXNz</text>
+  <text x="40" y="647" class="example-text">S: 235 Authentication successful</text>
+  <text x="40" y="665" class="example-text" fill="#718096">(Single round - initial response</text>
+  <text x="40" y="677" class="example-text" fill="#718096"> contains credentials)</text>
+
+  <!-- Example: LOGIN -->
+  <rect x="310" y="595" width="260" height="95" class="example-box"/>
+  <text x="320" y="615" class="example-title">Example: AUTH LOGIN</text>
+  <text x="320" y="632" class="example-text">C: AUTH LOGIN</text>
+  <text x="320" y="647" class="example-text">S: 334 VXNlcm5hbWU6       (Username:)</text>
+  <text x="320" y="662" class="example-text">C: dXNlcm5hbWU=           (username)</text>
+  <text x="320" y="677" class="example-text">S: 334 UGFzc3dvcmQ6       (Password:)</text>
+  <text x="320" y="692" class="example-text">C: cGFzc3dvcmQ=           (password)</text>
+
+  <!-- Example: CRAM-MD5 -->
+  <rect x="600" y="595" width="280" height="85" class="example-box"/>
+  <text x="610" y="615" class="example-title">Example: AUTH CRAM-MD5</text>
+  <text x="610" y="632" class="example-text">C: AUTH CRAM-MD5</text>
+  <text x="610" y="647" class="example-text">S: 334 PDEyMzQ1QGV4YW1wbGU+  (challenge)</text>
+  <text x="610" y="662" class="example-text">C: dXNlciBhYmNkZWYxMjM0NTY= (response)</text>
+  <text x="610" y="677" class="example-text">S: 235 Authentication successful</text>
+
+</svg>
+

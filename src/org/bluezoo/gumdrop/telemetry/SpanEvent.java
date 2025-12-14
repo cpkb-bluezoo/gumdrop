@@ -86,13 +86,11 @@ public class SpanEvent {
      * Adds an attribute to this event.
      *
      * @param attribute the attribute to add
-     * @return this event for chaining
      */
-    public SpanEvent addAttribute(Attribute attribute) {
+    public void addAttribute(Attribute attribute) {
         if (attribute != null) {
             attributes.add(attribute);
         }
-        return this;
     }
 
     /**
@@ -100,10 +98,9 @@ public class SpanEvent {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this event for chaining
      */
-    public SpanEvent addAttribute(String key, String value) {
-        return addAttribute(Attribute.string(key, value));
+    public void addAttribute(String key, String value) {
+        addAttribute(Attribute.string(key, value));
     }
 
     /**
@@ -111,10 +108,9 @@ public class SpanEvent {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this event for chaining
      */
-    public SpanEvent addAttribute(String key, boolean value) {
-        return addAttribute(Attribute.bool(key, value));
+    public void addAttribute(String key, boolean value) {
+        addAttribute(Attribute.bool(key, value));
     }
 
     /**
@@ -122,10 +118,9 @@ public class SpanEvent {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this event for chaining
      */
-    public SpanEvent addAttribute(String key, long value) {
-        return addAttribute(Attribute.integer(key, value));
+    public void addAttribute(String key, long value) {
+        addAttribute(Attribute.integer(key, value));
     }
 
     /**
@@ -133,10 +128,9 @@ public class SpanEvent {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this event for chaining
      */
-    public SpanEvent addAttribute(String key, double value) {
-        return addAttribute(Attribute.doubleValue(key, value));
+    public void addAttribute(String key, double value) {
+        addAttribute(Attribute.doubleValue(key, value));
     }
 
     @Override

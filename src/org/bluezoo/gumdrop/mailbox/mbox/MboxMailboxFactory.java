@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxStore;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Factory for creating mbox-format mail store instances.
@@ -42,8 +43,15 @@ import java.nio.file.Path;
  */
 public class MboxMailboxFactory implements MailboxFactory {
 
-    private final Path basedir;
-    private final String extension;
+    private Path basedir;
+    private String extension = MboxMailboxStore.DEFAULT_EXTENSION;
+
+    /**
+     * Creates a new mbox mailbox factory.
+     * The base directory must be set via {@link #setBaseDirectory(String)} before use.
+     */
+    public MboxMailboxFactory() {
+    }
 
     /**
      * Creates a new mbox mailbox factory with default extension (.mbox).
@@ -78,12 +86,33 @@ public class MboxMailboxFactory implements MailboxFactory {
     }
 
     /**
+     * Sets the base directory for all mailboxes.
+     * 
+     * @param baseDirectory the base directory path as a string
+     */
+    public void setBaseDirectory(String baseDirectory) {
+        if (baseDirectory == null) {
+            throw new IllegalArgumentException("Base directory cannot be null");
+        }
+        this.basedir = Paths.get(baseDirectory).toAbsolutePath().normalize();
+    }
+
+    /**
      * Returns the base directory for all mailboxes.
      * 
      * @return the base directory path
      */
     public Path getBaseDirectory() {
         return basedir;
+    }
+
+    /**
+     * Sets the file extension for mbox files.
+     * 
+     * @param extension the extension (e.g., ".mbox")
+     */
+    public void setExtension(String extension) {
+        this.extension = extension;
     }
 
     /**
@@ -97,6 +126,9 @@ public class MboxMailboxFactory implements MailboxFactory {
 
     @Override
     public MailboxStore createStore() {
+        if (basedir == null) {
+            throw new IllegalStateException("Base directory not configured");
+        }
         return new MboxMailboxStore(basedir, extension);
     }
 

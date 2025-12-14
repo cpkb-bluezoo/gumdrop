@@ -332,14 +332,13 @@ public class FTPProtocolTest {
         responses.clear();
         
         try {
-            // Send command in two parts
-            ByteBuffer part1 = ByteBuffer.wrap("USER".getBytes(StandardCharsets.US_ASCII));
-            ByteBuffer part2 = ByteBuffer.wrap(" testuser\r\n".getBytes(StandardCharsets.US_ASCII));
+            // Create a BufferSimulator for proper fragment handling
+            BufferSimulator sim = new BufferSimulator(connection);
             
-            connection.receive(part1);
-            Thread.sleep(5); // Brief pause
-            connection.receive(part2);
-            Thread.sleep(10); // Allow processing
+            // Send command in multiple parts
+            sim.receive("USER");
+            sim.receive(" test");
+            sim.receive("user\r\n");
             
             assertFalse("Should receive response to fragmented USER command", responses.isEmpty());
             assertTrue("Fragmented USER command should succeed", responses.get(0).startsWith("331"));
@@ -402,6 +401,47 @@ public class FTPProtocolTest {
     }
     
     // Now using setSendCallback mechanism consistently - no custom subclass needed
+    
+    /**
+     * Simulates network buffer handling for fragmented data delivery.
+     * This mimics what SelectorLoop does:
+     * <ol>
+     *   <li>Append new data to buffer (in write mode)</li>
+     *   <li>Flip to read mode</li>
+     *   <li>Call receive() which processes complete lines and leaves position at unconsumed data</li>
+     *   <li>Compact to preserve unconsumed data for next append</li>
+     * </ol>
+     */
+    private static class BufferSimulator {
+        private ByteBuffer buffer = ByteBuffer.allocate(4096);
+        private final FTPConnection conn;
+        
+        BufferSimulator(FTPConnection conn) {
+            this.conn = conn;
+        }
+        
+        /**
+         * Simulates receiving data as the SelectorLoop would.
+         * Appends data to persistent buffer, then processes with proper compact().
+         */
+        void receive(byte[] data) {
+            // Append new data (buffer is in write mode after compact)
+            buffer.put(data);
+            
+            // Flip to read mode for processing
+            buffer.flip();
+            
+            // Call receive - leaves position at unconsumed data
+            conn.receive(buffer);
+            
+            // Compact to preserve unconsumed data for next append
+            buffer.compact();
+        }
+        
+        void receive(String data) {
+            receive(data.getBytes(StandardCharsets.US_ASCII));
+        }
+    }
     
     /**
      * Mock SocketChannel for testing (we don't actually use network).

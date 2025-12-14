@@ -112,13 +112,13 @@
  *
  * <pre>
  * &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
- *     &lt;property name="serviceName"&gt;my-service&lt;/property&gt;
+ *     &lt;property name="service-name"&gt;my-service&lt;/property&gt;
  *     &lt;property name="endpoint"&gt;http://otel-collector:4318&lt;/property&gt;
  *     
  *     &lt;!-- Metrics configuration --&gt;
- *     &lt;property name="metricsEnabled"&gt;true&lt;/property&gt;
- *     &lt;property name="metricsTemporalityName"&gt;cumulative&lt;/property&gt;
- *     &lt;property name="metricsIntervalMs"&gt;60000&lt;/property&gt;
+ *     &lt;property name="metrics-enabled"&gt;true&lt;/property&gt;
+ *     &lt;property name="metrics-temporality-name"&gt;cumulative&lt;/property&gt;
+ *     &lt;property name="metrics-interval-ms"&gt;60000&lt;/property&gt;
  * &lt;/component&gt;
  * </pre>
  *
@@ -126,12 +126,16 @@
  *
  * <p>Gumdrop provides automatic instrumentation for:
  * <ul>
- *   <li>HTTP server - request spans with method, URL, status
- *   <li>SMTP server - connection and session spans
- *   <li>IMAP server - session and authenticated state spans
- *   <li>POP3 server - session and authenticated state spans
- *   <li>FTP server - session and authenticated state spans
+ *   <li>HTTP server - request spans and metrics (requests, connections, duration, size)
+ *   <li>SMTP server - connection spans and metrics (messages, authentication, sessions)
+ *   <li>IMAP server - session spans and metrics (commands, messages, authentication)
+ *   <li>POP3 server - session spans and metrics (messages, authentication, bytes)
+ *   <li>FTP server - session spans and metrics (transfers, authentication, commands)
  * </ul>
+ *
+ * <p>Each server type has a dedicated metrics class (e.g., {@code HTTPServerMetrics},
+ * {@code SMTPServerMetrics}) that collects OpenTelemetry-compatible metrics automatically
+ * when telemetry is enabled.
  *
  * <h2>Core Classes</h2>
  *

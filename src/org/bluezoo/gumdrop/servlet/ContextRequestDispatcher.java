@@ -47,12 +47,17 @@ import javax.servlet.http.HttpServletMapping;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 /**
  * The handler chain for a request.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
+
+    private static final Logger LOGGER = Logger.getLogger(ContextRequestDispatcher.class.getName());
 
     final Context context;
     final ServletMatch match;
@@ -77,6 +82,17 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
 
     // Called by worker
     void handleRequest(Request request, Response response) throws ServletException, IOException {
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            String servletName = (match.servletDef != null) ? match.servletDef.name : "null";
+            String servletClass = (match.servletDef != null) ? match.servletDef.className : "null";
+            LOGGER.finest("Dispatching request: uri=" + request.getRequestURI() 
+                + ", servletPath=" + match.servletPath 
+                + ", pathInfo=" + match.pathInfo
+                + ", servlet=" + servletName + " (" + servletClass + ")"
+                + ", queryString=" + request.getQueryString()
+                + ", matchType=" + match.mappingMatch);
+        }
+        
         originalRequest = request;
         originalResponse = response;
         if (!context.authentication || authorize(request, response)) {
@@ -233,16 +249,10 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                     throw e;
                 }
             }
-            // Check if startAsync was called
-            StreamAsyncContext async = r.asyncContext;
-            if (async != null) {
-                async.asyncStarted();
-            }
+            // Async handling is done in RequestHandler - no action needed here
         } catch (Exception e) {
-            StreamAsyncContext async = r.asyncContext;
-            if (async != null) {
-                async.error(e);
-            }
+            // If async is started, the error should be handled by the async context
+            // Otherwise, proceed with normal error handling
             if (!errorSent) {
                 if (originalResponse != null && !originalResponse.committed) {
                     originalResponse.reset();

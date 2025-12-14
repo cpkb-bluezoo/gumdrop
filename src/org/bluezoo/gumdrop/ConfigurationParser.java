@@ -67,17 +67,17 @@ public class ConfigurationParser extends DefaultHandler {
     static {
         Map<String, String> map = new LinkedHashMap<String, String>();
         map.put("server", "org.bluezoo.gumdrop.http.HTTPServer");
-        map.put("realm", "org.bluezoo.gumdrop.BasicRealm");
+        map.put("realm", "org.bluezoo.gumdrop.auth.BasicRealm");
         map.put("container", "org.bluezoo.gumdrop.servlet.Container");
         map.put("context", "org.bluezoo.gumdrop.servlet.Context");
-        map.put("data-source", "org.bluezoo.gumdrop.servlet.DataSourceDef");
-        map.put("mail-session", "org.bluezoo.gumdrop.servlet.MailSession");
-        map.put("jms-connection-factory", "org.bluezoo.gumdrop.servlet.JmsConnectionFactory");
-        map.put("jms-destination", "org.bluezoo.gumdrop.servlet.JmsDestination");
-        map.put("connection-factory", "org.bluezoo.gumdrop.servlet.ConnectionFactory");
-        map.put("administered-object", "org.bluezoo.gumdrop.servlet.AdministeredObject");
+        map.put("data-source", "org.bluezoo.gumdrop.servlet.jndi.DataSourceDef");
+        map.put("mail-session", "org.bluezoo.gumdrop.servlet.jndi.MailSession");
+        map.put("jms-connection-factory", "org.bluezoo.gumdrop.servlet.jndi.JmsConnectionFactory");
+        map.put("jms-destination", "org.bluezoo.gumdrop.servlet.jndi.JmsDestination");
+        map.put("connection-factory", "org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory");
+        map.put("administered-object", "org.bluezoo.gumdrop.servlet.jndi.AdministeredObject");
         map.put("mailbox-factory", "org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory");
-        map.put("smtp-handler-factory", "org.bluezoo.gumdrop.smtp.SMTPConnectionHandlerFactory");
+        map.put("smtp-handler-factory", "org.bluezoo.gumdrop.smtp.LocalDeliveryHandlerFactory");
         map.put("ftp-handler-factory", "org.bluezoo.gumdrop.ftp.FTPConnectionHandlerFactory");
         map.put("component", "java.lang.Object");
         DEFAULT_CLASS_NAMES = map;
@@ -92,6 +92,9 @@ public class ConfigurationParser extends DefaultHandler {
     private String currentPropertyName;
     private Object currentPropertyValue;
     private StringBuilder textContent = new StringBuilder();
+    
+    // Track singleton components (only one allowed per configuration)
+    private boolean containerDeclared = false;
     
     /**
      * Parse a configuration file and return the result.
@@ -230,6 +233,17 @@ public class ConfigurationParser extends DefaultHandler {
         String id = atts.getValue("id");
         String className = atts.getValue("class");
         
+        // Enforce singleton container per Servlet specification
+        if ("container".equals(type)) {
+            if (containerDeclared) {
+                throw new SAXParseException(
+                    "Only one <container> element is allowed per configuration. " +
+                    "The Servlet specification defines one container per JVM.",
+                    locator);
+            }
+            containerDeclared = true;
+        }
+        
         // Map element name to default class if not specified
         if (className == null) {
             className = getDefaultClassName(type);
@@ -363,12 +377,40 @@ public class ConfigurationParser extends DefaultHandler {
         InlineContextContext ctx = (InlineContextContext) contextStack.pop();
         InlineContextInfo contextInfo = ctx.contextInfo;
         
-        // Add to current property value (should be inside a list)
+        // Add to current property value or parent component
         ParseContext parent = contextStack.isEmpty() ? null : contextStack.peek();
         if (parent instanceof ListContext) {
             ((ListContext) parent).value.addItem(contextInfo);
         } else if (parent instanceof PropertyContext) {
             currentPropertyValue = contextInfo;
+        } else if (parent instanceof ComponentContext) {
+            // Context is directly inside a container element (not in a property)
+            // Add it to the container's "contexts" property
+            ComponentContext compCtx = (ComponentContext) parent;
+            ComponentDefinition component = compCtx.component;
+            
+            // Find or create the "contexts" property
+            PropertyDefinition contextsProp = null;
+            for (PropertyDefinition prop : component.getProperties()) {
+                if ("contexts".equals(prop.getName())) {
+                    contextsProp = prop;
+                    break;
+                }
+            }
+            
+            if (contextsProp == null) {
+                // Create a new list property for contexts
+                ListValue contextsList = new ListValue();
+                contextsList.addItem(contextInfo);
+                contextsProp = new PropertyDefinition("contexts", contextsList);
+                component.addProperty(contextsProp);
+            } else {
+                // Add to existing list
+                Object existingValue = contextsProp.getValue();
+                if (existingValue instanceof ListValue) {
+                    ((ListValue) existingValue).addItem(contextInfo);
+                }
+            }
         }
     }
     

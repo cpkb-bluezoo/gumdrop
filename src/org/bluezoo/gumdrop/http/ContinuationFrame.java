@@ -34,28 +34,38 @@ public class ContinuationFrame extends Frame {
     int stream;
     boolean endHeaders;
 
-    byte[] headerBlockFragment;
+    ByteBuffer headerBlockFragment;
 
     /**
      * Constructor for a continuation frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
      */
-    protected ContinuationFrame(int flags, int stream, byte[] payload) {
+    protected ContinuationFrame(int flags, int stream, ByteBuffer payload) {
         this.stream = stream;
         endHeaders = (flags & FLAG_END_HEADERS) != 0;
-        headerBlockFragment = payload;
+        headerBlockFragment = payload.slice();
+        payload.position(payload.limit()); // consume all
     }
 
     /**
      * Constructor for a continuation frame to send to the client.
      */
-    protected ContinuationFrame(int stream, boolean endHeaders, byte[] headerBlockFragment) {
+    protected ContinuationFrame(int stream, boolean endHeaders, ByteBuffer headerBlockFragment) {
         this.stream = stream;
         this.endHeaders = endHeaders;
         this.headerBlockFragment = headerBlockFragment;
     }
 
+    /**
+     * Constructor for a continuation frame to send to the client (convenience for byte[]).
+     */
+    protected ContinuationFrame(int stream, boolean endHeaders, byte[] headerBlockFragment) {
+        this(stream, endHeaders, ByteBuffer.wrap(headerBlockFragment));
+    }
+
     public int getLength() {
-        return headerBlockFragment.length;
+        return headerBlockFragment.remaining();
     }
 
     public int getType() {
@@ -72,7 +82,10 @@ public class ContinuationFrame extends Frame {
 
     protected void write(ByteBuffer buf) {
         super.write(buf);
+        // Save position to restore after put
+        int savedPos = headerBlockFragment.position();
         buf.put(headerBlockFragment);
+        headerBlockFragment.position(savedPos); // restore position for potential reuse
     }
 
 }

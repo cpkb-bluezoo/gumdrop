@@ -171,13 +171,11 @@ public class LogRecord {
      * Adds an attribute to this log record.
      *
      * @param attribute the attribute
-     * @return this record for chaining
      */
-    public LogRecord addAttribute(Attribute attribute) {
+    public void addAttribute(Attribute attribute) {
         if (attribute != null) {
             attributes.add(attribute);
         }
-        return this;
     }
 
     /**
@@ -185,10 +183,9 @@ public class LogRecord {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this record for chaining
      */
-    public LogRecord addAttribute(String key, String value) {
-        return addAttribute(Attribute.string(key, value));
+    public void addAttribute(String key, String value) {
+        addAttribute(Attribute.string(key, value));
     }
 
     /**

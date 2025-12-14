@@ -32,6 +32,7 @@ import java.util.logging.Level;
 
 import javax.servlet.ServletRequestEvent;
 import javax.servlet.ServletRequestListener;
+import javax.servlet.http.HttpSession;
 
 /**
  * The request handler retrieves a stream from the request
@@ -42,45 +43,44 @@ import javax.servlet.ServletRequestListener;
 class RequestHandler implements Runnable {
 
     /**
-     * Date format for common lof format.
+     * Date format for common log format.
      */
     static final DateFormat df = new SimpleDateFormat("[dd/MMM/yyyy:HH:mm:ss Z]");
 
-    final ServletStream stream;
+    final ServletHandler handler;
+    final ServletServer server;
 
-    RequestHandler(ServletStream stream) {
-        this.stream = stream;
+    RequestHandler(ServletHandler handler, ServletServer server) {
+        this.handler = handler;
+        this.server = server;
     }
 
     public void run() {
         long t1 = System.currentTimeMillis();
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        Request request = handler.getRequest();
+        Response response = handler.getResponse();
         try {
-            ContextRequestDispatcher dispatcher =
-                getRequestDispatcher(stream.request, stream.response);
+            ContextRequestDispatcher dispatcher = getRequestDispatcher(request, response);
             if (dispatcher == null) {
-                if (!stream.response.isCommitted()) {
-                    String message = "unable to locate context for " + stream.request.uri;
-                    stream.response.sendError(404, message);
+                if (!response.isCommitted()) {
+                    String message = "unable to locate context for " + request.uri;
+                    response.sendError(404, message);
                 }
             } else {
-                notifyRequestInitialized(stream.request);
-                dispatcher.handleRequest(stream.request, stream.response);
-                notifyRequestDestroyed(stream.request);
+                notifyRequestInitialized(request);
+                dispatcher.handleRequest(request, response);
+                notifyRequestDestroyed(request);
 
                 // Replicate session if necessary
-                Container container = stream.connection.server.getContainer();
-                if (container.cluster != null
-                        && stream.request.sessionId != null
-                        && dispatcher.context != null) {
+                if (request.sessionId != null && dispatcher.context != null) {
                     Context context = dispatcher.context;
                     if (context.distributable) {
-                        String id = stream.request.sessionId;
-                        Session session = null;
-                        synchronized (context.sessions) {
-                            session = context.sessions.get(id);
+                        String id = request.sessionId;
+                        HttpSession session = context.getSessionManager().getSession(id);
+                        if (session != null) {
+                            context.getSessionManager().replicateSession(session);
                         }
-                        container.cluster.replicate(context, session);
                     }
                 }
             }
@@ -88,19 +88,24 @@ class RequestHandler implements Runnable {
             Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(loader);
-            try {
-                stream.response.flushBuffer();
-                stream.response.endResponse();
-            } catch (ClosedChannelException e) {
-                // ignore
-            } catch (IOException e) {
-                Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+            
+            // Only complete the response if async was NOT started
+            // If async was started, the AsyncContext.complete() will handle it
+            if (!request.isAsyncStarted()) {
+                try {
+                    response.flushBuffer();
+                    response.endResponse();
+                } catch (ClosedChannelException e) {
+                    // ignore
+                } catch (IOException e) {
+                    Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                }
             }
         }
         long t2 = System.currentTimeMillis();
         // System.err.println(getName() + ": " + (t2 - t1) + "ms");
-        String logEntry = createLogEntry(t1, stream.request, stream.response);
-        stream.connection.server.log(logEntry);
+        String logEntry = createLogEntry(t1, request, response);
+        server.log(logEntry);
     }
 
     void notifyRequestInitialized(Request request) {
@@ -167,7 +172,6 @@ class RequestHandler implements Runnable {
     ContextRequestDispatcher getRequestDispatcher(Request request, Response response) throws IOException {
         URI uri = request.getURI();
         String path = (uri == null) ? "" : uri.getPath();
-        ServletServer server = stream.connection.server;
 
         // Lookup context
         Context context = server.getContainer().getContextByPath(path);
@@ -190,7 +194,10 @@ class RequestHandler implements Runnable {
         ContextRequestDispatcher crd =
             (ContextRequestDispatcher) context.getRequestDispatcher(path);
         request.match = crd.match;
-        request.queryString = crd.queryString;
+        // Only update queryString if not already set (e.g., from the original request URI)
+        if (request.queryString == null) {
+            request.queryString = crd.queryString;
+        }
         request.initSession();
         return crd;
     }

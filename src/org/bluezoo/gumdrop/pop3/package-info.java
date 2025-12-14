@@ -132,7 +132,7 @@
  *
  * <h3>Authentication</h3>
  * <p>All authentication mechanisms use the standard Gumdrop
- * {@link org.bluezoo.gumdrop.Realm} interface:
+ * {@link org.bluezoo.gumdrop.auth.Realm} interface:
  *
  * <table border="1" cellpadding="5">
  *   <caption>Authentication Mechanisms</caption>
@@ -185,43 +185,43 @@
  * <h2>Creating Custom Mailbox Implementations</h2>
  *
  * <p>To integrate with your own email storage system, implement the
- * {@link org.bluezoo.gumdrop.pop3.Mailbox} interface:
+ * {@link org.bluezoo.gumdrop.mailbox.Mailbox} interface:
  *
- * <pre>{@code
- * public class MyCustomMailbox implements Mailbox {
- *     @Override
- *     public void open(String username) throws IOException {
+ * <pre>
+ * public class MyCustomMailbox implements Mailbox &#123;
+ *     &#64;Override
+ *     public void open(String username) throws IOException &#123;
  *         // Open mailbox for user
- *     }
+ *     &#125;
  *
- *     @Override
- *     public void close(boolean expunge) throws IOException {
+ *     &#64;Override
+ *     public void close(boolean expunge) throws IOException &#123;
  *         // Close and optionally commit deletions
- *     }
+ *     &#125;
  *
- *     @Override
- *     public int getMessageCount() throws IOException {
+ *     &#64;Override
+ *     public int getMessageCount() throws IOException &#123;
  *         // Return number of messages
- *     }
+ *     &#125;
  *
  *     // ... implement other methods
- * }
- * }</pre>
+ * &#125;
+ * </pre>
  *
- * <p>Then create a {@link org.bluezoo.gumdrop.pop3.MailboxFactory}:
+ * <p>Then create a {@link org.bluezoo.gumdrop.mailbox.MailboxFactory}:
  *
- * <pre>{@code
- * public class MyCustomMailboxFactory implements MailboxFactory {
- *     @Override
- *     public Mailbox createMailbox() {
+ * <pre>
+ * public class MyCustomMailboxFactory implements MailboxFactory &#123;
+ *     &#64;Override
+ *     public Mailbox createMailbox() &#123;
  *         return new MyCustomMailbox();
- *     }
- * }
- * }</pre>
+ *     &#125;
+ * &#125;
+ * </pre>
  *
  * <h2>Thread Safety</h2>
  * <ul>
- *   <li>Each POP3 connection gets its own {@link org.bluezoo.gumdrop.pop3.Mailbox} instance</li>
+ *   <li>Each POP3 connection gets its own {@link org.bluezoo.gumdrop.mailbox.Mailbox} instance</li>
  *   <li>Mailboxes use file locking to prevent concurrent access</li>
  *   <li>Connection handlers are thread-safe via synchronization</li>
  * </ul>
@@ -231,7 +231,7 @@
  * @see org.bluezoo.gumdrop.pop3.POP3Connection
  * @see org.bluezoo.gumdrop.mailbox.Mailbox
  * @see org.bluezoo.gumdrop.mailbox.mbox.MboxMailbox
- * @see org.bluezoo.gumdrop.Realm
+ * @see org.bluezoo.gumdrop.auth.Realm
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 - POP3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5034">RFC 5034 - SASL for POP3</a>
  */

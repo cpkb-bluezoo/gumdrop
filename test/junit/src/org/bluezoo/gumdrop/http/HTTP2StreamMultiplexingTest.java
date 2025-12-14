@@ -102,9 +102,9 @@ public class HTTP2StreamMultiplexingTest {
         // DATA frames can be interleaved across different streams
         byte[] data = "payload".getBytes();
         
-        DataFrame frame1 = new DataFrame(1, false, false, 0, data);
-        DataFrame frame3 = new DataFrame(3, false, false, 0, data);
-        DataFrame frame5 = new DataFrame(5, false, false, 0, data);
+        DataFrame frame1 = new DataFrame(1, false, false, 0, ByteBuffer.wrap(data));
+        DataFrame frame3 = new DataFrame(3, false, false, 0, ByteBuffer.wrap(data));
+        DataFrame frame5 = new DataFrame(5, false, false, 0, ByteBuffer.wrap(data));
         
         assertEquals("Frame 1 on stream 1", 1, frame1.getStream());
         assertEquals("Frame 3 on stream 3", 3, frame3.getStream());
@@ -115,8 +115,8 @@ public class HTTP2StreamMultiplexingTest {
     public void testHeadersFramesOnDifferentStreams() throws ProtocolException {
         byte[] headerBlock = new byte[] { (byte) 0x82 };  // :method: GET
         
-        HeadersFrame frame1 = new HeadersFrame(Frame.FLAG_END_HEADERS, 1, headerBlock);
-        HeadersFrame frame3 = new HeadersFrame(Frame.FLAG_END_HEADERS, 3, headerBlock);
+        HeadersFrame frame1 = new HeadersFrame(Frame.FLAG_END_HEADERS, 1, ByteBuffer.wrap(headerBlock));
+        HeadersFrame frame3 = new HeadersFrame(Frame.FLAG_END_HEADERS, 3, ByteBuffer.wrap(headerBlock));
         
         assertEquals("Headers 1 on stream 1", 1, frame1.getStream());
         assertEquals("Headers 3 on stream 3", 3, frame3.getStream());
@@ -129,7 +129,7 @@ public class HTTP2StreamMultiplexingTest {
         // END_STREAM flag indicates the endpoint will not send any more data
         byte[] data = "final".getBytes();
         
-        DataFrame frame = new DataFrame(1, false, true, 0, data);
+        DataFrame frame = new DataFrame(1, false, true, 0, ByteBuffer.wrap(data));
         
         assertTrue("END_STREAM should be set", frame.endStream);
         assertTrue("Flags should include END_STREAM", (frame.getFlags() & Frame.FLAG_END_STREAM) != 0);
@@ -139,7 +139,7 @@ public class HTTP2StreamMultiplexingTest {
     public void testEndHeadersFlagCompleteHeaderBlock() throws ProtocolException {
         byte[] headerBlock = new byte[] { (byte) 0x82 };
         
-        HeadersFrame frame = new HeadersFrame(Frame.FLAG_END_HEADERS | Frame.FLAG_END_STREAM, 1, headerBlock);
+        HeadersFrame frame = new HeadersFrame(Frame.FLAG_END_HEADERS | Frame.FLAG_END_STREAM, 1, ByteBuffer.wrap(headerBlock));
         
         assertTrue("END_HEADERS should be set", frame.endHeaders);
         assertTrue("END_STREAM should be set", frame.endStream);
@@ -150,7 +150,7 @@ public class HTTP2StreamMultiplexingTest {
         // RST_STREAM immediately terminates a stream
         byte[] payload = new byte[] { 0x00, 0x00, 0x00, (byte) Frame.ERROR_CANCEL };
         
-        RstStreamFrame frame = new RstStreamFrame(1, payload);
+        RstStreamFrame frame = new RstStreamFrame(1, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 1", 1, frame.getStream());
         assertEquals("Error should be CANCEL", Frame.ERROR_CANCEL, frame.errorCode);
@@ -168,7 +168,7 @@ public class HTTP2StreamMultiplexingTest {
         };
         
         HeadersFrame frame = new HeadersFrame(
-            Frame.FLAG_PRIORITY | Frame.FLAG_END_HEADERS, 1, payload);
+            Frame.FLAG_PRIORITY | Frame.FLAG_END_HEADERS, 1, ByteBuffer.wrap(payload));
         
         assertTrue("Should have priority", frame.priority);
         assertTrue("Should be exclusive", frame.streamDependencyExclusive);
@@ -184,7 +184,7 @@ public class HTTP2StreamMultiplexingTest {
             (byte) 0xFF              // weight=255 (maximum)
         };
         
-        PriorityFrame frame = new PriorityFrame(5, payload);
+        PriorityFrame frame = new PriorityFrame(5, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 5", 5, frame.getStream());
         assertFalse("Should not be exclusive", frame.streamDependencyExclusive);
@@ -203,7 +203,7 @@ public class HTTP2StreamMultiplexingTest {
                 (byte) weight            // weight
             };
             
-            PriorityFrame frame = new PriorityFrame(1, payload);
+            PriorityFrame frame = new PriorityFrame(1, ByteBuffer.wrap(payload));
             assertEquals("Weight should match", weight, frame.weight);
         }
     }
@@ -218,7 +218,7 @@ public class HTTP2StreamMultiplexingTest {
             (byte) 0x82              // header block
         };
         
-        PushPromiseFrame frame = new PushPromiseFrame(Frame.FLAG_END_HEADERS, 1, payload);
+        PushPromiseFrame frame = new PushPromiseFrame(Frame.FLAG_END_HEADERS, 1, ByteBuffer.wrap(payload));
         
         assertEquals("Originating stream should be 1", 1, frame.getStream());
         assertEquals("Promised stream should be 2", 2, frame.promisedStream);
@@ -239,7 +239,7 @@ public class HTTP2StreamMultiplexingTest {
                 (byte) 0x82
             };
             
-            PushPromiseFrame frame = new PushPromiseFrame(Frame.FLAG_END_HEADERS, 1, payload);
+            PushPromiseFrame frame = new PushPromiseFrame(Frame.FLAG_END_HEADERS, 1, ByteBuffer.wrap(payload));
             assertEquals("Promised stream should match", promised, frame.promisedStream);
         }
     }
@@ -254,7 +254,7 @@ public class HTTP2StreamMultiplexingTest {
             0x00, 0x00, 0x00, 0x00   // NO_ERROR
         };
         
-        GoawayFrame frame = new GoawayFrame(payload);
+        GoawayFrame frame = new GoawayFrame(ByteBuffer.wrap(payload));
         
         assertEquals("Last stream should be 7", 7, frame.lastStream);
         // Streams 1, 3, 5, 7 were processed
@@ -268,7 +268,7 @@ public class HTTP2StreamMultiplexingTest {
             0x00, 0x00, 0x00, (byte) Frame.ERROR_ENHANCE_YOUR_CALM  // rate limiting
         };
         
-        GoawayFrame frame = new GoawayFrame(payload);
+        GoawayFrame frame = new GoawayFrame(ByteBuffer.wrap(payload));
         
         assertEquals("Last stream should be 5", 5, frame.lastStream);
         assertEquals("Error should be ENHANCE_YOUR_CALM", Frame.ERROR_ENHANCE_YOUR_CALM, frame.errorCode);
@@ -283,11 +283,11 @@ public class HTTP2StreamMultiplexingTest {
         byte[] headerBlock2 = new byte[50];   // Part 2 of header block
         
         // First HEADERS without END_HEADERS
-        HeadersFrame headers = new HeadersFrame(0, 1, headerBlock1);
+        HeadersFrame headers = new HeadersFrame(0, 1, ByteBuffer.wrap(headerBlock1));
         assertFalse("Should not have END_HEADERS", headers.endHeaders);
         
         // Then CONTINUATION with END_HEADERS
-        ContinuationFrame continuation = new ContinuationFrame(Frame.FLAG_END_HEADERS, 1, headerBlock2);
+        ContinuationFrame continuation = new ContinuationFrame(Frame.FLAG_END_HEADERS, 1, ByteBuffer.wrap(headerBlock2));
         assertTrue("CONTINUATION should have END_HEADERS", continuation.endHeaders);
         assertEquals("CONTINUATION must be on same stream", 1, continuation.getStream());
     }
@@ -296,8 +296,8 @@ public class HTTP2StreamMultiplexingTest {
     public void testContinuationOnSameStream() throws ProtocolException {
         byte[] headerBlock = new byte[] { (byte) 0x82 };
         
-        ContinuationFrame frame1 = new ContinuationFrame(0, 3, headerBlock);
-        ContinuationFrame frame2 = new ContinuationFrame(Frame.FLAG_END_HEADERS, 3, headerBlock);
+        ContinuationFrame frame1 = new ContinuationFrame(0, 3, ByteBuffer.wrap(headerBlock));
+        ContinuationFrame frame2 = new ContinuationFrame(Frame.FLAG_END_HEADERS, 3, ByteBuffer.wrap(headerBlock));
         
         assertEquals("First continuation on stream 3", 3, frame1.getStream());
         assertEquals("Second continuation on stream 3", 3, frame2.getStream());
@@ -312,7 +312,7 @@ public class HTTP2StreamMultiplexingTest {
             0x00, 0x03, 0x00, 0x00, 0x00, 0x64  // MAX_CONCURRENT_STREAMS = 100
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         
         assertEquals("Max concurrent streams should be 100",
             Integer.valueOf(100),
@@ -327,7 +327,7 @@ public class HTTP2StreamMultiplexingTest {
         int maxStreamId = Integer.MAX_VALUE;  // 2147483647
         
         byte[] data = "test".getBytes();
-        DataFrame frame = new DataFrame(maxStreamId, false, false, 0, data);
+        DataFrame frame = new DataFrame(maxStreamId, false, false, 0, ByteBuffer.wrap(data));
         
         assertEquals("Stream ID should be max value", maxStreamId, frame.getStream());
         
@@ -352,11 +352,11 @@ public class HTTP2StreamMultiplexingTest {
         byte[] chunk3 = new byte[1500];
         
         // Stream 1: chunk1
-        DataFrame frame1a = new DataFrame(1, false, false, 0, chunk1);
+        DataFrame frame1a = new DataFrame(1, false, false, 0, ByteBuffer.wrap(chunk1));
         // Stream 3: chunk2
-        DataFrame frame3a = new DataFrame(3, false, false, 0, chunk2);
+        DataFrame frame3a = new DataFrame(3, false, false, 0, ByteBuffer.wrap(chunk2));
         // Stream 1: chunk3 (continues stream 1)
-        DataFrame frame1b = new DataFrame(1, false, true, 0, chunk3);  // END_STREAM
+        DataFrame frame1b = new DataFrame(1, false, true, 0, ByteBuffer.wrap(chunk3));  // END_STREAM
         
         assertEquals("Frame 1a on stream 1", 1, frame1a.getStream());
         assertEquals("Frame 3a on stream 3", 3, frame3a.getStream());

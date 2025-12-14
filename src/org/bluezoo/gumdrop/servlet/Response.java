@@ -26,7 +26,6 @@ import org.bluezoo.gumdrop.http.HTTPConstants;
 import org.bluezoo.gumdrop.http.HTTPDateFormat;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.Stream;
 
 import java.io.*;
 import java.net.URLEncoder;
@@ -44,6 +43,7 @@ import javax.servlet.Servlet;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 
 /**
  * An HTTP response.
@@ -71,7 +71,7 @@ class Response implements HttpServletResponse {
         "warning"
     }));
 
-    ServletStream stream;
+    final ServletHandler handler;
     Request request;
     int bufferSize;
     final Headers headers;
@@ -91,10 +91,11 @@ class Response implements HttpServletResponse {
     // Servlet 4.0 - HTTP trailer fields support
     private Supplier<Map<String,String>> trailerFieldsSupplier;
 
-    Response(ServletStream stream, Request request, int bufferSize) {
-        this.stream = stream;
+    Response(ServletHandler handler, Request request, int bufferSize) {
+        this.handler = handler;
         this.request = request;
         this.bufferSize = bufferSize;
+        this.statusCode = 200; // Default status is 200 OK
         headers = new Headers();
         locale = request.getLocale();
         if (locale == null) {
@@ -333,33 +334,56 @@ class Response implements HttpServletResponse {
             ByteBuffer byteBuf = utf8Encoder.encode(charBuf);
             setContentLength(byteBuf.remaining());
             commit();
-            stream.writeBody(byteBuf);
+            writeBody(byteBuf);
         }
     }
 
     void commit() throws IOException {
         // If the servlet did not set the Content-Length, close the connection
         if (getContentLength() == -1) {
-            stream.explicitCloseConnection = true;
+            setCloseConnection(true);
         }
-        if (stream.explicitCloseConnection) {
+        if (isCloseConnection()) {
             setHeader("Connection", "close");
         }
         // Session management
         if (request.sessionId != null) {
             // Add JSESSIONID cookie
-            Session session;
-            synchronized (context.sessions) {
-                session = (Session) context.sessions.get(request.sessionId);
-            }
+            HttpSession session = context.getSessionManager().getSession(request.sessionId);
             if (session != null) {
                 Cookie cookie = new Cookie("JSESSIONID", request.sessionId);
-                cookie.setMaxAge(session.maxInactiveInterval);
+                cookie.setMaxAge(session.getMaxInactiveInterval());
                 addCookie(cookie);
             }
         }
-        stream.commit(statusCode, headers);
+        doCommit(statusCode, headers);
         committed = true;
+    }
+
+    // Helper methods for handler interaction
+
+    void writeBody(ByteBuffer buf) {
+        handler.writeBody(buf);
+    }
+
+    private boolean isCloseConnection() {
+        return handler.isCloseConnection();
+    }
+
+    private void setCloseConnection(boolean close) {
+        handler.setCloseConnection(close);
+    }
+
+    private void doCommit(int statusCode, Headers headers) {
+        // Ensure status code is valid HTTP status (100-599)
+        if (statusCode < 100 || statusCode > 599) {
+            statusCode = 500; // Internal Server Error as fallback
+        }
+        handler.commit(statusCode, headers);
+    }
+
+    private void doEndResponse() {
+        handler.endResponse();
     }
 
     public void sendRedirect(String location) throws IOException {
@@ -438,7 +462,11 @@ class Response implements HttpServletResponse {
     }
 
     public void setStatus(int sc) {
-        statusCode = sc;
+        // When processing an error page, preserve the original error status
+        // (SRV.9.9.2 - the error page should not be able to change the status code)
+        if (!errorCondition) {
+            statusCode = sc;
+        }
     }
 
     public void setStatus(int sc, String msg) {
@@ -507,7 +535,12 @@ class Response implements HttpServletResponse {
     }
 
     public ServletOutputStream getOutputStream() throws IOException {
+        // If already committed and we have an output stream, return it
+        // (supports RequestDispatcher.include() per SRV.9.3)
         if (committed) {
+            if (outputStream != null) {
+                return outputStream;
+            }
             throw new IllegalStateException("already committed");
         }
         commit();
@@ -522,7 +555,12 @@ class Response implements HttpServletResponse {
     }
 
     public PrintWriter getWriter() throws IOException {
+        // If already committed and we have a writer, return it
+        // (supports RequestDispatcher.include() per SRV.9.3)
         if (committed) {
+            if (writer != null) {
+                return writer;
+            }
             throw new IllegalStateException("already committed");
         }
         String encoding = getCharacterEncoding();
@@ -591,7 +629,7 @@ class Response implements HttpServletResponse {
 
     // Called by worker thread once servlet processing is complete
     void endResponse() {
-        stream.endResponse();
+        doEndResponse();
     }
 
     public boolean isCommitted() {
@@ -608,9 +646,8 @@ class Response implements HttpServletResponse {
         writer = null;
         locale = Locale.getDefault();
         charset = null;
-        bufferSize = 4096; // TODO make configurable
 
-        if (stream.isCloseConnection()) {
+        if (isCloseConnection()) {
             setHeader("Connection", "close");
         }
     }

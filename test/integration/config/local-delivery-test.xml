@@ -1,0 +1,29 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Local Delivery Integration Test Configuration
+  
+  Tests the LocalDeliveryHandler with mbox mailboxes.
+  Delivers mail for testlocal.example domain to local mailboxes.
+-->
+<gumdrop>
+
+  <!-- Mbox mailbox factory for local delivery -->
+  <mailbox-factory id="mailboxFactory" class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory">
+    <property name="baseDirectory">test/integration/mailbox/local-delivery</property>
+  </mailbox-factory>
+
+  <!-- Local delivery handler factory -->
+  <smtp-handler-factory id="localDeliveryHandler" class="org.bluezoo.gumdrop.smtp.LocalDeliveryHandlerFactory">
+    <property name="mailboxFactory" ref="mailboxFactory"/>
+    <property name="localDomain">testlocal.example</property>
+    <property name="hostname">localhost</property>
+  </smtp-handler-factory>
+
+  <!-- SMTP server with local delivery handler -->
+  <server id="smtpServer" class="org.bluezoo.gumdrop.smtp.SMTPServer">
+    <property name="port">12698</property>
+    <property name="addresses">127.0.0.1</property>
+    <property name="handlerFactory" ref="localDeliveryHandler"/>
+  </server>
+
+</gumdrop>

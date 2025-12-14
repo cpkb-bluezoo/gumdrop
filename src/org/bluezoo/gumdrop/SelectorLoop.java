@@ -32,7 +32,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.text.MessageFormat;
-import java.util.Deque;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -49,13 +48,20 @@ import java.util.logging.Logger;
  * <p>All I/O and TLS/DTLS processing for a handler occurs on its
  * assigned SelectorLoop thread.
  *
+ * <p><strong>TODO:</strong> Add a task queue facility to allow external threads
+ * to submit tasks for execution on the loop thread. This would enable truly
+ * async handler responses in the staged handler pattern - handlers could
+ * respond from any thread, and the State implementations would queue the
+ * response for execution on the correct SelectorLoop.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class SelectorLoop extends Thread {
+public class SelectorLoop implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(SelectorLoop.class.getName());
 
     private final int index;
+    private Thread thread;
     private Selector selector;
     private volatile boolean active;
 
@@ -78,7 +84,6 @@ public class SelectorLoop extends Thread {
      * @param index the 1-based index for naming
      */
     SelectorLoop(int index) {
-        super("SelectorLoop-" + index);
         this.index = index;
         this.readBuffer = ByteBuffer.allocate(65536);
         this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
@@ -86,6 +91,28 @@ public class SelectorLoop extends Thread {
         this.pendingTasks = new ConcurrentLinkedQueue<Runnable>();
     }
 
+    /**
+     * Starts this SelectorLoop.
+     * Creates a new thread if needed and starts processing.
+     */
+    public void start() {
+        if (thread != null && thread.isAlive()) {
+            return; // Already running
+        }
+        thread = new Thread(this, "SelectorLoop-" + index);
+        thread.start();
+    }
+
+    /**
+     * Returns whether this SelectorLoop is currently running.
+     *
+     * @return true if the thread is alive
+     */
+    public boolean isRunning() {
+        return thread != null && thread.isAlive();
+    }
+
+    @Override
     public void run() {
         active = true;
         try {
@@ -148,6 +175,7 @@ public class SelectorLoop extends Thread {
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error closing selector", e);
                 }
+                selector = null;
             }
         }
     }
@@ -250,11 +278,6 @@ public class SelectorLoop extends Thread {
             } else if (len > 0) {
                 readBuffer.flip();
 
-                // Copy the data (readBuffer is reused)
-                ByteBuffer data = ByteBuffer.allocate(len);
-                data.put(readBuffer);
-                data.flip();
-
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     Object sa = sc.socket().getRemoteSocketAddress();
                     String message = Gumdrop.L10N.getString("info.received");
@@ -262,9 +285,12 @@ public class SelectorLoop extends Thread {
                     LOGGER.finest(message);
                 }
 
-                // Process data directly on this thread (no handoff)
-                // This handles SSL unwrap and calls receive() on the connection
-                connection.netReceive(data);
+                // Append to connection's netIn buffer (handles growth if needed)
+                connection.appendToNetIn(readBuffer);
+                
+                // Flip netIn for reading and process
+                connection.netIn.flip();
+                connection.processInbound();
             }
         } catch (IOException e) {
             connection.handleReadError(e);
@@ -273,38 +299,41 @@ public class SelectorLoop extends Thread {
 
     private void doTcpWrite(SelectionKey key, Connection connection) {
         SocketChannel sc = (SocketChannel) key.channel();
-        Deque<ByteBuffer> queue = connection.getOutboundQueue();
+        ByteBuffer netOut = connection.getNetOut();
 
         try {
-            ByteBuffer buffer;
-            while ((buffer = queue.peek()) != null) {
-                // Check for close sentinel
-                if (buffer == Connection.CLOSE_SENTINEL) {
-                    queue.poll();
-                    connection.doClose();
-                    key.cancel();
-                    return;
+            synchronized (connection.netOutLock) {
+                // Flip netOut for reading (it's in write mode after appends)
+                netOut.flip();
+                
+                if (netOut.hasRemaining()) {
+                    int len = sc.write(netOut);
+
+                    if (LOGGER.isLoggable(Level.FINEST)) {
+                        Object sa = sc.socket().getRemoteSocketAddress();
+                        String message = Gumdrop.L10N.getString("info.sent");
+                        message = MessageFormat.format(message, len, sa);
+                        LOGGER.finest(message);
+                    }
+
+                    if (netOut.hasRemaining()) {
+                        // Socket buffer full - compact and wait for next OP_WRITE
+                        netOut.compact();
+                        return;
+                    }
                 }
-
-                int len = sc.write(buffer);
-
-                if (LOGGER.isLoggable(Level.FINEST)) {
-                    Object sa = sc.socket().getRemoteSocketAddress();
-                    String message = Gumdrop.L10N.getString("info.sent");
-                    message = MessageFormat.format(message, len, sa);
-                    LOGGER.finest(message);
-                }
-
-                if (buffer.hasRemaining()) {
-                    // Socket buffer full, wait for next OP_WRITE
-                    return;
-                }
-
-                // Buffer completely written, remove from queue
-                queue.poll();
+                
+                // All data written - clear buffer and OP_WRITE interest
+                netOut.clear();
             }
-
-            // All data written, clear OP_WRITE interest
+            
+            // Check if close was requested
+            if (connection.closeRequested) {
+                connection.doClose();
+                key.cancel();
+                return;
+            }
+            
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
 
         } catch (IOException e) {
@@ -337,28 +366,23 @@ public class SelectorLoop extends Thread {
 
     private void doDatagramServerRead(SelectionKey key, DatagramServer server) {
         DatagramChannel dc = (DatagramChannel) key.channel();
-        readBuffer.clear();
+        server.netIn.clear();
 
         try {
-            InetSocketAddress source = (InetSocketAddress) dc.receive(readBuffer);
+            InetSocketAddress source = (InetSocketAddress) dc.receive(server.netIn);
             if (source == null) {
                 return;
             }
 
-            readBuffer.flip();
-
-            // Copy the data (readBuffer is reused)
-            ByteBuffer data = ByteBuffer.allocate(readBuffer.remaining());
-            data.put(readBuffer);
-            data.flip();
+            server.netIn.flip();
 
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String message = Gumdrop.L10N.getString("info.received");
-                message = MessageFormat.format(message, data.remaining(), source);
+                message = MessageFormat.format(message, server.netIn.remaining(), source);
                 LOGGER.finest(message);
             }
 
-            server.netReceive(data, source);
+            server.netReceive(server.netIn, source);
 
         } catch (IOException e) {
             server.handleReadError(e);
@@ -367,25 +391,27 @@ public class SelectorLoop extends Thread {
 
     private void doDatagramServerWrite(SelectionKey key, DatagramServer server) {
         DatagramChannel dc = (DatagramChannel) key.channel();
-        Deque<OutboundDatagram> queue = server.getOutboundQueue();
 
         try {
-            OutboundDatagram od;
-            while ((od = queue.peek()) != null) {
-                int len = dc.send(od.data, od.destination);
+            // Process queued datagrams
+            DatagramServer.PendingDatagram pending;
+            while ((pending = server.pendingDatagrams.poll()) != null) {
+                ByteBuffer data = pending.data;
+                InetSocketAddress dest = pending.destination;
+                
+                int len = dc.send(data, dest);
 
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     String message = Gumdrop.L10N.getString("info.sent");
-                    message = MessageFormat.format(message, len, od.destination);
+                    message = MessageFormat.format(message, len, dest);
                     LOGGER.finest(message);
                 }
 
-                if (od.data.hasRemaining()) {
-                    // Couldn't send all data (shouldn't happen with UDP)
+                if (data.hasRemaining()) {
+                    // Couldn't send all data - re-queue at front and return
+                    server.pendingDatagrams.addFirst(pending);
                     return;
                 }
-
-                queue.poll();
             }
 
             // All data written, clear OP_WRITE interest
@@ -400,29 +426,24 @@ public class SelectorLoop extends Thread {
 
     private void doDatagramClientRead(SelectionKey key, DatagramClient client) {
         DatagramChannel dc = (DatagramChannel) key.channel();
-        readBuffer.clear();
+        client.netIn.clear();
 
         try {
             // For connected channel, receive() returns null for address
-            dc.receive(readBuffer);
-            readBuffer.flip();
+            dc.receive(client.netIn);
+            client.netIn.flip();
 
-            if (!readBuffer.hasRemaining()) {
+            if (!client.netIn.hasRemaining()) {
                 return;
             }
 
-            // Copy the data (readBuffer is reused)
-            ByteBuffer data = ByteBuffer.allocate(readBuffer.remaining());
-            data.put(readBuffer);
-            data.flip();
-
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String message = Gumdrop.L10N.getString("info.received");
-                message = MessageFormat.format(message, data.remaining(), client.getRemoteAddress());
+                message = MessageFormat.format(message, client.netIn.remaining(), client.getRemoteAddress());
                 LOGGER.finest(message);
             }
 
-            client.netReceive(data);
+            client.netReceive(client.netIn);
 
         } catch (IOException e) {
             client.handleReadError(e);
@@ -431,12 +452,12 @@ public class SelectorLoop extends Thread {
 
     private void doDatagramClientWrite(SelectionKey key, DatagramClient client) {
         DatagramChannel dc = (DatagramChannel) key.channel();
-        Deque<ByteBuffer> queue = client.getOutboundQueue();
 
         try {
-            ByteBuffer buf;
-            while ((buf = queue.peek()) != null) {
-                int len = dc.write(buf);  // Connected channel, no address needed
+            // Process queued datagrams
+            ByteBuffer data;
+            while ((data = client.pendingDatagrams.poll()) != null) {
+                int len = dc.write(data);  // Connected channel, no address needed
 
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     String message = Gumdrop.L10N.getString("info.sent");
@@ -444,12 +465,11 @@ public class SelectorLoop extends Thread {
                     LOGGER.finest(message);
                 }
 
-                if (buf.hasRemaining()) {
-                    // Couldn't send all data
+                if (data.hasRemaining()) {
+                    // Couldn't send all data - re-queue at front and return
+                    client.pendingDatagrams.addFirst(data);
                     return;
                 }
-
-                queue.poll();
             }
 
             // All data written, clear OP_WRITE interest
@@ -472,7 +492,9 @@ public class SelectorLoop extends Thread {
      */
     void register(SocketChannel channel, Connection connection) {
         pendingRegistrations.add(new PendingRegistration(channel, connection, false));
-        selector.wakeup();
+        if (selector != null) {
+            selector.wakeup();
+        }
     }
 
     /**
@@ -485,7 +507,9 @@ public class SelectorLoop extends Thread {
      */
     void registerForConnect(SocketChannel channel, Connection connection) {
         pendingRegistrations.add(new PendingRegistration(channel, connection, true));
-        selector.wakeup();
+        if (selector != null) {
+            selector.wakeup();
+        }
     }
 
     /**
@@ -497,7 +521,9 @@ public class SelectorLoop extends Thread {
      */
     void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
         pendingRegistrations.add(new PendingRegistration(channel, handler, false));
-        selector.wakeup();
+        if (selector != null) {
+            selector.wakeup();
+        }
     }
 
     // -- Write request methods --
@@ -510,7 +536,7 @@ public class SelectorLoop extends Thread {
      * @param task the task to execute
      */
     public void invokeLater(Runnable task) {
-        if (Thread.currentThread() == this) {
+        if (Thread.currentThread() == thread) {
             // We're on the SelectorLoop thread, execute immediately
             try {
                 task.run();
@@ -554,8 +580,10 @@ public class SelectorLoop extends Thread {
             key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
 
             // Wake up selector if called from a different thread
-            if (Thread.currentThread() != this) {
-                selector.wakeup();
+            if (Thread.currentThread() != thread) {
+                if (selector != null) {
+                    selector.wakeup();
+                }
             }
         }
     }
@@ -567,6 +595,17 @@ public class SelectorLoop extends Thread {
         active = false;
         if (selector != null) {
             selector.wakeup();
+        }
+    }
+
+    /**
+     * Waits for this SelectorLoop's thread to terminate.
+     *
+     * @throws InterruptedException if interrupted while waiting
+     */
+    public void join() throws InterruptedException {
+        if (thread != null) {
+            thread.join();
         }
     }
 

@@ -32,20 +32,23 @@ import java.nio.ByteBuffer;
  */
 public class WindowUpdateFrame extends Frame {
 
+    private static final int FRAME_LENGTH = 4;
+
     int stream;
 
     int windowSizeIncrement;
 
     /**
      * Constructor for a window update frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
      */
-    protected WindowUpdateFrame(int stream, byte[] payload) throws ProtocolException {
+    protected WindowUpdateFrame(int stream, ByteBuffer payload) throws ProtocolException {
         this.stream = stream;
-        int offset = 0;
-        windowSizeIncrement = ((int) payload[offset++] & 0x7f) << 24
-                | ((int) payload[offset++] & 0xff) << 16
-                | ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
+        windowSizeIncrement = (payload.get() & 0x7f) << 24
+                | (payload.get() & 0xff) << 16
+                | (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
         if (windowSizeIncrement == 0) {
             throw new ProtocolException();
         }
@@ -60,7 +63,7 @@ public class WindowUpdateFrame extends Frame {
     }
 
     public int getLength() {
-        return 4;
+        return FRAME_LENGTH;
     }
 
     public int getType() {

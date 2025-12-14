@@ -22,11 +22,21 @@
 package org.bluezoo.gumdrop.servlet;
 
 /**
- * A message destination. This simply represents a logical name for a queue
- * or topic. The actual message destination will be looked up via JNDI using
- * the mapped-name or lookup-name.
+ * A message destination. This represents a logical name for a JMS queue
+ * or topic defined in the deployment descriptor.
+ * <p>
+ * The actual JMS destination is looked up via JNDI using either:
+ * <ul>
+ *   <li>{@code lookup-name} - explicit JNDI name (preferred)</li>
+ *   <li>{@code mapped-name} - product-specific name (legacy)</li>
+ * </ul>
+ * <p>
+ * Message destination references ({@code message-destination-ref}) can
+ * link to this destination via the {@code message-destination-link} element,
+ * which should match the {@code message-destination-name} of this destination.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.servlet.jndi.MessageDestinationRef
  */
 final class MessageDestination implements Description {
 
@@ -36,9 +46,14 @@ final class MessageDestination implements Description {
     String smallIcon;
     String largeIcon;
 
+    /** The logical name of this message destination. */
     String messageDestinationName;
-    String mappedName; // TODO JNDI
-    String lookupName; // TODO JNDI
+    
+    /** Product-specific JNDI name for the actual JMS destination (legacy). */
+    String mappedName;
+    
+    /** Explicit JNDI lookup name for the actual JMS destination. */
+    String lookupName;
 
     // -- Description --
 
@@ -72,6 +87,34 @@ final class MessageDestination implements Description {
 
     @Override public void setLargeIcon(String largeIcon) {
         this.largeIcon = largeIcon;
+    }
+
+    // -- Accessors --
+
+    /**
+     * Returns the logical name of this message destination.
+     * This is the name used in {@code message-destination-link} elements.
+     *
+     * @return the message destination name
+     */
+    String getName() {
+        return messageDestinationName;
+    }
+
+    /**
+     * Returns the JNDI name to use for looking up the actual JMS destination.
+     * Prefers {@code lookup-name} over {@code mapped-name}.
+     *
+     * @return the JNDI name, or null if neither is specified
+     */
+    String getJndiName() {
+        if (lookupName != null && !lookupName.isEmpty()) {
+            return lookupName;
+        }
+        if (mappedName != null && !mappedName.isEmpty()) {
+            return mappedName;
+        }
+        return null;
     }
 
 }

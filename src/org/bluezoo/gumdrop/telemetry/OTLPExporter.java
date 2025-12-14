@@ -21,104 +21,72 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.ClientConnectionPool;
-import org.bluezoo.gumdrop.ClientConnectionPool.PoolEntry;
-import org.bluezoo.gumdrop.ClientConnectionPool.PoolTarget;
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientConnection;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClientStream;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
 import org.bluezoo.gumdrop.telemetry.protobuf.LogSerializer;
 import org.bluezoo.gumdrop.telemetry.protobuf.MetricSerializer;
 import org.bluezoo.gumdrop.telemetry.protobuf.TraceSerializer;
-import org.bluezoo.gumdrop.telemetry.protobuf.WriteResult;
-
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
-import java.text.MessageFormat;
+
 import java.util.ArrayList;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Exports telemetry data to an OpenTelemetry Collector via OTLP/HTTP.
  *
- * <p>This exporter uses Gumdrop's native HTTP client with connection pooling
- * for efficient, non-blocking delivery of telemetry data. Connections are
- * pooled and reused to minimize overhead and maintain SelectorLoop affinity.
+ * <p>This exporter uses Gumdrop's native HTTP client for efficient,
+ * non-blocking delivery of telemetry data. Data is batched before sending
+ * to reduce network overhead. Batches are flushed either when full or when
+ * the flush interval expires.
  *
- * <p>Data is batched before sending to reduce network overhead. Batches
- * are flushed either when full or when the flush interval expires.
+ * <p>The exporter maintains separate endpoints for traces, logs, and metrics,
+ * each with its own HTTP connection that is reused across exports.
  *
- * <p><strong>Connection Pooling:</strong> The exporter maintains idle
- * connections to the OTLP endpoints, keyed by SelectorLoop for proper
- * thread affinity. Connections are reused across multiple exports,
- * significantly reducing latency and resource usage.
+ * <h3>Configuration</h3>
+ * <p>The exporter is configured via {@link TelemetryConfig}:
+ * <ul>
+ * <li>{@code tracesEndpoint} - URL for trace export (e.g., http://localhost:4318/v1/traces)</li>
+ * <li>{@code logsEndpoint} - URL for log export</li>
+ * <li>{@code metricsEndpoint} - URL for metrics export</li>
+ * <li>{@code batchSize} - Maximum items per batch</li>
+ * <li>{@code flushIntervalMs} - Maximum time between flushes</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class OTLPExporter implements TelemetryExporter {
 
-    private static final Logger LOGGER = Logger.getLogger(OTLPExporter.class.getName());
-    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
+    private static final Logger logger = Logger.getLogger(OTLPExporter.class.getName());
 
-    private static final String CONTENT_TYPE = "application/x-protobuf";
     private static final int DEFAULT_BUFFER_SIZE = 1024 * 1024; // 1 MB
-    private static final int MAX_CHUNK_SIZE = 64 * 1024; // 64 KB chunks for large payloads
 
     private final TelemetryConfig config;
     private final TraceSerializer traceSerializer;
     private final LogSerializer logSerializer;
     private final MetricSerializer metricSerializer;
 
+    // Queues for incoming telemetry data
     private final BlockingQueue<Trace> traceQueue;
     private final BlockingQueue<LogRecord> logQueue;
     private final BlockingQueue<List<MetricData>> metricQueue;
 
-    // Connection pool for HTTP connections
-    private final ClientConnectionPool connectionPool;
+    // Endpoints
+    private final OTLPEndpoint tracesEndpoint;
+    private final OTLPEndpoint logsEndpoint;
+    private final OTLPEndpoint metricsEndpoint;
 
-    // Map from connection to its handler (for reusing pooled connections)
-    private final Map<Connection, OTLPClientHandler> connectionHandlers;
+    // Active exports for flush synchronization
+    private final Set<OTLPResponseHandler> pendingExports;
 
-    // Parsed endpoint information
-    private final InetAddress tracesHost;
-    private final int tracesPort;
-    private final String tracesPath;
-    private final boolean tracesSecure;
-    private final PoolTarget tracesTarget;
-
-    private final InetAddress logsHost;
-    private final int logsPort;
-    private final String logsPath;
-    private final boolean logsSecure;
-    private final PoolTarget logsTarget;
-
-    private final InetAddress metricsHost;
-    private final int metricsPort;
-    private final String metricsPath;
-    private final boolean metricsSecure;
-    private final PoolTarget metricsTarget;
-
+    // Background threads
     private final ExportThread exportThread;
     private final MetricsCollectionThread metricsCollectionThread;
     private volatile boolean running;
@@ -131,6 +99,7 @@ public class OTLPExporter implements TelemetryExporter {
     public OTLPExporter(TelemetryConfig config) {
         this.config = config;
 
+        // Build resource attributes
         Map<String, String> resourceAttrs = config.getResourceAttributes();
         if (config.getServiceInstanceId() != null) {
             resourceAttrs.put("service.instance.id", config.getServiceInstanceId());
@@ -139,6 +108,7 @@ public class OTLPExporter implements TelemetryExporter {
             resourceAttrs.put("deployment.environment", config.getDeploymentEnvironment());
         }
 
+        // Create serializers
         this.traceSerializer = new TraceSerializer(
                 config.getServiceName(),
                 config.getServiceVersion(),
@@ -157,116 +127,37 @@ public class OTLPExporter implements TelemetryExporter {
                 config.getServiceNamespace(),
                 resourceAttrs);
 
-        this.traceQueue = new ArrayBlockingQueue<Trace>(config.getMaxQueueSize());
-        this.logQueue = new ArrayBlockingQueue<LogRecord>(config.getMaxQueueSize());
-        this.metricQueue = new ArrayBlockingQueue<List<MetricData>>(config.getMaxQueueSize());
+        // Create queues
+        this.traceQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
+        this.logQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
+        this.metricQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
 
-        // Create connection pool with appropriate settings
-        this.connectionPool = new ClientConnectionPool();
-        connectionPool.setMaxConnectionsPerTarget(4); // Multiple connections for parallelism
-        connectionPool.setIdleTimeoutMs(60000); // 60 second idle timeout
+        // Parse and create endpoints
+        Map<String, String> headers = config.getParsedHeaders();
+        this.tracesEndpoint = OTLPEndpoint.create("traces", config.getTracesEndpoint(), "/v1/traces", headers);
+        this.logsEndpoint = OTLPEndpoint.create("logs", config.getLogsEndpoint(), "/v1/logs", headers);
+        this.metricsEndpoint = OTLPEndpoint.create("metrics", config.getMetricsEndpoint(), "/v1/metrics", headers);
 
-        // Map to track handlers for pooled connections
-        this.connectionHandlers = new HashMap<Connection, OTLPClientHandler>();
+        // Track pending exports
+        this.pendingExports = ConcurrentHashMap.newKeySet();
 
-        // Parse traces endpoint
-        InetAddress tracesHostParsed = null;
-        int tracesPortParsed = 0;
-        String tracesPathParsed = null;
-        boolean tracesSecureParsed = false;
-
-        String tracesEndpoint = config.getTracesEndpoint();
-        if (tracesEndpoint != null) {
-            try {
-                URI uri = URI.create(tracesEndpoint);
-                tracesHostParsed = InetAddress.getByName(uri.getHost());
-                tracesPortParsed = uri.getPort() > 0 ? uri.getPort() : 
-                        ("https".equals(uri.getScheme()) ? 443 : 80);
-                tracesPathParsed = uri.getPath() != null && !uri.getPath().isEmpty() ? 
-                        uri.getPath() : "/v1/traces";
-                tracesSecureParsed = "https".equals(uri.getScheme());
-            } catch (UnknownHostException e) {
-                String msg = MessageFormat.format(L10N.getString("err.cannot_resolve_traces_endpoint"), tracesEndpoint);
-                LOGGER.warning(msg);
-            }
-        }
-
-        this.tracesHost = tracesHostParsed;
-        this.tracesPort = tracesPortParsed;
-        this.tracesPath = tracesPathParsed;
-        this.tracesSecure = tracesSecureParsed;
-        this.tracesTarget = tracesHostParsed != null ? 
-                new PoolTarget(tracesHostParsed, tracesPortParsed, tracesSecureParsed) : null;
-
-        // Parse logs endpoint
-        InetAddress logsHostParsed = null;
-        int logsPortParsed = 0;
-        String logsPathParsed = null;
-        boolean logsSecureParsed = false;
-
-        String logsEndpoint = config.getLogsEndpoint();
-        if (logsEndpoint != null) {
-            try {
-                URI uri = URI.create(logsEndpoint);
-                logsHostParsed = InetAddress.getByName(uri.getHost());
-                logsPortParsed = uri.getPort() > 0 ? uri.getPort() :
-                        ("https".equals(uri.getScheme()) ? 443 : 80);
-                logsPathParsed = uri.getPath() != null && !uri.getPath().isEmpty() ? 
-                        uri.getPath() : "/v1/logs";
-                logsSecureParsed = "https".equals(uri.getScheme());
-            } catch (UnknownHostException e) {
-                String msg = MessageFormat.format(L10N.getString("err.cannot_resolve_logs_endpoint"), logsEndpoint);
-                LOGGER.warning(msg);
-            }
-        }
-
-        this.logsHost = logsHostParsed;
-        this.logsPort = logsPortParsed;
-        this.logsPath = logsPathParsed;
-        this.logsSecure = logsSecureParsed;
-        this.logsTarget = logsHostParsed != null ? 
-                new PoolTarget(logsHostParsed, logsPortParsed, logsSecureParsed) : null;
-
-        // Parse metrics endpoint
-        InetAddress metricsHostParsed = null;
-        int metricsPortParsed = 0;
-        String metricsPathParsed = null;
-        boolean metricsSecureParsed = false;
-
-        String metricsEndpoint = config.getMetricsEndpoint();
-        if (metricsEndpoint != null) {
-            try {
-                URI uri = URI.create(metricsEndpoint);
-                metricsHostParsed = InetAddress.getByName(uri.getHost());
-                metricsPortParsed = uri.getPort() > 0 ? uri.getPort() :
-                        ("https".equals(uri.getScheme()) ? 443 : 80);
-                metricsPathParsed = uri.getPath() != null && !uri.getPath().isEmpty() ? 
-                        uri.getPath() : "/v1/metrics";
-                metricsSecureParsed = "https".equals(uri.getScheme());
-            } catch (UnknownHostException e) {
-                String msg = MessageFormat.format(L10N.getString("err.cannot_resolve_metrics_endpoint"), metricsEndpoint);
-                LOGGER.warning(msg);
-            }
-        }
-
-        this.metricsHost = metricsHostParsed;
-        this.metricsPort = metricsPortParsed;
-        this.metricsPath = metricsPathParsed;
-        this.metricsSecure = metricsSecureParsed;
-        this.metricsTarget = metricsHostParsed != null ? 
-                new PoolTarget(metricsHostParsed, metricsPortParsed, metricsSecureParsed) : null;
-
-        this.exportThread = new ExportThread();
+        // Start export thread
         this.running = true;
+        this.exportThread = new ExportThread();
         this.exportThread.start();
 
         // Start metrics collection thread if metrics are enabled
-        if (config.isMetricsEnabled() && metricsTarget != null) {
+        if (config.isMetricsEnabled() && metricsEndpoint != null) {
             this.metricsCollectionThread = new MetricsCollectionThread();
             this.metricsCollectionThread.start();
         } else {
             this.metricsCollectionThread = null;
         }
+
+        logger.info("OTLP exporter started" +
+                (tracesEndpoint != null ? ", traces: " + tracesEndpoint : "") +
+                (logsEndpoint != null ? ", logs: " + logsEndpoint : "") +
+                (metricsEndpoint != null ? ", metrics: " + metricsEndpoint : ""));
     }
 
     @Override
@@ -275,8 +166,8 @@ public class OTLPExporter implements TelemetryExporter {
             return;
         }
         if (!traceQueue.offer(trace)) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Trace queue full, dropping trace: " + trace.getTraceIdHex());
+            if (logger.isLoggable(Level.FINE)) {
+                logger.fine("Trace queue full, dropping trace: " + trace.getTraceIdHex());
             }
         }
     }
@@ -287,8 +178,8 @@ public class OTLPExporter implements TelemetryExporter {
             return;
         }
         if (!logQueue.offer(record)) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Log queue full, dropping log record");
+            if (logger.isLoggable(Level.FINE)) {
+                logger.fine("Log queue full, dropping log record");
             }
         }
     }
@@ -299,8 +190,8 @@ public class OTLPExporter implements TelemetryExporter {
             return;
         }
         if (!metricQueue.offer(metrics)) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Metric queue full, dropping metrics batch");
+            if (logger.isLoggable(Level.FINE)) {
+                logger.fine("Metric queue full, dropping metrics batch");
             }
         }
     }
@@ -308,21 +199,12 @@ public class OTLPExporter implements TelemetryExporter {
     @Override
     public void flush() {
         exportThread.requestFlush();
-        // Wait for flush to complete (with timeout)
-        long deadline = System.currentTimeMillis() + config.getTimeoutMs();
-        while (exportThread.isFlushing() && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
+        waitForPendingExports(config.getTimeoutMs());
     }
 
     @Override
     public void shutdown() {
-        // First, request a final flush of all pending data
+        // Final flush
         forceFlush();
 
         running = false;
@@ -330,6 +212,7 @@ public class OTLPExporter implements TelemetryExporter {
         if (metricsCollectionThread != null) {
             metricsCollectionThread.interrupt();
         }
+
         try {
             exportThread.join(config.getTimeoutMs());
             if (metricsCollectionThread != null) {
@@ -338,26 +221,78 @@ public class OTLPExporter implements TelemetryExporter {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
-        // Shutdown the connection pool
-        connectionPool.shutdown();
+
+        // Close endpoints
+        if (tracesEndpoint != null) {
+            tracesEndpoint.close();
+        }
+        if (logsEndpoint != null) {
+            logsEndpoint.close();
+        }
+        if (metricsEndpoint != null) {
+            metricsEndpoint.close();
+        }
+
+        logger.info("OTLP exporter shut down");
     }
 
     /**
      * Forces an immediate flush of all pending telemetry data.
      * This method blocks until the flush completes or times out.
-     * Used during shutdown to ensure all telemetry is exported.
      */
     public void forceFlush() {
         if (!running) {
             return;
         }
-
         exportThread.requestFlush();
+        waitForPendingExports(config.getTimeoutMs());
+    }
 
-        // Wait for flush to complete with timeout
-        long deadline = System.currentTimeMillis() + config.getTimeoutMs();
-        while (exportThread.isFlushing() && System.currentTimeMillis() < deadline) {
+    /**
+     * Waits for all configured endpoints to establish connections.
+     *
+     * <p>This method blocks until all endpoints are connected or the timeout
+     * expires. Use this after starting the exporter to ensure connections
+     * are ready before sending telemetry data.
+     *
+     * @param timeoutMs the maximum time to wait in milliseconds
+     * @return true if all endpoints are connected, false if any timed out
+     */
+    public boolean waitForConnections(long timeoutMs) {
+        boolean allConnected = true;
+        if (tracesEndpoint != null) {
+            if (!tracesEndpoint.connectAndWait(timeoutMs)) {
+                allConnected = false;
+            }
+        }
+        if (logsEndpoint != null) {
+            if (!logsEndpoint.connectAndWait(timeoutMs)) {
+                allConnected = false;
+            }
+        }
+        if (metricsEndpoint != null) {
+            if (!metricsEndpoint.connectAndWait(timeoutMs)) {
+                allConnected = false;
+            }
+        }
+        return allConnected;
+    }
+
+    /**
+     * Called by response handlers when an export completes.
+     *
+     * @param handler the completed handler
+     */
+    void onExportComplete(OTLPResponseHandler handler) {
+        pendingExports.remove(handler);
+    }
+
+    /**
+     * Waits for all pending exports to complete.
+     */
+    private void waitForPendingExports(long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (!pendingExports.isEmpty() && System.currentTimeMillis() < deadline) {
             try {
                 Thread.sleep(10);
             } catch (InterruptedException e) {
@@ -367,13 +302,16 @@ public class OTLPExporter implements TelemetryExporter {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Export Thread
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
      * Background thread that batches and exports telemetry data.
      */
     private class ExportThread extends Thread {
 
         private volatile boolean flushRequested;
-        private volatile boolean flushing;
 
         ExportThread() {
             super("OTLPExporter");
@@ -385,15 +323,11 @@ public class OTLPExporter implements TelemetryExporter {
             interrupt();
         }
 
-        boolean isFlushing() {
-            return flushing;
-        }
-
         @Override
         public void run() {
-            List<Trace> traceBatch = new ArrayList<Trace>();
-            List<LogRecord> logBatch = new ArrayList<LogRecord>();
-            List<List<MetricData>> metricBatches = new ArrayList<List<MetricData>>();
+            List<Trace> traceBatch = new ArrayList<>();
+            List<LogRecord> logBatch = new ArrayList<>();
+            List<List<MetricData>> metricBatches = new ArrayList<>();
             long lastFlush = System.currentTimeMillis();
 
             while (running || !traceQueue.isEmpty() || !logQueue.isEmpty() || !metricQueue.isEmpty()) {
@@ -406,9 +340,9 @@ public class OTLPExporter implements TelemetryExporter {
                     }
 
                     // Drain queues into batches
-                    drainTraces(traceBatch);
-                    drainLogs(logBatch);
-                    drainMetrics(metricBatches);
+                    drainQueue(traceQueue, traceBatch);
+                    drainQueue(logQueue, logBatch);
+                    drainQueue(metricQueue, metricBatches);
 
                     // Check if we should flush
                     now = System.currentTimeMillis();
@@ -418,25 +352,21 @@ public class OTLPExporter implements TelemetryExporter {
                             !metricBatches.isEmpty() ||
                             (now - lastFlush) >= config.getFlushIntervalMs();
 
-                    if (shouldFlush && (!traceBatch.isEmpty() || !logBatch.isEmpty() || !metricBatches.isEmpty())) {
-                        flushing = true;
-                        try {
-                            if (!traceBatch.isEmpty()) {
-                                exportTraces(traceBatch);
-                                traceBatch.clear();
-                            }
-                            if (!logBatch.isEmpty()) {
-                                exportLogs(logBatch);
-                                logBatch.clear();
-                            }
-                            if (!metricBatches.isEmpty()) {
-                                exportMetrics(metricBatches);
-                                metricBatches.clear();
-                            }
-                        } finally {
-                            flushing = false;
-                            flushRequested = false;
+                    if (shouldFlush) {
+                        // Only export if the endpoint is connected, otherwise keep data for retry
+                        if (!traceBatch.isEmpty() && tracesEndpoint != null && tracesEndpoint.isConnected()) {
+                            exportTraces(traceBatch);
+                            traceBatch.clear();
                         }
+                        if (!logBatch.isEmpty() && logsEndpoint != null && logsEndpoint.isConnected()) {
+                            exportLogs(logBatch);
+                            logBatch.clear();
+                        }
+                        if (!metricBatches.isEmpty() && metricsEndpoint != null && metricsEndpoint.isConnected()) {
+                            exportMetrics(metricBatches);
+                            metricBatches.clear();
+                        }
+                        flushRequested = false;
                         lastFlush = System.currentTimeMillis();
                     }
 
@@ -446,9 +376,10 @@ public class OTLPExporter implements TelemetryExporter {
             }
 
             // Final flush on shutdown
-            drainTraces(traceBatch);
-            drainLogs(logBatch);
-            drainMetrics(metricBatches);
+            drainQueue(traceQueue, traceBatch);
+            drainQueue(logQueue, logBatch);
+            drainQueue(metricQueue, metricBatches);
+
             if (!traceBatch.isEmpty()) {
                 exportTraces(traceBatch);
             }
@@ -460,415 +391,87 @@ public class OTLPExporter implements TelemetryExporter {
             }
         }
 
-        private void drainTraces(List<Trace> batch) {
-            Trace trace;
-            while ((trace = traceQueue.poll()) != null) {
-                batch.add(trace);
-            }
-        }
-
-        private void drainLogs(List<LogRecord> batch) {
-            LogRecord record;
-            while ((record = logQueue.poll()) != null) {
-                batch.add(record);
-            }
-        }
-
-        private void drainMetrics(List<List<MetricData>> batches) {
-            List<MetricData> metrics;
-            while ((metrics = metricQueue.poll()) != null) {
-                batches.add(metrics);
+        private <T> void drainQueue(BlockingQueue<T> queue, List<T> batch) {
+            T item;
+            while ((item = queue.poll()) != null) {
+                batch.add(item);
             }
         }
 
         private void exportTraces(List<Trace> traces) {
-            if (tracesHost == null || tracesTarget == null) {
+            if (tracesEndpoint == null) {
                 return;
             }
 
-            ByteBuffer buffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
-
             for (Trace trace : traces) {
-                buffer.clear();
-                WriteResult result = traceSerializer.serialize(trace, buffer);
-                if (result == WriteResult.OVERFLOW) {
-                    String msg = MessageFormat.format(L10N.getString("err.trace_too_large"), trace.getTraceIdHex());
-                    LOGGER.warning(msg);
+                OTLPResponseHandler handler = new OTLPResponseHandler("traces", OTLPExporter.this);
+                pendingExports.add(handler);
+
+                HTTPRequestChannel channel = tracesEndpoint.openStream(handler);
+                if (channel == null) {
                     continue;
                 }
 
-                buffer.flip();
-                sendRequest(tracesHost, tracesPort, tracesPath, tracesSecure, tracesTarget, buffer);
+                try {
+                    traceSerializer.serialize(trace, channel);
+                    channel.close();
+                } catch (IOException e) {
+                    logger.warning("Failed to serialize trace " + trace.getTraceIdHex() + ": " + e.getMessage());
+                    pendingExports.remove(handler);
+                }
             }
         }
 
         private void exportLogs(List<LogRecord> records) {
-            if (logsHost == null || logsTarget == null) {
+            if (logsEndpoint == null) {
                 return;
             }
 
-            ByteBuffer buffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
-            buffer.clear();
+            OTLPResponseHandler handler = new OTLPResponseHandler("logs", OTLPExporter.this);
+            pendingExports.add(handler);
 
-            WriteResult result = logSerializer.serialize(records, buffer);
-            if (result == WriteResult.OVERFLOW) {
-                LOGGER.warning(L10N.getString("err.logs_too_large"));
+            HTTPRequestChannel channel = logsEndpoint.openStream(handler);
+            if (channel == null) {
                 return;
             }
 
-            buffer.flip();
-            sendRequest(logsHost, logsPort, logsPath, logsSecure, logsTarget, buffer);
+            try {
+                logSerializer.serialize(records, channel);
+                channel.close();
+            } catch (IOException e) {
+                logger.warning("Failed to serialize logs: " + e.getMessage());
+                pendingExports.remove(handler);
+            }
         }
 
         private void exportMetrics(List<List<MetricData>> batches) {
-            if (metricsHost == null || metricsTarget == null) {
+            if (metricsEndpoint == null) {
                 return;
             }
 
-            ByteBuffer buffer = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
-
             for (List<MetricData> metrics : batches) {
-                buffer.clear();
+                OTLPResponseHandler handler = new OTLPResponseHandler("metrics", OTLPExporter.this);
+                pendingExports.add(handler);
 
-                // Use "gumdrop" as the default meter name for externally collected metrics
-                WriteResult result = metricSerializer.serialize(metrics, "gumdrop", "0.4", buffer);
-                if (result == WriteResult.OVERFLOW) {
-                    LOGGER.warning(L10N.getString("err.metrics_too_large"));
+                HTTPRequestChannel channel = metricsEndpoint.openStream(handler);
+                if (channel == null) {
                     continue;
                 }
 
-                buffer.flip();
-                sendRequest(metricsHost, metricsPort, metricsPath, metricsSecure, metricsTarget, buffer);
-            }
-        }
-
-        private void sendRequest(InetAddress host, int port, String path, boolean secure,
-                                 PoolTarget target, ByteBuffer data) {
-            // Build request headers
-            Map<String, String> headers = new HashMap<>();
-            headers.put("Content-Type", CONTENT_TYPE);
-            headers.put("Content-Length", String.valueOf(data.remaining()));
-            
-            String hostHeader = host.getHostAddress();
-            if ((secure && port != 443) || (!secure && port != 80)) {
-                hostHeader += ":" + port;
-            }
-            headers.put("Host", hostHeader);
-
-            // Add custom headers from config
-            Map<String, String> customHeaders = config.getParsedHeaders();
-            headers.putAll(customHeaders);
-
-            HTTPRequest request = new HTTPRequest("POST", path, headers);
-
-            // Create a copy of the data for the async handler
-            byte[] bodyData = new byte[data.remaining()];
-            data.get(bodyData);
-            ByteBuffer body = ByteBuffer.wrap(bodyData);
-
-            // Try to acquire a pooled connection
-            PoolEntry poolEntry = connectionPool.tryAcquire(target);
-            
-            if (poolEntry != null) {
-                // Reuse pooled connection
-                Connection conn = poolEntry.getConnection();
-                if (conn instanceof HTTPClientConnection) {
-                    HTTPClientConnection httpConn = (HTTPClientConnection) conn;
-                    if (httpConn.isOpen() && httpConn.isProtocolNegotiated()) {
-                        // Look up the handler for this connection
-                        OTLPClientHandler handler;
-                        synchronized (connectionHandlers) {
-                            handler = connectionHandlers.get(conn);
-                        }
-                        
-                        if (handler != null) {
-                            LOGGER.fine("Reusing pooled OTLP connection to " + target);
-                            
-                            // Send request on this connection's SelectorLoop
-                            SelectorLoop loop = conn.getSelectorLoop();
-                            if (loop != null) {
-                                loop.invokeLater(new SendRequestTask(httpConn, poolEntry, handler, request, body));
-                                return;
-                            }
-                        }
-                    }
-                }
-                // Connection is not usable or handler not found, remove it
-                synchronized (connectionHandlers) {
-                    connectionHandlers.remove(poolEntry.getConnection());
-                }
-                connectionPool.remove(poolEntry);
-            }
-
-            // Create new connection
-            try {
-                HTTPClient client = new HTTPClient(host, port, secure);
-                client.setVersion(HTTPVersion.HTTP_1_1); // OTLP typically uses HTTP/1.1
-
-                OTLPClientHandler handler = new OTLPClientHandler(target, request, body);
-                client.connect(handler);
-
-            } catch (IOException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "OTLP export failed to connect", e);
+                try {
+                    metricSerializer.serialize(metrics, "gumdrop", "0.4", channel);
+                    channel.close();
+                } catch (IOException e) {
+                    logger.warning("Failed to serialize metrics: " + e.getMessage());
+                    pendingExports.remove(handler);
                 }
             }
         }
     }
 
-    /**
-     * Task to send a request on a pooled connection.
-     * This queues the request with the connection's handler and triggers stream creation.
-     */
-    private class SendRequestTask implements Runnable {
-        private final HTTPClientConnection connection;
-        private final PoolEntry poolEntry;
-        private final OTLPClientHandler handler;
-        private final HTTPRequest request;
-        private final ByteBuffer body;
-
-        SendRequestTask(HTTPClientConnection connection, PoolEntry poolEntry, 
-                       OTLPClientHandler handler, HTTPRequest request, ByteBuffer body) {
-            this.connection = connection;
-            this.poolEntry = poolEntry;
-            this.handler = handler;
-            this.request = request;
-            this.body = body;
-        }
-
-        @Override
-        public void run() {
-            try {
-                // Queue the request with the handler
-                handler.queueRequest(request, body);
-                
-                // Create a new stream - this triggers onStreamCreated which will
-                // pull the request from the queue and send it
-                connection.createStream();
-                
-            } catch (IOException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "OTLP export failed to send request on pooled connection", e);
-                }
-                connectionPool.remove(poolEntry);
-            }
-        }
-    }
-
-    /**
-     * A pending request waiting to be sent.
-     */
-    private static class PendingRequest {
-        final HTTPRequest request;
-        final ByteBuffer body;
-
-        PendingRequest(HTTPRequest request, ByteBuffer body) {
-            this.request = request;
-            this.body = body;
-        }
-    }
-
-    /**
-     * HTTP client handler for OTLP export requests.
-     * Handles the async request/response lifecycle and pool integration.
-     * Supports connection reuse by maintaining a queue of pending requests.
-     */
-    private class OTLPClientHandler implements HTTPClientHandler {
-
-        private final PoolTarget target;
-        private final Deque<PendingRequest> pendingRequests;
-        private HTTPClientConnection connection;
-        private PoolEntry poolEntry;
-
-        OTLPClientHandler(PoolTarget target, HTTPRequest initialRequest, ByteBuffer initialBody) {
-            this.target = target;
-            this.pendingRequests = new ConcurrentLinkedDeque<PendingRequest>();
-            // Queue the initial request
-            pendingRequests.add(new PendingRequest(initialRequest, initialBody));
-        }
-
-        /**
-         * Queues a request to be sent on this connection.
-         * Call createStream() after this to trigger the request to be sent.
-         */
-        void queueRequest(HTTPRequest request, ByteBuffer body) {
-            pendingRequests.add(new PendingRequest(request, body));
-        }
-
-        @Override
-        public void onConnected() {
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                LOGGER.finest("OTLP exporter connected to " + target);
-            }
-        }
-
-        @Override
-        public void onTLSStarted() {
-            // TLS handshake completed - nothing specific needed for OTLP
-        }
-
-        @Override
-        public void onProtocolNegotiated(HTTPVersion protocol, HTTPClientConnection conn) {
-            this.connection = conn;
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                LOGGER.finest("OTLP protocol negotiated: " + protocol);
-            }
-
-            // Register with connection pool
-            poolEntry = connectionPool.register(target, conn);
-            
-            // Associate this handler with the connection for future reuse
-            synchronized (connectionHandlers) {
-                connectionHandlers.put(conn, this);
-            }
-
-            // Create a stream for the first queued request
-            try {
-                conn.createStream();
-            } catch (IOException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "OTLP export failed to create stream", e);
-                }
-                removeFromPool();
-            }
-        }
-        
-        /**
-         * Removes this connection from the pool and handler map.
-         */
-        private void removeFromPool() {
-            if (poolEntry != null) {
-                synchronized (connectionHandlers) {
-                    connectionHandlers.remove(connection);
-                }
-                connectionPool.remove(poolEntry);
-                poolEntry = null;
-            }
-        }
-
-        @Override
-        public void onStreamCreated(HTTPClientStream stream) {
-            // Pull the next request from the queue
-            PendingRequest pending = pendingRequests.poll();
-            if (pending == null) {
-                // No pending requests - this shouldn't happen but handle gracefully
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Stream created but no pending request");
-                }
-                stream.cancel(0);
-                return;
-            }
-
-            try {
-                // Send the request headers
-                stream.sendRequest(pending.request);
-
-                // Send the body in chunks if large, otherwise all at once
-                if (pending.body.remaining() > MAX_CHUNK_SIZE) {
-                    sendChunkedBody(stream, pending.body);
-                } else {
-                    stream.sendData(pending.body, true);
-                }
-
-            } catch (IOException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "OTLP export failed to send request", e);
-                }
-                stream.cancel(0);
-                removeFromPool();
-            }
-        }
-
-        private void sendChunkedBody(HTTPClientStream stream, ByteBuffer data) throws IOException {
-            while (data.hasRemaining()) {
-                int chunkSize = Math.min(data.remaining(), MAX_CHUNK_SIZE);
-                ByteBuffer chunk = data.slice();
-                chunk.limit(chunkSize);
-                data.position(data.position() + chunkSize);
-
-                boolean lastChunk = !data.hasRemaining();
-                stream.sendData(chunk, lastChunk);
-            }
-        }
-
-        @Override
-        public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
-            int statusCode = response.getStatusCode();
-            if (statusCode < 200 || statusCode >= 300) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    String msg = MessageFormat.format(L10N.getString("err.export_failed"), statusCode);
-                    LOGGER.warning(msg);
-                }
-            } else {
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("OTLP export successful: HTTP " + statusCode);
-                }
-            }
-        }
-
-        @Override
-        public void onStreamData(HTTPClientStream stream, ByteBuffer data, boolean endStream) {
-            // We don't need response body for OTLP - discard it
-        }
-
-        @Override
-        public void onStreamComplete(HTTPClientStream stream) {
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                LOGGER.finest("OTLP export stream complete");
-            }
-            // Release connection back to pool for reuse
-            if (poolEntry != null) {
-                connectionPool.release(poolEntry);
-            }
-        }
-
-        @Override
-        public void onStreamError(HTTPClientStream stream, Exception error) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "OTLP export stream error", error);
-            }
-            // Remove from pool on error
-            removeFromPool();
-        }
-
-        @Override
-        public void onServerSettings(Map<Integer, Long> settings) {
-            // Not needed for HTTP/1.1
-        }
-
-        @Override
-        public void onGoAway(int lastStreamId, int errorCode, String debugData) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("OTLP server sent GOAWAY: " + errorCode);
-            }
-            // Remove from pool
-            removeFromPool();
-        }
-
-        @Override
-        public boolean onPushPromise(HTTPClientStream promisedStream, HTTPRequest promisedRequest) {
-            // Reject server push - we don't need it
-            return false;
-        }
-
-        @Override
-        public void onDisconnected() {
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                LOGGER.finest("OTLP exporter disconnected from " + target);
-            }
-            // Remove from pool
-            removeFromPool();
-        }
-
-        @Override
-        public void onError(Exception error) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING, "OTLP export connection error", error);
-            }
-            // Remove from pool
-            removeFromPool();
-        }
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Metrics Collection Thread
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Background thread that periodically collects metrics from registered meters.
@@ -890,7 +493,6 @@ public class OTLPExporter implements TelemetryExporter {
                         break;
                     }
 
-                    // Collect metrics from all meters
                     collectAndExportMetrics();
 
                 } catch (InterruptedException e) {
@@ -922,3 +524,4 @@ public class OTLPExporter implements TelemetryExporter {
         }
     }
 }
+

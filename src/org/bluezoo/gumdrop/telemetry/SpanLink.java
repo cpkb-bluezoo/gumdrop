@@ -67,13 +67,11 @@ public class SpanLink {
      * Adds an attribute to this link.
      *
      * @param attribute the attribute to add
-     * @return this link for chaining
      */
-    public SpanLink addAttribute(Attribute attribute) {
+    public void addAttribute(Attribute attribute) {
         if (attribute != null) {
             attributes.add(attribute);
         }
-        return this;
     }
 
     /**
@@ -81,10 +79,9 @@ public class SpanLink {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return this link for chaining
      */
-    public SpanLink addAttribute(String key, String value) {
-        return addAttribute(Attribute.string(key, value));
+    public void addAttribute(String key, String value) {
+        addAttribute(Attribute.string(key, value));
     }
 
     @Override

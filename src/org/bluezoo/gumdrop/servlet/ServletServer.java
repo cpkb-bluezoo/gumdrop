@@ -69,13 +69,44 @@ public class ServletServer extends HTTPServer {
         TIME_UNITS.put(TimeUnit.DAYS, "d");
     }
 
+    private static final int DEFAULT_BUFFER_SIZE = 8192;
+
     private Container container;
+    private ServletHandlerFactory handlerFactory;
     private Logger accessLogger;
-    private ExecutorService responseSender;
     private ThreadPoolExecutor workerThreadPool;
+    private AsyncTimeoutScheduler asyncTimeoutScheduler;
+    private int bufferSize = DEFAULT_BUFFER_SIZE;
 
     public ServletServer() {
         workerThreadPool = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new WorkerThreadFactory());
+        asyncTimeoutScheduler = new AsyncTimeoutScheduler();
+    }
+
+    /**
+     * Returns the buffer size for request/response I/O.
+     *
+     * @return the buffer size in bytes
+     */
+    public int getBufferSize() {
+        return bufferSize;
+    }
+
+    /**
+     * Sets the buffer size for request/response I/O.
+     * Must be called before the server is started.
+     *
+     * @param bufferSize the buffer size in bytes (minimum 1024)
+     */
+    public void setBufferSize(int bufferSize) {
+        this.bufferSize = Math.max(bufferSize, 1024);
+    }
+
+    /**
+     * Returns the async timeout scheduler.
+     */
+    AsyncTimeoutScheduler getAsyncTimeoutScheduler() {
+        return asyncTimeoutScheduler;
     }
 
     public String getDescription() {
@@ -88,6 +119,25 @@ public class ServletServer extends HTTPServer {
 
     public void setContainer(Container container) {
         this.container = container;
+        // Create the handler factory with reference to the container
+        this.handlerFactory = new ServletHandlerFactory(this, container);
+    }
+
+    /**
+     * Returns the servlet handler factory.
+     * This factory is used by all connections to create request handlers.
+     */
+    ServletHandlerFactory getServletHandlerFactory() {
+        return handlerFactory;
+    }
+
+    /**
+     * Ignores attempts to set an external handler factory.
+     * ServletServer always uses its own ServletHandlerFactory.
+     */
+    @Override
+    public void setHandlerFactory(org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory factory) {
+        // Ignore - ServletServer uses its own factory
     }
 
     public void setAccessLog(String path) {
@@ -180,19 +230,19 @@ public class ServletServer extends HTTPServer {
 
     public void start() {
         container.initContexts();
-        responseSender = Executors.newSingleThreadExecutor();
+        asyncTimeoutScheduler.start();
         super.start();
     }
 
     public void stop() {
         workerThreadPool.shutdown();
-        responseSender.shutdown();
+        asyncTimeoutScheduler.shutdown();
         container.destroy();
         super.stop();
     }
 
     public Connection newConnection(SocketChannel sc, SSLEngine engine) {
-        return new ServletConnection(sc, engine, secure, container, this);
+        return new ServletConnection(sc, engine, secure, this);
     }
 
     public void log(String message) {
@@ -202,51 +252,11 @@ public class ServletServer extends HTTPServer {
     }
 
     /**
-     * A stream has arrived on a connection.
+     * A handler is ready to service a request.
      */
-    void serviceRequest(ServletStream stream) {
-        RequestHandler handler = new RequestHandler(stream);
+    void serviceRequest(ServletHandler servletHandler) {
+        RequestHandler handler = new RequestHandler(servletHandler, this);
         workerThreadPool.submit(handler);
-    }
-
-    /**
-     * A response has been flushed for a connection.
-     */
-    void responseFlushed(ServletConnection connection) {
-        responseSender.submit(new ResponseSender(connection));
-    }
-
-    /**
-     * Process the response queue for a connection.
-     * Ensure that pending responses are sent in order.
-     */
-    static class ResponseSender implements Runnable {
-
-        private ServletConnection connection;
-
-        ResponseSender(ServletConnection connection) {
-            this.connection = connection;
-        }
-
-        public void run() {
-            try {
-                while (true) {
-                    // Send as many responses as are completed.
-                    ServletStream stream = connection.responseQueue.peek();
-                    if (stream.isResponseComplete()) {
-                        // Actually remove from the queue only when complete
-                        connection.responseQueue.take();
-                        stream.sendResponse();
-                    } else {
-                        // Wait for head of queue to become complete
-                        return;
-                    }
-                }
-            } catch (InterruptedException e) {
-                // terminate
-            }
-        }
-
     }
 
     /**

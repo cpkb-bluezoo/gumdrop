@@ -22,8 +22,14 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
+
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -92,8 +98,10 @@ public class IMAPServerIntegrationTest {
         imapServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing
         
-        // Start server
-        gumdrop = new Gumdrop(Collections.singletonList(imapServer), 1);
+        // Start server using singleton with lifecycle management
+        System.setProperty("gumdrop.workers", "1");
+        gumdrop = Gumdrop.getInstance();
+        gumdrop.addServer(imapServer);
         gumdrop.start();
         
         // Wait for server to be ready
@@ -504,6 +512,19 @@ public class IMAPServerIntegrationTest {
      * Test realm that accepts editor/editor credentials.
      */
     private static class TestRealm implements Realm {
+        
+        private static final Set<SASLMechanism> SUPPORTED = 
+            Collections.unmodifiableSet(EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+        
+        @Override
+        public Realm forSelectorLoop(SelectorLoop loop) {
+            return this; // Simple synchronous realm
+        }
+        
+        @Override
+        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+            return SUPPORTED;
+        }
         
         @Override
         public boolean passwordMatch(String username, String password) {

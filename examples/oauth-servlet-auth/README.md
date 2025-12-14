@@ -1,303 +1,179 @@
 # OAuth 2.0 Servlet Authentication Example
 
-This example demonstrates how to configure OAuth 2.0 authentication in a Gumdrop servlet application. It shows complete integration with OAuth 2.0 authorization servers using token introspection (RFC 7662).
+This example demonstrates how to configure a Gumdrop servlet container to authenticate 
+requests using OAuth 2.0 Bearer tokens via the built-in `OAuthRealm`.
 
 ## Overview
 
-This example implements:
-- ✅ **OAuth 2.0 Token Validation** via token introspection
-- ✅ **Role-based Authorization** using OAuth scopes  
-- ✅ **Event-driven JSON Parsing** using cpkb-bluezoo jsonparser
-- ✅ **Gumdrop HTTP Client** for OAuth server communication
-- ✅ **Automatic Authentication** for protected resources
-- ✅ **Proper Error Handling** and security responses
-- ✅ **Configurable OAuth Provider** support
+The `OAuthRealm` validates OAuth 2.0 access tokens by performing token introspection 
+(RFC 7662) against your OAuth authorization server. It supports:
 
-## Architecture
+- Bearer token authentication via the `Authorization: Bearer <token>` header
+- OAUTHBEARER SASL mechanism for mail protocols
+- Scope-to-role mapping for authorization
+- Optional token caching for performance
 
-```
-Client Request with Bearer Token
-         ↓
-Gumdrop HTTP Server
-         ↓
-ServletAuthenticationProvider
-         ↓
-OAuthRealm.validateOAuthToken()
-         ↓ 
-OAuth Authorization Server
-    (Token Introspection)
-         ↓
-Success: Create ServletPrincipal
-Failure: Send 401 Unauthorized
-```
+## Configuration
 
-## Quick Start
-
-### 1. Prerequisites
-
-- Gumdrop server with servlet support
-- OAuth 2.0 authorization server (e.g., Keycloak, Auth0, etc.)
-- cpkb-bluezoo jsonparser library (jsonparser.jar in classpath)
-- Java 8+ (uses Gumdrop HTTP client, not Java 11 HTTP client)
-
-### 2. Configuration
-
-Edit `oauth-config.properties`:
+### 1. OAuth Properties File (`oauth.properties`)
 
 ```properties
-# Your OAuth 2.0 Authorization Server
-oauth.authorization.server.url=https://your-auth-server.com
-oauth.client.id=your-client-id
-oauth.client.secret=your-client-secret
+# Required: OAuth authorization server URL
+oauth.authorization.server.url=https://auth.example.com
 
-# Token introspection endpoint (RFC 7662)
-oauth.token.introspection.endpoint=/oauth/introspect
+# Required: Client credentials for token introspection
+oauth.client.id=my-client-id
+oauth.client.secret=my-client-secret
 
-# Scope to role mappings
+# Optional: Token introspection endpoint (default: /oauth/introspect)
+oauth.token.introspection.endpoint=/oauth2/introspect
+
+# Optional: Caching settings
+oauth.cache.enabled=true
+oauth.cache.ttl=300
+oauth.cache.max.size=1000
+
+# Optional: HTTP timeout in milliseconds (default: 5000)
+oauth.http.timeout=5000
+
+# Optional: Scope-to-role mappings
+oauth.scope.mapping.admin=admin,superuser
 oauth.scope.mapping.user=read,write
-oauth.scope.mapping.admin=admin
+oauth.scope.mapping.readonly=read
 ```
 
-### 3. Deploy and Test
-
-1. **Build the application:**
-   ```bash
-   javac -cp "gumdrop.jar:servlet-api.jar:jsonparser.jar" src/main/java/com/example/oauth/*.java
-   ```
-
-2. **Deploy web.xml and classes to your Gumdrop server**
-
-3. **Test with OAuth token:**
-   ```bash
-   # Get a token from your OAuth server first
-   TOKEN="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-   
-   # Test protected endpoint
-   curl -H "Authorization: Bearer $TOKEN" \
-        http://localhost:8080/oauth-example/api/test
-   ```
-
-4. **Expected response:**
-   ```json
-   {
-     "authenticated": true,
-     "username": "john.doe",
-     "isUser": true,
-     "isAdmin": false,
-     "scopes": ["read", "write"]
-   }
-   ```
-
-## Step-by-Step Setup Guide
-
-### Step 1: Web Application Configuration
-
-The `web.xml` configures OAuth authentication and security constraints:
+### 2. Gumdrop Server Configuration (`server.xml`)
 
 ```xml
-<!-- Key configuration points: -->
-<login-config>
-    <auth-method>OAUTH</auth-method>    <!-- Use OAuth authentication -->
-    <realm-name>MyOAuthRealm</realm-name>  <!-- Must match realm name in code -->
-</login-config>
-
-<security-constraint>
-    <url-pattern>/api/*</url-pattern>   <!-- Protect API endpoints -->
-    <auth-constraint>
-        <role-name>user</role-name>     <!-- Require 'user' role -->
-    </auth-constraint>
-</security-constraint>
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- OAuth realm with configuration from properties file -->
+    <realm id="oauth" class="org.bluezoo.gumdrop.auth.OAuthRealm"
+           configFile="oauth.properties"/>
+    
+    <!-- Servlet container with OAuth authentication -->
+    <server id="api" class="org.bluezoo.gumdrop.servlet.ServletServer">
+        <property name="port">8443</property>
+        <property name="secure">true</property>
+        <property name="realm" ref="#oauth"/>
+        
+        <container class="org.bluezoo.gumdrop.servlet.Container">
+            <context>
+                <property name="contextPath">/api</property>
+                <property name="docBase">webapps/api</property>
+            </context>
+        </container>
+    </server>
+</gumdrop>
 ```
 
-### Step 2: OAuth Realm Implementation
+### 3. Web Application Security (`web.xml`)
 
-The `OAuthRealm` class handles token validation:
-
-**Key Methods:**
-- `validateOAuthToken()` - Performs RFC 7662 token introspection
-- `isMember()` - Maps OAuth scopes to servlet roles
-- `passwordMatch()` - Returns false (OAuth doesn't use passwords)
-
-**Token Introspection Flow:**
-1. Receive Bearer token from Authorization header
-2. Use Gumdrop HTTP client to POST to OAuth server's `/introspect` endpoint
-3. Parse JSON response using event-driven cpkb-bluezoo jsonparser
-4. Extract username, scopes, and expiration via streaming JSON handler
-5. Return `TokenValidationResult`
-
-**Key Technical Features:**
-- **Gumdrop HTTP Client**: Uses the same HTTP client framework for OAuth communication
-- **Event-driven JSON**: Streaming JSON parsing without loading entire response into memory
-- **Asynchronous Design**: HTTP client operations wrapped in synchronous interface for Realm compatibility
-
-### Step 3: Configuration and Initialization
-
-The `OAuth2ConfigurationListener` sets up the realm:
-
-1. **Load configuration** from properties file
-2. **Create OAuthRealm** with server credentials
-3. **Register realm** with Gumdrop context
-4. **Configure scope mappings** for authorization
-
-### Step 4: Testing and Validation
-
-Use the included test servlet to verify OAuth integration:
-
-- **Authentication Test**: Verify tokens are validated
-- **Authorization Test**: Check role-based access control
-- **Error Handling**: Test invalid/expired tokens
-
-## Configuration Options
-
-### OAuth Server Settings
-
-| Property | Description | Example |
-|----------|-------------|---------|
-| `oauth.authorization.server.url` | Base URL of OAuth server | `https://auth.example.com` |
-| `oauth.client.id` | OAuth client identifier | `webapp-client` |
-| `oauth.client.secret` | OAuth client secret | `secret123` |
-| `oauth.token.introspection.endpoint` | Introspection path | `/oauth/introspect` |
-
-### Role Mapping
-
-Map OAuth scopes to servlet roles:
-
-```properties
-# Users with 'read' or 'write' scope get 'user' role
-oauth.scope.mapping.user=read,write
-
-# Users with 'admin' scope get 'admin' role  
-oauth.scope.mapping.admin=admin
-
-# Multiple scopes can map to same role
-oauth.scope.mapping.moderator=moderate,delete
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee" version="4.0">
+    
+    <!-- Protected resources require authentication -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Protected API</web-resource-name>
+            <url-pattern>/protected/*</url-pattern>
+        </web-resource-collection>
+        <auth-constraint>
+            <role-name>user</role-name>
+        </auth-constraint>
+    </security-constraint>
+    
+    <!-- Admin resources require admin role -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Admin API</web-resource-name>
+            <url-pattern>/admin/*</url-pattern>
+        </web-resource-collection>
+        <auth-constraint>
+            <role-name>admin</role-name>
+        </auth-constraint>
+    </security-constraint>
+    
+    <!-- Security roles -->
+    <security-role>
+        <role-name>user</role-name>
+    </security-role>
+    <security-role>
+        <role-name>admin</role-name>
+    </security-role>
+    
+</web-app>
 ```
 
-## Security Considerations
+## Usage
 
-### ✅ **Best Practices Implemented**
+### Making Authenticated Requests
 
-1. **Token Introspection**: Validates tokens with authorization server in real-time
-2. **Secure Storage**: Client credentials loaded from configuration, not hardcoded
-3. **Role Separation**: OAuth scopes mapped to application roles
-4. **Error Handling**: Proper HTTP status codes (401, 403, 500)
-5. **Logging**: Security events logged for monitoring
+Clients include the OAuth access token in the `Authorization` header:
 
-### ⚠️  **Additional Security Recommendations**
-
-1. **HTTPS Only**: Always use HTTPS in production
-2. **Token Caching**: Consider caching introspection results with short TTL
-3. **Rate Limiting**: Implement rate limits on introspection calls
-4. **Scope Validation**: Validate required scopes for specific operations
-5. **Audit Logging**: Log all authentication and authorization decisions
-
-## Common OAuth Providers
-
-### Keycloak
-```properties
-oauth.authorization.server.url=https://keycloak.example.com/auth/realms/myrealm
-oauth.token.introspection.endpoint=/protocol/openid-connect/token/introspect
+```bash
+curl -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..." \
+     https://localhost:8443/api/protected/resource
 ```
 
-### Auth0
-```properties
-oauth.authorization.server.url=https://yourapp.auth0.com
-oauth.token.introspection.endpoint=/oauth/introspect
+### Token Introspection Flow
+
+When a request arrives with a Bearer token:
+
+1. Gumdrop extracts the token from the `Authorization` header
+2. `OAuthRealm` sends an introspection request to the OAuth server
+3. The OAuth server responds with token validity, username, and scopes
+4. If valid, the request proceeds; if not, a 401 Unauthorized is returned
+5. For protected resources, scopes are mapped to roles for authorization
+
+### Token Introspection Request
+
+```http
+POST /oauth2/introspect HTTP/1.1
+Host: auth.example.com
+Authorization: Basic <base64(client_id:client_secret)>
+Content-Type: application/x-www-form-urlencoded
+
+token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...&token_type_hint=access_token
 ```
 
-### Okta
-```properties
-oauth.authorization.server.url=https://dev-123456.okta.com/oauth2/default
-oauth.token.introspection.endpoint=/v1/introspect
+### Token Introspection Response
+
+```json
+{
+  "active": true,
+  "username": "john.doe",
+  "sub": "user-123",
+  "scope": "read write admin",
+  "exp": 1735689600
+}
 ```
 
-## Troubleshooting
-
-### Common Issues
-
-**401 Unauthorized**
-- Check token is valid and not expired
-- Verify client credentials in config
-- Check authorization server logs
-
-**403 Forbidden** 
-- User authenticated but lacks required role
-- Check scope to role mappings
-- Verify security constraints in web.xml
-
-**500 Internal Server Error**
-- OAuth server unreachable
-- Invalid client credentials
-- Configuration errors
-
-### Debug Logging
-
-Enable debug logging to troubleshoot:
-
-```properties
-# In logging.properties
-com.example.oauth.level=FINE
-org.bluezoo.gumdrop.servlet.level=FINE
-```
-
-## Advanced Features
-
-### Custom Token Validation
-
-Extend `OAuthRealm` for custom validation logic:
+## Accessing User Information in Servlets
 
 ```java
-public class CustomOAuthRealm extends OAuthRealm {
+@WebServlet("/protected/profile")
+public class ProfileServlet extends HttpServlet {
     
     @Override
-    public TokenValidationResult validateOAuthToken(String token) {
-        // Custom validation (e.g., JWT verification)
-        TokenValidationResult result = super.validateOAuthToken(token);
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
+            throws ServletException, IOException {
         
-        if (result.valid) {
-            // Additional custom checks
-            return performCustomValidation(result, token);
-        }
+        // Get authenticated username
+        String username = req.getRemoteUser();
         
-        return result;
+        // Check role membership
+        boolean isAdmin = req.isUserInRole("admin");
+        
+        resp.setContentType("application/json");
+        resp.getWriter().println("{\"user\": \"" + username + "\", \"admin\": " + isAdmin + "}");
     }
 }
 ```
 
-### Scope-based Method Security
+## References
 
-Use OAuth scopes for fine-grained authorization:
-
-```java
-@WebServlet("/api/admin")
-public class AdminServlet extends HttpServlet {
-    
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) {
-        // Check specific scope
-        if (!hasRequiredScope(req, "admin")) {
-            resp.sendError(403, "Admin scope required");
-            return;
-        }
-        
-        // Admin operation
-    }
-}
-```
-
-## Files in this Example
-
-- `README.md` - This documentation
-- `web.xml` - Servlet configuration with OAuth authentication
-- `oauth-config.properties` - OAuth server configuration
-- `src/main/java/com/example/oauth/OAuthRealm.java` - OAuth token validation
-- `src/main/java/com/example/oauth/OAuth2ConfigurationListener.java` - Setup and initialization
-- `src/main/java/com/example/oauth/OAuthTestServlet.java` - Test endpoint
-- `src/main/java/com/example/oauth/ScopeUtils.java` - Utility methods for scope checking
-
-## Further Reading
-
-- [RFC 6749: The OAuth 2.0 Authorization Framework](https://tools.ietf.org/html/rfc6749)
-- [RFC 7662: OAuth 2.0 Token Introspection](https://tools.ietf.org/html/rfc7662)  
-- [RFC 6750: The OAuth 2.0 Authorization Framework: Bearer Token Usage](https://tools.ietf.org/html/rfc6750)
-- [Gumdrop HTTP Server Authentication Guide](../README.md)
+- [RFC 7662 - OAuth 2.0 Token Introspection](https://www.rfc-editor.org/rfc/rfc7662)
+- [RFC 6749 - OAuth 2.0 Authorization Framework](https://www.rfc-editor.org/rfc/rfc6749)
+- [RFC 6750 - OAuth 2.0 Bearer Token Usage](https://www.rfc-editor.org/rfc/rfc6750)

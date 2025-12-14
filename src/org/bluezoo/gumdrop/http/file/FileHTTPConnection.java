@@ -21,32 +21,20 @@
 
 package org.bluezoo.gumdrop.http.file;
 
-import org.bluezoo.gumdrop.SendCallback;
 import org.bluezoo.gumdrop.http.HTTPConnection;
-import org.bluezoo.gumdrop.http.Stream;
 
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
-import java.util.ResourceBundle;
-import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
 
 /**
  * HTTP connection that serves files from a filesystem root.
- * This is a cleaner implementation that extends HTTPConnection directly.
+ * Uses the {@link FileHandlerFactory} to create handlers for each request.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FileHTTPConnection extends HTTPConnection {
-
-    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
-    static final Logger LOGGER = Logger.getLogger(FileHTTPConnection.class.getName());
-
-    private final Path rootPath;
-    private final boolean allowWrite;
-    private final String allowedOptions;
-    private final String welcomeFile;
 
     protected FileHTTPConnection(SocketChannel channel,
             SSLEngine engine,
@@ -55,19 +43,6 @@ public class FileHTTPConnection extends HTTPConnection {
             boolean allowWrite,
             String welcomeFile) {
         super(channel, engine, secure);
-        this.rootPath = rootPath;
-        this.allowWrite = allowWrite;
-        this.welcomeFile = welcomeFile != null ? welcomeFile : "index.html";
-        allowedOptions = allowWrite ? "OPTIONS, GET, HEAD, PUT, DELETE" : "OPTIONS, GET, HEAD";
-    }
-
-    @Override
-    protected Stream newStream(HTTPConnection connection, int streamId) {
-        return new FileStream(connection, streamId, rootPath, allowWrite, allowedOptions, welcomeFile);
-    }
-    
-    @Override
-    public void setSendCallback(SendCallback callback) {
-        super.setSendCallback(callback);
+        setHandlerFactory(new FileHandlerFactory(rootPath, allowWrite, welcomeFile));
     }
 }

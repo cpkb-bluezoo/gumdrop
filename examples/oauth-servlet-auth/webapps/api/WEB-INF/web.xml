@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee 
+                             http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <display-name>OAuth Protected API</display-name>
+    <description>
+        Example API protected by OAuth 2.0 Bearer token authentication.
+    </description>
+
+    <!-- Example test servlets -->
+    <servlet>
+        <servlet-name>OAuthTestServlet</servlet-name>
+        <servlet-class>com.example.oauth.OAuthTestServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>OAuthTestServlet</servlet-name>
+        <url-pattern>/protected/test</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>AdminTestServlet</servlet-name>
+        <servlet-class>com.example.oauth.AdminTestServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>AdminTestServlet</servlet-name>
+        <url-pattern>/admin/test</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>HealthServlet</servlet-name>
+        <servlet-class>com.example.oauth.HealthServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>HealthServlet</servlet-name>
+        <url-pattern>/health</url-pattern>
+    </servlet-mapping>
+
+    <!-- Public endpoints - no authentication required -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Public Resources</web-resource-name>
+            <url-pattern>/public/*</url-pattern>
+            <url-pattern>/health</url-pattern>
+        </web-resource-collection>
+        <!-- No auth-constraint = publicly accessible -->
+    </security-constraint>
+
+    <!-- Protected endpoints - require authenticated user -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Protected API</web-resource-name>
+            <url-pattern>/protected/*</url-pattern>
+            <url-pattern>/api/*</url-pattern>
+        </web-resource-collection>
+        <auth-constraint>
+            <role-name>user</role-name>
+        </auth-constraint>
+    </security-constraint>
+
+    <!-- Admin endpoints - require admin role -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Admin API</web-resource-name>
+            <url-pattern>/admin/*</url-pattern>
+        </web-resource-collection>
+        <auth-constraint>
+            <role-name>admin</role-name>
+        </auth-constraint>
+    </security-constraint>
+
+    <!-- Read-only endpoints - require readonly role -->
+    <security-constraint>
+        <web-resource-collection>
+            <web-resource-name>Read-Only API</web-resource-name>
+            <url-pattern>/readonly/*</url-pattern>
+        </web-resource-collection>
+        <auth-constraint>
+            <role-name>readonly</role-name>
+        </auth-constraint>
+    </security-constraint>
+
+    <!-- Security roles (must match OAuthRealm scope mappings) -->
+    <security-role>
+        <role-name>user</role-name>
+        <description>Authenticated user with read/write access</description>
+    </security-role>
+    <security-role>
+        <role-name>admin</role-name>
+        <description>Administrator with full access</description>
+    </security-role>
+    <security-role>
+        <role-name>readonly</role-name>
+        <description>Read-only access</description>
+    </security-role>
+
+</web-app>
+

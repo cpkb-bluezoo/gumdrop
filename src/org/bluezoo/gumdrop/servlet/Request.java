@@ -21,17 +21,24 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.TLSInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPDateFormat;
+import org.bluezoo.gumdrop.http.HTTPResponseState;
+import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.mime.ContentType;
+import org.bluezoo.gumdrop.mime.ContentTypeParser;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 
 import java.io.*;
 import java.net.InetSocketAddress;
-import java.net.URLDecoder;
-import java.net.URI;
 import java.net.ProtocolException;
+import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -42,9 +49,6 @@ import java.text.DateFormat;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
-
-import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.mime.ContentTypeParser;
 import javax.servlet.*;
 import javax.servlet.http.*;
 
@@ -65,7 +69,7 @@ class Request implements HttpServletRequest {
     static final DateFormat dateFormat = new HTTPDateFormat();
     private static final byte COLON = 0x3a;
 
-    final ServletStream stream;
+    final ServletHandler handler;
 
     String method;
     String requestTarget;
@@ -73,7 +77,6 @@ class Request implements HttpServletRequest {
 
     boolean secure;
     Headers headers;
-    final PipedOutputStream pipe;
     final RequestInputStream in;
     final Map attributes = new HashMap();
     Map<String,String[]> parameters = new LinkedHashMap<>();
@@ -92,43 +95,101 @@ class Request implements HttpServletRequest {
     Boolean sessionType;
     ServletPrincipal userPrincipal;
 
-    StreamAsyncContext asyncContext;
+    AsyncContextImpl asyncContext;
     InputStreamState inputStreamState = InputStreamState.NONE;
     Collection<Part> parts;
 
-    /**
-     * Constructor.
-     */
-    Request(ServletStream stream, int bufferSize, String method, String requestTarget, Headers headers) throws IOException {
-        this.stream = stream;
-        pipe = new PipedOutputStream();
-        in = new RequestInputStream(new PipedInputStream(pipe, bufferSize));
+    Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
+            PipedInputStream pipeIn) throws IOException {
+        this.handler = handler;
+        in = new RequestInputStream(pipeIn);
         this.method = method;
         this.requestTarget = requestTarget;
         this.headers = headers;
         uri = "*".equals(requestTarget) ? null : URI.create(requestTarget);
-        ServletConnection connection = stream.connection;
-        this.secure = connection.isSecure();
+        if (uri != null) {
+            queryString = uri.getRawQuery();
+        }
+        
+        HTTPResponseState state = handler.getState();
+        ConnectionInfo connInfo = state.getConnectionInfo();
+        this.secure = connInfo != null && connInfo.isSecure();
 
         if (secure) {
-            Certificate[] certificates = connection.getPeerCertificates();
-            String cipherSuite = connection.getCipherSuite();
-            int keySize = connection.getKeySize();
-            if (certificates != null) {
-                List<X509Certificate> x509 = new ArrayList<>();
-                for (Certificate c : certificates) {
-                    if (c instanceof X509Certificate) {
-                        x509.add((X509Certificate) c);
-                    }
-                }
-                X509Certificate[] array = x509.toArray(new X509Certificate[x509.size()]);
-                attributes.put("javax.servlet.request.X509Certificate", array);
-            }
-            attributes.put("javax.servlet.request.cipher_suite", cipherSuite);
-            if (keySize > 0) {
-                attributes.put("javax.servlet.request.key_size", Integer.valueOf(keySize));
+            TLSInfo tlsInfo = state.getTLSInfo();
+            if (tlsInfo != null) {
+                Certificate[] certificates = tlsInfo.getPeerCertificates();
+                String cipherSuite = tlsInfo.getCipherSuite();
+                int keySize = getKeySize(cipherSuite);
+                populateTLSAttributes(certificates, cipherSuite, keySize);
             }
         }
+    }
+
+    private void populateTLSAttributes(Certificate[] certificates, String cipherSuite, int keySize) {
+        if (certificates != null) {
+            List<X509Certificate> x509 = new ArrayList<>();
+            for (Certificate c : certificates) {
+                if (c instanceof X509Certificate) {
+                    x509.add((X509Certificate) c);
+                }
+            }
+            X509Certificate[] array = x509.toArray(new X509Certificate[x509.size()]);
+            attributes.put("javax.servlet.request.X509Certificate", array);
+        }
+        attributes.put("javax.servlet.request.cipher_suite", cipherSuite);
+        if (keySize > 0) {
+            attributes.put("javax.servlet.request.key_size", Integer.valueOf(keySize));
+        }
+    }
+
+    private int getKeySize(String cipherSuite) {
+        if (cipherSuite == null) return -1;
+        if (cipherSuite.contains("256")) return 256;
+        if (cipherSuite.contains("128")) return 128;
+        return -1;
+    }
+
+    private Certificate[] getPeerCertificates() {
+        TLSInfo tlsInfo = handler.getState().getTLSInfo();
+        return tlsInfo != null ? tlsInfo.getPeerCertificates() : null;
+    }
+
+    // Helper methods for accessing connection info
+
+    private HTTPVersion getHTTPVersion() {
+        return handler.getState().getVersion();
+    }
+
+    private String getHTTPScheme() {
+        return handler.getState().getScheme();
+    }
+
+    private java.net.InetSocketAddress getRemoteSocketAddress() {
+        ConnectionInfo connInfo = handler.getState().getConnectionInfo();
+        return connInfo != null ? connInfo.getRemoteAddress() : null;
+    }
+
+    private java.net.InetSocketAddress getLocalSocketAddress() {
+        ConnectionInfo connInfo = handler.getState().getConnectionInfo();
+        return connInfo != null ? connInfo.getLocalAddress() : null;
+    }
+
+    private boolean isStreamClosed() {
+        // Handler doesn't have a closed concept the same way
+        return false;
+    }
+
+    private boolean isResponseAlreadyStarted() {
+        return handler.isResponseStarted();
+    }
+
+    private Map<String, String> getRequestTrailerFields() {
+        return handler.getRequestTrailerFields();
+    }
+
+    private boolean areTrailerFieldsReady() {
+        return handler.isRequestFinished();
     }
 
     /**
@@ -150,15 +211,7 @@ class Request implements HttpServletRequest {
         } else {
             sessionType = Boolean.FALSE;
         }
-        if (sessionId != null) {
-            // Update session last accessed time
-            synchronized (context.sessions) {
-                Session session = (Session) context.sessions.get(sessionId);
-                if (session != null) {
-                    session.lastAccessedTime = System.currentTimeMillis();
-                }
-            }
-        }
+        // Session last accessed time is updated by SessionManager.getSession()
     }
 
     URI getURI() {
@@ -316,8 +369,6 @@ class Request implements HttpServletRequest {
         return null;
     }
 
-    /* TODO @Override public PushBuilder newPushBuilder() {
-    }*/
 
     @Override public String getContextPath() {
         return contextPath;
@@ -348,7 +399,8 @@ class Request implements HttpServletRequest {
     }
 
     @Override public StringBuffer getRequestURL() {
-        // TODO RequestDispatcher stuff
+        // Note: For forwards/includes, FilterRequest delegates to this method
+        // which correctly returns the original request URL per Servlet spec
         String s = (uri == null) ? "" : uri.toString();
         int qi = s.indexOf('?');
         if (qi != -1) {
@@ -362,60 +414,16 @@ class Request implements HttpServletRequest {
     }
 
     @Override public HttpSession getSession(boolean create) {
-        synchronized (context.sessions) {
-            Session session = context.sessions.get(sessionId);
-            if (session == null) {
-                if (!create) {
-                    return null;
-                }
-                if (sessionId == null) {
-                    sessionId = createSessionId();
-                }
-                session = new Session(context, sessionId);
-                context.sessions.put(sessionId, session);
-
-                HttpSessionEvent event = new HttpSessionEvent(session);
-                for (HttpSessionListener l : context.sessionListeners) {
-                    l.sessionCreated(event);
-                }
+        HttpSession session = context.getSessionManager().getSession(sessionId, create);
+        if (session != null && sessionId == null) {
+            sessionId = session.getId();
+            // Notify session listeners for new sessions
+            HttpSessionEvent event = new HttpSessionEvent(session);
+            for (HttpSessionListener l : context.sessionListeners) {
+                l.sessionCreated(event);
             }
-            return session;
         }
-    }
-
-    String createSessionId() {
-        try {
-            MessageDigest md5 = MessageDigest.getInstance("MD5");
-            InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
-            byte[] address = remoteAddress.getAddress().getAddress();
-            long time = System.currentTimeMillis();
-            long random = (long) Math.random();
-
-            md5.update(address);
-            for (int i = 0; i < 8; i++) {
-                md5.update((byte) (time << i));
-            }
-            for (int i = 0; i < 8; i++) {
-                md5.update((byte) (random << i));
-            }
-            byte[] all = md5.digest();
-            StringBuilder buf = new StringBuilder();
-            for (int i = 0; i < all.length; i++) {
-                int c = (int) all[i] & 0xff;
-                buf.append(Character.forDigit(c / 16, 16));
-                buf.append(Character.forDigit(c % 16, 16));
-            }
-            return buf.toString();
-        } catch (NoSuchAlgorithmException | IOException e) {
-            throw (RuntimeException) new RuntimeException().initCause(e);
-        }
-    }
-
-    private int longToBytes(byte[] buf, int off, long value) {
-        for (int i = 0; i < 8; i++) {
-            buf[off++] = (byte) (value << i);
-        }
-        return off;
+        return session;
     }
 
     @Override public HttpSession getSession() {
@@ -423,21 +431,25 @@ class Request implements HttpServletRequest {
     }
 
     @Override public String changeSessionId() { // @since 3.1
-        synchronized (context.sessions) {
-            Session session = (Session) context.sessions.remove(sessionId);
-            if (session == null) {
-                throw new IllegalStateException("No session associated with request");
-            }
-            sessionId = createSessionId();
-            context.sessions.put(sessionId, session);
-            return sessionId;
+        HttpSession session = context.getSessionManager().getSession(sessionId, false);
+        if (session == null) {
+            throw new IllegalStateException("No session associated with request");
         }
+        // Remove old session and create new one with same data
+        context.getSessionManager().removeSession(sessionId);
+        HttpSession newSession = context.getSessionManager().createSession();
+        sessionId = newSession.getId();
+        // Copy attributes from old to new session
+        Enumeration<?> names = session.getAttributeNames();
+        while (names.hasMoreElements()) {
+            String name = (String) names.nextElement();
+            newSession.setAttribute(name, session.getAttribute(name));
+        }
+        return sessionId;
     }
 
     @Override public boolean isRequestedSessionIdValid() {
-        synchronized (context.sessions) {
-            return context.sessions.containsKey(sessionId);
-        }
+        return sessionId != null && context.getSessionManager().getSession(sessionId) != null;
     }
 
     @Override public boolean isRequestedSessionIdFromCookie() {
@@ -472,11 +484,21 @@ class Request implements HttpServletRequest {
         HTTPAuthenticationProvider.AuthenticationResult result = authProvider.authenticate(authHeader);
 
         if (!result.success) {
-            // Authentication failed - send challenge
+            // Generate the authentication challenge
             String challenge = authProvider.generateChallenge();
-            if (challenge != null) {
-                response.setHeader("WWW-Authenticate", challenge);
+            
+            if (challenge == null) {
+                // Challenge could not be generated - likely the Realm doesn't support
+                // the configured authentication method (e.g., DIGEST with LDAP)
+                String message = Context.L10N.getString("err.auth_method_not_supported");
+                message = MessageFormat.format(message, authMethod);
+                Context.LOGGER.severe(message);
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, message);
+                return false;
             }
+            
+            // Authentication failed - send challenge
+            response.setHeader("WWW-Authenticate", challenge);
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentLength(0);
             return false;
@@ -519,7 +541,7 @@ class Request implements HttpServletRequest {
         String username = null;
         String realm = context.getRealmName();
 
-        Certificate[] certificates = stream.connection.getPeerCertificates();
+        Certificate[] certificates = getPeerCertificates();
         if (certificates != null) {
             for (Certificate certificate : certificates) {
                 if (certificate instanceof X509Certificate) {
@@ -604,7 +626,7 @@ class Request implements HttpServletRequest {
 
     @Override public <T extends HttpUpgradeHandler> T upgrade(Class<T> handlerClass) throws ServletException {
         // Validate that this request is eligible for upgrade
-        if (stream.isResponseStarted()) {
+        if (isResponseAlreadyStarted()) {
             throw new IllegalStateException("Response has already been started");
         }
 
@@ -637,62 +659,51 @@ class Request implements HttpServletRequest {
         Headers requestHeaders = new Headers();
         
         // Convert servlet headers to HTTP headers
-        java.util.Enumeration<String> headerNames = getHeaderNames();
+        Enumeration<String> headerNames = getHeaderNames();
         while (headerNames.hasMoreElements()) {
             String name = headerNames.nextElement();
-            java.util.Enumeration<String> values = getHeaders(name);
+            Enumeration<String> values = getHeaders(name);
             while (values.hasMoreElements()) {
                 String value = values.nextElement();
                 requestHeaders.add(name, value);
             }
         }
         
-        return org.bluezoo.gumdrop.http.websocket.WebSocketHandshake.isValidWebSocketUpgrade(requestHeaders);
+        return WebSocketHandshake.isValidWebSocketUpgrade(requestHeaders);
     }
 
     /**
      * Performs the WebSocket upgrade process.
      *
-     * @param handler the upgrade handler to use
+     * @param upgradeHandler the upgrade handler to use
      * @throws ServletException if the upgrade fails
      */
-    private void performWebSocketUpgrade(HttpUpgradeHandler handler) throws ServletException {
+    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler) throws ServletException {
         try {
-            // Get WebSocket handshake parameters from request headers
-            String key = getHeader("Sec-WebSocket-Key");
+            // Get negotiated subprotocol
             String protocol = getHeader("Sec-WebSocket-Protocol");
             
-            // Create WebSocket response headers
-            Headers responseHeaders = 
-                org.bluezoo.gumdrop.http.websocket.WebSocketHandshake.createWebSocketResponse(key, protocol);
+            // Create the WebConnection that will bridge to the servlet
+            ServletWebConnection webConnection = new ServletWebConnection(upgradeHandler, 4096);
             
-            // Send 101 Switching Protocols response
-            stream.sendWebSocketUpgradeResponse(responseHeaders);
+            // Get the HTTPResponseState and perform the upgrade
+            HTTPResponseState state = handler.getState();
+            state.upgradeToWebSocket(protocol, webConnection.getEventHandler());
             
-            // Create WebSocket transport and connection
-            WebSocketServletTransport transport = new WebSocketServletTransport(stream);
-            ServletWebSocketConnection webSocketConnection = new ServletWebSocketConnection(handler, transport);
+            // Note: The WebConnectionEventHandler.opened() will call
+            // upgradeHandler.init(webConnection) when the connection is established
             
-            // Configure telemetry for WebSocket connection
-            stream.setupWebSocketTelemetry(webSocketConnection);
-            
-            // Switch the stream to WebSocket mode
-            stream.switchToWebSocketMode(webSocketConnection);
-            
-            // Notify the WebSocket connection that it's open
-            webSocketConnection.notifyConnectionOpen();
-            
-        } catch (Exception e) {
-            throw new ServletException("WebSocket upgrade failed", e);
+        } catch (IOException e) {
+            throw new ServletException("WebSocket upgrade failed: " + e.getMessage(), e);
         }
     }
 
     @Override public Map<String,String> getTrailerFields() {
-        return stream.getTrailerFields();
+        return getRequestTrailerFields();
     }
 
     @Override public boolean isTrailerFieldsReady() {
-        return stream.isTrailerFieldsReady();
+        return areTrailerFieldsReady();
     }
 
     public void setHeader(String name, String value) {
@@ -905,11 +916,11 @@ class Request implements HttpServletRequest {
     }
 
     @Override public String getProtocol() {
-        return stream.getVersion().toString();
+        return getHTTPVersion().toString();
     }
 
     @Override public String getScheme() {
-        return stream.getScheme();
+        return getHTTPScheme();
     }
 
     @Override public String getServerName() {
@@ -959,21 +970,19 @@ class Request implements HttpServletRequest {
     }
 
     @Override public String getRemoteAddr() {
-        try {
-            InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
+        InetSocketAddress remoteAddress = getRemoteSocketAddress();
+        if (remoteAddress != null) {
             return remoteAddress.getAddress().getHostAddress();
-        } catch (IOException e) {
-            return null;
         }
+        return null;
     }
 
     @Override public String getRemoteHost() {
-        try {
-            InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
+        InetSocketAddress remoteAddress = getRemoteSocketAddress();
+        if (remoteAddress != null) {
             return remoteAddress.getHostName();
-        } catch (IOException e) {
-            return null;
         }
+        return null;
     }
 
     @Override public void setAttribute(String name, Object value) {
@@ -1098,39 +1107,35 @@ class Request implements HttpServletRequest {
     }
 
     @Override public int getRemotePort() {
-        try {
-            InetSocketAddress remoteAddress = (InetSocketAddress) stream.connection.getChannel().getRemoteAddress();
+        InetSocketAddress remoteAddress = getRemoteSocketAddress();
+        if (remoteAddress != null) {
             return remoteAddress.getPort();
-        } catch (IOException e) {
-            return -1;
         }
+        return -1;
     }
 
     @Override public String getLocalName() {
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
+        InetSocketAddress localAddress = getLocalSocketAddress();
+        if (localAddress != null) {
             return localAddress.getHostName();
-        } catch (IOException e) {
-            return null;
         }
+        return null;
     }
 
     @Override public String getLocalAddr() {
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
+        InetSocketAddress localAddress = getLocalSocketAddress();
+        if (localAddress != null) {
             return localAddress.getAddress().getHostAddress();
-        } catch (IOException e) {
-            return null;
         }
+        return null;
     }
 
     @Override public int getLocalPort() {
-        try {
-            InetSocketAddress localAddress = (InetSocketAddress) stream.connection.getChannel().getLocalAddress();
+        InetSocketAddress localAddress = getLocalSocketAddress();
+        if (localAddress != null) {
             return localAddress.getPort();
-        } catch (IOException e) {
-            return -1;
         }
+        return -1;
     }
 
     // -- 3.0 --
@@ -1140,59 +1145,61 @@ class Request implements HttpServletRequest {
     }
 
     @Override public synchronized AsyncContext startAsync() throws IllegalStateException {
-        // This mechanism is a bit redundant for the gumdrop architecture
-        // since we are already separating the connection-handling threads
-        // from the servlet processing and the servlet can't block any other
-        // connections.
-        if (asyncContext != null || stream.isClosed()) {
-            throw new IllegalStateException();
+        if (!isAsyncSupported()) {
+            throw new IllegalStateException("Async not supported for this request");
         }
-        asyncContext = new StreamAsyncContext(stream);
+        if (asyncContext != null && asyncContext.isCompleted()) {
+            throw new IllegalStateException("Async already completed");
+        }
+        asyncContext = new AsyncContextImpl(handler, this, handler.getResponse());
         return asyncContext;
     }
 
     @Override public AsyncContext startAsync(ServletRequest request, ServletResponse response) throws IllegalStateException {
+        if (!isAsyncSupported()) {
+            throw new IllegalStateException("Async not supported for this request");
+        }
         while (request instanceof ServletRequestWrapper) {
             request = ((ServletRequestWrapper) request).getRequest();
         }
         if (request != this) {
-            throw new IllegalStateException();
+            throw new IllegalStateException("Request must wrap this request");
         }
         while (response instanceof ServletResponseWrapper) {
             response = ((ServletResponseWrapper) response).getResponse();
         }
-        if (response != this.stream.response) {
-            throw new IllegalStateException();
+        if (response != handler.getResponse()) {
+            throw new IllegalStateException("Response must wrap this response");
         }
-        return startAsync();
+        if (asyncContext != null && asyncContext.isCompleted()) {
+            throw new IllegalStateException("Async already completed");
+        }
+        asyncContext = new AsyncContextImpl(handler, this, handler.getResponse(), request, response);
+        return asyncContext;
     }
 
     @Override public boolean isAsyncStarted() {
-        return (asyncContext != null);
+        return asyncContext != null && !asyncContext.isCompleted();
     }
 
     @Override public boolean isAsyncSupported() {
         // Check if the target servlet supports async
         if (match != null && match.servletDef != null) {
-            if (!match.servletDef.asyncSupported) {
-                return false;
-            }
+            return match.servletDef.asyncSupported;
         }
-        
-        // Check if all filters in the chain support async
-        // The filter matches are stored in the dispatcher during request processing
-        // For now, if the servlet supports async, we allow it
-        // A more complete implementation would track the filter chain
-        
+        // Default to supporting async
         return true;
     }
 
     @Override public AsyncContext getAsyncContext() {
+        if (asyncContext == null) {
+            throw new IllegalStateException("Async not started");
+        }
         return asyncContext;
     }
 
     @Override public DispatcherType getDispatcherType() {
-        return (asyncContext != null) ? DispatcherType.ASYNC : DispatcherType.REQUEST;
+        return (asyncContext != null && !asyncContext.isCompleted()) ? DispatcherType.ASYNC : DispatcherType.REQUEST;
     }
     
     // -- Servlet 4.0 --
@@ -1212,13 +1219,11 @@ class Request implements HttpServletRequest {
      */
     @Override
     public javax.servlet.http.PushBuilder newPushBuilder() {
-        // Check if server push is supported on this connection
-        if (stream != null && stream.supportsServerPush()) {
-            return new ServletPushBuilder(stream, this);
+        // Check if server push is supported
+        if (!handler.supportsServerPush()) {
+            return null;
         }
-        
-        // Return null if server push is not supported (per Servlet 4.0 spec)
-        return null;
+        return new ServletPushBuilder(handler, this);
     }
 
     /**

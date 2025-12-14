@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.mailbox.maildir;
 
 import org.bluezoo.gumdrop.mailbox.Mailbox;
+import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 
@@ -38,6 +39,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -607,15 +609,15 @@ public class MaildirMailboxStore implements MailboxStore {
     }
 
     @Override
-    public Set<String> getMailboxAttributes(String mailboxName) throws IOException {
+    public Set<MailboxAttribute> getMailboxAttributes(String mailboxName) throws IOException {
         ensureOpen();
         
-        Set<String> attributes = new HashSet<>();
+        Set<MailboxAttribute> attributes = EnumSet.noneOf(MailboxAttribute.class);
         String normalized = normalizeMailboxName(mailboxName);
         Path mailboxPath = resolveMailboxPath(normalized);
         
         if (!isValidMaildir(mailboxPath)) {
-            attributes.add("Noselect");
+            attributes.add(MailboxAttribute.NOSELECT);
             return attributes;
         }
         
@@ -638,9 +640,9 @@ public class MaildirMailboxStore implements MailboxStore {
         }
         
         if (hasChildren) {
-            attributes.add("HasChildren");
+            attributes.add(MailboxAttribute.HASCHILDREN);
         } else {
-            attributes.add("HasNoChildren");
+            attributes.add(MailboxAttribute.HASNOCHILDREN);
         }
         
         return attributes;

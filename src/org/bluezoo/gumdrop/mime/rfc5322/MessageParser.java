@@ -52,12 +52,39 @@ public class MessageParser extends MIMEParser {
 
 	private MessageHandler messageHandler;
 	private boolean usedObsoleteSyntax = false; // track obsolete syntax in structured headers
+	private boolean smtputf8 = false; // RFC 6531/6532 internationalized email mode
 
 	/**
 	 * Constructor.
 	 */
 	public MessageParser() {
 		super();
+	}
+
+	/**
+	 * Sets whether SMTPUTF8 mode is enabled for this message.
+	 * 
+	 * <p>When true, UTF-8 characters are permitted in email addresses
+	 * per RFC 6531 (SMTP Extension for Internationalized Email) and
+	 * RFC 6532 (Internationalized Email Headers).
+	 * 
+	 * <p>This affects parsing of address headers (From, To, Cc, etc.)
+	 * where the local-part, domain, and display-name may contain
+	 * UTF-8 characters.
+	 * 
+	 * @param smtputf8 true to enable internationalized email parsing
+	 */
+	public void setSmtputf8(boolean smtputf8) {
+		this.smtputf8 = smtputf8;
+	}
+
+	/**
+	 * Returns whether SMTPUTF8 mode is enabled.
+	 * 
+	 * @return true if internationalized email parsing is enabled
+	 */
+	public boolean isSmtputf8() {
+		return smtputf8;
 	}
 
 	/**
@@ -165,7 +192,7 @@ public class MessageParser extends MIMEParser {
 		if (messageHandler == null) {
 			return;
 		}
-		List<EmailAddress> addresses = RFC5322AddressParser.parseEmailAddressList(value);
+		List<EmailAddress> addresses = EmailAddressParser.parseEmailAddressList(value, smtputf8);
 		if (addresses != null && !addresses.isEmpty()) {
 			messageHandler.addressHeader(name, addresses);
 		} else {
@@ -215,10 +242,10 @@ public class MessageParser extends MIMEParser {
 	 */
 	private OffsetDateTime parseRFC5322DateTime(String value) {
 		try {
-			return RFC5322DateTimeFormatter.parse(value);
+			return MessageDateTimeFormatter.parse(value);
 		} catch (DateTimeParseException e) {
 			try {
-				OffsetDateTime ret = RFC5322DateTimeFormatter.parseObsolete(value);
+				OffsetDateTime ret = MessageDateTimeFormatter.parseObsolete(value);
 				if (ret != null) {
 					this.usedObsoleteSyntax = true;
 				}
@@ -227,6 +254,13 @@ public class MessageParser extends MIMEParser {
 				return null;
 			}
 		}
+	}
+
+	@Override
+	public void reset() {
+		super.reset();
+		usedObsoleteSyntax = false;
+		smtputf8 = false;
 	}
 
 }

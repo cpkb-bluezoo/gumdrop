@@ -98,11 +98,14 @@ public class MboxMailbox implements Mailbox {
     /** The escaped From prefix in message bodies */
     private static final byte[] ESCAPED_FROM_PREFIX = ">From ".getBytes(StandardCharsets.US_ASCII);
     
-    /** LF line terminator (mbox files often use LF only) */
+    /** LF line terminator - used as the definitive line end marker (works for both LF and CRLF) */
     private static final byte LF = '\n';
     
-    /** CR character */
+    /** CR character - used with LF for CRLF line endings per RFC 5322 */
     private static final byte CR = '\r';
+    
+    /** CRLF sequence for line endings */
+    private static final byte[] CRLF = { '\r', '\n' };
 
     /** Date format for mbox From_ lines: "Mon Jan  1 00:00:00 2025" */
     private static final DateTimeFormatter MBOX_DATE_FORMAT = 
@@ -438,16 +441,17 @@ public class MboxMailbox implements Mailbox {
             messageContent = escapeFromLines(messageContent);
             
             // Build the From_ envelope line
-            // Format: "From sender@localhost Mon Jan  1 00:00:00 2025\n"
+            // Format: "From sender@localhost Mon Jan  1 00:00:00 2025\r\n"
+            // Use CRLF to be consistent with RFC 5322 message content
             String fromLine = "From MAILER-DAEMON@localhost " + 
-                dateToUse.format(MBOX_DATE_FORMAT) + "\n";
+                dateToUse.format(MBOX_DATE_FORMAT) + "\r\n";
             
             // Position at end of file
             channel.position(channel.size());
             
             // If file is not empty, ensure there's a blank line before new message
             if (channel.size() > 0) {
-                channel.write(ByteBuffer.wrap(new byte[]{LF}));
+                channel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
             }
             
             // Write From_ line
@@ -456,9 +460,9 @@ public class MboxMailbox implements Mailbox {
             // Write message content
             channel.write(ByteBuffer.wrap(messageContent));
             
-            // Ensure message ends with newline
+            // Ensure message ends with CRLF (RFC 5322 format)
             if (messageContent.length == 0 || messageContent[messageContent.length - 1] != LF) {
-                channel.write(ByteBuffer.wrap(new byte[]{LF}));
+                channel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
             }
             
             // Re-index to pick up new message
@@ -487,6 +491,8 @@ public class MboxMailbox implements Mailbox {
 
     /**
      * Indexes all messages in the mbox file.
+     * Accepts both LF and CRLF line endings - LF is used as the definitive
+     * line terminator, which works for both formats.
      */
     private void indexMessages() throws IOException {
         messages.clear();
@@ -497,6 +503,7 @@ public class MboxMailbox implements Mailbox {
         }
         
         // First pass: scan entire file to find all "From " boundaries
+        // LF marks end of line (works for both LF and CRLF line endings)
         // We collect just the offsets here, then add messages after
         List<Long> fromOffsets = new ArrayList<>();
         
@@ -725,18 +732,23 @@ public class MboxMailbox implements Mailbox {
 
     /**
      * Finds the position after the blank line separating headers from body.
+     * Accepts both LF and CRLF line endings.
      * Returns -1 if not found.
      */
     private int findBlankLine(byte[] content) {
         for (int i = 0; i < content.length - 1; i++) {
             if (content[i] == LF) {
-                // Check for \n\n (LF LF) or \r\n\r\n
-                if (i + 1 < content.length && content[i + 1] == LF) {
-                    return i + 2;
+                // After LF, check what follows for the blank line pattern
+                int next = i + 1;
+                
+                // Skip optional CR at start of next line (handles mixed line endings)
+                if (next < content.length && content[next] == CR) {
+                    next++;
                 }
-                if (i + 1 < content.length && content[i + 1] == CR && 
-                    i + 2 < content.length && content[i + 2] == LF) {
-                    return i + 3;
+                
+                // Check for LF (which completes the blank line)
+                if (next < content.length && content[next] == LF) {
+                    return next + 1;
                 }
             }
         }
@@ -763,15 +775,15 @@ public class MboxMailbox implements Mailbox {
                 if (!deletedMessages.contains(msgNum)) {
                     MboxMessageDescriptor msg = messages.get(i);
                     
-                    // Reconstruct the From_ line
+                    // Reconstruct the From_ line (use CRLF for RFC 5322 consistency)
                     String fromLine = "From MAILER-DAEMON@localhost " + 
-                        OffsetDateTime.now(ZoneOffset.UTC).format(MBOX_DATE_FORMAT) + "\n";
+                        OffsetDateTime.now(ZoneOffset.UTC).format(MBOX_DATE_FORMAT) + "\r\n";
                     tempChannel.write(ByteBuffer.wrap(fromLine.getBytes(StandardCharsets.US_ASCII)));
                     
                     // Copy message content
                     byte[] content = readMessageContent(msg.getStartOffset(), msg.getEndOffset());
                     tempChannel.write(ByteBuffer.wrap(content));
-                    tempChannel.write(ByteBuffer.wrap(new byte[]{LF}));
+                    tempChannel.write(ByteBuffer.wrap(new byte[]{CR, LF}));
                 }
             }
         }

@@ -230,10 +230,10 @@ public class LogRecordTest {
     }
 
     @Test
-    public void testAddAttributeChaining() {
-        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message")
-            .addAttribute("key1", "value1")
-            .addAttribute("key2", "value2");
+    public void testAddMultipleAttributes() {
+        LogRecord log = new LogRecord(LogRecord.SEVERITY_INFO, "Message");
+        log.addAttribute("key1", "value1");
+        log.addAttribute("key2", "value2");
         
         assertEquals(2, log.getAttributes().size());
     }

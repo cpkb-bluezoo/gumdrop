@@ -21,389 +21,505 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.Client;
-import org.bluezoo.gumdrop.ClientHandler;
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.http.HTTPVersion;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.SocketChannel;
-import java.util.logging.Logger;
+
 import javax.net.ssl.SSLEngine;
 
+import org.bluezoo.gumdrop.Client;
+import org.bluezoo.gumdrop.ClientHandler;
+import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.http.HTTPVersion;
+
 /**
- * HTTP client implementation that creates and manages HTTP client connections.
- * 
- * <p>This class extends {@link Client} to provide HTTP-specific client functionality
- * for connecting to HTTP servers and creating connection instances that support
- * both HTTP/1.1 and HTTP/2 protocols.
- * 
- * <p>The client follows the same event-driven, non-blocking architecture as other
- * Gumdrop client implementations, with protocol-specific handlers receiving events
- * for connection lifecycle and stream-based request/response interactions.
- * 
- * <p><strong>Basic Usage:</strong>
- * <pre>
- * HTTPClient client = new HTTPClient("example.com", 80);
+ * HTTP client implementation that creates and manages HTTP connections.
+ *
+ * <p>This class extends {@link Client} to provide HTTP-specific client
+ * functionality for connecting to HTTP servers, creating connections,
+ * and making HTTP requests.
+ *
+ * <p>An HTTPClient represents a connection (or pool of connections) to a single
+ * server. It provides factory methods for creating requests, manages connection
+ * state, and supports both HTTP/1.1 and HTTP/2 protocols.
+ *
+ * <h3>Simple Usage</h3>
+ *
+ * <p>For most use cases, simply create the client and make requests. The connection
+ * is established automatically when the first request is made:
+ * <pre>{@code
+ * HTTPClient client = new HTTPClient("api.example.com", 443);
+ * client.setSecure(true);
+ *
+ * client.get("/users").send(new DefaultHTTPResponseHandler() {
+ *     public void ok(HTTPResponse response) {
+ *         System.out.println("Success: " + response.getStatus());
+ *     }
+ *     public void responseBodyContent(ByteBuffer data) {
+ *         // Process response body
+ *     }
+ *     public void close() {
+ *         client.close();
+ *     }
+ *     public void failed(Exception ex) {
+ *         // Connection or request error
+ *         ex.printStackTrace();
+ *     }
+ * });
+ * }</pre>
+ *
+ * <h3>With Connection Events</h3>
+ *
+ * <p>If you need to receive connection lifecycle events (e.g., to log TLS
+ * negotiation or handle disconnects), use {@link #connect(HTTPClientHandler)}:
+ * <pre>{@code
+ * HTTPClient client = new HTTPClient("api.example.com", 443);
+ * client.setSecure(true);
  * client.connect(new HTTPClientHandler() {
- *     public void onProtocolNegotiated(HTTPVersion version, HTTPClientConnection conn) {
- *         // Create streams after protocol is negotiated
- *         conn.createStream(); // Will trigger onStreamCreated
+ *     public void onConnected(ConnectionInfo info) {
+ *         client.get("/users").send(responseHandler);
  *     }
- *     
- *     public void onStreamCreated(HTTPClientStream stream) {
- *         HTTPRequest request = new HTTPRequest("GET", "/api/data");
- *         stream.sendRequest(request);
+ *     public void onTLSStarted(TLSInfo info) {
+ *         System.out.println("TLS: " + info.getProtocol());
  *     }
- *     
- *     public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
- *         System.out.println("Status: " + response.getStatusCode());
- *     }
- *     
- *     // ... other handler methods
+ *     public void onError(Exception e) { e.printStackTrace(); }
+ *     public void onDisconnected() { }
  * });
- * </pre>
- * 
- * <p><strong>Custom Stream Factory:</strong>
- * <pre>
- * HTTPClient client = new HTTPClient("example.com", 80);
- * client.setStreamFactory(new HTTPClientStreamFactory() {
- *     public HTTPClientStream createStream(int streamId, HTTPClientConnection connection) {
- *         return new MyCustomHTTPClientStream(streamId, connection);
+ * }</pre>
+ *
+ * <h3>Server Integration (with SelectorLoop affinity)</h3>
+ * <pre>{@code
+ * // Use the same SelectorLoop as your server connection for efficiency
+ * HTTPClient client = new HTTPClient(connection.getSelectorLoop(), "api.example.com", 443);
+ * client.setSecure(true);
+ * client.get("/data").send(handler);
+ * }</pre>
+ *
+ * <h3>POST with Request Body</h3>
+ * <pre>{@code
+ * HTTPRequest request = client.post("/api/users");
+ * request.header("Content-Type", "application/json");
+ * request.startRequestBody(handler);
+ * request.requestBodyContent(ByteBuffer.wrap(jsonBytes));
+ * request.endRequestBody();
+ * }</pre>
+ *
+ * <h3>HTTP/2 Concurrent Requests</h3>
+ *
+ * <p>When connected via HTTP/2, multiple requests can be in flight simultaneously:
+ * <pre>{@code
+ * // Check if multiplexing is supported
+ * if (client.getVersion() != null &amp;&amp; client.getVersion().supportsMultiplexing()) {
+ *     // Fire off multiple requests concurrently
+ *     for (String path : paths) {
+ *         client.get(path).send(handler);
  *     }
- * });
- * </pre>
- * 
- * <p><strong>HTTPS Support:</strong> Use the secure constructor for HTTPS connections:
- * <pre>
- * HTTPClient httpsClient = new HTTPClient("example.com", 443, true);
- * </pre>
- * 
+ * }
+ * }</pre>
+ *
+ * <h3>Authentication</h3>
+ * <pre>{@code
+ * client.credentials("admin", "secret");
+ * client.get("/protected/resource").send(handler);
+ * // If server returns 401, client automatically retries with auth
+ * }</pre>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTPClientHandler
- * @see HTTPClientConnection
+ * @see HTTPRequest
+ * @see HTTPResponseHandler
  */
 public class HTTPClient extends Client {
 
-    private static final Logger logger = Logger.getLogger(HTTPClient.class.getName());
+    /** Default HTTP port. */
+    public static final int DEFAULT_PORT = 80;
 
-    protected static final int HTTP_DEFAULT_PORT = 80;
-    protected static final int HTTPS_DEFAULT_PORT = 443;
+    /** Default HTTPS port. */
+    public static final int DEFAULT_SECURE_PORT = 443;
 
-    /**
-     * Default factory for creating HTTPClientStream instances.
-     */
-    private static final HTTPClientStreamFactory DEFAULT_STREAM_FACTORY = new HTTPClientStreamFactory() {
-        @Override
-        public HTTPClientStream createStream(int streamId, HTTPClientConnection connection) {
-            return new DefaultHTTPClientStream(streamId, connection);
-        }
-    };
+    // The current connection (single connection mode)
+    private HTTPClientConnection connection;
 
-    private HTTPClientStreamFactory streamFactory = DEFAULT_STREAM_FACTORY;
-    private HTTPVersion preferredVersion = HTTPVersion.HTTP_2_0; // Default to HTTP/2
-    private HTTPAuthenticationManager authenticationManager = new HTTPAuthenticationManager();
+    // Authentication credentials
+    private String username;
+    private String password;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Constructors without SelectorLoop (standalone usage)
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Creates an HTTP client that will connect to the specified host and port.
-     * 
-     * <p>This creates an insecure (HTTP) connection. For HTTPS connections,
-     * use {@link #HTTPClient(String, int, boolean)} with secure=true.
-     * 
+     *
+     * <p>The Gumdrop infrastructure is managed automatically - it starts
+     * when {@link #connect} is called and stops when all connections close.
+     *
      * @param host the HTTP server host as a String
-     * @param port the HTTP server port number (typically 80 for HTTP, 443 for HTTPS)
+     * @param port the HTTP server port number (typically 80 or 443)
      * @throws UnknownHostException if the host cannot be resolved
      */
     public HTTPClient(String host, int port) throws UnknownHostException {
-        this(host, port, false);
+        super(host, port);
     }
 
     /**
-     * Creates an HTTP client that will connect to the specified host and port.
-     * 
+     * Creates an HTTP client that will connect to the default port (80).
+     *
      * @param host the HTTP server host as a String
-     * @param port the HTTP server port number (typically 80 for HTTP, 443 for HTTPS)
-     * @param secure whether to use HTTPS (SSL/TLS) for the connection
      * @throws UnknownHostException if the host cannot be resolved
      */
-    public HTTPClient(String host, int port, boolean secure) throws UnknownHostException {
-        super(host, port);
-        this.secure = secure;
-        
-        // Use default ports if not specified
-        if (port <= 0) {
-            this.port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
-        }
+    public HTTPClient(String host) throws UnknownHostException {
+        super(host, DEFAULT_PORT);
     }
 
     /**
      * Creates an HTTP client that will connect to the specified host and port.
-     * 
+     *
      * @param host the HTTP server host as an InetAddress
-     * @param port the HTTP server port number (typically 80 for HTTP, 443 for HTTPS)
-     * @param secure whether to use HTTPS (SSL/TLS) for the connection
+     * @param port the HTTP server port number (typically 80 or 443)
      */
-    public HTTPClient(InetAddress host, int port, boolean secure) {
+    public HTTPClient(InetAddress host, int port) {
         super(host, port);
-        this.secure = secure;
-        
-        // Use default ports if not specified
-        if (port <= 0) {
-            this.port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
-        }
     }
+
+    /**
+     * Creates an HTTP client that will connect to the default port (80).
+     *
+     * @param host the HTTP server host as an InetAddress
+     */
+    public HTTPClient(InetAddress host) {
+        super(host, DEFAULT_PORT);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Constructors with SelectorLoop (server integration)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Creates an HTTP client that will connect to the specified host and port,
+     * using the provided SelectorLoop for I/O.
+     *
+     * <p>Use this constructor for server integration where you want the
+     * client to share a SelectorLoop with server connections for efficiency.
+     *
+     * @param selectorLoop the SelectorLoop for connection I/O
+     * @param host the HTTP server host as a String
+     * @param port the HTTP server port number (typically 80 or 443)
+     * @throws UnknownHostException if the host cannot be resolved
+     */
+    public HTTPClient(SelectorLoop selectorLoop, String host, int port) throws UnknownHostException {
+        super(selectorLoop, host, port);
+    }
+
+    /**
+     * Creates an HTTP client that will connect to the default port (80),
+     * using the provided SelectorLoop for I/O.
+     *
+     * @param selectorLoop the SelectorLoop for connection I/O
+     * @param host the HTTP server host as a String
+     * @throws UnknownHostException if the host cannot be resolved
+     */
+    public HTTPClient(SelectorLoop selectorLoop, String host) throws UnknownHostException {
+        super(selectorLoop, host, DEFAULT_PORT);
+    }
+
+    /**
+     * Creates an HTTP client that will connect to the specified host and port,
+     * using the provided SelectorLoop for I/O.
+     *
+     * @param selectorLoop the SelectorLoop for connection I/O
+     * @param host the HTTP server host as an InetAddress
+     * @param port the HTTP server port number (typically 80 or 443)
+     */
+    public HTTPClient(SelectorLoop selectorLoop, InetAddress host, int port) {
+        super(selectorLoop, host, port);
+    }
+
+    /**
+     * Creates an HTTP client that will connect to the default port (80),
+     * using the provided SelectorLoop for I/O.
+     *
+     * @param selectorLoop the SelectorLoop for connection I/O
+     * @param host the HTTP server host as an InetAddress
+     */
+    public HTTPClient(SelectorLoop selectorLoop, InetAddress host) {
+        super(selectorLoop, host, DEFAULT_PORT);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Connection factory
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Creates a new HTTP client connection with a handler.
-     * 
+     *
      * @param channel the socket channel for the connection
      * @param engine optional SSL engine for secure connections
-     * @param handler the client handler to receive HTTP events
+     * @param handler the client handler (must be HTTPClientHandler)
      * @return a new HTTPClientConnection instance
+     * @throws ClassCastException if handler is not an HTTPClientHandler
      */
     @Override
     protected Connection newConnection(SocketChannel channel, SSLEngine engine, ClientHandler handler) {
-        if (!(handler instanceof HTTPClientHandler)) {
-            throw new IllegalArgumentException("HTTPClient requires an HTTPClientHandler");
+        HTTPClientConnection conn = new HTTPClientConnection(this, channel, engine, secure,
+                (HTTPClientHandler) handler);
+        this.connection = conn;
+
+        // Transfer credentials to connection
+        if (username != null) {
+            conn.credentials(username, password);
         }
-        
-        return new HTTPClientConnection(this, channel, engine, secure, (HTTPClientHandler) handler);
+
+        return conn;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Request Factory Methods
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Creates a GET request for the specified path.
+     *
+     * @param path the request path (e.g., "/api/users")
+     * @return a new request
+     * @throws IllegalStateException if not connected
+     */
+    public HTTPRequest get(String path) {
+        return getConnection().get(path);
     }
 
     /**
-     * Initiates a type-safe HTTP connection with the specified handler.
-     * 
-     * <p>This method provides type safety by accepting only HTTPClientHandler
-     * instances, avoiding the need for casting in client code.
-     * 
-     * @param handler the HTTP client handler to receive connection and stream events
-     * @throws java.io.IOException if the connection cannot be initiated
+     * Creates a POST request for the specified path.
+     *
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
      */
-    public void connect(HTTPClientHandler handler) throws java.io.IOException {
-        super.connect(handler);
+    public HTTPRequest post(String path) {
+        return getConnection().post(path);
     }
 
     /**
-     * Returns the stream factory used to create HTTPClientStream instances.
-     * 
-     * @return the current stream factory
+     * Creates a PUT request for the specified path.
+     *
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
      */
-    public HTTPClientStreamFactory getStreamFactory() {
-        return streamFactory;
+    public HTTPRequest put(String path) {
+        return getConnection().put(path);
     }
 
     /**
-     * Sets a custom stream factory for creating HTTPClientStream instances.
+     * Creates a DELETE request for the specified path.
      *
-     * <p>This allows users to provide custom stream implementations while
-     * maintaining integration with the standard connection and handler architecture.
-     *
-     * <p><strong>Example:</strong>
-     * <pre>
-     * HTTPClient client = new HTTPClient("example.com", 80);
-     * client.setStreamFactory(new HTTPClientStreamFactory() {
-     *     public HTTPClientStream createStream(int streamId, HTTPClientConnection connection) {
-     *         return new MyCustomHTTPClientStream(streamId, connection);
-     *     }
-     * });
-     * </pre>
-     *
-     * @param streamFactory the factory to use for creating streams
-     * @throws IllegalArgumentException if streamFactory is null
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
      */
-    public void setStreamFactory(HTTPClientStreamFactory streamFactory) {
-        if (streamFactory == null) {
-            throw new IllegalArgumentException("Stream factory cannot be null");
+    public HTTPRequest delete(String path) {
+        return getConnection().delete(path);
+    }
+
+    /**
+     * Creates a HEAD request for the specified path.
+     *
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
+     */
+    public HTTPRequest head(String path) {
+        return getConnection().head(path);
+    }
+
+    /**
+     * Creates an OPTIONS request for the specified path.
+     *
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
+     */
+    public HTTPRequest options(String path) {
+        return getConnection().options(path);
+    }
+
+    /**
+     * Creates a PATCH request for the specified path.
+     *
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
+     */
+    public HTTPRequest patch(String path) {
+        return getConnection().patch(path);
+    }
+
+    /**
+     * Creates a request with a custom HTTP method.
+     *
+     * <p>Use this for non-standard methods or methods not covered by the
+     * convenience methods (e.g., "PROPFIND" for WebDAV).
+     *
+     * @param method the HTTP method
+     * @param path the request path
+     * @return a new request
+     * @throws IllegalStateException if not connected
+     */
+    public HTTPRequest request(String method, String path) {
+        return getConnection().request(method, path);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Authentication
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sets credentials for HTTP authentication.
+     *
+     * <p>When credentials are configured, the client handles authentication
+     * challenges (401/407 responses) automatically:
+     * <ol>
+     * <li>If the server responds with 401, the client examines the
+     *     {@code WWW-Authenticate} header</li>
+     * <li>The client computes the appropriate authorization (Basic or Digest)</li>
+     * <li>The request is automatically retried with the authorization header</li>
+     * <li>The handler only receives the final response (success or failure)</li>
+     * </ol>
+     *
+     * <p>Example:
+     * <pre>{@code
+     * client.credentials("admin", "secret");
+     * client.get("/protected/resource").send(handler);
+     * // If server returns 401, client automatically retries with auth
+     * }</pre>
+     *
+     * @param username the username
+     * @param password the password
+     */
+    public void credentials(String username, String password) {
+        this.username = username;
+        this.password = password;
+        if (connection != null) {
+            connection.credentials(username, password);
         }
-        this.streamFactory = streamFactory;
     }
 
     /**
-     * Returns the preferred HTTP version for this client.
+     * Clears any configured credentials.
      *
-     * @return the preferred HTTP version
+     * <p>After calling this method, authentication challenges will not be
+     * handled automatically.
+     */
+    public void clearCredentials() {
+        this.username = null;
+        this.password = null;
+        if (connection != null) {
+            connection.clearCredentials();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Connection State
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Returns true if the client is connected and can accept new requests.
+     *
+     * <p>Returns false if not connected, after the client is closed,
+     * after receiving a GOAWAY frame (HTTP/2), or after a fatal connection error.
+     *
+     * @return true if the client is open and connected
+     */
+    public boolean isOpen() {
+        return connection != null && connection.isOpen();
+    }
+
+    /**
+     * Returns the negotiated HTTP version, or null if not yet connected.
+     *
+     * <p>For TLS connections, the version is determined by ALPN negotiation
+     * during the TLS handshake. For plaintext connections, it depends on
+     * HTTP/2 upgrade negotiation or the server's response.
+     *
+     * <p>Use this to check if multiplexing is available:
+     * <pre>{@code
+     * if (client.getVersion() != null && client.getVersion().supportsMultiplexing()) {
+     *     // Safe to make concurrent requests
+     * }
+     * }</pre>
+     *
+     * @return the HTTP version, or null if not yet known
      */
     public HTTPVersion getVersion() {
-        return preferredVersion;
+        if (connection == null) {
+            return null;
+        }
+        return connection.getVersion();
     }
 
     /**
-     * Sets the preferred HTTP version for this client.
+     * Returns the current connection, or null if not connected.
      *
-     * <p>This determines protocol negotiation behavior:
-     * <ul>
-     * <li><strong>For TLS connections</strong>: Whether to include "h2" in ALPN negotiation</li>
-     * <li><strong>For plaintext connections</strong>: Whether to attempt HTTP/2 cleartext (h2c) upgrade</li>
-     * <li><strong>Default</strong>: {@link HTTPVersion#HTTP_2_0} (attempt HTTP/2)</li>
-     * </ul>
+     * <p>This method provides access to the underlying connection for
+     * advanced usage. Most applications should use the request factory
+     * methods directly on this client instead.
      *
-     * <p><strong>Examples:</strong>
-     * <pre>
-     * // Prefer HTTP/2 (default)
-     * client.setVersion(HTTPVersion.HTTP_2_0);
-     *
-     * // Force HTTP/1.1 (no HTTP/2 negotiation)
-     * client.setVersion(HTTPVersion.HTTP_1_1);
-     *
-     * // Allow HTTP/1.0 (minimal features)
-     * client.setVersion(HTTPVersion.HTTP_1_0);
-     * </pre>
-     *
-     * <p><strong>Note:</strong> The actual protocol used depends on server support.
-     * If the server doesn't support the preferred version, the client will
-     * negotiate the best available alternative.
-     *
-     * @param version the preferred HTTP version
-     * @throws IllegalArgumentException if version is null or UNKNOWN
+     * @return the current connection, or null
      */
-    public void setVersion(HTTPVersion version) {
-        if (version == null || version == HTTPVersion.UNKNOWN) {
-            throw new IllegalArgumentException("HTTP version cannot be null or UNKNOWN");
-        }
-        this.preferredVersion = version;
+    public HTTPClientConnection getActiveConnection() {
+        return connection;
     }
 
-    @Override
-    protected void configureSSLEngine(SSLEngine engine) {
-        super.configureSSLEngine(engine); // Call parent for common configuration
-        
-        // Configure ALPN based on preferred HTTP version
-        if (preferredVersion == HTTPVersion.HTTP_2_0) {
-            // Prefer HTTP/2, fall back to HTTP/1.1
-            setAlpnProtocols(engine, new String[]{"h2", "http/1.1"});
-        } else if (preferredVersion == HTTPVersion.HTTP_1_1) {
-            // Only HTTP/1.1
-            setAlpnProtocols(engine, new String[]{"http/1.1"});
-        } else if (preferredVersion == HTTPVersion.HTTP_1_0) {
-            // HTTP/1.0 - no ALPN needed, will negotiate at HTTP level
-            // Leave ALPN protocols empty
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lifecycle
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Closes the client gracefully.
+     *
+     * <p>For HTTP/2, this sends a GOAWAY frame allowing outstanding requests
+     * to complete. For HTTP/1.x, this closes the connection after any
+     * in-progress request completes.
+     *
+     * <p>Any requests that have not yet received a response will have their
+     * handler's {@link HTTPResponseHandler#failed(Exception)} method called.
+     */
+    public void close() {
+        if (connection != null) {
+            connection.close();
+            connection = null;
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Internal helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Sets ALPN protocols on the SSL engine.
-     * This uses reflection to maintain compatibility across Java versions.
+     * Returns the current connection, connecting if necessary.
+     *
+     * <p>If not already connected, this method initiates a connection with
+     * a null handler. Any connection errors will be delivered to the
+     * response handler when a request is made.
+     *
+     * @return the connection
+     * @throws IllegalStateException if connection cannot be initiated
      */
-    private void setAlpnProtocols(SSLEngine engine, String[] protocols) {
-        try {
-            // Use reflection to call SSLParameters.setApplicationProtocols()
-            // This method exists in Java 9+ but we want to maintain compatibility
-            javax.net.ssl.SSLParameters params = engine.getSSLParameters();
-            
-            // Try to get the setApplicationProtocols method
-            java.lang.reflect.Method setProtocols = params.getClass().getMethod("setApplicationProtocols", String[].class);
-            setProtocols.invoke(params, (Object) protocols);
-            
-            engine.setSSLParameters(params);
-            
-            logger.fine("ALPN protocols configured: " + java.util.Arrays.toString(protocols));
-            
-        } catch (Exception e) {
-            // ALPN not supported on this Java version - will fall back to HTTP/1.1
-            logger.warning("ALPN not supported: " + e.getMessage() + " (will use HTTP/1.1)");
+    private HTTPClientConnection getConnection() {
+        if (connection == null) {
+            try {
+                connect(null);
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to connect: " + e.getMessage(), e);
+            }
         }
-    }
-
-    /**
-     * Returns the authentication manager for this client.
-     *
-     * @return the authentication manager
-     */
-    public HTTPAuthenticationManager getAuthenticationManager() {
-        return authenticationManager;
-    }
-
-    /**
-     * Sets the authentication manager for this client.
-     *
-     * @param authenticationManager the authentication manager to use
-     * @throws IllegalArgumentException if authenticationManager is null
-     */
-    public void setAuthenticationManager(HTTPAuthenticationManager authenticationManager) {
-        if (authenticationManager == null) {
-            throw new IllegalArgumentException("Authentication manager cannot be null");
-        }
-        this.authenticationManager = authenticationManager;
-    }
-
-    /**
-     * Adds an authentication scheme to this client.
-     *
-     * <p>This is a convenience method that delegates to the authentication manager.
-     * Authentication schemes are tried in the order they are added.
-     *
-     * @param authentication the authentication scheme to add
-     * @throws IllegalArgumentException if authentication is null
-     */
-    public void setAuthentication(HTTPAuthentication authentication) {
-        authenticationManager.clearAuthentications();
-        authenticationManager.addAuthentication(authentication);
-    }
-
-    /**
-     * Adds an authentication scheme to this client.
-     *
-     * <p>This is a convenience method that delegates to the authentication manager.
-     * Multiple authentication schemes can be added for fallback support.
-     *
-     * @param authentication the authentication scheme to add
-     * @throws IllegalArgumentException if authentication is null
-     */
-    public void addAuthentication(HTTPAuthentication authentication) {
-        authenticationManager.addAuthentication(authentication);
-    }
-
-    /**
-     * Removes all authentication schemes from this client.
-     */
-    public void clearAuthentication() {
-        authenticationManager.clearAuthentications();
-    }
-
-    /**
-     * Sets basic authentication credentials for this client.
-     *
-     * <p>This is a convenience method for simple username/password authentication.
-     *
-     * @param username the username for authentication
-     * @param password the password for authentication
-     * @throws IllegalArgumentException if username or password is null
-     */
-    public void setBasicAuth(String username, String password) {
-        setAuthentication(new BasicAuthentication(username, password));
-    }
-
-    /**
-     * Sets bearer token authentication for this client.
-     *
-     * <p>This is a convenience method for token-based authentication.
-     *
-     * @param token the bearer token (access token, API key, JWT, etc.)
-     * @throws IllegalArgumentException if token is null or empty
-     */
-    public void setBearerAuth(String token) {
-        setAuthentication(new BearerAuthentication(token));
-    }
-
-    /**
-     * Sets digest authentication credentials for this client.
-     *
-     * <p>This is a convenience method for digest authentication.
-     * Note that digest authentication requires a server challenge before it can be used.
-     *
-     * @param username the username for authentication
-     * @param password the password for authentication
-     * @throws IllegalArgumentException if username or password is null
-     */
-    public void setDigestAuth(String username, String password) {
-        setAuthentication(new DigestAuthentication(username, password));
+        return connection;
     }
 
     @Override
     public String getDescription() {
-        String protocol = secure ? "HTTPS" : "HTTP";
-        String auth = authenticationManager.hasAuthentication() ? 
-                     " [" + authenticationManager.getDescription() + "]" : "";
-        return protocol + " Client (" + host.getHostAddress() + ":" + port + ", " + preferredVersion + ")" + auth;
+        return "HTTP Client (" + host.getHostAddress() + ":" + port + ")";
     }
+
 }

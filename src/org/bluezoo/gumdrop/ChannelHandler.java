@@ -31,8 +31,6 @@ import java.nio.channels.SelectionKey;
  * <p>Implementations include:
  * <ul>
  * <li>{@link Connection} - TCP stream connections</li>
- * <li>{@link org.bluezoo.gumdrop.datagram.DatagramServer} - UDP servers</li>
- * <li>{@link org.bluezoo.gumdrop.datagram.DatagramClient} - UDP clients</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

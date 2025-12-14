@@ -52,10 +52,9 @@
   <!-- JUnit dependencies -->
   <property name='junit.jar' value='junit-4.13.1.jar'/>
   <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
-  <property name='jsonparser.jar' value='jsonparser-20251102.jar'/>
 
   <!-- Remove compiled classes and build directories -->
-  <target name='clean' depends='clean-junit,clean-integration'>
+  <target name='clean' depends='clean-junit,clean-integration,clean-javadoc'>
     <delete dir='${build-bootstrap}'/>
     <delete dir='${build}'/>
     <delete dir='${dist}'/>
@@ -71,6 +70,7 @@
   <target name='clean-integration'>
     <delete dir='${test}/integration/classes'/>
     <delete dir='${test}/integration/results'/>
+    <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
   </target>
 
   <!-- Target for the server/servlet container and all its resources -->
@@ -78,7 +78,8 @@
     <mkdir dir='${build}'/>
     <javac srcdir='${src}' destdir='${build}' debug='true'
            source='${java.source.version}' target='${java.target.version}'
-           includeantruntime='false'>
+           includeantruntime='false'
+           createMissingPackageInfoClass='false'>
       <classpath>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
@@ -147,6 +148,40 @@
 
   <target name='dist' depends='bootstrap-jar,manager-war'/>
 
+  <!-- Generate Javadoc API documentation -->
+  <target name='javadoc' description='Generate Javadoc API documentation'>
+    <mkdir dir='doc'/>
+    <javadoc destdir='doc'
+             sourcepath='${src}'
+             packagenames='org.bluezoo.gumdrop.*'
+             author='true'
+             version='true'
+             use='true'
+             splitindex='true'
+             windowtitle='Gumdrop API'
+             doctitle='Gumdrop API Documentation'
+             header='&lt;b&gt;Gumdrop&lt;/b&gt;'
+             footer='Copyright &amp;copy; 2005, 2025 Chris Burdess. Licensed under LGPL.'
+             bottom='&lt;small&gt;Gumdrop is free software distributed under the GNU Lesser General Public License.&lt;/small&gt;'
+             source='${java.source.version}'
+             failonerror='false'
+             additionalparam='-Xdoclint:none'>
+      <classpath>
+        <pathelement location='${lib}/${servlet.jar}'/>
+        <pathelement location='${lib}/${javamail.jar}'/>
+        <pathelement location='${lib}/${annotation.jar}'/>
+        <pathelement location='${lib}/${ejb.jar}'/>
+        <pathelement location='${lib}/${persistence.jar}'/>
+        <pathelement location='${lib}/${jaxws.jar}'/>
+      </classpath>
+    </javadoc>
+  </target>
+
+  <!-- Clean generated documentation -->
+  <target name='clean-javadoc' description='Remove generated Javadoc'>
+    <delete dir='doc'/>
+  </target>
+
   <target name='cluster-test'>
     <mkdir dir='${test}/cluster/WEB-INF/classes'/>
     <javac srcdir='${test}/cluster' destdir='${test}/cluster/WEB-INF/classes' debug='true'
@@ -165,7 +200,6 @@
            includeantruntime='false'>
       <classpath>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
-        <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
         <pathelement location='${build}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
@@ -186,7 +220,6 @@
         <pathelement location='${test}/junit/classes'/>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
-        <pathelement location='${test}/junit/lib/${jsonparser.jar}'/>
         <pathelement location='${build}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
@@ -217,7 +250,9 @@
       <classpath>
         <pathelement location='${build}'/>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
+        <pathelement location='${lib}/${servlet.jar}'/>
       </classpath>
     </javac>
   </target>
@@ -229,92 +264,142 @@
     <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
     <pathelement location='${build}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
+    <pathelement location='${lib}/${servlet.jar}'/>
   </path>
+
+  <!-- Set up test fixtures (certificates, directories, etc.) -->
+  <target name='integration-setup' depends='integration-build'
+          description='Set up integration test fixtures'>
+    <java classname='org.bluezoo.gumdrop.TestFixtureSetup'
+          classpathref='integration.classpath'
+          failonerror='true'
+          fork='true'>
+    </java>
+  </target>
+
+  <!-- Common JUnit settings for integration tests with XML reporting -->
+  <macrodef name='integration-junit'>
+    <attribute name='includes'/>
+    <sequential>
+      <mkdir dir='${test}/integration/results/xml'/>
+      <mkdir dir='${test}/integration/results/reports'/>
+      <junit printsummary='yes' haltonfailure='no' fork='yes'
+             showoutput='true' logfailedtests='true'>
+        <classpath refid='integration.classpath'/>
+        <batchtest fork='yes' todir='${test}/integration/results/xml'>
+          <fileset dir='${test}/integration/src'>
+            <include name='@{includes}'/>
+          </fileset>
+        </batchtest>
+        <!-- Console output for immediate feedback -->
+        <formatter type='plain' usefile='false'/>
+        <!-- XML output for CI/CD and HTML report generation -->
+        <formatter type='xml'/>
+        <!-- System properties for test configuration -->
+        <sysproperty key='test.results.dir' value='${test}/integration/results'/>
+      </junit>
+    </sequential>
+  </macrodef>
 
   <!-- Run HTTP integration tests -->
   <target name='integration-test-http' depends='integration-build'
           description='Run HTTP server integration tests'>
-    <mkdir dir='${test}/integration/results'/>
-    <junit printsummary='yes' haltonfailure='no' fork='yes'>
-      <classpath refid='integration.classpath'/>
-      <batchtest fork="yes" todir="${test}/integration/results">
-        <fileset dir="${test}/integration/src">
-          <include name="**/http/*IntegrationTest.java" />
-        </fileset>
-      </batchtest>
-      <formatter type="plain" usefile="false" />
-    </junit>
+    <integration-junit includes='**/http/*IntegrationTest.java'/>
   </target>
 
   <!-- Run SMTP integration tests -->
   <target name='integration-test-smtp' depends='integration-build'
           description='Run SMTP server integration tests'>
-    <mkdir dir='${test}/integration/results'/>
-    <junit printsummary='yes' haltonfailure='no' fork='yes'>
-      <classpath refid='integration.classpath'/>
-      <batchtest fork="yes" todir="${test}/integration/results">
-        <fileset dir="${test}/integration/src">
-          <include name="**/smtp/*IntegrationTest.java" />
-        </fileset>
-      </batchtest>
-      <formatter type="plain" usefile="false" />
-    </junit>
+    <integration-junit includes='**/smtp/*IntegrationTest.java'/>
   </target>
 
   <!-- Run POP3 integration tests -->
   <target name='integration-test-pop3' depends='integration-build'
           description='Run POP3 server integration tests'>
-    <mkdir dir='${test}/integration/results'/>
-    <junit printsummary='yes' haltonfailure='no' fork='yes'>
-      <classpath refid='integration.classpath'/>
-      <batchtest fork="yes" todir="${test}/integration/results">
-        <fileset dir="${test}/integration/src">
-          <include name="**/pop3/*IntegrationTest.java" />
-        </fileset>
-      </batchtest>
-      <formatter type="plain" usefile="false" />
-    </junit>
+    <integration-junit includes='**/pop3/*IntegrationTest.java'/>
   </target>
 
   <!-- Run IMAP integration tests -->
   <target name='integration-test-imap' depends='integration-build'
           description='Run IMAP server integration tests'>
-    <mkdir dir='${test}/integration/results'/>
-    <junit printsummary='yes' haltonfailure='no' fork='yes'>
-      <classpath refid='integration.classpath'/>
-      <batchtest fork="yes" todir="${test}/integration/results">
-        <fileset dir="${test}/integration/src">
-          <include name="**/imap/*IntegrationTest.java" />
-        </fileset>
-      </batchtest>
-      <formatter type="plain" usefile="false" />
-    </junit>
+    <integration-junit includes='**/imap/*IntegrationTest.java'/>
+  </target>
+
+  <!-- Run FTP integration tests -->
+  <target name='integration-test-ftp' depends='integration-build'
+          description='Run FTP server integration tests'>
+    <integration-junit includes='**/ftp/*IntegrationTest.java'/>
+  </target>
+
+  <!-- Run servlet container integration tests -->
+  <target name='integration-test-servlet' depends='integration-build'
+          description='Run servlet container integration tests'>
+    <!-- Copy test servlet and filter classes to webapp WEB-INF/classes -->
+    <mkdir dir='${test}/integration/webapp/WEB-INF/classes'/>
+    <copy todir='${test}/integration/webapp/WEB-INF/classes'>
+      <fileset dir='${test}/integration/classes'>
+        <include name='**/servlet/TestServlet.class'/>
+        <include name='**/servlet/TestServlet$*.class'/>
+        <include name='**/servlet/TestFilter.class'/>
+      </fileset>
+    </copy>
+    <integration-junit includes='**/servlet/*IntegrationTest.java'/>
   </target>
 
   <!-- Run telemetry integration tests -->
   <target name='integration-test-telemetry' depends='integration-build'
           description='Run telemetry integration tests'>
-    <mkdir dir='${test}/integration/results'/>
-    <junit printsummary='yes' haltonfailure='no' fork='yes'>
-      <classpath refid='integration.classpath'/>
-      <batchtest fork="yes" todir="${test}/integration/results">
-        <fileset dir="${test}/integration/src">
-          <include name="**/telemetry/*IntegrationTest.java" />
-        </fileset>
-      </batchtest>
-      <formatter type="plain" usefile="false" />
-    </junit>
+    <integration-junit includes='**/telemetry/*IntegrationTest.java'/>
+  </target>
+
+  <!-- Run buffer handling integration tests -->
+  <target name='integration-test-buffer' depends='integration-build'
+          description='Run buffer handling integration tests'>
+    <integration-junit includes='**/buffer/*IntegrationTest.java'/>
+  </target>
+
+  <!-- Run TLS/certificate integration tests -->
+  <target name='integration-test-tls' depends='integration-build'
+          description='Run TLS certificate integration tests'>
+    <integration-junit includes='**/TestCertificateManagerTest.java'/>
+  </target>
+
+  <!-- Generate HTML test reports from XML results -->
+  <target name='integration-report' 
+          description='Generate HTML report from integration test results'>
+    <mkdir dir='${test}/integration/results/html'/>
+    <junitreport todir='${test}/integration/results/reports'>
+      <fileset dir='${test}/integration/results/xml'>
+        <include name='TEST-*.xml'/>
+      </fileset>
+      <report format='frames' todir='${test}/integration/results/html'/>
+    </junitreport>
+    <echo message='HTML report generated at: ${test}/integration/results/html/index.html'/>
   </target>
 
   <!-- Run all integration tests -->
   <target name='integration-test' 
-          depends='integration-test-http,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-telemetry'
+          depends='integration-test-http,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls'
           description='Run all integration tests'>
+  </target>
+
+  <!-- Run all integration tests with reports -->
+  <target name='integration-test-full' 
+          depends='integration-setup,integration-test,integration-report'
+          description='Run all integration tests with setup and reporting'>
   </target>
 
   <!-- Run all tests -->
   <target name='test-all' depends='junit-test,integration-test' 
           description='Run all unit and integration tests'>
+  </target>
+
+  <!-- Clean integration test results -->
+  <target name='integration-clean'
+          description='Clean integration test results'>
+    <delete dir='${test}/integration/classes'/>
+    <delete dir='${test}/integration/results'/>
+    <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
   </target>
 
 </project>

@@ -63,7 +63,7 @@ public class HTTP2FlowControlTest {
             payload[2] = (byte) ((increment >> 8) & 0xFF);
             payload[3] = (byte) (increment & 0xFF);
             
-            WindowUpdateFrame frame = new WindowUpdateFrame(0, payload);
+            WindowUpdateFrame frame = new WindowUpdateFrame(0, ByteBuffer.wrap(payload));
             assertEquals("Window increment should match", increment, frame.windowSizeIncrement);
         }
     }
@@ -73,7 +73,7 @@ public class HTTP2FlowControlTest {
         // A WINDOW_UPDATE frame with a flow-control window increment of 0
         // MUST be treated as a stream error or connection error
         byte[] payload = new byte[] { 0x00, 0x00, 0x00, 0x00 };
-        new WindowUpdateFrame(1, payload);
+        new WindowUpdateFrame(1, ByteBuffer.wrap(payload));
     }
     
     @Test
@@ -83,7 +83,7 @@ public class HTTP2FlowControlTest {
             (byte) 0x80, 0x00, 0x00, 0x01  // Reserved bit set, increment = 1
         };
         
-        WindowUpdateFrame frame = new WindowUpdateFrame(0, payload);
+        WindowUpdateFrame frame = new WindowUpdateFrame(0, ByteBuffer.wrap(payload));
         assertEquals("Increment should be 1 (reserved bit ignored)", 1, frame.windowSizeIncrement);
     }
     
@@ -94,7 +94,7 @@ public class HTTP2FlowControlTest {
         // Stream ID 0 indicates connection-level flow control
         byte[] payload = new byte[] { 0x00, 0x01, 0x00, 0x00 };  // 65536
         
-        WindowUpdateFrame frame = new WindowUpdateFrame(0, payload);
+        WindowUpdateFrame frame = new WindowUpdateFrame(0, ByteBuffer.wrap(payload));
         
         assertEquals("Stream should be 0 for connection-level", 0, frame.getStream());
         assertEquals("Increment should be 65536", 65536, frame.windowSizeIncrement);
@@ -110,7 +110,7 @@ public class HTTP2FlowControlTest {
         for (int streamId : streamIds) {
             byte[] payload = new byte[] { 0x00, 0x00, 0x10, 0x00 };  // 4096
             
-            WindowUpdateFrame frame = new WindowUpdateFrame(streamId, payload);
+            WindowUpdateFrame frame = new WindowUpdateFrame(streamId, ByteBuffer.wrap(payload));
             
             assertEquals("Stream ID should match", streamId, frame.getStream());
             assertEquals("Increment should be 4096", 4096, frame.windowSizeIncrement);
@@ -177,7 +177,7 @@ public class HTTP2FlowControlTest {
             0x00, 0x02, 0x00, 0x00  // 131072
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         
         assertEquals("Initial window size should be 131072", 
             Integer.valueOf(newWindowSize), 
@@ -193,7 +193,7 @@ public class HTTP2FlowControlTest {
             0x7F, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF  // 2^31 - 1
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         
         assertEquals("Maximum window size should be Integer.MAX_VALUE", 
             Integer.valueOf(maxWindowSize), 
@@ -207,7 +207,7 @@ public class HTTP2FlowControlTest {
         // Minimum valid increment is 1
         byte[] payload = new byte[] { 0x00, 0x00, 0x00, 0x01 };
         
-        WindowUpdateFrame frame = new WindowUpdateFrame(1, payload);
+        WindowUpdateFrame frame = new WindowUpdateFrame(1, ByteBuffer.wrap(payload));
         
         assertEquals("Minimum increment should be 1", 1, frame.windowSizeIncrement);
     }
@@ -217,7 +217,7 @@ public class HTTP2FlowControlTest {
         // Maximum increment is 2^31 - 1
         byte[] payload = new byte[] { 0x7F, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF };
         
-        WindowUpdateFrame frame = new WindowUpdateFrame(1, payload);
+        WindowUpdateFrame frame = new WindowUpdateFrame(1, ByteBuffer.wrap(payload));
         
         assertEquals("Maximum increment should be MAX_VALUE", MAX_WINDOW_SIZE, frame.windowSizeIncrement);
     }
@@ -242,7 +242,7 @@ public class HTTP2FlowControlTest {
     public void testDataFrameAffectsWindow() {
         // DATA frames consume flow control window
         byte[] data = new byte[1000];
-        DataFrame frame = new DataFrame(1, false, false, 0, data);
+        DataFrame frame = new DataFrame(1, false, false, 0, ByteBuffer.wrap(data));
         
         assertEquals("DATA frame length should be 1000", 1000, frame.getLength());
         // In a real scenario, this would decrement the window by 1000
@@ -253,7 +253,7 @@ public class HTTP2FlowControlTest {
         // Padding also counts against flow control
         byte[] data = new byte[100];
         int padLength = 50;
-        DataFrame frame = new DataFrame(1, true, false, padLength, data);
+        DataFrame frame = new DataFrame(1, true, false, padLength, ByteBuffer.wrap(data));
         
         // Total length = 1 (pad length byte) + data + padding
         int expectedLength = 1 + data.length + padLength;
@@ -272,8 +272,8 @@ public class HTTP2FlowControlTest {
         byte[] payload1 = new byte[] { 0x00, 0x00, 0x03, (byte) 0xE8 };  // 1000
         byte[] payload2 = new byte[] { 0x00, 0x00, 0x07, (byte) 0xD0 };  // 2000
         
-        WindowUpdateFrame frame1 = new WindowUpdateFrame(streamId, payload1);
-        WindowUpdateFrame frame2 = new WindowUpdateFrame(streamId, payload2);
+        WindowUpdateFrame frame1 = new WindowUpdateFrame(streamId, ByteBuffer.wrap(payload1));
+        WindowUpdateFrame frame2 = new WindowUpdateFrame(streamId, ByteBuffer.wrap(payload2));
         
         assertEquals("First increment should be 1000", increment1, frame1.windowSizeIncrement);
         assertEquals("Second increment should be 2000", increment2, frame2.windowSizeIncrement);
@@ -285,8 +285,8 @@ public class HTTP2FlowControlTest {
         // Connection-level and stream-level updates are independent
         byte[] payload = new byte[] { 0x00, 0x00, 0x10, 0x00 };  // 4096
         
-        WindowUpdateFrame connectionLevel = new WindowUpdateFrame(0, payload);
-        WindowUpdateFrame streamLevel = new WindowUpdateFrame(1, payload);
+        WindowUpdateFrame connectionLevel = new WindowUpdateFrame(0, ByteBuffer.wrap(payload));
+        WindowUpdateFrame streamLevel = new WindowUpdateFrame(1, ByteBuffer.wrap(payload));
         
         assertEquals("Connection level stream should be 0", 0, connectionLevel.getStream());
         assertEquals("Stream level stream should be 1", 1, streamLevel.getStream());

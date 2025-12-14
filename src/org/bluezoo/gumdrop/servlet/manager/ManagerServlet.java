@@ -51,23 +51,24 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class ManagerServlet extends HttpServlet {
 
+    static final String L10N_NAME = "org.bluezoo.gumdrop.servlet.manager.L10N";
     static final Logger LOGGER = Logger.getLogger(ManagerServlet.class.getName());
 
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         Locale locale = request.getLocale();
         ResourceBundle resources = (locale == null)
-                        ? ResourceBundle.getBundle(ManagerServlet.class.getName())
-                        : ResourceBundle.getBundle(ManagerServlet.class.getName(), locale);
+                        ? ResourceBundle.getBundle(L10N_NAME)
+                        : ResourceBundle.getBundle(L10N_NAME, locale);
 
-        ContextService ctx = (ContextService) getServletContext();
-        ContainerService container = ctx.getContainer();
+        ManagerContextService ctx = (ManagerContextService) getServletContext();
+        ManagerContainerService container = ctx.getContainer();
         ThreadPoolExecutor threadPool = ctx.getWorkerThreadPool();
 
         String contextPath = request.getContextPath();
         StringBuilder buf = new StringBuilder();
         
         appendHtmlHead(buf, resources, contextPath);
-        appendHeader(buf, resources);
+        appendHeader(buf, resources, contextPath);
         appendThreadPoolSection(buf, resources, ctx, threadPool);
         appendContextsSection(buf, resources, container, contextPath);
         appendHtmlFooter(buf);
@@ -94,13 +95,10 @@ public class ManagerServlet extends HttpServlet {
         buf.append("</html>\n");
     }
     
-    private void appendHeader(StringBuilder buf, ResourceBundle resources) {
+    private void appendHeader(StringBuilder buf, ResourceBundle resources, String contextPath) {
         buf.append("  <header class='header'>\n");
         buf.append("    <div class='logo'>\n");
-        buf.append("      <svg viewBox='0 0 32 32' class='logo-icon'>");
-        buf.append("<circle cx='16' cy='16' r='12' fill='var(--accent)'/>");
-        buf.append("<circle cx='16' cy='12' r='4' fill='var(--bg-primary)'/>");
-        buf.append("</svg>\n");
+        buf.append("      <img src='").append(contextPath).append("/gumdrop.png' alt='Gumdrop' class='logo-icon'>\n");
         buf.append("      <h1>").append(resources.getString("title")).append("</h1>\n");
         buf.append("    </div>\n");
         buf.append("    <div class='server-info'>\n");
@@ -116,7 +114,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendThreadPoolSection(StringBuilder buf, ResourceBundle resources, 
-                                         ContextService ctx, ThreadPoolExecutor threadPool) {
+                                         ManagerContextService ctx, ThreadPoolExecutor threadPool) {
         buf.append("  <section class='card thread-pool'>\n");
         buf.append("    <h2>").append(resources.getString("threads")).append("</h2>\n");
         
@@ -166,12 +164,12 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendContextsSection(StringBuilder buf, ResourceBundle resources, 
-                                       ContainerService container, String managerContextPath) {
+                                       ManagerContainerService container, String managerContextPath) {
         buf.append("  <section class='card contexts'>\n");
         buf.append("    <h2>").append(resources.getString("contexts")).append("</h2>\n");
         buf.append("    <div class='context-list'>\n");
         
-        for (ContextService context : container.getContexts()) {
+        for (ManagerContextService context : container.getContexts()) {
             appendContextCard(buf, resources, context, managerContextPath);
         }
         
@@ -180,7 +178,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendContextCard(StringBuilder buf, ResourceBundle resources, 
-                                   ContextService context, String managerContextPath) {
+                                   ManagerContextService context, String managerContextPath) {
         HitStatistics stats = context.getHitStatistics();
         String icon = context.getSmallIcon();
         if (icon == null) {
@@ -249,7 +247,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendFiltersSection(StringBuilder buf, ResourceBundle resources, 
-                                      ContextService context, String managerContextPath) {
+                                      ManagerContextService context, String managerContextPath) {
         Map<String,? extends FilterRegistration> filters = context.getFilterRegistrations();
         if (filters.isEmpty()) {
             return;
@@ -291,7 +289,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendServletsSection(StringBuilder buf, ResourceBundle resources, 
-                                       ContextService context, String managerContextPath) {
+                                       ManagerContextService context, String managerContextPath) {
         Map<String,? extends ServletRegistration> servlets = context.getServletRegistrations();
         if (servlets.isEmpty()) {
             return;
@@ -367,8 +365,8 @@ public class ManagerServlet extends HttpServlet {
                         : ResourceBundle.getBundle(ManagerServlet.class.getName(), locale);
 
         String contextPath = request.getContextPath();
-        ContextService ctx = (ContextService) getServletContext();
-        ContainerService container = ctx.getContainer();
+        ManagerContextService ctx = (ManagerContextService) getServletContext();
+        ManagerContainerService container = ctx.getContainer();
         ThreadPoolExecutor threadPool = ctx.getWorkerThreadPool();
 
         for (Enumeration<String> names = request.getParameterNames(); names.hasMoreElements(); ) {
@@ -397,7 +395,7 @@ public class ManagerServlet extends HttpServlet {
                         return;
                     }
                 } else if ("reload".equals(name)) {
-                    ContextService context = container.getContext(value);
+                    ManagerContextService context = container.getContext(value);
                     try {
                         context.reload();
                     } catch (Exception e) {
