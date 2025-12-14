@@ -72,8 +72,8 @@ import java.util.logging.Logger;
  *
  * <h4>Configuration</h4>
  * <pre>
- * &lt;property name="maxAuthFailures"&gt;5&lt;/property&gt;
- * &lt;property name="authLockoutTime"&gt;5m&lt;/property&gt;
+ * &lt;property name="max-auth-failures"&gt;5&lt;/property&gt;
+ * &lt;property name="auth-lockout-time"&gt;5m&lt;/property&gt;
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -58,6 +58,9 @@ public class FTPServer extends Server {
     protected FTPConnectionHandlerFactory handlerFactory;
     private boolean requireTLSForData = false;
 
+    // Metrics for this server (null if telemetry is not enabled)
+    private FTPServerMetrics metrics;
+
     public String getDescription() {
         return "FTP";
     }
@@ -126,7 +129,20 @@ public class FTPServer extends Server {
     }
 
     public void start() {
-        // NOOP
+        super.start();
+        // Initialize metrics if telemetry is enabled
+        if (isMetricsEnabled()) {
+            metrics = new FTPServerMetrics(getTelemetryConfig());
+        }
+    }
+
+    /**
+     * Returns the metrics for this server, or null if telemetry is not enabled.
+     *
+     * @return the FTP server metrics
+     */
+    public FTPServerMetrics getMetrics() {
+        return metrics;
     }
 
     public void stop() {

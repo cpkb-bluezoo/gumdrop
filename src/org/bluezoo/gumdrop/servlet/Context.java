@@ -23,10 +23,28 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.Realm;
-import org.bluezoo.gumdrop.servlet.manager.ContainerService;
-import org.bluezoo.gumdrop.servlet.manager.ContextService;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
+import org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory;
+import org.bluezoo.gumdrop.servlet.jndi.DataSourceDef;
+import org.bluezoo.gumdrop.servlet.jndi.EjbRef;
+import org.bluezoo.gumdrop.servlet.jndi.Injectable;
+import org.bluezoo.gumdrop.servlet.jndi.InjectionTarget;
+import org.bluezoo.gumdrop.servlet.jndi.JmsConnectionFactory;
+import org.bluezoo.gumdrop.servlet.jndi.JmsDestination;
+import org.bluezoo.gumdrop.servlet.jndi.JndiContext;
+import org.bluezoo.gumdrop.servlet.jndi.MailSession;
+import org.bluezoo.gumdrop.servlet.jndi.PersistenceContextRef;
+import org.bluezoo.gumdrop.servlet.jndi.PersistenceUnitRef;
+import org.bluezoo.gumdrop.servlet.jndi.Resource;
+import org.bluezoo.gumdrop.servlet.jndi.ResourceRef;
+import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
+import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContainerService;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContextService;
 import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
+import org.bluezoo.gumdrop.servlet.session.SessionContext;
+import org.bluezoo.gumdrop.servlet.session.SessionManager;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import org.bluezoo.gumdrop.util.JarInputStream;
 import org.bluezoo.util.ByteArrays;
@@ -88,6 +106,7 @@ import javax.tools.StandardJavaFileManager;
 import javax.tools.JavaFileObject;
 import java.net.URLClassLoader;
 import javax.servlet.descriptor.JspPropertyGroupDescriptor;
+import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionActivationListener;
 import javax.servlet.http.HttpSessionAttributeListener;
 import javax.servlet.http.HttpSessionBindingListener;
@@ -103,7 +122,7 @@ import javax.xml.ws.WebServiceRefs;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Context extends DeploymentDescriptor implements ContextService, Comparator<WebFragment> {
+public class Context extends DeploymentDescriptor implements ManagerContextService, SessionContext, Comparator<WebFragment> {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -119,11 +138,11 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         }
     };
 
-    final Container container;
-    final String contextPath;
-    final File root;
-    private final ContainerClassLoader containerClassLoader;
-    private final ContextClassLoader contextClassLoader;
+    Container container;
+    String contextPath;
+    File root;
+    private ContainerClassLoader containerClassLoader;
+    private ContextClassLoader contextClassLoader;
     ServletServer server;
     byte[] digest; // MD5 digest of web.xml
 
@@ -143,7 +162,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     Collection<ServletRequestListener> servletRequestListeners = new ConcurrentLinkedDeque<>();
     Collection<ServletRequestAttributeListener> servletRequestAttributeListeners = new ConcurrentLinkedDeque<>();
 
-    Map<String,Session> sessions = new HashMap<>();
+    SessionManager sessionManager;
     int sessionTimeout = -1;
     long sessionsLastInvalidated;
 
@@ -182,13 +201,69 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     private byte[] managerDigest = ByteArrays.toByteArray("38ef87e9959197a79990562e5a515e4f");
 
-    public Context(Container container, String contextPath, File root) {
-        this.container = container;
-        this.contextPath = contextPath;
-        this.root = root;
-        if (contextPath.endsWith("/")) {
-            throw new IllegalArgumentException("Illegal context path: "+contextPath);
+    /**
+     * No-arg constructor for dependency injection.
+     * After construction, call {@link #setContainer(Container)}, {@link #setPath(String)},
+     * {@link #setRoot(File)}, then {@link #load()}.
+     */
+    public Context() {
+        // Defer initialization - setContainer, setPath, setRoot must be called before load()
+    }
+
+    /**
+     * Sets the container for this context.
+     * Must be called before {@link #load()} when using the no-arg constructor.
+     *
+     * @param container the parent container
+     */
+    public void setContainer(Container container) {
+        if (this.container != null) {
+            throw new IllegalStateException("Container already set");
         }
+        this.container = container;
+    }
+
+    /**
+     * Sets the context path for this context.
+     * Must be called before {@link #load()} when using the no-arg constructor.
+     *
+     * @param path the context path (e.g., "" for root, "/app" for an application)
+     */
+    public void setPath(String path) {
+        if (this.contextPath != null) {
+            throw new IllegalStateException("Context path already set");
+        }
+        if (path.endsWith("/")) {
+            throw new IllegalArgumentException("Illegal context path: " + path);
+        }
+        this.contextPath = path;
+    }
+
+    /**
+     * Sets the root directory for this context.
+     * Must be called before {@link #load()} when using the no-arg constructor.
+     *
+     * @param root the root directory or WAR file
+     */
+    public void setRoot(File root) {
+        if (this.root != null) {
+            throw new IllegalStateException("Root already set");
+        }
+        this.root = root;
+    }
+
+    /**
+     * Initializes internal state after container, path, and root are set.
+     * Called automatically by the 3-arg constructor, or must be called
+     * explicitly after using setters with the no-arg constructor.
+     */
+    private void initializeInternal() {
+        if (container == null || contextPath == null || root == null) {
+            throw new IllegalStateException("Container, path, and root must be set before initialization");
+        }
+
+        // Create session manager
+        this.sessionManager = new SessionManager(this);
 
         // Create SAX parser factory early for web.xml and JSP parsing
         try {
@@ -229,13 +304,30 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
         sessionsLastInvalidated = System.currentTimeMillis();
 
-        containerClassLoader = (ContainerClassLoader) Context.class.getClassLoader();
-        contextClassLoader = new ContextClassLoader(containerClassLoader, this, manager);
+        ClassLoader classLoader = Context.class.getClassLoader();
+        if (classLoader instanceof ContainerClassLoader) {
+            containerClassLoader = (ContainerClassLoader) classLoader;
+            contextClassLoader = new ContextClassLoader(containerClassLoader, this, manager);
+        } else {
+            // Fallback for test environments without the full classloader hierarchy
+            containerClassLoader = null;
+            contextClassLoader = new ContextClassLoader(classLoader, this, manager);
+        }
 
         reset();
     }
 
-    @Override public ContainerService getContainer() {
+    public Context(Container container, String contextPath, File root) {
+        if (contextPath.endsWith("/")) {
+            throw new IllegalArgumentException("Illegal context path: " + contextPath);
+        }
+        this.container = container;
+        this.contextPath = contextPath;
+        this.root = root;
+        initializeInternal();
+    }
+
+    @Override public ManagerContainerService getContainer() {
         return container;
     }
 
@@ -310,11 +402,25 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
         hitStatistics = new HitStatisticsImpl();
     }
+    
+    /**
+     * Returns a File for accessing the resource at the given path.
+     * For exploded contexts, returns the file directly.
+     * For WAR contexts, extracts the resource to a temp file if needed.
+     * Used for accessing JARs in WEB-INF/lib.
+     */
+    File getLibFile(String path) {
+        return contextClassLoader.getFile(path);
+    }
 
     /**
      * Loads this context from the deployment descriptor.
      */
     public void load() throws IOException, SAXException {
+        // Initialize internal state if not already done (for no-arg constructor path)
+        if (sessionManager == null) {
+            initializeInternal();
+        }
         InputStream webXml = getResourceAsStream("/WEB-INF/web.xml");
         DeploymentDescriptorParser parser = new DeploymentDescriptorParser(saxParserFactory);
         if (webXml != null) {
@@ -732,15 +838,15 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     void addInjectionTarget(Injectable injectable, String className, String name) {
         InjectionTarget it = new InjectionTarget();
-        it.className = className;
-        it.name = name;
+        it.setClassName(className);
+        it.setName(name);
         injectable.setInjectionTarget(it);
     }
 
     EjbRef initEjbRef(EJB config) {
         String name = config.name();
         for (EjbRef ejbRef : ejbRefs) {
-            if (name.equals(ejbRef.name)) {
+            if (name.equals(ejbRef.getName())) {
                 ejbRef.init(config);
                 return ejbRef;
             }
@@ -755,7 +861,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     ResourceRef initResourceRef(javax.annotation.Resource config) {
         String name = config.name();
         for (ResourceRef resourceRef : resourceRefs) {
-            if (name.equals(resourceRef.name)) {
+            if (name.equals(resourceRef.getName())) {
                 resourceRef.init(config);
                 return resourceRef;
             }
@@ -771,7 +877,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         String name = config.name();
         if (name != null) {
             for (PersistenceContextRef persistenceContextRef : persistenceContextRefs) {
-                if (name.equals(persistenceContextRef.name)) {
+                if (name.equals(persistenceContextRef.getName())) {
                     persistenceContextRef.init(config);
                     return persistenceContextRef;
                 }
@@ -788,7 +894,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         String name = config.name();
         if (name != null) {
             for (PersistenceUnitRef persistenceUnitRef : persistenceUnitRefs) {
-                if (name.equals(persistenceUnitRef.name)) {
+                if (name.equals(persistenceUnitRef.getName())) {
                     persistenceUnitRef.init(config);
                     return persistenceUnitRef;
                 }
@@ -805,7 +911,7 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         String name = config.name();
         if (name != null) {
             for (ServiceRef serviceRef : serviceRefs) {
-                if (name.equals(serviceRef.name)) {
+                if (name.equals(serviceRef.getName())) {
                     serviceRef.init(config);
                     return serviceRef;
                 }
@@ -878,8 +984,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                     Object source = injectable.resolve(ctx);
                     if (source != null) {
                         // Perform injection
-                        String className = it.className;
-                        String name = it.name;
+                        String className = it.getClassName();
+                        String name = it.getName();
                         try {
                             Class<?> t = contextClassLoader.loadClass(className);
                             Object target = t.newInstance();
@@ -982,6 +1088,13 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             server.setAuthenticationProvider(authProvider);
         }
 
+        // Register with cluster (or re-register with new UUID after reload)
+        // This triggers other nodes to replicate their sessions to us
+        if (distributable) {
+            sessionManager.regenerateContextUuid();
+            container.registerContextWithCluster(this);
+        }
+
         thread.setContextClassLoader(originalClassLoader);
         initialized = true;
     }
@@ -1004,6 +1117,11 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
         Thread thread = Thread.currentThread();
         ClassLoader loader = thread.getContextClassLoader();
         thread.setContextClassLoader(getContextClassLoader());
+
+        // Unregister from cluster before invalidating sessions
+        // This prevents session removal notifications being sent to cluster
+        container.unregisterContextFromCluster(this);
+
         invalidateSessions(true);
 
         // Pre-destroy
@@ -1036,20 +1154,11 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     void invalidateSessions(boolean force) {
         long now = System.currentTimeMillis();
-        if (sessionsLastInvalidated + 1000 < now && !force) { // !1 second elapsed
+        if (sessionsLastInvalidated + 1000 < now && !force) { // 1 second elapsed
             return;
         }
-        synchronized (sessions) {
-            for (Session session : sessions.values()) {
-                if (session.maxInactiveInterval >= 0
-                        && session.lastAccessedTime + (session.maxInactiveInterval * 1000) >= now) {
-                    try {
-                        session.invalidate();
-                    } catch (Exception e) {
-                    }
-                }
-            }
-        }
+        sessionsLastInvalidated = now;
+        sessionManager.invalidateExpiredSessions();
     }
 
     public void addRealm(String name, Realm realm) {
@@ -1127,51 +1236,37 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
 
-    void addSession(Session session) {
-        synchronized (sessions) {
-            sessions.put(session.id, session);
-        }
-        if (!sessionActivationListeners.isEmpty()) {
-            HttpSessionEvent event = new HttpSessionEvent(session);
-            for (HttpSessionActivationListener l : sessionActivationListeners) {
-                l.sessionDidActivate(event);
-            }
-        }
+    /**
+     * Gets a session by ID.
+     * @param id the session ID
+     * @return the session, or null if not found
+     */
+    HttpSession getSession(String id) {
+        return sessionManager.getSession(id);
     }
 
-    // TODO have some process that expires sessions
+    /**
+     * Removes a session.
+     * @param id the session ID
+     */
     void removeSession(String id) {
-        removeSession(id, true);
+        sessionManager.removeSession(id);
     }
 
-    // called by cluster
-    void removeSession(String id, boolean notifyCluster) {
-        Session session;
-        synchronized (sessions) {
-            session = sessions.remove(id);
-        }
-        if (session != null) {
-            if (!sessionActivationListeners.isEmpty()) {
-                HttpSessionEvent event = new HttpSessionEvent(session);
-                for (HttpSessionActivationListener l : sessionActivationListeners) {
-                    l.sessionWillPassivate(event);
-                }
-            }
-            if (distributable && container.cluster != null) {
-                try {
-                    container.cluster.passivate(this, session);
-                } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE, e.getMessage(), e);
-                }
-            }
-        }
+    /**
+     * Returns the session manager for this context.
+     * @return the session manager
+     */
+    public SessionManager getSessionManager() {
+        return sessionManager;
     }
 
     /**
      * Ensure that one and only one context classloader is used to load all
      * servlets and the classes they reference (SRV.3.7).
      */
-    ClassLoader getContextClassLoader() {
+    @Override
+    public ClassLoader getContextClassLoader() {
         return contextClassLoader;
     }
 
@@ -1264,9 +1359,9 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
     }
 
     /**
-     * @param searchJars if false, ignore resources in
-     * /META-INF/lib/resources subdirectory of jars in the /WEB-INF/lib
-     * directory
+     * @param searchJars if false, ignore resources in the
+     * META-INF/resources subdirectory of JARs in the /WEB-INF/lib
+     * directory (Servlet 3.0 spec section 4.6)
      */
     Set<String> getResourcePaths(String path, boolean searchJars) {
         if (path == null || "".equals(path)) {
@@ -1342,8 +1437,8 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
             }
         }
         if (searchJars) {
-            // Search resources in lib jar files
-            String prefix = "WEB-INF/resources/" + path;
+            // Search resources in lib jar files (Servlet 3.0 spec section 4.6)
+            String prefix = "META-INF/resources" + path;
             for (File file : libJarFiles) {
                 try (JarFile jarFile = new JarFile(file)) {
                     Enumeration<JarEntry> jarEntries = jarFile.entries();
@@ -1549,11 +1644,11 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
                 }
             }
             // Nothing matched so far
-            // Search resources in lib jar files
-            entryPath = "WEB-INF/resources/" + entryPath;
+            // Search resources in lib jar files (Servlet 3.0 spec section 4.6)
+            String jarResourcePath = "META-INF/resources/" + entryPath;
             for (File file : libJarFiles) {
                 JarFile jarFile = new JarFile(file); // NB we cannot auto-close it, use JarInputStream
-                JarEntry jarEntry = jarFile.getJarEntry(entryPath);
+                JarEntry jarEntry = jarFile.getJarEntry(jarResourcePath);
                 if (jarEntry != null) {
                     return new JarInputStream(jarFile, jarEntry);
                 } else {
@@ -2138,6 +2233,33 @@ public class Context extends DeploymentDescriptor implements ContextService, Com
 
     @Override public int getSessionTimeout() {
         return sessionTimeout;
+    }
+
+    // -- SessionContext interface implementation --
+
+    @Override
+    public boolean isDistributable() {
+        return distributable;
+    }
+
+    @Override
+    public byte[] getContextDigest() {
+        return digest;
+    }
+
+    @Override
+    public Collection<HttpSessionAttributeListener> getSessionAttributeListeners() {
+        return sessionAttributeListeners;
+    }
+
+    @Override
+    public Collection<HttpSessionListener> getSessionListeners() {
+        return sessionListeners;
+    }
+
+    @Override
+    public Collection<HttpSessionActivationListener> getSessionActivationListeners() {
+        return sessionActivationListeners;
     }
 
     @Override public String getVirtualServerName() {

@@ -1,0 +1,54 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Example Gumdrop configuration for OAuth-authenticated servlet container.
+  
+  This configuration demonstrates:
+  - OAuthRealm for Bearer token authentication
+  - Secure HTTPS servlet container
+  - Integration with OAuth authorization server
+-->
+<gumdrop>
+    
+    <!-- OAuth realm configured from properties file -->
+    <realm id="oauth" class="org.bluezoo.gumdrop.auth.OAuthRealm"
+           configFile="config/oauth.properties"/>
+    
+    <!-- HTTPS servlet container with OAuth authentication -->
+    <server id="api" class="org.bluezoo.gumdrop.servlet.ServletServer">
+        <property name="port">8443</property>
+        <property name="addresses">0.0.0.0</property>
+        <property name="secure">true</property>
+        
+        <!-- Reference the OAuth realm -->
+        <property name="realm" ref="#oauth"/>
+        
+        <!-- TLS configuration -->
+        <property name="keystore">config/keystore.p12</property>
+        <property name="keystorePassword">changeit</property>
+        <property name="keystoreType">PKCS12</property>
+        
+        <!-- Servlet container -->
+        <container class="org.bluezoo.gumdrop.servlet.Container">
+            <!-- API web application -->
+            <context>
+                <property name="contextPath">/api</property>
+                <property name="docBase">webapps/api</property>
+            </context>
+        </container>
+    </server>
+    
+    <!-- Optional: HTTP redirect server (redirects to HTTPS) -->
+    <server id="redirect" class="org.bluezoo.gumdrop.servlet.ServletServer">
+        <property name="port">8080</property>
+        <property name="addresses">0.0.0.0</property>
+        
+        <container class="org.bluezoo.gumdrop.servlet.Container">
+            <context>
+                <property name="contextPath">/</property>
+                <property name="docBase">webapps/redirect</property>
+            </context>
+        </container>
+    </server>
+    
+</gumdrop>
+

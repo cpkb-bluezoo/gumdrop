@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Logger;
 
 /**
  * Top-level telemetry configuration for Gumdrop.
@@ -38,8 +39,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>Example configuration:
  * <pre>
  * &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
- *     &lt;property name="serviceName"&gt;my-service&lt;/property&gt;
- *     &lt;property name="serviceVersion"&gt;1.0.0&lt;/property&gt;
+ *     &lt;property name="service-name"&gt;my-service&lt;/property&gt;
+ *     &lt;property name="service-version"&gt;1.0.0&lt;/property&gt;
  *     &lt;property name="endpoint"&gt;http://localhost:4318&lt;/property&gt;
  * &lt;/component&gt;
  * </pre>
@@ -47,6 +48,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class TelemetryConfig {
+
+    private static final Logger logger = Logger.getLogger(TelemetryConfig.class.getName());
 
     // Feature flags (traces/logs/metrics can be individually disabled)
     private boolean tracesEnabled = true;

@@ -4,7 +4,7 @@
     <server id="testPop3Maildir" class="org.bluezoo.gumdrop.pop3.POP3Server">
         <property name="port">11111</property>
         <property name="addresses">127.0.0.1</property>
-        <property name="enableAPOP">false</property>
+        <property name="enable-apop">false</property>
         <!-- Realm and mailboxFactory configured programmatically -->
     </server>
 </gumdrop>

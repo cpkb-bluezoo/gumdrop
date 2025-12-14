@@ -1,6 +1,6 @@
 <?xml version='1.0' standalone='yes'?>
 <!--
-  Copyright (C) 2005 Chris Burdess
+  Copyright (C) 2005, 2025 Chris Burdess
 
   This file is part of gumdrop.
 
@@ -18,15 +18,22 @@
   along with gumdrop; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 -->
-<!-- Simple static realm info for BasicRealm -->
+<!--
+  Simple static realm info for BasicRealm.
+  
+  Groups are defined with:
+    - id: XML ID for referencing via IDREFS
+    - name: The actual role name used in authorization checks
+  
+  Users reference groups by id in the 'groups' attribute (space-separated IDREFS).
+-->
 <realm>
-  <user name='admin' password='admin'/>
-  <user name='editor' password='editor'/>
-  <group name='Admin'>
-    <member name='admin'/>
-  </group>
-  <group name='Editors'>
-    <member name='editor'/>
-    <member name='admin'/>
-  </group>
+  <!-- Define groups: id is for linking, name is the role for authorization -->
+  <group id="adminGroup" name="Admin"/>
+  <group id="editorGroup" name="Editors"/>
+  <group id="managerGroup" name="manager"/>
+
+  <!-- Define users with their group memberships -->
+  <user name="admin" password="admin" groups="adminGroup editorGroup managerGroup"/>
+  <user name="editor" password="editor" groups="editorGroup"/>
 </realm>

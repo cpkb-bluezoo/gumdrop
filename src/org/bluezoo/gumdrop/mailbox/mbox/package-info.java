@@ -22,68 +22,73 @@
 /**
  * Mbox file format mailbox implementation.
  *
- * <p>This package provides mailbox implementations for both single-mailbox
- * access (POP3) and multi-folder mail stores (IMAP) using the mbox format.
+ * <p>This package provides mailbox implementations using the standard Unix
+ * mbox format as defined in RFC 4155. In the mbox format, each folder is
+ * stored as a single file containing all messages concatenated together,
+ * separated by "From " envelope lines.
+ *
+ * <h2>Mbox Format</h2>
+ *
+ * <p>An mbox file contains multiple messages, each preceded by a "From "
+ * line (note the trailing space) that marks the message boundary:
+ *
+ * <pre>
+ * From sender@example.com Mon Jan  1 00:00:00 2025
+ * From: sender@example.com
+ * To: recipient@example.com
+ * Subject: First message
+ *
+ * Message body here...
+ *
+ * From another@example.com Tue Jan  2 12:30:00 2025
+ * From: another@example.com
+ * To: recipient@example.com
+ * Subject: Second message
+ *
+ * Another message body...
+ * </pre>
+ *
+ * <p>Lines in message bodies that begin with "From " are escaped by
+ * prepending "&gt;" to become "&gt;From ". This escaping is reversed
+ * when reading messages.
  *
  * <h2>Classes</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox.MboxMailbox} - Single mailbox access</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxStore} - Multi-folder mail store</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory} - Factory for both</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox.MboxMailbox} - Single mailbox
+ *       (mbox file) access for POP3</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxStore} - Multi-folder
+ *       mail store for IMAP (directory of mbox files)</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory} - Factory
+ *       for creating mailbox and store instances</li>
  * </ul>
  *
  * <h2>Directory Structure</h2>
+ *
+ * <p>For IMAP access, the store uses a directory structure where each
+ * folder is an mbox file. The file extension is configurable (commonly
+ * {@code .mbox}, or no extension at all):
+ *
  * <pre>
  * root/
  *   username/
- *     INBOX/
- *       1.eml, 2.eml, ...
- *     Sent/
- *       1.eml, 2.eml, ...
- *     folder/
- *       subfolder/
- *         1.eml, 2.eml, ...
- *     .subscriptions
+ *     INBOX           (mbox file containing INBOX messages)
+ *     Sent            (mbox file containing Sent messages)
+ *     Drafts          (mbox file)
+ *     folder/         (subfolder directory)
+ *       subfolder     (nested mbox file)
+ *     .subscriptions  (IMAP folder subscriptions)
  * </pre>
  *
+ * <h2>File Locking</h2>
+ *
+ * <p>This implementation uses file locking to prevent concurrent access
+ * to mbox files, which is essential since the format requires exclusive
+ * access during modifications.
+ *
  * <h2>Security</h2>
+ *
  * <p>All path operations are sandboxed within the configured root directory.
  * Path traversal attacks (using ".." or absolute paths) are rejected.
- * Mailbox names are validated to contain only alphanumeric characters,
- * underscores, hyphens, and periods.
- *
- * <h2>Usage</h2>
- *
- * <h3>POP3 (Single Mailbox)</h3>
- * <pre>{@code
- * MailboxFactory factory = new MboxMailboxFactory(new File("/var/mail"));
- * Mailbox mailbox = factory.createMailbox();
- * mailbox.open("username");
- * // Access messages...
- * mailbox.close(true);
- * }</pre>
- *
- * <h3>IMAP (Multi-folder Store)</h3>
- * <pre>{@code
- * MailboxFactory factory = new MboxMailboxFactory(new File("/var/mail"));
- * MailboxStore store = factory.createStore();
- * store.open("username");
- *
- * // List mailboxes
- * List<String> folders = store.listMailboxes("", "*");
- *
- * // Create a new mailbox
- * store.createMailbox("Archive/2025");
- *
- * // Open a mailbox
- * Mailbox inbox = store.openMailbox("INBOX", false);
- *
- * store.close();
- * }</pre>
- *
- * <p><b>Note:</b> The current implementation uses a one-file-per-message
- * directory structure. A future version may support the true mbox single-file
- * format as defined in RFC 4155.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4155">RFC 4155 - The application/mbox Media Type</a>

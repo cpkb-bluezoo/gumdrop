@@ -310,7 +310,7 @@ each format's characteristics and configuration.
 
 <pre>
 &lt;!-- Authentication realm --&gt;
-&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
     &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
 &lt;/realm&gt;
 
@@ -318,26 +318,26 @@ each format's characteristics and configuration.
 &lt;mailboxFactory id="maildir"
                 class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
     &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
-&lt;/mailboxFactory&gt;
+&lt;/mailbox-factory&gt;
 
 &lt;!-- IMAP server (port 143 with STARTTLS) --&gt;
 &lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
     &lt;property name="port"&gt;143&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="mailboxFactory" ref="#maildir"/&gt;
-    &lt;property name="idleTimeout"&gt;1800000&lt;/property&gt;
+    &lt;property name="mailbox-factory" ref="#maildir"/&gt;
+    &lt;property name="idle-timeout"&gt;1800000&lt;/property&gt;
 &lt;/server&gt;
 
 &lt;!-- IMAPS server (port 993 with implicit TLS) --&gt;
 &lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
     &lt;property name="port"&gt;993&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="mailboxFactory" ref="#maildir"/&gt;
+    &lt;property name="mailbox-factory" ref="#maildir"/&gt;
 &lt;/server&gt;
 </pre>
 
@@ -425,18 +425,18 @@ overrides, role-based policies, and a system default:
 
 <pre>
 &lt;!-- Quota manager with role-based policies --&gt;
-&lt;quotaManager id="mailQuota"
+&lt;component id="mailQuota"
               class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="storageDir"&gt;/var/mail/quota&lt;/property&gt;
-    &lt;property name="defaultQuota"&gt;100MB&lt;/property&gt;
-    &lt;property name="roleQuota.premium"&gt;10GB&lt;/property&gt;
-    &lt;property name="roleQuota.enterprise"&gt;unlimited&lt;/property&gt;
-&lt;/quotaManager&gt;
+    &lt;property name="storage-dir"&gt;/var/mail/quota&lt;/property&gt;
+    &lt;property name="default-quota"&gt;100MB&lt;/property&gt;
+    &lt;property name="role-quota.premium"&gt;10GB&lt;/property&gt;
+    &lt;property name="role-quota.enterprise"&gt;unlimited&lt;/property&gt;
+&lt;/component&gt;
 
 &lt;!-- Link to IMAP server --&gt;
 &lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="quotaManager" ref="#mailQuota"/&gt;
+    &lt;property name="quota-manager" ref="#mailQuota"/&gt;
     &lt;!-- ... other properties ... --&gt;
 &lt;/server&gt;
 </pre>

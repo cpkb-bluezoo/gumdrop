@@ -24,8 +24,6 @@ package org.bluezoo.gumdrop.http;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 
-import org.bluezoo.util.ByteArrays;
-
 /**
  * A HTTP/2 HEADERS frame.
  *
@@ -44,47 +42,56 @@ public final class HeadersFrame extends Frame {
     int streamDependency;
     boolean streamDependencyExclusive;
     int weight;
-    byte[] headerBlockFragment;
+    ByteBuffer headerBlockFragment;
 
     /**
      * Constructor for a headers frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
      */
-    protected HeadersFrame(int flags, int stream, byte[] payload) throws ProtocolException {
+    protected HeadersFrame(int flags, int stream, ByteBuffer payload) throws ProtocolException {
         this.stream = stream;
         padded = (flags & FLAG_PADDED) != 0;
         endStream = (flags & FLAG_END_STREAM) != 0;
         endHeaders = (flags & FLAG_END_HEADERS) != 0;
         priority = (flags & FLAG_PRIORITY) != 0;
-        int offset = 0;
+        
+        int startPos = payload.position();
+        int endPos = payload.limit();
+        
         if (padded) {
-            padLength = ((int) payload[offset++] & 0xff);
+            padLength = payload.get() & 0xff;
+            endPos -= padLength; // Exclude padding from header block
         }
         if (priority) {
-            int sd1 = (int) payload[offset++] & 0xff;
+            int sd1 = payload.get() & 0xff;
             streamDependencyExclusive = (sd1 & 0x80) != 0;
             streamDependency = (sd1 & 0x7f) << 24
-                | ((int) payload[offset++] & 0xff) << 16
-                | ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
-            weight = ((int) payload[offset++] & 0xff);
+                | (payload.get() & 0xff) << 16
+                | (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
+            weight = payload.get() & 0xff;
         }
-        // header block fragment
-        if (padded || priority) {
-            int headerBlockLength = payload.length - (padLength + offset);
-            if (headerBlockLength < 0) {
-                throw new ProtocolException();
-            }
-            headerBlockFragment = new byte[headerBlockLength];
-            System.arraycopy(payload, offset, headerBlockFragment, 0, headerBlockLength);
-        } else {
-            headerBlockFragment = payload;
+        
+        // header block fragment is remaining data minus padding
+        int headerBlockLength = endPos - payload.position();
+        if (headerBlockLength < 0) {
+            throw new ProtocolException();
         }
+        
+        int savedLimit = payload.limit();
+        payload.limit(payload.position() + headerBlockLength);
+        headerBlockFragment = payload.slice();
+        payload.limit(savedLimit);
+        payload.position(savedLimit); // consume all including padding
     }
 
     /**
      * Construct a headers frame to send to the client.
      */
-    protected HeadersFrame(int stream, boolean padded, boolean endStream, boolean endHeaders, boolean priority, int padLength, int streamDependency, boolean streamDependencyExclusive, int weight, byte[] headerBlockFragment) {
+    protected HeadersFrame(int stream, boolean padded, boolean endStream, boolean endHeaders, 
+                          boolean priority, int padLength, int streamDependency, 
+                          boolean streamDependencyExclusive, int weight, ByteBuffer headerBlockFragment) {
         this.stream = stream;
         this.padded = padded;
         this.endStream = endStream;
@@ -97,8 +104,18 @@ public final class HeadersFrame extends Frame {
         this.headerBlockFragment = headerBlockFragment;
     }
 
+    /**
+     * Construct a headers frame to send to the client (convenience for byte[]).
+     */
+    protected HeadersFrame(int stream, boolean padded, boolean endStream, boolean endHeaders, 
+                          boolean priority, int padLength, int streamDependency, 
+                          boolean streamDependencyExclusive, int weight, byte[] headerBlockFragment) {
+        this(stream, padded, endStream, endHeaders, priority, padLength, streamDependency,
+             streamDependencyExclusive, weight, ByteBuffer.wrap(headerBlockFragment));
+    }
+
     public int getLength() {
-        int length = headerBlockFragment.length;
+        int length = headerBlockFragment.remaining();
         if (padded) {
             length += (1 + padLength);
         }
@@ -139,10 +156,15 @@ public final class HeadersFrame extends Frame {
             buf.put((byte) (streamDependency & 0xff));
             buf.put((byte) (weight & 0xff));
         }
+        // Save position to restore after put
+        int savedPos = headerBlockFragment.position();
         buf.put(headerBlockFragment);
+        headerBlockFragment.position(savedPos); // restore position for potential reuse
         if (padded) {
             // padding bytes are always 0
-            buf.put(new byte[padLength]);
+            for (int i = 0; i < padLength; i++) {
+                buf.put((byte) 0);
+            }
         }
     }
 
@@ -162,7 +184,7 @@ public final class HeadersFrame extends Frame {
         buf.append(";streamDependency=").append(streamDependency);
         buf.append(";streamDependencyExclusive=").append(streamDependencyExclusive);
         buf.append(";weight=").append(weight);
-        buf.append(";headerBlockFragment=").append(ByteArrays.toHexString(headerBlockFragment));
+        buf.append(";headerBlockFragment.remaining=").append(headerBlockFragment.remaining());
     }
 
 }

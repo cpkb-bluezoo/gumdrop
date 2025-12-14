@@ -49,6 +49,8 @@ container</a> and static file server.
 <ul>
 <li><a href="#versions">HTTP Versions</a></li>
 <li><a href="#http2">HTTP/2 Support</a></li>
+<li><a href="#server-handler">Server Handler API</a></li>
+<li><a href="#websocket">WebSocket Support</a></li>
 <li><a href="#upgrades">Protocol Upgrades</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#client">HTTP Client</a></li>
@@ -154,7 +156,7 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
 &lt;server class="org.bluezoo.gumdrop.http.HTTPServer"&gt;
   &lt;property name="port"&gt;443&lt;/property&gt;
   &lt;property name="secure"&gt;true&lt;/property&gt;
-  &lt;property name="framePadding"&gt;64&lt;/property&gt;
+  &lt;property name="frame-padding"&gt;64&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -182,11 +184,11 @@ access through configurable time slices</li>
 Configuration properties:
 </p>
 <ul>
-<li><code>minLowPriorityTimeSlice</code> - minimum milliseconds before starved
+<li><code>min-low-priority-time-slice</code> - minimum milliseconds before starved
 streams are promoted (default: 100)</li>
-<li><code>maxHighPriorityBurst</code> - maximum consecutive operations for
+<li><code>max-high-priority-burst</code> - maximum consecutive operations for
 high-priority streams before yielding (default: 10)</li>
-<li><code>priorityLogging</code> - enable detailed scheduling logs</li>
+<li><code>priority-logging</code> - enable detailed scheduling logs</li>
 </ul>
 
 <p>
@@ -194,6 +196,381 @@ The priority-aware server adds approximately 6-10KB memory overhead per
 connection and 5-10% CPU overhead under load. For simple file servers or
 single-resource APIs, the standard <code>HTTPServer</code> is sufficient.
 </p>
+
+<h3 id="server-handler">Server Handler API</h3>
+
+<p>
+Gumdrop provides an event-driven, non-blocking API for building HTTP servers.
+The API abstracts away HTTP version details (HTTP/1.1 vs HTTP/2), allowing
+handlers to focus on application logic while the framework handles framing,
+header compression, flow control, and connection management.
+</p>
+
+<h4>Core Interfaces</h4>
+
+<p>
+The server handler API consists of three main interfaces:
+</p>
+
+<ul>
+<li><b>HTTPRequestHandlerFactory</b> - creates handlers for incoming requests,
+enabling routing based on path, method, or other headers</li>
+<li><b>HTTPRequestHandler</b> - receives request events (headers, body chunks,
+completion) for a single stream</li>
+<li><b>HTTPResponseState</b> - provided to handlers for sending responses</li>
+</ul>
+
+<h4>Event Sequence</h4>
+
+<p>
+Request handlers receive events in a well-defined order:
+</p>
+
+<pre>
+headers()              // request headers (:method, :path, etc.)
+startRequestBody()     // if request has a body
+requestBodyContent()   // one or more body chunks
+endRequestBody()       // body complete
+headers()              // trailer headers (if any)
+requestComplete()      // stream closed from client
+</pre>
+
+<p>
+For requests without a body (GET, HEAD, etc.):
+</p>
+
+<pre>
+headers()              // request headers with END_STREAM
+requestComplete()
+</pre>
+
+<h4>Sending Responses</h4>
+
+<p>
+The <code>HTTPResponseState</code> interface provides methods for building
+responses:
+</p>
+
+<pre>
+headers()              // response headers (includes :status)
+startResponseBody()    // if response has a body
+responseBodyContent()  // one or more body chunks
+endResponseBody()      // body complete
+headers()              // trailer headers (optional)
+complete()             // finish the response
+</pre>
+
+<h4>Example: Hello World Handler</h4>
+
+<pre>
+public class HelloHandler extends DefaultHTTPRequestHandler {
+    
+    @Override
+    public void headers(Headers headers, HTTPResponseState state) {
+        if ("GET".equals(headers.getMethod())) {
+            Headers response = new Headers();
+            response.status(HTTPStatus.OK);
+            response.add("content-type", "text/plain");
+            state.headers(response);
+            state.startResponseBody();
+            state.responseBodyContent(
+                ByteBuffer.wrap("Hello, World!".getBytes()));
+            state.endResponseBody();
+            state.complete();
+        }
+    }
+}
+</pre>
+
+<h4>Request Routing with Factory</h4>
+
+<p>
+The factory receives initial headers before the handler is created, enabling
+routing decisions based on path, method, or other criteria:
+</p>
+
+<pre>
+public class MyFactory implements HTTPRequestHandlerFactory {
+    
+    public HTTPRequestHandler createHandler(Headers headers, 
+                                            HTTPResponseState state) {
+        String path = headers.getPath();
+        
+        if (path.startsWith("/api/")) {
+            return new ApiHandler();
+        } else if (path.startsWith("/static/")) {
+            return new StaticFileHandler(documentRoot);
+        } else {
+            return new DefaultHandler();
+        }
+    }
+}
+</pre>
+
+<h4>Server Configuration</h4>
+
+<p>
+Set the handler factory on the server:
+</p>
+
+<pre>
+HTTPServer server = new HTTPServer();
+server.setPort(8080);
+server.setHandlerFactory(new MyFactory());
+server.start();
+</pre>
+
+<h4>Authentication</h4>
+
+<p>
+If a <code>Realm</code> is configured on the server, authentication is
+performed automatically before the factory is called. The authenticated
+principal is available via <code>HTTPResponseState.getPrincipal()</code>.
+</p>
+
+<p>
+Alternatively, the factory can perform authentication manually:
+</p>
+
+<pre>
+public HTTPRequestHandler createHandler(Headers headers, 
+                                        HTTPResponseState state) {
+    String auth = headers.getValue("authorization");
+    if (!isValidAuth(auth)) {
+        Headers response = new Headers();
+        response.status(HTTPStatus.UNAUTHORIZED);
+        response.add("www-authenticate", "Bearer");
+        state.headers(response);
+        state.complete();
+        return null;  // no handler needed
+    }
+    return new MyHandler();
+}
+</pre>
+
+<h4>HTTP/2 Server Push</h4>
+
+<p>
+For HTTP/2 connections, handlers can initiate server push to proactively
+send resources to the client:
+</p>
+
+<pre>
+@Override
+public void headers(Headers headers, HTTPResponseState state) {
+    // Push a stylesheet that we know the client will need
+    Headers pushHeaders = new Headers();
+    pushHeaders.add(":method", "GET");
+    pushHeaders.add(":path", "/styles/main.css");
+    pushHeaders.add(":scheme", state.getScheme());
+    pushHeaders.add(":authority", headers.getValue(":authority"));
+    
+    if (state.pushPromise(pushHeaders)) {
+        // Push was accepted; the pushed stream will be processed
+        // through the factory like any other request
+    }
+    
+    // Continue with the normal response...
+}
+</pre>
+
+<p>
+Server push returns <code>false</code> for HTTP/1.x connections or if
+the client has disabled push via settings.
+</p>
+
+<h4>Connection Information</h4>
+
+<p>
+The <code>HTTPResponseState</code> provides access to connection details:
+</p>
+
+<ul>
+<li><code>getConnectionInfo()</code> - remote/local addresses, connection ID</li>
+<li><code>getTLSInfo()</code> - TLS session details (null if not secure)</li>
+<li><code>getVersion()</code> - HTTP version (HTTP_1_0, HTTP_1_1, HTTP_2)</li>
+<li><code>getScheme()</code> - URL scheme ("http" or "https")</li>
+<li><code>getPrincipal()</code> - authenticated user (if Realm configured)</li>
+</ul>
+
+<h4>Streaming Responses</h4>
+
+<p>
+For server-sent events or other streaming scenarios:
+</p>
+
+<pre>
+public class StreamHandler extends DefaultHTTPRequestHandler {
+    
+    @Override
+    public void headers(Headers headers, HTTPResponseState state) {
+        Headers response = new Headers();
+        response.status(HTTPStatus.OK);
+        response.add("content-type", "text/event-stream");
+        state.headers(response);
+        state.startResponseBody();
+        
+        // Keep reference to state for async sends
+        eventEmitter.subscribe(event -> {
+            state.responseBodyContent(
+                ByteBuffer.wrap(event.toSSE().getBytes()));
+        });
+    }
+}
+</pre>
+
+<h4>Error Handling</h4>
+
+<p>
+Use <code>cancel()</code> to abort a stream on error:
+</p>
+
+<pre>
+@Override
+public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+    if (data.remaining() > MAX_BODY_SIZE) {
+        Headers response = new Headers();
+        response.status(HTTPStatus.REQUEST_ENTITY_TOO_LARGE);
+        state.headers(response);
+        state.complete();
+        state.cancel();  // abort the stream
+    }
+}
+</pre>
+
+<h3 id="websocket">WebSocket Support</h3>
+
+<p>
+Gumdrop supports WebSocket protocol upgrades per RFC 6455, integrated with
+the HTTP server handler API.
+</p>
+
+<h4>WebSocket Handshake</h4>
+
+<p>
+A WebSocket upgrade request looks like:
+</p>
+
+<pre>
+GET /websocket HTTP/1.1
+Host: example.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
+Sec-WebSocket-Version: 13
+</pre>
+
+<p>
+The server validates the request and computes the accept value by
+concatenating the client's key with the WebSocket GUID and hashing
+with SHA-1:
+</p>
+
+<pre>
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
+</pre>
+
+<h4>WebSocket Handler API</h4>
+
+<p>
+The WebSocket API uses event handlers similar to the HTTP API:
+</p>
+
+<ul>
+<li><b>WebSocketEventHandler</b> - receives connection events (opened, closed,
+error) and messages (text, binary)</li>
+<li><b>WebSocketSession</b> - provided to the handler for sending messages</li>
+</ul>
+
+<h4>Upgrading from HTTP</h4>
+
+<p>
+Use <code>HTTPResponseState.upgradeToWebSocket()</code> in your HTTP handler:
+</p>
+
+<pre>
+public class MyHandler extends DefaultHTTPRequestHandler {
+    
+    @Override
+    public void headers(Headers headers, HTTPResponseState state) {
+        if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
+            String protocol = headers.getValue("Sec-WebSocket-Protocol");
+            state.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
+        } else {
+            // Handle as regular HTTP request
+        }
+    }
+}
+</pre>
+
+<h4>WebSocket Event Handler Example</h4>
+
+<pre>
+public class EchoWebSocketHandler extends DefaultWebSocketEventHandler {
+    private WebSocketSession session;
+    
+    @Override
+    public void opened(WebSocketSession session) {
+        this.session = session;
+    }
+    
+    @Override
+    public void textMessageReceived(String message) {
+        try {
+            session.sendText("Echo: " + message);
+        } catch (IOException e) {
+            // Handle error
+        }
+    }
+    
+    @Override
+    public void binaryMessageReceived(ByteBuffer data) {
+        try {
+            session.sendBinary(data);
+        } catch (IOException e) {
+            // Handle error
+        }
+    }
+    
+    @Override
+    public void closed(int code, String reason) {
+        // Clean up resources
+    }
+    
+    @Override
+    public void error(Throwable cause) {
+        cause.printStackTrace();
+    }
+}
+</pre>
+
+<h4>WebSocket Session Methods</h4>
+
+<ul>
+<li><code>sendText(String message)</code> - send a text message</li>
+<li><code>sendBinary(ByteBuffer data)</code> - send binary data</li>
+<li><code>sendPing(ByteBuffer payload)</code> - send a ping frame</li>
+<li><code>close()</code> - close with normal status (1000)</li>
+<li><code>close(int code, String reason)</code> - close with specific status</li>
+<li><code>isOpen()</code> - check if session is still active</li>
+</ul>
+
+<h4>Subprotocol Negotiation</h4>
+
+<p>
+The client may request specific subprotocols via
+<code>Sec-WebSocket-Protocol</code>. Pass the selected subprotocol to
+<code>upgradeToWebSocket()</code>:
+</p>
+
+<pre>
+String requested = headers.getValue("Sec-WebSocket-Protocol");
+String selected = negotiateProtocol(requested);  // your logic
+state.upgradeToWebSocket(selected, handler);
+</pre>
 
 <h3 id="upgrades">Protocol Upgrades</h3>
 
@@ -227,41 +604,6 @@ Upgrade: h2c
 The <code>HTTP2-Settings</code> header contains base64url-encoded SETTINGS
 frame payload, allowing the client to communicate initial settings before
 the upgrade completes.
-</p>
-
-<h4>WebSocket Upgrade</h4>
-
-<p>
-Gumdrop supports WebSocket protocol upgrades per RFC 6455. A WebSocket
-handshake request looks like:
-</p>
-
-<pre>
-GET /websocket HTTP/1.1
-Host: example.com
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-Sec-WebSocket-Version: 13
-</pre>
-
-<p>
-The server validates the request and computes the accept value by
-concatenating the client's key with the WebSocket GUID and hashing
-with SHA-1:
-</p>
-
-<pre>
-HTTP/1.1 101 Switching Protocols
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
-</pre>
-
-<p>
-After the handshake completes, the connection switches to WebSocket framing
-and the HTTP layer hands off to a <code>WebSocketConnection</code> for
-message-based communication.
 </p>
 
 <h3 id="configuration">Configuration</h3>
@@ -299,7 +641,7 @@ Gumdrop supports HTTP authentication methods:
 <p>
 Authentication is configured via an <code>HTTPAuthenticationProvider</code>
 which can be shared across multiple servers or customised per server. It is
-integrated into the centralised <code>org.bluezoo.gumdrop.Realm</code>-based
+integrated into the centralised <code>org.bluezoo.gumdrop.auth.Realm</code>-based
 facility for managing authentication and authorisation across all servers
 and servlet containers running in the framework.
 </p>
@@ -359,27 +701,27 @@ non-blocking connections to them via this feature.
 <h4>Usage</h4>
 
 <pre>
-HTTPClient client = new HTTPClient("example.com", 443, true);
-client.setVersion(HTTPVersion.HTTP_2_0);
+// Simple usage - connection established automatically
+HTTPClient client = new HTTPClient("example.com", 443);
+client.setSecure(true);
 
-client.connect(new HTTPClientHandler() {
-    @Override
-    public void onProtocolNegotiated(HTTPVersion version, HTTPClientConnection conn) {
-        conn.createStream();
+HTTPRequest request = client.get("/api/data");
+request.header("Accept", "application/json");
+request.send(new DefaultHTTPResponseHandler() {
+    public void ok(HTTPResponse response) {
+        System.out.println("Status: " + response.getStatus());
     }
-    
-    @Override
-    public void onStreamCreated(HTTPClientStream stream) {
-        HTTPRequest request = new HTTPRequest("GET", "/api/data");
-        stream.sendRequest(request);
+    public void responseBodyContent(ByteBuffer data) {
+        // Process response body
     }
-    
-    @Override
-    public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
-        System.out.println("Status: " + response.getStatusCode());
+    public void close() {
+        System.out.println("Response complete");
+        client.close();
     }
-    
-    // ... other handler methods
+    public void failed(Exception ex) {
+        // Connection or request error
+        ex.printStackTrace();
+    }
 });
 </pre>
 
@@ -416,9 +758,9 @@ file extension</li>
 <pre>
 &lt;server id="files" class="org.bluezoo.gumdrop.http.file.FileHTTPServer"&gt;
   &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;property name="rootPath"&gt;/var/www/html&lt;/property&gt;
-  &lt;property name="welcomeFile"&gt;index.html&lt;/property&gt;
-  &lt;property name="allowWrite"&gt;false&lt;/property&gt;
+  &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
+  &lt;property name="welcome-file"&gt;index.html&lt;/property&gt;
+  &lt;property name="allow-write"&gt;false&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 

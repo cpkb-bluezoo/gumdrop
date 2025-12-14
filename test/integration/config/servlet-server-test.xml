@@ -1,0 +1,25 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Servlet container integration test configuration.
+  
+  This configuration sets up a ServletServer with a test web application
+  for integration testing.
+-->
+<gumdrop>
+    <!-- Servlet container on port 19080 -->
+    <server id="testServlet" class="org.bluezoo.gumdrop.servlet.ServletServer">
+        <property name="port">19080</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="bufferSize">8192</property>
+        
+        <!-- Container configuration -->
+        <property name="container">
+            <container class="org.bluezoo.gumdrop.servlet.Container">
+                <!-- Test web application context -->
+                <context path="" root="test/integration/webapp" distributable="false">
+                </context>
+            </container>
+        </property>
+    </server>
+</gumdrop>
+

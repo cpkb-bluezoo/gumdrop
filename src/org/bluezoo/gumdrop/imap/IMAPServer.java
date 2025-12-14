@@ -21,16 +21,19 @@
 
 package org.bluezoo.gumdrop.imap;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.Realm;
-import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.quota.QuotaManager;
-
 import java.nio.channels.SocketChannel;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
+
+import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.imap.handler.ClientConnectedFactory;
+import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import org.bluezoo.gumdrop.quota.QuotaManager;
 
 /**
  * Connection factory for IMAP connections on a given port.
@@ -72,11 +75,13 @@ public class IMAPServer extends Server {
     protected Realm realm;
     protected MailboxFactory mailboxFactory;
     protected QuotaManager quotaManager;
+    protected ClientConnectedFactory handlerFactory;
     
     // Timeouts (in milliseconds)
-    protected long loginTimeout = 60000;        // 1 minute for login
-    protected long idleTimeout = 1800000;       // 30 minutes idle (RFC 9051 recommends >= 30 min)
-    protected long commandTimeout = 300000;     // 5 minutes per command
+    // Note: idle timeout is inherited from Server base class
+    // Protocol-specific timeouts follow the same naming convention as Server
+    protected long loginTimeoutMs = 60000;      // 1 minute for login
+    protected long commandTimeoutMs = 300000;   // 5 minutes per command
     
     // Extension support
     protected boolean enableIDLE = true;
@@ -90,6 +95,9 @@ public class IMAPServer extends Server {
     
     // Security options
     protected boolean allowPlaintextLogin = false; // Allow LOGIN over non-TLS (testing only!)
+
+    // Metrics for this server (null if telemetry is not enabled)
+    private IMAPServerMetrics metrics;
 
     /**
      * Returns a short description of this connector.
@@ -180,60 +188,123 @@ public class IMAPServer extends Server {
     }
 
     /**
+     * Returns the handler factory for this server.
+     * 
+     * @return the handler factory, or null if not configured
+     */
+    public ClientConnectedFactory getHandlerFactory() {
+        return handlerFactory;
+    }
+
+    /**
+     * Sets the handler factory for creating IMAP handlers.
+     * 
+     * <p>When configured, the server delegates authentication and mailbox
+     * operations to handlers created by this factory. This allows custom
+     * policy decisions for authentication, mailbox access control, and
+     * message operations.
+     * 
+     * <p>If no handler factory is configured, the server uses its built-in
+     * implementation with the configured {@link Realm} and {@link MailboxFactory}.
+     * 
+     * @param handlerFactory the factory to create handler instances
+     */
+    public void setHandlerFactory(ClientConnectedFactory handlerFactory) {
+        this.handlerFactory = handlerFactory;
+    }
+
+    /**
      * Returns the login timeout in milliseconds.
      * 
-     * @return the login timeout
+     * @return the login timeout in milliseconds
      */
-    public long getLoginTimeout() {
-        return loginTimeout;
+    public long getLoginTimeoutMs() {
+        return loginTimeoutMs;
     }
 
     /**
      * Sets the login timeout in milliseconds.
      * This is the maximum time allowed for authentication.
      * 
-     * @param loginTimeout the timeout in milliseconds
+     * @param loginTimeoutMs the timeout in milliseconds
      */
-    public void setLoginTimeout(long loginTimeout) {
-        this.loginTimeout = loginTimeout;
+    public void setLoginTimeoutMs(long loginTimeoutMs) {
+        this.loginTimeoutMs = loginTimeoutMs;
     }
 
     /**
-     * Returns the idle timeout in milliseconds.
-     * RFC 9051 recommends at least 30 minutes.
+     * Sets the login timeout using a string with optional time unit suffix.
+     * Supported suffixes: ms, s, m, h (milliseconds, seconds, minutes, hours).
      * 
-     * @return the idle timeout
+     * @param timeout the timeout string (e.g., "60s", "1m")
      */
-    public long getIdleTimeout() {
-        return idleTimeout;
-    }
-
-    /**
-     * Sets the idle timeout in milliseconds.
-     * 
-     * @param idleTimeout the timeout in milliseconds
-     */
-    public void setIdleTimeout(long idleTimeout) {
-        this.idleTimeout = idleTimeout;
+    public void setLoginTimeout(String timeout) {
+        this.loginTimeoutMs = parseTimeoutString(timeout);
     }
 
     /**
      * Returns the command timeout in milliseconds.
      * 
-     * @return the command timeout
+     * @return the command timeout in milliseconds
      */
-    public long getCommandTimeout() {
-        return commandTimeout;
+    public long getCommandTimeoutMs() {
+        return commandTimeoutMs;
     }
 
     /**
      * Sets the command timeout in milliseconds.
      * This is the maximum time for a single command to complete.
      * 
-     * @param commandTimeout the timeout in milliseconds
+     * @param commandTimeoutMs the timeout in milliseconds
      */
-    public void setCommandTimeout(long commandTimeout) {
-        this.commandTimeout = commandTimeout;
+    public void setCommandTimeoutMs(long commandTimeoutMs) {
+        this.commandTimeoutMs = commandTimeoutMs;
+    }
+
+    /**
+     * Sets the command timeout using a string with optional time unit suffix.
+     * 
+     * @param timeout the timeout string (e.g., "5m", "300s")
+     */
+    public void setCommandTimeout(String timeout) {
+        this.commandTimeoutMs = parseTimeoutString(timeout);
+    }
+
+    /**
+     * Parses a timeout string with optional time unit suffix.
+     * 
+     * @param timeout the timeout string (e.g., "30s", "5m", "1h", "5000ms")
+     * @return the timeout in milliseconds
+     */
+    private long parseTimeoutString(String timeout) {
+        if (timeout == null || timeout.isEmpty()) {
+            return 0;
+        }
+        timeout = timeout.trim().toLowerCase();
+
+        long multiplier = 1;
+        String numPart = timeout;
+
+        if (timeout.endsWith("ms")) {
+            numPart = timeout.substring(0, timeout.length() - 2);
+            multiplier = 1;
+        } else if (timeout.endsWith("s")) {
+            numPart = timeout.substring(0, timeout.length() - 1);
+            multiplier = 1000;
+        } else if (timeout.endsWith("m")) {
+            numPart = timeout.substring(0, timeout.length() - 1);
+            multiplier = 60 * 1000;
+        } else if (timeout.endsWith("h")) {
+            numPart = timeout.substring(0, timeout.length() - 1);
+            multiplier = 60 * 60 * 1000;
+        }
+
+        try {
+            return Long.parseLong(numPart.trim()) * multiplier;
+        } catch (NumberFormatException e) {
+            LOGGER.warning("Invalid timeout format: " + timeout);
+            return 0;
+        }
     }
 
     /**
@@ -375,6 +446,12 @@ public class IMAPServer extends Server {
             port = secure ? IMAPS_DEFAULT_PORT : IMAP_DEFAULT_PORT;
         }
         
+        // Set IMAP-specific idle timeout default (30 minutes per RFC 9051)
+        // if not already configured
+        if (getIdleTimeoutMs() == DEFAULT_IDLE_TIMEOUT_MS) {
+            setIdleTimeoutMs(30 * 60 * 1000); // 30 minutes
+        }
+        
         if (mailboxFactory == null) {
             LOGGER.warning("No mailbox factory configured - IMAP server will not be functional");
         }
@@ -382,6 +459,20 @@ public class IMAPServer extends Server {
         if (realm == null) {
             LOGGER.warning("No realm configured - IMAP authentication will not work");
         }
+
+        // Initialize metrics if telemetry is enabled
+        if (isMetricsEnabled()) {
+            metrics = new IMAPServerMetrics(getTelemetryConfig());
+        }
+    }
+
+    /**
+     * Returns the metrics for this server, or null if telemetry is not enabled.
+     *
+     * @return the IMAP server metrics
+     */
+    public IMAPServerMetrics getMetrics() {
+        return metrics;
     }
 
     /**
@@ -425,7 +516,7 @@ public class IMAPServer extends Server {
      */
     protected String getCapabilities(boolean authenticated, boolean secure) {
         StringBuilder caps = new StringBuilder();
-        caps.append("IMAP4REV2");
+        caps.append("IMAP4rev2");
         
         // Pre-authentication capabilities
         if (!authenticated && !secure && isSTARTTLSAvailable()) {
@@ -433,10 +524,16 @@ public class IMAPServer extends Server {
         }
         
         if (!authenticated) {
-            caps.append(" AUTH=PLAIN AUTH=LOGIN");
-            // Additional auth mechanisms based on realm
+            // Advertise only mechanisms supported by the realm
             if (realm != null) {
-                caps.append(" AUTH=CRAM-MD5 AUTH=DIGEST-MD5 AUTH=SCRAM-SHA-256");
+                Set<SASLMechanism> supported = realm.getSupportedSASLMechanisms();
+                for (SASLMechanism mech : supported) {
+                    // Skip mechanisms that require TLS if not secure
+                    if (!secure && mech.requiresTLS()) {
+                        continue;
+                    }
+                    caps.append(" AUTH=").append(mech.getMechanismName());
+                }
             }
             if (!secure && !allowPlaintextLogin) {
                 caps.append(" LOGINDISABLED"); // Disable LOGIN over plaintext

@@ -89,7 +89,7 @@ public class ConfigurationParserTest {
     public void testSimpleComponent() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"testRealm\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"testRealm\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "  </realm>\n" +
             "</gumdrop>";
         File file = createConfigFile(config);
@@ -104,7 +104,7 @@ public class ConfigurationParserTest {
     public void testComponentWithSimpleProperty() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"testRealm\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"testRealm\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"name\">Test Realm</property>\n" +
             "  </realm>\n" +
             "</gumdrop>";
@@ -120,7 +120,7 @@ public class ConfigurationParserTest {
     public void testComponentWithAttributeProperties() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"myRealm\" class=\"org.bluezoo.gumdrop.BasicRealm\" " +
+            "  <realm id=\"myRealm\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\" " +
             "         name=\"My Realm\">\n" +
             "  </realm>\n" +
             "</gumdrop>";
@@ -136,9 +136,9 @@ public class ConfigurationParserTest {
     public void testMultipleComponents() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
-            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
-            "  <realm id=\"realm3\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
+            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
+            "  <realm id=\"realm3\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
             "</gumdrop>";
         File file = createConfigFile(config);
 
@@ -172,7 +172,7 @@ public class ConfigurationParserTest {
     public void testListProperty() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realmWithList\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realmWithList\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"items\">\n" +
             "      <list>\n" +
             "      </list>\n" +
@@ -191,7 +191,7 @@ public class ConfigurationParserTest {
     public void testMapProperty() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realmWithMap\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realmWithMap\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"config\">\n" +
             "      <map>\n" +
             "        <entry key=\"setting1\">value1</entry>\n" +
@@ -211,8 +211,8 @@ public class ConfigurationParserTest {
     public void testComponentReference() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
-            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
+            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"delegate\" ref=\"realm1\"/>\n" +
             "  </realm>\n" +
             "</gumdrop>";
@@ -229,8 +229,8 @@ public class ConfigurationParserTest {
     public void testReferenceWithHashPrefix() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
-            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
+            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"delegate\" ref=\"#realm1\"/>\n" +
             "  </realm>\n" +
             "</gumdrop>";
@@ -263,7 +263,7 @@ public class ConfigurationParserTest {
     public void testNestedPropertyElement() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"name\">Nested Value</property>\n" +
             "    <property name=\"timeout\">30</property>\n" +
             "  </realm>\n" +
@@ -280,7 +280,7 @@ public class ConfigurationParserTest {
     public void testWhitespaceInPropertyValue() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"name\">  Value with spaces  </property>\n" +
             "  </realm>\n" +
             "</gumdrop>";
@@ -386,9 +386,9 @@ public class ConfigurationParserTest {
     public void testListWithReferences() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
-            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.BasicRealm\"/>\n" +
-            "  <realm id=\"realmHolder\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
+            "  <realm id=\"realm2\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\"/>\n" +
+            "  <realm id=\"realmHolder\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"realms\">\n" +
             "      <list>\n" +
             "        <ref ref=\"realm1\"/>\n" +
@@ -411,7 +411,7 @@ public class ConfigurationParserTest {
     public void testTildeExpansionInPath() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"path\">~/config</property>\n" +
             "  </realm>\n" +
             "</gumdrop>";
@@ -427,7 +427,7 @@ public class ConfigurationParserTest {
     public void testSpecialCharactersInValues() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.BasicRealm\">\n" +
+            "  <realm id=\"realm1\" class=\"org.bluezoo.gumdrop.auth.BasicRealm\">\n" +
             "    <property name=\"pattern\">&lt;html&gt;&amp;test&lt;/html&gt;</property>\n" +
             "  </realm>\n" +
             "</gumdrop>";

@@ -45,21 +45,43 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class AcceptSelectorLoop extends Thread {
+public class AcceptSelectorLoop implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(AcceptSelectorLoop.class.getName());
 
     private final Gumdrop gumdrop;
+    private Thread thread;
     private Selector selector;
     private volatile boolean active;
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
 
     AcceptSelectorLoop(Gumdrop gumdrop) {
-        super("AcceptSelectorLoop");
         this.gumdrop = gumdrop;
-        this.pendingRegistrations = new ConcurrentLinkedQueue<>();
+        this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
     }
 
+    /**
+     * Starts this AcceptSelectorLoop.
+     * Creates a new thread if needed and starts accepting connections.
+     */
+    public void start() {
+        if (thread != null && thread.isAlive()) {
+            return; // Already running
+        }
+        thread = new Thread(this, "AcceptSelectorLoop");
+        thread.start();
+    }
+
+    /**
+     * Returns whether this AcceptSelectorLoop is currently running.
+     *
+     * @return true if the thread is alive
+     */
+    public boolean isRunning() {
+        return thread != null && thread.isAlive();
+    }
+
+    @Override
     public void run() {
         active = true;
         try {
@@ -70,7 +92,7 @@ public class AcceptSelectorLoop extends Thread {
                 doRegisterServer(server);
             }
 
-                // Main accept loop
+            // Main accept loop
             while (active) {
                 try {
                     // Process any pending server registrations
@@ -110,6 +132,7 @@ public class AcceptSelectorLoop extends Thread {
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error closing selector", e);
                 }
+                selector = null;
             }
         }
     }
@@ -288,11 +311,25 @@ public class AcceptSelectorLoop extends Thread {
         }
     }
 
+    /**
+     * Shuts down this AcceptSelectorLoop.
+     */
     void shutdown() {
         active = false;
         if (selector != null) {
             selector.wakeup();
         }
     }
-}
 
+    /**
+     * Waits for this AcceptSelectorLoop's thread to terminate.
+     *
+     * @throws InterruptedException if interrupted while waiting
+     */
+    public void join() throws InterruptedException {
+        if (thread != null) {
+            thread.join();
+        }
+    }
+
+}

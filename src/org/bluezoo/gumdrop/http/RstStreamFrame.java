@@ -21,10 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.net.ProtocolException;
 import java.nio.ByteBuffer;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * A HTTP/2 RST_STREAM frame.
@@ -34,16 +31,23 @@ import java.util.Map;
  */
 public class RstStreamFrame extends Frame {
 
+    private static final int FRAME_LENGTH = 4;
+
     int stream;
 
     int errorCode;
 
-    protected RstStreamFrame(int stream, byte[] payload) throws ProtocolException {
+    /**
+     * Constructor for a RST_STREAM frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
+     */
+    protected RstStreamFrame(int stream, ByteBuffer payload) {
         this.stream = stream;
-        errorCode = ((int) payload[0] & 0xff) << 24
-            | ((int) payload[1] & 0xff) << 16
-            | ((int) payload[2] & 0xff) << 8
-            | ((int) payload[3] & 0xff);
+        errorCode = (payload.get() & 0xff) << 24
+            | (payload.get() & 0xff) << 16
+            | (payload.get() & 0xff) << 8
+            | (payload.get() & 0xff);
     }
 
     /**
@@ -55,7 +59,7 @@ public class RstStreamFrame extends Frame {
     }
 
     public int getLength() {
-        return 4; // always 4 bytes
+        return FRAME_LENGTH;
     }
 
     public int getType() {

@@ -167,10 +167,10 @@ public interface MailboxStore {
      * These are IMAP mailbox attributes like \Noselect, \Noinferiors, etc.
      * 
      * @param mailboxName the mailbox name
-     * @return set of attribute strings (without leading backslash)
+     * @return set of mailbox attributes
      * @throws IOException if attributes cannot be retrieved
      */
-    Set<String> getMailboxAttributes(String mailboxName) throws IOException;
+    Set<MailboxAttribute> getMailboxAttributes(String mailboxName) throws IOException;
 
     /**
      * Returns the quota root for the specified mailbox.

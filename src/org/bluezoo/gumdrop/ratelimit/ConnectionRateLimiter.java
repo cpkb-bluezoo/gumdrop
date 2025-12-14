@@ -66,8 +66,8 @@ import java.util.logging.Logger;
  *
  * <h4>Configuration</h4>
  * <pre>
- * &lt;property name="maxConnectionsPerIP"&gt;10&lt;/property&gt;
- * &lt;property name="rateLimit"&gt;100/60s&lt;/property&gt;
+ * &lt;property name="max-connections-per-ip"&gt;10&lt;/property&gt;
+ * &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -44,7 +44,7 @@
  * <ul>
  *   <li>All non-ASCII characters are encoded as UTF-8 bytes in {@code =XX} hex format</li>
  *   <li>Path separators ({@code /}, {@code \}) are always encoded</li>
- *   <li>Windows-forbidden characters ({@code : * ? " &lt; &gt; |}) are encoded</li>
+ *   <li>Windows-forbidden characters ({@code /}: * ? " &lt; &gt; {@code \}) are encoded</li>
  *   <li>The escape character ({@code =}) itself is encoded</li>
  * </ul>
  *

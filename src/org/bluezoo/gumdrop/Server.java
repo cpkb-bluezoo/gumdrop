@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.ratelimit.AuthenticationRateLimiter;
 import org.bluezoo.gumdrop.ratelimit.ConnectionRateLimiter;
+import org.bluezoo.gumdrop.util.CIDRNetwork;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -75,6 +76,10 @@ public abstract class Server extends Connector {
     // Rate limiting (optional, created on demand)
     private ConnectionRateLimiter connectionRateLimiter;
     private AuthenticationRateLimiter authRateLimiter;
+
+    // CIDR network filtering (parsed for efficient lookup)
+    private final List<CIDRNetwork> allowedCIDRs = new ArrayList<CIDRNetwork>();
+    private final List<CIDRNetwork> blockedCIDRs = new ArrayList<CIDRNetwork>();
 
     protected Server() {
         super();
@@ -340,25 +345,117 @@ public abstract class Server extends Connector {
         return authRateLimiter;
     }
 
+    // ========== CIDR Network Filtering ==========
+
+    /**
+     * Sets allowed networks in CIDR notation (comma-separated).
+     * Supports both IPv4 and IPv6 networks.
+     *
+     * <p>When configured, only connections from these networks will be accepted.
+     * If no allowed networks are configured, connections from any network are
+     * accepted (unless blocked).
+     *
+     * @param allowedNetworks networks to allow (e.g., "192.168.1.0/24,2001:db8::/32,10.0.0.0/8")
+     * @throws IllegalArgumentException if any CIDR format is invalid
+     */
+    public void setAllowedNetworks(String allowedNetworks) {
+        allowedCIDRs.clear();
+        try {
+            allowedCIDRs.addAll(CIDRNetwork.parseList(allowedNetworks));
+            if (LOGGER.isLoggable(Level.INFO)) {
+                LOGGER.info("Configured " + allowedCIDRs.size() + " allowed CIDR networks: " + allowedCIDRs);
+            }
+        } catch (IllegalArgumentException e) {
+            LOGGER.log(Level.SEVERE, "Invalid allowed networks configuration: " + allowedNetworks, e);
+            throw e;
+        }
+    }
+
+    /**
+     * Sets blocked networks in CIDR notation (comma-separated).
+     * Supports both IPv4 and IPv6 networks.
+     *
+     * <p>Connections from blocked networks are rejected before any other
+     * filtering rules are applied.
+     *
+     * @param blockedNetworks networks to block (e.g., "192.168.100.0/24,2001:db8:bad::/48")
+     * @throws IllegalArgumentException if any CIDR format is invalid
+     */
+    public void setBlockedNetworks(String blockedNetworks) {
+        blockedCIDRs.clear();
+        try {
+            blockedCIDRs.addAll(CIDRNetwork.parseList(blockedNetworks));
+            if (LOGGER.isLoggable(Level.INFO)) {
+                LOGGER.info("Configured " + blockedCIDRs.size() + " blocked CIDR networks: " + blockedCIDRs);
+            }
+        } catch (IllegalArgumentException e) {
+            LOGGER.log(Level.SEVERE, "Invalid blocked networks configuration: " + blockedNetworks, e);
+            throw e;
+        }
+    }
+
+    /**
+     * Returns the list of allowed CIDR networks.
+     *
+     * @return unmodifiable list of allowed networks
+     */
+    protected List<CIDRNetwork> getAllowedCIDRs() {
+        return java.util.Collections.unmodifiableList(allowedCIDRs);
+    }
+
+    /**
+     * Returns the list of blocked CIDR networks.
+     *
+     * @return unmodifiable list of blocked networks
+     */
+    protected List<CIDRNetwork> getBlockedCIDRs() {
+        return java.util.Collections.unmodifiableList(blockedCIDRs);
+    }
+
     /**
      * Determines whether to accept a connection from the specified remote address.
      * This method is called for each incoming connection before resources are allocated.
      *
-     * <p>The default implementation checks the connection rate limiter if configured.
-     * Subclasses can override to add additional filtering policies (IP blocklists, etc.)
-     * but should call {@code super.acceptConnection(remoteAddress)} to apply rate limiting.
+     * <p>The default implementation applies the following filters in order:
+     * <ol>
+     *   <li>Blocked CIDR networks (explicit deny)</li>
+     *   <li>Allowed CIDR networks (if configured, explicit allow only)</li>
+     *   <li>Connection rate limiting (if configured)</li>
+     * </ol>
+     *
+     * <p>Subclasses can override to add additional filtering policies but should call
+     * {@code super.acceptConnection(remoteAddress)} to apply standard filtering.
      * 
      * @param remoteAddress the remote socket address attempting to connect
      * @return true to accept the connection, false to reject it
      */
     public boolean acceptConnection(InetSocketAddress remoteAddress) {
-        // Check connection rate limiter if configured
+        InetAddress clientIP = remoteAddress.getAddress();
+
+        // 1. Check blocked networks first (explicit deny) - fast CIDR matching
+        if (!blockedCIDRs.isEmpty() && CIDRNetwork.matchesAny(clientIP, blockedCIDRs)) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Connection rejected from " + clientIP + ": blocked network");
+            }
+            return false;
+        }
+
+        // 2. Check allowed networks (if configured, explicit allow only) - fast CIDR matching
+        if (!allowedCIDRs.isEmpty() && !CIDRNetwork.matchesAny(clientIP, allowedCIDRs)) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Connection rejected from " + clientIP + ": not in allowed networks");
+            }
+            return false;
+        }
+
+        // 3. Check connection rate limiter if configured
         if (connectionRateLimiter != null) {
-            if (!connectionRateLimiter.allowConnection(remoteAddress.getAddress())) {
+            if (!connectionRateLimiter.allowConnection(clientIP)) {
                 return false;
             }
-            connectionRateLimiter.connectionOpened(remoteAddress.getAddress());
+            connectionRateLimiter.connectionOpened(clientIP);
         }
+
         return true;
     }
 

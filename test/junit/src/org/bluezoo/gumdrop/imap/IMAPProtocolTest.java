@@ -22,8 +22,9 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Realm;
 import org.bluezoo.gumdrop.SendCallback;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -197,7 +198,7 @@ public class IMAPProtocolTest {
         
         assertFalse("Should receive response to CAPABILITY", result.isEmpty());
         String response = String.join("\n", result);
-        assertTrue("Should include IMAP4rev2 capability", response.contains("IMAP4REV2"));
+        assertTrue("Should include IMAP4rev2 capability", response.contains("IMAP4rev2"));
         assertTrue("Should include completion response", response.contains("A001 OK"));
     }
     
@@ -312,27 +313,43 @@ public class IMAPProtocolTest {
     
     // ============== FUZZING TESTS ==============
     
+    /**
+     * Helper class that simulates the proper non-blocking buffer management
+     * done by Connection.processInbound() and SelectorLoop.
+     */
+    private static class BufferSimulator {
+        private ByteBuffer buffer = ByteBuffer.allocate(4096);
+        private final IMAPConnection conn;
+        
+        BufferSimulator(IMAPConnection conn) {
+            this.conn = conn;
+        }
+        
+        void receive(byte[] data) {
+            buffer.put(data);
+            buffer.flip();
+            conn.receive(buffer);
+            buffer.compact();
+        }
+        
+        void receive(String data) {
+            receive(data.getBytes(StandardCharsets.US_ASCII));
+        }
+    }
+    
     @Test
     public void testFragmentedCommand() {
         // Test that IMAP commands can be sent in fragments
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Send command in multiple parts
-            String part1 = "A001 ";
-            String part2 = "CAPA";
-            String part3 = "BILITY";
-            String part4 = "\r\n";
-            
-            conn.receive(ByteBuffer.wrap(part1.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap(part2.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap(part3.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap(part4.getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A001 ");
+            sim.receive("CAPA");
+            sim.receive("BILITY");
+            sim.receive("\r\n");
             
             assertFalse("Should receive response to fragmented command", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -349,15 +366,12 @@ public class IMAPProtocolTest {
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             String command = "A001 NOOP\r\n";
             for (int i = 0; i < command.length(); i++) {
-                byte[] singleByte = new byte[] { (byte) command.charAt(i) };
-                conn.receive(ByteBuffer.wrap(singleByte));
-                Thread.sleep(1);
+                sim.receive(new byte[] { (byte) command.charAt(i) });
             }
-            
-            Thread.sleep(20);
             
             assertFalse("Should handle byte-by-byte delivery", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -396,12 +410,11 @@ public class IMAPProtocolTest {
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Split in middle of tag
-            conn.receive(ByteBuffer.wrap("A0".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("01 CAPABILITY\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A0");
+            sim.receive("01 CAPABILITY\r\n");
             
             assertTrue("Should handle tag split", 
                       String.join("\n", responses).contains("A001"));
@@ -409,10 +422,8 @@ public class IMAPProtocolTest {
             responses.clear();
             
             // Split in middle of command name
-            conn.receive(ByteBuffer.wrap("A002 CAP".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("ABILITY\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A002 CAP");
+            sim.receive("ABILITY\r\n");
             
             assertTrue("Should handle command name split", 
                       String.join("\n", responses).contains("A002"));
@@ -428,6 +439,7 @@ public class IMAPProtocolTest {
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Send LOGIN in many fragments
             String[] fragments = {
@@ -442,11 +454,8 @@ public class IMAPProtocolTest {
             };
             
             for (String fragment : fragments) {
-                conn.receive(ByteBuffer.wrap(fragment.getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(fragment);
             }
-            
-            Thread.sleep(20);
             
             assertFalse("Should handle fragmented LOGIN", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -463,6 +472,7 @@ public class IMAPProtocolTest {
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             String command = "A001 CAPABILITY\r\n";
             int pos = 0;
@@ -471,12 +481,9 @@ public class IMAPProtocolTest {
             while (pos < command.length()) {
                 int chunkSize = 1 + random.nextInt(Math.min(5, command.length() - pos));
                 String chunk = command.substring(pos, pos + chunkSize);
-                conn.receive(ByteBuffer.wrap(chunk.getBytes(StandardCharsets.US_ASCII)));
+                sim.receive(chunk);
                 pos += chunkSize;
-                Thread.sleep(2);
             }
-            
-            Thread.sleep(20);
             
             assertFalse("Should handle random chunk sizes", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -493,12 +500,11 @@ public class IMAPProtocolTest {
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Split between CR and LF
-            conn.receive(ByteBuffer.wrap("A001 NOOP\r".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A001 NOOP\r");
+            sim.receive("\n");
             
             assertFalse("Should handle CRLF split", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -514,10 +520,10 @@ public class IMAPProtocolTest {
         // Test a very long command line delivered in fragments
         try {
             IMAPConnection conn = createIMAPConnection();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Login first
-            conn.receive(ByteBuffer.wrap("A001 LOGIN testuser testpass\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A001 LOGIN testuser testpass\r\n");
             responses.clear();
             
             // Build a long SEARCH command with many criteria
@@ -532,11 +538,8 @@ public class IMAPProtocolTest {
             for (int i = 0; i < command.length(); i += 10) {
                 int end = Math.min(i + 10, command.length());
                 String chunk = command.substring(i, end);
-                conn.receive(ByteBuffer.wrap(chunk.getBytes(StandardCharsets.US_ASCII)));
-                Thread.sleep(2);
+                sim.receive(chunk);
             }
-            
-            Thread.sleep(30);
             
             assertFalse("Should handle long fragmented line", responses.isEmpty());
             String response = String.join("\n", responses);
@@ -553,22 +556,19 @@ public class IMAPProtocolTest {
         try {
             IMAPConnection conn = createIMAPConnection();
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(conn);
             
             // Send LOGIN in fragments
-            conn.receive(ByteBuffer.wrap("A001 LOGIN test".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("user testpass\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A001 LOGIN test");
+            sim.receive("user testpass\r\n");
             
             // Verify login succeeded
             String loginResponse = String.join("\n", responses);
             responses.clear();
             
             // Send SELECT in fragments  
-            conn.receive(ByteBuffer.wrap("A002 SEL".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(5);
-            conn.receive(ByteBuffer.wrap("ECT INBOX\r\n".getBytes(StandardCharsets.US_ASCII)));
-            Thread.sleep(20);
+            sim.receive("A002 SEL");
+            sim.receive("ECT INBOX\r\n");
             
             // Should work if state was preserved
             String selectResponse = String.join("\n", responses);
@@ -605,6 +605,16 @@ public class IMAPProtocolTest {
         @Override
         public boolean isUserInRole(String username, String role) {
             return true;
+        }
+        
+        @Override
+        public java.util.Set<SASLMechanism> getSupportedSASLMechanisms() {
+            return java.util.EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN);
+        }
+        
+        @Override
+        public Realm forSelectorLoop(org.bluezoo.gumdrop.SelectorLoop loop) {
+            return this;
         }
     }
     
@@ -664,7 +674,7 @@ public class IMAPProtocolTest {
         public void renameMailbox(String oldName, String newName) throws IOException {}
         
         @Override
-        public java.util.Set<String> getMailboxAttributes(String mailboxName) throws IOException {
+        public java.util.Set<org.bluezoo.gumdrop.mailbox.MailboxAttribute> getMailboxAttributes(String mailboxName) throws IOException {
             return java.util.Collections.emptySet();
         }
     }

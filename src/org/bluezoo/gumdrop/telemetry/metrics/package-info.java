@@ -86,7 +86,7 @@
  *
  * <p>Configure the temporality in the TelemetryConfig:
  * <pre>
- * &lt;property name="metricsTemporalityName"&gt;delta&lt;/property&gt;
+ * &lt;property name="metrics-temporality-name"&gt;delta&lt;/property&gt;
  * </pre>
  *
  * <h2>Export</h2>
@@ -94,8 +94,8 @@
  * <p>Metrics are automatically collected and exported via the OTLP exporter at the
  * configured interval (default: 60 seconds). The export endpoint can be configured:
  * <pre>
- * &lt;property name="metricsEndpoint"&gt;http://localhost:4318/v1/metrics&lt;/property&gt;
- * &lt;property name="metricsIntervalMs"&gt;30000&lt;/property&gt;
+ * &lt;property name="metrics-endpoint"&gt;http://localhost:4318/v1/metrics&lt;/property&gt;
+ * &lt;property name="metrics-interval-ms"&gt;30000&lt;/property&gt;
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

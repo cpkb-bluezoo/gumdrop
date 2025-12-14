@@ -36,30 +36,36 @@ public class DataFrame extends Frame {
     boolean endStream;
 
     int padLength;
-    byte[] data;
+    ByteBuffer data;
 
     /**
      * Constructor for a data frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
      */
-    protected DataFrame(int flags, int stream, byte[] payload) {
+    protected DataFrame(int flags, int stream, ByteBuffer payload) {
         this.stream = stream;
         padded = (flags & FLAG_PADDED) != 0;
         endStream = (flags & FLAG_END_STREAM) != 0;
-        int offset = 0;
-        int length = payload.length;
         if (padded) {
-            padLength = ((int) payload[offset++] & 0xff);
-            data = new byte[length - (padLength + 1)];
-            System.arraycopy(payload, offset, data, 0, data.length);
+            padLength = payload.get() & 0xff;
+            // Create a slice for the data portion (excluding padding)
+            int dataLength = payload.remaining() - padLength;
+            int savedLimit = payload.limit();
+            payload.limit(payload.position() + dataLength);
+            data = payload.slice();
+            payload.limit(savedLimit);
+            payload.position(savedLimit); // consume all including padding
         } else {
-            data = payload;
+            data = payload.slice();
+            payload.position(payload.limit()); // consume all
         }
     }
 
     /**
      * Constructor for a data frame to send to the client.
      */
-    protected DataFrame(int stream, boolean padded, boolean endStream, int padLength, byte[] data) {
+    protected DataFrame(int stream, boolean padded, boolean endStream, int padLength, ByteBuffer data) {
         this.stream = stream;
         this.padded = padded;
         this.endStream = endStream;
@@ -68,7 +74,7 @@ public class DataFrame extends Frame {
     }
 
     public int getLength() {
-        int length = data.length;
+        int length = data.remaining();
         if (padded) {
             length += (padLength + 1);
         }
@@ -92,11 +98,16 @@ public class DataFrame extends Frame {
         super.write(buf);
         if (padded) {
             buf.put((byte) (padLength & 0xff));
-            buf.put(data);
+        }
+        // Save position to restore after put
+        int savedPos = data.position();
+        buf.put(data);
+        data.position(savedPos); // restore position for potential reuse
+        if (padded) {
             // padding bytes are always 0
-            buf.put(new byte[padLength]);
-        } else {
-            buf.put(data);
+            for (int i = 0; i < padLength; i++) {
+                buf.put((byte) 0);
+            }
         }
     }
 

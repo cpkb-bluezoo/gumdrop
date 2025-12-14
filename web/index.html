@@ -70,6 +70,8 @@ for IMAP, POP3, and SMTP with mbox and Maildir implementations</li>
 distributed tracing and metrics with OTLP export</li>
 <li><a href="security.html"><strong>Security</strong></a> - IAM, rate limiting,
 TLS, and authentication across all protocols</li>
+<li><a href="redis.html"><strong>Redis Client</strong></a> - asynchronous Redis
+client with SelectorLoop affinity for server integration</li>
 </ul>
 
 <h3>Architecture</h3>
@@ -215,6 +217,78 @@ framework handles read/write buffering, TLS encryption/decryption, and
 connection lifecycle.
 </p>
 
+<h3>Staged Handler Pattern</h3>
+
+<p>
+Stateful protocols such as SMTP, IMAP, and POP3 present a particular challenge:
+tracking the current protocol state and understanding what operations are valid
+at any given moment. This difficulty is compounded by event-driven architectures
+like Gumdrop, where the complexity of asynchronous callbacks can be bewildering.
+</p>
+
+<p>
+Gumdrop addresses this with a <b>staged handler pattern</b> that compartmentalises
+protocol processing into discrete stages, each with clear goals and decisions:
+</p>
+
+<ul>
+<li><b>Handler interfaces</b> define callbacks for each protocol stage—the events
+your code receives at that point in the conversation</li>
+<li><b>State interfaces</b> define the operations available to respond—the valid
+transitions from that stage</li>
+<li><b>Type safety</b> ensures you can only perform operations valid for the
+current protocol state</li>
+<li><b>Clear flow</b> makes it obvious what decisions need to be made and what
+information is available</li>
+</ul>
+
+<p>
+For example, an SMTP handler progresses through well-defined stages:
+</p>
+
+<pre>
+ClientConnected → HelloHandler → MailFromHandler → RecipientHandler → MessageDataHandler
+</pre>
+
+<p>
+At each stage, the handler receives protocol events (EHLO, MAIL FROM, RCPT TO)
+and uses the provided state interface to accept, reject, or make policy
+decisions. The connection handles all protocol mechanics — SASL authentication
+challenges, TLS negotiation, command parsing — leaving the handler to focus on
+business logic.
+</p>
+
+<h4>Servers and Clients</h4>
+
+<p>
+The same pattern works for both servers and clients. An SMTP client handler
+receives events from the server (greeting, EHLO response, authentication
+challenges) and uses state interfaces to drive the conversation forward.
+This symmetry simplifies relay implementations where a server connection
+drives a client connection.
+</p>
+
+<h4>Default Implementations</h4>
+
+<p>
+Each protocol includes default handler implementations for common use cases:
+</p>
+
+<ul>
+<li><b>SMTP</b> - <code>LocalDeliveryHandler</code> for mailbox delivery,
+<code>SimpleRelayHandler</code> for MX forwarding</li>
+<li><b>IMAP</b> - <code>DefaultIMAPHandler</code> accepts all operations using
+the configured Realm and MailboxFactory</li>
+<li><b>POP3</b> - <code>DefaultPOP3Handler</code> accepts all operations using
+the configured Realm and MailboxFactory</li>
+</ul>
+
+<p>
+These implementations handle the common case while serving as examples for
+custom handlers. In many deployments, the default handlers with appropriate
+configuration are sufficient.
+</p>
+
 <h3>Datagram Facilities</h3>
 
 <p>
@@ -253,8 +327,8 @@ To enable TLS, configure the keystore on any server:
 &lt;server class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
     &lt;property name="port"&gt;465&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -278,9 +352,9 @@ Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</co
 
 <pre>
 &lt;server class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="idleTimeout"&gt;30m&lt;/property&gt;
-    &lt;property name="readTimeout"&gt;60s&lt;/property&gt;
-    &lt;property name="connectionTimeout"&gt;2m&lt;/property&gt;
+    &lt;property name="idle-timeout"&gt;30m&lt;/property&gt;
+    &lt;property name="read-timeout"&gt;60s&lt;/property&gt;
+    &lt;property name="connection-timeout"&gt;2m&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 
@@ -317,20 +391,20 @@ elements configure collection properties</li>
 <pre>
 &lt;gumdrop&gt;
     &lt;!-- Authentication realm --&gt;
-    &lt;realm id="myRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+    &lt;realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
         &lt;property name="href"&gt;users.xml&lt;/property&gt;
     &lt;/realm&gt;
     
     &lt;!-- Mailbox storage --&gt;
-    &lt;mailboxFactory id="maildir"
+    &lt;mailbox-factory id="maildir"
                     class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
         &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
-    &lt;/mailboxFactory&gt;
+    &lt;/mailbox-factory&gt;
     
     &lt;!-- Telemetry --&gt;
     &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
         &lt;property name="enabled"&gt;true&lt;/property&gt;
-        &lt;property name="serviceName"&gt;mail-server&lt;/property&gt;
+        &lt;property name="service-name"&gt;mail-server&lt;/property&gt;
         &lt;property name="endpoint"&gt;http://collector:4318&lt;/property&gt;
     &lt;/component&gt;
     
@@ -338,11 +412,11 @@ elements configure collection properties</li>
     &lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
         &lt;property name="port"&gt;993&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
         &lt;property name="realm" ref="#myRealm"/&gt;
-        &lt;property name="mailboxFactory" ref="#maildir"/&gt;
-        &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+        &lt;property name="mailbox-factory" ref="#maildir"/&gt;
+        &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;/server&gt;
 &lt;/gumdrop&gt;
 </pre>

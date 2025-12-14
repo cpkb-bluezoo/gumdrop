@@ -31,36 +31,51 @@ import java.nio.ByteBuffer;
  */
 public class PushPromiseFrame extends Frame {
 
+    private static final int PROMISED_STREAM_LENGTH = 4;
+
     int stream;
     boolean padded;
     boolean endHeaders;
 
     int padLength;
     int promisedStream;
-    byte[] headerBlockFragment;
+    ByteBuffer headerBlockFragment;
 
-    protected PushPromiseFrame(int flags, int stream, byte[] payload) {
+    /**
+     * Constructor for a PUSH_PROMISE frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
+     */
+    protected PushPromiseFrame(int flags, int stream, ByteBuffer payload) {
         this.stream = stream;
         padded = (flags & FLAG_PADDED) != 0;
         endHeaders = (flags & FLAG_END_HEADERS) != 0;
-        int offset = 0;
+        
+        int endPos = payload.limit();
+        
         if (padded) {
-            padLength = ((int) payload[offset++] & 0xff);
+            padLength = payload.get() & 0xff;
+            endPos -= padLength; // Exclude padding from header block
         }
-        promisedStream = ((int) payload[offset++] & 0x7f) << 24
-                | ((int) payload[offset++] & 0xff) << 16
-                | ((int) payload[offset++] & 0xff) << 8
-                | ((int) payload[offset++] & 0xff);
-        // header block fragment
-        int headerBlockLength = payload.length - (padLength + offset);
-        headerBlockFragment = new byte[headerBlockLength];
-        System.arraycopy(payload, offset, headerBlockFragment, 0, headerBlockLength);
+        promisedStream = (payload.get() & 0x7f) << 24
+                | (payload.get() & 0xff) << 16
+                | (payload.get() & 0xff) << 8
+                | (payload.get() & 0xff);
+        
+        // header block fragment is remaining data minus padding
+        int headerBlockLength = endPos - payload.position();
+        int savedLimit = payload.limit();
+        payload.limit(payload.position() + headerBlockLength);
+        headerBlockFragment = payload.slice();
+        payload.limit(savedLimit);
+        payload.position(savedLimit); // consume all including padding
     }
 
     /**
      * Construct a push promise frame to send to the client.
      */
-    protected PushPromiseFrame(int stream, boolean padded, boolean endHeaders, int padLength, int promisedStream, byte[] headerBlockFragment) {
+    protected PushPromiseFrame(int stream, boolean padded, boolean endHeaders, int padLength, 
+                               int promisedStream, ByteBuffer headerBlockFragment) {
         this.stream = stream;
         this.padded = padded;
         this.endHeaders = endHeaders;
@@ -69,8 +84,16 @@ public class PushPromiseFrame extends Frame {
         this.headerBlockFragment = headerBlockFragment;
     }
 
+    /**
+     * Construct a push promise frame to send to the client (convenience for byte[]).
+     */
+    protected PushPromiseFrame(int stream, boolean padded, boolean endHeaders, int padLength, 
+                               int promisedStream, byte[] headerBlockFragment) {
+        this(stream, padded, endHeaders, padLength, promisedStream, ByteBuffer.wrap(headerBlockFragment));
+    }
+
     public int getLength() {
-        int length = headerBlockFragment.length + 4;
+        int length = headerBlockFragment.remaining() + PROMISED_STREAM_LENGTH;
         if (padded) {
             length += (1 + padLength);
         }
@@ -99,10 +122,15 @@ public class PushPromiseFrame extends Frame {
         buf.put((byte) ((promisedStream >> 16) & 0xff));
         buf.put((byte) ((promisedStream >> 8) & 0xff));
         buf.put((byte) (promisedStream & 0xff));
+        // Save position to restore after put
+        int savedPos = headerBlockFragment.position();
         buf.put(headerBlockFragment);
+        headerBlockFragment.position(savedPos); // restore position for potential reuse
         if (padded) {
             // padding bytes are always 0
-            buf.put(new byte[padLength]);
+            for (int i = 0; i < padLength; i++) {
+                buf.put((byte) 0);
+            }
         }
     }
 

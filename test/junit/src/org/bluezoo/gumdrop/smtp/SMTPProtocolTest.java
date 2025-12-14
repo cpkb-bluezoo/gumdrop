@@ -22,19 +22,26 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.ConnectionInfo;
 import org.bluezoo.gumdrop.SendCallback;
+import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+import org.bluezoo.gumdrop.smtp.handler.*;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
 
 import javax.net.ssl.SSLEngine;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
@@ -85,14 +92,13 @@ public class SMTPProtocolTest {
         SMTPServer server = new SMTPServer();
         server.setPort(2525); // Not actually used, but needed for initialization
         
-        // Create basic SMTP handler
-        SMTPConnectionHandler handler = new TestSMTPHandler();
+        // Create basic SMTP handler using staged handler pattern
+        TestSMTPHandler handler = new TestSMTPHandler();
         
         // Set handler factory
-        SMTPConnectionHandlerFactory factory = () -> handler;
+        ClientConnectedFactory factory = () -> handler;
         server.setHandlerFactory(factory);
         
-        // Create mock socket channel
         // Create the SMTP connection with null channel to test null safety  
         SMTPConnection conn = new SMTPConnection(server, null, null, false, handler);
         
@@ -382,6 +388,30 @@ public class SMTPProtocolTest {
         }
     }
     
+    /**
+     * Helper class that simulates the proper non-blocking buffer management
+     * done by Connection.processInbound() and SelectorLoop.
+     */
+    private static class BufferSimulator {
+        private ByteBuffer buffer = ByteBuffer.allocate(4096);
+        private final SMTPConnection conn;
+        
+        BufferSimulator(SMTPConnection conn) {
+            this.conn = conn;
+        }
+        
+        void receive(byte[] data) {
+            buffer.put(data);
+            buffer.flip();
+            conn.receive(buffer);
+            buffer.compact();
+        }
+        
+        void receive(String data) {
+            receive(data.getBytes(StandardCharsets.US_ASCII));
+        }
+    }
+    
     @Test
     public void testFragmentedCommands() {
         // Test that SMTP commands can be sent in fragments
@@ -390,18 +420,12 @@ public class SMTPProtocolTest {
             // Clear responses AFTER connection is created to skip greeting banner
             Thread.sleep(10); // Allow greeting to be sent
             responses.clear();
+            BufferSimulator sim = new BufferSimulator(connection);
             
             // Send HELO command in parts
-            ByteBuffer part1 = ByteBuffer.wrap("HE".getBytes(StandardCharsets.US_ASCII));                                                                       
-            ByteBuffer part2 = ByteBuffer.wrap("LO client.exam".getBytes(StandardCharsets.US_ASCII));                                                           
-            ByteBuffer part3 = ByteBuffer.wrap("ple.com\r\n".getBytes(StandardCharsets.US_ASCII));                                                              
-            
-            connection.receive(part1);
-            Thread.sleep(5);
-            connection.receive(part2);
-            Thread.sleep(5);
-            connection.receive(part3);
-            Thread.sleep(15);
+            sim.receive("HE");
+            sim.receive("LO client.exam");
+            sim.receive("ple.com\r\n");
             
             assertFalse("Should receive response to fragmented HELO", responses.isEmpty());
             assertTrue("Fragmented HELO should succeed", responses.get(0).startsWith("250"));
@@ -448,64 +472,94 @@ public class SMTPProtocolTest {
     }
     
     /**
-     * Test SMTP handler implementation.
+     * Test SMTP handler implementation using staged handler pattern.
      */
-    private static class TestSMTPHandler implements SMTPConnectionHandler {
+    private static class TestSMTPHandler implements ClientConnected, HelloHandler, 
+            MailFromHandler, RecipientHandler, MessageDataHandler {
         
         @Override
-        public boolean connected(SMTPConnectionMetadata metadata) {
+        public void connected(ConnectionInfo info, ConnectedState state) {
             // Accept all connections for testing
-            return true;
+            state.acceptConnection("localhost ESMTP Test", this);
         }
         
+        // HelloHandler methods
+        
         @Override
-        public void hello(boolean extended, String clientDomain, HelloCallback callback) {
+        public void hello(boolean extended, String clientDomain, HelloState state) {
             // Accept all HELO/EHLO greetings
-            callback.helloReply(extended ? HelloReply.ACCEPT_EHLO : HelloReply.ACCEPT_HELO);
+            state.acceptHello(this);
         }
         
         @Override
-        public void tlsStarted(SMTPConnectionMetadata metadata) {
-            // TLS established - no action needed for test
+        public void tlsEstablished(TLSInfo tlsInfo) {
+            // TLS handshake completed - no action needed for test
         }
         
         @Override
-        public void authenticated(String user, String method) {
-            // Authentication succeeded - no action needed for test
+        public void authenticated(Principal principal, AuthenticateState state) {
+            // Accept any authenticated principal
+            state.accept(this);
         }
         
         @Override
-        public void mailFrom(String senderAddress, MailFromCallback callback) {
+        public void quit() {
+            // Client sent QUIT - no action needed for test
+        }
+        
+        // MailFromHandler methods
+        
+        @Override
+        public SMTPPipeline getPipeline() {
+            // No pipeline for testing
+            return null;
+        }
+        
+        @Override
+        public void mailFrom(EmailAddress sender, boolean smtputf8, 
+                           DeliveryRequirements deliveryRequirements, MailFromState state) {
             // Accept all senders for testing
-            callback.mailFromReply(SenderPolicyResult.ACCEPT);
+            state.acceptSender(this);
         }
         
+        // RecipientHandler methods
+        
         @Override
-        public void rcptTo(String recipientAddress, RcptToCallback callback) {
+        public void rcptTo(EmailAddress recipient, MailboxFactory factory, RecipientState state) {
             // Accept all recipients for testing
-            callback.rcptToReply(RecipientPolicyResult.ACCEPT, recipientAddress);
+            state.acceptRecipient(this);
         }
         
         @Override
-        public void startData(SMTPConnectionMetadata metadata, DataStartCallback callback) {
+        public void startMessage(MessageStartState state) {
             // Accept DATA command for testing
-            callback.dataStartReply(DataStartReply.ACCEPT);
+            state.acceptMessage(this);
+        }
+        
+        // MessageDataHandler methods
+        
+        @Override
+        public void messageContent(ByteBuffer content) {
+            // Accept all message content for testing (no-op)
         }
         
         @Override
-        public void messageContent(ByteBuffer messageData) {
-            // Accept all message content for testing
-        }
-        
-        @Override
-        public void endData(SMTPConnectionMetadata metadata, DataEndCallback callback) {
+        public void messageComplete(MessageEndState state) {
             // Accept all messages for testing
-            callback.dataEndReply(DataEndReply.ACCEPT);
+            state.acceptMessageDelivery("test-queue-id", this);
         }
         
         @Override
-        public void reset() {
-            // Reset - no action needed for test
+        public void messageAborted() {
+            // Message transfer aborted - no action needed for test
+        }
+        
+        // Shared methods
+        
+        @Override
+        public void reset(ResetState state) {
+            // Accept reset and return to ready state
+            state.acceptReset(this);
         }
         
         @Override
@@ -520,7 +574,7 @@ public class SMTPProtocolTest {
     private class TestSMTPConnection extends SMTPConnection {
         
         public TestSMTPConnection(SocketChannel channel, SSLEngine engine, boolean secure, 
-                                SMTPServer smtpServer, SMTPConnectionHandler handler) {
+                                SMTPServer smtpServer, ClientConnected handler) {
             super(smtpServer, channel, engine, secure, handler);
             
             // Set the base class channel field (normally done by Server)
@@ -567,9 +621,7 @@ public class SMTPProtocolTest {
         public <T> T getOption(java.net.SocketOption<T> name) { return null; }
         
         @Override
-        public java.util.Set<java.net.SocketOption<?>> supportedOptions() { 
-            return java.util.Collections.emptySet(); 
-        }
+        public java.util.Set<java.net.SocketOption<?>> supportedOptions() { return java.util.Collections.emptySet(); }
         
         @Override
         public SocketChannel shutdownInput() { return this; }
@@ -578,39 +630,10 @@ public class SMTPProtocolTest {
         public SocketChannel shutdownOutput() { return this; }
         
         @Override
-        public java.net.Socket socket() { 
-            return new java.net.Socket() {
-                @Override
-                public void setTcpNoDelay(boolean on) {}
-                
-                @Override
-                public java.net.InetAddress getInetAddress() {
-                    try {
-                        return java.net.InetAddress.getByName("127.0.0.1");
-                    } catch (Exception e) {
-                        return null;
-                    }
-                }
-                
-                @Override
-                public java.net.InetAddress getLocalAddress() {
-                    try {
-                        return java.net.InetAddress.getByName("127.0.0.1");
-                    } catch (Exception e) {
-                        return null;
-                    }
-                }
-                
-                @Override
-                public int getPort() { return 12345; }
-                
-                @Override
-                public int getLocalPort() { return 2525; }
-            };
-        }
+        public java.net.Socket socket() { return null; }
         
         @Override
-        public boolean isConnected() { return open; }
+        public boolean isConnected() { return true; }
         
         @Override
         public boolean isConnectionPending() { return false; }
@@ -623,32 +646,35 @@ public class SMTPProtocolTest {
         
         @Override
         public java.net.SocketAddress getRemoteAddress() { 
-            return new InetSocketAddress("127.0.0.1", 12345);
+            return new InetSocketAddress("127.0.0.1", 12345); 
         }
         
         @Override
-        public int read(ByteBuffer dst) { return -1; }
+        public java.net.SocketAddress getLocalAddress() { 
+            return new InetSocketAddress("127.0.0.1", 25); 
+        }
         
         @Override
-        public long read(ByteBuffer[] dsts, int offset, int length) { return -1; }
+        public int read(ByteBuffer dst) { return 0; }
         
         @Override
-        public int write(ByteBuffer src) { return src.remaining(); }
+        public long read(ByteBuffer[] dsts, int offset, int length) { return 0; }
+        
+        @Override
+        public int write(ByteBuffer src) { 
+            int remaining = src.remaining();
+            src.position(src.limit()); // Simulate write
+            return remaining;
+        }
         
         @Override
         public long write(ByteBuffer[] srcs, int offset, int length) { return 0; }
         
         @Override
-        public java.net.SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 2525);
-        }
-        
-        @Override
-        protected void implCloseSelectableChannel() {
-            open = false;
-        }
+        protected void implCloseSelectableChannel() { open = false; }
         
         @Override
         protected void implConfigureBlocking(boolean block) {}
     }
 }
+

@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.ftp;
  * Standard role names for FTP authorization.
  * 
  * <p>These roles provide a standard vocabulary for FTP access control.
- * Administrators define users in a {@link org.bluezoo.gumdrop.Realm} and
+ * Administrators define users in a {@link org.bluezoo.gumdrop.auth.Realm} and
  * assign them to these roles to control their FTP capabilities.</p>
  * 
  * <h4>Role Hierarchy</h4>

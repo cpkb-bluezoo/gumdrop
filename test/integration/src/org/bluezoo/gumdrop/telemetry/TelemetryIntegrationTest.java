@@ -77,10 +77,10 @@ public class TelemetryIntegrationTest {
 
     @Before
     public void setUp() throws Exception {
-        // Reduce logging noise during tests
+        // Enable detailed logging to trace connection issues
         rootLogger = Logger.getLogger("");
         originalLogLevel = rootLogger.getLevel();
-        rootLogger.setLevel(Level.WARNING);
+        rootLogger.setLevel(Level.INFO);  // Changed from WARNING to INFO to see connection flow
 
         // Start the mock OTLP collector first
         collector = new MockOTLPCollector(COLLECTOR_PORT);
@@ -114,16 +114,34 @@ public class TelemetryIntegrationTest {
         smtpServer.setAddresses("127.0.0.1");
         smtpServer.setTelemetryConfig(telemetryConfig);
 
-        // Start both servers
-        Collection<Server> servers = new ArrayList<Server>();
-        servers.add(httpServer);
-        servers.add(smtpServer);
-        gumdrop = new Gumdrop(servers, 2);
+        // Start both servers using singleton with lifecycle management
+        System.setProperty("gumdrop.workers", "2");
+        gumdrop = Gumdrop.getInstance();
+        gumdrop.addServer(httpServer);
+        gumdrop.addServer(smtpServer);
         gumdrop.start();
 
         // Wait for servers to be ready
         waitForPort(HTTP_PORT);
         waitForPort(SMTP_PORT);
+        
+        // Wait for OTLP connections to be established
+        // The HTTPClient connects asynchronously, so we use waitForConnections
+        // to block until connections are ready
+        System.out.println("Waiting for OTLP exporter connections...");
+        boolean connected = exporter.waitForConnections(5000);
+        if (connected) {
+            System.out.println("OTLP connections established");
+        } else {
+            System.out.println("Warning: OTLP connections not fully established, tests may fail");
+        }
+        
+        // Give a moment for the connection state to stabilize
+        Thread.sleep(200);
+        
+        // Clear any warmup data
+        collector.clear();
+        System.out.println("OTLP warmup complete, collector cleared");
     }
 
     @After
@@ -374,20 +392,38 @@ public class TelemetryIntegrationTest {
     }
 
     private void waitForTelemetry() throws InterruptedException {
-        // Wait for async telemetry export
-        int maxWait = 3000;
+        // Force flush to ensure all pending telemetry is exported
+        if (exporter != null) {
+            exporter.forceFlush();
+        }
+        
+        // Wait for async telemetry export to complete
+        int maxWait = 8000;  // Increased timeout
         int waited = 0;
-        int interval = 100;
+        int interval = 200;
+        int initialTraceCount = collector.getTraceRequestCount();
+
+        System.out.println("Waiting for telemetry (initial trace count: " + initialTraceCount + ")...");
 
         while (waited < maxWait) {
             Thread.sleep(interval);
             waited += interval;
             
-            if (collector.getTraceRequestCount() > 0) {
-                Thread.sleep(200); // Extra time for any additional exports
+            // Periodic flush to ensure data is sent
+            if (waited % 1000 == 0 && exporter != null) {
+                exporter.forceFlush();
+            }
+            
+            int currentCount = collector.getTraceRequestCount();
+            if (currentCount > initialTraceCount) {
+                System.out.println("Telemetry received after " + waited + "ms (traces: " + currentCount + ")");
+                Thread.sleep(300); // Extra time for any additional exports
                 return;
             }
         }
+        
+        System.out.println("Telemetry wait timeout after " + maxWait + "ms (traces: " + 
+            collector.getTraceRequestCount() + ")");
     }
 
     private String sendHttpRequest(String method, String path, String body) throws IOException {

@@ -59,6 +59,9 @@ public abstract class Connector {
 
     private static final Logger LOGGER = Logger.getLogger(Connector.class.getName());
 
+    /** Default maximum network input buffer size: 1 MB */
+    public static final int DEFAULT_MAX_NET_IN_SIZE = 1024 * 1024;
+
     protected boolean secure = false;
     protected SSLContext context;
     protected String keystoreFile, keystorePass, keystoreFormat = "PKCS12";
@@ -67,6 +70,9 @@ public abstract class Connector {
     // SNI (Server Name Indication) configuration
     private Map<String, String> sniHostnameToAlias;
     private String sniDefaultAlias;
+
+    // Maximum size for network input buffer (protects against buggy receive() implementations)
+    private int maxNetInSize = DEFAULT_MAX_NET_IN_SIZE;
 
     protected Connector() {
     }
@@ -98,6 +104,54 @@ public abstract class Connector {
      */
     public boolean isTelemetryEnabled() {
         return telemetryConfig != null;
+    }
+
+    /**
+     * Returns the maximum allowed size for the network input buffer.
+     * 
+     * <p>This limit protects against buggy receive() implementations that
+     * never consume data, which would otherwise cause unbounded memory growth.
+     *
+     * @return the maximum buffer size in bytes
+     */
+    public int getMaxNetInSize() {
+        return maxNetInSize;
+    }
+
+    /**
+     * Sets the maximum allowed size for the network input buffer.
+     * 
+     * <p>If a connection's input buffer exceeds this limit, the connection
+     * will be closed with an error. This typically indicates a bug in the
+     * receive() implementation that is not consuming incoming data.
+     *
+     * <p>Set to 0 to disable the limit (not recommended).
+     *
+     * @param size the maximum buffer size in bytes
+     */
+    public void setMaxNetInSize(int size) {
+        this.maxNetInSize = size;
+    }
+
+    /**
+     * Returns true if metrics collection should be enabled for this connector.
+     * Metrics are enabled when telemetry is configured and metrics are enabled.
+     *
+     * <p>Use this in subclass {@code start()} methods before initializing metrics:
+     * <pre>{@code
+     * protected void start() {
+     *     super.start();
+     *     // ... other initialization ...
+     *     if (isMetricsEnabled()) {
+     *         metrics = new MyServerMetrics(getTelemetryConfig());
+     *     }
+     * }
+     * }</pre>
+     *
+     * @return true if metrics should be collected
+     */
+    protected boolean isMetricsEnabled() {
+        return telemetryConfig != null && telemetryConfig.isMetricsEnabled();
     }
 
     final Connection newConnection(SocketChannel sc, SelectionKey key) throws IOException {
@@ -204,7 +258,7 @@ public abstract class Connector {
      * 
      * <p>Example configuration in gumdroprc:
      * <pre>
-     * &lt;property name="sniHostnames"&gt;
+     * &lt;property name="sni-hostnames"&gt;
      *     &lt;map&gt;
      *         &lt;entry key="example.com" value="example-cert"/&gt;
      *         &lt;entry key="*.example.com" value="example-wildcard"/&gt;

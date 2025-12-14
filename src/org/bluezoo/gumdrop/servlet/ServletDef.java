@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.security.RunAs;
+import javax.servlet.HttpMethodConstraintElement;
 import javax.servlet.MultipartConfigElement;
 import javax.servlet.Servlet;
 import javax.servlet.ServletConfig;
@@ -227,13 +228,46 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
                 for (String urlPattern : mapping.urlPatterns) {
                     if (context.isSecurityConstraintTarget(urlPattern)) {
                         ret.add(urlPattern);
-                    } else {
-                        mapping.constraint = constraint;
                     }
                 }
             }
         }
+        
+        // If not all patterns are already constrained, add security constraints
+        if (ret.isEmpty() || ret.size() < getTotalUrlPatternCount()) {
+            // Initialize servletSecurity if needed
+            if (servletSecurity == null) {
+                servletSecurity = new LinkedHashSet<SecurityConstraint>();
+            }
+            
+            // Add method-specific constraints
+            Set<String> methods = new LinkedHashSet<String>();
+            for (HttpMethodConstraintElement methodConstraint : constraint.getHttpMethodConstraints()) {
+                String method = methodConstraint.getMethodName();
+                methods.add(method);
+                SecurityConstraint sc = new SecurityConstraint();
+                sc.init(methodConstraint);
+                servletSecurity.add(sc);
+            }
+            
+            // Add default constraint for other methods
+            // ServletSecurityElement extends HttpConstraintElement, so use it directly
+            SecurityConstraint defaultConstraint = new SecurityConstraint();
+            defaultConstraint.init(constraint, methods);
+            servletSecurity.add(defaultConstraint);
+        }
+        
         return Collections.unmodifiableSet(ret);
+    }
+    
+    private int getTotalUrlPatternCount() {
+        int count = 0;
+        for (ServletMapping mapping : context.servletMappings) {
+            if (mapping.servletDef == this) {
+                count += mapping.urlPatterns.size();
+            }
+        }
+        return count;
     }
 
     @Override public void setMultipartConfig(MultipartConfigElement multipartConfig) {

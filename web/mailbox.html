@@ -265,14 +265,14 @@ servers:
 &lt;!-- IMAP server using Maildir --&gt;
 &lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
     &lt;property name="port"&gt;143&lt;/property&gt;
-    &lt;property name="mailboxFactory" ref="#maildirFactory"/&gt;
+    &lt;property name="mailbox-factory" ref="#maildirFactory"/&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
 &lt;/server&gt;
 
 &lt;!-- POP3 server using mbox --&gt;
 &lt;server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
     &lt;property name="port"&gt;110&lt;/property&gt;
-    &lt;property name="mailboxFactory" ref="#mboxFactory"/&gt;
+    &lt;property name="mailbox-factory" ref="#mboxFactory"/&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
 &lt;/server&gt;
 </pre>
@@ -284,7 +284,7 @@ SMTP servers can also reference a mailbox factory for local delivery:
 <pre>
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
     &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="handlerFactory" ref="#localDeliveryHandler"/&gt;
+    &lt;property name="handler-factory" ref="#localDeliveryHandler"/&gt;
 &lt;/server&gt;
 </pre>
 

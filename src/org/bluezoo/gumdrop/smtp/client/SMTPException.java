@@ -22,13 +22,24 @@
 package org.bluezoo.gumdrop.smtp.client;
 
 /**
- * Exception thrown for SMTP client operations.
+ * Exception thrown for SMTP client connection and protocol errors.
+ * 
+ * <p>This exception is passed to {@link org.bluezoo.gumdrop.ClientHandler#onError}
+ * for errors such as:
+ * <ul>
+ * <li>Connection failures (network errors, timeouts)</li>
+ * <li>Protocol parse errors (malformed server responses)</li>
+ * <li>Internal state errors</li>
+ * </ul>
+ * 
+ * <p>Note: SMTP protocol-level errors (4xx/5xx responses) are handled through
+ * the specific callback methods in the {@code Server*ReplyHandler} interfaces,
+ * not through this exception.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see ServerGreeting
  */
 public class SMTPException extends Exception {
-    
-    private final SMTPResponse response;
     
     /**
      * Creates an SMTP exception with message only.
@@ -37,7 +48,6 @@ public class SMTPException extends Exception {
      */
     public SMTPException(String message) {
         super(message);
-        this.response = null;
     }
     
     /**
@@ -48,28 +58,5 @@ public class SMTPException extends Exception {
      */
     public SMTPException(String message, Throwable cause) {
         super(message, cause);
-        this.response = null;
-    }
-    
-    /**
-     * Creates an SMTP exception with server response.
-     * 
-     * @param message error description
-     * @param response server response that caused the error
-     */
-    public SMTPException(String message, SMTPResponse response) {
-        super(message + ": " + response);
-        this.response = response;
-    }
-    
-    /**
-     * Gets the server response associated with this exception.
-     * 
-     * @return server response, or null if not available
-     */
-    public SMTPResponse getResponse() {
-        return response;
     }
 }
-
-

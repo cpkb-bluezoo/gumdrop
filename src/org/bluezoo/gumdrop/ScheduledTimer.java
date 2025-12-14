@@ -49,7 +49,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ScheduledTimer extends Thread {
+final class ScheduledTimer implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(ScheduledTimer.class.getName());
 
@@ -58,14 +58,35 @@ final class ScheduledTimer extends Thread {
     private final PriorityQueue<TimerEntry> queue;
     private final Lock lock;
     private final Condition condition;
+    private Thread thread;
     private volatile boolean active;
 
     ScheduledTimer() {
-        super("ScheduledTimer");
-        setDaemon(true);
-        this.queue = new PriorityQueue<>();
+        this.queue = new PriorityQueue<TimerEntry>();
         this.lock = new ReentrantLock();
         this.condition = lock.newCondition();
+    }
+
+    /**
+     * Starts this ScheduledTimer.
+     * Creates a new thread if needed and starts processing.
+     */
+    public void start() {
+        if (thread != null && thread.isAlive()) {
+            return; // Already running
+        }
+        thread = new Thread(this, "ScheduledTimer");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
+     * Returns whether this ScheduledTimer is currently running.
+     *
+     * @return true if the thread is alive
+     */
+    public boolean isRunning() {
+        return thread != null && thread.isAlive();
     }
 
     @Override
@@ -185,6 +206,17 @@ final class ScheduledTimer extends Thread {
     }
 
     /**
+     * Waits for this ScheduledTimer's thread to terminate.
+     *
+     * @throws InterruptedException if interrupted while waiting
+     */
+    public void join() throws InterruptedException {
+        if (thread != null) {
+            thread.join();
+        }
+    }
+
+    /**
      * Timer entry in the priority queue.
      */
     static final class TimerEntry implements TimerHandle, Comparable<TimerEntry> {
@@ -222,4 +254,3 @@ final class ScheduledTimer extends Thread {
     }
 
 }
-

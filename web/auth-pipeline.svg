@@ -1,0 +1,216 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4a5568"/>
+    </marker>
+    <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3182ce"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#38a169"/>
+    </marker>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4299e1"/>
+      <stop offset="100%" style="stop-color:#3182ce"/>
+    </linearGradient>
+    <linearGradient id="stageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f7fafc"/>
+      <stop offset="100%" style="stop-color:#edf2f7"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="900" height="700" fill="#f8fafc"/>
+  
+  <!-- Title -->
+  <rect x="0" y="0" width="900" height="50" fill="url(#headerGrad)"/>
+  <text x="450" y="32" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" font-weight="bold" fill="white">AuthPipeline Message Flow</text>
+  
+  <!-- Legend -->
+  <g transform="translate(680, 60)">
+    <rect x="0" y="0" width="200" height="95" rx="5" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+    <text x="10" y="20" font-family="system-ui, sans-serif" font-size="11" font-weight="bold" fill="#4a5568">Legend</text>
+    <line x1="10" y1="35" x2="40" y2="35" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="50" y="39" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">Internal flow</text>
+    <line x1="10" y1="55" x2="40" y2="55" stroke="#3182ce" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    <text x="50" y="59" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">Callback result</text>
+    <line x1="10" y1="75" x2="40" y2="75" stroke="#38a169" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrowhead-green)"/>
+    <text x="50" y="79" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">User handler (teed)</text>
+  </g>
+  
+  <!-- Stage 1: MAIL FROM -->
+  <g transform="translate(20, 70)">
+    <rect x="0" y="0" width="640" height="120" rx="8" fill="url(#stageGrad)" stroke="#cbd5e0" stroke-width="1"/>
+    <text x="15" y="25" font-family="system-ui, sans-serif" font-size="14" font-weight="bold" fill="#2d3748">1. MAIL FROM Stage</text>
+    
+    <!-- SMTP Connection -->
+    <rect x="20" y="45" width="100" height="50" rx="5" fill="#ebf8ff" stroke="#3182ce" stroke-width="1.5"/>
+    <text x="70" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#2b6cb0">SMTP</text>
+    <text x="70" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#2b6cb0">Connection</text>
+    
+    <!-- Arrow to AuthCheck -->
+    <line x1="120" y1="70" x2="155" y2="70" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="137" y="62" font-family="system-ui, sans-serif" font-size="9" fill="#718096">sender</text>
+    
+    <!-- AuthCheck -->
+    <rect x="165" y="45" width="100" height="50" rx="5" fill="#faf5ff" stroke="#805ad5" stroke-width="1.5"/>
+    <text x="215" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#6b46c1">AuthCheck</text>
+    <text x="215" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#6b46c1">checkSender()</text>
+    
+    <!-- Arrow to SPFValidator -->
+    <line x1="265" y1="70" x2="300" y2="70" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    
+    <!-- SPFValidator -->
+    <rect x="310" y="45" width="100" height="50" rx="5" fill="#fff5f5" stroke="#e53e3e" stroke-width="1.5"/>
+    <text x="360" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#c53030">SPFValidator</text>
+    <text x="360" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#c53030">DNS lookup</text>
+    
+    <!-- Arrow to SPFCallback -->
+    <line x1="410" y1="70" x2="445" y2="70" stroke="#3182ce" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    
+    <!-- SPFCallback -->
+    <rect x="455" y="45" width="100" height="50" rx="5" fill="#ebf8ff" stroke="#3182ce" stroke-width="2" stroke-dasharray="4,2"/>
+    <text x="505" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#2b6cb0">SPFCallback</text>
+    <text x="505" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#2b6cb0">onResult()</text>
+    
+    <!-- Result badge -->
+    <rect x="560" y="55" width="65" height="30" rx="4" fill="#c6f6d5" stroke="#38a169" stroke-width="1"/>
+    <text x="592" y="75" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#276749">SPFResult</text>
+  </g>
+  
+  <!-- Stage 2: DATA -->
+  <g transform="translate(20, 200)">
+    <rect x="0" y="0" width="860" height="200" rx="8" fill="url(#stageGrad)" stroke="#cbd5e0" stroke-width="1"/>
+    <text x="15" y="25" font-family="system-ui, sans-serif" font-size="14" font-weight="bold" fill="#2d3748">2. DATA Stage (streaming)</text>
+    
+    <!-- Raw Bytes -->
+    <rect x="20" y="50" width="90" height="50" rx="5" fill="#ebf8ff" stroke="#3182ce" stroke-width="1.5"/>
+    <text x="65" y="73" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#2b6cb0">Raw Bytes</text>
+    <text x="65" y="87" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#2b6cb0">ByteBuffer</text>
+    
+    <!-- Arrow to AuthCheck -->
+    <line x1="110" y1="75" x2="145" y2="75" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    
+    <!-- AuthCheck receive -->
+    <rect x="155" y="45" width="110" height="60" rx="5" fill="#faf5ff" stroke="#805ad5" stroke-width="1.5"/>
+    <text x="210" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#6b46c1">AuthCheck</text>
+    <text x="210" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#6b46c1">receive()</text>
+    <text x="210" y="95" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#9f7aea">CRLF detection</text>
+    
+    <!-- Split arrows -->
+    <line x1="265" y1="65" x2="310" y2="45" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <line x1="265" y1="85" x2="310" y2="105" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    
+    <!-- Body Hash (top branch) -->
+    <rect x="320" y="20" width="110" height="50" rx="5" fill="#fffaf0" stroke="#dd6b20" stroke-width="1.5"/>
+    <text x="375" y="40" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#c05621">Body Hash</text>
+    <text x="375" y="54" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#dd6b20">SHA-256 digest</text>
+    <text x="375" y="66" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#dd6b20">(from raw bytes)</text>
+    
+    <!-- MessageParser (bottom branch) -->
+    <rect x="320" y="80" width="110" height="50" rx="5" fill="#f0fff4" stroke="#38a169" stroke-width="1.5"/>
+    <text x="375" y="100" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#276749">MessageParser</text>
+    <text x="375" y="114" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#38a169">header parsing</text>
+    
+    <!-- Arrow from MessageParser -->
+    <line x1="430" y1="105" x2="470" y2="105" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    
+    <!-- Composite Handler -->
+    <rect x="480" y="75" width="140" height="60" rx="5" fill="#faf5ff" stroke="#805ad5" stroke-width="1.5"/>
+    <text x="550" y="95" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#6b46c1">CompositeHandler</text>
+    <text x="550" y="110" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#9f7aea">DKIM-Signature</text>
+    <text x="550" y="122" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#9f7aea">From domain</text>
+    
+    <!-- Split from Composite -->
+    <line x1="620" y1="95" x2="665" y2="75" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <line x1="620" y1="115" x2="665" y2="135" stroke="#38a169" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrowhead-green)"/>
+    
+    <!-- DKIMValidator collect -->
+    <rect x="675" y="50" width="110" height="50" rx="5" fill="#fff5f5" stroke="#e53e3e" stroke-width="1.5"/>
+    <text x="730" y="70" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#c53030">DKIMValidator</text>
+    <text x="730" y="84" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#c53030">addHeader()</text>
+    
+    <!-- User MessageHandler -->
+    <rect x="675" y="115" width="110" height="50" rx="5" fill="#ebf8ff" stroke="#38a169" stroke-width="2" stroke-dasharray="4,2"/>
+    <text x="730" y="135" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#276749">User Handler</text>
+    <text x="730" y="149" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#38a169">(optional)</text>
+    
+    <!-- Note -->
+    <text x="20" y="185" font-family="system-ui, sans-serif" font-size="10" font-style="italic" fill="#718096">Body hash computed from raw bytes after CRLFCRLF; headers parsed for DKIM-Signature and From domain</text>
+  </g>
+  
+  <!-- Stage 3: End of DATA -->
+  <g transform="translate(20, 420)">
+    <rect x="0" y="0" width="860" height="260" rx="8" fill="url(#stageGrad)" stroke="#cbd5e0" stroke-width="1"/>
+    <text x="15" y="25" font-family="system-ui, sans-serif" font-size="14" font-weight="bold" fill="#2d3748">3. End of DATA Stage (verification &amp; results)</text>
+    
+    <!-- AuthCheck close -->
+    <rect x="20" y="45" width="100" height="50" rx="5" fill="#faf5ff" stroke="#805ad5" stroke-width="1.5"/>
+    <text x="70" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#6b46c1">AuthCheck</text>
+    <text x="70" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#6b46c1">close()</text>
+    
+    <!-- Arrow to DKIM -->
+    <line x1="120" y1="70" x2="155" y2="70" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    
+    <!-- DKIMValidator verify -->
+    <rect x="165" y="40" width="130" height="60" rx="5" fill="#fff5f5" stroke="#e53e3e" stroke-width="1.5"/>
+    <text x="230" y="60" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#c53030">DKIMValidator</text>
+    <text x="230" y="74" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#c53030">verify(bodyHash)</text>
+    <text x="230" y="88" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#c53030">DNS → public key</text>
+    
+    <!-- Arrow to DKIMCallback -->
+    <line x1="295" y1="70" x2="330" y2="70" stroke="#3182ce" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    
+    <!-- DKIMCallback -->
+    <rect x="340" y="45" width="100" height="50" rx="5" fill="#ebf8ff" stroke="#3182ce" stroke-width="2" stroke-dasharray="4,2"/>
+    <text x="390" y="68" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#2b6cb0">DKIMCallback</text>
+    <text x="390" y="82" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#2b6cb0">onResult()</text>
+    
+    <!-- DKIM Result badge -->
+    <rect x="445" y="55" width="70" height="30" rx="4" fill="#c6f6d5" stroke="#38a169" stroke-width="1"/>
+    <text x="480" y="75" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#276749">DKIMResult</text>
+    
+    <!-- Arrow down to DMARC -->
+    <line x1="230" y1="100" x2="230" y2="130" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    <text x="245" y="120" font-family="system-ui, sans-serif" font-size="9" fill="#718096">SPF + DKIM</text>
+    
+    <!-- DMARCValidator -->
+    <rect x="165" y="140" width="130" height="60" rx="5" fill="#fff5f5" stroke="#e53e3e" stroke-width="1.5"/>
+    <text x="230" y="160" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#c53030">DMARCValidator</text>
+    <text x="230" y="174" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#c53030">evaluate()</text>
+    <text x="230" y="188" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#c53030">DNS → policy</text>
+    
+    <!-- Arrow to DMARCCallback -->
+    <line x1="295" y1="170" x2="330" y2="170" stroke="#3182ce" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    
+    <!-- DMARCCallback -->
+    <rect x="340" y="145" width="100" height="50" rx="5" fill="#ebf8ff" stroke="#3182ce" stroke-width="2" stroke-dasharray="4,2"/>
+    <text x="390" y="168" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#2b6cb0">DMARCCallback</text>
+    <text x="390" y="182" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#2b6cb0">onResult()</text>
+    
+    <!-- DMARC Result badge -->
+    <rect x="445" y="155" width="85" height="30" rx="4" fill="#c6f6d5" stroke="#38a169" stroke-width="1"/>
+    <text x="487" y="175" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#276749">DMARCResult</text>
+    
+    <!-- Arrow down to AuthResult -->
+    <line x1="230" y1="200" x2="230" y2="225" stroke="#4a5568" stroke-width="2" marker-end="url(#arrowhead)"/>
+    
+    <!-- Final AuthResult -->
+    <rect x="550" y="110" width="280" height="120" rx="8" fill="white" stroke="#805ad5" stroke-width="2"/>
+    <text x="690" y="135" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="bold" fill="#6b46c1">AuthResult</text>
+    
+    <text x="570" y="158" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">• SPFResult + domain + explanation</text>
+    <text x="570" y="174" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">• DKIMResult + domain + selector</text>
+    <text x="570" y="190" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">• DMARCResult + policy + domain</text>
+    <text x="570" y="206" font-family="system-ui, sans-serif" font-size="10" fill="#4a5568">• AuthVerdict (PASS/REJECT/QUARANTINE)</text>
+    
+    <!-- Arrow to AuthResultCallback -->
+    <line x1="445" y1="205" x2="540" y2="205" stroke="#3182ce" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
+    
+    <!-- AuthResultCallback badge -->
+    <rect x="165" y="230" width="130" height="25" rx="4" fill="#ebf8ff" stroke="#3182ce" stroke-width="2" stroke-dasharray="4,2"/>
+    <text x="230" y="248" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#2b6cb0">AuthResultCallback</text>
+  </g>
+  
+</svg>
+

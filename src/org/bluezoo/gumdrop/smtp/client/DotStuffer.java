@@ -43,7 +43,7 @@ import java.io.IOException;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class DotStuffer {
+class DotStuffer {
     
     /**
      * Internal state for dot stuffing state machine.

@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.mime;
 
 import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
-import org.bluezoo.util.CompositeByteBuffer;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
@@ -31,7 +30,8 @@ import java.util.Deque;
 
 /**
  * A parser for MIME entities.
- * This parser uses a completely asynchronous, non-blocking,
+ *
+ * <p>This parser uses a completely asynchronous, non-blocking,
  * push design pattern (also known as EDA or event driven architecture).
  * First a MIMEHandler must be supplied to the parser for receiving
  * parsing events.
@@ -42,16 +42,44 @@ import java.util.Deque;
  * kind of storage service which allows for not storing potentially large
  * representations entirely in memory.
  * The parser itself will not block the process receiving byte data.
- * <p>
- * This base class handles core MIME parsing including:
+ *
+ * <h3>Buffer Management Contract</h3>
+ * <p>This parser operates on standard {@link ByteBuffer} with a non-blocking
+ * stream contract:
  * <ul>
- * <li>Content-Type header parsing and multipart boundary detection</li>
- * <li>Content-Disposition header parsing</li>
- * <li>Content-Transfer-Encoding handling (base64, quoted-printable)</li>
- * <li>Content-ID header parsing</li>
- * <li>MIME-Version header parsing</li>
- * <li>Multipart boundary detection and entity lifecycle</li>
+ *   <li>The caller provides a buffer in read mode (ready for get operations)</li>
+ *   <li>The parser consumes as many complete lines as possible</li>
+ *   <li>After {@link #receive(ByteBuffer)} returns, the buffer's position
+ *       indicates where unconsumed data begins</li>
+ *   <li>If there is unconsumed data (partial line), the caller MUST call
+ *       {@link ByteBuffer#compact()} before reading more data into the buffer</li>
+ *   <li>The next {@code receive()} call will continue from where parsing left off</li>
  * </ul>
+ *
+ * <h3>Typical Usage</h3>
+ * <pre>
+ * ByteBuffer buffer = ByteBuffer.allocate(8192);
+ * MIMEParser parser = new MIMEParser();
+ * parser.setHandler(myHandler);
+ *
+ * while (channel.read(buffer) &gt; 0) {
+ *     buffer.flip();
+ *     parser.receive(buffer);
+ *     buffer.compact();
+ * }
+ * parser.close();
+ * </pre>
+ *
+ * <p>This base class handles core MIME parsing including:
+ * <ul>
+ *   <li>Content-Type header parsing and multipart boundary detection</li>
+ *   <li>Content-Disposition header parsing</li>
+ *   <li>Content-Transfer-Encoding handling (base64, quoted-printable)</li>
+ *   <li>Content-ID header parsing</li>
+ *   <li>MIME-Version header parsing</li>
+ *   <li>Multipart boundary detection and entity lifecycle</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MIMEParser {
@@ -121,7 +149,6 @@ public class MIMEParser {
 	private State state = State.INIT; // current parser state
 	private Deque<String> boundaries = new ArrayDeque<>(); // stack of boundary delimiters
 	private boolean boundarySet;
-	private CompositeByteBuffer compositeBuffer = new CompositeByteBuffer(); // unified buffer management
 	private String headerName;
 	private ByteArrayOutputStream headerValueSink = new ByteArrayOutputStream();
 	private boolean stripHeaderWhitespace = true; // leading and trailing ws in field-body
@@ -135,6 +162,7 @@ public class MIMEParser {
 	private TransferEncoding transferEncoding = TransferEncoding.BINARY;
 	private boolean allowCRLineEnd = false;
 	private byte last = (byte) 0; // last byte read (preserve over receive invocations)
+	private boolean underflow = false; // true if last receive() had unconsumed data
 
 	/**
 	 * Constructor.
@@ -192,25 +220,32 @@ public class MIMEParser {
 	/**
 	 * Causes the parser to process as much data as it can read from the
 	 * given byte buffer.
-	 * Multiple invocations of this method will typically occur, containing
-	 * incomplete data. The parser will process as much data as it can and
-	 * store any remaining data for future invocations.
-	 * The byte buffer supplied will be ready for reading and must not be
-	 * modified by other threads during the execution of this method.
-	 * Otherwise, no assumptions should be made about it; specifically, it
-	 * should not be stored after this method terminates and if there is
-	 * unprocessed data remaining in it, that data must be copied to an
-	 * internal buffer.
-	 * @param data the byte data
-	 * @exception MIMEParseException if any part of the parsing or
-	 * processing process wishes to cancel and abandon the parse. Calling
-	 * receive after such an exception has been thrown is futile and a waste
-	 * of processing resources.
+	 *
+	 * <p>Multiple invocations of this method will typically occur, containing
+	 * incomplete data. The parser will process as many complete lines as it can.
+	 *
+	 * <p><strong>Buffer Contract:</strong> The byte buffer must be in read mode
+	 * (after {@code flip()}). After this method returns:
+	 * <ul>
+	 *   <li>The buffer's position indicates where unconsumed data begins</li>
+	 *   <li>If {@code position() < limit()}, there is a partial line that needs
+	 *       more data to complete</li>
+	 *   <li>The caller MUST call {@code buffer.compact()} before reading more
+	 *       data into the buffer</li>
+	 * </ul>
+	 *
+	 * @param data the byte data (must be in read mode)
+	 * @throws MIMEParseException if any part of the parsing or
+	 *         processing process wishes to cancel and abandon the parse
+	 * @throws IllegalStateException if no handler has been set
 	 */
 	public void receive(ByteBuffer data) throws MIMEParseException {
 		if (handler == null) {
 			throw new IllegalStateException("No handler set");
 		}
+
+		// Reset underflow at start of each receive
+		underflow = false;
 
 		switch (state) {
 			case INIT:
@@ -221,19 +256,15 @@ public class MIMEParser {
 				break;
 		}
 
-		// Standard ByteBuffer workflow: put -> flip -> read -> compact
-		compositeBuffer.put(data);
-		compositeBuffer.flip();
-
-		// Process data line by line using correct start/eol/end pattern
-		int start = 0;  // Position at start of current line
-		int end = compositeBuffer.limit();  // Original buffer limit
+		// Process data line by line
+		int start = data.position();  // Position at start of current line
+		int end = data.limit();
 		int pos = start;
 		int eol = -1;
 
 		while (pos < end) {
-			// Look for line ending starting from start
-			byte c = compositeBuffer.get(pos++);
+			// Look for line ending starting from current position
+			byte c = data.get(pos++);
 			locator.offset++;
 			locator.columnNumber++;
 			if (c == '\n') {
@@ -247,21 +278,21 @@ public class MIMEParser {
 			if (eol != -1) {
 				// Found line delimiter, process the line
 				// Set buffer window to line: position(start), limit(eol)
-				compositeBuffer.limit(eol);
-				compositeBuffer.position(start);
+				data.limit(eol);
+				data.position(start);
 
 				switch (state) {
 					case HEADER:
 						// Exclude line delimiter for headers
-						headerLine(compositeBuffer);
+						headerLine(data);
 						break;
 					default: // body of some variety
 						// Include line delimiter for body
-						bodyLine(compositeBuffer);
+						bodyLine(data);
 						break;
 				}
 				// Reset window
-				compositeBuffer.limit(end);
+				data.limit(end);
 
 				// Move to next line
 				start = eol;
@@ -271,20 +302,31 @@ public class MIMEParser {
 			}
 		}
 
-		// Position buffer to unprocessed data and compact
-		// position(start): position at last eol
-		// limit(end): original limit
-		compositeBuffer.position(start);
-		compositeBuffer.limit(end);
-		compositeBuffer.compact();
+		// Position buffer at start of unconsumed data (partial line)
+		data.position(start);
+		data.limit(end);
+		
+		// Set underflow flag if there's unconsumed data
+		underflow = data.hasRemaining();
+	}
+
+	/**
+	 * Returns whether the last receive() call had unconsumed data.
+	 * If true, the caller should compact the buffer and provide more data.
+	 * If close() is called while underflow is true, an exception is thrown.
+	 *
+	 * @return true if there is a partial line awaiting more data
+	 */
+	public boolean isUnderflow() {
+		return underflow;
 	}
 
 	/**
 	 * Process a header line up to its CRLF.
 	 * The line delimiter (ideally CRLF) IS present at the end of the line.
-	 * Buffer position/limit should be set to the line range (excluding line delimiter).
+	 * Buffer position/limit should be set to the line range.
 	 */
-	private void headerLine(CompositeByteBuffer buffer) throws MIMEParseException {
+	protected void headerLine(ByteBuffer buffer) throws MIMEParseException {
 		int start = buffer.position();
 		int end = buffer.limit();
 		// Remove line-end delimiter
@@ -343,7 +385,7 @@ public class MIMEParser {
 				headerValueSink.reset();
 			}
 			// field-name [FWS] ":"
-			int colonPos = buffer.indexOf((byte) ':');
+			int colonPos = indexOf(buffer, (byte) ':');
 			if (colonPos >= 0) {
 				byte[] bytes = new byte[length];
 				buffer.get(bytes);
@@ -373,6 +415,23 @@ public class MIMEParser {
 				throw new MIMEParseException("No colon in header", locator);
 			}
 		}
+	}
+
+	/**
+	 * Finds the first occurrence of a byte in the buffer.
+	 * @param buffer the buffer to search
+	 * @param target the byte to find
+	 * @return the absolute position of the byte, or -1 if not found
+	 */
+	private static int indexOf(ByteBuffer buffer, byte target) {
+		int start = buffer.position();
+		int end = buffer.limit();
+		for (int i = start; i < end; i++) {
+			if (buffer.get(i) == target) {
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	/**
@@ -523,7 +582,7 @@ public class MIMEParser {
 	 * including the CRLF/CR/LF in the body.
 	 * Buffer position/limit should be set to the line range (including line delimiter).
 	 */
-	private void bodyLine(CompositeByteBuffer buffer) throws MIMEParseException {
+	protected void bodyLine(ByteBuffer buffer) throws MIMEParseException {
 		contentFlushed = false;  // Reset per line - only prevents boundary detection within the same line
 		int start = buffer.position();
 		int end = buffer.limit();
@@ -600,12 +659,16 @@ public class MIMEParser {
 		}
 	}
 
-	private void flushBodyContent(CompositeByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary) throws MIMEParseException {
+	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary) throws MIMEParseException {
+		flushBodyContent(buffer, unexpected, isBeforeBoundary, false);
+	}
+
+	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary, boolean endOfStream) throws MIMEParseException {
 		// Buffer position/limit already correctly set by caller
 		switch (transferEncoding) {
 			case BASE64:
 			case QUOTED_PRINTABLE:
-				flushBodyContentWithDecoding(buffer, unexpected, transferEncoding, isBeforeBoundary);
+				flushBodyContentWithDecoding(buffer, unexpected, transferEncoding, isBeforeBoundary, endOfStream);
 				break;
 			default:
 				// Pass through as-is for binary, 7bit, 8bit, x-token encodings
@@ -616,12 +679,13 @@ public class MIMEParser {
 
 	/**
 	 * Flushes body content with decoding, handling chunked processing when decoded content exceeds maxBufferSize
-	 * @param source CompositeByteBuffer containing the encoded content to decode
+	 * @param source ByteBuffer containing the encoded content to decode
 	 * @param unexpected true if this content should be reported as unexpected
 	 * @param transferEncoding the Content-Transfer-Encoding (BASE64 or Quoted-Printable)
 	 * @param isBeforeBoundary true if this content precedes a boundary, causing trailing CRLF/CR/LF to be stripped
+	 * @param endOfStream true if this is the final content (no more data coming)
 	 */
-	private void flushBodyContentWithDecoding(CompositeByteBuffer source, boolean unexpected, TransferEncoding transferEncoding, boolean isBeforeBoundary) throws MIMEParseException {
+	private void flushBodyContentWithDecoding(ByteBuffer source, boolean unexpected, TransferEncoding transferEncoding, boolean isBeforeBoundary, boolean endOfStream) throws MIMEParseException {
 		// Lazy allocation of decodeBuffer - only allocate when actually needed for decoding
 		if (decodeBuffer == null || decodeBuffer.capacity() < maxBufferSize) {
 			decodeBuffer = ByteBuffer.allocate(maxBufferSize);
@@ -632,20 +696,23 @@ public class MIMEParser {
 		while (source.hasRemaining()) {
 			decodeBuffer.clear();
 
-			// Create temporary ByteBuffer from CompositeByteBuffer data for decoders
+			// Create temporary ByteBuffer from source data for decoders
 			int chunkSize = Math.min(source.remaining(), maxBufferSize);
 			byte[] inputBytes = new byte[chunkSize];
 			source.get(inputBytes);
 			ByteBuffer inputBuffer = ByteBuffer.wrap(inputBytes);
 
 			// Decode using ByteBuffer API
+			// Use endOfStream=true when this is the last chunk AND (before boundary OR end of stream)
+			boolean isLastChunk = !source.hasRemaining();
+			boolean flushRemaining = isLastChunk && (isBeforeBoundary || endOfStream);
 			DecodeResult result;
 			switch (transferEncoding) {
 				case BASE64:
-					result = Base64Decoder.decode(inputBuffer, decodeBuffer, maxBufferSize);
+					result = Base64Decoder.decode(inputBuffer, decodeBuffer, maxBufferSize, flushRemaining);
 					break;
 				case QUOTED_PRINTABLE:
-					result = QuotedPrintableDecoder.decode(inputBuffer, decodeBuffer, maxBufferSize);
+					result = QuotedPrintableDecoder.decode(inputBuffer, decodeBuffer, maxBufferSize, flushRemaining);
 					break;
 				default:
 					throw new IllegalArgumentException("Unsupported transfer encoding for decoding: " + transferEncoding);
@@ -655,7 +722,6 @@ public class MIMEParser {
 				decodeBuffer.flip(); // ready for reading
 
 				// If this is the last chunk and isBeforeBoundary, strip trailing line ending
-				boolean isLastChunk = !source.hasRemaining();
 				if (isLastChunk && isBeforeBoundary) {
 					int limit = decodeBuffer.limit();
 					// Check for CRLF
@@ -688,7 +754,7 @@ public class MIMEParser {
 				int unconsumedBytes = inputBytes.length - result.consumedBytes;
 				byte[] remaining = new byte[unconsumedBytes];
 				System.arraycopy(inputBytes, result.consumedBytes, remaining, 0, unconsumedBytes);
-				// We need to "rewind" the CompositeByteBuffer by putting bytes back
+				// We need to "rewind" the source by putting bytes back
 				// This is complex, so for now we'll process all input and let the decoder handle partial sequences
 			}
 		}
@@ -698,11 +764,11 @@ public class MIMEParser {
 
 	/**
 	 * Flushes binary content without allocation - passes through input buffer directly in chunks
-	 * @param source CompositeByteBuffer containing the binary content to pass through
+	 * @param source ByteBuffer containing the binary content to pass through
 	 * @param unexpected true if this content should be reported as unexpected
 	 * @param isBeforeBoundary true if this content precedes a boundary, causing trailing CRLF/CR/LF to be stripped
 	 */
-	private void flushBodyContentBinary(CompositeByteBuffer source, boolean unexpected, boolean isBeforeBoundary) throws MIMEParseException {
+	private void flushBodyContentBinary(ByteBuffer source, boolean unexpected, boolean isBeforeBoundary) throws MIMEParseException {
 		boolean hasProcessedContent = false;
 
 		while (source.hasRemaining()) {
@@ -752,7 +818,7 @@ public class MIMEParser {
 	 * @param buffer the content to buffer
 	 * @param unexpected whether this content is unexpected
 	 */
-	private void bufferBodyContent(CompositeByteBuffer buffer, boolean unexpected) {
+	private void bufferBodyContent(ByteBuffer buffer, boolean unexpected) {
 		if (pendingBodyContent == null) {
 			pendingBodyContent = new ByteArrayOutputStream();
 		}
@@ -771,9 +837,7 @@ public class MIMEParser {
 	private void flushPendingBodyContent(boolean isBeforeBoundary) throws MIMEParseException {
 		if (pendingBodyContent != null && pendingBodyContent.size() > 0) {
 			byte[] bytes = pendingBodyContent.toByteArray();
-			CompositeByteBuffer buffer = new CompositeByteBuffer();
-			buffer.put(ByteBuffer.wrap(bytes));
-			buffer.flip();
+			ByteBuffer buffer = ByteBuffer.wrap(bytes);
 			flushBodyContent(buffer, pendingBodyContentUnexpected, isBeforeBoundary);
 			pendingBodyContent.reset();
 		}
@@ -792,63 +856,37 @@ public class MIMEParser {
 	 * Notifies the parser of an end of input, end of stream or end of
 	 * connection event, indicating that there will be no more invocations
 	 * of receive.
-	 * @exception MIMEParseException if an error occurred processing the
-	 * end of the input
+	 *
+	 * @throws MIMEParseException if there was unconsumed data in a context
+	 *         where it's not allowed (headers or multipart boundaries)
 	 */
 	public void close() throws MIMEParseException {
-		// After receive(), the compositeBuffer is in "write mode" (position=limit after compact()).
-		// We need to flip() to "read mode" to access any unprocessed data remaining in the buffer.
-		compositeBuffer.flip();
+		// Check underflow based on state
+		if (underflow) {
+			switch (state) {
+				case INIT:
+				case HEADER:
+					// Incomplete headers are always an error
+					throw new MIMEParseException("Incomplete header at end of stream", locator);
+				case FIRST_BOUNDARY:
+				case BOUNDARY_OR_CONTENT:
+				case BOUNDARY_ONLY:
+					// Incomplete data in multipart context is an error
+					throw new MIMEParseException("Incomplete multipart data at end of stream", locator);
+				case BODY:
+					// Non-multipart body can end without final newline - this is valid
+					// The underflow content is just the final line of the body
+					break;
+			}
+		}
 
+		// Finalize header if we were accumulating one
 		if (headerName != null) {
 			endHeaders();
 		}
+
 		// Flush any pending body content with isBeforeBoundary=false since we're at EOF
 		flushPendingBodyContent(false);
-		if (compositeBuffer.hasRemaining()) {
-			int len;
-			if (allowMalformedButRecoverableMultipart && state == State.BOUNDARY_OR_CONTENT) {
-				state = State.BODY;
-			}
-			switch (state) {
-				case INIT:
-					// Defensive programming: INIT state at EOF means no entity was started
-					throw new MIMEParseException("EOF in initial state (no entity started)", locator);
-				case HEADER:
-					throw new MIMEParseException("EOF before end of headers", locator);
-				case BODY:
-					len = compositeBuffer.remaining();
-					if (decodeBuffer == null || decodeBuffer.capacity() < len) {
-						decodeBuffer = ByteBuffer.allocate(len);
-					}
-					// Copy bytes from CompositeByteBuffer to decodeBuffer
-					byte[] bytes = new byte[len];
-					compositeBuffer.get(bytes);
-					decodeBuffer.clear();
-					decodeBuffer.put(bytes);
-					decodeBuffer.flip();
-					handler.bodyContent(decodeBuffer);
-					decodeBuffer.clear();
-					break;
-				case FIRST_BOUNDARY:
-				case BOUNDARY_OR_CONTENT:
-					throw new MIMEParseException("EOF expecting boundary", locator);
-				case BOUNDARY_ONLY:
-					len = compositeBuffer.remaining();
-					if (decodeBuffer == null || decodeBuffer.capacity() < len) {
-						decodeBuffer = ByteBuffer.allocate(len);
-					}
-					// Copy bytes from CompositeByteBuffer to decodeBuffer
-					byte[] unexpectedBytes = new byte[len];
-					compositeBuffer.get(unexpectedBytes);
-					decodeBuffer.clear();
-					decodeBuffer.put(unexpectedBytes);
-					decodeBuffer.flip();
-					handler.unexpectedContent(decodeBuffer);
-					decodeBuffer.clear();
-					break;
-			}
-		}
 
 		// Validate that all multipart boundaries are properly closed
 		if (!boundaries.isEmpty()) {
@@ -868,8 +906,9 @@ public class MIMEParser {
 		headerValueSink.reset();
 		decodeBuffer = null;
 		contentFlushed = false;
-		compositeBuffer.compact(); // Clear any remaining data
 		clearPendingBodyContent();  // Clear any pending body content
+		last = (byte) 0;
+		underflow = false;
 	}
 
 	/**
@@ -892,7 +931,7 @@ public class MIMEParser {
 	 * @param buffer the buffer to check
 	 * @return BoundaryMatch if boundary found, null otherwise
 	 */
-	protected BoundaryMatch detectBoundary(CompositeByteBuffer buffer) {
+	protected BoundaryMatch detectBoundary(ByteBuffer buffer) {
 		if (boundaries.isEmpty()) {
 			return null;
 		}
@@ -910,7 +949,7 @@ public class MIMEParser {
 	 * @param boundary the boundary string to match
 	 * @return BoundaryMatch if boundary found, null otherwise
 	 */
-	protected BoundaryMatch checkBoundary(CompositeByteBuffer buffer, String boundary) {
+	protected BoundaryMatch checkBoundary(ByteBuffer buffer, String boundary) {
 		int start = buffer.position();
 		int end = buffer.limit();
 
@@ -987,4 +1026,3 @@ public class MIMEParser {
 	}
 
 }
-

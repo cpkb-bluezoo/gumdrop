@@ -28,6 +28,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 /**
@@ -41,6 +42,8 @@ import java.util.logging.Logger;
 public class WebSocketHandshake {
 
     private static final Logger LOGGER = Logger.getLogger(WebSocketHandshake.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle(
+        "org.bluezoo.gumdrop.http.websocket.L10N");
 
     /**
      * WebSocket Protocol GUID as defined in RFC 6455 Section 1.3.
@@ -69,7 +72,7 @@ public class WebSocketHandshake {
      */
     public static String calculateAccept(String key) {
         if (key == null || key.trim().isEmpty()) {
-            throw new IllegalArgumentException("WebSocket key cannot be null or empty");
+            throw new IllegalArgumentException(L10N.getString("err.key_null_or_empty"));
         }
 
         try {

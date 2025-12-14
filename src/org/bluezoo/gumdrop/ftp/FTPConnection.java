@@ -21,14 +21,12 @@
 
 package org.bluezoo.gumdrop.ftp;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.SendCallback;
+import org.bluezoo.gumdrop.LineBasedConnection;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
 import org.bluezoo.gumdrop.quota.QuotaSource;
-import org.bluezoo.gumdrop.util.LineInput;
 
 import java.io.IOException;
 import java.net.Inet4Address;
@@ -41,6 +39,7 @@ import java.nio.CharBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.ArrayList;
@@ -66,13 +65,16 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see https://www.rfc-editor.org/rfc/rfc959
  */
-public class FTPConnection extends Connection {
+public class FTPConnection extends LineBasedConnection {
 
     private static final Logger LOGGER = Logger.getLogger(FTPConnection.class.getName());
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     static final Charset US_ASCII = Charset.forName("US-ASCII");
     static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
+
+    // Maximum command line length (common FTP server default is 1024)
+    private static final int MAX_LINE_LENGTH = 1024;
 
     // Using base class protected SocketChannel channel field
     private final FTPServer server;
@@ -92,30 +94,13 @@ public class FTPConnection extends Connection {
     private boolean dataProtection = false;
     private boolean authUsed = false;
 
-    private ByteBuffer in; // input buffer
-    private LineReader lineReader;
+    // Character buffer for line decoding
+    private CharBuffer charBuffer;
 
     // Telemetry
     private Trace connectionTrace = null;
     private Span sessionSpan = null;
     private Span authenticatedSpan = null;
-
-    class LineReader implements LineInput {
-
-        private CharBuffer sink; // character buffer to receive decoded characters
-
-        @Override public ByteBuffer getLineInputBuffer() {
-            return in;
-        }
-
-        @Override public CharBuffer getOrCreateLineInputCharacterSink(int capacity) {
-            if (sink == null || sink.capacity() < capacity) {
-                sink = CharBuffer.allocate(capacity);
-            }
-            return sink;
-        }
-
-    }
 
     protected FTPConnection(FTPServer server, SocketChannel channel, SSLEngine engine, boolean secure, FTPConnectionHandler handler) {
         super(engine, secure);
@@ -155,14 +140,8 @@ public class FTPConnection extends Connection {
         // Initialize data connection coordinator
         this.dataCoordinator = new FTPDataConnectionCoordinator(this);
         
-        // Initialize input buffer for line reading
-        in = ByteBuffer.allocate(8192);
-        lineReader = this.new LineReader();
-    }
-    
-    @Override
-    public void setSendCallback(SendCallback callback) {
-        super.setSendCallback(callback);
+        // Initialize character buffer for line decoding
+        charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH + 2); // +2 for CRLF
     }
     
     @Override
@@ -193,56 +172,58 @@ public class FTPConnection extends Connection {
 
     @Override
     public void receive(ByteBuffer buf) {
+        receiveLine(buf);
+    }
+
+    /**
+     * Called when a complete CRLF-terminated line has been received.
+     * Decodes the line and dispatches the FTP command.
+     *
+     * @param line buffer containing the complete line including CRLF
+     */
+    @Override
+    protected void lineReceived(ByteBuffer line) {
         try {
-            // buf is already in read mode - copy its data to our internal buffer
-            // We must consume all the data from buf since we can't retain a reference
-            
-            // Ensure our internal buffer is in write mode to accept new data
-            if (in.position() == 0 && in.limit() == in.capacity()) {
-                // Buffer is empty and ready for writing
-            } else {
-                // Buffer contains partial data from previous received() call
-                // Position to end of existing data for appending
-                in.position(in.limit());
-                in.limit(in.capacity());
+            // Check line length
+            int lineLen = line.remaining();
+            if (lineLen < 2) {
+                // Empty line or malformed
+                return;
             }
-            
-            // Copy all available data from buf to our internal buffer
-            while (buf.hasRemaining()) {
-                if (!in.hasRemaining()) {
-                    // Internal buffer is full - need to expand or handle overflow
-                    // For FTP commands, this should be rare since commands are typically short
-                    LOGGER.warning("FTP command buffer full, expanding buffer");
-                    
-                    // Create larger buffer and copy existing data
-                    ByteBuffer newBuffer = ByteBuffer.allocate(in.capacity() * 2);
-                    in.flip(); // Switch to read mode to copy existing data
-                    newBuffer.put(in);
-                    in = newBuffer;
-                    // newBuffer is now positioned for appending
-                }
-                in.put(buf.get());
+            if (lineLen > MAX_LINE_LENGTH + 2) {
+                reply(500, L10N.getString("ftp.err.line_too_long"));
+                LOGGER.warning("FTP command line too long from " + getRemoteSocketAddress() + 
+                              ": " + lineLen + " bytes");
+                return;
             }
-            
-            // Switch internal buffer to read mode for line processing
-            in.flip();
-            
-            // Process all complete lines available
-            String line = lineReader.readLine(US_ASCII_DECODER);
-            while (line != null) {
-                lineRead(line);
-                line = lineReader.readLine(US_ASCII_DECODER);
+
+            // Prepare charBuffer for decoding
+            charBuffer.clear();
+            US_ASCII_DECODER.reset();
+
+            // Decode the line (excluding CRLF)
+            int savedLimit = line.limit();
+            line.limit(savedLimit - 2); // Exclude CRLF
+            CoderResult result = US_ASCII_DECODER.decode(line, charBuffer, true);
+            line.limit(savedLimit);
+
+            if (result.isError()) {
+                reply(500, L10N.getString("ftp.err.illegal_characters"));
+                LOGGER.log(Level.WARNING, "Invalid FTP command encoding from " + 
+                          getRemoteSocketAddress() + ": " + result.toString());
+                return;
             }
-            
-            // After readLine() processing:
-            // - If lines were found: buffer is positioned after the processed lines
-            // - If no complete line: buffer contains partial data and is ready for more data
-            // The LineInput.readLine() method manages the buffer state correctly
-            
+
+            charBuffer.flip();
+            String lineStr = charBuffer.toString();
+
+            // Process the command
+            lineRead(lineStr);
+
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error processing FTP command", e);
             try {
-                reply(500, L10N.getString("ftp.err.illegal_characters")); // Syntax error
+                reply(500, L10N.getString("ftp.err.illegal_characters"));
             } catch (IOException e2) {
                 LOGGER.log(Level.SEVERE, "Cannot write error reply", e2);
             }

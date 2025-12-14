@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.quota;
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -53,17 +53,17 @@ import java.util.logging.Logger;
  * 
  * <h4>Configuration Example</h4>
  * <pre>{@code
- * <bean id="quotaManager" class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager">
+ * <component id="quotaManager" class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager">
  *   <property name="realm" ref="#mainRealm"/>
- *   <property name="storageDir">/var/gumdrop/quota</property>
- *   <property name="defaultQuota">1GB</property>
+ *   <property name="storage-dir">/var/gumdrop/quota</property>
+ *   <property name="default-quota">1GB</property>
  *   
  *   <!-- Role-based quotas -->
- *   <property name="roleQuota.admin">unlimited</property>
- *   <property name="roleQuota.premium">10GB</property>
- *   <property name="roleQuota.standard">1GB</property>
- *   <property name="roleQuota.guest">100MB</property>
- * </bean>
+ *   <property name="role-quota.admin">unlimited</property>
+ *   <property name="role-quota.premium">10GB</property>
+ *   <property name="role-quota.standard">1GB</property>
+ *   <property name="role-quota.guest">100MB</property>
+ * </component>
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

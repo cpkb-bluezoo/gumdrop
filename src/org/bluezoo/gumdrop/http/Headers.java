@@ -215,5 +215,38 @@ public class Headers extends ArrayList<Header> {
         return combined != null ? combined.toString() : null;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Convenience methods for HTTP pseudo-headers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sets the :status pseudo-header for a response.
+     * This is a convenience method for setting the HTTP status code.
+     *
+     * @param status the HTTP status
+     */
+    public void status(HTTPStatus status) {
+        set(":status", Integer.toString(status.code));
+    }
+
+    /**
+     * Returns the HTTP method from the :method pseudo-header.
+     *
+     * @return the HTTP method (GET, POST, etc.), or null if not present
+     */
+    public String getMethod() {
+        return getValue(":method");
+    }
+
+    /**
+     * Returns the request path from the :path pseudo-header.
+     *
+     * @return the request path, or null if not present
+     */
+    public String getPath() {
+        return getValue(":path");
+    }
+
 }
+
 

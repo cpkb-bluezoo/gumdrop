@@ -28,12 +28,16 @@ import org.bluezoo.gumdrop.telemetry.SpanLink;
 import org.bluezoo.gumdrop.telemetry.SpanStatus;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.List;
+import java.nio.channels.WritableByteChannel;
 import java.util.Map;
 
 /**
  * Serializes traces to OTLP protobuf format.
+ *
+ * <p>The serializer can write directly to a {@link WritableByteChannel} for
+ * streaming output, or to a {@link ByteBuffer} for buffered output.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -72,19 +76,37 @@ public class TraceSerializer {
     }
 
     /**
-     * Serializes a trace to OTLP TracesData format.
+     * Serializes a trace to OTLP TracesData format, writing to a channel.
+     *
+     * <p>This is the primary serialization method. Data is streamed to the
+     * channel as it is serialized, making it suitable for HTTP/2 or chunked
+     * HTTP/1.1 output.
      *
      * @param trace the trace to serialize
-     * @param buffer the buffer to write to
-     * @return the write result
+     * @param channel the channel to write to
+     * @throws IOException if an I/O error occurs
      */
-    public WriteResult serialize(Trace trace, ByteBuffer buffer) {
-        ProtobufWriter writer = new ProtobufWriter(buffer);
+    public void serialize(Trace trace, WritableByteChannel channel) throws IOException {
+        ProtobufWriter writer = new ProtobufWriter(channel);
         writeTracesData(writer, trace);
-        return writer.getResult();
     }
 
-    private void writeTracesData(ProtobufWriter writer, Trace trace) {
+    /**
+     * Serializes a trace to OTLP TracesData format, returning a ByteBuffer.
+     *
+     * <p>Convenience method for callers who need buffered output.
+     *
+     * @param trace the trace to serialize
+     * @return a ByteBuffer containing the serialized trace (ready for reading)
+     * @throws IOException if serialization fails
+     */
+    public ByteBuffer serialize(Trace trace) throws IOException {
+        ByteBufferChannel channel = new ByteBufferChannel();
+        serialize(trace, channel);
+        return channel.toByteBuffer();
+    }
+
+    private void writeTracesData(ProtobufWriter writer, Trace trace) throws IOException {
         // TracesData { repeated ResourceSpans resource_spans = 1; }
         writer.writeMessageField(OTLPFieldNumbers.TRACES_DATA_RESOURCE_SPANS,
                 new ResourceSpansWriter(trace));
@@ -100,7 +122,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
             writer.writeMessageField(OTLPFieldNumbers.RESOURCE_SPANS_RESOURCE,
                     new ResourceWriter());
@@ -116,7 +138,7 @@ public class TraceSerializer {
 
     private class ResourceWriter implements ProtobufWriter.MessageContent {
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated KeyValue attributes = 1
             writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
                     "service.name", serviceName);
@@ -148,7 +170,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
             writer.writeMessageField(OTLPFieldNumbers.SCOPE_SPANS_SCOPE,
                     new InstrumentationScopeWriter());
@@ -169,9 +191,9 @@ public class TraceSerializer {
         }
     }
 
-    private class InstrumentationScopeWriter implements ProtobufWriter.MessageContent {
+    private static class InstrumentationScopeWriter implements ProtobufWriter.MessageContent {
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
             writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
             // string version = 2
@@ -179,7 +201,7 @@ public class TraceSerializer {
         }
     }
 
-    private class SpanWriter implements ProtobufWriter.MessageContent {
+    private static class SpanWriter implements ProtobufWriter.MessageContent {
         private final Span span;
 
         SpanWriter(Span span) {
@@ -187,7 +209,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // bytes trace_id = 1
             writer.writeBytesField(OTLPFieldNumbers.SPAN_TRACE_ID, span.getTrace().getTraceId());
 
@@ -241,7 +263,7 @@ public class TraceSerializer {
         }
     }
 
-    private class AttributeWriter implements ProtobufWriter.MessageContent {
+    private static class AttributeWriter implements ProtobufWriter.MessageContent {
         private final Attribute attr;
 
         AttributeWriter(Attribute attr) {
@@ -249,7 +271,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string key = 1
             writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, attr.getKey());
 
@@ -259,7 +281,7 @@ public class TraceSerializer {
         }
     }
 
-    private class AnyValueWriter implements ProtobufWriter.MessageContent {
+    private static class AnyValueWriter implements ProtobufWriter.MessageContent {
         private final Attribute attr;
 
         AnyValueWriter(Attribute attr) {
@@ -267,7 +289,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             switch (attr.getType()) {
                 case Attribute.TYPE_STRING:
                     writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE,
@@ -289,7 +311,7 @@ public class TraceSerializer {
         }
     }
 
-    private class EventWriter implements ProtobufWriter.MessageContent {
+    private static class EventWriter implements ProtobufWriter.MessageContent {
         private final SpanEvent event;
 
         EventWriter(SpanEvent event) {
@@ -297,7 +319,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 time_unix_nano = 1
             writer.writeFixed64Field(OTLPFieldNumbers.EVENT_TIME_UNIX_NANO,
                     event.getTimeUnixNano());
@@ -313,7 +335,7 @@ public class TraceSerializer {
         }
     }
 
-    private class LinkWriter implements ProtobufWriter.MessageContent {
+    private static class LinkWriter implements ProtobufWriter.MessageContent {
         private final SpanLink link;
 
         LinkWriter(SpanLink link) {
@@ -321,7 +343,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // bytes trace_id = 1
             writer.writeBytesField(OTLPFieldNumbers.LINK_TRACE_ID,
                     link.getContext().getTraceId());
@@ -338,7 +360,7 @@ public class TraceSerializer {
         }
     }
 
-    private class StatusWriter implements ProtobufWriter.MessageContent {
+    private static class StatusWriter implements ProtobufWriter.MessageContent {
         private final SpanStatus status;
 
         StatusWriter(SpanStatus status) {
@@ -346,7 +368,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             // string message = 2
             if (status.getMessage() != null) {
                 writer.writeStringField(OTLPFieldNumbers.STATUS_MESSAGE, status.getMessage());
@@ -360,7 +382,7 @@ public class TraceSerializer {
     // -- Helper method --
 
     private static void writeKeyValue(ProtobufWriter writer, int fieldNumber,
-                                       String key, String value) {
+                                       String key, String value) throws IOException {
         writer.writeMessageField(fieldNumber, new StringKeyValueWriter(key, value));
     }
 
@@ -374,7 +396,7 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, key);
             writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
                     new StringAnyValueWriter(value));
@@ -389,10 +411,8 @@ public class TraceSerializer {
         }
 
         @Override
-        public void writeTo(ProtobufWriter writer) {
+        public void writeTo(ProtobufWriter writer) throws IOException {
             writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE, value);
         }
     }
-
 }
-

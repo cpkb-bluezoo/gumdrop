@@ -233,10 +233,9 @@ public class Trace {
      * Adds an event to the current span.
      *
      * @param name the event name
-     * @return the current span for chaining
      */
-    public Span addEvent(String name) {
-        return currentSpan.addEvent(name);
+    public void addEvent(String name) {
+        currentSpan.addEvent(name);
     }
 
     /**
@@ -244,20 +243,18 @@ public class Trace {
      *
      * @param key the attribute key
      * @param value the attribute value
-     * @return the current span for chaining
      */
-    public Span addAttribute(String key, String value) {
-        return currentSpan.addAttribute(key, value);
+    public void addAttribute(String key, String value) {
+        currentSpan.addAttribute(key, value);
     }
 
     /**
      * Records an exception on the current span.
      *
      * @param exception the exception
-     * @return the current span for chaining
      */
-    public Span recordException(Throwable exception) {
-        return currentSpan.recordException(exception);
+    public void recordException(Throwable exception) {
+        currentSpan.recordException(exception);
     }
 
     /**

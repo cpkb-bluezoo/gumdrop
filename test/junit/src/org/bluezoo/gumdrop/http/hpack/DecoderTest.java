@@ -19,33 +19,13 @@ import org.bluezoo.gumdrop.http.Header;
 
 /**
  * Test HPACK header decoder.
- * To run this test:
- * git clone https://github.com/http2jp/hpack-test-case.git in the parent
- * directory
+ * Test data from https://github.com/http2jp/hpack-test-case
  */
 @RunWith(Parameterized.class)
 public class DecoderTest implements StoryTestInterface {
 
-    // Path to test files.
-    // Testing with https://github.com/http2jp/hpack-test-case
-    private static final String TEST_DIRECTORY_ROOT = "../hpack-test-case/";
-    private static final String[] SUBDIRECTORIES = new String[] {
-        "go-hpack",
-        "haskell-http2-linear-huffman",
-        "haskell-http2-linear",
-        "haskell-http2-naive-huffman",
-        "haskell-http2-naive",
-        "haskell-http2-static-huffman",
-        "haskell-http2-static",
-        "nghttp2",
-        "nghttp2-16384-4096",
-        "nghttp2-change-table-size",
-        "node-http2-hpack",
-        "python-hpack",
-        "swift-nio-hpack-plain-text",
-        "swift-nio-hpack-huffman"
-        // Determined incorrect encodings: nghttp2, python-hpack
-    };
+    // Path to test files (gumdrop-encoded from hpack-test-case)
+    private static final String TEST_DIRECTORY = "test/hpack-test-case/gumdrop";
 
     /*
      * Each file is a "story" which means a sequence of requests on a
@@ -65,21 +45,16 @@ public class DecoderTest implements StoryTestInterface {
     @Parameters(name = "Test for file: {0}")
     public static Collection<Object[]> data() {
         List<Object[]> parameters = new ArrayList<>();
-        File root = new File(TEST_DIRECTORY_ROOT);
-        for (String filename : SUBDIRECTORIES) {
-            File directory = new File(root, filename);
+        File directory = new File(TEST_DIRECTORY);
 
-            // Check if the directory exists and is a directory
-            if (!directory.exists() || !directory.isDirectory()) {
-                fail(directory + " does not exist or is not a directory");
-            }
+        assertTrue(TEST_DIRECTORY + " does not exist or is not a directory",
+                   directory.exists() && directory.isDirectory());
 
-            File[] files = directory.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isFile() && file.getName().endsWith(".json")) {
-                        parameters.add(new Object[] { file });
-                    }
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile() && file.getName().endsWith(".json")) {
+                    parameters.add(new Object[] { file });
                 }
             }
         }

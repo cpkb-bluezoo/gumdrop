@@ -29,6 +29,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
+import org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory;
+import org.bluezoo.gumdrop.servlet.jndi.DataSourceDef;
+import org.bluezoo.gumdrop.servlet.jndi.EjbRef;
+import org.bluezoo.gumdrop.servlet.jndi.EnvEntry;
+import org.bluezoo.gumdrop.servlet.jndi.Injectable;
+import org.bluezoo.gumdrop.servlet.jndi.JmsConnectionFactory;
+import org.bluezoo.gumdrop.servlet.jndi.JmsDestination;
+import org.bluezoo.gumdrop.servlet.jndi.MailSession;
+import org.bluezoo.gumdrop.servlet.jndi.MessageDestinationRef;
+import org.bluezoo.gumdrop.servlet.jndi.PersistenceContextRef;
+import org.bluezoo.gumdrop.servlet.jndi.PersistenceUnitRef;
+import org.bluezoo.gumdrop.servlet.jndi.Resource;
+import org.bluezoo.gumdrop.servlet.jndi.ResourceEnvRef;
+import org.bluezoo.gumdrop.servlet.jndi.ResourceRef;
+import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
+
 /**
  * A deployment descriptor contains the definitions of various entities in
  * the web application, notably filter, servlets, and their mappings.

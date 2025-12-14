@@ -56,7 +56,7 @@ public class HTTP2SettingsTest {
             0x00, 0x01, 0x00, 0x00, 0x10, 0x00  // SETTINGS_HEADER_TABLE_SIZE = 4096
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(4096), frame.settings.get(SettingsFrame.SETTINGS_HEADER_TABLE_SIZE));
     }
     
@@ -70,7 +70,7 @@ public class HTTP2SettingsTest {
         // This should throw ProtocolException as the current implementation
         // requires value > 0 for most settings
         try {
-            SettingsFrame frame = new SettingsFrame(0, payload);
+            SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
             // If it doesn't throw, verify the value
             assertEquals(Integer.valueOf(0), frame.settings.get(SettingsFrame.SETTINGS_HEADER_TABLE_SIZE));
         } catch (ProtocolException e) {
@@ -85,7 +85,7 @@ public class HTTP2SettingsTest {
             0x00, 0x01, 0x00, 0x01, 0x00, 0x00  // SETTINGS_HEADER_TABLE_SIZE = 65536
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(65536), frame.settings.get(SettingsFrame.SETTINGS_HEADER_TABLE_SIZE));
     }
     
@@ -97,7 +97,7 @@ public class HTTP2SettingsTest {
             0x00, 0x02, 0x00, 0x00, 0x00, 0x01  // SETTINGS_ENABLE_PUSH = 1 (enabled)
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(1), frame.settings.get(SettingsFrame.SETTINGS_ENABLE_PUSH));
     }
     
@@ -109,7 +109,7 @@ public class HTTP2SettingsTest {
         
         // Note: current implementation may reject value 0
         try {
-            SettingsFrame frame = new SettingsFrame(0, payload);
+            SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
             assertEquals(Integer.valueOf(0), frame.settings.get(SettingsFrame.SETTINGS_ENABLE_PUSH));
         } catch (ProtocolException e) {
             // Current implementation may throw for value 0
@@ -123,7 +123,7 @@ public class HTTP2SettingsTest {
             0x00, 0x02, 0x00, 0x00, 0x00, 0x02  // SETTINGS_ENABLE_PUSH = 2 (invalid)
         };
         
-        new SettingsFrame(0, payload);
+        new SettingsFrame(0, ByteBuffer.wrap(payload));
     }
     
     // ========== SETTINGS_MAX_CONCURRENT_STREAMS Tests ==========
@@ -134,7 +134,7 @@ public class HTTP2SettingsTest {
             0x00, 0x03, 0x00, 0x00, 0x00, 0x64  // SETTINGS_MAX_CONCURRENT_STREAMS = 100
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(100), frame.settings.get(SettingsFrame.SETTINGS_MAX_CONCURRENT_STREAMS));
     }
     
@@ -145,7 +145,7 @@ public class HTTP2SettingsTest {
             0x00, 0x03, 0x7F, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF  // MAX = 2^31-1
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(Integer.MAX_VALUE), 
             frame.settings.get(SettingsFrame.SETTINGS_MAX_CONCURRENT_STREAMS));
     }
@@ -159,7 +159,7 @@ public class HTTP2SettingsTest {
             0x00, 0x04, 0x00, 0x00, (byte) 0xFF, (byte) 0xFF  // = 65535
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(65535), frame.settings.get(SettingsFrame.SETTINGS_INITIAL_WINDOW_SIZE));
     }
     
@@ -170,7 +170,7 @@ public class HTTP2SettingsTest {
             0x00, 0x04, 0x7F, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(Integer.MAX_VALUE), 
             frame.settings.get(SettingsFrame.SETTINGS_INITIAL_WINDOW_SIZE));
     }
@@ -184,7 +184,7 @@ public class HTTP2SettingsTest {
             0x00, 0x05, 0x00, 0x00, 0x40, 0x00  // = 16384
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(16384), frame.settings.get(SettingsFrame.SETTINGS_MAX_FRAME_SIZE));
     }
     
@@ -195,7 +195,7 @@ public class HTTP2SettingsTest {
             0x00, 0x05, 0x00, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(16777215), frame.settings.get(SettingsFrame.SETTINGS_MAX_FRAME_SIZE));
     }
     
@@ -206,7 +206,7 @@ public class HTTP2SettingsTest {
             0x00, 0x05, 0x00, 0x00, 0x10, 0x00  // = 4096 (too small)
         };
         
-        new SettingsFrame(0, payload);
+        new SettingsFrame(0, ByteBuffer.wrap(payload));
     }
     
     // ========== SETTINGS_MAX_HEADER_LIST_SIZE Tests ==========
@@ -217,7 +217,7 @@ public class HTTP2SettingsTest {
             0x00, 0x06, 0x00, 0x00, (byte) 0x80, 0x00  // = 32768
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         assertEquals(Integer.valueOf(32768), frame.settings.get(SettingsFrame.SETTINGS_MAX_HEADER_LIST_SIZE));
     }
     
@@ -232,7 +232,7 @@ public class HTTP2SettingsTest {
             0x00, 0x05, 0x00, 0x01, 0x00, 0x00   // MAX_FRAME_SIZE = 65536
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         
         assertEquals("Should have 4 settings", 4, frame.settings.size());
         assertEquals(Integer.valueOf(8192), frame.settings.get(SettingsFrame.SETTINGS_HEADER_TABLE_SIZE));
@@ -249,7 +249,7 @@ public class HTTP2SettingsTest {
             0x00, 0x01, 0x00, 0x00, 0x20, 0x00   // HEADER_TABLE_SIZE = 8192 (overwrites)
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         
         // LinkedHashMap preserves last value
         assertEquals(Integer.valueOf(8192), frame.settings.get(SettingsFrame.SETTINGS_HEADER_TABLE_SIZE));
@@ -262,7 +262,7 @@ public class HTTP2SettingsTest {
         byte[] payload = new byte[0];
         int flags = Frame.FLAG_ACK;
         
-        SettingsFrame frame = new SettingsFrame(flags, payload);
+        SettingsFrame frame = new SettingsFrame(flags, ByteBuffer.wrap(payload));
         
         assertTrue("Should be ACK", frame.ack);
         assertTrue("ACK should have empty settings", frame.settings.isEmpty());
@@ -352,7 +352,7 @@ public class HTTP2SettingsTest {
             0x00, (byte) 0xFF, 0x00, 0x00, 0x00, 0x01  // Unknown setting 0xFF = 1
         };
         
-        SettingsFrame frame = new SettingsFrame(0, payload);
+        SettingsFrame frame = new SettingsFrame(0, ByteBuffer.wrap(payload));
         
         // Should parse without error
         assertEquals(Integer.valueOf(4096), frame.settings.get(SettingsFrame.SETTINGS_HEADER_TABLE_SIZE));

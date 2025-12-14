@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.util.ByteArrays;
 
 import java.io.ByteArrayOutputStream;
@@ -242,6 +242,23 @@ public abstract class HTTPAuthenticationProvider {
     protected abstract Realm.TokenValidationResult validateOAuthToken(String accessToken);
 
     /**
+     * Checks if the underlying Realm supports HTTP Digest authentication.
+     * 
+     * <p>HTTP Digest authentication requires the Realm to provide the H(A1) hash
+     * via {@link #getDigestHA1(String, String)}. Some Realm implementations 
+     * (e.g., LDAP with hashed passwords) cannot support this.</p>
+     * 
+     * <p>The default implementation returns true, assuming Digest is supported.
+     * Subclasses should override this if they can determine whether the Realm
+     * actually supports Digest authentication.</p>
+     * 
+     * @return true if Digest authentication is supported, false otherwise
+     */
+    protected boolean supportsDigestAuth() {
+        return true; // Default: assume supported
+    }
+
+    /**
      * Authenticates a request using the Authorization header value.
      * 
      * <p>This method parses the Authorization header, determines the
@@ -332,6 +349,11 @@ public abstract class HTTPAuthenticationProvider {
                 return "Basic realm=\"" + realmName + "\"";
 
             case HttpServletRequest.DIGEST_AUTH:
+                // Check if the Realm supports Digest authentication
+                if (!supportsDigestAuth()) {
+                    LOGGER.severe(L10N.getString("auth.err.digest_not_supported_by_realm"));
+                    return null; // Cannot generate challenge - realm doesn't support Digest
+                }
                 try {
                     String nonce = generateNonce();
                     return "Digest realm=\"" + realmName + "\", nonce=\"" + nonce + "\", qop=\"auth\"";
@@ -460,6 +482,13 @@ public abstract class HTTPAuthenticationProvider {
      * @return the authentication result
      */
     private AuthenticationResult authenticateDigest(String credentials) {
+        // Check if the Realm supports Digest authentication
+        if (!supportsDigestAuth()) {
+            LOGGER.severe(L10N.getString("auth.err.digest_not_supported_by_realm"));
+            return AuthenticationResult.failure("Digest", getRealmName(),
+                L10N.getString("auth.err.digest_not_supported_by_realm"));
+        }
+
         try {
             Map<String, String> digestResponse = parseDigestResponse(credentials);
             String username = digestResponse.get("username");

@@ -28,22 +28,19 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLEngineResult;
-import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLSession;
 
@@ -58,15 +55,12 @@ import javax.net.ssl.SSLSession;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public abstract class Connection implements ChannelHandler {
+public abstract class Connection implements ChannelHandler, SSLState.Callback {
 
     private static final Logger LOGGER = Logger.getLogger(Connection.class.getName());
 
-    /**
-     * Sentinel buffer indicating the connection should be closed after
-     * all pending writes complete.
-     */
-    static final ByteBuffer CLOSE_SENTINEL = ByteBuffer.allocate(0);
+    /** Default buffer size for network I/O */
+    private static final int DEFAULT_BUFFER_SIZE = 8192;
 
     // Key size parsing from cipher suites
     private static final Map<String,Integer> KNOWN_KEY_SIZES = new HashMap<String,Integer>();
@@ -81,8 +75,12 @@ public abstract class Connection implements ChannelHandler {
     private SelectionKey key;
     private SelectorLoop selectorLoop;
 
-    // Outbound data queue
-    private final Deque<ByteBuffer> outboundQueue;
+    // Network I/O buffers (owned by Connection, used by SelectorLoop)
+    ByteBuffer netIn;   // Incoming data (encrypted for TLS, plaintext otherwise)
+    ByteBuffer netOut;  // Outgoing data (encrypted for TLS, plaintext otherwise)
+
+    // Close requested flag - SelectorLoop closes after netOut is flushed
+    boolean closeRequested;
 
     protected int bufferSize;
 
@@ -104,10 +102,12 @@ public abstract class Connection implements ChannelHandler {
     private long timestampCreated;
     private long timestampLastActivity;
     private long timestampConnected;
+    private long handshakeStartTime;
 
     // Lifecycle state
     private volatile boolean initialized;
     private volatile boolean closing;
+    private boolean clientConnection;
 
     /**
      * Constructor for an unencrypted connection.
@@ -127,7 +127,6 @@ public abstract class Connection implements ChannelHandler {
     protected Connection(SSLEngine engine, boolean secure) {
         this.engine = engine;
         this.secure = secure;
-        this.outboundQueue = new ArrayDeque<ByteBuffer>();
         this.timestampCreated = System.currentTimeMillis();
         this.timestampLastActivity = this.timestampCreated;
     }
@@ -210,7 +209,9 @@ public abstract class Connection implements ChannelHandler {
      */
     public void init() throws IOException {
         if (channel == null) {
-            bufferSize = 4096;
+            bufferSize = DEFAULT_BUFFER_SIZE;
+            netIn = ByteBuffer.allocate(bufferSize);
+            netOut = ByteBuffer.allocate(bufferSize);
             initialized = true;
             timestampConnected = System.currentTimeMillis();
             return;
@@ -220,17 +221,22 @@ public abstract class Connection implements ChannelHandler {
         socket.setTcpNoDelay(true);
 
         if (engine == null || !secure) {
-            bufferSize = Math.max(4096, socket.getReceiveBufferSize());
+            bufferSize = Math.max(DEFAULT_BUFFER_SIZE, socket.getReceiveBufferSize());
             // For plaintext connections, we're connected immediately
             timestampConnected = System.currentTimeMillis();
         }
 
         // Initialize SSL state if connection starts secure
         if (engine != null && secure) {
-            SSLSession session = engine.getSession();
-            sslState = new SSLState(session);
+            handshakeStartTime = System.currentTimeMillis();
+            sslState = new SSLState(engine, this);
+            bufferSize = sslState.getBufferSize();
             // timestampConnected will be set in handshakeComplete()
         }
+
+        // Allocate network I/O buffers
+        netIn = ByteBuffer.allocate(bufferSize);
+        netOut = ByteBuffer.allocate(bufferSize);
 
         initialized = true;
         updateLastActivity();
@@ -254,30 +260,70 @@ public abstract class Connection implements ChannelHandler {
         }
 
         secure = true;
-        SSLSession session = engine.getSession();
-        sslState = new SSLState(session);
-        bufferSize = Math.max(4096, channel.socket().getReceiveBufferSize());
+        handshakeStartTime = System.currentTimeMillis();
+        sslState = new SSLState(engine, this);
+        bufferSize = sslState.getBufferSize();
     }
 
     // -- Package-private methods called by SelectorLoop --
 
     /**
-     * Called by SelectorLoop when network data arrives.
+     * Called by SelectorLoop after copying data into netIn.
+     * The netIn buffer is in read mode (flipped) with data ready to process.
      * Handles SSL unwrap if secure, then calls receive() with application data.
+     * Loops until all data is consumed or receive() stops consuming.
+     * After processing, compacts netIn for next append.
      */
-    final void netReceive(ByteBuffer data) {
+    final void processInbound() {
         updateLastActivity();
         if (sslState != null) {
-            sslState.unwrap(data);
+            sslState.unwrap();
         } else {
+            // Plaintext: netIn IS the application data
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String message = Gumdrop.L10N.getString("info.received_plaintext");
-                message = MessageFormat.format(message, data.remaining(),
+                message = MessageFormat.format(message, netIn.remaining(),
                         channel.socket().getRemoteSocketAddress());
                 LOGGER.finest(message);
             }
-            receive(data);
+            
+            // Call receive once - it should consume all complete messages
+            // and leave only incomplete data (if any)
+            receive(netIn);
+            
+            // Compact to preserve any unconsumed data for next read cycle
+            netIn.compact();
         }
+    }
+
+    /**
+     * Appends data to the netIn buffer, growing if necessary.
+     * Called by SelectorLoop after reading from socket.
+     *
+     * @param data the data to append (in read mode)
+     * @throws BufferOverflowException if the buffer would exceed the configured maximum
+     */
+    final void appendToNetIn(ByteBuffer data) {
+        int needed = data.remaining();
+        int available = netIn.remaining(); // space available for writing
+
+        if (needed > available) {
+            // Need to grow the buffer
+            int newSize = netIn.position() + needed + DEFAULT_BUFFER_SIZE;
+            
+            // Check against configured maximum
+            int maxSize = connector != null ? connector.getMaxNetInSize() : 0;
+            if (maxSize > 0 && newSize > maxSize) {
+                throw new BufferOverflowException();
+            }
+            
+            ByteBuffer newBuf = ByteBuffer.allocate(newSize);
+            netIn.flip();
+            newBuf.put(netIn);
+            netIn = newBuf;
+        }
+
+        netIn.put(data);
     }
 
     /**
@@ -416,8 +462,8 @@ public abstract class Connection implements ChannelHandler {
     @Override
     public void setSelectorLoop(SelectorLoop loop) {
         this.selectorLoop = loop;
-        // If data was queued before registration (e.g., during init()), schedule write now
-        if (loop != null && !outboundQueue.isEmpty()) {
+        // If data was buffered before registration (e.g., during init()), schedule write now
+        if (loop != null && netOut != null && netOut.position() > 0) {
             loop.requestWrite(this);
         }
     }
@@ -427,8 +473,19 @@ public abstract class Connection implements ChannelHandler {
         return selectorLoop;
     }
 
-    Deque<ByteBuffer> getOutboundQueue() {
-        return outboundQueue;
+    /**
+     * Returns the netOut buffer for SelectorLoop to write from.
+     * Buffer should be flipped before writing.
+     */
+    ByteBuffer getNetOut() {
+        return netOut;
+    }
+
+    /**
+     * Returns true if there is pending data to write or close is requested.
+     */
+    boolean hasPendingWrite() {
+        return (netOut != null && netOut.position() > 0) || closeRequested;
     }
 
     /**
@@ -437,13 +494,6 @@ public abstract class Connection implements ChannelHandler {
      */
     public void setSendCallback(SendCallback callback) {
         this.sendCallback = callback;
-    }
-
-    /**
-     * Returns the current send callback.
-     */
-    public SendCallback getSendCallback() {
-        return sendCallback;
     }
 
     // -- Telemetry --
@@ -552,7 +602,7 @@ public abstract class Connection implements ChannelHandler {
     public void send(ByteBuffer data) {
         if (data == null) {
             // Null means close after current pending writes
-            netSend(CLOSE_SENTINEL);
+            close();
             return;
         }
         // Check if channel is closed (skip if channel is null - testing mode)
@@ -568,21 +618,43 @@ public abstract class Connection implements ChannelHandler {
         if (sslState != null) {
             sslState.wrap(data);
         } else {
-            netSend(data);
+            appendToNetOut(data);
         }
     }
 
     /**
-     * Queues raw (possibly encrypted) data for network transmission.
-     * If a sendCallback is set (testing/stream mode), delivers to callback instead.
+     * Appends data to netOut, growing if necessary, and requests write.
+     * For plaintext, this is called directly from send().
+     * For TLS, SSLState.wrap() calls this with encrypted data.
+     *
+     * @param data the data to append (in read mode)
      */
-    final void netSend(ByteBuffer data) {
-        // If sendCallback is set, deliver to callback instead of queueing
+    /** Lock for netOut buffer access (shared between worker and selector threads). */
+    final Object netOutLock = new Object();
+
+    final void appendToNetOut(ByteBuffer data) {
+        // If sendCallback is set (testing mode), deliver to callback instead
         if (sendCallback != null) {
             sendCallback.onSend(this, data);
             return;
         }
-        outboundQueue.offer(data);
+
+        synchronized (netOutLock) {
+            int needed = data.remaining();
+            int available = netOut.remaining(); // space available for writing
+
+            if (needed > available) {
+                // Need to grow the buffer
+                int newSize = netOut.position() + needed + DEFAULT_BUFFER_SIZE;
+                ByteBuffer newBuf = ByteBuffer.allocate(newSize);
+                netOut.flip();
+                newBuf.put(netOut);
+                netOut = newBuf;
+            }
+
+            netOut.put(data);
+        }
+
         if (selectorLoop != null) {
             selectorLoop.requestWrite(this);
         }
@@ -591,16 +663,20 @@ public abstract class Connection implements ChannelHandler {
     /**
      * Closes the connection gracefully.
      * For SSL connections, sends close_notify before closing.
+     * The actual close happens after netOut is flushed by SelectorLoop.
      */
     public void close() {
         if (closing) {
             return; // Already closing
         }
         closing = true;
+        closeRequested = true;
         if (sslState != null) {
             sslState.closeOutbound();
-        } else {
-            netSend(CLOSE_SENTINEL);
+        }
+        // Request write so SelectorLoop will flush netOut and close
+        if (selectorLoop != null) {
+            selectorLoop.requestWrite(this);
         }
     }
 
@@ -619,6 +695,35 @@ public abstract class Connection implements ChannelHandler {
         if (key != null) {
             key.cancel();
         }
+        // Deregister from Gumdrop if this was a client connection
+        if (clientConnection) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            if (gumdrop != null) {
+                gumdrop.removeChannelHandler(this);
+            }
+        }
+    }
+
+    /**
+     * Sets whether this is a client connection.
+     *
+     * <p>Client connections are tracked by Gumdrop for automatic lifecycle
+     * management. When a client connection closes, it is automatically
+     * deregistered from Gumdrop.
+     *
+     * @param clientConnection true if this is a client connection
+     */
+    void setClientConnection(boolean clientConnection) {
+        this.clientConnection = clientConnection;
+    }
+
+    /**
+     * Returns whether this is a client connection.
+     *
+     * @return true if this is a client connection
+     */
+    boolean isClientConnection() {
+        return clientConnection;
     }
 
     /**
@@ -629,8 +734,20 @@ public abstract class Connection implements ChannelHandler {
 
     /**
      * Called when a connect attempt failed (for client connections).
+     *
+     * <p>The default implementation deregisters this connection from Gumdrop
+     * if it was a client connection.
+     *
+     * @param connectException the exception that caused the failure
      */
     public void finishConnectFailed(IOException connectException) {
+        // Deregister from Gumdrop if this was a client connection
+        if (clientConnection) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            if (gumdrop != null) {
+                gumdrop.removeChannelHandler(this);
+            }
+        }
     }
 
     /**
@@ -717,363 +834,83 @@ public abstract class Connection implements ChannelHandler {
         return channel.socket().getRemoteSocketAddress();
     }
 
-    // -- SSL State inner class --
+    /**
+     * Creates a ConnectionInfo for this connection.
+     * 
+     * <p>This is used by client connections to provide connection details
+     * to handlers.
+     * 
+     * @return the connection info
+     */
+    protected ConnectionInfo createConnectionInfo() {
+        TLSInfo tlsInfo = null;
+        if (secure && engine != null) {
+            tlsInfo = new DefaultTLSInfo(engine, handshakeStartTime);
+        }
+        return new DefaultConnectionInfo(
+            getLocalSocketAddress(),
+            getRemoteSocketAddress(),
+            secure,
+            tlsInfo
+        );
+    }
 
     /**
-     * Manages SSL wrap/unwrap operations.
-     * All methods run on the SelectorLoop thread, no synchronization needed.
+     * Creates a TLSInfo for this connection.
+     * 
+     * <p>This is used by client connections to provide TLS details
+     * to handlers after a STARTTLS upgrade.
+     * 
+     * @return the TLS info, or null if not secure
      */
-    private class SSLState {
-
-        final SSLSession session;
-
-        ByteBuffer netIn;   // Network input (encrypted from peer)
-        ByteBuffer appIn;   // Application input (decrypted)
-        ByteBuffer netOut;  // Network output (encrypted to peer)
-
-        boolean handshakeStarted;
-        boolean closed;
-
-        // Track if netIn is in read mode (after flip) or write mode (after clear/compact)
-        boolean netInReadMode;
-
-        SSLState(SSLSession session) {
-            this.session = session;
-            int netSize = Math.max(32768, session.getPacketBufferSize());
-            int appSize = Math.max(32768, session.getApplicationBufferSize());
-
-            netIn = ByteBuffer.allocate(netSize);
-            netOut = ByteBuffer.allocate(netSize);
-            appIn = ByteBuffer.allocate(appSize);
-
-            bufferSize = appSize;
-            netInReadMode = false; // Starts in write mode
+    protected TLSInfo createTLSInfo() {
+        if (secure && engine != null) {
+            return new DefaultTLSInfo(engine, handshakeStartTime);
         }
+        return null;
+    }
 
-        void unwrap(ByteBuffer data) {
-            if (closed) {
-                return;
-            }
+    // -- SSLState.Callback implementation --
 
-            try {
-                // Ensure netIn is in write mode before appending
-                if (netInReadMode) {
-                    if (netIn.hasRemaining()) {
-                        netIn.compact();
-                    } else {
-                        netIn.clear();
-                    }
-                    netInReadMode = false;
-                }
+    /**
+     * Called by SSLState when decrypted application data is available.
+     * SSLState manages its own appIn buffer and handles underflow.
+     */
+    @Override
+    public final void onApplicationData(ByteBuffer data) {
+        receive(data);
+    }
 
-                // Expand buffer if needed
-                if (netIn.remaining() < data.remaining()) {
-                    int newSize = netIn.position() + data.remaining() + 4096;
-                    ByteBuffer tmp = ByteBuffer.allocate(newSize);
-                    netIn.flip();
-                    tmp.put(netIn);
-                    netIn = tmp;
-                }
+    /**
+     * Called by SSLState when TLS handshake completes.
+     */
+    @Override
+    public final void onHandshakeComplete(String protocol) {
+        handshakeComplete(protocol);
+    }
 
-                // Append incoming data and switch to read mode
-                netIn.put(data);
-                netIn.flip();
-                netInReadMode = true;
-
-                processSSLEvents();
-            } catch (SSLException e) {
-                LOGGER.log(Level.SEVERE, "SSL unwrap error", e);
-                handleClosed("unwrap");
-            }
+    /**
+     * Called by SSLState when TLS connection is closed.
+     */
+    @Override
+    public final void onClosed() {
+        try {
+            disconnected();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error in disconnected handler", e);
         }
+        doClose();
+    }
 
-        void wrap(ByteBuffer data) {
-            if (closed || engine.isOutboundDone()) {
-                return;
-            }
-
-            try {
-                // Wrap application data into encrypted output
-                boolean done = false;
-                while (!done && data.hasRemaining()) {
-                    netOut.clear();
-                    SSLEngineResult result = engine.wrap(data, netOut);
-
-                    switch (result.getStatus()) {
-                        case OK:
-                            if (netOut.position() > 0) {
-                                netOut.flip();
-                                sendNetOut();
-                            }
-                            break;
-                        case BUFFER_OVERFLOW:
-                            netOut = ByteBuffer.allocate(netOut.capacity() + 4096);
-                            break;
-                        case CLOSED:
-                            done = true;
-                            break;
-                        default:
-                            done = true;
-                            break;
-                    }
-
-                    // Handle any handshake events
-                    SSLEngineResult.HandshakeStatus hs = result.getHandshakeStatus();
-                    if (hs == SSLEngineResult.HandshakeStatus.NEED_TASK) {
-                        runDelegatedTasks();
-                    } else if (hs == SSLEngineResult.HandshakeStatus.NEED_UNWRAP) {
-                        done = true;
-                    }
-                }
-            } catch (SSLException e) {
-                LOGGER.log(Level.SEVERE, "SSL wrap error", e);
-            }
+    /**
+     * Returns the remote socket address for SSLState logging.
+     */
+    @Override
+    public final Object getRemoteAddress() {
+        if (channel == null) {
+            return "unknown";
         }
-
-        void closeOutbound() {
-            if (closed) {
-                netSend(CLOSE_SENTINEL);
-                return;
-            }
-            closed = true;
-
-            try {
-                engine.closeOutbound();
-
-                // Generate close_notify
-                ByteBuffer empty = ByteBuffer.allocate(0);
-                netOut.clear();
-                engine.wrap(empty, netOut);
-
-                if (netOut.position() > 0) {
-                    netOut.flip();
-                    sendNetOut();
-                }
-
-                // Queue close sentinel
-                netSend(CLOSE_SENTINEL);
-            } catch (SSLException e) {
-                LOGGER.log(Level.WARNING, "Error sending close_notify", e);
-                netSend(CLOSE_SENTINEL);
-            }
-        }
-
-        private void processSSLEvents() throws SSLException {
-            if (!handshakeStarted) {
-                if (LOGGER.isLoggable(Level.FINEST)) {
-                    Object sa = channel.socket().getRemoteSocketAddress();
-                    String message = Gumdrop.L10N.getString("info.ssl_begin_handshake");
-                    message = MessageFormat.format(message, sa);
-                    LOGGER.finest(message);
-                }
-                engine.beginHandshake();
-                handshakeStarted = true;
-            }
-
-            SSLEngineResult.HandshakeStatus hs = engine.getHandshakeStatus();
-
-            if (hs == SSLEngineResult.HandshakeStatus.FINISHED ||
-                hs == SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
-                // Process application data
-                processApplicationData();
-            } else {
-                // Still handshaking
-                processHandshake(hs);
-            }
-        }
-
-        private void processHandshake(SSLEngineResult.HandshakeStatus hs) throws SSLException {
-            boolean loop;
-            SSLEngineResult result;
-
-            do {
-                loop = false;
-
-                switch (hs) {
-                    case NEED_WRAP:
-                        netOut.clear();
-                        ByteBuffer empty = ByteBuffer.allocate(0);
-                        result = engine.wrap(empty, netOut);
-
-                        switch (result.getStatus()) {
-                            case OK:
-                                if (netOut.position() > 0) {
-                                    netOut.flip();
-                                    sendNetOut();
-                                }
-                                break;
-                            case BUFFER_OVERFLOW:
-                                netOut = ByteBuffer.allocate(netOut.capacity() + 4096);
-                                loop = true;
-                                break;
-                            case CLOSED:
-                                handleClosed("handshake-wrap");
-                                return;
-                            default:
-                                break;
-                        }
-                        break;
-
-                    case NEED_UNWRAP:
-                        result = engine.unwrap(netIn, appIn);
-
-                        switch (result.getStatus()) {
-                            case OK:
-                                break;
-                            case BUFFER_UNDERFLOW:
-                                // Need more data from network
-                                netIn.compact();
-                                netInReadMode = false;
-                                return;
-                            case BUFFER_OVERFLOW:
-                                appIn = ByteBuffer.allocate(appIn.capacity() + 4096);
-                                loop = true;
-                                break;
-                            case CLOSED:
-                                handleClosed("handshake-unwrap");
-                                return;
-                        }
-                        break;
-
-                    case NEED_TASK:
-                        runDelegatedTasks();
-                        break;
-
-                    default:
-                        break;
-                }
-
-                hs = engine.getHandshakeStatus();
-
-                // Continue if still handshaking
-                if (hs != SSLEngineResult.HandshakeStatus.FINISHED &&
-                    hs != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
-                    loop = true;
-                }
-
-            } while (loop);
-
-            // Handshake complete
-            if (hs == SSLEngineResult.HandshakeStatus.FINISHED ||
-                hs == SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
-                if (LOGGER.isLoggable(Level.FINEST)) {
-                    Object sa = channel.socket().getRemoteSocketAddress();
-                    String message = Gumdrop.L10N.getString("info.ssl_handshake_finished");
-                    message = MessageFormat.format(message, sa);
-                    LOGGER.finest(message);
-                }
-                handshakeComplete(engine.getApplicationProtocol());
-
-                // Process any remaining data, or prepare for next read
-                if (netIn.hasRemaining()) {
-                    processApplicationData();
-                } else {
-                    // No remaining data - switch to write mode for next read
-                    netIn.clear();
-                    netInReadMode = false;
-                }
-            }
-        }
-
-        private void processApplicationData() throws SSLException {
-            SSLEngineResult result;
-            boolean loop = netIn.hasRemaining();
-
-            while (loop) {
-                loop = false;
-                result = engine.unwrap(netIn, appIn);
-
-                switch (result.getStatus()) {
-                    case OK:
-                        if (appIn.position() > 0) {
-                            appIn.flip();
-                            ByteBuffer data = ByteBuffer.allocate(appIn.remaining());
-                            data.put(appIn);
-                            data.flip();
-                            appIn.clear();
-
-                            if (LOGGER.isLoggable(Level.FINEST)) {
-                                Object sa = channel.socket().getRemoteSocketAddress();
-                                String message = Gumdrop.L10N.getString("info.received_decrypted");
-                                message = MessageFormat.format(message, data.remaining(), sa);
-                                LOGGER.finest(message);
-                            }
-
-                            // Deliver to application
-                            receive(data);
-                        }
-                        if (netIn.hasRemaining()) {
-                            loop = true;
-                        }
-                        break;
-
-                    case BUFFER_UNDERFLOW:
-                        // Need more data
-                        netIn.compact();
-                        netInReadMode = false;
-                        return;
-
-                    case BUFFER_OVERFLOW:
-                        appIn = ByteBuffer.allocate(appIn.capacity() + 4096);
-                        loop = true;
-                        break;
-
-                    case CLOSED:
-                        handleClosed("application-unwrap");
-                        return;
-                }
-
-                // Handle handshake events during data transfer
-                SSLEngineResult.HandshakeStatus hs = result.getHandshakeStatus();
-                if (hs == SSLEngineResult.HandshakeStatus.NEED_TASK) {
-                    runDelegatedTasks();
-                } else if (hs == SSLEngineResult.HandshakeStatus.NEED_WRAP) {
-                    // Need to send data (e.g., close_notify response)
-                    netOut.clear();
-                    ByteBuffer empty = ByteBuffer.allocate(0);
-                    engine.wrap(empty, netOut);
-                    if (netOut.position() > 0) {
-                        netOut.flip();
-                        sendNetOut();
-                    }
-                }
-            }
-
-            netIn.compact();
-            netInReadMode = false;
-        }
-
-        private void runDelegatedTasks() {
-            Runnable task;
-            while ((task = engine.getDelegatedTask()) != null) {
-                task.run();
-            }
-        }
-
-        private void sendNetOut() {
-            ByteBuffer data = ByteBuffer.allocate(netOut.remaining());
-            data.put(netOut);
-            data.flip();
-            netSend(data);
-        }
-
-        void handleClosed(String context) {
-            if (closed) {
-                return;
-            }
-            closed = true;
-
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("SSL closed during " + context);
-            }
-
-            try {
-                disconnected();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error in disconnected handler", e);
-            }
-            doClose();
-        }
+        return channel.socket().getRemoteSocketAddress();
     }
 
     // -- Debug utilities --

@@ -21,9 +21,16 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.Realm;
-import org.bluezoo.gumdrop.servlet.manager.ContainerService;
-import org.bluezoo.gumdrop.servlet.manager.ContextService;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.servlet.jndi.Resource;
+import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext;
+import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContextFactory;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContainerService;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContextService;
+import org.bluezoo.gumdrop.servlet.session.Cluster;
+import org.bluezoo.gumdrop.servlet.session.ClusterContainer;
+import org.bluezoo.gumdrop.servlet.session.SessionContext;
+import org.bluezoo.gumdrop.servlet.session.SessionManager;
 
 import java.io.IOException;
 import java.text.MessageFormat;
@@ -46,7 +53,7 @@ import javax.servlet.ServletException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Container implements ContainerService {
+public class Container implements ManagerContainerService, ClusterContainer {
 
     final List<Context> contexts = new ArrayList<>();
     final Map<String,Realm> realms = new LinkedHashMap<>();
@@ -57,16 +64,16 @@ public class Container implements ContainerService {
     Thread hotDeploymentThread;
 
     // Distributed session management
-    Cluster cluster;
     byte[] clusterKey;
     int clusterPort = 8080;
     String clusterGroupAddress = "224.0.80.80";
+    Cluster cluster;
 
-    @Override public Collection<ContextService> getContexts() {
+    @Override public Collection<ManagerContextService> getContexts() {
         return Collections.unmodifiableList(contexts);
     }
 
-    @Override public ContextService getContext(String contextPath) {
+    @Override public ManagerContextService getContext(String contextPath) {
         // Don't need lookup as this is a rarely used admin function
         for (Context context : contexts) {
             if (contextPath.equals(context.contextPath)) {
@@ -190,12 +197,19 @@ public class Container implements ContainerService {
                     String message = Context.L10N.getString("err.no_cluster_key");
                     Context.LOGGER.severe(message);
                 } else {
+                    // Create single cluster instance for all contexts
                     try {
-                        cluster = new Cluster(this, clusterKey);
+                        cluster = new Cluster(this);
                         cluster.open();
-                        String message = Context.L10N.getString("info.cluster_started");
-                        message = MessageFormat.format(message, Integer.toString(clusterPort), clusterGroupAddress);
-                        Context.LOGGER.info(message);
+
+                        // Register each distributable context with the cluster
+                        for (Context context : contexts) {
+                            if (context.distributable) {
+                                SessionManager manager = context.getSessionManager();
+                                manager.setCluster(cluster);
+                                cluster.registerContext(manager.getContextUuid(), manager);
+                            }
+                        }
                     } catch (IOException e) {
                         Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
                     }
@@ -214,13 +228,20 @@ public class Container implements ContainerService {
                 hotDeploymentThread.interrupt();
                 hotDeploymentThread = null;
             }
+            // Unregister contexts from cluster before destroying them
+            for (Context context : contexts) {
+                if (cluster != null && context.distributable) {
+                    SessionManager manager = context.getSessionManager();
+                    cluster.unregisterContext(manager.getContextUuid());
+                    manager.setCluster(null);
+                }
+                context.invalidateSessions(true);
+                context.destroy();
+            }
+            // Close cluster after all contexts are destroyed
             if (cluster != null) {
                 cluster.close();
                 cluster = null;
-            }
-            for (Context context : contexts) {
-                context.invalidateSessions(true);
-                context.destroy();
             }
             for (Resource resource : resources) {
                 resource.close();
@@ -245,13 +266,71 @@ public class Container implements ContainerService {
         return match;
     }
 
-    Context getContextByDigest(byte[] digest) {
+    /**
+     * Unregisters a context from the cluster.
+     * Called before a context is destroyed or reloaded.
+     *
+     * @param context the context to unregister
+     */
+    void unregisterContextFromCluster(Context context) {
+        if (cluster != null && context.distributable) {
+            SessionManager manager = context.getSessionManager();
+            cluster.unregisterContext(manager.getContextUuid());
+        }
+    }
+
+    /**
+     * Registers a context with the cluster.
+     * Called when a context is initialized or after a reload.
+     * If the context was previously registered, it will be re-registered
+     * with a new context UUID to trigger session repopulation.
+     *
+     * @param context the context to register
+     */
+    void registerContextWithCluster(Context context) {
+        if (cluster != null && context.distributable) {
+            SessionManager manager = context.getSessionManager();
+            manager.setCluster(cluster);
+            cluster.registerContext(manager.getContextUuid(), manager);
+        }
+    }
+
+    // -- ClusterContainer interface implementation --
+
+    @Override
+    public int getClusterPort() {
+        return clusterPort;
+    }
+
+    @Override
+    public String getClusterGroupAddress() {
+        return clusterGroupAddress;
+    }
+
+    @Override
+    public byte[] getClusterKey() {
+        return clusterKey;
+    }
+
+    @Override
+    public SessionContext getContextByDigest(byte[] digest) {
         for (Context context : contexts) {
             if (match(digest, context.digest)) {
                 return context;
             }
         }
         return null;
+    }
+
+    @Override
+    public Iterable<SessionContext> getDistributableContexts() {
+        List<SessionContext> distributable = new ArrayList<>();
+        for (Context context : contexts) {
+            if (context.distributable) {
+                distributable.add(context);
+            }
+        }
+        return distributable;
     }
 
     static boolean match(byte[] b1, byte[] b2) {

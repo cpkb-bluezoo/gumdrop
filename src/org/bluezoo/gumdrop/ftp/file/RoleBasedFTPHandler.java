@@ -27,7 +27,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FTPAuthenticationResult;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;
@@ -61,14 +61,14 @@ import org.bluezoo.gumdrop.quota.QuotaSource;
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  * 
- * <ftp-server ...>
- *   <property name="handlerFactory">
- *     <bean class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
+ * <server class="org.bluezoo.gumdrop.ftp.FTPServer">
+ *   <property name="handler-factory">
+ *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
  *       <property name="realm" ref="#ftpRealm"/>
- *       <property name="fileSystem" ref="#ftpFileSystem"/>
- *     </bean>
+ *       <property name="file-system" ref="#ftpFileSystem"/>
+ *     </ftp-handler-factory>
  *   </property>
- * </ftp-server>
+ * </server>
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

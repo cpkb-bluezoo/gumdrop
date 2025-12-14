@@ -82,7 +82,7 @@ class ResponseOutputStream extends OutputStream {
         }
         if (buf.position() > 0) {
             buf.flip();
-            response.stream.writeBody(buf);
+            response.writeBody(buf);
             buf.clear();
         }
     }

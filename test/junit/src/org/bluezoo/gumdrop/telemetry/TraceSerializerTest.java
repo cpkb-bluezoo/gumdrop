@@ -6,10 +6,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.telemetry.protobuf.TraceSerializer;
-import org.bluezoo.gumdrop.telemetry.protobuf.WriteResult;
 
 /**
  * JUnit 4 test class for TraceSerializer.
@@ -18,7 +18,7 @@ import org.bluezoo.gumdrop.telemetry.protobuf.WriteResult;
 public class TraceSerializerTest {
 
     @Test
-    public void testSerializeSimpleTrace() {
+    public void testSerializeSimpleTrace() throws IOException {
         // Create a simple trace
         Trace trace = new Trace("test-operation", SpanKind.SERVER);
         trace.getRootSpan().addAttribute("test.key", "test-value");
@@ -26,11 +26,8 @@ public class TraceSerializerTest {
 
         // Serialize it
         TraceSerializer serializer = new TraceSerializer("test-service");
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
+        ByteBuffer buffer = serializer.serialize(trace);
 
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
         assertTrue("Expected serialized data", buffer.remaining() > 0);
 
         // Verify basic structure by checking for known bytes
@@ -41,7 +38,7 @@ public class TraceSerializerTest {
     }
 
     @Test
-    public void testSerializeTraceWithEvents() {
+    public void testSerializeTraceWithEvents() throws IOException {
         Trace trace = new Trace("operation-with-events", SpanKind.SERVER);
         Span root = trace.getRootSpan();
 
@@ -54,16 +51,13 @@ public class TraceSerializerTest {
         root.end();
 
         TraceSerializer serializer = new TraceSerializer("test-service", "1.0.0", null, null);
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
+        ByteBuffer buffer = serializer.serialize(trace);
 
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
         assertTrue("Expected serialized data with events", buffer.remaining() > 50);
     }
 
     @Test
-    public void testSerializeTraceWithChildSpans() {
+    public void testSerializeTraceWithChildSpans() throws IOException {
         Trace trace = new Trace("parent-operation", SpanKind.SERVER);
 
         // Create child spans
@@ -79,17 +73,14 @@ public class TraceSerializerTest {
         trace.getRootSpan().end();
 
         TraceSerializer serializer = new TraceSerializer("test-service");
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
+        ByteBuffer buffer = serializer.serialize(trace);
 
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
         // Should have data for 3 spans
         assertTrue("Expected larger output for multiple spans", buffer.remaining() > 100);
     }
 
     @Test
-    public void testSerializeTraceWithLinks() {
+    public void testSerializeTraceWithLinks() throws IOException {
         // Create a remote span context to link to
         byte[] remoteTraceId = new byte[16];
         byte[] remoteSpanId = new byte[8];
@@ -106,36 +97,28 @@ public class TraceSerializerTest {
         trace.getRootSpan().end();
 
         TraceSerializer serializer = new TraceSerializer("test-service");
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
+        ByteBuffer buffer = serializer.serialize(trace);
 
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
         assertTrue("Expected serialized data with links", buffer.remaining() > 50);
     }
 
     @Test
-    public void testSerializeTraceWithStatus() {
+    public void testSerializeTraceWithStatus() throws IOException {
         Trace trace = new Trace("error-operation", SpanKind.SERVER);
         trace.getRootSpan().setStatusError("Something went wrong");
         trace.getRootSpan().end();
 
         TraceSerializer serializer = new TraceSerializer("test-service");
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
+        ByteBuffer buffer = serializer.serialize(trace);
 
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
         assertTrue("Expected serialized data", buffer.remaining() > 0);
 
-        // Search for the error message in the serialized data
-        String serialized = bufferToHex(buffer);
         // "Something went wrong" should appear in the output
         assertTrue("Should contain error message", containsString(buffer, "Something went wrong"));
     }
 
     @Test
-    public void testSerializeTraceWithException() {
+    public void testSerializeTraceWithException() throws IOException {
         Trace trace = new Trace("exception-operation", SpanKind.SERVER);
         try {
             throw new RuntimeException("Test exception message");
@@ -145,11 +128,7 @@ public class TraceSerializerTest {
         trace.getRootSpan().end();
 
         TraceSerializer serializer = new TraceSerializer("test-service");
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
-
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
+        ByteBuffer buffer = serializer.serialize(trace);
 
         // Should contain exception type and message
         assertTrue("Should contain exception type",
@@ -157,7 +136,7 @@ public class TraceSerializerTest {
     }
 
     @Test
-    public void testSerializeWithResourceAttributes() {
+    public void testSerializeWithResourceAttributes() throws IOException {
         java.util.Map<String, String> resourceAttrs = new java.util.HashMap<String, String>();
         resourceAttrs.put("deployment.environment", "test");
         resourceAttrs.put("host.name", "test-host");
@@ -167,33 +146,12 @@ public class TraceSerializerTest {
 
         TraceSerializer serializer = new TraceSerializer(
                 "test-service", "2.0.0", "test-namespace", resourceAttrs);
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
-
-        assertEquals(WriteResult.SUCCESS, result);
-        buffer.flip();
+        ByteBuffer buffer = serializer.serialize(trace);
 
         // Should contain service name and namespace
         assertTrue("Should contain service name", containsString(buffer, "test-service"));
         assertTrue("Should contain service version", containsString(buffer, "2.0.0"));
         assertTrue("Should contain namespace", containsString(buffer, "test-namespace"));
-    }
-
-    @Test
-    public void testBufferOverflow() {
-        Trace trace = new Trace("overflow-operation", SpanKind.SERVER);
-        // Add lots of attributes to make the trace large
-        for (int i = 0; i < 100; i++) {
-            trace.getRootSpan().addAttribute("key-" + i, "value-" + i + "-with-some-extra-data-to-make-it-bigger");
-        }
-        trace.getRootSpan().end();
-
-        TraceSerializer serializer = new TraceSerializer("test-service");
-        // Use a very small buffer
-        ByteBuffer buffer = ByteBuffer.allocate(100);
-        WriteResult result = serializer.serialize(trace, buffer);
-
-        assertEquals(WriteResult.OVERFLOW, result);
     }
 
     @Test
@@ -226,7 +184,7 @@ public class TraceSerializerTest {
     }
 
     @Test
-    public void testTraceContinuation() {
+    public void testTraceContinuation() throws IOException {
         // Test continuing a trace from a remote context
         String remoteTraceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 
@@ -239,10 +197,9 @@ public class TraceSerializerTest {
 
         // Serialize it
         TraceSerializer serializer = new TraceSerializer("test-service");
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
-        WriteResult result = serializer.serialize(trace, buffer);
+        ByteBuffer buffer = serializer.serialize(trace);
 
-        assertEquals(WriteResult.SUCCESS, result);
+        assertTrue("Expected serialized data", buffer.remaining() > 0);
     }
 
     @Test
@@ -293,4 +250,3 @@ public class TraceSerializerTest {
     }
 
 }
-

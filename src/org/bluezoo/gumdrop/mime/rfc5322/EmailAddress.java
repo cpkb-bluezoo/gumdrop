@@ -124,6 +124,24 @@ public class EmailAddress {
 	}
 
 	/**
+	 * Returns the envelope address suitable for SMTP protocol use.
+	 *
+	 * <p>This returns just {@code local-part@domain} without any display name,
+	 * angle brackets, or comments. This is the format required for SMTP
+	 * envelope addresses in MAIL FROM and RCPT TO commands (RFC 5321).
+	 *
+	 * <p>This method is an alias for {@link #getAddress()} but with a name
+	 * that clearly indicates its purpose for SMTP envelope serialization.
+	 * Always use this method instead of {@link #toString()} when constructing
+	 * SMTP protocol messages.
+	 *
+	 * @return the envelope address in {@code local-part@domain} format
+	 */
+	public String getEnvelopeAddress() {
+		return getAddress();
+	}
+
+	/**
 	 * Returns comments associated with this address, if any. These are
 	 * generally ignorable.
 	 * @return unmodifiable list of comments, or null if none

@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.ftp.file;
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FTPAuthenticationResult;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;

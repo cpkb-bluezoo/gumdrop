@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.mailbox.mbox;
 
 import org.bluezoo.gumdrop.mailbox.Mailbox;
+import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 
@@ -37,6 +38,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -472,21 +474,21 @@ public class MboxMailboxStore implements MailboxStore {
     }
 
     @Override
-    public Set<String> getMailboxAttributes(String mailboxName) throws IOException {
+    public Set<MailboxAttribute> getMailboxAttributes(String mailboxName) throws IOException {
         ensureOpen();
         
         String normalized = normalizeMailboxName(mailboxName);
         Path mailboxPath = resolveMailboxPath(normalized);
         
-        Set<String> attributes = new HashSet<>();
+        Set<MailboxAttribute> attributes = EnumSet.noneOf(MailboxAttribute.class);
         
         if (!Files.exists(mailboxPath)) {
-            attributes.add("Nonexistent");
+            attributes.add(MailboxAttribute.NONEXISTENT);
             return attributes;
         }
         
         if (!Files.isRegularFile(mailboxPath)) {
-            attributes.add("Noselect");
+            attributes.add(MailboxAttribute.NOSELECT);
             return attributes;
         }
         
@@ -499,12 +501,12 @@ public class MboxMailboxStore implements MailboxStore {
         if (Files.isDirectory(childDir)) {
             boolean hasChildren = hasMailboxChildren(childDir.toFile());
             if (hasChildren) {
-                attributes.add("HasChildren");
+                attributes.add(MailboxAttribute.HASCHILDREN);
             } else {
-                attributes.add("HasNoChildren");
+                attributes.add(MailboxAttribute.HASNOCHILDREN);
             }
         } else {
-            attributes.add("HasNoChildren");
+            attributes.add(MailboxAttribute.HASNOCHILDREN);
         }
         
         return attributes;

@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.smtp;
 import java.net.InetSocketAddress;
 import java.security.cert.X509Certificate;
 
+import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+
 /**
  * Interface providing metadata about an SMTP connection for policy decisions.
  * This interface exposes relevant information about the client connection
@@ -114,5 +116,48 @@ public interface SMTPConnectionMetadata {
     default long getConnectionDurationMillis() {
         return System.currentTimeMillis() - getConnectionTimeMillis();
     }
+
+    /**
+     * Returns the DSN envelope parameters from the MAIL FROM command.
+     * 
+     * <p>These parameters indicate how the sender wants Delivery Status
+     * Notifications handled for this message:
+     * <ul>
+     * <li><b>RET</b> - Whether to return the full message or just headers in DSNs</li>
+     * <li><b>ENVID</b> - An opaque envelope identifier for correlation</li>
+     * </ul>
+     * 
+     * @return DSN envelope parameters, or null if none were specified
+     * @see DSNEnvelopeParameters
+     */
+    DSNEnvelopeParameters getDSNEnvelopeParameters();
+
+    /**
+     * Returns the DSN recipient parameters for a specific recipient.
+     * 
+     * <p>These parameters indicate when to send Delivery Status Notifications
+     * for this recipient:
+     * <ul>
+     * <li><b>NOTIFY</b> - When to send DSNs (NEVER, SUCCESS, FAILURE, DELAY)</li>
+     * <li><b>ORCPT</b> - The original recipient address before any forwarding</li>
+     * </ul>
+     * 
+     * @param recipient the recipient to get DSN parameters for
+     * @return DSN recipient parameters, or null if none were specified
+     * @see DSNRecipientParameters
+     */
+    DSNRecipientParameters getDSNRecipientParameters(EmailAddress recipient);
+
+    /**
+     * Returns whether REQUIRETLS was specified for this message.
+     * 
+     * <p>When true, the sender has indicated that this message must only be
+     * transmitted over TLS-protected connections (RFC 8689). If the server
+     * cannot guarantee TLS protection to the next hop during relay, the
+     * message should be bounced rather than delivered insecurely.
+     * 
+     * @return true if REQUIRETLS was specified in MAIL FROM
+     */
+    boolean isRequireTls();
 
 }

@@ -48,6 +48,7 @@ configuration, and features of the servlet container.
 <ul>
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#async">Asynchronous Processing</a></li>
+<li><a href="#servlet4">Servlet 4.0 Features</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#clustering">Cluster Session Replication</a></li>
 <li><a href="#hot-deploy">Hot Deployment</a></li>
@@ -277,6 +278,174 @@ Note that all filters in the filter chain must also have
 <code>async-supported=true</code> for the servlet to use async processing.
 </p>
 
+<h3 id="servlet4">Servlet 4.0 Features</h3>
+
+<p>
+Gumdrop implements the Servlet 4.0 specification, providing modern HTTP features
+that leverage HTTP/2 capabilities. These features work transparently with
+Gumdrop's <a href="http.html#server-handler">HTTP Server Handler API</a>.
+</p>
+
+<h4>HTTP/2 Server Push (PushBuilder)</h4>
+
+<p>
+Server push allows the server to proactively send resources to the client
+before they are explicitly requested. This is particularly effective for
+pushing CSS, JavaScript, or images that the server knows the client will need.
+</p>
+
+<pre>
+@WebServlet("/page")
+public class PageServlet extends HttpServlet {
+    
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
+            throws ServletException, IOException {
+        
+        // Push the stylesheet before sending the HTML
+        PushBuilder pushBuilder = req.newPushBuilder();
+        if (pushBuilder != null) {
+            pushBuilder.path("/css/styles.css").push();
+            pushBuilder.path("/js/app.js").push();
+        }
+        
+        // Now send the HTML page
+        resp.setContentType("text/html");
+        resp.getWriter().println("&lt;html&gt;...");
+    }
+}
+</pre>
+
+<p>
+The <code>newPushBuilder()</code> method returns <code>null</code> if:
+</p>
+
+<ul>
+<li>The connection is HTTP/1.x (push requires HTTP/2)</li>
+<li>The client has disabled server push via HTTP/2 SETTINGS</li>
+<li>The request method is not cacheable (only GET/HEAD support push)</li>
+</ul>
+
+<p>
+When a push promise is sent, the pushed resource is processed through the
+same servlet container pipeline as a normal request, allowing the pushed
+response to benefit from filters, security constraints, and caching.
+</p>
+
+<h4>HTTP Trailer Headers</h4>
+
+<p>
+HTTP trailers are headers sent after the message body. They are useful for
+sending metadata that is computed during body transmission, such as checksums
+or signatures. Gumdrop supports trailers for both HTTP/1.1 (chunked encoding)
+and HTTP/2.
+</p>
+
+<pre>
+@WebServlet("/upload")
+public class UploadServlet extends HttpServlet {
+    
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) 
+            throws ServletException, IOException {
+        
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        
+        // Declare which trailers will be sent
+        resp.setTrailerFields(() -> {
+            Map&lt;String, String&gt; trailers = new HashMap&lt;&gt;();
+            trailers.put("X-Content-SHA256", Base64.getEncoder()
+                .encodeToString(digest.digest()));
+            return trailers;
+        });
+        
+        // Stream response while computing checksum
+        OutputStream out = resp.getOutputStream();
+        // ... write body, updating digest ...
+        
+        // Trailers are sent automatically when response completes
+    }
+}
+</pre>
+
+<p>
+Request trailers can be accessed after the request body has been fully read:
+</p>
+
+<pre>
+if (req.isTrailerFieldsReady()) {
+    Map&lt;String, String&gt; trailers = req.getTrailerFields();
+    String checksum = trailers.get("x-content-checksum");
+}
+</pre>
+
+<h4>WebSocket Upgrade</h4>
+
+<p>
+Servlets can upgrade HTTP connections to WebSocket using the standard
+<code>HttpUpgradeHandler</code> API. Gumdrop bridges the Servlet API's
+blocking I/O model to its event-driven WebSocket implementation.
+</p>
+
+<pre>
+@WebServlet("/websocket")
+public class WebSocketServlet extends HttpServlet {
+    
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
+            throws ServletException, IOException {
+        
+        // Check for WebSocket upgrade request
+        if ("websocket".equalsIgnoreCase(req.getHeader("Upgrade"))) {
+            req.upgrade(MyWebSocketHandler.class);
+        } else {
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST);
+        }
+    }
+}
+
+public class MyWebSocketHandler implements HttpUpgradeHandler {
+    
+    private WebConnection connection;
+    
+    @Override
+    public void init(WebConnection wc) {
+        this.connection = wc;
+        // Connection is now upgraded - start handling WebSocket frames
+        // via the WebConnection's input/output streams
+    }
+    
+    @Override
+    public void destroy() {
+        // Clean up resources
+    }
+}
+</pre>
+
+<p>
+For most WebSocket applications, consider using Gumdrop's native
+<a href="http.html#websocket">WebSocket API</a> directly, which provides
+a simpler event-driven model. The Servlet upgrade API is primarily useful
+for applications that need to maintain Servlet API compatibility.
+</p>
+
+<h4>Servlet Mapping API</h4>
+
+<p>
+The <code>HttpServletMapping</code> interface provides information about
+how the current request was mapped to a servlet:
+</p>
+
+<pre>
+HttpServletMapping mapping = req.getHttpServletMapping();
+String matchValue = mapping.getMatchValue();      // matched part of URL
+String pattern = mapping.getPattern();            // URL pattern used
+String servletName = mapping.getServletName();    // servlet name
+MappingMatch matchType = mapping.getMappingMatch(); // EXACT, PATH, EXTENSION, DEFAULT
+</pre>
+
+<p>
+This is particularly useful for servlets mapped with wildcards that need
+to determine which specific resource was requested.
+</p>
+
 <h3 id="configuration">Container and Context Configuration</h3>
 
 <h4>Container Properties</h4>
@@ -307,6 +476,8 @@ HTTP server with servlet-specific configuration:
 <ul>
 <li><code>container</code> - reference to the Container with contexts</li>
 <li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
+<li><code>bufferSize</code> - I/O buffer size for request/response streams in bytes
+(default: 8192, minimum: 1024)</li>
 <li><code>workerCorePoolSize</code> - minimum servlet worker threads</li>
 <li><code>workerMaximumPoolSize</code> - maximum servlet worker threads</li>
 <li><code>workerKeepAlive</code> - idle timeout for excess workers</li>
@@ -319,8 +490,12 @@ independent tuning based on workload characteristics.
 
 <p>
 The servlet server inherits from the base Gumdrop HTTP server which it uses for
-all the protocol level, thus benefiting from features such as HTTP/2,
-chunked encoding, HTTPS, OpenTelemetry integration, etc.
+all the protocol level, thus benefiting from features such as
+<a href="http.html#http2">HTTP/2</a> (including HPACK header compression,
+stream multiplexing, and flow control), chunked encoding, HTTPS, and
+<a href="telemetry.html">OpenTelemetry integration</a>. See the
+<a href="http.html">HTTP documentation</a> for details on the underlying
+HTTP implementation.
 </p>
 
 <h4>Context Configuration</h4>
@@ -353,7 +528,7 @@ application <code>login-config</code> elements:
 </p>
 
 <pre>
-&lt;realm id="myRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+&lt;realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
   &lt;property name="href"&gt;myRealm.xml&lt;/property&gt;
 &lt;/realm&gt;
 
@@ -425,6 +600,12 @@ Multicast traffic respects network boundaries but relies on proper network
 segmentation. Cluster nodes should be deployed on an isolated network
 segment or VLAN. The shared secret key must be distributed securely to all
 nodes via the <code>clusterSecretKey</code> container property.
+</p>
+
+<h4>Telemetry</h4>
+
+<p>
+The cluster node will publish telemetry metrics if telemetry is enabled.
 </p>
 
 <h3 id="hot-deploy">Hot Deployment</h3>
@@ -688,7 +869,7 @@ for messaging. This requires a JMS provider implementation in the classpath.
                         user="jmsuser"
                         password="jmspass"
                         client-id="gumdrop-client"&gt;
-  &lt;property name="brokerURL" value="tcp://localhost:61616"/&gt;
+  &lt;property name="broker-url" value="tcp://localhost:61616"/&gt;
 &lt;/jms-connection-factory&gt;
 </pre>
 
@@ -712,12 +893,12 @@ The <code>jms-destination</code> element defines a JMS queue or topic.
 <pre>
 &lt;jms-destination name="jms/queue/OrderQueue"
                  class-name="org.apache.activemq.command.ActiveMQQueue"&gt;
-  &lt;property name="physicalName" value="OrderQueue"/&gt;
+  &lt;property name="physical-name" value="OrderQueue"/&gt;
 &lt;/jms-destination&gt;
 
 &lt;jms-destination name="jms/topic/Notifications"
                  class-name="org.apache.activemq.command.ActiveMQTopic"&gt;
-  &lt;property name="physicalName" value="Notifications"/&gt;
+  &lt;property name="physical-name" value="Notifications"/&gt;
 &lt;/jms-destination&gt;
 </pre>
 
@@ -767,9 +948,9 @@ by Gumdrop and bound to JNDI with properties set via JavaBean conventions.
 &lt;administered-object jndi-name="custom/MyConfig"
                      administered-object-class="com.example.ConfigBean"
                      administered-object-interface="com.example.Config"&gt;
-  &lt;property name="serverUrl" value="https://api.example.com"/&gt;
+  &lt;property name="server-url" value="https://api.example.com"/&gt;
   &lt;property name="timeout" value="30000"/&gt;
-  &lt;property name="enableCache" value="true"/&gt;
+  &lt;property name="enable-cache" value="true"/&gt;
 &lt;/administered-object&gt;
 </pre>
 

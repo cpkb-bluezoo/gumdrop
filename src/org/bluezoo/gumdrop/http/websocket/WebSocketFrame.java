@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.http.websocket;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 /**
@@ -58,6 +60,8 @@ import java.util.logging.Logger;
 public class WebSocketFrame {
 
     private static final Logger LOGGER = Logger.getLogger(WebSocketFrame.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle(
+        "org.bluezoo.gumdrop.http.websocket.L10N");
 
     // WebSocket frame opcodes (RFC 6455 Section 5.2)
     /** Continuation frame opcode */
@@ -144,8 +148,10 @@ public class WebSocketFrame {
      * @param masked true if payload should be masked
      * @throws WebSocketProtocolException if the frame is invalid
      */
-    public static WebSocketFrame createBinaryFrame(byte[] data, boolean masked) throws WebSocketProtocolException {
-        return new WebSocketFrame(OPCODE_BINARY, data, masked);
+    public static WebSocketFrame createBinaryFrame(ByteBuffer data, boolean masked) throws WebSocketProtocolException {
+        byte[] payload = new byte[data.remaining()];
+        data.get(payload);
+        return new WebSocketFrame(OPCODE_BINARY, payload, masked);
     }
 
     /**
@@ -172,8 +178,13 @@ public class WebSocketFrame {
      * @param masked true if payload should be masked
      * @throws WebSocketProtocolException if the frame is invalid
      */
-    public static WebSocketFrame createPingFrame(byte[] payload, boolean masked) throws WebSocketProtocolException {
-        return new WebSocketFrame(OPCODE_PING, payload, masked);
+    public static WebSocketFrame createPingFrame(ByteBuffer payload, boolean masked) throws WebSocketProtocolException {
+        byte[] payloadBytes = null;
+        if (payload != null && payload.hasRemaining()) {
+            payloadBytes = new byte[payload.remaining()];
+            payload.get(payloadBytes);
+        }
+        return new WebSocketFrame(OPCODE_PING, payloadBytes, masked);
     }
 
     /**
@@ -183,8 +194,13 @@ public class WebSocketFrame {
      * @param masked true if payload should be masked
      * @throws WebSocketProtocolException if the frame is invalid
      */
-    public static WebSocketFrame createPongFrame(byte[] payload, boolean masked) throws WebSocketProtocolException {
-        return new WebSocketFrame(OPCODE_PONG, payload, masked);
+    public static WebSocketFrame createPongFrame(ByteBuffer payload, boolean masked) throws WebSocketProtocolException {
+        byte[] payloadBytes = null;
+        if (payload != null && payload.hasRemaining()) {
+            payloadBytes = new byte[payload.remaining()];
+            payload.get(payloadBytes);
+        }
+        return new WebSocketFrame(OPCODE_PONG, payloadBytes, masked);
     }
 
     /**
@@ -359,21 +375,22 @@ public class WebSocketFrame {
         // Control frames validation (RFC 6455 Section 5.5)
         if (isControlFrame()) {
             if (!fin) {
-                throw new WebSocketProtocolException("Control frames must not be fragmented");
+                throw new WebSocketProtocolException(L10N.getString("err.control_frame_fragmented"));
             }
             if (payload.length > 125) {
-                throw new WebSocketProtocolException("Control frame payload too large: " + payload.length);
+                throw new WebSocketProtocolException(
+                    MessageFormat.format(L10N.getString("err.control_frame_too_large"), payload.length));
             }
         }
 
         // Reserved bits must be false unless extension defines them
         if (rsv1 || rsv2 || rsv3) {
-            LOGGER.fine("Reserved bits set - extension may be in use");
+            LOGGER.fine(L10N.getString("log.reserved_bits"));
         }
 
         // Masking key validation
         if (masked && (maskingKey == null || maskingKey.length != 4)) {
-            throw new WebSocketProtocolException("Invalid masking key");
+            throw new WebSocketProtocolException(L10N.getString("err.invalid_masking_key"));
         }
     }
 
@@ -402,7 +419,24 @@ public class WebSocketFrame {
     public int getOpcode() { return opcode; }
     public boolean isMasked() { return masked; }
     public byte[] getMaskingKey() { return maskingKey; }
-    public byte[] getPayload() { return payload; }
+    
+    /**
+     * Returns the payload as a ByteBuffer (read-only).
+     *
+     * @return the payload data
+     */
+    public ByteBuffer getPayload() {
+        return ByteBuffer.wrap(payload).asReadOnlyBuffer();
+    }
+    
+    /**
+     * Returns the raw payload bytes (for internal use).
+     *
+     * @return the payload byte array
+     */
+    byte[] getPayloadBytes() {
+        return payload;
+    }
 
     /**
      * Returns true if this is a control frame (close, ping, pong).
@@ -425,7 +459,7 @@ public class WebSocketFrame {
      */
     public String getTextPayload() {
         if (opcode != OPCODE_TEXT && opcode != OPCODE_CONTINUATION) {
-            throw new IllegalStateException("Not a text frame");
+            throw new IllegalStateException(L10N.getString("err.not_text_frame"));
         }
         return new String(payload, StandardCharsets.UTF_8);
     }

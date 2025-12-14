@@ -21,244 +21,148 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.HTTPConstants;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import org.bluezoo.gumdrop.http.HTTPStatus;
 
 /**
- * Represents an HTTP response received by an HTTP client.
- * 
- * <p>This immutable class encapsulates all the information in an HTTP response,
- * including the status code, status message, headers, and protocol version.
- * It provides convenient methods for checking response types and accessing headers.
- * 
- * <p>Instances are typically created by the HTTP client framework when parsing
- * responses from the server, but can also be constructed manually for testing:
- * <pre>
- * HTTPResponse response = new HTTPResponse(200, "OK");
- * 
- * // With headers
- * Map&lt;String, String&gt; headers = new HashMap&lt;&gt;();
- * headers.put("Content-Type", "application/json");
- * headers.put("Content-Length", "123");
- * HTTPResponse response = new HTTPResponse(200, "OK", headers);
- * </pre>
- * 
+ * Represents an HTTP response status delivered to an {@link HTTPResponseHandler}.
+ *
+ * <p>This class provides only the essential status information. Individual headers
+ * are delivered separately via the {@link HTTPResponseHandler#header(String, String)}
+ * callback, which allows for streaming processing and proper handling of trailer
+ * headers.
+ *
+ * <p>For redirect responses, this class provides access to the redirect location
+ * and the chain of previous responses (for redirect following).
+ *
  * <p><strong>Thread Safety:</strong> This class is immutable and thread-safe.
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPClientHandler#onStreamResponse(HTTPClientStream, HTTPResponse)
+ * @see HTTPResponseHandler
+ * @see HTTPStatus
  */
 public final class HTTPResponse {
 
-    private final int statusCode;
-    private final String statusMessage;
-    private final String version;
-    private final Map<String, String> headers;
+    private final HTTPStatus status;
+    private final String redirectLocation;
+    private final HTTPResponse previousResponse;
 
     /**
-     * Creates an HTTP response with the specified status code.
-     * Uses the standard status message for the code and HTTP/1.1 version with no headers.
-     * 
-     * @param statusCode the HTTP status code (e.g., 200, 404)
+     * Creates an HTTP response with the specified status.
+     *
+     * @param status the HTTP status
      */
-    public HTTPResponse(int statusCode) {
-        this(statusCode, HTTPConstants.getMessage(statusCode), "HTTP/1.1", Collections.<String, String>emptyMap());
+    public HTTPResponse(HTTPStatus status) {
+        this(status, null, null);
     }
 
     /**
-     * Creates an HTTP response with the specified status code and message.
-     * Uses HTTP/1.1 version with no headers.
-     * 
-     * @param statusCode the HTTP status code (e.g., 200, 404)
-     * @param statusMessage the status message (e.g., "OK", "Not Found")
+     * Creates an HTTP response with the specified status and redirect location.
+     *
+     * @param status the HTTP status
+     * @param redirectLocation the redirect location (for 3xx responses)
      */
-    public HTTPResponse(int statusCode, String statusMessage) {
-        this(statusCode, statusMessage, "HTTP/1.1", Collections.<String, String>emptyMap());
+    public HTTPResponse(HTTPStatus status, String redirectLocation) {
+        this(status, redirectLocation, null);
     }
 
     /**
-     * Creates an HTTP response with the specified status code and headers.
-     * Uses the standard status message for the code and HTTP/1.1 version.
-     * 
-     * @param statusCode the HTTP status code (e.g., 200, 404)
-     * @param headers the response headers (case-insensitive map)
+     * Creates an HTTP response with the specified status, redirect location,
+     * and previous response in a redirect chain.
+     *
+     * @param status the HTTP status
+     * @param redirectLocation the redirect location (for 3xx responses)
+     * @param previousResponse the previous response in a redirect chain
      */
-    public HTTPResponse(int statusCode, Map<String, String> headers) {
-        this(statusCode, HTTPConstants.getMessage(statusCode), "HTTP/1.1", headers);
-    }
-
-    /**
-     * Creates an HTTP response with the specified status code, message, and headers.
-     * Uses HTTP/1.1 version.
-     * 
-     * @param statusCode the HTTP status code (e.g., 200, 404)
-     * @param statusMessage the status message (e.g., "OK", "Not Found")
-     * @param headers the response headers (case-insensitive map)
-     */
-    public HTTPResponse(int statusCode, String statusMessage, Map<String, String> headers) {
-        this(statusCode, statusMessage, "HTTP/1.1", headers);
-    }
-
-    /**
-     * Creates an HTTP response with the specified parameters.
-     * 
-     * @param statusCode the HTTP status code (e.g., 200, 404)
-     * @param statusMessage the status message (e.g., "OK", "Not Found")
-     * @param version the HTTP version ("HTTP/1.1" or "HTTP/2.0")
-     * @param headers the response headers (case-insensitive map)
-     */
-    public HTTPResponse(int statusCode, String statusMessage, String version, Map<String, String> headers) {
-        this.statusCode = statusCode;
-        this.statusMessage = statusMessage;
-        this.version = version;
-        
-        // Normalize header names to lowercase for consistent lookup
-        Map<String, String> normalizedHeaders = new LinkedHashMap<>();
-        if (headers != null) {
-            for (Map.Entry<String, String> entry : headers.entrySet()) {
-                normalizedHeaders.put(entry.getKey().toLowerCase(), entry.getValue());
-            }
+    public HTTPResponse(HTTPStatus status, String redirectLocation, HTTPResponse previousResponse) {
+        if (status == null) {
+            throw new NullPointerException("status");
         }
-        this.headers = Collections.unmodifiableMap(normalizedHeaders);
+        this.status = status;
+        this.redirectLocation = redirectLocation;
+        this.previousResponse = previousResponse;
     }
 
     /**
-     * Returns the HTTP status code for this response.
-     * 
-     * @return the status code (e.g., 200, 404, 500)
+     * Returns the HTTP status.
+     *
+     * @return the status (never null)
      */
-    public int getStatusCode() {
-        return statusCode;
+    public HTTPStatus getStatus() {
+        return status;
     }
 
     /**
-     * Returns the HTTP status message for this response.
-     * 
-     * @return the status message (e.g., "OK", "Not Found", "Internal Server Error")
+     * Returns the redirect location for redirect responses (3xx).
+     *
+     * <p>This is the value of the Location header for redirect responses,
+     * or null if this is not a redirect response or no Location was provided.
+     *
+     * @return the redirect location, or null
      */
-    public String getStatusMessage() {
-        return statusMessage;
+    public String getRedirectLocation() {
+        return redirectLocation;
     }
 
     /**
-     * Returns the HTTP version for this response.
-     * 
-     * @return the HTTP version (e.g., "HTTP/1.1" or "HTTP/2.0")
+     * Returns the previous response in a redirect chain.
+     *
+     * <p>When the client follows redirects automatically, this provides access
+     * to the chain of redirect responses. Returns null if this is the first
+     * response (no redirects occurred) or redirect following is disabled.
+     *
+     * @return the previous response, or null
      */
-    public String getVersion() {
-        return version;
+    public HTTPResponse getPreviousResponse() {
+        return previousResponse;
     }
 
     /**
-     * Returns all headers for this response.
-     * 
-     * <p>The returned map is immutable and case-insensitive for header names.
-     * 
-     * @return an immutable map of header names to values
+     * Returns the number of redirects that occurred before this response.
+     *
+     * @return the redirect count (0 if no redirects)
      */
-    public Map<String, String> getHeaders() {
-        return headers;
+    public int getRedirectCount() {
+        int count = 0;
+        HTTPResponse prev = previousResponse;
+        while (prev != null) {
+            count++;
+            prev = prev.previousResponse;
+        }
+        return count;
     }
 
     /**
-     * Returns the value of a specific header.
-     * 
-     * <p>Header name matching is case-insensitive.
-     * 
-     * @param name the header name
-     * @return the header value, or null if not present
-     */
-    public String getHeader(String name) {
-        return headers.get(name.toLowerCase());
-    }
-
-    /**
-     * Checks if this response has a specific header.
-     * 
-     * <p>Header name matching is case-insensitive.
-     * 
-     * @param name the header name
-     * @return true if the header is present, false otherwise
-     */
-    public boolean hasHeader(String name) {
-        return headers.containsKey(name.toLowerCase());
-    }
-
-    /**
-     * Checks if this response indicates success (2xx status codes).
-     * 
-     * @return true if status code is 200-299, false otherwise
+     * Returns true if this is a success response (2xx status).
+     *
+     * @return true for 2xx statuses
      */
     public boolean isSuccess() {
-        return statusCode >= 200 && statusCode < 300;
+        return status.isSuccess();
     }
 
     /**
-     * Checks if this response is a redirection (3xx status codes).
-     * 
-     * @return true if status code is 300-399, false otherwise
+     * Returns true if this is a redirect response (3xx status).
+     *
+     * @return true for 3xx statuses
      */
     public boolean isRedirection() {
-        return statusCode >= 300 && statusCode < 400;
+        return status.isRedirection();
     }
 
     /**
-     * Checks if this response indicates a client error (4xx status codes).
-     * 
-     * @return true if status code is 400-499, false otherwise
-     */
-    public boolean isClientError() {
-        return statusCode >= 400 && statusCode < 500;
-    }
-
-    /**
-     * Checks if this response indicates a server error (5xx status codes).
-     * 
-     * @return true if status code is 500-599, false otherwise
-     */
-    public boolean isServerError() {
-        return statusCode >= 500 && statusCode < 600;
-    }
-
-    /**
-     * Checks if this response indicates an error (4xx or 5xx status codes).
-     * 
-     * @return true if status code is 400-599, false otherwise
+     * Returns true if this is an error response (4xx or 5xx status).
+     *
+     * @return true for 4xx or 5xx statuses
      */
     public boolean isError() {
-        return statusCode >= 400;
-    }
-
-    /**
-     * Returns the Content-Length header value as a long.
-     * 
-     * @return the content length, or -1 if header not present or invalid
-     */
-    public long getContentLength() {
-        String contentLength = getHeader("content-length");
-        if (contentLength != null) {
-            try {
-                return Long.parseLong(contentLength);
-            } catch (NumberFormatException e) {
-                // Invalid content-length header
-            }
-        }
-        return -1;
-    }
-
-    /**
-     * Returns the Content-Type header value.
-     * 
-     * @return the content type, or null if not present
-     */
-    public String getContentType() {
-        return getHeader("content-type");
+        return status.isError();
     }
 
     @Override
     public String toString() {
-        return version + " " + statusCode + " " + statusMessage;
+        if (redirectLocation != null) {
+            return status + " -> " + redirectLocation;
+        }
+        return status.toString();
     }
 }

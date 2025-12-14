@@ -46,7 +46,6 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
-import javax.annotation.Resource;
 import javax.persistence.PersistenceContextType;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
@@ -54,6 +53,24 @@ import javax.xml.parsers.SAXParserFactory;
 import javax.servlet.DispatcherType;
 import javax.servlet.SessionTrackingMode;
 import javax.servlet.annotation.ServletSecurity;
+
+import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
+import org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory;
+import org.bluezoo.gumdrop.servlet.jndi.DataSourceDef;
+import org.bluezoo.gumdrop.servlet.jndi.EjbRef;
+import org.bluezoo.gumdrop.servlet.jndi.EnvEntry;
+import org.bluezoo.gumdrop.servlet.jndi.Injectable;
+import org.bluezoo.gumdrop.servlet.jndi.InjectionTarget;
+import org.bluezoo.gumdrop.servlet.jndi.JmsConnectionFactory;
+import org.bluezoo.gumdrop.servlet.jndi.JmsDestination;
+import org.bluezoo.gumdrop.servlet.jndi.MailSession;
+import org.bluezoo.gumdrop.servlet.jndi.MessageDestinationRef;
+import org.bluezoo.gumdrop.servlet.jndi.PersistenceContextRef;
+import org.bluezoo.gumdrop.servlet.jndi.PersistenceUnitRef;
+import org.bluezoo.gumdrop.servlet.jndi.Resource;
+import org.bluezoo.gumdrop.servlet.jndi.ResourceEnvRef;
+import org.bluezoo.gumdrop.servlet.jndi.ResourceRef;
+import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
 
 /**
  * Parses a web application deployment descriptor, populating an application
@@ -692,6 +709,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case DISPLAY_NAME:
                     case FILTER_NAME:
                     case FILTER_CLASS:
+                    case ASYNC_SUPPORTED:
                         pushText();
                         break;
                     case INIT_PARAM:
@@ -725,6 +743,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case SERVLET_CLASS:
                     case JSP_FILE:
                     case LOAD_ON_STARTUP:
+                    case ASYNC_SUPPORTED:
                         pushText();
                         break;
                     case INIT_PARAM:
@@ -1471,6 +1490,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         InitParam initParam = (InitParam) popTarget();
                         ((FilterDef) peekTarget()).addInitParam(initParam);
                         break;
+                    case ASYNC_SUPPORTED:
+                        text = popText();
+                        ((FilterDef) peekTarget()).asyncSupported = "true".equalsIgnoreCase(text);
+                        break;
                 }
                 break;
             case FILTER_MAPPING:
@@ -1545,6 +1568,10 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MULTIPART_CONFIG:
                         MultipartConfigDef multipartConfig = (MultipartConfigDef) popTarget();
                         ((ServletDef) peekTarget()).multipartConfig = multipartConfig;
+                        break;
+                    case ASYNC_SUPPORTED:
+                        text = popText();
+                        ((ServletDef) peekTarget()).asyncSupported = "true".equalsIgnoreCase(text);
                         break;
                 }
                 break;
@@ -1812,16 +1839,16 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case ENV_ENTRY:
                 switch (state) {
                     case DESCRIPTION:
-                        ((EnvEntry) peekTarget()).description = popText();
+                        ((EnvEntry) peekTarget()).setDescription(popText());
                         break;
                     case ENV_ENTRY_NAME:
-                        ((EnvEntry) peekTarget()).name = popText();
+                        ((EnvEntry) peekTarget()).setName(popText());
                         break;
                     case ENV_ENTRY_TYPE:
-                        ((EnvEntry) peekTarget()).className = popText();
+                        ((EnvEntry) peekTarget()).setClassName(popText());
                         break;
                     case ENV_ENTRY_VALUE:
-                        ((EnvEntry) peekTarget()).value = popText();
+                        ((EnvEntry) peekTarget()).setValue(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -1838,32 +1865,32 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case INJECTION_TARGET:
                 switch (state) {
                     case INJECTION_TARGET_CLASS:
-                        ((InjectionTarget) peekTarget()).className = popText();
+                        ((InjectionTarget) peekTarget()).setClassName(popText());
                         break;
                     case INJECTION_TARGET_NAME:
-                        ((InjectionTarget) peekTarget()).name = popText();
+                        ((InjectionTarget) peekTarget()).setName(popText());
                         break;
                 }
                 break;
             case EJB_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((EjbRef) peekTarget()).description = popText();
+                        ((EjbRef) peekTarget()).setDescription(popText());
                         break;
                     case EJB_REF_NAME:
-                        ((EjbRef) peekTarget()).name = popText();
+                        ((EjbRef) peekTarget()).setName(popText());
                         break;
                     case EJB_REF_TYPE:
-                        ((EjbRef) peekTarget()).className = popText();
+                        ((EjbRef) peekTarget()).setClassName(popText());
                         break;
                     case HOME:
-                        ((EjbRef) peekTarget()).home = popText();
+                        ((EjbRef) peekTarget()).setHome(popText());
                         break;
                     case REMOTE:
-                        ((EjbRef) peekTarget()).remoteOrLocal = popText();
+                        ((EjbRef) peekTarget()).setRemoteOrLocal(popText());
                         break;
                     case EJB_LINK:
-                        ((EjbRef) peekTarget()).ejbLink = popText();
+                        ((EjbRef) peekTarget()).setEjbLink(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -1880,22 +1907,22 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case EJB_LOCAL_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((EjbRef) peekTarget()).description = popText();
+                        ((EjbRef) peekTarget()).setDescription(popText());
                         break;
                     case EJB_REF_NAME:
-                        ((EjbRef) peekTarget()).name = popText();
+                        ((EjbRef) peekTarget()).setName(popText());
                         break;
                     case EJB_REF_TYPE:
-                        ((EjbRef) peekTarget()).className = popText();
+                        ((EjbRef) peekTarget()).setClassName(popText());
                         break;
                     case LOCAL_HOME:
-                        ((EjbRef) peekTarget()).home = popText();
+                        ((EjbRef) peekTarget()).setHome(popText());
                         break;
                     case LOCAL:
-                        ((EjbRef) peekTarget()).remoteOrLocal = popText();
+                        ((EjbRef) peekTarget()).setRemoteOrLocal(popText());
                         break;
                     case EJB_LINK:
-                        ((EjbRef) peekTarget()).ejbLink = popText();
+                        ((EjbRef) peekTarget()).setEjbLink(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -1918,26 +1945,26 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         ((Description) peekTarget()).setDisplayName(popText());
                         break;
                     case SERVICE_REF_NAME:
-                        ((ServiceRef) peekTarget()).name = popText();
+                        ((ServiceRef) peekTarget()).setName(popText());
                         break;
                     case SERVICE_REF_TYPE:
-                        ((ServiceRef) peekTarget()).className = popText();
+                        ((ServiceRef) peekTarget()).setClassName(popText());
                         break;
                     case WSDL_FILE:
-                        ((ServiceRef) peekTarget()).wsdlFile = popText();
+                        ((ServiceRef) peekTarget()).setWsdlFile(popText());
                         break;
                     case JAXRPC_MAPPING_FILE:
-                        ((ServiceRef) peekTarget()).jaxrpcMappingFile = popText();
+                        ((ServiceRef) peekTarget()).setJaxrpcMappingFile(popText());
                         break;
                     case SERVICE_QNAME:
-                        ((ServiceRef) peekTarget()).serviceQname = popText();
+                        ((ServiceRef) peekTarget()).setServiceQname(popText());
                         break;
                     case PORT_COMPONENT_REF:
-                        ((ServiceRef) peekTarget()).portComponentRef = popText();
+                        ((ServiceRef) peekTarget()).setPortComponentRef(popText());
                         break;
                     case HANDLER:
                         HandlerDef handlerDef = (HandlerDef) popTarget();
-                        ((ServiceRef) peekTarget()).handler = handlerDef;
+                        ((ServiceRef) peekTarget()).setHandler(handlerDef);
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
                         break;
@@ -1989,19 +2016,19 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case RESOURCE_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((ResourceRef) peekTarget()).description = popText();
+                        ((ResourceRef) peekTarget()).setDescription(popText());
                         break;
                     case RES_REF_NAME:
-                        ((ResourceRef) peekTarget()).name = popText();
+                        ((ResourceRef) peekTarget()).setName(popText());
                         break;
                     case RES_TYPE:
-                        ((ResourceRef) peekTarget()).className = popText();
+                        ((ResourceRef) peekTarget()).setClassName(popText());
                         break;
                     case RES_AUTH:
-                        ((ResourceRef) peekTarget()).resAuth = Resource.AuthenticationType.valueOf(popText());
+                        ((ResourceRef) peekTarget()).setResAuth(javax.annotation.Resource.AuthenticationType.valueOf(popText()));
                         break;
                     case RES_SHARING_SCOPE:
-                        ((ResourceRef) peekTarget()).resSharingScope = popText();
+                        ((ResourceRef) peekTarget()).setResSharingScope(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -2018,13 +2045,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case RESOURCE_ENV_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((ResourceEnvRef) peekTarget()).description = popText();
+                        ((ResourceEnvRef) peekTarget()).setDescription(popText());
                         break;
                     case RESOURCE_ENV_REF_NAME:
-                        ((ResourceEnvRef) peekTarget()).name = popText();
+                        ((ResourceEnvRef) peekTarget()).setName(popText());
                         break;
                     case RESOURCE_ENV_REF_TYPE:
-                        ((ResourceEnvRef) peekTarget()).className = popText();
+                        ((ResourceEnvRef) peekTarget()).setClassName(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -2041,19 +2068,19 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case MESSAGE_DESTINATION_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((MessageDestinationRef) peekTarget()).description = popText();
+                        ((MessageDestinationRef) peekTarget()).setDescription(popText());
                         break;
                     case MESSAGE_DESTINATION_REF_NAME:
-                        ((MessageDestinationRef) peekTarget()).name = popText();
+                        ((MessageDestinationRef) peekTarget()).setName(popText());
                         break;
                     case MESSAGE_DESTINATION_TYPE:
-                        ((MessageDestinationRef) peekTarget()).className = popText();
+                        ((MessageDestinationRef) peekTarget()).setClassName(popText());
                         break;
                     case MESSAGE_DESTINATION_USAGE:
-                        ((MessageDestinationRef) peekTarget()).messageDestinationUsage = popText();
+                        ((MessageDestinationRef) peekTarget()).setMessageDestinationUsage(popText());
                         break;
                     case MESSAGE_DESTINATION_LINK:
-                        ((MessageDestinationRef) peekTarget()).messageDestinationLink = popText();
+                        ((MessageDestinationRef) peekTarget()).setMessageDestinationLink(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -2070,16 +2097,16 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case PERSISTENCE_CONTEXT_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((PersistenceContextRef) peekTarget()).description = popText();
+                        ((PersistenceContextRef) peekTarget()).setDescription(popText());
                         break;
                     case PERSISTENCE_CONTEXT_REF_NAME:
-                        ((PersistenceContextRef) peekTarget()).name = popText();
+                        ((PersistenceContextRef) peekTarget()).setName(popText());
                         break;
                     case PERSISTENCE_CONTEXT_TYPE:
-                        ((PersistenceContextRef) peekTarget()).type = PersistenceContextType.valueOf(popText().toUpperCase());
+                        ((PersistenceContextRef) peekTarget()).setType(PersistenceContextType.valueOf(popText().toUpperCase()));
                         break;
                     case PERSISTENCE_UNIT_NAME:
-                        ((PersistenceContextRef) peekTarget()).unitName = popText();
+                        ((PersistenceContextRef) peekTarget()).setUnitName(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -2096,13 +2123,13 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case PERSISTENCE_UNIT_REF:
                 switch (state) {
                     case DESCRIPTION:
-                        ((PersistenceUnitRef) peekTarget()).description = popText();
+                        ((PersistenceUnitRef) peekTarget()).setDescription(popText());
                         break;
                     case PERSISTENCE_UNIT_REF_NAME:
-                        ((PersistenceUnitRef) peekTarget()).name = popText();
+                        ((PersistenceUnitRef) peekTarget()).setName(popText());
                         break;
                     case PERSISTENCE_UNIT_NAME:
-                        ((PersistenceUnitRef) peekTarget()).unitName = popText();
+                        ((PersistenceUnitRef) peekTarget()).setUnitName(popText());
                         break;
                     case MAPPED_NAME:
                         ((Injectable) peekTarget()).setMappedName(popText());
@@ -2130,21 +2157,21 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case DATA_SOURCE:
                 switch (state) {
                     case DESCRIPTION:
-                        ((DataSourceDef) peekTarget()).description = popText();
+                        ((DataSourceDef) peekTarget()).setDescription(popText());
                         break;
                     case NAME:
-                        ((DataSourceDef) peekTarget()).name = popText();
+                        ((DataSourceDef) peekTarget()).setName(popText());
                         break;
                     case CLASS_NAME:
-                        ((DataSourceDef) peekTarget()).className = popText();
+                        ((DataSourceDef) peekTarget()).setClassName(popText());
                         break;
                     case SERVER_NAME:
-                        ((DataSourceDef) peekTarget()).serverName = popText();
+                        ((DataSourceDef) peekTarget()).setServerName(popText());
                         break;
                     case PORT_NUMBER:
                         text = popText();
                         try {
-                            ((DataSourceDef) peekTarget()).portNumber = Integer.parseInt(text);
+                            ((DataSourceDef) peekTarget()).setPortNumber(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2152,21 +2179,21 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         }
                         break;
                     case DATABASE_NAME:
-                        ((DataSourceDef) peekTarget()).databaseName = popText();
+                        ((DataSourceDef) peekTarget()).setDatabaseName(popText());
                         break;
                     case USER:
-                        ((DataSourceDef) peekTarget()).user = popText();
+                        ((DataSourceDef) peekTarget()).setUser(popText());
                         break;
                     case PASSWORD:
-                        ((DataSourceDef) peekTarget()).password = popText();
+                        ((DataSourceDef) peekTarget()).setPassword(popText());
                         break;
                     case ISOLATION_LEVEL:
-                        ((DataSourceDef) peekTarget()).isolationLevel = DataSourceDef.getIsolationLevel(popText());
+                        ((DataSourceDef) peekTarget()).setIsolationLevel(DataSourceDef.getIsolationLevel(popText()));
                         break;
                     case INITIAL_POOL_SIZE:
                         text = popText();
                         try {
-                            ((DataSourceDef) peekTarget()).initialPoolSize = Integer.parseInt(text);
+                            ((DataSourceDef) peekTarget()).setInitialPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2176,7 +2203,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MAX_POOL_SIZE:
                         text = popText();
                         try {
-                            ((DataSourceDef) peekTarget()).maxPoolSize = Integer.parseInt(text);
+                            ((DataSourceDef) peekTarget()).setMaxPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2186,7 +2213,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MIN_POOL_SIZE:
                         text = popText();
                         try {
-                            ((DataSourceDef) peekTarget()).minPoolSize = Integer.parseInt(text);
+                            ((DataSourceDef) peekTarget()).setMinPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2196,7 +2223,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MAX_IDLE_TIME:
                         text = popText();
                         try {
-                            ((DataSourceDef) peekTarget()).maxIdleTime = Integer.parseInt(text);
+                            ((DataSourceDef) peekTarget()).setMaxIdleTime(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2206,7 +2233,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MAX_STATEMENTS:
                         text = popText();
                         try {
-                            ((DataSourceDef) peekTarget()).maxStatements = Integer.parseInt(text);
+                            ((DataSourceDef) peekTarget()).setMaxStatements(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2214,7 +2241,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         }
                         break;
                     case TRANSACTION_ISOLATION:
-                        ((DataSourceDef) peekTarget()).transactionIsolation = DataSourceDef.getIsolationLevel(popText());
+                        ((DataSourceDef) peekTarget()).setTransactionIsolation(DataSourceDef.getIsolationLevel(popText()));
                         break;
                     case PROPERTY:
                         InitParam initParam = (InitParam) popTarget();
@@ -2235,39 +2262,39 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case JMS_CONNECTION_FACTORY:
                 switch (state) {
                     case DESCRIPTION:
-                        ((JmsConnectionFactory) peekTarget()).description = popText();
+                        ((JmsConnectionFactory) peekTarget()).setDescription(popText());
                         break;
                     case NAME:
-                        ((JmsConnectionFactory) peekTarget()).name = popText();
+                        ((JmsConnectionFactory) peekTarget()).setName(popText());
                         break;
                     case INTERFACE_NAME:
-                        ((JmsConnectionFactory) peekTarget()).interfaceName = popText();
+                        ((JmsConnectionFactory) peekTarget()).setInterfaceName(popText());
                         break;
                     case CLASS_NAME:
-                        ((JmsConnectionFactory) peekTarget()).className = popText();
+                        ((JmsConnectionFactory) peekTarget()).setClassName(popText());
                         break;
                     case USER:
-                        ((JmsConnectionFactory) peekTarget()).user = popText();
+                        ((JmsConnectionFactory) peekTarget()).setUser(popText());
                         break;
                     case PASSWORD:
-                        ((JmsConnectionFactory) peekTarget()).password = popText();
+                        ((JmsConnectionFactory) peekTarget()).setPassword(popText());
                         break;
                     case CLIENT_ID:
-                        ((JmsConnectionFactory) peekTarget()).clientId = popText();
+                        ((JmsConnectionFactory) peekTarget()).setClientId(popText());
                         break;
                     case TRANSACTIONAL:
-                        ((JmsConnectionFactory) peekTarget()).transactional = popBoolean();
+                        ((JmsConnectionFactory) peekTarget()).setTransactional(popBoolean());
                         break;
                     case POOL:
                         JmsConnectionFactory.Pool pool = (JmsConnectionFactory.Pool) popTarget();
-                        ((JmsConnectionFactory) peekTarget()).pool = pool;
+                        ((JmsConnectionFactory) peekTarget()).setPool(pool);
                         break;
                     case PROPERTY:
                         InitParam initParam = (InitParam) popTarget();
                         ((JmsConnectionFactory) peekTarget()).addProperty(initParam.name, initParam.value);
                         break;
                     case RESOURCE_ADAPTER:
-                        ((JmsConnectionFactory) peekTarget()).resourceAdapter = popText();
+                        ((JmsConnectionFactory) peekTarget()).setResourceAdapter(popText());
                         break;
                 }
                 break;
@@ -2276,7 +2303,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MAX_POOL_SIZE:
                         text = popText();
                         try {
-                            ((JmsConnectionFactory.Pool) peekTarget()).maxPoolSize = Integer.parseInt(text);
+                            ((JmsConnectionFactory.Pool) peekTarget()).setMaxPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2286,7 +2313,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case MIN_POOL_SIZE:
                         text = popText();
                         try {
-                            ((JmsConnectionFactory.Pool) peekTarget()).minPoolSize = Integer.parseInt(text);
+                            ((JmsConnectionFactory.Pool) peekTarget()).setMinPoolSize(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2296,7 +2323,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case CONNECTION_TIMEOUT_IN_SECONDS:
                         text = popText();
                         try {
-                            ((JmsConnectionFactory.Pool) peekTarget()).connectionTimeoutInSeconds = Integer.parseInt(text);
+                            ((JmsConnectionFactory.Pool) peekTarget()).setConnectionTimeoutInSeconds(Integer.parseInt(text));
                         } catch (NumberFormatException e) {
                             String message = L10N.getString("warn.invalid_number");
                             message = MessageFormat.format(message, text);
@@ -2308,54 +2335,54 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case JMS_DESTINATION:
                 switch (state) {
                     case DESCRIPTION:
-                        ((JmsConnectionFactory) peekTarget()).description = popText();
+                        ((JmsDestination) peekTarget()).setDescription(popText());
                         break;
                     case NAME:
-                        ((JmsConnectionFactory) peekTarget()).name = popText();
+                        ((JmsDestination) peekTarget()).setName(popText());
                         break;
                     case INTERFACE_NAME:
-                        ((JmsConnectionFactory) peekTarget()).interfaceName = popText();
+                        ((JmsDestination) peekTarget()).setInterfaceName(popText());
                         break;
                     case CLASS_NAME:
-                        ((JmsConnectionFactory) peekTarget()).className = popText();
+                        ((JmsDestination) peekTarget()).setClassName(popText());
                         break;
                     case PROPERTY:
                         InitParam initParam = (InitParam) popTarget();
-                        ((JmsConnectionFactory) peekTarget()).addProperty(initParam.name, initParam.value);
+                        ((JmsDestination) peekTarget()).addProperty(initParam.name, initParam.value);
                         break;
                 }
                 break;
             case MAIL_SESSION:
                 switch (state) {
                     case DESCRIPTION:
-                        ((MailSession) peekTarget()).description = popText();
+                        ((MailSession) peekTarget()).setDescription(popText());
                         break;
                     case NAME:
-                        ((MailSession) peekTarget()).name = popText();
+                        ((MailSession) peekTarget()).setName(popText());
                         break;
                     case STORE_PROTOCOL:
-                        ((MailSession) peekTarget()).storeProtocol = popText();
+                        ((MailSession) peekTarget()).setStoreProtocol(popText());
                         break;
                     case STORE_PROTOCOL_CLASS:
-                        ((MailSession) peekTarget()).storeProtocolClass = popText();
+                        ((MailSession) peekTarget()).setStoreProtocolClass(popText());
                         break;
                     case TRANSPORT_PROTOCOL:
-                        ((MailSession) peekTarget()).transportProtocol = popText();
+                        ((MailSession) peekTarget()).setTransportProtocol(popText());
                         break;
                     case TRANSPORT_PROTOCOL_CLASS:
-                        ((MailSession) peekTarget()).transportProtocolClass = popText();
+                        ((MailSession) peekTarget()).setTransportProtocolClass(popText());
                         break;
                     case HOST:
-                        ((MailSession) peekTarget()).host = popText();
+                        ((MailSession) peekTarget()).setHost(popText());
                         break;
                     case USER:
-                        ((MailSession) peekTarget()).user = popText();
+                        ((MailSession) peekTarget()).setUser(popText());
                         break;
                     case PASSWORD:
-                        ((MailSession) peekTarget()).password = popText();
+                        ((MailSession) peekTarget()).setPassword(popText());
                         break;
                     case FROM:
-                        ((MailSession) peekTarget()).from = popText();
+                        ((MailSession) peekTarget()).setFrom(popText());
                         break;
                     case PROPERTY:
                         InitParam initParam = (InitParam) popTarget();
@@ -2366,14 +2393,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case CONNECTION_FACTORY:
                 switch (state) {
                     case JNDI_NAME:
-                        ((ConnectionFactory) peekTarget()).jndiName = popText();
+                        ((ConnectionFactory) peekTarget()).setJndiName(popText());
                         break;
                 }
                 break;
             case CONNECTION_DEFINITION:
                 switch (state) {
                     case CONNECTION_DEFINITION_ID:
-                        ((ConnectionFactory) peekTarget()).connectionDefinitionId = popText();
+                        ((ConnectionFactory) peekTarget()).setConnectionDefinitionId(popText());
                         break;
                     case CONFIG_PROPERTY:
                         InitParam initParam = (InitParam) popTarget();
@@ -2394,22 +2421,22 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
             case ADMINISTERED_OBJECT:
                 switch (state) {
                     case DESCRIPTION:
-                        ((AdministeredObject) peekTarget()).description = popText();
+                        ((AdministeredObject) peekTarget()).setDescription(popText());
                         break;
                     case JNDI_NAME:
-                        ((AdministeredObject) peekTarget()).jndiName = popText();
+                        ((AdministeredObject) peekTarget()).setJndiName(popText());
                         break;
                     case ADMINISTERED_OBJECT_INTERFACE:
-                        ((AdministeredObject) peekTarget()).administeredObjectInterface = popText();
+                        ((AdministeredObject) peekTarget()).setAdministeredObjectInterface(popText());
                         break;
                     case ADMINISTERED_OBJECT_CLASS:
-                        ((AdministeredObject) peekTarget()).administeredObjectClass = popText();
+                        ((AdministeredObject) peekTarget()).setAdministeredObjectClass(popText());
                         break;
                     case LOOKUP_NAME:
-                        ((AdministeredObject) peekTarget()).lookupName = popText();
+                        ((Injectable) peekTarget()).setLookupName(popText());
                         break;
                     case MAPPED_NAME:
-                        ((AdministeredObject) peekTarget()).mappedName = popText();
+                        ((Injectable) peekTarget()).setMappedName(popText());
                         break;
                     case CONFIG_PROPERTY:
                         InitParam initParam = (InitParam) popTarget();

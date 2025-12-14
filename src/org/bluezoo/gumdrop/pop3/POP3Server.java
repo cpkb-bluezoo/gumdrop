@@ -23,8 +23,9 @@ package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import org.bluezoo.gumdrop.pop3.handler.ClientConnectedFactory;
 
 import java.nio.channels.SocketChannel;
 import java.util.logging.Logger;
@@ -69,11 +70,15 @@ public class POP3Server extends Server {
     protected int port = -1;
     protected Realm realm; // Authentication realm
     protected MailboxFactory mailboxFactory; // Factory for creating mailbox instances
-    protected long loginDelay = 0; // Login delay in milliseconds (RFC 2449 section 4)
-    protected long transactionTimeout = 600000; // 10 minutes default (RFC 1939 section 3)
+    protected ClientConnectedFactory handlerFactory; // Factory for creating connection handlers
+    protected long loginDelayMs = 0; // Login delay in milliseconds (RFC 2449 section 4)
+    protected long transactionTimeoutMs = 600000; // 10 minutes default (RFC 1939 section 3)
     protected boolean enableAPOP = true; // Enable APOP authentication
     protected boolean enableUTF8 = true; // Enable UTF-8 support (RFC 6816)
     protected boolean enablePipelining = false; // Enable command pipelining (RFC 2449 section 6.8)
+
+    // Metrics for this server (null if telemetry is not enabled)
+    private POP3ServerMetrics metrics;
 
     /**
      * Returns a short description of this connector.
@@ -139,24 +144,56 @@ public class POP3Server extends Server {
     }
 
     /**
+     * Returns the handler factory for creating connection handlers.
+     * 
+     * @return the handler factory, or null if using default behavior
+     */
+    public ClientConnectedFactory getHandlerFactory() {
+        return handlerFactory;
+    }
+
+    /**
+     * Sets the handler factory for creating connection handlers.
+     * 
+     * <p>When set, each new connection will create a handler instance
+     * to control the connection behavior. If not set, the connection
+     * uses default behavior.
+     * 
+     * @param handlerFactory the factory for creating handlers
+     */
+    public void setHandlerFactory(ClientConnectedFactory handlerFactory) {
+        this.handlerFactory = handlerFactory;
+    }
+
+    /**
      * Returns the login delay in milliseconds.
      * RFC 2449 section 4 recommends a minimum delay between failed
      * authentication attempts to slow down brute-force attacks.
      * 
      * @return the login delay in milliseconds
      */
-    public long getLoginDelay() {
-        return loginDelay;
+    public long getLoginDelayMs() {
+        return loginDelayMs;
     }
 
     /**
      * Sets the login delay in milliseconds.
      * This is enforced after failed authentication attempts.
      * 
-     * @param loginDelay the delay in milliseconds (0 to disable)
+     * @param loginDelayMs the delay in milliseconds (0 to disable)
      */
-    public void setLoginDelay(long loginDelay) {
-        this.loginDelay = loginDelay;
+    public void setLoginDelayMs(long loginDelayMs) {
+        this.loginDelayMs = loginDelayMs;
+    }
+
+    /**
+     * Sets the login delay using a string with optional time unit suffix.
+     * Supported suffixes: ms, s, m, h (milliseconds, seconds, minutes, hours).
+     * 
+     * @param delay the delay string (e.g., "5s", "500ms")
+     */
+    public void setLoginDelay(String delay) {
+        this.loginDelayMs = parseTimeoutString(delay);
     }
 
     /**
@@ -165,17 +202,63 @@ public class POP3Server extends Server {
      * 
      * @return the timeout in milliseconds
      */
-    public long getTransactionTimeout() {
-        return transactionTimeout;
+    public long getTransactionTimeoutMs() {
+        return transactionTimeoutMs;
     }
 
     /**
      * Sets the transaction timeout in milliseconds.
      * 
-     * @param transactionTimeout the timeout in milliseconds
+     * @param transactionTimeoutMs the timeout in milliseconds
      */
-    public void setTransactionTimeout(long transactionTimeout) {
-        this.transactionTimeout = transactionTimeout;
+    public void setTransactionTimeoutMs(long transactionTimeoutMs) {
+        this.transactionTimeoutMs = transactionTimeoutMs;
+    }
+
+    /**
+     * Sets the transaction timeout using a string with optional time unit suffix.
+     * 
+     * @param timeout the timeout string (e.g., "10m", "600s")
+     */
+    public void setTransactionTimeout(String timeout) {
+        this.transactionTimeoutMs = parseTimeoutString(timeout);
+    }
+
+    /**
+     * Parses a timeout string with optional time unit suffix.
+     * 
+     * @param timeout the timeout string (e.g., "30s", "5m", "1h", "5000ms")
+     * @return the timeout in milliseconds
+     */
+    private long parseTimeoutString(String timeout) {
+        if (timeout == null || timeout.isEmpty()) {
+            return 0;
+        }
+        timeout = timeout.trim().toLowerCase();
+
+        long multiplier = 1;
+        String numPart = timeout;
+
+        if (timeout.endsWith("ms")) {
+            numPart = timeout.substring(0, timeout.length() - 2);
+            multiplier = 1;
+        } else if (timeout.endsWith("s")) {
+            numPart = timeout.substring(0, timeout.length() - 1);
+            multiplier = 1000;
+        } else if (timeout.endsWith("m")) {
+            numPart = timeout.substring(0, timeout.length() - 1);
+            multiplier = 60 * 1000;
+        } else if (timeout.endsWith("h")) {
+            numPart = timeout.substring(0, timeout.length() - 1);
+            multiplier = 60 * 60 * 1000;
+        }
+
+        try {
+            return Long.parseLong(numPart.trim()) * multiplier;
+        } catch (NumberFormatException e) {
+            LOGGER.warning("Invalid timeout format: " + timeout);
+            return 0;
+        }
     }
 
     /**
@@ -251,6 +334,20 @@ public class POP3Server extends Server {
         if (mailboxFactory == null) {
             LOGGER.warning("No mailbox factory configured - POP3 server will not be functional");
         }
+
+        // Initialize metrics if telemetry is enabled
+        if (isMetricsEnabled()) {
+            metrics = new POP3ServerMetrics(getTelemetryConfig());
+        }
+    }
+
+    /**
+     * Returns the metrics for this server, or null if telemetry is not enabled.
+     *
+     * @return the POP3 server metrics
+     */
+    public POP3ServerMetrics getMetrics() {
+        return metrics;
     }
 
     /**

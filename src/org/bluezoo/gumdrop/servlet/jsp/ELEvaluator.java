@@ -51,8 +51,8 @@ import javax.servlet.jsp.PageContext;
  *   <li>Map/Array access: {@code ${map['key']}}, {@code ${array[0]}}</li>
  *   <li>Implicit objects: {@code ${pageContext}}, {@code ${sessionScope}}, etc.</li>
  *   <li>Arithmetic operators: +, -, *, /, %, div, mod</li>
- *   <li>Comparison operators: ==, !=, <, >, <=, >=, eq, ne, lt, gt, le, ge</li>
- *   <li>Logical operators: &&, ||, !, and, or, not</li>
+ *   <li>Comparison operators: ==, !=, &lt;, &gt;, &lt;=, &gt;=, eq, ne, lt, gt, le, ge</li>
+ *   <li>Logical operators: &amp;&amp;, ||, !, and, or, not</li>
  *   <li>Empty operator: {@code ${empty list}}</li>
  *   <li>Ternary operator: {@code ${condition ? value1 : value2}}</li>
  *   <li>Lambda expressions (EL 3.0): {@code ${(x -> x * 2)(5)}}</li>

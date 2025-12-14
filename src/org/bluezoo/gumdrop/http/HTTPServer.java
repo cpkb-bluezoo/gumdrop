@@ -54,6 +54,17 @@ public class HTTPServer extends Server {
      */
     private HTTPAuthenticationProvider authenticationProvider;
 
+    /**
+     * Handler factory for creating request handlers.
+     * If null, the default 404 behavior is used.
+     */
+    private HTTPRequestHandlerFactory handlerFactory;
+
+    /**
+     * Metrics for this server (null if telemetry is not enabled).
+     */
+    private HTTPServerMetrics metrics;
+
     public String getDescription() {
         return secure ? "https" : "http";
     }
@@ -71,6 +82,19 @@ public class HTTPServer extends Server {
         if (port <= 0) {
             port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
         }
+        // Initialize metrics if telemetry is enabled
+        if (isMetricsEnabled()) {
+            metrics = new HTTPServerMetrics(getTelemetryConfig());
+        }
+    }
+
+    /**
+     * Returns the metrics for this server, or null if telemetry is not enabled.
+     *
+     * @return the HTTP server metrics
+     */
+    public HTTPServerMetrics getMetrics() {
+        return metrics;
     }
 
     public void stop() {
@@ -123,10 +147,36 @@ public class HTTPServer extends Server {
         return authenticationProvider;
     }
 
+    /**
+     * Sets the handler factory for this server.
+     *
+     * <p>The factory is called once per HTTP stream when the initial request
+     * headers are received. It can examine the headers (including :method,
+     * :path, etc.) to decide which handler implementation to return.
+     *
+     * <p>If no factory is set, requests receive a 404 Not Found response.
+     *
+     * @param factory the handler factory, or null to use default 404 behavior
+     * @see HTTPRequestHandlerFactory
+     */
+    public void setHandlerFactory(HTTPRequestHandlerFactory factory) {
+        this.handlerFactory = factory;
+    }
+
+    /**
+     * Returns the handler factory for this server.
+     *
+     * @return the handler factory, or null if not configured
+     */
+    public HTTPRequestHandlerFactory getHandlerFactory() {
+        return handlerFactory;
+    }
+
     @Override
     public Connection newConnection(SocketChannel channel, SSLEngine engine) {
         HTTPConnection connection = new HTTPConnection(channel, engine, secure, framePadding);
         connection.setAuthenticationProvider(authenticationProvider);
+        connection.setHandlerFactory(handlerFactory);
         return connection;
     }
 

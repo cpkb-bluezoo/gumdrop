@@ -31,6 +31,8 @@ import java.nio.ByteBuffer;
  */
 public class PriorityFrame extends Frame {
 
+    private static final int FRAME_LENGTH = 5;
+
     int stream;
 
     int streamDependency;
@@ -39,17 +41,18 @@ public class PriorityFrame extends Frame {
 
     /**
      * Constructor for a priority frame received from the client.
+     * The payload ByteBuffer should be positioned at the start of payload data
+     * with limit set to the end of payload data.
      */
-    protected PriorityFrame(int stream, byte[] payload) {
+    protected PriorityFrame(int stream, ByteBuffer payload) {
         this.stream = stream;
-        int offset = 0;
-        int sd1 = (int) payload[offset++] & 0xff;
+        int sd1 = payload.get() & 0xff;
         streamDependencyExclusive = (sd1 & 0x80) != 0;
         streamDependency = (sd1 & 0x7f) << 24
-            | ((int) payload[offset++] & 0xff) << 16
-            | ((int) payload[offset++] & 0xff) << 8
-            | ((int) payload[offset++] & 0xff);
-        weight = ((int) payload[offset++] & 0xff);
+            | (payload.get() & 0xff) << 16
+            | (payload.get() & 0xff) << 8
+            | (payload.get() & 0xff);
+        weight = payload.get() & 0xff;
     }
 
     /**
@@ -63,7 +66,7 @@ public class PriorityFrame extends Frame {
     }
 
     public int getLength() {
-        return 5; // always 5 bytes
+        return FRAME_LENGTH;
     }
 
     public int getType() {

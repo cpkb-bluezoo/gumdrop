@@ -1,0 +1,9 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- Plaintext buffer test server on port 19080 -->
+    <server id="bufferTestPlaintext" class="org.bluezoo.gumdrop.buffer.BufferTestServer">
+        <property name="port">19080</property>
+        <property name="addresses">127.0.0.1</property>
+        <!-- Message pattern is set programmatically in tests -->
+    </server>
+</gumdrop>

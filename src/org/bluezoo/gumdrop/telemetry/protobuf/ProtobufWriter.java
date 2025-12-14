@@ -21,8 +21,9 @@
 
 package org.bluezoo.gumdrop.telemetry.protobuf;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -36,6 +37,10 @@ import java.nio.charset.StandardCharsets;
  *   <li>2 = LEN (string, bytes, embedded messages, packed repeated fields)</li>
  *   <li>5 = I32 (fixed32, sfixed32, float)</li>
  * </ul>
+ *
+ * <p>This writer outputs to a {@link WritableByteChannel}, handling non-blocking
+ * channels by retrying writes until all bytes are written. For writing to a
+ * {@link ByteBuffer}, use {@link ByteBufferChannel}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -61,80 +66,69 @@ public class ProtobufWriter {
      */
     public static final int WIRETYPE_I32 = 5;
 
-    private final ByteBuffer buffer;
-    private boolean overflow;
+    private final WritableByteChannel channel;
+    private final ByteBuffer writeBuffer;
+    private long bytesWritten;
 
     /**
-     * Creates a new ProtobufWriter that writes to the given buffer.
-     * The buffer should be in write mode (ready for put operations).
+     * Creates a new ProtobufWriter that writes to the given channel.
      *
-     * @param buffer the buffer to write to
+     * @param channel the channel to write to
      */
-    public ProtobufWriter(ByteBuffer buffer) {
-        this.buffer = buffer;
-        this.overflow = false;
-    }
-
-    /**
-     * Returns the underlying buffer.
-     */
-    public ByteBuffer getBuffer() {
-        return buffer;
-    }
-
-    /**
-     * Returns true if an overflow occurred during writing.
-     */
-    public boolean isOverflow() {
-        return overflow;
-    }
-
-    /**
-     * Returns the write result.
-     */
-    public WriteResult getResult() {
-        return overflow ? WriteResult.OVERFLOW : WriteResult.SUCCESS;
+    public ProtobufWriter(WritableByteChannel channel) {
+        this.channel = channel;
+        this.writeBuffer = ByteBuffer.allocate(16); // Enough for any single primitive
+        this.bytesWritten = 0;
     }
 
     /**
      * Returns the number of bytes written so far.
+     *
+     * @return the byte count
      */
-    public int getBytesWritten() {
-        return buffer.position();
+    public long getBytesWritten() {
+        return bytesWritten;
     }
 
-    // -- Tag writing --
+    // ─────────────────────────────────────────────────────────────────────────
+    // Tag writing
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Writes a field tag.
-     * Tag format: (fieldNumber << 3) | wireType
+     * Tag format: (fieldNumber &lt;&lt; 3) | wireType
      *
      * @param fieldNumber the field number (1-based)
      * @param wireType the wire type
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeTag(int fieldNumber, int wireType) {
-        return writeVarint((fieldNumber << 3) | wireType);
+    public void writeTag(int fieldNumber, int wireType) throws IOException {
+        writeVarint((fieldNumber << 3) | wireType);
     }
 
-    // -- Varint encoding --
+    // ─────────────────────────────────────────────────────────────────────────
+    // Varint encoding
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Writes an unsigned varint (base-128 encoding).
      * Each byte has 7 bits of data and MSB as continuation bit.
      *
      * @param value the value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeVarint(long value) {
+    public void writeVarint(long value) throws IOException {
+        writeBuffer.clear();
         while (true) {
             if ((value & ~0x7FL) == 0) {
-                writeByte((int) value);
-                return this;
+                writeBuffer.put((byte) value);
+                break;
             }
-            writeByte((int) ((value & 0x7F) | 0x80));
+            writeBuffer.put((byte) ((value & 0x7F) | 0x80));
             value >>>= 7;
         }
+        writeBuffer.flip();
+        writeToChannel(writeBuffer);
     }
 
     /**
@@ -142,97 +136,96 @@ public class ProtobufWriter {
      * Maps signed to unsigned: 0→0, -1→1, 1→2, -2→3, etc.
      *
      * @param value the signed value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeSVarint(long value) {
-        return writeVarint((value << 1) ^ (value >> 63));
+    public void writeSVarint(long value) throws IOException {
+        writeVarint((value << 1) ^ (value >> 63));
     }
 
     /**
      * Writes a signed 32-bit varint using ZigZag encoding.
      *
      * @param value the signed value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeSVarint32(int value) {
-        return writeVarint((value << 1) ^ (value >> 31));
+    public void writeSVarint32(int value) throws IOException {
+        writeVarint((value << 1) ^ (value >> 31));
     }
 
-    // -- Fixed-size types --
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fixed-size types
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Writes a fixed 64-bit value in little-endian order.
      *
      * @param value the value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeFixed64(long value) {
-        if (buffer.remaining() >= 8) {
-            // Write in little-endian order
-            writeByte((int) (value & 0xFF));
-            writeByte((int) ((value >> 8) & 0xFF));
-            writeByte((int) ((value >> 16) & 0xFF));
-            writeByte((int) ((value >> 24) & 0xFF));
-            writeByte((int) ((value >> 32) & 0xFF));
-            writeByte((int) ((value >> 40) & 0xFF));
-            writeByte((int) ((value >> 48) & 0xFF));
-            writeByte((int) ((value >> 56) & 0xFF));
-        } else {
-            overflow = true;
-        }
-        return this;
+    public void writeFixed64(long value) throws IOException {
+        writeBuffer.clear();
+        writeBuffer.put((byte) (value & 0xFF));
+        writeBuffer.put((byte) ((value >> 8) & 0xFF));
+        writeBuffer.put((byte) ((value >> 16) & 0xFF));
+        writeBuffer.put((byte) ((value >> 24) & 0xFF));
+        writeBuffer.put((byte) ((value >> 32) & 0xFF));
+        writeBuffer.put((byte) ((value >> 40) & 0xFF));
+        writeBuffer.put((byte) ((value >> 48) & 0xFF));
+        writeBuffer.put((byte) ((value >> 56) & 0xFF));
+        writeBuffer.flip();
+        writeToChannel(writeBuffer);
     }
 
     /**
      * Writes a fixed 32-bit value in little-endian order.
      *
      * @param value the value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeFixed32(int value) {
-        if (buffer.remaining() >= 4) {
-            writeByte(value & 0xFF);
-            writeByte((value >> 8) & 0xFF);
-            writeByte((value >> 16) & 0xFF);
-            writeByte((value >> 24) & 0xFF);
-        } else {
-            overflow = true;
-        }
-        return this;
+    public void writeFixed32(int value) throws IOException {
+        writeBuffer.clear();
+        writeBuffer.put((byte) (value & 0xFF));
+        writeBuffer.put((byte) ((value >> 8) & 0xFF));
+        writeBuffer.put((byte) ((value >> 16) & 0xFF));
+        writeBuffer.put((byte) ((value >> 24) & 0xFF));
+        writeBuffer.flip();
+        writeToChannel(writeBuffer);
     }
 
     /**
      * Writes a double value.
      *
      * @param value the value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeDouble(double value) {
-        return writeFixed64(Double.doubleToRawLongBits(value));
+    public void writeDouble(double value) throws IOException {
+        writeFixed64(Double.doubleToRawLongBits(value));
     }
 
     /**
      * Writes a float value.
      *
      * @param value the value to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeFloat(float value) {
-        return writeFixed32(Float.floatToRawIntBits(value));
+    public void writeFloat(float value) throws IOException {
+        writeFixed32(Float.floatToRawIntBits(value));
     }
 
-    // -- Field writers (tag + value) --
+    // ─────────────────────────────────────────────────────────────────────────
+    // Field writers (tag + value)
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Writes a varint field.
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeVarintField(int fieldNumber, long value) {
+    public void writeVarintField(int fieldNumber, long value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_VARINT);
-        return writeVarint(value);
+        writeVarint(value);
     }
 
     /**
@@ -240,11 +233,11 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeSVarintField(int fieldNumber, long value) {
+    public void writeSVarintField(int fieldNumber, long value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_VARINT);
-        return writeSVarint(value);
+        writeSVarint(value);
     }
 
     /**
@@ -252,11 +245,11 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeBoolField(int fieldNumber, boolean value) {
+    public void writeBoolField(int fieldNumber, boolean value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_VARINT);
-        return writeVarint(value ? 1 : 0);
+        writeVarint(value ? 1 : 0);
     }
 
     /**
@@ -264,11 +257,11 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeFixed64Field(int fieldNumber, long value) {
+    public void writeFixed64Field(int fieldNumber, long value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_I64);
-        return writeFixed64(value);
+        writeFixed64(value);
     }
 
     /**
@@ -276,11 +269,11 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeFixed32Field(int fieldNumber, int value) {
+    public void writeFixed32Field(int fieldNumber, int value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_I32);
-        return writeFixed32(value);
+        writeFixed32(value);
     }
 
     /**
@@ -288,11 +281,11 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeDoubleField(int fieldNumber, double value) {
+    public void writeDoubleField(int fieldNumber, double value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_I64);
-        return writeDouble(value);
+        writeDouble(value);
     }
 
     /**
@@ -300,34 +293,31 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the value
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeFloatField(int fieldNumber, float value) {
+    public void writeFloatField(int fieldNumber, float value) throws IOException {
         writeTag(fieldNumber, WIRETYPE_I32);
-        return writeFloat(value);
+        writeFloat(value);
     }
 
-    // -- Length-delimited types --
+    // ─────────────────────────────────────────────────────────────────────────
+    // Length-delimited types
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Writes raw bytes with length prefix.
      *
      * @param fieldNumber the field number
      * @param data the bytes to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeBytesField(int fieldNumber, byte[] data) {
+    public void writeBytesField(int fieldNumber, byte[] data) throws IOException {
         if (data == null) {
-            return this;
+            return;
         }
         writeTag(fieldNumber, WIRETYPE_LEN);
         writeVarint(data.length);
-        if (buffer.remaining() >= data.length) {
-            buffer.put(data);
-        } else {
-            overflow = true;
-        }
-        return this;
+        writeToChannel(ByteBuffer.wrap(data));
     }
 
     /**
@@ -335,50 +325,43 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param value the string to write
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeStringField(int fieldNumber, String value) {
+    public void writeStringField(int fieldNumber, String value) throws IOException {
         if (value == null) {
-            return this;
+            return;
         }
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        return writeBytesField(fieldNumber, bytes);
+        writeBytesField(fieldNumber, bytes);
     }
 
     /**
      * Writes an embedded message field.
      * The content is written using a callback that receives a nested writer.
      *
+     * <p>Note: This method buffers the message content internally to compute
+     * its length before writing, which is required by the protobuf wire format.
+     *
      * @param fieldNumber the field number
      * @param content the message content writer
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeMessageField(int fieldNumber, MessageContent content) {
+    public void writeMessageField(int fieldNumber, MessageContent content) throws IOException {
         if (content == null) {
-            return this;
+            return;
         }
+        
         // Calculate message size by writing to a temporary buffer
-        ByteBuffer temp = ByteBuffer.allocate(buffer.remaining());
-        ProtobufWriter tempWriter = new ProtobufWriter(temp);
+        ByteBufferChannel tempChannel = new ByteBufferChannel(64 * 1024); // 64KB initial
+        ProtobufWriter tempWriter = new ProtobufWriter(tempChannel);
         content.writeTo(tempWriter);
 
-        if (tempWriter.isOverflow()) {
-            overflow = true;
-            return this;
-        }
-
-        int messageSize = tempWriter.getBytesWritten();
-        temp.flip();
+        ByteBuffer messageData = tempChannel.toByteBuffer();
+        int messageSize = messageData.remaining();
 
         writeTag(fieldNumber, WIRETYPE_LEN);
         writeVarint(messageSize);
-
-        if (buffer.remaining() >= messageSize) {
-            buffer.put(temp);
-        } else {
-            overflow = true;
-        }
-        return this;
+        writeToChannel(messageData);
     }
 
     /**
@@ -387,31 +370,43 @@ public class ProtobufWriter {
      *
      * @param fieldNumber the field number
      * @param encodedMessage the pre-encoded message bytes
-     * @return this writer for chaining
+     * @throws IOException if an I/O error occurs
      */
-    public ProtobufWriter writeEncodedMessageField(int fieldNumber, ByteBuffer encodedMessage) {
+    public void writeEncodedMessageField(int fieldNumber, ByteBuffer encodedMessage) throws IOException {
         if (encodedMessage == null || !encodedMessage.hasRemaining()) {
-            return this;
+            return;
         }
         writeTag(fieldNumber, WIRETYPE_LEN);
         writeVarint(encodedMessage.remaining());
-        if (buffer.remaining() >= encodedMessage.remaining()) {
-            buffer.put(encodedMessage);
-        } else {
-            overflow = true;
-        }
-        return this;
+        writeToChannel(encodedMessage);
     }
 
-    // -- Helper methods --
+    // ─────────────────────────────────────────────────────────────────────────
+    // Channel writing with retry
+    // ─────────────────────────────────────────────────────────────────────────
 
-    private void writeByte(int b) {
-        if (buffer.hasRemaining()) {
-            buffer.put((byte) b);
-        } else {
-            overflow = true;
+    /**
+     * Writes a buffer to the channel, retrying if the channel is non-blocking.
+     *
+     * @param buffer the buffer to write
+     * @throws IOException if an I/O error occurs
+     */
+    private void writeToChannel(ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            int written = channel.write(buffer);
+            if (written > 0) {
+                bytesWritten += written;
+            } else if (written == 0) {
+                // Non-blocking channel not ready, yield and retry
+                Thread.yield();
+            }
+            // written < 0 would indicate end of stream (shouldn't happen for writable)
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Static utilities
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Calculates the size of a varint in bytes.
@@ -458,9 +453,8 @@ public class ProtobufWriter {
          * Writes the message content to the given writer.
          *
          * @param writer the writer to write to
+         * @throws IOException if an I/O error occurs
          */
-        void writeTo(ProtobufWriter writer);
+        void writeTo(ProtobufWriter writer) throws IOException;
     }
-
 }
-

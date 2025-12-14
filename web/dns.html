@@ -305,17 +305,17 @@ record types:
 &lt;!-- DNS proxy on non-privileged port --&gt;
 &lt;server id="dns" class="org.bluezoo.gumdrop.dns.DNSServer"&gt;
     &lt;property name="port"&gt;5353&lt;/property&gt;
-    &lt;property name="upstreamServers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
-    &lt;property name="cacheEnabled"&gt;true&lt;/property&gt;
+    &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
+    &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
 &lt;/server&gt;
 
 &lt;!-- DNS over DTLS --&gt;
 &lt;server id="dns-secure" class="org.bluezoo.gumdrop.dns.DNSServer"&gt;
     &lt;property name="port"&gt;853&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keyStore"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keyStorePassword"&gt;secret&lt;/property&gt;
-    &lt;property name="upstreamServers"&gt;8.8.8.8&lt;/property&gt;
+    &lt;property name="key-store"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="key-store-password"&gt;secret&lt;/property&gt;
+    &lt;property name="upstream-servers"&gt;8.8.8.8&lt;/property&gt;
 &lt;/server&gt;
 </pre>
 

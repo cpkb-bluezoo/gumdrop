@@ -24,9 +24,14 @@ package org.bluezoo.gumdrop.smtp.client;
 /**
  * SMTP client connection state enumeration.
  * 
+ * <p>These states track the internal protocol state of the SMTP client
+ * connection. The stage-based interfaces ({@link ClientHelloState},
+ * {@link ClientSession}, etc.) provide a type-safe view of what operations
+ * are valid at each state.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum SMTPState {
+enum SMTPState {
     
     /** Not connected to any server. */
     DISCONNECTED,
@@ -34,7 +39,7 @@ public enum SMTPState {
     /** Establishing TCP connection to server. */
     CONNECTING,
     
-    /** Connected, waiting for greeting or ready for commands. */
+    /** Connected and ready for commands. */
     CONNECTED,
     
     /** HELO command sent, waiting for response. */
@@ -43,11 +48,26 @@ public enum SMTPState {
     /** EHLO command sent, waiting for response. */
     EHLO_SENT,
     
+    /** STARTTLS command sent, waiting for response. */
+    STARTTLS_SENT,
+    
+    /** AUTH command sent, waiting for response. */
+    AUTH_SENT,
+    
+    /** AUTH abort (*) sent, waiting for response. */
+    AUTH_ABORT_SENT,
+    
     /** MAIL FROM command sent, waiting for response. */
     MAIL_FROM_SENT,
     
+    /** MAIL FROM accepted, can add recipients. */
+    MAIL_FROM_ACCEPTED,
+    
     /** RCPT TO command sent, waiting for response. */
     RCPT_TO_SENT,
+    
+    /** At least one RCPT TO accepted, can add more or send DATA. */
+    RCPT_TO_ACCEPTED,
     
     /** DATA command sent, waiting for 354 response. */
     DATA_COMMAND_SENT,
@@ -64,14 +84,9 @@ public enum SMTPState {
     /** QUIT command sent, waiting for response. */
     QUIT_SENT,
     
-    /** STARTTLS command sent, waiting for response. */
-    STARTTLS_SENT,
-    
     /** Protocol error or connection failure occurred. */
     ERROR,
     
     /** Connection closed normally. */
     CLOSED
 }
-
-

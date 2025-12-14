@@ -26,20 +26,11 @@ import org.junit.Before;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-import org.bluezoo.gumdrop.http.HTTPConnection;
-import org.bluezoo.gumdrop.http.Header;
-
-import javax.net.ssl.SSLEngine;
 import java.io.IOException;
 import java.lang.reflect.Method;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -61,63 +52,23 @@ public class FileSecurityTest {
     private Path tempFile;
     private Path outsideDir;
     private Path outsideFile;
-    private TestFileStream testStream;
+    private TestFileHandler testHandler;
     
     /**
-     * Test implementation of FileStream that exposes the validateAndResolvePath method
+     * Test implementation of FileHandler that exposes the validateAndResolvePath method
      * for direct testing via reflection.
      */
-    private static class TestFileStream extends FileStream {
+    private static class TestFileHandler extends FileHandler {
         
-        public TestFileStream(Path rootPath) {
-            super(new TestHTTPConnection(), 1, rootPath, true, "GET, HEAD, PUT, DELETE, OPTIONS", "index.html");
+        public TestFileHandler(Path rootPath) {
+            super(rootPath, true, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"});
         }
         
         public Path testValidateAndResolvePath(String requestPath) throws Exception {
-            Method method = FileStream.class.getDeclaredMethod("validateAndResolvePath", String.class);
+            Method method = FileHandler.class.getDeclaredMethod("validateAndResolvePath", String.class);
             method.setAccessible(true);
             return (Path) method.invoke(this, requestPath);
         }
-    }
-    
-    /**
-     * Mock HTTPConnection for testing purposes.
-     */
-    private static class TestHTTPConnection extends HTTPConnection {
-        
-        public TestHTTPConnection() {
-            super(new MockSocketChannel(), null, false);
-        }
-    }
-    
-    /**
-     * Mock SocketChannel for testing purposes.
-     */
-    private static class MockSocketChannel extends SocketChannel {
-        
-        protected MockSocketChannel() {
-            super(null);
-        }
-        
-        @Override public SocketChannel bind(java.net.SocketAddress local) { return this; }
-        @Override public <T> SocketChannel setOption(java.net.SocketOption<T> name, T value) { return this; }
-        @Override public <T> T getOption(java.net.SocketOption<T> name) { return null; }
-        @Override public java.util.Set<java.net.SocketOption<?>> supportedOptions() { return java.util.Collections.emptySet(); }
-        @Override public SocketChannel shutdownInput() { return this; }
-        @Override public SocketChannel shutdownOutput() { return this; }
-        @Override public java.net.Socket socket() { return null; }
-        @Override public boolean isConnected() { return true; }
-        @Override public boolean isConnectionPending() { return false; }
-        @Override public boolean connect(java.net.SocketAddress remote) { return true; }
-        @Override public boolean finishConnect() { return true; }
-        @Override public java.net.SocketAddress getRemoteAddress() { return new InetSocketAddress("127.0.0.1", 12345); }
-        @Override public int read(ByteBuffer dst) { return -1; }
-        @Override public long read(ByteBuffer[] dsts, int offset, int length) { return -1; }
-        @Override public int write(ByteBuffer src) { return src.remaining(); }
-        @Override public long write(ByteBuffer[] srcs, int offset, int length) { return 0; }
-        @Override public java.net.SocketAddress getLocalAddress() { return new InetSocketAddress("127.0.0.1", 8080); }
-        @Override protected void implCloseSelectableChannel() {}
-        @Override protected void implConfigureBlocking(boolean block) {}
     }
 
     @Before
@@ -133,11 +84,11 @@ public class FileSecurityTest {
         outsideFile = Files.createFile(outsideDir.resolve("sensitive.txt"));
         Files.write(outsideFile, "sensitive data".getBytes());
         
-        // Create test stream
-        testStream = new TestFileStream(tempRootDir);
+        // Create test handler
+        testHandler = new TestFileHandler(tempRootDir);
         
         // Reduce logging noise during tests
-        Logger.getLogger(FileStream.class.getName()).setLevel(Level.SEVERE);
+        Logger.getLogger(FileHandler.class.getName()).setLevel(Level.SEVERE);
     }
 
     @After
@@ -175,98 +126,98 @@ public class FileSecurityTest {
     public void testValidPaths() throws Exception {
         // Test valid paths within the root
         assertNotNull("Root path should be valid", 
-                     testStream.testValidateAndResolvePath("/"));
+                     testHandler.testValidateAndResolvePath("/"));
         
         assertNotNull("Subdir path should be valid", 
-                     testStream.testValidateAndResolvePath("/subdir"));
+                     testHandler.testValidateAndResolvePath("/subdir"));
         
         assertNotNull("File path should be valid", 
-                     testStream.testValidateAndResolvePath("/subdir/testfile.txt"));
+                     testHandler.testValidateAndResolvePath("/subdir/testfile.txt"));
         
         assertNotNull("URL encoded path should be valid", 
-                     testStream.testValidateAndResolvePath("/subdir/testfile%2Etxt"));
+                     testHandler.testValidateAndResolvePath("/subdir/testfile%2Etxt"));
     }
 
     @Test
     public void testDirectoryTraversalAttacks() throws Exception {
         // Classic directory traversal attempts
         assertNull("../ should be rejected", 
-                  testStream.testValidateAndResolvePath("/../"));
+                  testHandler.testValidateAndResolvePath("/../"));
         
         assertNull("Multiple ../ should be rejected", 
-                  testStream.testValidateAndResolvePath("/../../etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/../../etc/passwd"));
         
         assertNull("Nested ../ should be rejected", 
-                  testStream.testValidateAndResolvePath("/subdir/../../etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/subdir/../../etc/passwd"));
         
         // URL encoded traversal attempts
         assertNull("URL encoded ../ should be rejected", 
-                  testStream.testValidateAndResolvePath("/%2e%2e/etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/%2e%2e/etc/passwd"));
         
         assertNull("Mixed encoding should be rejected", 
-                  testStream.testValidateAndResolvePath("/subdir/%2e%2e/../etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/subdir/%2e%2e/../etc/passwd"));
     }
 
     @Test
     public void testDoubleEncodingAttacks() throws Exception {
         // Double URL encoded directory traversal
         assertNull("Double encoded ../ should be rejected", 
-                  testStream.testValidateAndResolvePath("/%252e%252e/etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/%252e%252e/etc/passwd"));
         
         assertNull("Double encoded with single should be rejected", 
-                  testStream.testValidateAndResolvePath("/%252e./etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/%252e./etc/passwd"));
     }
 
     @Test
     public void testNullByteAttacks() throws Exception {
         // Null byte injection attempts
         assertNull("Null byte should be rejected", 
-                  testStream.testValidateAndResolvePath("/subdir\0/../../etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/subdir\0/../../etc/passwd"));
         
         assertNull("URL encoded null byte should be rejected", 
-                  testStream.testValidateAndResolvePath("/subdir%00/../../etc/passwd"));
+                  testHandler.testValidateAndResolvePath("/subdir%00/../../etc/passwd"));
     }
 
     @Test
     public void testWindowsSpecificAttacks() throws Exception {
         // Windows device names
         assertNull("CON device name should be rejected", 
-                  testStream.testValidateAndResolvePath("/CON"));
+                  testHandler.testValidateAndResolvePath("/CON"));
         
         assertNull("PRN device name should be rejected", 
-                  testStream.testValidateAndResolvePath("/PRN"));
+                  testHandler.testValidateAndResolvePath("/PRN"));
         
         assertNull("AUX device name should be rejected", 
-                  testStream.testValidateAndResolvePath("/AUX"));
+                  testHandler.testValidateAndResolvePath("/AUX"));
         
         assertNull("COM1 device name should be rejected", 
-                  testStream.testValidateAndResolvePath("/COM1"));
+                  testHandler.testValidateAndResolvePath("/COM1"));
         
         assertNull("LPT1 device name should be rejected", 
-                  testStream.testValidateAndResolvePath("/LPT1"));
+                  testHandler.testValidateAndResolvePath("/LPT1"));
         
         // Windows invalid characters
         assertNull("< character should be rejected", 
-                  testStream.testValidateAndResolvePath("/test<file.txt"));
+                  testHandler.testValidateAndResolvePath("/test<file.txt"));
         
         assertNull("> character should be rejected", 
-                  testStream.testValidateAndResolvePath("/test>file.txt"));
+                  testHandler.testValidateAndResolvePath("/test>file.txt"));
         
         assertNull("| character should be rejected", 
-                  testStream.testValidateAndResolvePath("/test|file.txt"));
+                  testHandler.testValidateAndResolvePath("/test|file.txt"));
     }
 
     @Test
     public void testControlCharacterAttacks() throws Exception {
         // Control characters
         assertNull("Tab character should be rejected", 
-                  testStream.testValidateAndResolvePath("/test\tfile.txt"));
+                  testHandler.testValidateAndResolvePath("/test\tfile.txt"));
         
         assertNull("Newline character should be rejected", 
-                  testStream.testValidateAndResolvePath("/test\nfile.txt"));
+                  testHandler.testValidateAndResolvePath("/test\nfile.txt"));
         
         assertNull("Carriage return should be rejected", 
-                  testStream.testValidateAndResolvePath("/test\rfile.txt"));
+                  testHandler.testValidateAndResolvePath("/test\rfile.txt"));
     }
 
     @Test
@@ -278,28 +229,28 @@ public class FileSecurityTest {
         }
         
         assertNull("Overly long path should be rejected", 
-                  testStream.testValidateAndResolvePath(longPath.toString()));
+                  testHandler.testValidateAndResolvePath(longPath.toString()));
     }
 
     @Test
     public void testEdgeCases() throws Exception {
         // Empty and null paths
         assertNull("Empty path should be rejected", 
-                  testStream.testValidateAndResolvePath(""));
+                  testHandler.testValidateAndResolvePath(""));
         
         assertNull("Null path should be rejected", 
-                  testStream.testValidateAndResolvePath(null));
+                  testHandler.testValidateAndResolvePath(null));
         
         // Just dots
         assertNull("Single dot should be rejected", 
-                  testStream.testValidateAndResolvePath("/."));
+                  testHandler.testValidateAndResolvePath("/."));
         
         assertNull("Double dot should be rejected", 
-                  testStream.testValidateAndResolvePath("/.."));
+                  testHandler.testValidateAndResolvePath("/.."));
         
         // Multiple slashes
         assertNotNull("Multiple slashes should be normalized", 
-                     testStream.testValidateAndResolvePath("//subdir///testfile.txt"));
+                     testHandler.testValidateAndResolvePath("//subdir///testfile.txt"));
     }
 
     @Test
@@ -311,7 +262,7 @@ public class FileSecurityTest {
             
             // The symlink should be detected and rejected
             assertNull("Symbolic link outside root should be rejected", 
-                      testStream.testValidateAndResolvePath("/evil_symlink"));
+                      testHandler.testValidateAndResolvePath("/evil_symlink"));
                       
         } catch (UnsupportedOperationException e) {
             // Symbolic links not supported on this platform - skip test
@@ -322,7 +273,7 @@ public class FileSecurityTest {
     @Test
     public void testAbsolutePathAttempts() throws Exception {
         // Valid path within root should work and be within root
-        Path result = testStream.testValidateAndResolvePath("/subdir/testfile.txt");
+        Path result = testHandler.testValidateAndResolvePath("/subdir/testfile.txt");
         assertNotNull("Valid path should work", result);
         
         // Use real path resolution to handle symlinks properly
@@ -334,12 +285,12 @@ public class FileSecurityTest {
     @Test
     public void testPathNormalization() throws Exception {
         // Simple valid path should work
-        Path result = testStream.testValidateAndResolvePath("/subdir/testfile.txt");
+        Path result = testHandler.testValidateAndResolvePath("/subdir/testfile.txt");
         assertNotNull("Simple valid path should work", result);
         
         // But paths that normalize outside root should be rejected
         assertNull("Path normalizing outside root should be rejected", 
-                  testStream.testValidateAndResolvePath("/subdir/../.."));
+                  testHandler.testValidateAndResolvePath("/subdir/../.."));
     }
 
     @Test
@@ -379,7 +330,7 @@ public class FileSecurityTest {
     public void testSecurityLogging() throws Exception {
         // Capture log messages for security events
         List<String> logMessages = new ArrayList<>();
-        Handler testHandler = new Handler() {
+        Handler logHandler = new Handler() {
             @Override
             public void publish(java.util.logging.LogRecord record) {
                 logMessages.add(record.getMessage());
@@ -388,15 +339,15 @@ public class FileSecurityTest {
             @Override public void close() {}
         };
         
-        Logger fileStreamLogger = Logger.getLogger(FileStream.class.getName());
-        fileStreamLogger.setLevel(Level.WARNING);
-        fileStreamLogger.addHandler(testHandler);
+        Logger fileHandlerLogger = Logger.getLogger(FileHandler.class.getName());
+        fileHandlerLogger.setLevel(Level.WARNING);
+        fileHandlerLogger.addHandler(logHandler);
         
         try {
             // Trigger security violations
-            testStream.testValidateAndResolvePath("/../etc/passwd");
-            testStream.testValidateAndResolvePath("/CON");
-            testStream.testValidateAndResolvePath("/test\0file");
+            testHandler.testValidateAndResolvePath("/../etc/passwd");
+            testHandler.testValidateAndResolvePath("/CON");
+            testHandler.testValidateAndResolvePath("/test\0file");
             
             // Verify security events are logged
             boolean hasTraversalLog = logMessages.stream().anyMatch(msg -> 
@@ -412,7 +363,7 @@ public class FileSecurityTest {
             assertTrue("Should log null byte attack: " + logMessages, hasNullByteLog);
                       
         } finally {
-            fileStreamLogger.removeHandler(testHandler);
+            fileHandlerLogger.removeHandler(logHandler);
         }
     }
 }

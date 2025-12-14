@@ -5,8 +5,8 @@
         <property name="port">15678</property>
         <property name="addresses">127.0.0.1</property>
         <property name="secure">true</property>
-        <property name="keystoreFile">test/integration/certs/test-keystore.p12</property>
-        <property name="keystorePass">testpass</property>
+        <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
+        <property name="keystore-pass">testpass</property>
     </server>
 </gumdrop>
 

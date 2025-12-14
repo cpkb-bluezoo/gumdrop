@@ -43,8 +43,8 @@ Gumdrop includes a native OpenTelemetry implementation for distributed tracing,
 metrics, and observability. The telemetry system integrates with Gumdrop's
 event-driven architecture and exports data via OTLP/HTTP to any OpenTelemetry
 Collector. Built-in instrumentation is provided for HTTP, SMTP, IMAP, POP3, and
-FTP servers, and the API enables custom instrumentation for any Gumdrop-based
-service.
+FTP servers, as well as the session replication cluster. The API enables custom
+instrumentation for any Gumdrop-based service.
 </p>
 
 <h3>Contents</h3>
@@ -104,17 +104,17 @@ gumdroprc:
 <pre>
 &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
     &lt;!-- Service identification --&gt;
-    &lt;property name="serviceName"&gt;my-mail-server&lt;/property&gt;
-    &lt;property name="serviceVersion"&gt;1.0.0&lt;/property&gt;
-    &lt;property name="serviceNamespace"&gt;production&lt;/property&gt;
-    &lt;property name="deploymentEnvironment"&gt;prod-east&lt;/property&gt;
+    &lt;property name="service-name"&gt;my-mail-server&lt;/property&gt;
+    &lt;property name="service-version"&gt;1.0.0&lt;/property&gt;
+    &lt;property name="service-namespace"&gt;production&lt;/property&gt;
+    &lt;property name="deployment-environment"&gt;prod-east&lt;/property&gt;
     
     &lt;!-- OTLP endpoint (OpenTelemetry Collector) --&gt;
     &lt;property name="endpoint"&gt;http://otel-collector:4318&lt;/property&gt;
     
     &lt;!-- Metrics configuration --&gt;
-    &lt;property name="metricsTemporalityName"&gt;cumulative&lt;/property&gt;
-    &lt;property name="metricsIntervalMs"&gt;60000&lt;/property&gt;
+    &lt;property name="metrics-temporality-name"&gt;cumulative&lt;/property&gt;
+    &lt;property name="metrics-interval-ms"&gt;60000&lt;/property&gt;
 &lt;/component&gt;
 </pre>
 
@@ -128,25 +128,25 @@ metrics) can be disabled if needed.
 
 <table border="1" cellpadding="5">
 <tr><th>Property</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>tracesEnabled</code></td><td>true</td><td>Enable trace collection</td></tr>
-<tr><td><code>logsEnabled</code></td><td>true</td><td>Enable log collection</td></tr>
-<tr><td><code>metricsEnabled</code></td><td>true</td><td>Enable metrics collection</td></tr>
-<tr><td><code>serviceName</code></td><td>"gumdrop"</td><td>Service name in resource attributes</td></tr>
-<tr><td><code>serviceVersion</code></td><td>-</td><td>Service version</td></tr>
-<tr><td><code>serviceNamespace</code></td><td>-</td><td>Service namespace</td></tr>
-<tr><td><code>serviceInstanceId</code></td><td>-</td><td>Unique instance identifier</td></tr>
-<tr><td><code>deploymentEnvironment</code></td><td>-</td><td>Environment (prod, staging, dev)</td></tr>
+<tr><td><code>traces-enabled</code></td><td>true</td><td>Enable trace collection</td></tr>
+<tr><td><code>logs-enabled</code></td><td>true</td><td>Enable log collection</td></tr>
+<tr><td><code>metrics-enabled</code></td><td>true</td><td>Enable metrics collection</td></tr>
+<tr><td><code>service-name</code></td><td>"gumdrop"</td><td>Service name in resource attributes</td></tr>
+<tr><td><code>service-version</code></td><td>-</td><td>Service version</td></tr>
+<tr><td><code>service-namespace</code></td><td>-</td><td>Service namespace</td></tr>
+<tr><td><code>service-instance-id</code></td><td>-</td><td>Unique instance identifier</td></tr>
+<tr><td><code>deployment-environment</code></td><td>-</td><td>Environment (prod, staging, dev)</td></tr>
 <tr><td><code>endpoint</code></td><td>-</td><td>Base OTLP endpoint URL</td></tr>
-<tr><td><code>tracesEndpoint</code></td><td>endpoint + /v1/traces</td><td>Traces-specific endpoint</td></tr>
-<tr><td><code>logsEndpoint</code></td><td>endpoint + /v1/logs</td><td>Logs-specific endpoint</td></tr>
-<tr><td><code>metricsEndpoint</code></td><td>endpoint + /v1/metrics</td><td>Metrics-specific endpoint</td></tr>
-<tr><td><code>metricsTemporalityName</code></td><td>"cumulative"</td><td>Aggregation: "delta" or "cumulative"</td></tr>
-<tr><td><code>metricsIntervalMs</code></td><td>60000</td><td>Metrics collection interval</td></tr>
+<tr><td><code>traces-endpoint</code></td><td>endpoint + /v1/traces</td><td>Traces-specific endpoint</td></tr>
+<tr><td><code>logs-endpoint</code></td><td>endpoint + /v1/logs</td><td>Logs-specific endpoint</td></tr>
+<tr><td><code>metrics-endpoint</code></td><td>endpoint + /v1/metrics</td><td>Metrics-specific endpoint</td></tr>
+<tr><td><code>metrics-temporality-name</code></td><td>"cumulative"</td><td>Aggregation: "delta" or "cumulative"</td></tr>
+<tr><td><code>metrics-interval-ms</code></td><td>60000</td><td>Metrics collection interval</td></tr>
 <tr><td><code>headers</code></td><td>-</td><td>Extra HTTP headers (key1=value1,key2=value2)</td></tr>
-<tr><td><code>timeoutMs</code></td><td>10000</td><td>Export timeout in milliseconds</td></tr>
-<tr><td><code>batchSize</code></td><td>512</td><td>Spans per export batch</td></tr>
-<tr><td><code>flushIntervalMs</code></td><td>5000</td><td>Maximum time between exports</td></tr>
-<tr><td><code>maxQueueSize</code></td><td>2048</td><td>Maximum queued spans before dropping</td></tr>
+<tr><td><code>timeout-ms</code></td><td>10000</td><td>Export timeout in milliseconds</td></tr>
+<tr><td><code>batch-size</code></td><td>512</td><td>Spans per export batch</td></tr>
+<tr><td><code>flush-interval-ms</code></td><td>5000</td><td>Maximum time between exports</td></tr>
+<tr><td><code>max-queue-size</code></td><td>2048</td><td>Maximum queued spans before dropping</td></tr>
 </table>
 
 <h4>Associating Telemetry with Servers</h4>
@@ -158,13 +158,13 @@ To enable telemetry for a server, reference the configuration:
 <pre>
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
     &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;!-- other properties --&gt;
 &lt;/server&gt;
 
 &lt;server id="http" class="org.bluezoo.gumdrop.servlet.HTTPServletServer"&gt;
     &lt;property name="port"&gt;8080&lt;/property&gt;
-    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
+    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;!-- other properties --&gt;
 &lt;/server&gt;
 </pre>
@@ -193,6 +193,17 @@ request:
 <li><b>Response</b>: includes <code>traceparent</code> header in response</li>
 </ul>
 
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>http.server.requests</code></td><td>Counter</td><td>Total HTTP requests received</td></tr>
+<tr><td><code>http.server.active_requests</code></td><td>UpDownCounter</td><td>Requests currently being processed</td></tr>
+<tr><td><code>http.server.active_connections</code></td><td>UpDownCounter</td><td>Active HTTP connections</td></tr>
+<tr><td><code>http.server.request.duration</code></td><td>Histogram</td><td>Request duration (ms)</td></tr>
+<tr><td><code>http.server.request.size</code></td><td>Histogram</td><td>Request body size (bytes)</td></tr>
+<tr><td><code>http.server.response.size</code></td><td>Histogram</td><td>Response body size (bytes)</td></tr>
+</table>
+
 <h4>SMTP Server</h4>
 
 <p>
@@ -219,6 +230,21 @@ RSET/QUIT)
 <li><b>Events</b>: RCPT TO recipients, STARTTLS, message acceptance</li>
 </ul>
 
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>smtp.server.connections</code></td><td>Counter</td><td>Total SMTP connections</td></tr>
+<tr><td><code>smtp.server.active_connections</code></td><td>UpDownCounter</td><td>Active SMTP connections</td></tr>
+<tr><td><code>smtp.server.messages</code></td><td>Counter</td><td>Total messages received</td></tr>
+<tr><td><code>smtp.server.message.size</code></td><td>Histogram</td><td>Message size (bytes)</td></tr>
+<tr><td><code>smtp.server.recipients</code></td><td>Histogram</td><td>Recipients per message</td></tr>
+<tr><td><code>smtp.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
+<tr><td><code>smtp.server.authentications</code></td><td>Counter</td><td>Authentication attempts</td></tr>
+<tr><td><code>smtp.server.authentications.success</code></td><td>Counter</td><td>Successful authentications</td></tr>
+<tr><td><code>smtp.server.authentications.failure</code></td><td>Counter</td><td>Failed authentications</td></tr>
+<tr><td><code>smtp.server.starttls</code></td><td>Counter</td><td>STARTTLS upgrades</td></tr>
+</table>
+
 <h4>IMAP Server</h4>
 
 <p>
@@ -242,6 +268,25 @@ The IMAP server creates hierarchical traces for connections and sessions:
 <li><b>Events</b>: STARTTLS, SELECT mailbox, APPEND operations</li>
 </ul>
 
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>imap.server.connections</code></td><td>Counter</td><td>Total IMAP connections</td></tr>
+<tr><td><code>imap.server.active_connections</code></td><td>UpDownCounter</td><td>Active IMAP connections</td></tr>
+<tr><td><code>imap.server.idle_connections</code></td><td>UpDownCounter</td><td>Connections in IDLE state</td></tr>
+<tr><td><code>imap.server.commands</code></td><td>Counter</td><td>Commands executed (by type)</td></tr>
+<tr><td><code>imap.server.command.duration</code></td><td>Histogram</td><td>Command execution time (ms)</td></tr>
+<tr><td><code>imap.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
+<tr><td><code>imap.server.authentications</code></td><td>Counter</td><td>Authentication attempts</td></tr>
+<tr><td><code>imap.server.authentications.success</code></td><td>Counter</td><td>Successful authentications</td></tr>
+<tr><td><code>imap.server.authentications.failure</code></td><td>Counter</td><td>Failed authentications</td></tr>
+<tr><td><code>imap.server.messages.fetched</code></td><td>Counter</td><td>Messages fetched</td></tr>
+<tr><td><code>imap.server.messages.appended</code></td><td>Counter</td><td>Messages appended</td></tr>
+<tr><td><code>imap.server.messages.deleted</code></td><td>Counter</td><td>Messages deleted</td></tr>
+<tr><td><code>imap.server.messages.copied</code></td><td>Counter</td><td>Messages copied</td></tr>
+<tr><td><code>imap.server.starttls</code></td><td>Counter</td><td>STARTTLS upgrades</td></tr>
+</table>
+
 <h4>POP3 Server</h4>
 
 <p>
@@ -261,6 +306,22 @@ The POP3 server creates traces similar to IMAP:
 <li><b>Events</b>: STARTTLS, message retrieval, message deletion</li>
 </ul>
 
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>pop3.server.connections</code></td><td>Counter</td><td>Total POP3 connections</td></tr>
+<tr><td><code>pop3.server.active_connections</code></td><td>UpDownCounter</td><td>Active POP3 connections</td></tr>
+<tr><td><code>pop3.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
+<tr><td><code>pop3.server.commands</code></td><td>Counter</td><td>Commands executed (by type)</td></tr>
+<tr><td><code>pop3.server.authentications</code></td><td>Counter</td><td>Authentication attempts</td></tr>
+<tr><td><code>pop3.server.authentications.success</code></td><td>Counter</td><td>Successful authentications</td></tr>
+<tr><td><code>pop3.server.authentications.failure</code></td><td>Counter</td><td>Failed authentications</td></tr>
+<tr><td><code>pop3.server.messages.retrieved</code></td><td>Counter</td><td>Messages retrieved</td></tr>
+<tr><td><code>pop3.server.messages.deleted</code></td><td>Counter</td><td>Messages deleted</td></tr>
+<tr><td><code>pop3.server.bytes.transferred</code></td><td>Counter</td><td>Bytes transferred</td></tr>
+<tr><td><code>pop3.server.starttls</code></td><td>Counter</td><td>STLS upgrades</td></tr>
+</table>
+
 <h4>FTP Server</h4>
 
 <p>
@@ -277,6 +338,69 @@ The FTP server creates traces for connections and file operations:
   </ul>
 </li>
 <li><b>Events</b>: AUTH TLS, file transfers (RETR, STOR), deletions</li>
+</ul>
+
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>ftp.server.connections</code></td><td>Counter</td><td>Total FTP control connections</td></tr>
+<tr><td><code>ftp.server.active_connections</code></td><td>UpDownCounter</td><td>Active control connections</td></tr>
+<tr><td><code>ftp.server.active_data_connections</code></td><td>UpDownCounter</td><td>Active data connections</td></tr>
+<tr><td><code>ftp.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
+<tr><td><code>ftp.server.commands</code></td><td>Counter</td><td>Commands executed (by type)</td></tr>
+<tr><td><code>ftp.server.authentications</code></td><td>Counter</td><td>Authentication attempts</td></tr>
+<tr><td><code>ftp.server.authentications.success</code></td><td>Counter</td><td>Successful authentications</td></tr>
+<tr><td><code>ftp.server.authentications.failure</code></td><td>Counter</td><td>Failed authentications</td></tr>
+<tr><td><code>ftp.server.transfers</code></td><td>Counter</td><td>Total file transfers</td></tr>
+<tr><td><code>ftp.server.uploads</code></td><td>Counter</td><td>Files uploaded (STOR)</td></tr>
+<tr><td><code>ftp.server.downloads</code></td><td>Counter</td><td>Files downloaded (RETR)</td></tr>
+<tr><td><code>ftp.server.bytes.uploaded</code></td><td>Counter</td><td>Bytes uploaded</td></tr>
+<tr><td><code>ftp.server.bytes.downloaded</code></td><td>Counter</td><td>Bytes downloaded</td></tr>
+<tr><td><code>ftp.server.transfer.duration</code></td><td>Histogram</td><td>Transfer duration (ms)</td></tr>
+<tr><td><code>ftp.server.transfer.size</code></td><td>Histogram</td><td>Transfer size (bytes)</td></tr>
+<tr><td><code>ftp.server.directory.listings</code></td><td>Counter</td><td>Directory listings</td></tr>
+<tr><td><code>ftp.server.directory.created</code></td><td>Counter</td><td>Directories created</td></tr>
+<tr><td><code>ftp.server.files.deleted</code></td><td>Counter</td><td>Files deleted</td></tr>
+<tr><td><code>ftp.server.auth_tls</code></td><td>Counter</td><td>AUTH TLS upgrades</td></tr>
+</table>
+
+<h4>Session Cluster</h4>
+
+<p>
+The session cluster provides metrics for distributed session replication when
+clustering is enabled for web applications:
+</p>
+
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th><th>Attributes</th></tr>
+<tr><td><code>cluster.nodes.active</code></td><td>UpDownCounter</td><td>Active nodes in cluster</td><td></td></tr>
+<tr><td><code>cluster.sessions.replicated</code></td><td>Counter</td><td>Sessions replicated to cluster</td><td><code>context</code></td></tr>
+<tr><td><code>cluster.sessions.received</code></td><td>Counter</td><td>Sessions received from cluster</td><td><code>context</code></td></tr>
+<tr><td><code>cluster.sessions.passivated</code></td><td>Counter</td><td>Sessions removed via cluster</td><td><code>context</code></td></tr>
+<tr><td><code>cluster.messages.sent</code></td><td>Counter</td><td>Messages sent to cluster</td><td><code>type</code></td></tr>
+<tr><td><code>cluster.messages.received</code></td><td>Counter</td><td>Messages received from cluster</td><td><code>type</code></td></tr>
+<tr><td><code>cluster.bytes.sent</code></td><td>Counter</td><td>Bytes sent to cluster</td><td><code>type</code></td></tr>
+<tr><td><code>cluster.bytes.received</code></td><td>Counter</td><td>Bytes received from cluster</td><td><code>type</code></td></tr>
+<tr><td><code>cluster.deltas.sent</code></td><td>Counter</td><td>Delta updates sent (incremental)</td><td></td></tr>
+<tr><td><code>cluster.deltas.received</code></td><td>Counter</td><td>Delta updates received</td><td></td></tr>
+<tr><td><code>cluster.fragments.sent</code></td><td>Counter</td><td>Message fragments sent</td><td></td></tr>
+<tr><td><code>cluster.fragments.received</code></td><td>Counter</td><td>Message fragments received</td><td></td></tr>
+<tr><td><code>cluster.fragments.reassembled</code></td><td>Counter</td><td>Fragmented messages reassembled</td><td></td></tr>
+<tr><td><code>cluster.fragments.timed_out</code></td><td>Counter</td><td>Fragment sets that timed out</td><td></td></tr>
+<tr><td><code>cluster.errors.decrypt</code></td><td>Counter</td><td>Decryption errors</td><td></td></tr>
+<tr><td><code>cluster.errors.replay</code></td><td>Counter</td><td>Replay attacks detected</td><td></td></tr>
+<tr><td><code>cluster.errors.timestamp</code></td><td>Counter</td><td>Timestamp validation failures</td><td></td></tr>
+<tr><td><code>cluster.replication.duration</code></td><td>Histogram</td><td>Replication duration (ms)</td><td><code>type</code></td></tr>
+</table>
+
+<p>
+<b>Attribute values:</b>
+</p>
+<ul>
+<li><code>context</code>: The servlet context name (e.g., "/myapp")</li>
+<li><code>type</code> (messages/bytes): "ping", "replicate", "passivate", "delta", or "fragment"</li>
+<li><code>type</code> (replication duration): "full" or "delta"</li>
 </ul>
 
 <h3 id="custom">Custom Instrumentation</h3>
@@ -534,7 +658,7 @@ for Prometheus-style scrapers.</li>
 </ul>
 
 <pre>
-&lt;property name="metricsTemporalityName"&gt;delta&lt;/property&gt;
+&lt;property name="metrics-temporality-name"&gt;delta&lt;/property&gt;
 </pre>
 
 <h3 id="distributed">Distributed Tracing</h3>
@@ -654,28 +778,28 @@ For authenticated endpoints, use the <code>headers</code> property:
 <pre>
 &lt;!-- Telemetry configuration --&gt;
 &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;property name="serviceName"&gt;mail-gateway&lt;/property&gt;
-    &lt;property name="serviceVersion"&gt;2.1.0&lt;/property&gt;
-    &lt;property name="deploymentEnvironment"&gt;production&lt;/property&gt;
-    &lt;property name="serviceInstanceId"&gt;mail-gw-01&lt;/property&gt;
+    &lt;property name="service-name"&gt;mail-gateway&lt;/property&gt;
+    &lt;property name="service-version"&gt;2.1.0&lt;/property&gt;
+    &lt;property name="deployment-environment"&gt;production&lt;/property&gt;
+    &lt;property name="service-instance-id"&gt;mail-gw-01&lt;/property&gt;
     &lt;property name="endpoint"&gt;http://otel-collector.monitoring:4318&lt;/property&gt;
-    &lt;property name="batchSize"&gt;256&lt;/property&gt;
-    &lt;property name="flushIntervalMs"&gt;3000&lt;/property&gt;
-    &lt;property name="metricsIntervalMs"&gt;30000&lt;/property&gt;
+    &lt;property name="batch-size"&gt;256&lt;/property&gt;
+    &lt;property name="flush-interval-ms"&gt;3000&lt;/property&gt;
+    &lt;property name="metrics-interval-ms"&gt;30000&lt;/property&gt;
 &lt;/component&gt;
 
 &lt;!-- SMTP server with telemetry --&gt;
 &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
     &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
-    &lt;property name="handlerFactory" ref="#smtpHandler"/&gt;
+    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
+    &lt;property name="handler-factory" ref="#smtpHandler"/&gt;
 &lt;/server&gt;
 
 &lt;!-- HTTP server with telemetry --&gt;
 &lt;server id="http" class="org.bluezoo.gumdrop.servlet.HTTPServletServer"&gt;
     &lt;property name="port"&gt;8080&lt;/property&gt;
-    &lt;property name="telemetryConfig" ref="#telemetry"/&gt;
-    &lt;property name="webApp" ref="#webapp"/&gt;
+    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
+    &lt;property name="web-app" ref="#webapp"/&gt;
 &lt;/server&gt;
 </pre>
 
@@ -699,7 +823,7 @@ called programmatically to immediately export all pending data</li>
 <p>
 The shutdown hook ensures that telemetry data buffered for batching is exported
 when the server is stopped gracefully. For immediate data visibility during
-development, reduce <code>flushIntervalMs</code> to export more frequently.
+development, reduce <code>flush-interval-ms</code> to export more frequently.
 </p>
 
 <hr/>

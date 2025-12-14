@@ -23,14 +23,12 @@ package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.Connection;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.Realm;
-import org.bluezoo.gumdrop.util.CIDRNetwork;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
+import org.bluezoo.gumdrop.smtp.handler.ClientConnectedFactory;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -74,15 +72,17 @@ public class SMTPServer extends Server {
 
     protected int port = -1;
     protected long maxMessageSize = 35882577; // ~35MB default, configurable
+    protected int maxRecipients = 100;       // RFC 5321 minimum is 100 (RFC 9422 RCPTMAX)
+    protected int maxTransactionsPerSession = 0; // 0 = unlimited (RFC 9422 MAILMAX)
     protected Realm realm; // Authentication realm for SMTP AUTH
-    protected SMTPConnectionHandlerFactory handlerFactory; // Factory for creating per-connection handlers
+    protected ClientConnectedFactory handlerFactory; // Factory for creating per-connection handlers
+    protected MailboxFactory mailboxFactory; // Factory for local mailbox delivery
 
     // Connection filtering and policy settings
     protected boolean authRequired = false; // Force authentication (MSA mode)
 
-    // Parsed CIDR networks for efficient lookup (SMTP-specific feature)
-    private final List<CIDRNetwork> allowedCIDRs = new ArrayList<CIDRNetwork>();
-    private final List<CIDRNetwork> blockedCIDRs = new ArrayList<CIDRNetwork>();
+    // Metrics for this server (null if telemetry is not enabled)
+    private SMTPServerMetrics metrics;
 
     /**
      * Returns a short description of this connector.
@@ -125,6 +125,54 @@ public class SMTPServer extends Server {
     }
 
     /**
+     * Returns the maximum number of recipients per transaction (RCPTMAX).
+     * 
+     * <p>Per RFC 5321, servers must accept at least 100 recipients.
+     * This value is advertised via the LIMITS extension (RFC 9422).
+     * 
+     * @return the maximum recipients per transaction
+     */
+    public int getMaxRecipients() {
+        return maxRecipients;
+    }
+
+    /**
+     * Sets the maximum number of recipients per transaction.
+     * 
+     * <p>Per RFC 5321, this must be at least 100. Setting a lower value
+     * violates the specification and may cause interoperability issues.
+     * 
+     * @param maxRecipients the maximum recipients (should be at least 100)
+     */
+    public void setMaxRecipients(int maxRecipients) {
+        this.maxRecipients = maxRecipients;
+    }
+
+    /**
+     * Returns the maximum mail transactions per session (MAILMAX).
+     * 
+     * <p>A value of 0 means unlimited. This limits how many MAIL FROM
+     * commands can be issued during a single connection.
+     * 
+     * @return the maximum transactions, or 0 for unlimited
+     */
+    public int getMaxTransactionsPerSession() {
+        return maxTransactionsPerSession;
+    }
+
+    /**
+     * Sets the maximum mail transactions per session.
+     * 
+     * <p>Set to 0 for unlimited. This can help prevent connection abuse
+     * where a single connection sends many separate messages.
+     * 
+     * @param maxTransactions the maximum transactions, or 0 for unlimited
+     */
+    public void setMaxTransactionsPerSession(int maxTransactions) {
+        this.maxTransactionsPerSession = maxTransactions;
+    }
+
+    /**
      * Returns the authentication realm.
      * @return the realm for SMTP authentication, or null if no authentication
      */
@@ -147,7 +195,7 @@ public class SMTPServer extends Server {
      * 
      * @param factory the factory to create handler instances, or null for default behavior
      */
-    public void setHandlerFactory(SMTPConnectionHandlerFactory factory) {
+    public void setHandlerFactory(ClientConnectedFactory factory) {
         this.handlerFactory = factory;
     }
 
@@ -155,8 +203,29 @@ public class SMTPServer extends Server {
      * Returns the configured SMTP connection handler factory.
      * @return the factory or null if none configured
      */
-    public SMTPConnectionHandlerFactory getHandlerFactory() {
+    public ClientConnectedFactory getHandlerFactory() {
         return handlerFactory;
+    }
+
+    /**
+     * Sets the factory for creating mailbox stores for local delivery.
+     * 
+     * <p>If configured, the mailbox factory is passed to handlers when
+     * processing RCPT TO commands, allowing them to check if recipients
+     * have local mailboxes.
+     * 
+     * @param factory the mailbox factory, or null if not doing local delivery
+     */
+    public void setMailboxFactory(MailboxFactory factory) {
+        this.mailboxFactory = factory;
+    }
+
+    /**
+     * Returns the configured mailbox factory for local delivery.
+     * @return the factory or null if none configured
+     */
+    public MailboxFactory getMailboxFactory() {
+        return mailboxFactory;
     }
 
     /**
@@ -177,44 +246,6 @@ public class SMTPServer extends Server {
     }
 
     /**
-     * Sets allowed networks in CIDR notation (comma-separated).
-     * Supports both IPv4 and IPv6 networks.
-     * @param allowedNetworks networks to allow (e.g., "192.168.1.0/24,2001:db8::/32,10.0.0.0/8")
-     * @throws IllegalArgumentException if any CIDR format is invalid
-     */
-    public void setAllowedNetworks(String allowedNetworks) {
-        allowedCIDRs.clear();
-        try {
-            allowedCIDRs.addAll(CIDRNetwork.parseList(allowedNetworks));
-            if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info("Configured " + allowedCIDRs.size() + " allowed CIDR networks: " + allowedCIDRs);
-            }
-        } catch (IllegalArgumentException e) {
-            LOGGER.log(Level.SEVERE, "Invalid allowed networks configuration: " + allowedNetworks, e);
-            throw e; // Re-throw to fail configuration
-        }
-    }
-
-    /**
-     * Sets blocked networks in CIDR notation (comma-separated).
-     * Supports both IPv4 and IPv6 networks.
-     * @param blockedNetworks networks to block (e.g., "192.168.100.0/24,2001:db8:bad::/48")
-     * @throws IllegalArgumentException if any CIDR format is invalid
-     */
-    public void setBlockedNetworks(String blockedNetworks) {
-        blockedCIDRs.clear();
-        try {
-            blockedCIDRs.addAll(CIDRNetwork.parseList(blockedNetworks));
-            if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info("Configured " + blockedCIDRs.size() + " blocked CIDR networks: " + blockedCIDRs);
-            }
-        } catch (IllegalArgumentException e) {
-            LOGGER.log(Level.SEVERE, "Invalid blocked networks configuration: " + blockedNetworks, e);
-            throw e; // Re-throw to fail configuration
-        }
-    }
-
-    /**
      * Starts this connector, setting default port if not specified.
      */
     @Override
@@ -226,6 +257,19 @@ public class SMTPServer extends Server {
             // and may or may not use TLS (STARTTLS), so we default to 25/465
             port = secure ? SMTPS_DEFAULT_PORT : SMTP_DEFAULT_PORT;
         }
+        // Initialize metrics if telemetry is enabled
+        if (isMetricsEnabled()) {
+            metrics = new SMTPServerMetrics(getTelemetryConfig());
+        }
+    }
+
+    /**
+     * Returns the metrics for this server, or null if telemetry is not enabled.
+     *
+     * @return the SMTP server metrics
+     */
+    public SMTPServerMetrics getMetrics() {
+        return metrics;
     }
 
     /**
@@ -247,7 +291,7 @@ public class SMTPServer extends Server {
     @Override
     protected Connection newConnection(SocketChannel channel, SSLEngine engine) {
         // Create a new handler instance for this connection (thread safety)
-        SMTPConnectionHandler handler = null;
+        ClientConnected handler = null;
         if (handlerFactory != null) {
             try {
                 handler = handlerFactory.createHandler();
@@ -263,45 +307,27 @@ public class SMTPServer extends Server {
     }
 
     /**
+     * Checks if the given client address is authorized to use XCLIENT extension.
+     * 
+     * <p>XCLIENT is a Postfix extension that allows trusted proxies to override
+     * client connection information. By default, this is disabled.
+     * 
+     * <p>Override this method to implement XCLIENT authorization based on
+     * your network topology (e.g., allow from specific proxy IP addresses).
+     * 
+     * @param clientAddress the client's IP address
+     * @return true if XCLIENT is authorized, false otherwise
+     */
+    protected boolean isXclientAuthorized(java.net.InetAddress clientAddress) {
+        // XCLIENT is disabled by default for security
+        return false;
+    }
+
+    /**
      * Checks if SSL/TLS context is available for STARTTLS.
      * @return true if STARTTLS is supported, false otherwise
      */
     protected boolean isSTARTTLSAvailable() {
         return context != null;
-    }
-
-    /**
-     * Determines whether to accept a connection from the specified remote address.
-     * Implements SMTP-specific filtering policies including:
-     * <ul>
-     * <li>Network allow/block lists (pre-parsed CIDR blocks for fast matching)</li>
-     * <li>Rate limiting (via base Server class)</li>
-     * </ul>
-     *
-     * @param remoteAddress the remote socket address attempting to connect
-     * @return true to accept the connection, false to reject it
-     */
-    @Override
-    public boolean acceptConnection(InetSocketAddress remoteAddress) {
-        InetAddress clientIP = remoteAddress.getAddress();
-        
-        // 1. Check blocked networks first (explicit deny) - fast CIDR matching
-        if (CIDRNetwork.matchesAny(clientIP, blockedCIDRs)) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Connection rejected from " + clientIP + ": blocked network");
-            }
-            return false;
-        }
-        
-        // 2. Check allowed networks (if configured, explicit allow only) - fast CIDR matching
-        if (!allowedCIDRs.isEmpty() && !CIDRNetwork.matchesAny(clientIP, allowedCIDRs)) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Connection rejected from " + clientIP + ": not in allowed networks");
-            }
-            return false;
-        }
-        
-        // 3. Delegate to base class for rate limiting
-        return super.acceptConnection(remoteAddress);
     }
 }

@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.ftp.file;
 
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandlerFactory;
 import org.bluezoo.gumdrop.ftp.FTPFileSystem;
@@ -39,19 +39,19 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  * 
- * <bean id="ftpFileSystem" class="org.bluezoo.gumdrop.ftp.file.LocalFileSystem">
+ * <component id="ftpFileSystem" class="org.bluezoo.gumdrop.ftp.file.LocalFileSystem">
  *   <property name="root">/var/ftp</property>
- * </bean>
+ * </component>
  * 
- * <ftp-server port="21">
- *   <property name="handlerFactory">
- *     <bean class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
+ * <server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer" port="21">
+ *   <property name="handler-factory">
+ *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
  *       <property name="realm" ref="#ftpRealm"/>
- *       <property name="fileSystem" ref="#ftpFileSystem"/>
- *       <property name="welcomeMessage">Welcome to Secure FTP Server</property>
- *     </bean>
+ *       <property name="file-system" ref="#ftpFileSystem"/>
+ *       <property name="welcome-message">Welcome to Secure FTP Server</property>
+ *     </ftp-handler-factory>
  *   </property>
- * </ftp-server>
+ * </server>
  * }</pre>
  * 
  * <h4>Realm Configuration (ftp-users.xml)</h4>

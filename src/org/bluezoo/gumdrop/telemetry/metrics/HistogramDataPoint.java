@@ -107,9 +107,9 @@ public final class HistogramDataPoint {
     /**
      * Returns the count of values in each bucket.
      * The length is explicitBounds.length + 1.
-     * Bucket[i] counts values where: bounds[i-1] <= value < bounds[i]
-     * The first bucket counts values < bounds[0].
-     * The last bucket counts values >= bounds[length-1].
+     * Bucket[i] counts values where: bounds[i-1] &lt;= value &lt; bounds[i]
+     * The first bucket counts values &lt; bounds[0].
+     * The last bucket counts values &gt;= bounds[length-1].
      */
     public long[] getBucketCounts() {
         return bucketCounts.clone();

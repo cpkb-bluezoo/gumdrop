@@ -30,6 +30,8 @@ import java.util.Set;
 import javax.servlet.annotation.ServletSecurity;
 import javax.servlet.annotation.HttpConstraint;
 import javax.servlet.annotation.HttpMethodConstraint;
+import javax.servlet.HttpConstraintElement;
+import javax.servlet.HttpMethodConstraintElement;
 
 /**
  * An authorization constraint.
@@ -69,6 +71,40 @@ final class SecurityConstraint {
         }
         transportGuarantee = config.transportGuarantee();
         emptyRoleSemantic = config.value();
+        ResourceCollection rc = new ResourceCollection();
+        rc.urlPatterns = null;
+        rc.httpMethodOmissions = methods;
+        resourceCollections.add(rc);
+    }
+
+    /**
+     * Initialize a security constraint from a programmatic HttpMethodConstraintElement.
+     */
+    void init(HttpMethodConstraintElement element) {
+        for (String roleName : element.getRolesAllowed()) {
+            authConstraints.add(roleName);
+        }
+        transportGuarantee = element.getTransportGuarantee();
+        emptyRoleSemantic = element.getEmptyRoleSemantic();
+        ResourceCollection rc = new ResourceCollection();
+        rc.urlPatterns = null;
+        rc.httpMethods = new LinkedHashSet<String>(Collections.singleton(element.getMethodName()));
+        resourceCollections.add(rc);
+    }
+
+    /**
+     * Initialize a default security constraint from a programmatic HttpConstraintElement.
+     * Note: ServletSecurityElement extends HttpConstraintElement.
+     */
+    void init(HttpConstraintElement element, Set<String> methods) {
+        String[] roles = element.getRolesAllowed();
+        if (roles != null) {
+            for (String roleName : roles) {
+                authConstraints.add(roleName);
+            }
+        }
+        transportGuarantee = element.getTransportGuarantee();
+        emptyRoleSemantic = element.getEmptyRoleSemantic();
         ResourceCollection rc = new ResourceCollection();
         rc.urlPatterns = null;
         rc.httpMethodOmissions = methods;

@@ -86,17 +86,36 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
 
     private static final Logger LOGGER = Logger.getLogger(DatagramServer.class.getName());
 
+    /** Default buffer size for datagram I/O (max UDP payload) */
+    private static final int DEFAULT_BUFFER_SIZE = 65535;
+
     private DatagramChannel channel;
     private SelectionKey key;
     private SelectorLoop selectorLoop;
     private Set<InetAddress> addresses = null;
     protected boolean needClientAuth = false;
 
-    // Outbound datagram queue
-    private final Deque<OutboundDatagram> outboundQueue = new ConcurrentLinkedDeque<>();
+    // Network I/O buffers (per-server, reusable)
+    ByteBuffer netIn;
+    
+    // Queue of pending outbound datagrams (thread-safe for multiple senders)
+    final Deque<PendingDatagram> pendingDatagrams = new ConcurrentLinkedDeque<>();
 
     // DTLS sessions indexed by remote address (only used when secure=true)
     private final ConcurrentMap<InetSocketAddress, DTLSSession> dtlsSessions = new ConcurrentHashMap<>();
+    
+    /**
+     * A pending datagram waiting to be sent.
+     */
+    static final class PendingDatagram {
+        final ByteBuffer data;
+        final InetSocketAddress destination;
+        
+        PendingDatagram(ByteBuffer data, InetSocketAddress destination) {
+            this.data = data;
+            this.destination = destination;
+        }
+    }
 
     protected DatagramServer() {
         super();
@@ -238,6 +257,9 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
     public void open() throws IOException {
         super.start();
 
+        // Allocate network I/O buffer
+        netIn = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
+
         int port = getPort();
 
         // Open channel with optional protocol family
@@ -267,8 +289,12 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
         }
 
         // Register with a worker SelectorLoop
-        SelectorLoop workerLoop = Gumdrop.getInstance().nextWorkerLoop();
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
         workerLoop.registerDatagram(channel, this);
+
+        // Register with Gumdrop for lifecycle tracking
+        gumdrop.addChannelHandler(this);
     }
 
     /**
@@ -296,6 +322,12 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
         if (key != null) {
             key.cancel();
         }
+
+        // Deregister from Gumdrop for lifecycle tracking
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        if (gumdrop != null) {
+            gumdrop.removeChannelHandler(this);
+        }
     }
 
     // -- Datagram I/O --
@@ -314,11 +346,11 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
      * For DTLS connections, the data is automatically encrypted.
      *
      * @param data the datagram payload
-     * @param destination the destination address
+     * @param dest the destination address
      */
-    public void send(ByteBuffer data, InetSocketAddress destination) {
+    public void send(ByteBuffer data, InetSocketAddress dest) {
         if (secure) {
-            DTLSSession session = dtlsSessions.get(destination);
+            DTLSSession session = dtlsSessions.get(dest);
             if (session != null) {
                 ByteBuffer encrypted = session.wrap(data);
                 if (encrypted != null) {
@@ -326,14 +358,14 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
                 }
             }
         }
-        outboundQueue.offer(new OutboundDatagram(data, destination));
-        requestWrite();
-    }
-
-    /**
-     * Requests OP_WRITE interest on the selector.
-     */
-    private void requestWrite() {
+        
+        // Copy data to a new buffer and queue it
+        ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+        copy.put(data);
+        copy.flip();
+        pendingDatagrams.add(new PendingDatagram(copy, dest));
+        
+        // Request write
         if (selectorLoop != null) {
             selectorLoop.requestDatagramWrite(this);
         }
@@ -379,19 +411,20 @@ public abstract class DatagramServer extends DatagramConnector implements Channe
     }
 
     /**
-     * Returns the outbound datagram queue.
-     */
-    Deque<OutboundDatagram> getOutboundQueue() {
-        return outboundQueue;
-    }
-
-    /**
      * Sends a raw datagram (used by DTLSSession for handshake messages).
      */
-    void netSend(ByteBuffer data, InetSocketAddress destination) {
-        outboundQueue.offer(new OutboundDatagram(data, destination));
-        requestWrite();
+    void netSend(ByteBuffer data, InetSocketAddress dest) {
+        // Copy data to a new buffer and queue it
+        ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+        copy.put(data);
+        copy.flip();
+        pendingDatagrams.add(new PendingDatagram(copy, dest));
+        
+        // Request write
+        if (selectorLoop != null) {
+            selectorLoop.requestDatagramWrite(this);
+        }
     }
-
 }
+
 

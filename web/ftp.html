@@ -232,18 +232,18 @@ based on user roles defined in the realm.
 <h4>Configuration Example</h4>
 
 <pre>
-&lt;realm id="ftpRealm" class="org.bluezoo.gumdrop.BasicRealm"&gt;
+&lt;realm id="ftpRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
     &lt;property name="href"&gt;ftp-users.xml&lt;/property&gt;
 &lt;/realm&gt;
 
-&lt;handlerFactory id="ftpHandler"
+&lt;ftp-handler-factory id="ftpHandler"
                 class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="rootDirectory"&gt;/srv/ftp&lt;/property&gt;
-&lt;/handlerFactory&gt;
+    &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
+&lt;/ftp-handler-factory&gt;
 
 &lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
-    &lt;property name="handlerFactory" ref="#ftpHandler"/&gt;
+    &lt;property name="handler-factory" ref="#ftpHandler"/&gt;
     &lt;!-- ... other properties ... --&gt;
 &lt;/server&gt;
 </pre>
@@ -259,26 +259,26 @@ based on user roles defined in the realm.
 <ul>
 <li><code>port</code> - listening port (default: 21, or 990 for FTPS)</li>
 <li><code>secure</code> - enable implicit TLS (FTPS)</li>
-<li><code>keystoreFile</code> - keystore for TLS</li>
-<li><code>keystorePass</code> - keystore password</li>
-<li><code>handlerFactory</code> - reference to FTPConnectionHandlerFactory</li>
-<li><code>requireTLSForData</code> - mandate TLS for data connections</li>
+<li><code>keystore-file</code> - keystore for TLS</li>
+<li><code>keystore-pass</code> - keystore password</li>
+<li><code>handler-factory</code> - reference to FTPConnectionHandlerFactory</li>
+<li><code>require-tls-for-data</code> - mandate TLS for data connections</li>
 </ul>
 
 <h4>Passive Mode Configuration</h4>
 
 <ul>
-<li><code>passivePortMin</code> - minimum port for passive data connections</li>
-<li><code>passivePortMax</code> - maximum port for passive data connections</li>
-<li><code>passiveAddress</code> - external IP for passive mode (for NAT)</li>
+<li><code>passive-port-min</code> - minimum port for passive data connections</li>
+<li><code>passive-port-max</code> - maximum port for passive data connections</li>
+<li><code>passive-address</code> - external IP for passive mode (for NAT)</li>
 </ul>
 
 <h4>Timeouts</h4>
 
 <ul>
-<li><code>loginTimeout</code> - maximum time for authentication</li>
-<li><code>idleTimeout</code> - control connection idle timeout</li>
-<li><code>dataTimeout</code> - data transfer timeout</li>
+<li><code>login-timeout</code> - maximum time for authentication</li>
+<li><code>idle-timeout</code> - control connection idle timeout</li>
+<li><code>data-timeout</code> - data transfer timeout</li>
 </ul>
 
 <h4>Example Configuration</h4>
@@ -287,21 +287,21 @@ based on user roles defined in the realm.
 &lt;!-- FTP with explicit TLS (port 21 + STARTTLS) --&gt;
 &lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
     &lt;property name="port"&gt;21&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
-    &lt;property name="handlerFactory" ref="#ftpHandler"/&gt;
-    &lt;property name="passivePortMin"&gt;50000&lt;/property&gt;
-    &lt;property name="passivePortMax"&gt;50100&lt;/property&gt;
-    &lt;property name="requireTLSForData"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;property name="handler-factory" ref="#ftpHandler"/&gt;
+    &lt;property name="passive-port-min"&gt;50000&lt;/property&gt;
+    &lt;property name="passive-port-max"&gt;50100&lt;/property&gt;
+    &lt;property name="require-tls-for-data"&gt;true&lt;/property&gt;
 &lt;/server&gt;
 
 &lt;!-- FTPS with implicit TLS (port 990) --&gt;
 &lt;server id="ftps" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
     &lt;property name="port"&gt;990&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystoreFile"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystorePass"&gt;secret&lt;/property&gt;
-    &lt;property name="handlerFactory" ref="#ftpHandler"/&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;property name="handler-factory" ref="#ftpHandler"/&gt;
 &lt;/server&gt;
 </pre>
 
@@ -374,21 +374,21 @@ handler factory:
 </p>
 
 <pre>
-&lt;quotaManager id="ftpQuota"
+&lt;component id="ftpQuota"
               class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="storageDir"&gt;/var/ftp/quota&lt;/property&gt;
-    &lt;property name="defaultQuota"&gt;100MB&lt;/property&gt;
-    &lt;property name="roleQuota.premium"&gt;10GB&lt;/property&gt;
-    &lt;property name="roleQuota.enterprise"&gt;unlimited&lt;/property&gt;
-&lt;/quotaManager&gt;
+    &lt;property name="storage-dir"&gt;/var/ftp/quota&lt;/property&gt;
+    &lt;property name="default-quota"&gt;100MB&lt;/property&gt;
+    &lt;property name="role-quota.premium"&gt;10GB&lt;/property&gt;
+    &lt;property name="role-quota.enterprise"&gt;unlimited&lt;/property&gt;
+&lt;/component&gt;
 
-&lt;handlerFactory id="ftpHandler"
+&lt;ftp-handler-factory id="ftpHandler"
                 class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="rootDirectory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;property name="quotaManager" ref="#ftpQuota"/&gt;
-&lt;/handlerFactory&gt;
+    &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
+    &lt;property name="quota-manager" ref="#ftpQuota"/&gt;
+&lt;/ftp-handler-factory&gt;
 </pre>
 
 <h4>Quota Policy Hierarchy</h4>

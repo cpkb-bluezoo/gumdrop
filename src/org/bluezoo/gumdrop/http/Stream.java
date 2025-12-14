@@ -24,20 +24,19 @@ package org.bluezoo.gumdrop.http;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
+import java.security.Principal;
 import java.text.MessageFormat;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.TreeSet;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ConnectionInfo;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.http.hpack.Decoder;
+import org.bluezoo.gumdrop.TLSInfo;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.http.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.http.websocket.WebSocketHandshake;
@@ -46,7 +45,6 @@ import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
-import org.bluezoo.gumdrop.util.LineInput;
 
 /**
  * A stream.
@@ -60,21 +58,26 @@ import org.bluezoo.gumdrop.util.LineInput;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see https://www.rfc-editor.org/rfc/rfc7540#section-5
  */
-public class Stream {
+class Stream implements HTTPResponseState {
+
+    private static final Logger LOGGER = Logger.getLogger(Stream.class.getName());
+
+    /** Reusable empty buffer for completing responses without body. */
+    private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
 
     /**
-     * Methods that by definition do not have a request body, therefore we
-     * do not need a Content-Length.
+     * Date format for HTTP headers.
      */
-    private static final Set<String> NO_REQUEST_BODY = new TreeSet<>(Arrays.asList(new String[] {
-        "GET", "HEAD", "OPTIONS", "DELETE"
-    }));
+    private static final HTTPDateFormat dateFormat = new HTTPDateFormat();
 
     /**
-     * Date format that can be used to parse and format dates in HTTP
-     * headers.
+     * Returns true if the given HTTP method does not have a request body.
      */
-    protected static final HTTPDateFormat dateFormat = new HTTPDateFormat();
+    private static boolean isNoBodyMethod(String method) {
+        // Ordered by frequency for short-circuit optimization
+        return "GET".equals(method) || "HEAD".equals(method) || 
+               "OPTIONS".equals(method) || "DELETE".equals(method);
+    }
 
     enum State {
         IDLE,
@@ -89,103 +92,66 @@ public class Stream {
     final HTTPConnection connection;
     final int streamId;
 
-    protected Stream(HTTPConnection connection, int streamId) {
+    Stream(HTTPConnection connection, int streamId) {
         this.connection = connection;
         this.streamId = streamId;
     }
 
-    State state = State.IDLE;
-    Headers headers; // NB these are the *request* headers
-    protected Headers trailerHeaders; // Trailer headers in chunked request
-    ByteBuffer headerBlock; // raw HPACK-encoded header block
-    boolean pushPromise;
+    private State state = State.IDLE;
+    private Headers headers; // NB these are the *request* headers
+    private Headers trailerHeaders; // Trailer headers in chunked request
+    private ByteBuffer headerBlock; // raw HPACK-encoded header block
+    private boolean pushPromise;
+    private String method;
+    private String requestTarget;
+    private long contentLength = -1L;
+    private long requestBodyBytesReceived = 0L;
+    private boolean chunked;
+    private long timestampStarted = 0L;
+
+    // Fields accessed by HTTPConnection
     boolean closeConnection;
     Collection<String> upgrade;
     SettingsFrame settingsFrame;
-
-    String method;
-    String requestTarget;
-
-    // Length of the request body.
-    // -1 indicates that we don't know yet. If we start receiving content in
-    // this state it is a client error.
-    // Integer.MAX_VALUE indicates that we are dealing with chunked
-    // encoding.
-    long contentLength = -1L;
-    
-    // Number of bytes of request body received so far.
-    long requestBodyBytesReceived = 0L;
-
-    // Chunked encoding management.
-    // The stream implementation won't see the encoding, only the data.
-    boolean chunked;
-    ChunkLineInput chunkLineInput;
-    boolean seenLastChunk; // we have seen the zero-length chunk marker
-
-    long timestampCompleted = 0L; // when this stream entered the CLOSED state
+    long timestampCompleted = 0L;
 
     // Telemetry span for this request/response (null if telemetry disabled)
     private Span span;
     private int responseStatusCode; // Saved for telemetry when body completes
 
+    // Response body size tracking for metrics
+    private long responseBodyBytes = 0L;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTPResponseState implementation
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Handles reading the CRLF-delimited chunk sizes and terminators.
+     * Response state for the event-based API.
      */
-    static class ChunkLineInput implements LineInput {
-
-        private ByteBuffer chunkBuffer;
-        private CharBuffer chunkLineSink;
-
-        void dataReceived(ByteBuffer buf) {
-            if (chunkBuffer == null) {
-                chunkBuffer = ByteBuffer.allocate(buf.remaining());
-            } else if (chunkBuffer.remaining() < buf.remaining()) {
-                ByteBuffer newChunkBuffer = ByteBuffer.allocate(chunkBuffer.capacity() + buf.remaining());
-                newChunkBuffer.put(chunkBuffer);
-                chunkBuffer = newChunkBuffer;
-            }
-            chunkBuffer.put(buf);
-            chunkBuffer.flip();
-        }
-
-        boolean hasRemaining() {
-            return chunkBuffer.hasRemaining();
-        }
-
-        boolean hasChunk(int chunkSize) {
-            return chunkBuffer.remaining() >= chunkSize + 2;
-        }
-
-        @Override public ByteBuffer getLineInputBuffer() {
-            return chunkBuffer;
-        }
-
-        @Override public CharBuffer getOrCreateLineInputCharacterSink(int capacity) {
-            if (chunkLineSink == null || chunkLineSink.capacity() < capacity) {
-                chunkLineSink = CharBuffer.allocate(capacity);
-            }
-            return chunkLineSink;
-        }
-
-        void getChunk(byte[] chunk) throws IOException {
-            if (chunk != null) {
-                chunkBuffer.get(chunk);
-            }
-            if (chunkBuffer.get() != (byte) 0x0d || chunkBuffer.get() != (byte) 0x0a) { // CRLF end of chunk
-                throw new ProtocolException("Missing end of chunk marker");
-            }
-        }
-
-        void free() {
-            chunkBuffer = null;
-            chunkLineSink = null;
-        }
-
-        void compact() {
-            chunkBuffer.compact();
-        }
-
+    private enum ResponseState {
+        INITIAL,        // Before any response headers sent
+        HEADERS_SENT,   // Headers sent, may send body or complete
+        IN_BODY,        // After startResponseBody, sending body chunks
+        BODY_COMPLETE,  // After endResponseBody, may send trailers
+        COMPLETE        // After complete(), response finished
     }
+
+    private ResponseState responseState = ResponseState.INITIAL;
+    private Headers bufferedResponseHeaders;
+    private HTTPRequestHandler handler;
+    private Principal authenticatedPrincipal;
+
+    // Request body state tracking for handler dispatch
+    private boolean handlerBodyStarted = false;
+    private boolean handlerBodyEnded = false;
+
+    /** Reusable header handler for HPACK decoding. */
+    private final HeaderHandler hpackHandler = new HeaderHandler() {
+        @Override public void header(Header header) {
+            headers.add(header);
+        }
+    };
 
     /**
      * Returns the URI scheme of the connection.
@@ -204,7 +170,7 @@ public class Stream {
     /**
      * Notify that this stream represents a push promise.
      */
-    public void setPushPromise() {
+    void setPushPromise() {
         pushPromise = true;
     }
     
@@ -220,7 +186,7 @@ public class Stream {
      * @param headers the headers for the push request
      * @return true if push was initiated successfully, false otherwise
      */
-    public boolean sendServerPush(String method, String uri, Headers headers) {
+    private boolean sendServerPush(String method, String uri, Headers headers) {
         // Only HTTP/2 connections support server push
         if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
             return false;
@@ -260,9 +226,9 @@ public class Stream {
             
         } catch (Exception e) {
             // Log error but don't throw - server push failures should not break main response
-            java.util.logging.Logger.getLogger(Stream.class.getName()).log(
-                java.util.logging.Level.WARNING, 
-                "Failed to execute server push for " + uri, e);
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "Failed to execute server push for " + uri, e);
+            }
         }
         
         return false;
@@ -283,7 +249,7 @@ public class Stream {
      * This is the default behaviour for HTTP/1.0, and can be set by using
      * the Connection: close header in HTTP/1.1.
      */
-    public boolean isCloseConnection() {
+    boolean isCloseConnection() {
         return closeConnection;
     }
 
@@ -291,19 +257,41 @@ public class Stream {
      * Returns the Content-Length of the request, or -1 if not known: this
      * indicates chunked encoding.
      */
-    protected long getContentLength() {
+    long getContentLength() {
         return contentLength;
+    }
+
+    /**
+     * Returns true if this request uses chunked transfer encoding.
+     */
+    boolean isChunked() {
+        return chunked;
+    }
+
+    /**
+     * Adds a trailer header to this stream.
+     * Called by HTTPConnection when processing trailer headers in chunked encoding.
+     */
+    void addTrailerHeader(Header header) {
+        if (trailerHeaders == null) {
+            trailerHeaders = new Headers();
+        }
+        trailerHeaders.add(header);
     }
 
     /**
      * Indicates whether this stream has been closed.
      */
-    public boolean isClosed() {
+    boolean isClosed() {
         return state == State.CLOSED;
     }
 
     long getRequestBodyBytesNeeded() {
         return contentLength - requestBodyBytesReceived;
+    }
+
+    Headers getHeaders() {
+        return headers;
     }
 
     void addHeader(Header header) {
@@ -318,18 +306,17 @@ public class Stream {
         }
     }
 
-    void addTrailerHeader(Header header) {
-        if (trailerHeaders == null) {
-            trailerHeaders = new Headers();
-        }
-        trailerHeaders.add(header);
-    }
+    private static final int HEADER_BLOCK_INITIAL_SIZE = 4096;
 
-    void appendHeaderBlockFragment(byte[] hbf) {
+    void appendHeaderBlockFragment(ByteBuffer hbf) {
+        int hbfLength = hbf.remaining();
         if (headerBlock == null) {
-            headerBlock = ByteBuffer.allocate(4096);
-        } else if (headerBlock.remaining() < hbf.length) {
-            ByteBuffer newHeaderBlock = ByteBuffer.allocate(headerBlock.capacity() + hbf.length);
+            headerBlock = ByteBuffer.allocate(Math.max(HEADER_BLOCK_INITIAL_SIZE, hbfLength));
+        } else if (headerBlock.remaining() < hbfLength) {
+            // Grow by at least 2x or enough for new data
+            int newCapacity = Math.max(headerBlock.capacity() * 2, 
+                                       headerBlock.position() + hbfLength);
+            ByteBuffer newHeaderBlock = ByteBuffer.allocate(newCapacity);
             headerBlock.flip();
             newHeaderBlock.put(headerBlock);
             headerBlock = newHeaderBlock;
@@ -341,12 +328,7 @@ public class Stream {
         if (headerBlock != null) {
             headerBlock.flip();
             headers = new Headers();
-            HeaderHandler handler = new HeaderHandler() {
-                @Override public void header(Header header) {
-                    headers.add(header);
-                }
-            };
-            connection.hpackDecoder.decode(headerBlock, handler);
+            connection.hpackDecoder.decode(headerBlock, hpackHandler);
             headerBlock = null;
         }
         if (state == State.IDLE) {
@@ -360,14 +342,14 @@ public class Stream {
         }
         if (headers != null) {
             boolean isUpgrade = false;
-            Collection<String> upgrade = new LinkedHashSet<>();
-            SettingsFrame settingsFrame = null;
+            Collection<String> upgradeProtocols = null;
+            SettingsFrame http2Settings = null;
             for (Iterator<Header> i = headers.iterator(); i.hasNext(); ) {
                 Header header = i.next();
                 String name = header.getName();
                 String value = header.getValue();
                 if (":method".equals(name)) {
-                    if (NO_REQUEST_BODY.contains(value)) {
+                    if (isNoBodyMethod(value)) {
                         contentLength = 0;
                     }
                 } else if (connection.version != HTTPVersion.HTTP_2_0) { // HTTP/1
@@ -376,9 +358,9 @@ public class Stream {
                             closeConnection = true;
                         } else {
                             for (String v : value.split(",")) {
-                                v = v.trim();
-                                if ("Upgrade".equalsIgnoreCase(v)) {
+                                if ("Upgrade".equalsIgnoreCase(v.trim())) {
                                     isUpgrade = true;
+                                    break;
                                 }
                             } 
                         }
@@ -391,41 +373,71 @@ public class Stream {
                     } else if ("Transfer-Encoding".equalsIgnoreCase(name) && "chunked".equals(value)) {
                         contentLength = Integer.MAX_VALUE;
                         chunked = true;
-                        chunkLineInput = new ChunkLineInput();
                         i.remove(); // do not pass this on to stream implementation
                     } else if ("Upgrade".equalsIgnoreCase(name)) {
+                        if (upgradeProtocols == null) {
+                            upgradeProtocols = new LinkedHashSet<>();
+                        }
                         for (String v : value.split(",")) {
-                            upgrade.add(v.trim());
+                            upgradeProtocols.add(v.trim());
                         }
                     } else if ("HTTP2-Settings".equalsIgnoreCase(name)) {
                         try {
-                            Base64.Decoder decoder = Base64.getUrlDecoder();
-                            byte[] settings = decoder.decode(value);
+                            byte[] settings = Base64.getUrlDecoder().decode(value);
                             try {
-                                settingsFrame = new SettingsFrame(0, settings);
+                                http2Settings = new SettingsFrame(0, ByteBuffer.wrap(settings));
                             } catch (ProtocolException e) {
-                                String message = HTTPConnection.L10N.getString("err.decode_http2_settings");
-                                HTTPConnection.LOGGER.log(Level.SEVERE, message, e);
+                                HTTPConnection.LOGGER.log(Level.SEVERE, 
+                                    HTTPConnection.L10N.getString("err.decode_http2_settings"), e);
                             }
                         } catch (IllegalArgumentException e) {
                             // Invalid base64 in HTTP2-Settings header - ignore it
-                            HTTPConnection.LOGGER.log(Level.WARNING, "Invalid base64 in HTTP2-Settings header: " + value, e);
+                            HTTPConnection.LOGGER.log(Level.WARNING, 
+                                "Invalid base64 in HTTP2-Settings header: " + value, e);
                         }
                     }
                 }
             }
-            if (isUpgrade) {
-                this.upgrade = upgrade;
-                this.settingsFrame = settingsFrame;
+            if (isUpgrade && upgradeProtocols != null) {
+                this.upgrade = upgradeProtocols;
+                this.settingsFrame = http2Settings;
             }
         }
-        if (upgrade != null && upgrade.contains("h2c") && settingsFrame != null) {
+        if (this.upgrade != null && this.upgrade.contains("h2c") && this.settingsFrame != null) {
             // Upgrading the connection is handled specially by the
             // connection and not delivered to the stream implementation
         } else {
             // Initialize telemetry span if enabled
             initTelemetrySpan();
-            endHeaders(headers);
+            
+            // Dispatch to handler if present
+            if (handler != null) {
+                // Handler already set - this is a continuation or trailer headers
+                if (handlerBodyStarted && !handlerBodyEnded) {
+                    // Body was in progress, this must be trailer headers
+                    handlerBodyEnded = true;
+                    handler.endRequestBody(this);
+                }
+                handler.headers(headers, this);
+            } else {
+                // No handler yet - try to create one via factory
+                HTTPRequestHandlerFactory factory = connection.getHandlerFactory();
+                if (factory != null) {
+                    handler = factory.createHandler(headers, this);
+                    if (handler != null) {
+                        handler.headers(headers, this);
+                    }
+                    // If handler is null, factory may have sent a response (401, 404, etc.)
+                } else {
+                    // No factory configured - send 404 Not Found
+                    try {
+                        sendError(404);
+                    } catch (ProtocolException e) {
+                        HTTPConnection.LOGGER.warning(MessageFormat.format(
+                            HTTPConnection.L10N.getString("warn.default_404_failed"), e.getMessage()));
+                    }
+                }
+            }
         }
     }
 
@@ -435,6 +447,15 @@ public class Stream {
      * trace is started if traceparent header is present.
      */
     private void initTelemetrySpan() {
+        // Record request start time
+        timestampStarted = System.currentTimeMillis();
+
+        // Record metrics for request start
+        HTTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null) {
+            metrics.requestStarted(method != null ? method : "UNKNOWN");
+        }
+
         if (!connection.isTelemetryEnabled()) {
             return;
         }
@@ -492,116 +513,77 @@ public class Stream {
     }
 
     /**
-     * Informs the stream that the request headers are complete.
-     * @param headers the headers
-     */
-    protected void endHeaders(Headers headers) {
-    }
-
-    /**
      * Receive request body data from the specified input buffer.
-     * If this is chunked encoding, read into the chunk buffer and process
-     * in chunks.
+     * Used by WebSocket mode which passes data directly.
+     * Note: HTTP/1 chunked encoding is now handled at the connection level.
      */
     void appendRequestBody(ByteBuffer buf) {
-        if (chunked) {
-            chunkLineInput.dataReceived(buf);
-            while (chunkLineInput.hasRemaining()) {
-                String line;
-                try {
-                    line = chunkLineInput.readLine(HTTPConnection.US_ASCII_DECODER);
-                } catch (IOException e) {
-                    connection.sendStreamError(this, 400);
-                    return;
-                }
-                if (seenLastChunk) {
-                    // We are now in trailer header mode or EOF
-                    if (line == null) {
-                        return; // not enough data to read header line
-                    } else if (line.length() == 0) { // end of request
-                    } else { // add header line
-                             // NB header values in trailer headers may not be
-                             // folded, so we don't have to worry about value
-                             // state management over multiple lines. The whole
-                             // header must be on one line.
-                        int ci = line.indexOf(':');
-                        if (ci < 1) {
-                            connection.sendStreamError(this, 400);
-                            return;
-                        }
-                        String name = line.substring(0, ci);
-                        String value = line.substring(ci + 1).trim();
-                        addTrailerHeader(new Header(name, value));
-                    }
-                } else {
-                    if (line == null) {
-                        return; // not enough data to read chunk size
-                    }
-                    try {
-                        int chunkSize = Integer.parseInt(line, 16);
-                        if (!chunkLineInput.hasChunk(chunkSize)) { // underflow
-                            return;
-                        }
-                        byte[] chunk = null;
-                        if (chunkSize > 0) {
-                            chunk = new byte[chunkSize];
-                        }
-                        try {
-                            chunkLineInput.getChunk(chunk);
-                        } catch (IOException e) {
-                            connection.sendStreamError(this, 400);
-                            return;
-                        }
-                        if (chunkSize == 0) { // end of chunks
-                            contentLength = requestBodyBytesReceived;
-                            chunkLineInput.compact(); // prepare for headers
-                            seenLastChunk = true;
-                            return;
-                        } else {
-                            chunkLineInput.compact(); // prepare for next chunk
-                            requestBodyBytesReceived += chunk.length;
-                            receiveRequestBody(chunk);
-                        }
-                    } catch (NumberFormatException e) {
-                        connection.sendStreamError(this, 400);
-                        return;
-                    }
-                }
-            }
-        } else {
-            byte[] bytes = new byte[buf.remaining()];
-            buf.get(bytes);
-            requestBodyBytesReceived += bytes.length;
-            receiveRequestBody(bytes);
-        }
+        byte[] bytes = new byte[buf.remaining()];
+        buf.get(bytes);
+        requestBodyBytesReceived += bytes.length;
+        receiveRequestBody(ByteBuffer.wrap(bytes));
     }
 
     /**
-     * Receive request body data from the specified frame data.
-     * No chunked encoding applies.
+     * Receive request body data from the specified frame data (HTTP/2).
      */
     void appendRequestBody(byte[] bytes) {
         requestBodyBytesReceived += bytes.length;
-        receiveRequestBody(bytes);
+        receiveRequestBody(ByteBuffer.wrap(bytes));
     }
 
     /**
      * Receive request body data. This method may be called more than once
      * for a single stream (request).
-     * @param buf the request body data
+     * Called by HTTPConnection for direct body data (non-chunked or after
+     * chunked decoding at the connection level).
+     * 
+     * <p>This method consumes all data in the buffer (advances position to limit).
      */
-    protected void receiveRequestBody(byte[] buf) {
+    void receiveRequestBody(ByteBuffer buf) {
+        // Track bytes received
+        int bytesToConsume = buf.remaining();
+        requestBodyBytesReceived += bytesToConsume;
+        
+        // If WebSocket mode, delegate to WebSocket processing
+        if (webSocketAdapter != null) {
+            try {
+                webSocketAdapter.processIncomingData(buf);
+            } catch (IOException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
+                }
+            }
+            // Consume any remaining data
+            buf.position(buf.limit());
+            return;
+        }
+        
+        // Dispatch to handler if present
+        if (handler != null) {
+            if (!handlerBodyStarted) {
+                handlerBodyStarted = true;
+                handler.startRequestBody(this);
+            }
+            handler.requestBodyContent(buf, this);
+        }
+        
+        // Consume any remaining data (handler may not have consumed it)
+        buf.position(buf.limit());
     }
 
     void streamEndRequest() {
         state = State.HALF_CLOSED_REMOTE;
-        endRequest();
-    }
-
-    /**
-     * Informs the stream that the request body is complete.
-     */
-    protected void endRequest() {
+        
+        // Dispatch to handler if present
+        if (handler != null) {
+            if (handlerBodyStarted && !handlerBodyEnded) {
+                // Body was started but not ended (no trailers)
+                handlerBodyEnded = true;
+                handler.endRequestBody(this);
+            }
+            handler.requestComplete(this);
+        }
     }
 
     /**
@@ -616,9 +598,9 @@ public class Stream {
      * @param endStream if no response data will be sent and this is a
      * complete response
      */
-    protected final void sendResponseHeaders(int statusCode, Headers headers, boolean endStream) throws ProtocolException {
+    final void sendResponseHeaders(int statusCode, Headers headers, boolean endStream) throws ProtocolException {
         if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
-            throw new ProtocolException(String.format("Invalid state: %s", state));
+            throw new ProtocolException("Invalid state: " + state);
         }
 
         // Standard HTTP headers
@@ -641,6 +623,10 @@ public class Stream {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED; // normal request termination
                 timestampCompleted = System.currentTimeMillis();
+                // Close TCP connection if Connection: close was set
+                if (closeConnection && connection.getVersion() != HTTPVersion.HTTP_2_0) {
+                    connection.send(null);
+                }
             } else {
                 state = State.HALF_CLOSED_LOCAL;
             }
@@ -655,6 +641,18 @@ public class Stream {
      * @param statusCode the HTTP response status code
      */
     private void endTelemetrySpan(int statusCode) {
+        // Record metrics for request completion
+        HTTPServerMetrics metrics = getServerMetrics();
+        if (metrics != null && timestampStarted > 0) {
+            double durationMs = System.currentTimeMillis() - timestampStarted;
+            metrics.requestCompleted(
+                    method != null ? method : "UNKNOWN",
+                    statusCode,
+                    durationMs,
+                    requestBodyBytesReceived,
+                    responseBodyBytes);
+        }
+
         if (span == null) {
             return;
         }
@@ -678,31 +676,8 @@ public class Stream {
         span.end();
     }
 
-    /**
-     * Sends response body data for this stream.
-     * This must be called after sendResponseHeaders.
-     * This method may be called multiple times. The caller should ensure
-     * that the total number of bytes supplied via this method add up to
-     * the number specified for the Content-Length.
-     * @param buf response body contents
-     * @param endStream if this is the last response body data that will be
-     * sent
-     */
-    protected final void sendResponseBody(byte[] buf, boolean endStream) throws ProtocolException {
-        if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
-            throw new ProtocolException(String.format("Invalid state: %s", state));
-        }
-        connection.sendResponseBody(streamId, buf, endStream);
-        if (endStream) {
-            if (state == State.HALF_CLOSED_REMOTE) {
-                state = State.CLOSED; // normal request termination
-                timestampCompleted = System.currentTimeMillis();
-            } else {
-                state = State.HALF_CLOSED_LOCAL;
-            }
-            // End telemetry span with saved response status
-            endTelemetrySpan(responseStatusCode);
-        }
+    private HTTPServerMetrics getServerMetrics() {
+        return connection != null ? connection.getServerMetrics() : null;
     }
 
     /**
@@ -715,134 +690,130 @@ public class Stream {
      * @param endStream if this is the last response body data that will be
      * sent
      */
-    protected final void sendResponseBody(ByteBuffer buf, boolean endStream) throws ProtocolException {
-        if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
-            throw new ProtocolException(String.format("Invalid state: %s", state));
-        }
+    final void sendResponseBody(ByteBuffer buf, boolean endStream) throws ProtocolException {
+        int bytesToAdd = (buf != null) ? buf.remaining() : 0;
+        sendResponseBodyInternal(bytesToAdd, endStream);
         connection.sendResponseBody(streamId, buf, endStream);
+    }
+
+    /**
+     * Common state management for sendResponseBody.
+     */
+    private void sendResponseBodyInternal(int bytesToAdd, boolean endStream) throws ProtocolException {
+        if (state != State.HALF_CLOSED_REMOTE && state != State.OPEN) {
+            throw new ProtocolException("Invalid state: " + state);
+        }
+        responseBodyBytes += bytesToAdd;
         if (endStream) {
             if (state == State.HALF_CLOSED_REMOTE) {
-                state = State.CLOSED; // normal request termination
+                state = State.CLOSED;
                 timestampCompleted = System.currentTimeMillis();
+                // Close TCP connection if Connection: close was set
+                if (closeConnection && connection.getVersion() != HTTPVersion.HTTP_2_0) {
+                    connection.send(null);
+                }
             } else {
                 state = State.HALF_CLOSED_LOCAL;
             }
-            // End telemetry span with saved response status
             endTelemetrySpan(responseStatusCode);
         }
     }
 
-    /**
-     * Switches this stream and the underlying connection to WebSocket mode.
-     * This method should be called after sending the 101 Switching Protocols
-     * response for a WebSocket upgrade request.
-     * 
-     * <p>After calling this method:
-     * <ul>
-     * <li>All incoming data will be passed to {@link #receiveRequestBody(byte[])}
-     *     for WebSocket frame processing</li>
-     * <li>Response data should be sent via {@link #sendResponseBody(ByteBuffer, boolean)}
-     *     with WebSocket frames</li>
-     * <li>The connection will remain open until the WebSocket is closed</li>
-     * </ul>
-     */
-    protected final void switchToWebSocketMode() {
-        connection.switchToWebSocketMode(streamId);
-    }
+    // -- WebSocket Support (Internal) --
     
-    // -- WebSocket Support --
-    
-    /**
-     * Checks if this request is a valid WebSocket upgrade request.
-     * This can be called in {@link #endHeaders(Headers)} to detect WebSocket upgrades.
-     * 
-     * <p>A valid WebSocket upgrade request contains:
-     * <ul>
-     * <li>{@code Upgrade: websocket} header</li>
-     * <li>{@code Connection: Upgrade} header</li>
-     * <li>{@code Sec-WebSocket-Key} header with a valid key</li>
-     * <li>{@code Sec-WebSocket-Version: 13} header</li>
-     * </ul>
-     * 
-     * @return true if this is a valid WebSocket upgrade request
-     */
-    protected final boolean isWebSocketUpgradeRequest() {
+    private boolean isWebSocketUpgradeRequest() {
         return headers != null && WebSocketHandshake.isValidWebSocketUpgrade(headers);
     }
     
-    /**
-     * Sends the 101 Switching Protocols response for a WebSocket upgrade.
-     * This sends the appropriate response headers including the calculated
-     * {@code Sec-WebSocket-Accept} value.
-     * 
-     * <p>After calling this method, call {@link #switchToWebSocketMode()} to
-     * switch the connection to WebSocket mode.
-     * 
-     * @param subprotocol the negotiated subprotocol (may be null)
-     * @throws ProtocolException if the response cannot be sent
-     * @throws IllegalStateException if this is not a valid WebSocket upgrade request
-     */
-    protected final void sendWebSocketUpgradeResponse(String subprotocol) throws ProtocolException {
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTPResponseState.upgradeToWebSocket Implementation
+    // ─────────────────────────────────────────────────────────────────────────
+    
+    // The active WebSocket connection adapter (set after upgrade)
+    private WebSocketConnectionAdapter webSocketAdapter;
+    
+    @Override
+    public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) {
         if (!isWebSocketUpgradeRequest()) {
-            throw new IllegalStateException("Not a valid WebSocket upgrade request");
+            throw new IllegalStateException(HTTPConnection.L10N.getString("err.not_websocket_upgrade"));
+        }
+        if (responseState != ResponseState.INITIAL) {
+            throw new IllegalStateException(HTTPConnection.L10N.getString("err.response_started"));
         }
         
-        String key = headers.getValue("Sec-WebSocket-Key");
-        Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(key, subprotocol);
-        sendResponseHeaders(101, responseHeaders, false);
-    }
-    
-    /**
-     * Creates a WebSocket transport that uses this stream for I/O.
-     * The transport can be set on a {@link WebSocketConnection} to enable
-     * sending and receiving WebSocket frames.
-     * 
-     * <p>Usage example:
-     * <pre>
-     * // In your Stream subclass:
-     * protected void endHeaders(Headers headers) {
-     *     if (isWebSocketUpgradeRequest()) {
-     *         sendWebSocketUpgradeResponse(null);
-     *         
-     *         MyWebSocketConnection wsConn = new MyWebSocketConnection();
-     *         wsConn.setTransport(createWebSocketTransport());
-     *         configureWebSocketTelemetry(wsConn);
-     *         switchToWebSocketMode();
-     *         wsConn.notifyConnectionOpen();
-     *         
-     *         this.webSocketConnection = wsConn;
-     *     }
-     * }
-     * 
-     * protected void receiveRequestBody(byte[] buf) {
-     *     if (webSocketConnection != null) {
-     *         webSocketConnection.processIncomingData(ByteBuffer.wrap(buf));
-     *     }
-     * }
-     * </pre>
-     * 
-     * @return a WebSocket transport that uses this stream
-     */
-    protected final WebSocketConnection.WebSocketTransport createWebSocketTransport() {
-        return new StreamWebSocketTransport();
-    }
-    
-    /**
-     * Configures telemetry for a WebSocket connection.
-     * This sets up the telemetry configuration and creates a child span
-     * from the current HTTP stream's span.
-     * 
-     * @param wsConnection the WebSocket connection to configure
-     */
-    protected void configureWebSocketTelemetry(WebSocketConnection wsConnection) {
-        if (connection.isTelemetryEnabled()) {
-            wsConnection.setTelemetryConfig(connection.getTelemetryConfig());
-            if (span != null) {
-                wsConnection.setParentSpan(span);
-            } else {
-                wsConnection.createSpan(null);
+        try {
+            // Send 101 Switching Protocols response
+            String key = headers.getValue("Sec-WebSocket-Key");
+            Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(key, subprotocol);
+            sendResponseHeaders(101, responseHeaders, false);
+            
+            // Create adapter that bridges handler to WebSocketConnection
+            webSocketAdapter = new WebSocketConnectionAdapter(handler);
+            webSocketAdapter.setTransport(new StreamWebSocketTransport());
+            
+            // Configure telemetry if enabled
+            if (connection.isTelemetryEnabled()) {
+                webSocketAdapter.setTelemetryConfig(connection.getTelemetryConfig());
+                if (span != null) {
+                    webSocketAdapter.setParentSpan(span);
+                } else {
+                    webSocketAdapter.createSpan(null);
+                }
             }
+            
+            // Switch connection to WebSocket mode
+            connection.switchToWebSocketMode(streamId);
+            
+            // Notify handler that connection is open
+            webSocketAdapter.notifyConnectionOpen();
+            
+        } catch (ProtocolException e) {
+            throw new IllegalStateException("Failed to send WebSocket upgrade response", e);
         }
+    }
+    
+    /**
+     * Adapter that bridges WebSocketEventHandler to WebSocketConnection.
+     */
+    private class WebSocketConnectionAdapter extends WebSocketConnection 
+            implements WebSocketSession {
+        
+        private final WebSocketEventHandler handler;
+        
+        WebSocketConnectionAdapter(WebSocketEventHandler handler) {
+            this.handler = handler;
+        }
+        
+        // ─────────── WebSocketConnection abstract methods ───────────
+        
+        @Override
+        protected void opened() {
+            handler.opened(this);
+        }
+        
+        @Override
+        protected void textMessageReceived(String message) {
+            handler.textMessageReceived(message);
+        }
+        
+        @Override
+        protected void binaryMessageReceived(ByteBuffer data) {
+            handler.binaryMessageReceived(data);
+        }
+        
+        @Override
+        protected void closed(int code, String reason) {
+            handler.closed(code, reason);
+        }
+        
+        @Override
+        protected void error(Throwable cause) {
+            handler.error(cause);
+        }
+        
+        // ─────────── WebSocketSession interface (delegates to parent) ───────────
+        // Note: sendText, sendBinary, sendPing, close, isOpen are already 
+        // implemented in WebSocketConnection - we just expose them via the interface
     }
     
     /**
@@ -860,21 +831,15 @@ public class Stream {
         }
         
         @Override
-        public void close() throws IOException {
-            try {
-                Stream.this.close();
-            } catch (Exception e) {
-                throw new IOException("Failed to close WebSocket transport", e);
-            }
+        public void close(boolean normalClose) throws IOException {
+            Stream.this.streamClose(normalClose);
         }
     }
     
     /**
-     * The stream implementation should send an error response with the
-     * specified status code.
-     * @param statusCode the HTTP status code
+     * Sends an error response with the specified status code.
      */
-    protected void sendError(int statusCode) throws ProtocolException {
+    void sendError(int statusCode) throws ProtocolException {
         if (state == State.IDLE) {
             state = State.OPEN;
         }
@@ -888,153 +853,194 @@ public class Stream {
         sendResponseHeaders(statusCode, headers, true);
     }
 
+    /**
+     * Closes this stream abnormally (e.g., connection dropped).
+     */
     void streamClose() {
+        streamClose(false);
+    }
+
+    /**
+     * Closes this stream.
+     *
+     * @param normalClose true if this is a normal close (e.g., Connection: close
+     *                    header or normal WebSocket close), false if abnormal
+     */
+    void streamClose(boolean normalClose) {
         state = State.CLOSED;
         timestampCompleted = System.currentTimeMillis();
-        // End telemetry span if still open (abnormal close)
+        // End telemetry span if still open
         if (span != null && !span.isEnded()) {
-            span.recordError(ErrorCategory.CONNECTION_LOST, 
-                HTTPConnection.L10N.getString("telemetry.stream_closed_abnormally"));
+            if (normalClose) {
+                span.setStatusOk();
+            } else {
+                span.recordError(ErrorCategory.CONNECTION_LOST, 
+                    HTTPConnection.L10N.getString("telemetry.stream_closed_abnormally"));
+            }
             span.end();
         }
-        close();
     }
 
-    /**
-     * Informs the stream that it has been closed.
-     */
-    protected void close() {
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTPResponseState implementation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Override
+    public ConnectionInfo getConnectionInfo() {
+        return connection.getConnectionInfoForStream();
     }
 
-    /**
-     * Close the connection after writing all pending data.
-     */
-    public void sendCloseConnection() {
-        connection.send(null);
+    @Override
+    public TLSInfo getTLSInfo() {
+        return connection.isSecure() ? connection.getTLSInfoForStream() : null;
     }
 
-    /**
-     * Get a header value from the request headers.
-     *
-     * @param name the header name (case-insensitive)
-     * @return the header value, or null if not found
-     */
-    protected String getHeader(String name) {
-        return headers != null ? headers.getValue(name) : null;
+    @Override
+    public Principal getPrincipal() {
+        return authenticatedPrincipal;
     }
 
-    /**
-     * Authenticate the request using the configured authentication provider.
-     * 
-     * @return authentication result, or null if no authentication is configured
-     */
-    public HTTPAuthenticationProvider.AuthenticationResult authenticateRequest() {
-        HTTPAuthenticationProvider provider = connection.getAuthenticationProvider();
-        if (provider == null) {
-            return null; // No authentication configured
+    @Override
+    public void headers(Headers headers) {
+        if (responseState == ResponseState.COMPLETE) {
+            throw new IllegalStateException(HTTPConnection.L10N.getString("err.response_complete"));
+        }
+        // Buffer headers - they will be flushed on startResponseBody() or complete()
+        if (bufferedResponseHeaders == null) {
+            bufferedResponseHeaders = new Headers();
+        }
+        // Merge incoming headers into buffer
+        for (Header header : headers) {
+            bufferedResponseHeaders.add(header);
+        }
+    }
+
+    @Override
+    public void startResponseBody() {
+        if (responseState != ResponseState.INITIAL) {
+            throw new IllegalStateException("startResponseBody() called in invalid state: " + responseState);
+        }
+        // Flush buffered headers
+        flushResponseHeaders(false);
+        responseState = ResponseState.IN_BODY;
+    }
+
+    @Override
+    public void responseBodyContent(ByteBuffer data) {
+        if (responseState != ResponseState.IN_BODY) {
+            throw new IllegalStateException("responseBodyContent() called in invalid state: " + responseState);
+        }
+        try {
+            // Send DATA frame without END_STREAM
+            sendResponseBody(data, false);
+        } catch (ProtocolException e) {
+            throw new IllegalStateException("Failed to send response body", e);
+        }
+    }
+
+    @Override
+    public void endResponseBody() {
+        if (responseState != ResponseState.IN_BODY) {
+            throw new IllegalStateException("endResponseBody() called in invalid state: " + responseState);
+        }
+        responseState = ResponseState.BODY_COMPLETE;
+        // Clear buffered headers for potential trailers
+        bufferedResponseHeaders = null;
+    }
+
+    @Override
+    public void complete() {
+        if (responseState == ResponseState.COMPLETE) {
+            return; // Already complete, ignore
         }
 
-        String authHeader = getHeader("Authorization");
-        return provider.authenticate(authHeader);
+        try {
+            if (bufferedResponseHeaders != null && bufferedResponseHeaders.size() > 0) {
+                // Has buffered headers (either initial headers for no-body response, or trailers)
+                flushResponseHeaders(true); // END_STREAM
+            } else {
+                // No buffered headers - send empty DATA with END_STREAM
+                sendResponseBody(EMPTY_BUFFER.duplicate(), true);
+            }
+        } catch (ProtocolException e) {
+            throw new IllegalStateException("Failed to complete response", e);
+        }
+
+        responseState = ResponseState.COMPLETE;
+    }
+
+    @Override
+    public boolean pushPromise(Headers headers) {
+        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+            return false; // Server push only for HTTP/2
+        }
+        if (!connection.enablePush) {
+            return false; // Client disabled push
+        }
+        
+        // Extract method and path from headers
+        String method = headers.getValue(":method");
+        String path = headers.getValue(":path");
+        if (method == null || path == null) {
+            return false; // Required pseudo-headers missing
+        }
+        
+        try {
+            return sendServerPush(method, path, headers);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
+    public void cancel() {
+        try {
+            // For HTTP/2, send RST_STREAM
+            // For HTTP/1, close connection
+            if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+                connection.sendRstStream(streamId, 0x8); // CANCEL error code
+            } else {
+                closeConnection = true;
+                connection.send(null); // Trigger close
+            }
+        } catch (Exception e) {
+            // Best effort
+        }
+        responseState = ResponseState.COMPLETE;
     }
 
     /**
-     * Send 401 Unauthorized response with appropriate WWW-Authenticate challenge.
+     * Flushes buffered response headers.
      *
-     * @throws ProtocolException if unable to send the response
+     * @param endStream true to set END_STREAM (for no-body responses or trailers)
      */
-    public void sendAuthenticationChallenge() throws ProtocolException {
-        HTTPAuthenticationProvider provider = connection.getAuthenticationProvider();
-        if (provider == null) {
-            sendError(500); // Server misconfiguration
+    private void flushResponseHeaders(boolean endStream) {
+        if (bufferedResponseHeaders == null || bufferedResponseHeaders.size() == 0) {
             return;
         }
 
-        String challenge = provider.generateChallenge();
-        if (challenge == null) {
-            sendError(500); // Provider misconfiguration
-            return;
+        // Extract status code from :status pseudo-header
+        String statusStr = bufferedResponseHeaders.getValue(":status");
+        int statusCode = 200; // Default if no :status header
+        if (statusStr != null) {
+            try {
+                statusCode = Integer.parseInt(statusStr);
+            } catch (NumberFormatException e) {
+                // Invalid :status value is a server programming error
+                statusCode = 500;
+            }
+            // Remove :status from headers - it's handled separately for HTTP/1
+            bufferedResponseHeaders.remove(":status");
         }
 
-        Headers headers = new Headers();
-        headers.add("WWW-Authenticate", challenge);
-        sendResponseHeaders(401, headers, true);
-    }
-
-    /**
-     * Check if authentication is required for this request.
-     * 
-     * @return true if authentication is required, false otherwise
-     */
-    protected boolean isAuthenticationRequired() {
-        HTTPAuthenticationProvider provider = connection.getAuthenticationProvider();
-        return provider != null && provider.isAuthenticationRequired();
-    }
-
-    // -- Telemetry API --
-
-    /**
-     * Returns the telemetry span for this request, or null if telemetry is disabled.
-     *
-     * @return the span, or null
-     */
-    protected Span getSpan() {
-        return span;
-    }
-
-    /**
-     * Returns true if telemetry is enabled for this stream.
-     *
-     * @return true if a span is available
-     */
-    public boolean hasTelemetry() {
-        return span != null;
-    }
-
-    /**
-     * Records an exception on this stream's telemetry span.
-     * This adds an exception event and sets the span status to ERROR.
-     *
-     * @param exception the exception to record
-     */
-    protected void recordException(Throwable exception) {
-        if (span != null && exception != null) {
-            span.recordException(exception);
+        try {
+            sendResponseHeaders(statusCode, bufferedResponseHeaders, endStream);
+        } catch (ProtocolException e) {
+            throw new IllegalStateException("Failed to send response headers", e);
         }
-    }
 
-    /**
-     * Adds an attribute to this stream's telemetry span.
-     *
-     * @param key the attribute key
-     * @param value the attribute value
-     */
-    protected void addSpanAttribute(String key, String value) {
-        if (span != null) {
-            span.addAttribute(key, value);
-        }
-    }
-
-    /**
-     * Adds an attribute to this stream's telemetry span.
-     *
-     * @param key the attribute key
-     * @param value the attribute value
-     */
-    protected void addSpanAttribute(String key, long value) {
-        if (span != null) {
-            span.addAttribute(key, value);
-        }
-    }
-
-    /**
-     * Adds an event to this stream's telemetry span.
-     *
-     * @param name the event name
-     */
-    protected void addSpanEvent(String name) {
-        if (span != null) {
-            span.addEvent(name);
+        if (responseState == ResponseState.INITIAL) {
+            responseState = ResponseState.HEADERS_SENT;
         }
     }
 

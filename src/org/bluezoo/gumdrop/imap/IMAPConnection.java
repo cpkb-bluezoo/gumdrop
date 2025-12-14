@@ -21,19 +21,47 @@
 
 package org.bluezoo.gumdrop.imap;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Realm;
+import org.bluezoo.gumdrop.LineBasedConnection;
+import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.DefaultConnectionInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.imap.handler.AppendCompleteState;
+import org.bluezoo.gumdrop.imap.handler.AppendDataHandler;
+import org.bluezoo.gumdrop.imap.handler.AppendState;
+import org.bluezoo.gumdrop.imap.handler.AuthenticatedHandler;
+import org.bluezoo.gumdrop.imap.handler.AuthenticateState;
+import org.bluezoo.gumdrop.imap.handler.ClientConnected;
+import org.bluezoo.gumdrop.imap.handler.ClientConnectedFactory;
+import org.bluezoo.gumdrop.imap.handler.CloseState;
+import org.bluezoo.gumdrop.imap.handler.ConnectedState;
+import org.bluezoo.gumdrop.imap.handler.CopyState;
+import org.bluezoo.gumdrop.imap.handler.CreateState;
+import org.bluezoo.gumdrop.imap.handler.DeleteState;
+import org.bluezoo.gumdrop.imap.handler.ExpungeState;
+import org.bluezoo.gumdrop.imap.handler.ListState;
+import org.bluezoo.gumdrop.imap.handler.MoveState;
+import org.bluezoo.gumdrop.imap.handler.NotAuthenticatedHandler;
+import org.bluezoo.gumdrop.imap.handler.QuotaState;
+import org.bluezoo.gumdrop.imap.handler.RenameState;
+import org.bluezoo.gumdrop.imap.handler.SelectedHandler;
+import org.bluezoo.gumdrop.imap.handler.SelectState;
+import org.bluezoo.gumdrop.imap.handler.StoreState;
+import org.bluezoo.gumdrop.imap.handler.SubscribeState;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
+import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
+import org.bluezoo.gumdrop.mailbox.MessageSet;
 import org.bluezoo.gumdrop.mailbox.SearchCriteria;
+import org.bluezoo.gumdrop.mailbox.StoreAction;
 import org.bluezoo.gumdrop.quota.Quota;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
-import org.bluezoo.gumdrop.sasl.SASLMechanism;
-import org.bluezoo.gumdrop.sasl.SASLUtils;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
@@ -46,7 +74,9 @@ import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
+import java.security.Principal;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.time.OffsetDateTime;
@@ -82,7 +112,7 @@ import javax.net.ssl.SSLEngine;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 - IMAP4rev2</a>
  */
-public class IMAPConnection extends Connection {
+public class IMAPConnection extends LineBasedConnection {
 
     private static final Logger LOGGER = Logger.getLogger(IMAPConnection.class.getName());
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
@@ -123,6 +153,16 @@ public class IMAPConnection extends Connection {
 
     // Server reference
     private final IMAPServer server;
+    
+    // Handler instances (null if using built-in implementation)
+    private ClientConnected clientConnected;
+    private NotAuthenticatedHandler notAuthenticatedHandler;
+    private AuthenticatedHandler authenticatedHandler;
+    private SelectedHandler selectedHandler;
+    private AppendDataHandler appendDataHandler;
+    
+    // Realm bound to this connection's SelectorLoop (lazy initialized)
+    private Realm realm;
 
     // Session state
     private IMAPState state = IMAPState.NOT_AUTHENTICATED;
@@ -134,7 +174,7 @@ public class IMAPConnection extends Connection {
     private boolean selectedReadOnly = false;
 
     // Command parsing
-    private StringBuilder lineBuffer = new StringBuilder();
+    private CharBuffer charBuffer;
     private String currentTag = null;
     
     // SASL authentication
@@ -172,6 +212,28 @@ public class IMAPConnection extends Connection {
     public IMAPConnection(IMAPServer server, SSLEngine engine, boolean secure) {
         super(engine, secure);
         this.server = server;
+        this.charBuffer = CharBuffer.allocate(server.getMaxLineLength() + 2); // +2 for CRLF
+    }
+
+    /**
+     * Returns the realm for authentication, bound to this connection's SelectorLoop.
+     * Lazily initializes the bound realm on first access.
+     *
+     * @return the realm, or null if none configured
+     */
+    private Realm getRealm() {
+        if (realm == null) {
+            Realm serverRealm = server.getRealm();
+            if (serverRealm != null) {
+                SelectorLoop loop = getSelectorLoop();
+                if (loop != null) {
+                    realm = serverRealm.forSelectorLoop(loop);
+                } else {
+                    realm = serverRealm;
+                }
+            }
+        }
+        return realm;
     }
 
     /**
@@ -186,9 +248,21 @@ public class IMAPConnection extends Connection {
         initConnectionTrace();
         startSessionSpan();
         
-        // Send IMAP greeting (RFC 9051 Section 7.1)
-        String caps = server.getCapabilities(false, secure);
-        sendUntagged("OK [CAPABILITY " + caps + "] " + L10N.getString("imap.greeting"));
+        // Check if handler factory is configured
+        ClientConnectedFactory factory = server.getHandlerFactory();
+        if (factory != null) {
+            clientConnected = factory.createHandler();
+            ConnectionInfo info = new DefaultConnectionInfo(
+                getLocalSocketAddress(),
+                getRemoteSocketAddress(),
+                secure,
+                createTLSInfo());
+            clientConnected.connected(info, new ConnectedStateImpl());
+        } else {
+            // Use built-in implementation - send greeting immediately
+            String caps = server.getCapabilities(false, secure);
+            sendUntagged("OK [CAPABILITY " + caps + "] " + L10N.getString("imap.greeting"));
+        }
     }
 
     // ========================================================================
@@ -370,42 +444,87 @@ public class IMAPConnection extends Connection {
      */
     @Override
     public void receive(ByteBuffer buffer) {
-        try {
-            // Check if we're receiving APPEND literal data
-            if (appendLiteralRemaining > 0) {
+        // Check if we're receiving APPEND literal data
+        if (appendLiteralRemaining > 0) {
+            try {
                 receiveLiteralData(buffer);
+            } catch (IOException e) {
+                String msg = L10N.getString("log.error_processing_data");
+                LOGGER.log(Level.WARNING, msg, e);
+            }
+            return;
+        }
+        
+        // Process line-based commands
+        receiveLine(buffer);
+        
+        // If state changed to literal mode and there's remaining data, process it
+        if (appendLiteralRemaining > 0 && buffer.hasRemaining()) {
+            try {
+                receiveLiteralData(buffer);
+            } catch (IOException e) {
+                String msg = L10N.getString("log.error_processing_data");
+                LOGGER.log(Level.WARNING, msg, e);
+            }
+        }
+    }
+
+    /**
+     * Returns false when transitioning to literal data mode to stop line processing.
+     */
+    @Override
+    protected boolean continueLineProcessing() {
+        return appendLiteralRemaining <= 0;
+    }
+
+    /**
+     * Called when a complete CRLF-terminated line has been received.
+     * Decodes the line and dispatches the command.
+     *
+     * @param line buffer containing the complete line including CRLF
+     */
+    @Override
+    protected void lineReceived(ByteBuffer line) {
+        try {
+            // Check line length (excluding CRLF)
+            int lineLength = line.remaining();
+            if (lineLength > server.getMaxLineLength() + 2) {
+                sendTaggedBad(currentTag != null ? currentTag : "*", 
+                    L10N.getString("imap.err.line_too_long"));
                 return;
             }
-            
-            // Decode bytes to characters
-            CharBuffer chars = US_ASCII_DECODER.decode(buffer);
-            
-            // Accumulate in line buffer
-            while (chars.hasRemaining()) {
-                char c = chars.get();
-                
-                if (c == '\n') {
-                    // End of line - process command
-                    String line = lineBuffer.toString();
-                    lineBuffer.setLength(0);
-                    
-                    // Remove trailing CR if present
-                    if (line.endsWith("\r")) {
-                        line = line.substring(0, line.length() - 1);
-                    }
-                    
-                    processLine(line);
-                } else if (lineBuffer.length() >= server.getMaxLineLength()) {
-                    // Line too long
-                    sendTaggedBad(currentTag != null ? currentTag : "*", 
-                        L10N.getString("imap.err.line_too_long"));
-                    lineBuffer.setLength(0);
-                } else {
-                    lineBuffer.append(c);
-                }
+
+            // Decode line from buffer
+            charBuffer.clear();
+            US_ASCII_DECODER.reset();
+            CoderResult result = US_ASCII_DECODER.decode(line, charBuffer, true);
+            if (result.isError()) {
+                sendTaggedBad(currentTag != null ? currentTag : "*",
+                    L10N.getString("imap.err.invalid_command_encoding"));
+                return;
             }
+            charBuffer.flip();
+
+            // Adjust limit to exclude CRLF terminator before creating String
+            int len = charBuffer.limit();
+            if (len >= 2 && charBuffer.get(len - 2) == '\r' && charBuffer.get(len - 1) == '\n') {
+                charBuffer.limit(len - 2);
+            } else if (len >= 1 && charBuffer.get(len - 1) == '\n') {
+                charBuffer.limit(len - 1);
+            }
+            String lineStr = charBuffer.toString();
+
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                String msg = L10N.getString("log.imap_command");
+                msg = MessageFormat.format(msg, lineStr);
+                LOGGER.finest(msg);
+            }
+
+            processLine(lineStr);
+
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error processing IMAP input", e);
+            String msg = L10N.getString("log.error_processing_data");
+            LOGGER.log(Level.WARNING, msg, e);
         }
     }
 
@@ -790,13 +909,26 @@ public class IMAPConnection extends Connection {
         String username = parts[0];
         String password = parts[1];
         
-        if (authenticateUser(username, password)) {
-            openMailStore(username);
-            sendTaggedOk(tag, "[CAPABILITY " + server.getCapabilities(true, secure) + "] " +
-                L10N.getString("imap.login_complete"));
-        } else {
+        // Authenticate using Realm
+        if (!authenticateUser(username, password)) {
             sendTaggedNo(tag, "[AUTHENTICATIONFAILED] " + L10N.getString("imap.err.auth_failed"));
+            return;
         }
+        
+        authenticatedUser = username;  // Store for telemetry
+        
+        // Delegate policy decision to handler if configured
+        if (notAuthenticatedHandler != null) {
+            Principal principal = createPrincipal(username);
+            notAuthenticatedHandler.authenticate(principal, server.getMailboxFactory(), 
+                new AuthenticateStateImpl(tag));
+            return;
+        }
+        
+        // Built-in implementation - no handler, just open the store
+        openMailStore(username);
+        sendTaggedOk(tag, "[CAPABILITY " + server.getCapabilities(true, secure) + "] " +
+            L10N.getString("imap.login_complete"));
     }
 
     private void handleAuthenticate(String tag, String args) throws IOException {
@@ -817,6 +949,8 @@ public class IMAPConnection extends Connection {
         
         pendingAuthTag = tag;
         
+        // SASL authentication is handled internally using the Realm.
+        // After successful auth, openMailStore() will call the handler if configured.
         SASLMechanism mech = SASLMechanism.fromName(mechanism);
         if (mech == null) {
             sendTaggedNo(tag, L10N.getString("imap.err.unsupported_mechanism"));
@@ -891,7 +1025,7 @@ public class IMAPConnection extends Connection {
     }
 
     private void handleAuthCRAMMD5(String initialResponse) throws IOException {
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendTaggedNo(pendingAuthTag, L10N.getString("imap.err.auth_not_configured"));
             resetAuthState();
@@ -915,7 +1049,7 @@ public class IMAPConnection extends Connection {
             return;
         }
         
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendTaggedNo(pendingAuthTag, L10N.getString("imap.err.auth_not_configured"));
             return;
@@ -934,7 +1068,7 @@ public class IMAPConnection extends Connection {
     }
 
     private void handleAuthSCRAM(String initialResponse) throws IOException {
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             sendTaggedNo(pendingAuthTag, L10N.getString("imap.err.auth_not_configured"));
             return;
@@ -1084,7 +1218,7 @@ public class IMAPConnection extends Connection {
             String username = response.substring(0, spaceIndex);
             String digest = response.substring(spaceIndex + 1);
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             try {
                 String expected = realm.getCramMD5Response(username, authChallenge);
                 if (expected != null && expected.equalsIgnoreCase(digest)) {
@@ -1113,7 +1247,7 @@ public class IMAPConnection extends Connection {
                 return;
             }
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             InetSocketAddress addr = (InetSocketAddress) getLocalSocketAddress();
             String ha1 = realm.getDigestHA1(username, addr.getHostName());
             
@@ -1181,7 +1315,7 @@ public class IMAPConnection extends Connection {
         try {
             String clientFinal = SASLUtils.decodeBase64ToString(line);
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             Realm.ScramCredentials creds = realm.getScramCredentials(pendingAuthUsername);
             
             if (creds != null) {
@@ -1213,7 +1347,7 @@ public class IMAPConnection extends Connection {
                 return;
             }
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             Realm.TokenValidationResult result = realm.validateBearerToken(token);
             if (result != null && result.valid) {
                 openMailStore(user, "OAUTHBEARER");
@@ -1260,7 +1394,7 @@ public class IMAPConnection extends Connection {
             // In production, properly parse the NTLM message structure
             String username = pendingAuthUsername != null ? pendingAuthUsername : "user";
             
-            Realm realm = server.getRealm();
+            Realm realm = getRealm();
             // Check if user exists using userExists()
             // A full implementation would validate the NTLM response hash
             if (realm.userExists(username)) {
@@ -1295,7 +1429,7 @@ public class IMAPConnection extends Connection {
     }
 
     private boolean authenticateUser(String username, String password) {
-        Realm realm = server.getRealm();
+        Realm realm = getRealm();
         if (realm == null) {
             return false;
         }
@@ -1303,14 +1437,35 @@ public class IMAPConnection extends Connection {
     }
 
     private void openMailStore(String username) throws IOException {
-        openMailStore(username, "PASSWORD");
+        openMailStore(username, "PASSWORD", null);
     }
 
     private void openMailStore(String username, String mechanism) throws IOException {
-        authenticatedUser = username;
-        state = IMAPState.AUTHENTICATED;
+        openMailStore(username, mechanism, null);
+    }
 
-        // Start authenticated span for telemetry
+    /**
+     * Called after successful authentication to open the mailbox store.
+     * If a handler is configured, delegates the policy decision to it.
+     * 
+     * @param username the authenticated username
+     * @param mechanism the authentication mechanism used
+     * @param tag the command tag (null if SASL continuation)
+     */
+    private void openMailStore(String username, String mechanism, String tag) throws IOException {
+        authenticatedUser = username;
+        
+        // If handler is configured, delegate the policy decision
+        if (notAuthenticatedHandler != null) {
+            Principal principal = createPrincipal(username);
+            String responseTag = (tag != null) ? tag : pendingAuthTag;
+            notAuthenticatedHandler.authenticate(principal, server.getMailboxFactory(), 
+                new AuthenticateStateImpl(responseTag, mechanism));
+            return;
+        }
+        
+        // Built-in implementation - directly open the store
+        state = IMAPState.AUTHENTICATED;
         startAuthenticatedSpan(username, mechanism);
         
         MailboxFactory factory = server.getMailboxFactory();
@@ -1318,6 +1473,23 @@ public class IMAPConnection extends Connection {
             store = factory.createStore();
             store.open(username);
         }
+    }
+
+    /**
+     * Creates a Principal for the authenticated user.
+     */
+    private Principal createPrincipal(final String username) {
+        return new Principal() {
+            @Override
+            public String getName() {
+                return username;
+            }
+            
+            @Override
+            public String toString() {
+                return "IMAPPrincipal[" + username + "]";
+            }
+        };
     }
 
     // ========================================================================
@@ -1331,6 +1503,17 @@ public class IMAPConnection extends Connection {
             return;
         }
         
+        // Delegate to handler if configured
+        if (authenticatedHandler != null) {
+            if (readOnly) {
+                authenticatedHandler.examine(store, mailboxName, new SelectStateImpl(tag));
+            } else {
+                authenticatedHandler.select(store, mailboxName, new SelectStateImpl(tag));
+            }
+            return;
+        }
+        
+        // Built-in implementation
         try {
             // Close previously selected mailbox
             if (selectedMailbox != null) {
@@ -1454,8 +1637,14 @@ public class IMAPConnection extends Connection {
         try {
             List<String> mailboxes = store.listMailboxes(reference, pattern);
             for (String mailbox : mailboxes) {
-                Set<String> attrs = store.getMailboxAttributes(mailbox);
-                String attrStr = attrs.isEmpty() ? "" : "\\" + String.join(" \\", attrs);
+                Set<MailboxAttribute> attrs = store.getMailboxAttributes(mailbox);
+                StringBuilder attrStr = new StringBuilder();
+                for (MailboxAttribute attr : attrs) {
+                    if (attrStr.length() > 0) {
+                        attrStr.append(' ');
+                    }
+                    attrStr.append(attr.getImapAtom());
+                }
                 sendUntagged("LIST (" + attrStr + ") \"" + store.getHierarchyDelimiter() + 
                     "\" " + quoteMailboxName(mailbox));
             }
@@ -1748,7 +1937,7 @@ public class IMAPConnection extends Connection {
         
         // Check authorization - admin or self
         if (!targetUser.equals(authenticatedUser) && 
-            !server.getRealm().isUserInRole(authenticatedUser, "admin")) {
+            !getRealm().isUserInRole(authenticatedUser, "admin")) {
             sendTaggedNo(tag, L10N.getString("imap.err.quota_access_denied"));
             return;
         }
@@ -1818,7 +2007,7 @@ public class IMAPConnection extends Connection {
         }
         
         // Only admins can set quotas
-        if (!server.getRealm().isUserInRole(authenticatedUser, "admin")) {
+        if (!getRealm().isUserInRole(authenticatedUser, "admin")) {
             sendTaggedNo(tag, L10N.getString("imap.err.quota_permission_denied"));
             return;
         }
@@ -2233,6 +2422,11 @@ public class IMAPConnection extends Connection {
     @Override
     protected void disconnected() throws IOException {
         try {
+            // Notify handler if configured
+            if (clientConnected != null) {
+                clientConnected.disconnected();
+            }
+            
             // End telemetry spans
             if (state != IMAPState.LOGOUT) {
                 // Unexpected disconnection
@@ -2278,6 +2472,251 @@ public class IMAPConnection extends Connection {
             LOGGER.log(Level.WARNING, "Error closing mailbox", e);
         }
         super.close();
+    }
+
+    // ========================================================================
+    // State Inner Classes
+    // ========================================================================
+    // 
+    // Each State interface is implemented by an inner class that captures
+    // the command tag and any necessary context. This allows handlers to
+    // respond asynchronously without requiring global state tracking.
+    //
+    // TODO: For true async support, StateImpls need a reference to the
+    // SelectorLoop and should execute their response on that loop if the
+    // current thread is not the loop thread. This requires:
+    //   1. SelectorLoop to have a task queue for deferred execution
+    //   2. StateImpls to check Thread.currentThread() against the loop
+    //   3. If on a different thread, queue the response task for execution
+    // Until then, handlers must respond on the same thread that called them.
+    // ========================================================================
+
+    /**
+     * ConnectedState implementation for initial connection handling.
+     */
+    private class ConnectedStateImpl implements ConnectedState {
+        
+        @Override
+        public void acceptConnection(String greeting, NotAuthenticatedHandler handler) {
+            notAuthenticatedHandler = handler;
+            try {
+                String caps = server.getCapabilities(false, secure);
+                sendUntagged("OK [CAPABILITY " + caps + "] " + greeting);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send greeting", e);
+                close();
+            }
+        }
+
+        @Override
+        public void acceptPreauth(String greeting, AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            state = IMAPState.AUTHENTICATED;
+            try {
+                String caps = server.getCapabilities(true, secure);
+                sendUntagged("PREAUTH [CAPABILITY " + caps + "] " + greeting);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send PREAUTH greeting", e);
+                close();
+            }
+        }
+
+        @Override
+        public void rejectConnection() {
+            rejectConnection(L10N.getString("imap.connection_rejected"));
+        }
+
+        @Override
+        public void rejectConnection(String message) {
+            try {
+                sendUntagged("BYE " + message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send BYE", e);
+            }
+            close();
+        }
+
+        @Override
+        public void serverShuttingDown() {
+            doServerShuttingDown();
+        }
+    }
+
+    /**
+     * AuthenticateState implementation that captures the command tag and mechanism.
+     * Called after the Realm has authenticated the user - handler makes policy decision.
+     */
+    private class AuthenticateStateImpl implements AuthenticateState {
+        private final String tag;
+        private final String mechanism;
+
+        AuthenticateStateImpl(String tag) {
+            this(tag, "PASSWORD");
+        }
+
+        AuthenticateStateImpl(String tag, String mechanism) {
+            this.tag = tag;
+            this.mechanism = mechanism;
+        }
+
+        @Override
+        public void accept(MailboxStore newStore, AuthenticatedHandler handler) {
+            accept(L10N.getString("imap.auth_complete"), newStore, handler);
+        }
+
+        @Override
+        public void accept(String message, MailboxStore newStore, AuthenticatedHandler handler) {
+            store = newStore;
+            authenticatedHandler = handler;
+            state = IMAPState.AUTHENTICATED;
+            startAuthenticatedSpan(authenticatedUser, mechanism);
+            resetAuthState();
+            try {
+                String caps = server.getCapabilities(true, secure);
+                sendTaggedOk(tag, "[CAPABILITY " + caps + "] " + message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send auth OK", e);
+            }
+        }
+
+        @Override
+        public void reject(String message, NotAuthenticatedHandler handler) {
+            notAuthenticatedHandler = handler;
+            addSessionEvent("AUTH_REJECTED");
+            resetAuthState();
+            try {
+                sendTaggedNo(tag, message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send auth rejected", e);
+            }
+        }
+
+        @Override
+        public void rejectAndClose(String message) {
+            addSessionEvent("AUTH_REJECTED_CLOSE");
+            resetAuthState();
+            try {
+                sendUntagged("BYE " + message);
+                sendTaggedNo(tag, message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send auth rejected", e);
+            }
+            close();
+        }
+
+        @Override
+        public void serverShuttingDown() {
+            doServerShuttingDown();
+        }
+    }
+
+    /**
+     * SelectState implementation that captures the command tag.
+     */
+    private class SelectStateImpl implements SelectState {
+        private final String tag;
+
+        SelectStateImpl(String tag) {
+            this.tag = tag;
+        }
+
+        @Override
+        public void selectOk(Mailbox mailbox, boolean readOnly, Set<Flag> flags,
+                             Set<Flag> permanentFlags, int exists, int recent,
+                             long uidValidity, long uidNext, SelectedHandler handler) {
+            selectedMailbox = mailbox;
+            selectedHandler = handler;
+            selectedReadOnly = readOnly;
+            state = IMAPState.SELECTED;
+            addSessionAttribute("imap.mailbox", mailbox.getName());
+            addSessionAttribute("imap.mailbox.readonly", readOnly);
+            addSessionEvent(readOnly ? "EXAMINE" : "SELECT");
+            try {
+                sendUntagged(exists + " EXISTS");
+                sendUntagged(recent + " RECENT");
+                sendUntagged("FLAGS (" + formatFlags(flags) + ")");
+                sendUntagged("OK [PERMANENTFLAGS (" + formatFlags(permanentFlags) + " \\*)]");
+                sendUntagged("OK [UIDVALIDITY " + uidValidity + "]");
+                sendUntagged("OK [UIDNEXT " + uidNext + "]");
+                String accessMode = readOnly ? "[READ-ONLY]" : "[READ-WRITE]";
+                sendTaggedOk(tag, accessMode + " " + L10N.getString("imap.select_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send SELECT response", e);
+            }
+        }
+
+        @Override
+        public void mailboxNotFound(String message, AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            try {
+                sendTaggedNo(tag, message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send select NO", e);
+            }
+        }
+
+        @Override
+        public void accessDenied(String message, AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            try {
+                sendTaggedNo(tag, message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send select access denied", e);
+            }
+        }
+
+        @Override
+        public void no(String message, AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            try {
+                sendTaggedNo(tag, message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send select NO", e);
+            }
+        }
+
+        @Override
+        public void selectOk(Mailbox mailbox, boolean readOnly, Set<Flag> flags, SelectedHandler handler) {
+            // Simplified version - query mailbox for details
+            try {
+                Set<Flag> permanentFlags = mailbox.getPermanentFlags();
+                int exists = mailbox.getMessageCount();
+                int recent = 0; // TODO: track recent messages
+                long uidValidity = mailbox.getUidValidity();
+                long uidNext = mailbox.getUidNext();
+                selectOk(mailbox, readOnly, flags, permanentFlags, exists, recent, uidValidity, uidNext, handler);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to query mailbox for SELECT response", e);
+                selectFailed("Cannot query mailbox", authenticatedHandler);
+            }
+        }
+
+        @Override
+        public void selectFailed(String message, AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            try {
+                sendTaggedNo(tag, message);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send select failed", e);
+            }
+        }
+
+        @Override
+        public void serverShuttingDown() {
+            doServerShuttingDown();
+        }
+    }
+
+    /**
+     * Common helper for serverShuttingDown across all States.
+     */
+    private void doServerShuttingDown() {
+        try {
+            sendUntagged("BYE " + L10N.getString("imap.server_shutting_down"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send shutdown BYE", e);
+        }
+        close();
     }
 
 }
