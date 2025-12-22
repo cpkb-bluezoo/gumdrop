@@ -28,10 +28,10 @@ import java.util.logging.Logger;
 /**
  * Default implementation of {@link HTTPResponseHandler} with no-op methods.
  *
- * <p>This class provides sensible default behavior for all handler methods,
+ * <p>This class provides sensible default behaviour for all handler methods,
  * making it easy to override only the methods you care about.
  *
- * <p><strong>Default Behaviors:</strong>
+ * <p><strong>Default Behaviours:</strong>
  * <ul>
  *   <li>{@link #ok(HTTPResponse)} - no action</li>
  *   <li>{@link #error(HTTPResponse)} - no action</li>

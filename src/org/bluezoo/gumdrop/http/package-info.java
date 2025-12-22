@@ -35,8 +35,6 @@
  *       HTTP connection, supporting both HTTP/1.1 and HTTP/2</li>
  *   <li>{@link org.bluezoo.gumdrop.http.Stream} - Represents an HTTP/2
  *       stream or HTTP/1.1 request/response pair</li>
- *   <li>{@link org.bluezoo.gumdrop.http.Frame} - Base class for HTTP/2
- *       protocol frames</li>
  *   <li>{@link org.bluezoo.gumdrop.http.Headers} - HTTP header collection</li>
  * </ul>
  *
@@ -51,17 +49,9 @@
  *   <li>Stream prioritization</li>
  * </ul>
  *
- * <h2>HTTP/2 Frame Types</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.http.DataFrame} - Carries request/response body</li>
- *   <li>{@link org.bluezoo.gumdrop.http.HeadersFrame} - Carries HTTP headers</li>
- *   <li>{@link org.bluezoo.gumdrop.http.SettingsFrame} - Connection settings</li>
- *   <li>{@link org.bluezoo.gumdrop.http.PingFrame} - Keepalive mechanism</li>
- *   <li>{@link org.bluezoo.gumdrop.http.GoawayFrame} - Connection shutdown</li>
- *   <li>{@link org.bluezoo.gumdrop.http.WindowUpdateFrame} - Flow control</li>
- *   <li>{@link org.bluezoo.gumdrop.http.PushPromiseFrame} - Server push</li>
- * </ul>
+ * <p>HTTP/2 frame parsing and writing is handled by the
+ * {@link org.bluezoo.gumdrop.http.h2} package, which provides a zero-allocation,
+ * callback-based API for frame handling.
  *
  * <h2>Configuration Example</h2>
  *
@@ -80,6 +70,7 @@
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.http.client} - HTTP client</li>
  *   <li>{@link org.bluezoo.gumdrop.http.file} - Static file serving</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.h2} - HTTP/2 frame parsing and writing</li>
  *   <li>{@link org.bluezoo.gumdrop.http.hpack} - HPACK compression</li>
  *   <li>{@link org.bluezoo.gumdrop.http.websocket} - WebSocket support</li>
  * </ul>

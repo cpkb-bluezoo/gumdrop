@@ -38,6 +38,7 @@ import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -45,6 +46,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -114,7 +116,8 @@ import java.util.logging.Logger;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6749">RFC 6749 - OAuth 2.0 Framework</a>
  */
 public class OAuthRealm implements Realm {
-    
+
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");   
     private static final Logger LOGGER = Logger.getLogger(OAuthRealm.class.getName());
     
     /**
@@ -167,37 +170,29 @@ public class OAuthRealm implements Realm {
     private OAuthRealm(Properties config, SelectorLoop loop) {
         this.config = config;
         this.selectorLoop = loop;
-        
         // Load basic OAuth configuration
         this.authorizationServerUrl = getRequiredProperty(config, "oauth.authorization.server.url");
         this.clientId = getRequiredProperty(config, "oauth.client.id");
         this.clientSecret = getRequiredProperty(config, "oauth.client.secret");
         this.introspectionEndpoint = config.getProperty("oauth.token.introspection.endpoint", "/oauth/introspect");
-        
         // Parse role-to-scope mappings
         this.roleScopeMapping = parseRoleScopeMapping(config);
-        
         // Load advanced configuration
         this.cacheEnabled = Boolean.parseBoolean(config.getProperty("oauth.cache.enabled", "false"));
         this.cacheTtl = Long.parseLong(config.getProperty("oauth.cache.ttl", "60")) * 1000; // Convert to milliseconds
         this.maxCacheSize = Integer.parseInt(config.getProperty("oauth.cache.max.size", "1000"));
         this.httpTimeoutMs = Long.parseLong(config.getProperty("oauth.http.timeout", "5000"));
-        
         // Parse server URL to extract host, port, and protocol
         URI serverUri = URI.create(authorizationServerUrl);
         this.useHttps = "https".equalsIgnoreCase(serverUri.getScheme());
         this.serverHost = serverUri.getHost();
         int port = serverUri.getPort();
         this.serverPort = port != -1 ? port : (useHttps ? 443 : 80);
-        
         // Pre-compute Basic auth header
         String credentials = clientId + ":" + clientSecret;
-        this.basicAuthHeader = "Basic " + Base64.getEncoder().encodeToString(
-            credentials.getBytes(StandardCharsets.UTF_8));
-        
+        this.basicAuthHeader = "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
         // Initialize cache if enabled
         this.tokenCache = cacheEnabled ? new ConcurrentHashMap<String, CachedTokenResult>() : null;
-        
         // Configure logging level
         String logLevel = config.getProperty("oauth.log.level", "INFO");
         try {
@@ -205,11 +200,8 @@ public class OAuthRealm implements Realm {
         } catch (IllegalArgumentException e) {
             LOGGER.warning("Invalid log level '" + logLevel + "', using INFO");
         }
-        
-        LOGGER.info("OAuth realm initialized for server: " + authorizationServerUrl + 
-                   " (" + serverHost + ":" + serverPort + ", secure=" + useHttps + ")" +
-                   ", cache enabled: " + cacheEnabled + 
-                   ", role mappings: " + roleScopeMapping.size());
+        String msg = MessageFormat.format(L10N.getString("info.oauth.init"), authorizationServerUrl, serverHost, serverPort, useHttps, cacheEnabled, roleScopeMapping.size());
+        LOGGER.info(msg);
     }
     
     // ─────────────────────────────────────────────────────────────────────────────
@@ -235,20 +227,17 @@ public class OAuthRealm implements Realm {
         if (accessToken == null || accessToken.trim().isEmpty()) {
             return TokenValidationResult.failure();
         }
-        
         // Check cache first if enabled
         if (cacheEnabled && tokenCache != null) {
             CachedTokenResult cached = tokenCache.get(accessToken);
             if (cached != null && !cached.isExpired()) {
-                LOGGER.fine("Token validation result retrieved from cache");
+                LOGGER.fine(L10N.getString("debug.token_result_from_cache"));
                 return cached.result;
             }
         }
-        
         try {
             // Perform token introspection
             TokenValidationResult result = performTokenIntrospection(accessToken);
-            
             // Cache result if caching is enabled
             if (cacheEnabled && tokenCache != null && result.valid) {
                 // Clean up cache if it's getting too large
@@ -257,11 +246,9 @@ public class OAuthRealm implements Realm {
                 }
                 tokenCache.put(accessToken, new CachedTokenResult(result, System.currentTimeMillis() + cacheTtl));
             }
-            
             return result;
-            
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "OAuth token validation failed", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.oauth_token_failed"), e);
             return TokenValidationResult.failure();
         }
     }
@@ -277,15 +264,15 @@ public class OAuthRealm implements Realm {
         // Get required scopes for this role
         String[] requiredScopes = roleScopeMapping.get(role);
         if (requiredScopes == null || requiredScopes.length == 0) {
-            LOGGER.fine("No scope mapping found for role: " + role);
+            String msg = MessageFormat.format(L10N.getString("debug.no_scope_mapping"), role);
+            LOGGER.fine(msg);
             return false;
         }
-        
+        // FIXME
         // Note: In practice, the caller should have the token validation result
         // with scopes available. This method cannot re-validate without the token.
-        LOGGER.fine("Role membership check for user '" + username + "' and role '" + role + "' - " +
-                   "requires token scopes for validation");
-        
+        String msg = MessageFormat.format(L10N.getString("debug.need_token_scope"), username, role);
+        LOGGER.fine(msg);
         return false;
     }
     
@@ -300,7 +287,6 @@ public class OAuthRealm implements Realm {
         if (userScopes == null || requiredScopes == null) {
             return false;
         }
-        
         for (String requiredScope : requiredScopes) {
             for (String userScope : userScopes) {
                 if (requiredScope.equals(userScope)) {
@@ -308,7 +294,6 @@ public class OAuthRealm implements Realm {
                 }
             }
         }
-        
         return false;
     }
     
@@ -338,7 +323,7 @@ public class OAuthRealm implements Realm {
 
     @Override
     public String getPassword(String username) throws UnsupportedOperationException {
-        throw new UnsupportedOperationException("OAuth realm doesn't support password authentication");
+        throw new UnsupportedOperationException(L10N.getString("err.oauth.no_passwords"));
     }
     
     // ─────────────────────────────────────────────────────────────────────────────
@@ -357,7 +342,6 @@ public class OAuthRealm implements Realm {
         String requestBody = "token=" + URLEncoder.encode(accessToken, StandardCharsets.UTF_8.name()) +
                            "&token_type_hint=access_token";
         byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
-        
         // Create HTTP client
         HTTPClient client;
         try {
@@ -367,19 +351,16 @@ public class OAuthRealm implements Realm {
                 client = new HTTPClient(serverHost, serverPort);
             }
         } catch (UnknownHostException e) {
-            LOGGER.warning("Unknown host: " + serverHost);
+            String msg = MessageFormat.format(L10N.getString("err.unknown_host"), serverHost);
+            LOGGER.warning(msg);
             return TokenValidationResult.failure();
         }
-        
         client.setSecure(useHttps);
-        
         // Use credentials for automatic authentication
         client.credentials(clientId, clientSecret);
-        
         // Synchronization for async response
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<TokenValidationResult> result = new AtomicReference<TokenValidationResult>();
-        
         // Create response handler with streaming JSON parsing
         DefaultHTTPResponseHandler responseHandler = new DefaultHTTPResponseHandler() {
             private final IntrospectionResponseHandler jsonHandler = new IntrospectionResponseHandler();
@@ -397,7 +378,8 @@ public class OAuthRealm implements Realm {
             @Override
             public void error(HTTPResponse response) {
                 statusCode = response.getStatus().code;
-                LOGGER.warning("Token introspection returned error status: " + statusCode);
+                String msg = MessageFormat.format(L10N.getString("err.oauth_token_introspection_error"), statusCode);
+                LOGGER.warning(msg);
             }
             
             private void initParser() {
@@ -418,7 +400,7 @@ public class OAuthRealm implements Realm {
                 try {
                     jsonParser.receive(data);
                 } catch (JSONException e) {
-                    LOGGER.log(Level.WARNING, "JSON parse error during streaming", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("err.json_parse_streaming"), e);
                     parseError = e;
                 }
             }
@@ -431,7 +413,7 @@ public class OAuthRealm implements Realm {
                         jsonParser.close();
                     }
                 } catch (JSONException e) {
-                    LOGGER.log(Level.WARNING, "JSON parse error on close", e);
+                    LOGGER.log(Level.WARNING, L10N.getString("err.json_parse_close"), e);
                     if (parseError == null) {
                         parseError = e;
                     }
@@ -448,7 +430,7 @@ public class OAuthRealm implements Realm {
             
             @Override
             public void failed(Exception ex) {
-                LOGGER.log(Level.WARNING, "HTTP request failed", ex);
+                LOGGER.log(Level.WARNING, L10N.getString("err.http_request_failed"), ex);
                 result.set(TokenValidationResult.failure());
                 latch.countDown();
             }
@@ -458,7 +440,7 @@ public class OAuthRealm implements Realm {
         client.connect(new HTTPClientHandler() {
             @Override
             public void onConnected(ConnectionInfo info) {
-                LOGGER.fine("Connected to OAuth server");
+                LOGGER.fine(L10N.getString("debug.oauth_connected"));
                 
                 // Create and send the POST request
                 HTTPRequest request = client.post(introspectionEndpoint);
@@ -474,29 +456,28 @@ public class OAuthRealm implements Realm {
             
             @Override
             public void onError(Exception cause) {
-                LOGGER.log(Level.WARNING, "Connection error", cause);
+                LOGGER.log(Level.WARNING, L10N.getString("err.connection"), cause);
                 result.set(TokenValidationResult.failure());
                 latch.countDown();
             }
             
             @Override
             public void onDisconnected() {
-                LOGGER.fine("Disconnected from OAuth server");
+                LOGGER.fine(L10N.getString("debug.oauth_disconnected"));
             }
             
             @Override
             public void onTLSStarted(TLSInfo info) {
-                LOGGER.fine("TLS started: " + info.getProtocol());
+                String msg = MessageFormat.format(L10N.getString("debug.oauth_tls_started"), info.getProtocol());
+                LOGGER.fine(msg);
             }
         });
-        
         // Wait for response with timeout
         boolean completed = latch.await(httpTimeoutMs, TimeUnit.MILLISECONDS);
         if (!completed) {
-            LOGGER.warning("Token introspection request timed out");
+            LOGGER.warning(L10N.getString("err.oauth_timeout"));
             return TokenValidationResult.failure();
         }
-        
         TokenValidationResult validationResult = result.get();
         return validationResult != null ? validationResult : TokenValidationResult.failure();
     }
@@ -510,29 +491,23 @@ public class OAuthRealm implements Realm {
     private TokenValidationResult extractValidationResult(IntrospectionResponseHandler handler) {
         // Check if token is active
         if (!handler.isActive()) {
-            LOGGER.fine("Token is not active");
+            LOGGER.fine(L10N.getString("debug.oauth_token_not_active"));
             return TokenValidationResult.failure();
         }
-        
         // Get username (prefer 'username' field, fallback to 'sub')
         String username = handler.getUsername();
         if (username == null || username.isEmpty()) {
             username = handler.getSubject();
         }
-        
         if (username == null || username.isEmpty()) {
-            LOGGER.warning("No username or subject found in token introspection response");
+            LOGGER.warning(L10N.getString("warn.oauth_no_subject"));
             return TokenValidationResult.failure();
         }
-        
         // Get scopes and expiration
         String[] scopes = handler.getScopes();
         long exp = handler.getExpiration();
-        
-        LOGGER.fine("Token validation successful - username: " + username + 
-                   ", scopes: " + String.join(",", scopes) + 
-                   ", expires: " + exp);
-        
+        String msg = MessageFormat.format(L10N.getString("debug.oauth_token_success"), username, String.join(",", scopes), exp);
+        LOGGER.fine(msg);
         return TokenValidationResult.success(username, scopes, "OAuth", exp);
     }
     
@@ -559,7 +534,8 @@ public class OAuthRealm implements Realm {
                 }
                 
                 mapping.put(role, scopes);
-                LOGGER.info("Mapped role '" + role + "' to scopes: " + String.join(", ", scopes));
+                String msg = MessageFormat.format(L10N.getString("info.oauth_mapped_role"), role, String.join(", ", scopes));
+                LOGGER.info(msg);
             }
         }
         
@@ -572,7 +548,8 @@ public class OAuthRealm implements Realm {
     private String getRequiredProperty(Properties config, String key) {
         String value = config.getProperty(key);
         if (value == null || value.trim().isEmpty()) {
-            throw new IllegalArgumentException("Required OAuth configuration property missing: " + key);
+            String msg = MessageFormat.format(L10N.getString("err.oauth_required_config"), key);
+            throw new IllegalArgumentException(msg);
         }
         return value.trim();
     }
@@ -584,19 +561,16 @@ public class OAuthRealm implements Realm {
         if (tokenCache == null) {
             return;
         }
-        
         long now = System.currentTimeMillis();
         int removedCount = 0;
-        
         for (Map.Entry<String, CachedTokenResult> entry : tokenCache.entrySet()) {
             if (entry.getValue().isExpired(now)) {
                 tokenCache.remove(entry.getKey());
                 removedCount++;
             }
         }
-        
-        LOGGER.fine("Cleaned up " + removedCount + " expired cache entries");
-        
+        String msg = MessageFormat.format(L10N.getString("debug.oauth_cache_expired"), removedCount);
+        LOGGER.fine(msg);
         // If cache is still too large, remove oldest entries
         if (tokenCache.size() >= maxCacheSize) {
             int toRemove = tokenCache.size() - (maxCacheSize / 2);
@@ -608,7 +582,8 @@ public class OAuthRealm implements Realm {
                 tokenCache.remove(key);
                 removed++;
             }
-            LOGGER.fine("Removed " + removed + " cache entries to prevent overflow");
+            msg = MessageFormat.format(L10N.getString("debug.oauth_cache_overflow"), removed);
+            LOGGER.fine(msg);
         }
     }
     
@@ -752,4 +727,5 @@ public class OAuthRealm implements Realm {
                    '}';
         }
     }
+
 }

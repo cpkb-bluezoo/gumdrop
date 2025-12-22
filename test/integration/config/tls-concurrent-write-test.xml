@@ -1,0 +1,12 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+    <!-- TLS Echo server for concurrent write testing -->
+    <server id="tlsEchoServer" class="org.bluezoo.gumdrop.buffer.TLSEchoServer">
+        <property name="port">19445</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="secure">true</property>
+        <property name="keystore-file">testkeystore.p12</property>
+        <property name="keystore-pass">changeit</property>
+    </server>
+</gumdrop>
+

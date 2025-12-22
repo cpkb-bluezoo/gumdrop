@@ -248,5 +248,3 @@ public class Headers extends ArrayList<Header> {
     }
 
 }
-
-

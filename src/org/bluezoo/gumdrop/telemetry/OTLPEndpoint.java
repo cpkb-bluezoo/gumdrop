@@ -27,9 +27,13 @@ import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.security.KeyStore;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -53,6 +57,12 @@ class OTLPEndpoint {
     private final String path;
     private final boolean secure;
     private final Map<String, String> headers;
+    
+    // TLS configuration
+    private String truststoreFile;
+    private String truststorePass;
+    private String truststoreFormat = "PKCS12";
+    private SSLContext sslContext;
 
     private HTTPClient client;
     private volatile boolean connecting;
@@ -65,9 +75,11 @@ class OTLPEndpoint {
      * @param url the endpoint URL
      * @param defaultPath the default path if not specified in URL
      * @param headers custom headers to include in requests
+     * @param config the telemetry configuration (for TLS settings)
      * @return the endpoint, or null if the URL is invalid
      */
-    static OTLPEndpoint create(String name, String url, String defaultPath, Map<String, String> headers) {
+    static OTLPEndpoint create(String name, String url, String defaultPath, 
+                               Map<String, String> headers, TelemetryConfig config) {
         if (url == null || url.isEmpty()) {
             return null;
         }
@@ -91,7 +103,16 @@ class OTLPEndpoint {
                 path = defaultPath;
             }
 
-            return new OTLPEndpoint(name, host, port, path, secure, headers);
+            OTLPEndpoint endpoint = new OTLPEndpoint(name, host, port, path, secure, headers);
+            
+            // Copy TLS settings from config
+            if (config != null) {
+                endpoint.truststoreFile = config.getTruststoreFile();
+                endpoint.truststorePass = config.getTruststorePass();
+                endpoint.truststoreFormat = config.getTruststoreFormat();
+            }
+            
+            return endpoint;
 
         } catch (IllegalArgumentException e) {
             logger.warning("Invalid OTLP " + name + " endpoint URL: " + url + " - " + e.getMessage());
@@ -152,6 +173,48 @@ class OTLPEndpoint {
      */
     boolean isSecure() {
         return secure;
+    }
+
+    /**
+     * Gets or creates an SSLContext for secure connections.
+     *
+     * <p>If a truststore is configured, creates an SSLContext that trusts
+     * certificates from that truststore. Otherwise returns null to use
+     * the JVM's default trust settings.
+     *
+     * @return the SSLContext, or null to use defaults
+     */
+    private SSLContext getOrCreateSSLContext() {
+        // If already created, return it
+        if (sslContext != null) {
+            return sslContext;
+        }
+        
+        // Create from truststore config if available
+        if (truststoreFile != null && truststorePass != null) {
+            try {
+                KeyStore trustStore = KeyStore.getInstance(truststoreFormat);
+                try (FileInputStream fis = new FileInputStream(truststoreFile)) {
+                    trustStore.load(fis, truststorePass.toCharArray());
+                }
+                
+                TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                        TrustManagerFactory.getDefaultAlgorithm());
+                tmf.init(trustStore);
+                
+                sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(null, tmf.getTrustManagers(), null);
+                
+                logger.fine("Loaded truststore for " + name + " endpoint: " + truststoreFile);
+                return sslContext;
+                
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Failed to load truststore for " + name + " endpoint", e);
+            }
+        }
+        
+        // Use JVM defaults
+        return null;
     }
 
     /**
@@ -236,6 +299,10 @@ class OTLPEndpoint {
             client = new HTTPClient(host, port);
             if (secure) {
                 client.setSecure(true);
+                SSLContext ctx = getOrCreateSSLContext();
+                if (ctx != null) {
+                    client.setSSLContext(ctx);
+                }
             }
 
             // Initiate connection with handler

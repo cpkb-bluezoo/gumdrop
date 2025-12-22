@@ -42,6 +42,16 @@ final class HTTPUtils {
     // Plus "#" for fragment and "[" "]" for IPv6 literals
     private static final boolean[] REQUEST_TARGET_CHARS = new boolean[128];
 
+    // Lookup table for header name characters
+    // Matches: :?[a-zA-Z0-9\-_]+
+    // Optional leading colon for pseudo-headers, then alphanumeric/hyphen/underscore
+    private static final boolean[] HEADER_NAME_CHARS = new boolean[128];
+
+    // Lookup table for header value characters  
+    // Matches: [\x20-\x7E\x80-\xFF\t]*
+    // Visible ASCII (0x20-0x7E), high bytes (0x80-0xFF), and tab
+    private static final boolean[] HEADER_VALUE_CHARS = new boolean[256];
+
     static {
         // Initialize token characters
         // ALPHA
@@ -111,6 +121,35 @@ final class HTTPUtils {
         REQUEST_TARGET_CHARS['#'] = true;
         REQUEST_TARGET_CHARS['['] = true;
         REQUEST_TARGET_CHARS[']'] = true;
+
+        // Initialize header name characters
+        // ALPHA
+        for (char c = 'A'; c <= 'Z'; c++) {
+            HEADER_NAME_CHARS[c] = true;
+        }
+        for (char c = 'a'; c <= 'z'; c++) {
+            HEADER_NAME_CHARS[c] = true;
+        }
+        // DIGIT
+        for (char c = '0'; c <= '9'; c++) {
+            HEADER_NAME_CHARS[c] = true;
+        }
+        // Hyphen, underscore, colon (for pseudo-headers)
+        HEADER_NAME_CHARS['-'] = true;
+        HEADER_NAME_CHARS['_'] = true;
+        HEADER_NAME_CHARS[':'] = true;
+
+        // Initialize header value characters
+        // Space through tilde (visible ASCII)
+        for (int c = 0x20; c <= 0x7E; c++) {
+            HEADER_VALUE_CHARS[c] = true;
+        }
+        // High bytes (obs-text)
+        for (int c = 0x80; c <= 0xFF; c++) {
+            HEADER_VALUE_CHARS[c] = true;
+        }
+        // Tab (HTAB)
+        HEADER_VALUE_CHARS['\t'] = true;
     }
 
     private HTTPUtils() {
@@ -227,6 +266,71 @@ final class HTTPUtils {
      */
     public static boolean isRequestTargetChar(char c) {
         return c < 128 && REQUEST_TARGET_CHARS[c];
+    }
+
+    /**
+     * Validates an HTTP header name.
+     *
+     * <p>A valid header name starts with an optional colon (for pseudo-headers)
+     * followed by one or more of: {@code a-zA-Z0-9-_}
+     *
+     * @param name the header name to validate
+     * @return true if valid, false otherwise
+     */
+    public static boolean isValidHeaderName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        int len = name.length();
+        int start = 0;
+        
+        // Allow optional leading colon for pseudo-headers like :status, :path
+        if (name.charAt(0) == ':') {
+            if (len == 1) {
+                return false; // Just ":" is not valid
+            }
+            start = 1;
+        }
+        
+        // Rest must be alphanumeric, hyphen, or underscore
+        for (int i = start; i < len; i++) {
+            char c = name.charAt(i);
+            if (c >= 128) {
+                return false;
+            }
+            // Only allow alphanumeric, hyphen, underscore (not colon in the middle)
+            if (c == ':') {
+                return false;
+            }
+            if (!HEADER_NAME_CHARS[c]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Validates an HTTP header value.
+     *
+     * <p>A valid header value contains only visible ASCII characters (0x20-0x7E),
+     * high-byte characters (0x80-0xFF) for backwards compatibility, and tab.
+     * Control characters other than tab are not allowed.
+     *
+     * @param value the header value to validate (may be null)
+     * @return true if valid or null, false otherwise
+     */
+    public static boolean isValidHeaderValue(String value) {
+        if (value == null) {
+            return true; // Null values are allowed
+        }
+        int len = value.length();
+        for (int i = 0; i < len; i++) {
+            char c = value.charAt(i);
+            if (c >= 256 || !HEADER_VALUE_CHARS[c]) {
+                return false;
+            }
+        }
+        return true;
     }
 
 }

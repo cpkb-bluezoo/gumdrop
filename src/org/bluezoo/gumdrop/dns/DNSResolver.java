@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -184,7 +185,8 @@ public class DNSResolver {
                             try {
                                 addServer(addr);
                             } catch (UnknownHostException e) {
-                                LOGGER.log(Level.FINE, "Invalid nameserver: " + addr, e);
+                                String msg = MessageFormat.format(L10N.getString("err.invalid_nameserver"), addr);
+                                LOGGER.log(Level.FINE, msg, e);
                             }
                         }
                     }
@@ -192,10 +194,9 @@ public class DNSResolver {
                     reader.close();
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Could not read /etc/resolv.conf", e);
+                LOGGER.log(Level.FINE, L10N.getString("err.read_resolv_conf"), e);
             }
         }
-
         // Fallback to common public DNS servers if none found
         if (servers.isEmpty()) {
             try {
@@ -218,17 +219,14 @@ public class DNSResolver {
         if (opened) {
             return;
         }
-
         if (servers.isEmpty()) {
             throw new IOException("No DNS servers configured");
         }
-
         for (InetSocketAddress server : servers) {
             ResolverClient client = new ResolverClient(server.getAddress(), server.getPort());
             client.open();
             clients.add(client);
         }
-
         opened = true;
     }
 
@@ -239,22 +237,19 @@ public class DNSResolver {
         if (!opened) {
             return;
         }
-
         // Cancel all pending queries and their timers
         for (PendingQuery pending : pendingQueries.values()) {
             if (pending.timeoutHandle != null) {
                 pending.timeoutHandle.cancel();
             }
-            pending.callback.onError("Resolver closed");
+            pending.callback.onError(L10N.getString("err.resolver_closed"));
         }
         pendingQueries.clear();
-
         // Close all clients
         for (ResolverClient client : clients) {
             client.close();
         }
         clients.clear();
-
         opened = false;
     }
 
@@ -319,22 +314,18 @@ public class DNSResolver {
      */
     public void query(String name, DNSType type, DNSQueryCallback callback) {
         if (!opened) {
-            callback.onError("Resolver not opened");
+            callback.onError(L10N.getString("err.resolver_not_opened"));
             return;
         }
-
         if (clients.isEmpty()) {
-            callback.onError("No DNS servers available");
+            callback.onError(L10N.getString("err.no_dns_servers"));
             return;
         }
-
         // Generate query ID
         int queryId = queryIdGenerator.getAndIncrement() & 0xFFFF;
-
         // Create query message
         List<DNSQuestion> questions = new ArrayList<>();
         questions.add(new DNSQuestion(name, type, DNSClass.IN));
-
         int flags = DNSMessage.FLAG_RD; // Recursion desired
         DNSMessage query = new DNSMessage(
                 queryId,
@@ -344,12 +335,10 @@ public class DNSResolver {
                 Collections.<DNSResourceRecord>emptyList(),
                 Collections.<DNSResourceRecord>emptyList()
         );
-
         // Create pending query
         long expiry = System.currentTimeMillis() + timeoutMs;
         final PendingQuery pending = new PendingQuery(queryId, name, type, callback, expiry);
         pendingQueries.put(queryId, pending);
-
         // Schedule timeout timer
         ResolverClient client = clients.get(0);
         pending.timeoutHandle = client.scheduleTimer(timeoutMs, new Runnable() {
@@ -358,13 +347,12 @@ public class DNSResolver {
                 handleTimeout(pending.queryId);
             }
         });
-
         // Send query to first server
         ByteBuffer serialized = query.serialize();
         client.send(serialized);
-
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Sent DNS query: " + name + " type=" + type + " id=" + queryId);
+            String msg = MessageFormat.format(L10N.getString("debug.sent_query"), name, type, queryId);
+            LOGGER.fine(msg);
         }
     }
 
@@ -376,25 +364,22 @@ public class DNSResolver {
     private void handleResponse(DNSMessage response) {
         int queryId = response.getId();
         PendingQuery pending = pendingQueries.remove(queryId);
-
         if (pending == null) {
             // Stale or duplicate response (possibly already timed out)
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Received response for unknown query ID: " + queryId);
+                String msg = MessageFormat.format(L10N.getString("debug.received_response_unknown"), queryId);
+                LOGGER.fine(msg);
             }
             return;
         }
-
         // Cancel the timeout timer since we got a response
         if (pending.timeoutHandle != null) {
             pending.timeoutHandle.cancel();
         }
-
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Received DNS response for " + pending.name + ": " + 
-                    response.getAnswers().size() + " answers");
+            String msg = MessageFormat.format(L10N.getString("debug.received_response"), pending.name, response.getAnswers().size());
+            LOGGER.fine(msg);
         }
-
         pending.callback.onResponse(response);
     }
 
@@ -403,17 +388,15 @@ public class DNSResolver {
      */
     private void handleTimeout(int queryId) {
         PendingQuery pending = pendingQueries.remove(queryId);
-
         if (pending == null) {
             // Already received a response
             return;
         }
-
+        String msg = MessageFormat.format(L10N.getString("err.query_timeout"), pending.name);
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("DNS query timed out: " + pending.name);
+            LOGGER.fine(msg);
         }
-
-        pending.callback.onError("Query timed out");
+        pending.callback.onError(msg);
     }
 
     // -- Inner Classes --
@@ -454,7 +437,7 @@ public class DNSResolver {
                 DNSMessage response = DNSMessage.parse(data);
                 handleResponse(response);
             } catch (DNSFormatException e) {
-                LOGGER.log(Level.WARNING, "Malformed DNS response", e);
+                LOGGER.log(Level.WARNING, L10N.getString("err.malformed_response"), e);
             }
         }
 

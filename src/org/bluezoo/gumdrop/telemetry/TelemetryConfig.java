@@ -72,6 +72,11 @@ public class TelemetryConfig {
     private String headers;
     private int timeoutMs = 10000;
 
+    // TLS configuration for HTTPS endpoints
+    private String truststoreFile;
+    private String truststorePass;
+    private String truststoreFormat = "PKCS12";
+
     // Metrics configuration
     private AggregationTemporality metricsTemporality = AggregationTemporality.CUMULATIVE;
     private long metricsIntervalMs = 60000; // 60 seconds default
@@ -447,6 +452,60 @@ public class TelemetryConfig {
      */
     public void setTimeoutMs(int timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    // -- TLS settings --
+
+    /**
+     * Returns the truststore file path for HTTPS endpoints.
+     *
+     * <p>When connecting to HTTPS OTLP endpoints, this truststore is used
+     * to verify the server's certificate. If not set, the JVM's default
+     * truststore is used.
+     */
+    public String getTruststoreFile() {
+        return truststoreFile;
+    }
+
+    /**
+     * Sets the truststore file path for HTTPS endpoints.
+     *
+     * @param truststoreFile the path to the truststore file
+     */
+    public void setTruststoreFile(String truststoreFile) {
+        this.truststoreFile = truststoreFile;
+    }
+
+    /**
+     * Returns the truststore password.
+     */
+    public String getTruststorePass() {
+        return truststorePass;
+    }
+
+    /**
+     * Sets the truststore password.
+     *
+     * @param truststorePass the truststore password
+     */
+    public void setTruststorePass(String truststorePass) {
+        this.truststorePass = truststorePass;
+    }
+
+    /**
+     * Returns the truststore format.
+     */
+    public String getTruststoreFormat() {
+        return truststoreFormat;
+    }
+
+    /**
+     * Sets the truststore format.
+     *
+     * @param truststoreFormat the format (default: PKCS12)
+     */
+    public void setTruststoreFormat(String truststoreFormat) {
+        this.truststoreFormat = truststoreFormat;
     }
 
     // -- Batching settings --

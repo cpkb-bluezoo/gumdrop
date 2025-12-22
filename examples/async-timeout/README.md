@@ -224,7 +224,7 @@ asyncContext.addListener(new AsyncListener() {
 });
 ```
 
-### 3. Monitor Timeout Behavior
+### 3. Monitor Timeout Behaviour
 ```java
 // Enable debug logging
 Logger.getLogger("org.bluezoo.gumdrop.servlet.StreamAsyncContext").setLevel(Level.FINE);

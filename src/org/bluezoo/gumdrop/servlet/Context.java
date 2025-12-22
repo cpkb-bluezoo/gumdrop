@@ -131,7 +131,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     /**
      * Filename filter for JAR files.
      */
-    private static final java.io.FilenameFilter JAR_FILTER = new java.io.FilenameFilter() {
+    private static final FilenameFilter JAR_FILTER = new FilenameFilter() {
         @Override
         public boolean accept(File dir, String name) {
             return name.endsWith(".jar");

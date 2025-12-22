@@ -27,10 +27,12 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.net.URLDecoder;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.ResourceBundle;
 
 /**
  * High-performance decoder for RFC 2047 encoded-words and RFC 2231 parameter
@@ -50,13 +52,20 @@ import java.util.TreeMap;
  */
 public class RFC2047Decoder {
 
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.rfc2047.L10N");
+
 	private RFC2047Decoder() {
 		// Static utility class
 	}
 
 	// Pre-allocated StringBuilder pool for better memory efficiency
 	private static final ThreadLocal<StringBuilder> STRING_BUILDER_POOL =
-		ThreadLocal.withInitial(() -> new StringBuilder(256));
+		new ThreadLocal<StringBuilder>() {
+			@Override
+			protected StringBuilder initialValue() {
+				return new StringBuilder(256);
+			}
+		};
 
 	private static StringBuilder getPooledStringBuilder() {
 		StringBuilder sb = STRING_BUILDER_POOL.get();
@@ -155,25 +164,31 @@ public class RFC2047Decoder {
 				String decoded = decodeSingleEncodedWord(word.charset, word.encoding, word.encodedText);
 				result.append(decoded);
 			} catch (Exception e) {
-				result.append("=?").append(word.charset).append("?")
-					.append(word.encoding).append("?").append(word.encodedText).append("?=");
+				result.append("=?");
+                result.append(word.charset);
+                result.append("?");
+				result.append(word.encoding);
+                result.append("?");
+                result.append(word.encodedText);
+                result.append("?=");
 			}
 		}
 		return result.toString();
 	}
 
-	private static String decodeSingleEncodedWord(String charset, String encoding, String encodedText)
-			throws UnsupportedEncodingException {
+	private static String decodeSingleEncodedWord(String charset, String encoding, String encodedText) throws UnsupportedEncodingException {
 		byte[] decodedBytes;
 		if ("B".equals(encoding)) {
 			if (!isValidBase64(encodedText)) {
-				throw new UnsupportedEncodingException("Invalid Base64 encoding: " + encodedText);
+                String msg = MessageFormat.format(L10N.getString("err.invalid_base64_encoding"), encodedText);
+				throw new UnsupportedEncodingException(msg);
 			}
 			decodedBytes = Base64.getDecoder().decode(encodedText);
 		} else if ("Q".equals(encoding)) {
 			decodedBytes = decodeQEncoding(encodedText);
 		} else {
-			throw new UnsupportedEncodingException("Unsupported encoding: " + encoding);
+            String msg = MessageFormat.format(L10N.getString("err.unsupported_encoding"), encoding);
+			throw new UnsupportedEncodingException(msg);
 		}
 		return bytesToString(decodedBytes, charset);
 	}
@@ -297,11 +312,7 @@ public class RFC2047Decoder {
 		} catch (Exception e) {
 			// Fall through
 		}
-		try {
-			return new String(bytes, "windows-1252");
-		} catch (Exception e) {
-			return input;
-		}
+		return input;
 	}
 
 	private static String fallbackDecode(byte[] bytes) {
@@ -313,11 +324,7 @@ public class RFC2047Decoder {
 		} catch (Exception e) {
 			// Continue
 		}
-		try {
-			return new String(bytes, "windows-1252");
-		} catch (Exception e) {
-			return new String(bytes, StandardCharsets.ISO_8859_1);
-		}
+		return new String(bytes, StandardCharsets.ISO_8859_1);
 	}
 
 	/**

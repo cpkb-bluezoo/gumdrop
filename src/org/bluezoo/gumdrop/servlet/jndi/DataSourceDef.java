@@ -496,7 +496,7 @@ public final class DataSourceDef extends Resource implements DataSource {
             buf.append(databaseName);
             url = buf.toString();
         }
-        DriverManager.setLoginTimeout(loginTimeout); // JDBC drivers are supposed to honor this
+        DriverManager.setLoginTimeout(loginTimeout); // JDBC drivers are supposed to honour this
         Connection c = driver.connect(url, driverProperties);
         return new PooledConnection(c, connectionPool);
     }

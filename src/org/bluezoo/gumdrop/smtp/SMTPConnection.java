@@ -282,6 +282,21 @@ public class SMTPConnection extends LineBasedConnection
             metrics.connectionOpened();
         }
         
+        // For SMTPS (implicit TLS), we must wait for TLS handshake before sending greeting
+        // The greeting will be sent in handshakeComplete()
+        if (isSecure()) {
+            return;
+        }
+        
+        // For plaintext connections, notify handler or send greeting immediately
+        sendGreeting();
+    }
+    
+    /**
+     * Sends the initial SMTP greeting.
+     * Called after init() for plaintext, or after TLS handshake for SMTPS.
+     */
+    private void sendGreeting() throws IOException {
         // Notify the handler that a client has connected
         // The handler will call acceptConnection() or rejectConnection() on this (the ConnectedState)
         if (connectedHandler != null) {
@@ -2329,14 +2344,27 @@ public class SMTPConnection extends LineBasedConnection
     
     /**
      * Called when TLS handshake completes.
-     * Notifies the handler that TLS is now established.
+     * For SMTPS, sends the initial greeting.
+     * For STARTTLS, notifies the handler that TLS is now established.
      */
     @Override
     protected void handshakeComplete(String protocol) {
         super.handshakeComplete(protocol);
         
-        // Notify handler of TLS establishment
-        if (helloHandler != null && starttlsUsed) {
+        // For SMTPS (implicit TLS), send greeting after TLS handshake
+        // For STARTTLS, starttlsUsed is true so we notify handler instead
+        if (state == SMTPState.INITIAL && !starttlsUsed) {
+            // SMTPS - no greeting sent yet
+            try {
+                sendGreeting();
+            } catch (IOException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "Failed to send greeting after TLS handshake", e);
+                }
+                close();
+            }
+        } else if (helloHandler != null && starttlsUsed) {
+            // STARTTLS - notify handler of TLS establishment
             TLSInfo tlsInfo = createTLSInfo();
             helloHandler.tlsEstablished(tlsInfo);
         }

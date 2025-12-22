@@ -45,7 +45,7 @@ import java.util.logging.Logger;
 /**
  * Default IMAP handler implementation that accepts all operations.
  * 
- * <p>This handler provides passthrough behavior using the configured
+ * <p>This handler provides passthrough behaviour using the configured
  * Realm and MailboxFactory. It is used as the default when no custom
  * handler factory is configured on the server.
  * 

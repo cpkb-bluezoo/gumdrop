@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,7 +54,7 @@ public class PriorityAwareHTTPConnection extends HTTPConnection {
     private final StreamPriorityTree priorityTree = new StreamPriorityTree();
     private final StreamPriorityScheduler priorityScheduler = new StreamPriorityScheduler(priorityTree);
     
-    // Priority behavior configuration
+    // Priority behaviour configuration
     private boolean priorityLogging = false;
     
     /**
@@ -64,7 +65,7 @@ public class PriorityAwareHTTPConnection extends HTTPConnection {
     }
     
     /**
-     * Configures priority behavior parameters.
+     * Configures priority behaviour parameters.
      * 
      * @param minLowPriorityTimeSlice minimum time slice for low-priority streams
      * @param maxHighPriorityBurst maximum consecutive high-priority operations
@@ -80,41 +81,45 @@ public class PriorityAwareHTTPConnection extends HTTPConnection {
     }
     
     @Override
-    protected void processFrame(Frame frame) throws IOException {
-        int streamId = frame.getStream();
-        
-        // Handle priority information in frames
-        if (frame instanceof HeadersFrame) {
-            HeadersFrame hf = (HeadersFrame) frame;
-            
-            // Update stream priority if present in HEADERS frame
-            if (hf.priority) {
-                priorityTree.updateStreamPriority(streamId, hf.weight, hf.streamDependency, hf.streamDependencyExclusive);
-                
-                if (priorityLogging) {
-                    LOGGER.fine("Updated stream priority from HEADERS: " + priorityTree.getStreamPriority(streamId));
-                }
-            } else {
-                // Add stream with default priority if not already present
-                if (priorityTree.getStreamPriority(streamId) == null) {
-                    priorityTree.addStream(streamId);
-                    
-                    if (priorityLogging) {
-                        LOGGER.fine("Added stream with default priority: " + streamId);
-                    }
-                }
-            }
-        } else if (frame instanceof PriorityFrame) {
-            PriorityFrame pf = (PriorityFrame) frame;
-            priorityTree.updateStreamPriority(streamId, pf.weight, pf.streamDependency, pf.streamDependencyExclusive);
+    public void headersFrameReceived(int streamId, boolean endStream, boolean endHeaders,
+            int streamDependency, boolean exclusive, int weight,
+            ByteBuffer headerBlockFragment) {
+        // Handle priority information from HEADERS frame
+        if (streamDependency > 0) {
+            // Priority info is present
+            priorityTree.updateStreamPriority(streamId, weight, streamDependency, exclusive);
             
             if (priorityLogging) {
-                LOGGER.fine("Updated stream priority from PRIORITY frame: " + priorityTree.getStreamPriority(streamId));
+                LOGGER.fine("Updated stream priority from HEADERS: " + priorityTree.getStreamPriority(streamId));
+            }
+        } else {
+            // Add stream with default priority if not already present
+            if (priorityTree.getStreamPriority(streamId) == null) {
+                priorityTree.addStream(streamId);
+                
+                if (priorityLogging) {
+                    LOGGER.fine("Added stream with default priority: " + streamId);
+                }
             }
         }
         
-        // Process frame normally
-        super.processFrame(frame);
+        // Call parent implementation
+        super.headersFrameReceived(streamId, endStream, endHeaders, 
+            streamDependency, exclusive, weight, headerBlockFragment);
+    }
+
+    @Override
+    public void priorityFrameReceived(int streamId, int streamDependency,
+            boolean exclusive, int weight) {
+        // Handle PRIORITY frame
+        priorityTree.updateStreamPriority(streamId, weight, streamDependency, exclusive);
+        
+        if (priorityLogging) {
+            LOGGER.fine("Updated stream priority from PRIORITY frame: " + priorityTree.getStreamPriority(streamId));
+        }
+        
+        // Call parent implementation
+        super.priorityFrameReceived(streamId, streamDependency, exclusive, weight);
     }
     
     /**

@@ -1,0 +1,36 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  HTTP Client integration test configuration.
+  
+  This configuration sets up both HTTP and HTTPS servers for testing
+  Gumdrop's HTTP client implementation, including:
+  - h2c (HTTP/2 cleartext) upgrade
+  - h2 (HTTP/2 over TLS) via ALPN
+  - HTTP/1.1 chunked transfer encoding
+  - Content verification for uploads
+  
+  Both servers use an EchoHandlerFactory that echoes back uploaded content,
+  allowing verification that content sent matches content received.
+-->
+<gumdrop>
+    <!-- Echo handler factory shared by both servers -->
+    <component id="echoHandlerFactory" class="org.bluezoo.gumdrop.http.client.EchoHandlerFactory"/>
+    
+    <!-- HTTP (plaintext) server on port 18090 for h2c upgrade testing -->
+    <server id="testHttpPlaintext" class="org.bluezoo.gumdrop.http.HTTPServer">
+        <property name="port">18090</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="handler-factory" ref="#echoHandlerFactory"/>
+    </server>
+    
+    <!-- HTTPS server on port 18444 for h2 (HTTP/2 over TLS) testing -->
+    <server id="testHttps" class="org.bluezoo.gumdrop.http.HTTPServer">
+        <property name="port">18444</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="secure">true</property>
+        <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
+        <property name="keystore-pass">testpass</property>
+        <property name="handler-factory" ref="#echoHandlerFactory"/>
+    </server>
+</gumdrop>
+

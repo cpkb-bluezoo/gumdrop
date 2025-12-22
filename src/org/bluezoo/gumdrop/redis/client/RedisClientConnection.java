@@ -98,7 +98,7 @@ public class RedisClientConnection extends Connection implements RedisSession {
     @Override
     public void connected() {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Redis connection established");
+            LOGGER.fine(L10N.getString("debug.connected"));
         }
         handler.onConnected(createConnectionInfo());
         handler.handleReady(this);
@@ -113,7 +113,6 @@ public class RedisClientConnection extends Connection implements RedisSession {
     public void receive(ByteBuffer buf) {
         try {
             decoder.receive(buf);
-
             RESPValue response;
             while ((response = decoder.next()) != null) {
                 processResponse(response);
@@ -134,7 +133,8 @@ public class RedisClientConnection extends Connection implements RedisSession {
     @Override
     protected void handshakeComplete(String protocol) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS handshake complete: " + protocol);
+            String msg = MessageFormat.format(L10N.getString("debug.tls_handshake_complete"), protocol);
+            LOGGER.fine(msg);
         }
         handler.onTLSStarted(createTLSInfo());
     }
@@ -146,7 +146,7 @@ public class RedisClientConnection extends Connection implements RedisSession {
         }
         closed = true;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Closing Redis connection");
+            LOGGER.fine(L10N.getString("debug.closing_connection"));
         }
         super.close();
         decoder.reset();
@@ -170,16 +170,15 @@ public class RedisClientConnection extends Connection implements RedisSession {
                 }
             }
         }
-
         // Regular command response
         PendingCommand pending = pendingCommands.poll();
         if (pending == null) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("Received response with no pending command: " + response);
+                String msg = MessageFormat.format(L10N.getString("warn.response_no_pending"), response);
+                LOGGER.warning(msg);
             }
             return;
         }
-
         dispatchResponse(pending, response);
     }
 
@@ -187,7 +186,6 @@ public class RedisClientConnection extends Connection implements RedisSession {
         if (messageHandler == null) {
             return false;
         }
-
         if ("message".equals(type) && array.size() >= 3) {
             String channel = array.get(1).asString();
             byte[] message = array.get(2).asBytes();
@@ -944,4 +942,3 @@ public class RedisClientConnection extends Connection implements RedisSession {
     }
 
 }
-

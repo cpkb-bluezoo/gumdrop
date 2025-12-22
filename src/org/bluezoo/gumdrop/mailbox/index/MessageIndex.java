@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.mailbox.SearchCriteria;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -713,7 +714,7 @@ public class MessageIndex {
             for (MessageIndexEntry entry : entries) {
                 if (entry != null) {
                     // Write entry to a buffer for checksumming
-                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     DataOutputStream entryOut = new DataOutputStream(baos);
                     entry.writeTo(entryOut);
                     byte[] entryBytes = baos.toByteArray();

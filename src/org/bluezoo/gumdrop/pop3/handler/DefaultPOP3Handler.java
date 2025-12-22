@@ -37,7 +37,7 @@ import java.util.logging.Logger;
 /**
  * Default POP3 handler implementation that accepts all operations.
  * 
- * <p>This handler provides passthrough behavior using the configured
+ * <p>This handler provides passthrough behaviour using the configured
  * Realm and MailboxFactory. It accepts all connections, opens mailboxes
  * for authenticated users, and performs all mailbox operations using the
  * Mailbox API.
@@ -46,7 +46,7 @@ import java.util.logging.Logger;
  * is configured on the server. Subclasses can override specific methods
  * to add custom policy logic.
  * 
- * <p><strong>Behavior:</strong>
+ * <p><strong>Behaviour:</strong>
  * <ul>
  *   <li>Accepts all connections with a configurable greeting</li>
  *   <li>Opens the INBOX for authenticated users</li>

@@ -146,7 +146,7 @@ public class POP3Server extends Server {
     /**
      * Returns the handler factory for creating connection handlers.
      * 
-     * @return the handler factory, or null if using default behavior
+     * @return the handler factory, or null if using default behaviour
      */
     public ClientConnectedFactory getHandlerFactory() {
         return handlerFactory;
@@ -156,8 +156,8 @@ public class POP3Server extends Server {
      * Sets the handler factory for creating connection handlers.
      * 
      * <p>When set, each new connection will create a handler instance
-     * to control the connection behavior. If not set, the connection
-     * uses default behavior.
+     * to control the connection behaviour. If not set, the connection
+     * uses default behaviour.
      * 
      * @param handlerFactory the factory for creating handlers
      */

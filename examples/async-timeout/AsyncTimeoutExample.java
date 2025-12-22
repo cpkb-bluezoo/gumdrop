@@ -257,7 +257,7 @@ public class AsyncTimeoutExample extends HttpServlet {
             
             out.println("    <div class='scenario custom'>");
             out.println("        <h3>🕐 Custom Timeout</h3>");
-            out.println("        <p>Configure your own timeout value and see the behavior.</p>");
+            out.println("        <p>Configure your own timeout value and see the behaviour.</p>");
             out.println("        <a href='?action=timeout-custom&timeout=1000'>1 Second Timeout</a>");
             out.println("        <a href='?action=timeout-custom&timeout=2500'>2.5 Second Timeout</a>");
             out.println("        <a href='?action=timeout-custom&timeout=7000'>7 Second Timeout</a>");

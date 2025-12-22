@@ -310,7 +310,7 @@
   <!-- Run SMTP integration tests -->
   <target name='integration-test-smtp' depends='integration-build'
           description='Run SMTP server integration tests'>
-    <integration-junit includes='**/smtp/*IntegrationTest.java'/>
+    <integration-junit includes='**/smtp/**/*IntegrationTest.java'/>
   </target>
 
   <!-- Run POP3 integration tests -->

@@ -148,12 +148,12 @@ public class FileHTTPConnectionTest {
     
     /**
      * Sends an HTTP request to a fresh connection and returns all response data.
-     * Creates a new HTTPConnection for each request to simulate proper HTTP/1.x behavior.
+     * Creates a new HTTPConnection for each request to simulate proper HTTP/1.x behaviour.
      */
     private List<String> sendHttpRequest(String request) {
         responses.clear();
         
-        // Create a fresh connection for each request (proper HTTP/1.x behavior)
+        // Create a fresh connection for each request (proper HTTP/1.x behaviour)
         try {
             createFileHTTPConnection();
         } catch (Exception e) {

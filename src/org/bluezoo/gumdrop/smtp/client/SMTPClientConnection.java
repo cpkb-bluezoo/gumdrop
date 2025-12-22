@@ -168,8 +168,18 @@ class SMTPClientConnection extends Connection
     @Override
     public void connected() {
         state = SMTPState.CONNECTING;
-        logger.fine("Client socket connected, waiting for server greeting");
-        handler.onConnected(createConnectionInfo());
+        
+        if (!secure) {
+            // Plaintext connection - wait for server greeting
+            logger.fine("Client socket connected, waiting for server greeting");
+            handler.onConnected(createConnectionInfo());
+        } else {
+            // SMTPS (implicit TLS) - initiate TLS handshake first
+            // The server greeting will come after TLS is established
+            logger.fine("TCP connected, initiating TLS handshake for SMTPS");
+            initiateClientTLSHandshake();
+            handler.onConnected(createConnectionInfo());
+        }
     }
     
     @Override
@@ -717,6 +727,8 @@ class SMTPClientConnection extends Connection
             // Server is ready for TLS, initiate handshake
             try {
                 initializeSSLState();
+                // Start the TLS handshake - this sends the ClientHello
+                initiateClientTLSHandshake();
                 // Callback will be invoked from handshakeComplete() or handshakeFailed()
             } catch (IOException e) {
                 currentCallback = null;

@@ -41,7 +41,12 @@ import org.bluezoo.gumdrop.dns.DNSType;
  *
  * <p>DMARC combines SPF and DKIM authentication results with domain alignment
  * checks to determine whether a message should be accepted, quarantined, or
- * rejected. This implementation is fully asynchronous.
+ * rejected. This implementation is fully asynchronous and event-driven.
+ *
+ * <p>This class implements both {@link SPFCallback} and {@link DKIMCallback},
+ * allowing it to aggregate results from both validators. When the DKIM result
+ * arrives (always last, after end-of-data), DMARC evaluation is triggered
+ * automatically and the registered {@link DMARCCallback} is invoked.
  *
  * <p>DMARC alignment requires that:
  * <ul>
@@ -49,33 +54,37 @@ import org.bluezoo.gumdrop.dns.DNSType;
  *   <li>DKIM passes AND the signing domain aligns with the From domain</li>
  * </ul>
  *
- * <p>Example usage:
+ * <p>Event-driven usage (recommended):
  * <pre><code>
  * DNSResolver resolver = new DNSResolver();
  * resolver.useSystemResolvers();
  * resolver.open();
  *
- * DMARCValidator dmarc = new DMARCValidator(resolver);
+ * DMARCValidator dmarc = new DMARCValidator(resolver, dmarcCallback);
  *
+ * // Wire up SPF validator to report to DMARC
+ * spfValidator.check(sender, clientIP, heloHost, dmarc);
+ *
+ * // Set From domain when parsed from message headers
+ * // (typically via DMARCMessageHandler)
+ * dmarc.setFromDomain("example.com");
+ *
+ * // Wire up DKIM validator to report to DMARC
+ * // When dkimResult() is called, DMARC evaluates and calls dmarcCallback
+ * dkimValidator.verify(dmarc);
+ * </code></pre>
+ *
+ * <p>Direct usage (for testing or manual orchestration):
+ * <pre><code>
  * dmarc.evaluate("example.com", SPFResult.PASS, "example.com",
- *     DKIMResult.PASS, "example.com",
- *     new DMARCCallback() {
- *         &#64;Override
- *         public void dmarcResult(DMARCResult result, DMARCPolicy policy,
- *                                 String fromDomain, AuthVerdict verdict) {
- *             if (verdict == AuthVerdict.PASS) {
- *                 // Message authenticated
- *             } else if (verdict == AuthVerdict.REJECT) {
- *                 // Domain requests rejection
- *             }
- *         }
- *     });
+ *     DKIMResult.PASS, "example.com", callback);
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
+ * @see DMARCMessageHandler
  */
-public class DMARCValidator {
+public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     private static final Logger LOGGER = Logger.getLogger(DMARCValidator.class.getName());
 
@@ -289,14 +298,112 @@ public class DMARCValidator {
     private final DNSResolver resolver;
     private final Random random;
 
+    // Callback for delivering DMARC results
+    private final DMARCCallback callback;
+
+    // Accumulated state from SPF and message parsing
+    private SPFResult spfResult;
+    private String spfDomain;
+    private String fromDomain;
+
     /**
      * Creates a new DMARC validator using the specified DNS resolver.
+     *
+     * <p>Use this constructor for direct/manual evaluation via
+     * {@link #evaluate(String, SPFResult, String, DKIMResult, String, DMARCCallback)}.
      *
      * @param resolver the DNS resolver to use for policy lookups
      */
     public DMARCValidator(DNSResolver resolver) {
+        this(resolver, null);
+    }
+
+    /**
+     * Creates a new DMARC validator for event-driven usage.
+     *
+     * <p>This validator will implement {@link SPFCallback} and {@link DKIMCallback},
+     * accumulating results. When {@link #dkimResult} is called, DMARC evaluation
+     * triggers automatically.
+     *
+     * @param resolver the DNS resolver to use for policy lookups
+     * @param callback the callback to receive DMARC results
+     */
+    public DMARCValidator(DNSResolver resolver, DMARCCallback callback) {
         this.resolver = resolver;
+        this.callback = callback;
         this.random = new Random();
+    }
+
+    // -- Event-driven interface (SPFCallback, DKIMCallback) --
+
+    /**
+     * Receives the SPF result.
+     *
+     * <p>Called by {@link SPFValidator} when SPF check completes. The result
+     * is stored for later DMARC evaluation.
+     *
+     * @param result the SPF result
+     * @param explanation optional explanation (for FAIL results)
+     */
+    @Override
+    public void spfResult(SPFResult result, String explanation) {
+        this.spfResult = result;
+    }
+
+    /**
+     * Sets the SPF domain (envelope sender domain).
+     *
+     * <p>This should be called at the same time as SPF check is initiated,
+     * since the domain is known at MAIL FROM time.
+     *
+     * @param domain the envelope sender domain
+     */
+    public void setSpfDomain(String domain) {
+        this.spfDomain = domain;
+    }
+
+    /**
+     * Sets the RFC5322.From domain.
+     *
+     * <p>This is typically called by {@link DMARCMessageHandler} when the
+     * From header is parsed.
+     *
+     * @param domain the From header domain
+     */
+    public void setFromDomain(String domain) {
+        this.fromDomain = domain;
+    }
+
+    /**
+     * Receives the DKIM result and triggers DMARC evaluation.
+     *
+     * <p>Called by {@link DKIMValidator} when DKIM verification completes.
+     * Since DKIM is always the last result (at end-of-data), this triggers
+     * DMARC evaluation with all accumulated state.
+     *
+     * @param result the DKIM result
+     * @param signingDomain the DKIM signing domain (d= tag)
+     * @param selector the DKIM selector (s= tag)
+     */
+    @Override
+    public void dkimResult(DKIMResult result, String signingDomain, String selector) {
+        if (callback == null) {
+            return;
+        }
+
+        // DKIM result triggers DMARC evaluation
+        evaluate(fromDomain, spfResult, spfDomain, result, signingDomain, callback);
+    }
+
+    /**
+     * Resets the accumulated state for a new message.
+     *
+     * <p>Call this between messages when reusing the validator.
+     */
+    public void reset() {
+        this.spfResult = null;
+        this.spfDomain = null;
+        this.fromDomain = null;
     }
 
     /**

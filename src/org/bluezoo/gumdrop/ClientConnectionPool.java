@@ -455,8 +455,12 @@ public class ClientConnectionPool {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             PoolTarget that = (PoolTarget) o;
             return port == that.port && secure == that.secure && Objects.equals(host, that.host);
         }

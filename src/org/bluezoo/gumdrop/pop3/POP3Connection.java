@@ -166,6 +166,7 @@ public class POP3Connection extends LineBasedConnection
     private MailboxStore store = null;
     private Mailbox mailbox = null;
     private boolean utf8Mode = false; // RFC 6816
+    private boolean stlsUsed = false; // STLS command used
     private long lastActivityTime;
     private long failedAuthAttempts = 0;
     private long lastFailedAuthTime = 0;
@@ -252,6 +253,20 @@ public class POP3Connection extends LineBasedConnection
         initConnectionTrace();
         startSessionSpan();
         
+        // For POP3S (implicit TLS), defer greeting until after TLS handshake
+        if (isSecure()) {
+            return;
+        }
+        
+        // For plaintext connections, send greeting immediately
+        sendGreetingWithHandler();
+    }
+    
+    /**
+     * Sends the POP3 greeting, using handler if configured.
+     * Called immediately for plaintext, or after TLS handshake for POP3S.
+     */
+    private void sendGreetingWithHandler() throws IOException {
         // Check for handler factory
         ClientConnectedFactory handlerFactory = server.getHandlerFactory();
         if (handlerFactory != null) {
@@ -264,7 +279,7 @@ public class POP3Connection extends LineBasedConnection
                     createTLSInfo());
             clientConnected.connected(info, this);
         } else {
-            // Default behavior - send greeting directly
+            // Default behaviour - send greeting directly
             sendGreeting();
         }
     }
@@ -280,6 +295,30 @@ public class POP3Connection extends LineBasedConnection
         } else {
             // Standard greeting
             sendOK(L10N.getString("pop3.greeting"));
+        }
+    }
+    
+    /**
+     * Called when TLS handshake completes.
+     * For POP3S, sends the initial greeting.
+     * For STLS, connection continues normally.
+     */
+    @Override
+    protected void handshakeComplete(String protocol) {
+        super.handshakeComplete(protocol);
+        
+        // For POP3S (implicit TLS), send greeting after TLS handshake
+        // For STLS, stlsUsed is true so we don't send greeting again
+        if (state == POP3State.AUTHORIZATION && !stlsUsed) {
+            // POP3S - no greeting sent yet
+            try {
+                sendGreetingWithHandler();
+            } catch (IOException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "Failed to send greeting after TLS handshake", e);
+                }
+                close();
+            }
         }
     }
 
@@ -681,6 +720,7 @@ public class POP3Connection extends LineBasedConnection
         // Upgrade connection to TLS (similar to SMTP STARTTLS)
         try {
             initializeSSLState();
+            stlsUsed = true;
             recordStartTLSSuccess();
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Failed to initialize TLS", e);
@@ -1935,7 +1975,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             int count = mailbox.getMessageCount();
             long size = mailbox.getMailboxSize();
@@ -1966,7 +2006,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             if (args.isEmpty()) {
                 // List all messages
@@ -2015,7 +2055,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             if (mailbox.isDeleted(msgNum)) {
                 sendERR(L10N.getString("pop3.err.message_deleted"));
@@ -2066,7 +2106,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             MessageDescriptor msg = mailbox.getMessage(msgNum);
             if (msg == null) {
@@ -2104,7 +2144,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             mailbox.undeleteAll();
             int count = mailbox.getMessageCount();
@@ -2150,7 +2190,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             if (mailbox.isDeleted(msgNum)) {
                 sendERR(L10N.getString("pop3.err.message_deleted"));
@@ -2198,7 +2238,7 @@ public class POP3Connection extends LineBasedConnection
             return;
         }
         
-        // Default behavior
+        // Default behaviour
         try {
             if (args.isEmpty()) {
                 // List all unique IDs
@@ -2305,7 +2345,7 @@ public class POP3Connection extends LineBasedConnection
                 return;
             }
             
-            // Default behavior
+            // Default behaviour
             try {
                 if (mailbox != null) {
                     mailbox.close(true); // Expunge deleted messages
@@ -2366,7 +2406,7 @@ public class POP3Connection extends LineBasedConnection
             return state == POP3State.TRANSACTION;
         }
         
-        // Default behavior - open mailbox directly
+        // Default behaviour - open mailbox directly
         try {
             store = factory.createStore();
             store.open(user);

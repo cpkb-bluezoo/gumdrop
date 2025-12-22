@@ -320,15 +320,25 @@ public class WebSocketFrame {
 
         // First byte: FIN, RSV1-3, Opcode
         byte firstByte = (byte) opcode;
-        if (fin) firstByte |= 0x80;
-        if (rsv1) firstByte |= 0x40;
-        if (rsv2) firstByte |= 0x20;
-        if (rsv3) firstByte |= 0x10;
+        if (fin) {
+            firstByte |= 0x80;
+        }
+        if (rsv1) {
+            firstByte |= 0x40;
+        }
+        if (rsv2) {
+            firstByte |= 0x20;
+        }
+        if (rsv3) {
+            firstByte |= 0x10;
+        }
         buffer.put(firstByte);
 
         // Second byte: MASK, Payload length
         byte secondByte = 0;
-        if (masked) secondByte |= 0x80;
+        if (masked) {
+            secondByte |= 0x80;
+        }
 
         if (payloadLength < 126) {
             secondByte |= (byte) payloadLength;

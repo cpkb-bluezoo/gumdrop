@@ -215,7 +215,7 @@ public class ServerPushExampleServlet extends HttpServlet {
             out.println("}");
             out.println("    </pre>");
             
-            out.println("    <p>Refresh this page to see caching behavior!</p>");
+            out.println("    <p>Refresh this page to see caching behaviour!</p>");
             out.println("    <p><a href='?demo=multiple'>Next: Multiple Resources →</a></p>");
             out.println("</body>");
             out.println("</html>");

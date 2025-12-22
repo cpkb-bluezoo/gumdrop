@@ -1,0 +1,41 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  SMTP Client integration test configuration.
+  
+  This configuration sets up both SMTP and SMTPS servers for testing
+  Gumdrop's SMTP client implementation, including:
+  - Basic SMTP session (EHLO, MAIL FROM, RCPT TO, DATA, QUIT)
+  - STARTTLS upgrade
+  - SMTPS (implicit TLS)
+  - SASL authentication (PLAIN, LOGIN)
+  - Multiple messages per session
+  - RSET command
+  
+  Both servers use an AcceptAllHandlerFactory that accepts all messages
+  and captures them for verification.
+-->
+<gumdrop>
+    <!-- Accept-all handler factory shared by both servers -->
+    <component id="acceptAllFactory" class="org.bluezoo.gumdrop.smtp.client.AcceptAllHandlerFactory"/>
+    
+    <!-- SMTP (plaintext with STARTTLS) server on port 18025 -->
+    <server id="testSmtp" class="org.bluezoo.gumdrop.smtp.SMTPServer">
+        <property name="port">18025</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="handler-factory" ref="#acceptAllFactory"/>
+        <!-- Enable STARTTLS with keystore -->
+        <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
+        <property name="keystore-pass">testpass</property>
+    </server>
+    
+    <!-- SMTPS (implicit TLS) server on port 18465 -->
+    <server id="testSmtps" class="org.bluezoo.gumdrop.smtp.SMTPServer">
+        <property name="port">18465</property>
+        <property name="addresses">127.0.0.1</property>
+        <property name="secure">true</property>
+        <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
+        <property name="keystore-pass">testpass</property>
+        <property name="handler-factory" ref="#acceptAllFactory"/>
+    </server>
+</gumdrop>
+

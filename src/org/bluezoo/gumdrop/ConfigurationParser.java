@@ -214,6 +214,7 @@ public class ConfigurationParser extends DefaultHandler {
         return "server".equals(name) || 
                "realm".equals(name) || 
                "container".equals(name) ||
+               "component".equals(name) ||
                "data-source".equals(name) ||
                "mail-session".equals(name) ||
                "jms-connection-factory".equals(name) ||

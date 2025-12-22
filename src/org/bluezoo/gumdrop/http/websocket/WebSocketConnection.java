@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * for WebSocket connections after a successful upgrade.
  *
  * <p>Implementations should override the event handler methods to
- * provide application-specific WebSocket behavior. The connection
+ * provide application-specific WebSocket behaviour. The connection
  * handles frame parsing, protocol compliance, and provides methods
  * for sending different types of messages.
  *

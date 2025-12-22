@@ -263,9 +263,11 @@ public abstract class Client extends Connector {
         SocketChannel channel = SocketChannel.open();
         channel.configureBlocking(false);
 
-        // Prepare SSL engine if this client uses encryption
+        // Prepare SSL engine if SSL context is available
+        // For SMTPS (secure=true), the connection starts encrypted
+        // For STARTTLS (secure=false but context!=null), the engine is used for later upgrade
         SSLEngine sslEngine = null;
-        if (secure) {
+        if (context != null) {
             sslEngine = context.createSSLEngine(host.getHostAddress(), port);
             configureSSLEngine(sslEngine);
         }

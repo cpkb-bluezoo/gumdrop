@@ -134,9 +134,9 @@ public class OTLPExporter implements TelemetryExporter {
 
         // Parse and create endpoints
         Map<String, String> headers = config.getParsedHeaders();
-        this.tracesEndpoint = OTLPEndpoint.create("traces", config.getTracesEndpoint(), "/v1/traces", headers);
-        this.logsEndpoint = OTLPEndpoint.create("logs", config.getLogsEndpoint(), "/v1/logs", headers);
-        this.metricsEndpoint = OTLPEndpoint.create("metrics", config.getMetricsEndpoint(), "/v1/metrics", headers);
+        this.tracesEndpoint = OTLPEndpoint.create("traces", config.getTracesEndpoint(), "/v1/traces", headers, config);
+        this.logsEndpoint = OTLPEndpoint.create("logs", config.getLogsEndpoint(), "/v1/logs", headers, config);
+        this.metricsEndpoint = OTLPEndpoint.create("metrics", config.getMetricsEndpoint(), "/v1/metrics", headers, config);
 
         // Track pending exports
         this.pendingExports = ConcurrentHashMap.newKeySet();

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -31,10 +32,13 @@ import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPServer;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 
+import javax.net.ssl.SSLContext;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -68,8 +72,10 @@ public class MockOTLPCollector {
     private static final Logger LOGGER = Logger.getLogger(MockOTLPCollector.class.getName());
 
     private final int port;
+    private final boolean secure;
     private OTLPCollectorServer server;
     private Gumdrop gumdrop;
+    private TestCertificateManager certManager;
 
     // Raw request data storage
     private final List<byte[]> rawTraceRequests;
@@ -77,12 +83,23 @@ public class MockOTLPCollector {
     private final List<byte[]> rawMetricRequests;
 
     /**
-     * Creates a mock OTLP collector on the specified port.
+     * Creates a mock OTLP collector on the specified port (HTTP).
      *
      * @param port the port to listen on
      */
     public MockOTLPCollector(int port) {
+        this(port, false);
+    }
+
+    /**
+     * Creates a mock OTLP collector on the specified port.
+     *
+     * @param port the port to listen on
+     * @param secure true for HTTPS, false for HTTP
+     */
+    public MockOTLPCollector(int port, boolean secure) {
         this.port = port;
+        this.secure = secure;
         this.rawTraceRequests = new CopyOnWriteArrayList<byte[]>();
         this.rawLogRequests = new CopyOnWriteArrayList<byte[]>();
         this.rawMetricRequests = new CopyOnWriteArrayList<byte[]>();
@@ -92,11 +109,29 @@ public class MockOTLPCollector {
      * Starts the mock collector.
      */
     public void start() throws Exception {
-        LOGGER.info("Starting MockOTLPCollector on port " + port);
+        LOGGER.info("Starting MockOTLPCollector on port " + port + (secure ? " (HTTPS)" : " (HTTP)"));
         
         server = new OTLPCollectorServer(this);
         server.setPort(port);
         server.setAddresses("127.0.0.1");
+
+        if (secure) {
+            // Set up TLS with test certificates
+            File certsDir = new File(System.getProperty("java.io.tmpdir"), "otlp-test-certs");
+            certManager = new TestCertificateManager(certsDir);
+            
+            String password = "testpass";
+            if (!certManager.testPKIExists()) {
+                certManager.generateTestPKI("localhost", password, 365);
+            } else {
+                certManager.loadExistingPKI(password);
+            }
+            
+            // Configure server TLS
+            SSLContext sslContext = certManager.createServerSSLContext(password, false);
+            server.setSSLContext(sslContext);
+            server.setSecure(true);
+        }
 
         System.setProperty("gumdrop.workers", "2");
         gumdrop = Gumdrop.getInstance();
@@ -106,6 +141,13 @@ public class MockOTLPCollector {
         // Wait for server to be ready
         waitForReady();
         LOGGER.info("MockOTLPCollector started and ready on port " + port);
+    }
+
+    /**
+     * Returns the certificate manager used for TLS, or null if not secure.
+     */
+    public TestCertificateManager getCertificateManager() {
+        return certManager;
     }
 
     /**
@@ -143,21 +185,31 @@ public class MockOTLPCollector {
      * Returns the endpoint URL for traces.
      */
     public String getTracesEndpoint() {
-        return "http://127.0.0.1:" + port + "/v1/traces";
+        String scheme = secure ? "https" : "http";
+        return scheme + "://127.0.0.1:" + port + "/v1/traces";
     }
 
     /**
      * Returns the endpoint URL for logs.
      */
     public String getLogsEndpoint() {
-        return "http://127.0.0.1:" + port + "/v1/logs";
+        String scheme = secure ? "https" : "http";
+        return scheme + "://127.0.0.1:" + port + "/v1/logs";
     }
 
     /**
      * Returns the endpoint URL for metrics.
      */
     public String getMetricsEndpoint() {
-        return "http://127.0.0.1:" + port + "/v1/metrics";
+        String scheme = secure ? "https" : "http";
+        return scheme + "://127.0.0.1:" + port + "/v1/metrics";
+    }
+
+    /**
+     * Returns whether this collector uses HTTPS.
+     */
+    public boolean isSecure() {
+        return secure;
     }
 
     /**
@@ -304,14 +356,17 @@ public class MockOTLPCollector {
      * 
      * <p>This handler accepts POST requests to /v1/traces, /v1/logs, and /v1/metrics,
      * stores the raw request body, and returns 200 OK.
+     * 
+     * <p>Uses the correct event-driven pattern: waits for requestComplete()
+     * to know when the request is fully received.
      */
     static class OTLPRequestHandler extends DefaultHTTPRequestHandler {
 
         private final MockOTLPCollector collector;
         private ByteArrayOutputStream bodyBuffer;
         private String currentPath;
-        private boolean expectingBody;
         private HTTPResponseState state;
+        private boolean hasBody;
 
         OTLPRequestHandler(MockOTLPCollector collector) {
             this.collector = collector;
@@ -321,97 +376,72 @@ public class MockOTLPCollector {
         @Override
         public void headers(Headers headers, HTTPResponseState state) {
             this.state = state;
+            this.currentPath = headers.getPath();
             
-            // Get path
-            String path = headers.getPath();
-            this.currentPath = path;
-            this.expectingBody = false;
-            
-            LOGGER.info("MockOTLPCollector received request: " + headers.getMethod() + " " + path);
-            
-            // Get content-length to know if we're expecting a body
-            String contentLengthStr = headers.getValue("content-length");
-            long contentLength = 0;
-            if (contentLengthStr != null) {
-                try {
-                    contentLength = Long.parseLong(contentLengthStr);
-                } catch (NumberFormatException e) {
-                    // ignore
-                }
-            }
-            
-            // Check for chunked encoding
-            String transferEncoding = headers.getValue("transfer-encoding");
-            boolean isChunked = transferEncoding != null && 
-                transferEncoding.toLowerCase().contains("chunked");
-            
-            LOGGER.info("  Content-Length: " + contentLength + ", Transfer-Encoding: " + transferEncoding);
-            
-            // Check if this is an OTLP path
-            boolean isOtlpPath = path != null && 
-                (path.equals("/v1/traces") || path.equals("/v1/logs") || path.equals("/v1/metrics"));
-            
-            if (isOtlpPath) {
-                if (contentLength > 0 || isChunked) {
-                    // We expect a body
-                    this.expectingBody = true;
-                    LOGGER.info("  Expecting body");
-                } else {
-                    // No body, handle immediately
-                    this.expectingBody = false;
-                    LOGGER.info("  No body expected, handling immediately");
-                    handleRequest(path, new byte[0]);
-                }
-            } else {
-                // Not an OTLP path, return 404
-                LOGGER.info("  Not an OTLP path, returning 404");
-                sendError(404);
-            }
+            LOGGER.fine("MockOTLPCollector received: " + headers.getMethod() + " " + currentPath);
+            // Don't respond here - wait for requestComplete()
+        }
+
+        @Override
+        public void startRequestBody(HTTPResponseState state) {
+            hasBody = true;
         }
 
         @Override
         public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
-            if (expectingBody) {
-                try {
-                    int remaining = data.remaining();
-                    byte[] buf = new byte[remaining];
-                    data.get(buf);
-                    bodyBuffer.write(buf);
-                    LOGGER.info("  Received body chunk: " + remaining + " bytes (total: " + bodyBuffer.size() + ")");
-                } catch (Exception e) {
-                    LOGGER.log(Level.WARNING, "Error buffering request body", e);
-                }
+            try {
+                int remaining = data.remaining();
+                byte[] buf = new byte[remaining];
+                data.get(buf);
+                bodyBuffer.write(buf);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error buffering request body", e);
             }
         }
 
         @Override
         public void endRequestBody(HTTPResponseState state) {
-            LOGGER.info("  endRequestBody called, expectingBody=" + expectingBody + ", path=" + currentPath);
-            if (expectingBody && currentPath != null) {
-                byte[] body = bodyBuffer.toByteArray();
-                LOGGER.info("  Total body size: " + body.length + " bytes");
+            // Body complete, but wait for requestComplete() before responding
+        }
+
+        @Override
+        public void requestComplete(HTTPResponseState state) {
+            // Request fully received - now handle it
+            byte[] body = bodyBuffer.toByteArray();
+            
+            LOGGER.fine("MockOTLPCollector request complete: " + currentPath + 
+                       ", bodySize=" + body.length);
+            
+            // Check if this is an OTLP path
+            boolean isOtlpPath = currentPath != null && 
+                (currentPath.equals("/v1/traces") || 
+                 currentPath.equals("/v1/logs") || 
+                 currentPath.equals("/v1/metrics"));
+            
+            if (isOtlpPath) {
                 handleRequest(currentPath, body);
+            } else {
+                sendError(404);
             }
         }
 
         private void handleRequest(String path, byte[] body) {
-            LOGGER.info("  handleRequest: path=" + path + ", bodySize=" + body.length);
             if ("/v1/traces".equals(path)) {
                 if (body.length > 0) {
                     collector.addTraceRequest(body);
-                    LOGGER.info("  Added trace request, total count: " + collector.getTraceRequestCount());
+                    LOGGER.fine("Added trace request, count: " + collector.getTraceRequestCount());
                 }
                 sendSuccess();
             } else if ("/v1/logs".equals(path)) {
                 if (body.length > 0) {
                     collector.addLogRequest(body);
-                    LOGGER.info("  Added log request, total count: " + collector.getLogRequestCount());
+                    LOGGER.fine("Added log request, count: " + collector.getLogRequestCount());
                 }
                 sendSuccess();
             } else if ("/v1/metrics".equals(path)) {
                 if (body.length > 0) {
                     collector.addMetricRequest(body);
-                    LOGGER.info("  Added metric request, total count: " + collector.getMetricRequestCount());
+                    LOGGER.fine("Added metric request, count: " + collector.getMetricRequestCount());
                 }
                 sendSuccess();
             } else {
@@ -420,7 +450,6 @@ public class MockOTLPCollector {
         }
 
         private void sendSuccess() {
-            LOGGER.info("  Sending 200 OK response");
             Headers responseHeaders = new Headers();
             responseHeaders.status(HTTPStatus.OK);
             responseHeaders.add(new Header("Content-Type", "application/x-protobuf"));

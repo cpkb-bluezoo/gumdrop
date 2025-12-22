@@ -162,20 +162,16 @@ public class RESPEncoder {
         int size = 0;
         String countStr = Integer.toString(parts.length);
         size += 1 + countStr.length() + 2; // *count\r\n
-
         for (byte[] part : parts) {
             String lenStr = Integer.toString(part.length);
             size += 1 + lenStr.length() + 2; // $length\r\n
             size += part.length + 2; // data\r\n
         }
-
         ByteBuffer buffer = ByteBuffer.allocate(size);
-
         // Write array header
         buffer.put((byte) '*');
         buffer.put(countStr.getBytes(UTF_8));
         buffer.put(CRLF);
-
         // Write each bulk string
         for (byte[] part : parts) {
             buffer.put((byte) '$');
@@ -185,7 +181,6 @@ public class RESPEncoder {
             buffer.put(part);
             buffer.put(CRLF);
         }
-
         buffer.flip();
         return buffer;
     }
@@ -195,7 +190,7 @@ public class RESPEncoder {
      *
      * <p>Inline commands are space-separated and terminated with CRLF.
      * This format is mainly used for interactive sessions and should
-     * be avoided in favor of the standard RESP format.
+     * be avoided in favour of the standard RESP format.
      *
      * @param command the command name
      * @param args the command arguments
@@ -209,7 +204,6 @@ public class RESPEncoder {
             sb.append(arg);
         }
         sb.append("\r\n");
-
         byte[] bytes = sb.toString().getBytes(UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(bytes.length);
         buffer.put(bytes);
@@ -218,4 +212,3 @@ public class RESPEncoder {
     }
 
 }
-

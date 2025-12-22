@@ -35,6 +35,8 @@
  *   <li>Hierarchical spans with attributes, events, and status
  *   <li>Zero-dependency protobuf serialization
  *   <li>Native HTTP client for non-blocking OTLP export
+ *   <li>HTTPS/TLS support with configurable truststore for secure export
+ *   <li>HTTP/2 and HTTP/1.1 with ALPN negotiation
  *   <li>Connection pooling with SelectorLoop affinity
  * </ul>
  *
@@ -108,18 +110,34 @@
  *
  * <h2>Configuration</h2>
  *
- * <p>Configure telemetry via the DI framework in gumdroprc:
+ * <p>Configure telemetry via the DI framework in gumdroprc. <b>HTTPS is
+ * strongly recommended</b> for OTLP export to protect telemetry data in
+ * transit:
  *
  * <pre>
  * &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
  *     &lt;property name="service-name"&gt;my-service&lt;/property&gt;
- *     &lt;property name="endpoint"&gt;http://otel-collector:4318&lt;/property&gt;
+ *     
+ *     &lt;!-- OTLP endpoint - use HTTPS in production --&gt;
+ *     &lt;property name="endpoint"&gt;https://otel-collector:4318&lt;/property&gt;
+ *     
+ *     &lt;!-- TLS configuration for HTTPS endpoints --&gt;
+ *     &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
+ *     &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
  *     
  *     &lt;!-- Metrics configuration --&gt;
  *     &lt;property name="metrics-enabled"&gt;true&lt;/property&gt;
  *     &lt;property name="metrics-temporality-name"&gt;cumulative&lt;/property&gt;
  *     &lt;property name="metrics-interval-ms"&gt;60000&lt;/property&gt;
  * &lt;/component&gt;
+ * </pre>
+ *
+ * <p>The truststore should contain the CA certificate(s) that signed the
+ * OpenTelemetry Collector's TLS certificate. Create with keytool:
+ *
+ * <pre>
+ * keytool -importcert -alias otel-ca -file ca-cert.pem \
+ *     -keystore otlp-truststore.p12 -storetype PKCS12 -storepass changeit
  * </pre>
  *
  * <h2>Built-in Instrumentation</h2>

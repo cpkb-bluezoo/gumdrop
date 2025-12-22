@@ -148,7 +148,7 @@ This implementation provides full **Servlet 4.0 server push support**:
 - ✅ Complete `PushBuilder` implementation
 - ✅ HTTP/2 PUSH_PROMISE frame generation
 - ✅ Proper stream management and lifecycle
-- ✅ Error handling and fallback behavior
+- ✅ Error handling and fallback behaviour
 
 ## Architecture
 

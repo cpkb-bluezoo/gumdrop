@@ -190,6 +190,9 @@ public class IMAPConnection extends LineBasedConnection {
     // IDLE state
     private boolean idling = false;
     private String idleTag = null;
+    
+    // STARTTLS state
+    private boolean starttlsUsed = false;
 
     // APPEND literal state
     private String appendTag = null;
@@ -248,6 +251,20 @@ public class IMAPConnection extends LineBasedConnection {
         initConnectionTrace();
         startSessionSpan();
         
+        // For IMAPS (implicit TLS), defer greeting until after TLS handshake
+        if (isSecure()) {
+            return;
+        }
+        
+        // For plaintext connections, send greeting immediately
+        sendGreeting();
+    }
+    
+    /**
+     * Sends the IMAP greeting to the client.
+     * Called immediately for plaintext, or after TLS handshake for IMAPS.
+     */
+    private void sendGreeting() throws IOException {
         // Check if handler factory is configured
         ClientConnectedFactory factory = server.getHandlerFactory();
         if (factory != null) {
@@ -262,6 +279,30 @@ public class IMAPConnection extends LineBasedConnection {
             // Use built-in implementation - send greeting immediately
             String caps = server.getCapabilities(false, secure);
             sendUntagged("OK [CAPABILITY " + caps + "] " + L10N.getString("imap.greeting"));
+        }
+    }
+    
+    /**
+     * Called when TLS handshake completes.
+     * For IMAPS, sends the initial greeting.
+     * For STARTTLS, connection continues normally.
+     */
+    @Override
+    protected void handshakeComplete(String protocol) {
+        super.handshakeComplete(protocol);
+        
+        // For IMAPS (implicit TLS), send greeting after TLS handshake
+        // For STARTTLS, starttlsUsed is true so we don't send greeting again
+        if (state == IMAPState.NOT_AUTHENTICATED && !starttlsUsed) {
+            // IMAPS - no greeting sent yet
+            try {
+                sendGreeting();
+            } catch (IOException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING, "Failed to send greeting after TLS handshake", e);
+                }
+                close();
+            }
         }
     }
 
@@ -889,6 +930,7 @@ public class IMAPConnection extends LineBasedConnection {
         
         sendTaggedOk(tag, L10N.getString("imap.starttls_begin"));
         initializeSSLState();
+        starttlsUsed = true;
         secure = true;
     }
 
@@ -1709,7 +1751,9 @@ public class IMAPConnection extends LineBasedConnection {
             
             boolean first = true;
             for (String attr : attrs) {
-                if (!first) response.append(" ");
+                if (!first) {
+                    response.append(" ");
+                }
                 first = false;
                 
                 switch (attr.toUpperCase()) {

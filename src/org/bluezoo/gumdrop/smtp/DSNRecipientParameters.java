@@ -75,7 +75,7 @@ public class DSNRecipientParameters {
      * Returns the NOTIFY parameter values.
      * 
      * <p>This indicates when DSN messages should be generated for this recipient.
-     * If empty, the server uses its default behavior.
+     * If empty, the server uses its default behaviour.
      * 
      * @return an unmodifiable set of notification conditions
      */

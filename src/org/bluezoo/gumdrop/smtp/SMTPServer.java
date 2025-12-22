@@ -193,7 +193,7 @@ public class SMTPServer extends Server {
      * Each new connection will get its own handler instance from this factory,
      * ensuring thread safety and state isolation between connections.
      * 
-     * @param factory the factory to create handler instances, or null for default behavior
+     * @param factory the factory to create handler instances, or null for default behaviour
      */
     public void setHandlerFactory(ClientConnectedFactory factory) {
         this.handlerFactory = factory;
@@ -298,7 +298,7 @@ public class SMTPServer extends Server {
             } catch (Exception e) {
                 // Log error but don't fail connection creation
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "Failed to create SMTP handler, using default behavior", e);
+                    LOGGER.log(Level.WARNING, "Failed to create SMTP handler, using default behaviour", e);
                 }
             }
         }

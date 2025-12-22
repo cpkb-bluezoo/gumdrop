@@ -76,7 +76,7 @@ public class SNIKeyManagerTest {
         
         // Test internal hostname lookup via findAliasForHostname (tested indirectly)
         // Since we can't easily inject an SSLEngine with SNI info in a unit test,
-        // we'll test the fallback behavior
+        // we'll test the fallback behaviour
         String alias = manager.chooseServerAlias("RSA", null, null);
         
         // Without SNI, should fall back to delegate

@@ -159,7 +159,8 @@ public class DNSServer extends DatagramServer {
                 InetSocketAddress addr = parseAddress(server, DEFAULT_PORT);
                 upstreamServers.add(addr);
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Invalid upstream server: " + server, e);
+                String msg = MessageFormat.format(L10N.getString("err.invalid_upstream_server"), server);
+                LOGGER.log(Level.WARNING, msg, e);
             }
         }
     }
@@ -249,15 +250,17 @@ public class DNSServer extends DatagramServer {
                             InetSocketAddress addr = parseAddress(server, DEFAULT_PORT);
                             upstreamServers.add(addr);
                             if (LOGGER.isLoggable(Level.FINE)) {
-                                LOGGER.fine("Added system resolver: " + addr);
+                                String msg = MessageFormat.format(L10N.getString("debug.added_system_resolver"), addr);
+                                LOGGER.fine(msg);
                             }
                         } catch (Exception e) {
-                            LOGGER.log(Level.FINE, "Skipping invalid resolver: " + server, e);
+                            String msg = MessageFormat.format(L10N.getString("debug.skip_invalid_resolver"), server);
+                            LOGGER.log(Level.FINE, msg, e);
                         }
                     }
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Could not read /etc/resolv.conf", e);
+                LOGGER.log(Level.FINE, L10N.getString("err.read_resolv_conf"), e);
             }
         }
 
@@ -268,9 +271,9 @@ public class DNSServer extends DatagramServer {
                 upstreamServers.add(new InetSocketAddress(google, DEFAULT_PORT));
                 InetAddress cloudflare = InetAddress.getByName("1.1.1.1");
                 upstreamServers.add(new InetSocketAddress(cloudflare, DEFAULT_PORT));
-                LOGGER.fine("Using fallback public DNS servers");
+                LOGGER.fine(L10N.getString("debug.using_fallback"));
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Could not add fallback DNS servers", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.no_fallback"), e);
             }
         }
     }
@@ -314,9 +317,11 @@ public class DNSServer extends DatagramServer {
             sendResponse(response, source);
 
         } catch (DNSFormatException e) {
-            LOGGER.log(Level.FINE, "Malformed DNS query from " + source, e);
+            String msg = MessageFormat.format(L10N.getString("err.malformed_query"), source);
+            LOGGER.log(Level.FINE, msg, e);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Error processing DNS query from " + source, e);
+            String msg = MessageFormat.format(L10N.getString("err.query"), source);
+            LOGGER.log(Level.WARNING, msg, e);
         }
     }
 
@@ -333,7 +338,8 @@ public class DNSServer extends DatagramServer {
             List<DNSResourceRecord> cached = cache.lookup(question);
             if (cached != null) {
                 if (LOGGER.isLoggable(Level.FINEST)) {
-                    LOGGER.finest("Cache hit for " + question);
+                    String msg = MessageFormat.format(L10N.getString("debug.cache_hit"), question);
+                    LOGGER.finest(msg);
                 }
                 return query.createResponse(cached);
             }
@@ -451,11 +457,14 @@ public class DNSServer extends DatagramServer {
                 }
 
             } catch (SocketTimeoutException e) {
-                LOGGER.log(Level.FINE, "Timeout querying upstream " + upstream);
+                String msg = MessageFormat.format(L10N.getString("err.timeout_upstream"), upstream);
+                LOGGER.log(Level.FINE, msg);
             } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error querying upstream " + upstream, e);
+                String msg = MessageFormat.format(L10N.getString("err.upstream"), upstream);
+                LOGGER.log(Level.FINE, msg, e);
             } catch (DNSFormatException e) {
-                LOGGER.log(Level.FINE, "Invalid response from upstream " + upstream, e);
+                String msg = MessageFormat.format(L10N.getString("err.upstream_malformed"), upstream);
+                LOGGER.log(Level.FINE, msg, e);
             }
         }
 

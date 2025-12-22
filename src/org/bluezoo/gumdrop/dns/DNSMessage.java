@@ -24,9 +24,11 @@ package org.bluezoo.gumdrop.dns;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 
 /**
  * A DNS protocol message.
@@ -40,6 +42,8 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class DNSMessage {
+
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     // -- Header flags --
 
@@ -260,7 +264,7 @@ public final class DNSMessage {
      */
     public static DNSMessage parse(ByteBuffer data) throws DNSFormatException {
         if (data.remaining() < HEADER_SIZE) {
-            throw new DNSFormatException("Message too short for header");
+            throw new DNSFormatException(L10N.getString("err.message_too_short"));
         }
 
         // Save original position for name compression
@@ -308,19 +312,21 @@ public final class DNSMessage {
     private static DNSQuestion parseQuestion(ByteBuffer data, ByteBuffer original) throws DNSFormatException {
         String name = decodeName(data, original);
         if (data.remaining() < 4) {
-            throw new DNSFormatException("Truncated question");
+            throw new DNSFormatException(L10N.getString("err.truncated_question"));
         }
         int typeValue = data.getShort() & 0xFFFF;
         int classValue = data.getShort() & 0xFFFF;
 
         DNSType type = DNSType.fromValue(typeValue);
         if (type == null) {
-            throw new DNSFormatException("Unknown type: " + typeValue);
+            String msg = MessageFormat.format(L10N.getString("err.unknown_type"), typeValue);
+            throw new DNSFormatException(msg);
         }
 
         DNSClass dnsClass = DNSClass.fromValue(classValue);
         if (dnsClass == null) {
-            throw new DNSFormatException("Unknown class: " + classValue);
+            String msg = MessageFormat.format(L10N.getString("err.unknown_class"), classValue);
+            throw new DNSFormatException(msg);
         }
 
         return new DNSQuestion(name, type, dnsClass);
@@ -330,7 +336,7 @@ public final class DNSMessage {
             throws DNSFormatException {
         String name = decodeName(data, original);
         if (data.remaining() < 10) {
-            throw new DNSFormatException("Truncated resource record");
+            throw new DNSFormatException(L10N.getString("err.truncated_resource_record"));
         }
         int typeValue = data.getShort() & 0xFFFF;
         int classValue = data.getShort() & 0xFFFF;
@@ -338,7 +344,7 @@ public final class DNSMessage {
         int rdLength = data.getShort() & 0xFFFF;
 
         if (data.remaining() < rdLength) {
-            throw new DNSFormatException("Truncated RDATA");
+            throw new DNSFormatException(L10N.getString("err.truncated_rdata"));
         }
 
         byte[] rdata = new byte[rdLength];
@@ -386,7 +392,7 @@ public final class DNSMessage {
                 int offset = ((len & 0x3F) << 8) | (data.get() & 0xFF);
 
                 if (++jumps > maxJumps) {
-                    throw new IllegalStateException("Too many compression pointers");
+                    throw new IllegalStateException(L10N.getString("err.too_many_compression_pointers"));
                 }
 
                 // Follow pointer in original message
@@ -449,7 +455,8 @@ public final class DNSMessage {
 
             byte[] bytes = label.getBytes(StandardCharsets.US_ASCII);
             if (bytes.length > 63) {
-                throw new IllegalArgumentException("Label too long: " + label);
+                String msg = MessageFormat.format(L10N.getString("err.label_too_long"), label);
+                throw new IllegalArgumentException(msg);
             }
             out.write(bytes.length);
             out.write(bytes, 0, bytes.length);

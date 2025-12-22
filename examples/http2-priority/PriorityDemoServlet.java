@@ -240,7 +240,7 @@ public class PriorityDemoServlet extends HttpServlet {
     }
     
     /**
-     * Test page to demonstrate priority loading behavior.
+     * Test page to demonstrate priority loading behaviour.
      */
     private void serveTestPage(HttpServletResponse response) throws IOException {
         response.setContentType("text/html; charset=UTF-8");

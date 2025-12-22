@@ -51,21 +51,24 @@ import javax.mail.internet.MimeUtility;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
 
+import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
+import org.bluezoo.gumdrop.http.h2.H2Parser;
+import org.bluezoo.gumdrop.http.h2.H2Writer;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
-import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
+import org.bluezoo.util.ByteArrays;
 
 /**
  * Connection handler for the HTTP protocol.
  * This manages potentially multiple requests within a single TCP
- * connection. Provides default 404 behavior when no specific
+ * connection. Provides default 404 behaviour when no specific
  * Stream implementation is provided.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see https://www.rfc-editor.org/rfc/rfc7230
  * @see https://www.rfc-editor.org/rfc/rfc7540
  */
-public class HTTPConnection extends LineBasedConnection {
+public class HTTPConnection extends LineBasedConnection implements H2FrameHandler {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
     static final Logger LOGGER = Logger.getLogger(HTTPConnection.class.getName());
@@ -182,12 +185,19 @@ public class HTTPConnection extends LineBasedConnection {
     Decoder hpackDecoder;
     Encoder hpackEncoder;
 
+    // HTTP/2 frame parser and writer (initialized when switching to HTTP/2)
+    private H2Parser h2Parser;
+    private H2Writer h2Writer;
+
     private int clientStreamId; // synthesized stream ID for HTTP/1
     private int serverStreamId = INITIAL_SERVER_STREAM_ID; // server-initiated streams (even numbers)
     protected final Map<Integer,Stream> streams;
     private int continuationStream;
     private boolean continuationEndStream; // if the continuation should end stream after end of headers
     protected final Set<Integer> activeStreams = new TreeSet<>();
+    
+    // h2c upgrade pending - upgrade after request body is consumed
+    private boolean h2cUpgradePending;
     
     // Stream cleanup management
     private long lastStreamCleanup = 0L;
@@ -287,7 +297,7 @@ public class HTTPConnection extends LineBasedConnection {
     /**
      * Sets the handler factory for this connection.
      *
-     * @param factory the handler factory, or null to use default 404 behavior
+     * @param factory the handler factory, or null to use default 404 behaviour
      */
     public void setHandlerFactory(HTTPRequestHandlerFactory factory) {
         this.handlerFactory = factory;
@@ -350,7 +360,21 @@ public class HTTPConnection extends LineBasedConnection {
      * @param errorCode the error code (0x8 for CANCEL)
      */
     void sendRstStream(int streamId, int errorCode) {
-        sendErrorFrame(errorCode, streamId);
+        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + 4);
+        
+        // Frame header: length=4, type=RST_STREAM, flags=0, streamId
+        buf.put((byte) 0);
+        buf.put((byte) 0);
+        buf.put((byte) 4);
+        buf.put((byte) H2FrameHandler.TYPE_RST_STREAM);
+        buf.put((byte) 0);
+        buf.putInt(streamId);
+        
+        // Payload: error code
+        buf.putInt(errorCode);
+        
+        buf.flip();
+        send(buf);
     }
 
     /**
@@ -503,7 +527,7 @@ public class HTTPConnection extends LineBasedConnection {
             return;
         }
 
-        // Handle version-specific behavior
+        // Handle version-specific behaviour
         switch (this.version) {
             case UNKNOWN:
                 sendStreamError(stream, 505); // HTTP Version Not Supported
@@ -624,23 +648,25 @@ public class HTTPConnection extends LineBasedConnection {
             }
         }
 
-        try {
-            stream.streamEndHeaders();
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, e.getMessage(), e);
-        }
+        stream.streamEndHeaders();
 
         // Check for HTTP/2 upgrade
-        if (stream.upgrade != null && stream.upgrade.contains("h2c") && stream.settingsFrame != null) {
-            Headers responseHeaders = new Headers();
-            responseHeaders.add("Connection", "Upgrade");
-            responseHeaders.add("Upgrade", "h2c");
-            sendResponseHeaders(clientStreamId, 101, responseHeaders, true);
-            state = State.REQUEST_LINE;
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Sent 101 Switching Protocols, waiting for client preface");
+        if (stream.upgrade != null && stream.upgrade.contains("h2c") && stream.h2cSettings != null) {
+            long contentLength = stream.getContentLength();
+            boolean chunked = stream.isChunked();
+            
+            if (contentLength == 0L && !chunked) {
+                // No body - upgrade immediately
+                completeH2cUpgrade();
+                return;
+            } else {
+                // Request has a body - set flag to upgrade after body is consumed
+                h2cUpgradePending = true;
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("h2c upgrade pending until request body consumed");
+                }
+                // Fall through to normal body handling
             }
-            return;
         }
 
         // Determine next state based on body handling
@@ -653,7 +679,11 @@ public class HTTPConnection extends LineBasedConnection {
             // Note: Do NOT close stream here even if Connection: close is set.
             // The stream remains in HALF_CLOSED_REMOTE state so the handler can send a response.
             // The connection will be closed after the response is complete.
-            state = State.REQUEST_LINE;
+            if (h2cUpgradePending) {
+                completeH2cUpgrade();
+            } else {
+                state = State.REQUEST_LINE;
+            }
             clientStreamId += 2;
         } else if (chunked) {
             // Chunked transfer encoding
@@ -743,7 +773,11 @@ public class HTTPConnection extends LineBasedConnection {
             // Note: Do NOT close stream here even if Connection: close is set.
             // The stream remains in HALF_CLOSED_REMOTE state so the handler can send a response.
             // The connection will be closed after the response is complete.
-            state = State.REQUEST_LINE;
+            if (h2cUpgradePending) {
+                completeH2cUpgrade();
+            } else {
+                state = State.REQUEST_LINE;
+            }
             clientStreamId += 2;
         } else {
             // Trailer header - could add to stream if needed
@@ -785,7 +819,11 @@ public class HTTPConnection extends LineBasedConnection {
             // Note: Do NOT close stream here even if Connection: close is set.
             // The stream remains in HALF_CLOSED_REMOTE state so the handler can send a response.
             // The connection will be closed after the response is complete.
-            state = State.REQUEST_LINE;
+            if (h2cUpgradePending) {
+                completeH2cUpgrade();
+            } else {
+                state = State.REQUEST_LINE;
+            }
             clientStreamId += 2;
         }
     }
@@ -858,6 +896,12 @@ public class HTTPConnection extends LineBasedConnection {
             sendStreamError(stream, 400);
             return;
         }
+        
+        // Initialize HTTP/2 parser and writer
+        h2Parser = new H2Parser(this);
+        h2Parser.setMaxFrameSize(maxFrameSize);
+        h2Writer = new H2Writer(new ConnectionChannel());
+        
         state = State.PRI_SETTINGS;
     }
 
@@ -867,225 +911,9 @@ public class HTTPConnection extends LineBasedConnection {
      * Leaves unconsumed data (partial frames) at the buffer position.
      */
     private void receiveFrameData(ByteBuffer buf) {
-        while (buf.hasRemaining()) {
-            // Need at least FRAME_HEADER_LENGTH bytes for frame header
-            if (buf.remaining() < FRAME_HEADER_LENGTH) {
-                return; // underflow
-            }
-
-            // Parse frame header (peek without consuming yet)
-            int pos = buf.position();
-            int length = ((int) buf.get(pos) & 0xff) << 16
-                | ((int) buf.get(pos + 1) & 0xff) << 8
-                | ((int) buf.get(pos + 2) & 0xff);
-            int type = ((int) buf.get(pos + 3) & 0xff);
-            int flags = ((int) buf.get(pos + 4) & 0xff);
-            int streamId = ((int) buf.get(pos + 5) & 0x7f) << 24 // mask out reserved bit
-                | ((int) buf.get(pos + 6) & 0xff) << 16
-                | ((int) buf.get(pos + 7) & 0xff) << 8
-                | ((int) buf.get(pos + 8) & 0xff);
-
-            // Check if we have complete frame (header + payload)
-            if (buf.remaining() < FRAME_HEADER_LENGTH + length) {
-                return; // underflow - wait for more data
-            }
-
-            // Consume header, position at start of payload
-            buf.position(pos + FRAME_HEADER_LENGTH);
-
-            // Create a slice for the payload (no copy)
-            int savedLimit = buf.limit();
-            buf.limit(buf.position() + length);
-            ByteBuffer payload = buf.slice();
-            buf.limit(savedLimit);
-            buf.position(buf.position() + length); // consume payload
-
-            // Handle State.PRI_SETTINGS first - expects initial SETTINGS frame
-            if (state == State.PRI_SETTINGS) {
-                handlePriSettings(type, flags, streamId, payload);
-                continue;
-            }
-
-            // Validate and dispatch frame based on type
-            dispatchFrame(type, flags, streamId, length, payload);
-        }
+        h2Parser.receive(buf);
     }
 
-    /**
-     * Handles the initial SETTINGS frame after PRI preface.
-     */
-    private void handlePriSettings(int type, int flags, int streamId, ByteBuffer payload) {
-        Stream stream = getStream(clientStreamId);
-        
-        // Send server preface
-        SettingsFrame serverPreface = new SettingsFrame(false);
-        sendFrame(serverPreface);
-        
-        if (type != Frame.TYPE_SETTINGS) {
-            sendStreamError(stream, 400);
-            return;
-        }
-        
-        state = State.HTTP2;
-        hpackDecoder = new Decoder(headerTableSize);
-        hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
-        
-        try {
-            frameReceived(new SettingsFrame(flags, payload));
-        } catch (IOException e) {
-            sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, clientStreamId);
-        }
-    }
-
-    /**
-     * Validates frame constraints and dispatches to frameReceived().
-     */
-    private void dispatchFrame(int type, int flags, int streamId, int length, ByteBuffer payload) {
-        // Check concurrent streams limit for new streams
-        boolean streamExists;
-        synchronized (streams) {
-            streamExists = streams.containsKey(streamId);
-        }
-        if (streamId != 0 && !streamExists) {
-            int numConcurrentStreams;
-            synchronized (activeStreams) {
-                numConcurrentStreams = activeStreams.size();
-            }
-            if (numConcurrentStreams >= maxConcurrentStreams) {
-                sendErrorFrame(Frame.ERROR_REFUSED_STREAM, streamId);
-                return;
-            }
-        }
-
-        // In continuation state, only accept continuation frames for the right stream
-        if (state == State.HTTP2_CONTINUATION) {
-            if (type != Frame.TYPE_CONTINUATION || streamId != continuationStream) {
-                frameProtocolError(streamId);
-                return;
-            }
-        }
-
-        // Validate and create frame based on type
-        Frame frame = null;
-        try {
-            switch (type) {
-                case Frame.TYPE_DATA:
-                    if (streamId == 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    frame = new DataFrame(flags, streamId, payload);
-                    break;
-                case Frame.TYPE_HEADERS:
-                    if (streamId == 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    frame = new HeadersFrame(flags, streamId, payload);
-                    break;
-                case Frame.TYPE_PRIORITY:
-                    if (streamId == 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    if (length != PRIORITY_FRAME_LENGTH) {
-                        frameSizeError(streamId);
-                        return;
-                    }
-                    frame = new PriorityFrame(streamId, payload);
-                    break;
-                case Frame.TYPE_RST_STREAM:
-                    if (streamId == 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    if (length != RST_STREAM_FRAME_LENGTH) {
-                        frameSizeError(streamId);
-                        return;
-                    }
-                    frame = new RstStreamFrame(streamId, payload);
-                    break;
-                case Frame.TYPE_SETTINGS:
-                    if (streamId != 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    if (length % SETTINGS_ENTRY_LENGTH != 0) {
-                        frameSizeError(streamId);
-                        return;
-                    }
-                    frame = new SettingsFrame(flags, payload);
-                    break;
-                case Frame.TYPE_PUSH_PROMISE:
-                    if (!enablePush || streamId == 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    frame = new PushPromiseFrame(flags, streamId, payload);
-                    break;
-                case Frame.TYPE_PING:
-                    if (streamId != 0) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    if (length != PING_FRAME_LENGTH) {
-                        frameSizeError(streamId);
-                        return;
-                    }
-                    frame = new PingFrame(flags);
-                    break;
-                case Frame.TYPE_GOAWAY:
-                    if (streamId != 0 || length < GOAWAY_MIN_LENGTH) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    frame = new GoawayFrame(payload);
-                    break;
-                case Frame.TYPE_WINDOW_UPDATE:
-                    if (length != WINDOW_UPDATE_FRAME_LENGTH) {
-                        frameSizeError(streamId);
-                        return;
-                    }
-                    frame = new WindowUpdateFrame(streamId, payload);
-                    break;
-                case Frame.TYPE_CONTINUATION:
-                    if (streamId != continuationStream) {
-                        frameProtocolError(streamId);
-                        return;
-                    }
-                    frame = new ContinuationFrame(flags, streamId, payload);
-                    break;
-                default:
-                    // Unknown frame type - ignore per RFC 7540 section 4.1
-                    // "Implementations MUST ignore and discard any frame that has a type that is unknown."
-                    return;
-            }
-        } catch (ProtocolException e) {
-            frameProtocolError(streamId);
-            return;
-        }
-
-        // Dispatch valid frame to handler
-        try {
-            frameReceived(frame);
-        } catch (IOException e) {
-            sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, clientStreamId);
-        }
-    }
-
-    /**
-     * Called when a frame protocol error is detected.
-     */
-    private void frameProtocolError(int streamId) {
-        sendErrorFrame(Frame.ERROR_PROTOCOL_ERROR, streamId);
-    }
-
-    /**
-     * Called when a frame size error is detected.
-     */
-    private void frameSizeError(int streamId) {
-        sendErrorFrame(Frame.ERROR_FRAME_SIZE_ERROR, streamId);
-    }
 
     /**
      * Receives WebSocket data.
@@ -1214,124 +1042,364 @@ public class HTTPConnection extends LineBasedConnection {
         return new Stream(connection, streamId);
     }
 
-    /**
-     * Called when a complete HTTP/2 frame has been received.
-     * This is the handler method for frame processing.
-     *
-     * @param frame the complete frame
-     */
-    void frameReceived(Frame frame) throws IOException {
-        // Allow subclasses to handle priority information
-        processFrame(frame);
+    void sendErrorFrame(int errorType, int stream) {
+        sendRstStream(stream, errorType);
     }
-    
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // H2FrameHandler Implementation
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Processes a frame for this connection.
-     * Subclasses can override to add priority handling or other frame processing.
-     * 
-     * @param frame the frame to process
-     * @throws Exception if frame processing fails
+     * Checks if we're expecting the initial SETTINGS frame.
+     * Per RFC 7540, the first frame after PRI preface MUST be SETTINGS.
+     * @return true if in PRI_SETTINGS state (should only accept SETTINGS)
      */
-    protected void processFrame(Frame frame) throws IOException {
-        //System.err.println("Received frame: "+frame);
-        int streamId = frame.getStream();
+    private boolean expectingInitialSettings() {
+        if (state == State.PRI_SETTINGS) {
+            // Protocol error - first frame after PRI must be SETTINGS
+            sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public void dataFrameReceived(int streamId, boolean endStream, ByteBuffer data) {
+        if (expectingInitialSettings()) {
+            return;
+        }
         Stream stream = getStream(streamId);
-        switch (frame.getType()) {
-            case Frame.TYPE_DATA:
-                DataFrame df = (DataFrame) frame;
-                stream.appendRequestBody(df.data);
-                if (df.endStream) {
-                    stream.streamEndRequest();
-                    if (stream.isActive()) {
-                        synchronized (activeStreams) {
-                            activeStreams.add(streamId);
-                        }
-                    }
-                }
-                break;
-            case Frame.TYPE_HEADERS:
-                HeadersFrame hf = (HeadersFrame) frame;
-                stream.appendHeaderBlockFragment(hf.headerBlockFragment);
-                if (hf.endHeaders) {
-                    stream.streamEndHeaders();
-                    if (hf.endStream) {
-                        stream.streamEndRequest();
-                    }
-                    if (stream.isActive()) {
-                        synchronized (activeStreams) {
-                            activeStreams.add(streamId);
-                        }
-                    }
-                } else {
-                    state = State.HTTP2_CONTINUATION;
-                    continuationStream = streamId;
-                    continuationEndStream = hf.endStream;
-                }
-                break;
-            case Frame.TYPE_PUSH_PROMISE:
-                PushPromiseFrame ppf = (PushPromiseFrame) frame;
-                stream.setPushPromise();
-                stream.appendHeaderBlockFragment(ppf.headerBlockFragment);
-                if (ppf.endHeaders) {
-                    stream.streamEndHeaders();
-                    stream.streamEndRequest();
-                } else {
-                    state = State.HTTP2_CONTINUATION;
-                    continuationStream = streamId;
-                    continuationEndStream = true;
-                }
-                break;
-            case Frame.TYPE_CONTINUATION:
-                ContinuationFrame cf = (ContinuationFrame) frame;
-                stream.appendHeaderBlockFragment(cf.headerBlockFragment);
-                if (cf.endHeaders) {
-                    stream.streamEndHeaders();
-                    state = State.HTTP2;
-                    continuationStream = 0;
-                    if (continuationEndStream) {
-                        stream.streamEndRequest();
-                    }
-                    if (stream.isActive()) {
-                        synchronized (activeStreams) {
-                            activeStreams.add(streamId);
-                        }
-                    }
-                }
-                break;
-            case Frame.TYPE_RST_STREAM:
-                stream.streamClose();
+        stream.appendRequestBody(data);
+        if (endStream) {
+            stream.streamEndRequest();
+            if (stream.isActive()) {
                 synchronized (activeStreams) {
-                    activeStreams.remove(streamId);
+                    activeStreams.add(streamId);
                 }
-                // Stream will be cleaned up by periodic cleanup after retention period
-                break;
-            case Frame.TYPE_GOAWAY:
-                close();
-                break;
-            case Frame.TYPE_SETTINGS:
-                SettingsFrame settings = (SettingsFrame) frame;
-                if (!settings.ack) {
-                    settings.apply(this);
-                    hpackDecoder.setHeaderTableSize(headerTableSize);
-                    hpackEncoder.setHeaderTableSize(headerTableSize);
-                    hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
-                    SettingsFrame result = new SettingsFrame(true); // ACK
-                    sendFrame(result);
-                }
-                break;
+            }
         }
     }
 
-    void sendErrorFrame(int errorType, int stream) {
-        sendFrame(new RstStreamFrame(errorType, stream));
+    @Override
+    public void headersFrameReceived(int streamId, boolean endStream, boolean endHeaders,
+            int streamDependency, boolean exclusive, int weight,
+            ByteBuffer headerBlockFragment) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        Stream stream = getStream(streamId);
+        stream.appendHeaderBlockFragment(headerBlockFragment);
+        if (endHeaders) {
+            stream.streamEndHeaders();
+            if (endStream) {
+                stream.streamEndRequest();
+            }
+            if (stream.isActive()) {
+                synchronized (activeStreams) {
+                    activeStreams.add(streamId);
+                }
+            }
+        } else {
+            state = State.HTTP2_CONTINUATION;
+            continuationStream = streamId;
+            continuationEndStream = endStream;
+        }
     }
 
-    void sendFrame(Frame frame) {
-        //System.err.println("sending frame: "+frame);
-        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + frame.getLength());
-        frame.write(buf);
+    @Override
+    public void priorityFrameReceived(int streamId, int streamDependency,
+            boolean exclusive, int weight) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        // Priority handling can be implemented by subclasses
+        // See PriorityAwareHTTPConnection
+    }
+
+    @Override
+    public void rstStreamFrameReceived(int streamId, int errorCode) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        Stream stream = getStream(streamId);
+        stream.streamClose();
+        synchronized (activeStreams) {
+            activeStreams.remove(streamId);
+        }
+    }
+
+    @Override
+    public void settingsFrameReceived(boolean ack, Map<Integer, Integer> settings) {
+        // Handle initial SETTINGS after PRI preface
+        if (state == State.PRI_SETTINGS) {
+            // Send server preface - empty SETTINGS frame
+            sendSettingsFrame(false, new java.util.LinkedHashMap<Integer, Integer>());
+            
+            // Initialize HPACK
+            hpackDecoder = new Decoder(headerTableSize);
+            hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
+            
+            state = State.HTTP2;
+            
+            // If this was an h2c upgrade, complete the pending request on stream 1
+            // The request and body were already processed as HTTP/1.1, handler was created
+            // and received the body. Now we just need to signal request complete.
+            Stream h2cStream = getStream(1);
+            if (h2cStream != null) {
+                h2cStream.streamEndRequest();
+            }
+        }
+        
+        if (!ack) {
+            // Apply settings
+            for (Map.Entry<Integer, Integer> entry : settings.entrySet()) {
+                int identifier = entry.getKey();
+                int value = entry.getValue();
+                switch (identifier) {
+                    case H2FrameHandler.SETTINGS_HEADER_TABLE_SIZE:
+                        headerTableSize = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_ENABLE_PUSH:
+                        enablePush = (value == 1);
+                        break;
+                    case H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS:
+                        maxConcurrentStreams = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE:
+                        initialWindowSize = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_MAX_FRAME_SIZE:
+                        maxFrameSize = value;
+                        if (h2Parser != null) {
+                            h2Parser.setMaxFrameSize(value);
+                        }
+                        break;
+                    case H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE:
+                        maxHeaderListSize = value;
+                        break;
+                }
+            }
+            if (hpackDecoder != null) {
+                hpackDecoder.setHeaderTableSize(headerTableSize);
+            }
+            if (hpackEncoder != null) {
+                hpackEncoder.setHeaderTableSize(headerTableSize);
+                hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
+            }
+            // Send SETTINGS ACK
+            sendSettingsAck();
+        }
+    }
+
+    @Override
+    public void pushPromiseFrameReceived(int streamId, int promisedStreamId,
+            boolean endHeaders, ByteBuffer headerBlockFragment) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        Stream stream = getStream(streamId);
+        stream.setPushPromise();
+        stream.appendHeaderBlockFragment(headerBlockFragment);
+        if (endHeaders) {
+            stream.streamEndHeaders();
+            stream.streamEndRequest();
+        } else {
+            state = State.HTTP2_CONTINUATION;
+            continuationStream = streamId;
+            continuationEndStream = true;
+        }
+    }
+
+    @Override
+    public void pingFrameReceived(boolean ack, long opaqueData) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        if (!ack) {
+            // Send PING response with ACK flag
+            sendPingAck(opaqueData);
+        }
+    }
+
+    @Override
+    public void goawayFrameReceived(int lastStreamId, int errorCode, ByteBuffer debugData) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        close();
+    }
+
+    @Override
+    public void windowUpdateFrameReceived(int streamId, int windowSizeIncrement) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        // Flow control - can be implemented by subclasses
+    }
+
+    @Override
+    public void continuationFrameReceived(int streamId, boolean endHeaders,
+            ByteBuffer headerBlockFragment) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        Stream stream = getStream(streamId);
+        stream.appendHeaderBlockFragment(headerBlockFragment);
+        if (endHeaders) {
+            stream.streamEndHeaders();
+            state = State.HTTP2;
+            continuationStream = 0;
+            if (continuationEndStream) {
+                stream.streamEndRequest();
+            }
+            if (stream.isActive()) {
+                synchronized (activeStreams) {
+                    activeStreams.add(streamId);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void frameError(int errorCode, int streamId, String message) {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning("Frame error: " + message + " (error=" + 
+                H2FrameHandler.errorToString(errorCode) + ", stream=" + streamId + ")");
+        }
+        sendRstStream(streamId, errorCode);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // H2 Frame Sending Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sends a SETTINGS frame.
+     */
+    private void sendSettingsFrame(boolean ack, Map<Integer, Integer> settings) {
+        int payloadLength = ack ? 0 : settings.size() * 6;
+        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + payloadLength);
+        
+        // Frame header
+        buf.put((byte) ((payloadLength >> 16) & 0xff));
+        buf.put((byte) ((payloadLength >> 8) & 0xff));
+        buf.put((byte) (payloadLength & 0xff));
+        buf.put((byte) H2FrameHandler.TYPE_SETTINGS);
+        buf.put((byte) (ack ? H2FrameHandler.FLAG_ACK : 0));
+        buf.putInt(0); // stream ID 0
+        
+        // Payload
+        if (!ack) {
+            for (Map.Entry<Integer, Integer> entry : settings.entrySet()) {
+                int id = entry.getKey();
+                int value = entry.getValue();
+                buf.put((byte) ((id >> 8) & 0xff));
+                buf.put((byte) (id & 0xff));
+                buf.put((byte) ((value >> 24) & 0xff));
+                buf.put((byte) ((value >> 16) & 0xff));
+                buf.put((byte) ((value >> 8) & 0xff));
+                buf.put((byte) (value & 0xff));
+            }
+        }
+        
         buf.flip();
         send(buf);
+    }
+
+    /**
+     * Sends a SETTINGS ACK frame.
+     */
+    private void sendSettingsAck() {
+        sendSettingsFrame(true, java.util.Collections.<Integer, Integer>emptyMap());
+    }
+
+    /**
+     * Completes the h2c upgrade after the request body has been consumed.
+     * Sends 101 Switching Protocols and prepares to receive HTTP/2 preface.
+     */
+    private void completeH2cUpgrade() {
+        h2cUpgradePending = false;
+        
+        Headers responseHeaders = new Headers();
+        responseHeaders.add("Connection", "Upgrade");
+        responseHeaders.add("Upgrade", "h2c");
+        sendResponseHeaders(clientStreamId, 101, responseHeaders, true);
+        state = State.REQUEST_LINE;
+        
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Sent 101 Switching Protocols, waiting for client preface");
+        }
+    }
+
+    /**
+     * Sends a PING ACK frame.
+     */
+    private void sendPingAck(long opaqueData) {
+        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + 8);
+        
+        // Frame header
+        buf.put((byte) 0);
+        buf.put((byte) 0);
+        buf.put((byte) 8); // length = 8
+        buf.put((byte) H2FrameHandler.TYPE_PING);
+        buf.put((byte) H2FrameHandler.FLAG_ACK);
+        buf.putInt(0); // stream ID 0
+        
+        // Payload - 8 bytes opaque data
+        buf.putLong(opaqueData);
+        
+        buf.flip();
+        send(buf);
+    }
+
+    /**
+     * Sends a PUSH_PROMISE frame.
+     *
+     * @param streamId the parent stream ID
+     * @param promisedStreamId the promised stream ID
+     * @param headerBlock the HPACK-encoded header block
+     * @param endHeaders true if this completes the header block
+     */
+    void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders) {
+        if (h2Writer != null) {
+            try {
+                h2Writer.writePushPromise(streamId, promisedStreamId, headerBlock, endHeaders);
+                h2Writer.flush();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error sending PUSH_PROMISE", e);
+            }
+        }
+    }
+
+    /**
+     * Sends a GOAWAY frame and closes the connection.
+     *
+     * @param errorCode the error code indicating why the connection is closing
+     */
+    void sendGoaway(int errorCode) {
+        // Use the last processed stream ID (0 if none)
+        int lastStreamId = clientStreamId > 0 ? clientStreamId : 0;
+        
+        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + 8);
+        
+        // Frame header: length=8, type=GOAWAY, flags=0, streamId=0
+        buf.put((byte) 0);
+        buf.put((byte) 0);
+        buf.put((byte) 8);
+        buf.put((byte) H2FrameHandler.TYPE_GOAWAY);
+        buf.put((byte) 0);
+        buf.putInt(0); // GOAWAY always on stream 0
+        
+        // Payload: lastStreamId + errorCode
+        buf.putInt(lastStreamId);
+        buf.putInt(errorCode);
+        
+        buf.flip();
+        send(buf);
+        
+        // Close the connection after sending GOAWAY
+        close();
     }
 
     /**
@@ -1465,34 +1533,46 @@ public class HTTPConnection extends LineBasedConnection {
                     } catch (ProtocolException e) {
                         // Headers provided exceeded maximum size that
                         // client can handle. This is fatal
-                        int errorCode = Frame.ERROR_COMPRESSION_ERROR;
-                        sendFrame(new GoawayFrame(streamId, errorCode, new byte[0]));
-                        send(null); // close after frame sent
+                        sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
                         return;
                     }
                 }
                 buf.flip();
                 // do we need to split into multiple frames
                 int length = buf.remaining();
-                if (length <= headerTableSize) {
-                    // single HEADERS frame
-                    byte[] headerBlockFragment = new byte[length];
-                    buf.get(headerBlockFragment);
-                    sendFrame(new HeadersFrame(streamId, padLength != 0, endStream, true, streamDependency != 0, padLength, streamDependency, streamDependencyExclusive, weight, headerBlockFragment));
-                } else {
-                    // sequence of HEADERS and CONTINUATION+
-                    byte[] headerBlockFragment = new byte[headerTableSize];
-                    buf.get(headerBlockFragment);
-                    sendFrame(new HeadersFrame(streamId, padLength != 0, endStream, false, streamDependency != 0, padLength, streamDependency, streamDependencyExclusive, weight, headerBlockFragment));
-                    length -= headerTableSize;
-                    while (length > headerTableSize) {
-                        buf.get(headerBlockFragment);
-                        sendFrame(new ContinuationFrame(streamId, false, headerBlockFragment));
+                try {
+                    if (length <= headerTableSize) {
+                        // single HEADERS frame
+                        h2Writer.writeHeaders(streamId, buf, endStream, true,
+                            padLength, streamDependency, weight, streamDependencyExclusive);
+                        h2Writer.flush();
+                    } else {
+                        // sequence of HEADERS and CONTINUATION frames
+                        int savedLimit = buf.limit();
+                        buf.limit(buf.position() + headerTableSize);
+                        ByteBuffer fragment = buf.slice();
+                        buf.limit(savedLimit);
+                        buf.position(buf.position() + headerTableSize);
+                        
+                        h2Writer.writeHeaders(streamId, fragment, endStream, false,
+                            padLength, streamDependency, weight, streamDependencyExclusive);
+                        
                         length -= headerTableSize;
+                        while (length > headerTableSize) {
+                            buf.limit(buf.position() + headerTableSize);
+                            fragment = buf.slice();
+                            buf.limit(savedLimit);
+                            buf.position(buf.position() + headerTableSize);
+                            
+                            h2Writer.writeContinuation(streamId, fragment, false);
+                            length -= headerTableSize;
+                        }
+                        // Final continuation with remaining data
+                        h2Writer.writeContinuation(streamId, buf, true);
+                        h2Writer.flush();
                     }
-                    headerBlockFragment = new byte[length];
-                    buf.get(headerBlockFragment);
-                    sendFrame(new ContinuationFrame(streamId, true, headerBlockFragment));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error sending headers", e);
                 }
                 break;
             default:
@@ -1581,7 +1661,12 @@ public class HTTPConnection extends LineBasedConnection {
         switch (state) {
             case HTTP2:
                 // Use DATA frame with configured padding
-                sendFrame(new DataFrame(streamId, framePadding > 0, endStream, framePadding, buf));
+                try {
+                    h2Writer.writeData(streamId, buf, endStream, framePadding);
+                    h2Writer.flush();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error sending data frame", e);
+                }
                 break;
             default:
                 // send directly
@@ -1684,6 +1769,44 @@ public class HTTPConnection extends LineBasedConnection {
             return new byte[0];
         }
     }
-    
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // WritableByteChannel Adapter for H2Writer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Adapts the Connection's send() method to WritableByteChannel interface
+     * for use with H2Writer.
+     */
+    private class ConnectionChannel implements java.nio.channels.WritableByteChannel {
+        
+        private boolean open = true;
+
+        @Override
+        public int write(ByteBuffer src) {
+            if (!open) {
+                return 0;
+            }
+            int written = src.remaining();
+            if (written > 0) {
+                // Create a copy since send() may be asynchronous
+                ByteBuffer copy = ByteBuffer.allocate(written);
+                copy.put(src);
+                copy.flip();
+                send(copy);
+            }
+            return written;
+        }
+
+        @Override
+        public boolean isOpen() {
+            return open;
+        }
+
+        @Override
+        public void close() {
+            open = false;
+        }
+    }
 
 }

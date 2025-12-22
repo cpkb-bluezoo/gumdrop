@@ -21,9 +21,10 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.Headers;
-
 import java.nio.ByteBuffer;
+import java.util.ResourceBundle;
+
+import org.bluezoo.gumdrop.http.Headers;
 
 /**
  * Internal implementation of {@link HTTPRequest} representing an HTTP stream.
@@ -39,6 +40,9 @@ import java.nio.ByteBuffer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class HTTPStream implements HTTPRequest {
+
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
     private final HTTPClientConnection connection;
     private final String method;
@@ -139,7 +143,7 @@ class HTTPStream implements HTTPRequest {
     @Override
     public void header(String name, String value) {
         if (headersSent) {
-            throw new IllegalStateException("Headers already sent");
+            throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
         headers.add(name, value);
     }
@@ -165,10 +169,10 @@ class HTTPStream implements HTTPRequest {
     @Override
     public void send(HTTPResponseHandler handler) {
         if (this.handler != null) {
-            throw new IllegalStateException("Request already sent");
+            throw new IllegalStateException(L10N.getString("err.request_already_sent"));
         }
         if (cancelled) {
-            throw new IllegalStateException("Request was cancelled");
+            throw new IllegalStateException(L10N.getString("err.request_cancelled"));
         }
         this.handler = handler;
         this.headersSent = true;
@@ -179,10 +183,10 @@ class HTTPStream implements HTTPRequest {
     @Override
     public void startRequestBody(HTTPResponseHandler handler) {
         if (this.handler != null) {
-            throw new IllegalStateException("Request already sent");
+            throw new IllegalStateException(L10N.getString("err.request_already_sent"));
         }
         if (cancelled) {
-            throw new IllegalStateException("Request was cancelled");
+            throw new IllegalStateException(L10N.getString("err.request_cancelled"));
         }
         this.handler = handler;
         this.headersSent = true;
@@ -192,10 +196,10 @@ class HTTPStream implements HTTPRequest {
     @Override
     public int requestBodyContent(ByteBuffer data) {
         if (!headersSent) {
-            throw new IllegalStateException("Must call startRequestBody first");
+            throw new IllegalStateException(L10N.getString("err.must_start_body"));
         }
         if (bodySent) {
-            throw new IllegalStateException("Request body already complete");
+            throw new IllegalStateException(L10N.getString("err.body_already_complete"));
         }
         if (cancelled) {
             return 0;
@@ -206,10 +210,10 @@ class HTTPStream implements HTTPRequest {
     @Override
     public void endRequestBody() {
         if (!headersSent) {
-            throw new IllegalStateException("Must call startRequestBody first");
+            throw new IllegalStateException(L10N.getString("err.must_start_body"));
         }
         if (bodySent) {
-            throw new IllegalStateException("Request body already complete");
+            throw new IllegalStateException(L10N.getString("err.body_already_complete"));
         }
         this.bodySent = true;
         connection.endRequestBody(this);

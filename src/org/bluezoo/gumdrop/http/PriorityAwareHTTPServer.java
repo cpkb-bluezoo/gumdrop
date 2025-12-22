@@ -61,7 +61,7 @@ import javax.net.ssl.SSLEngine;
  * PriorityAwareHTTPServer server = new PriorityAwareHTTPServer();
  * connector.setPort(8080);
  * 
- * // Optional: Configure priority behavior
+ * // Optional: Configure priority behaviour
  * connector.setPriorityThresholds(0.1, 10); // Min slice: 100ms, Max burst: 10
  * 
  * // Optional: Enable detailed logging
@@ -175,7 +175,7 @@ public class PriorityAwareHTTPServer extends HTTPServer {
         PriorityAwareHTTPConnection connection = new PriorityAwareHTTPConnection(
             channel, engine, secure, framePadding);
         
-        // Configure priority behavior
+        // Configure priority behaviour
         connection.configurePriorityBehavior(
             minLowPriorityTimeSlice, 
             maxHighPriorityBurst, 
