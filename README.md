@@ -243,6 +243,13 @@ thread, so if you develop a new protocol server you can just deal with the
 decrypted application data. DTLS support applies to datagram servers and
 clients.
 
+## Documentation
+
+There is extensive documentation for all Gumdrop features:
+
+- [Example web application](https://cpkb-bluezoo.github.io/gumdrop/web/)
+- [Javadoc package and class documentation](https://cpkb-bluezoo.github.io/gumdrop/doc/)
+
 ## Configuration
 
 The configuration of gumdrop is primarily contained in the
