@@ -32,6 +32,7 @@ package org.bluezoo.gumdrop.ftp;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public enum FTPAuthenticationResult {
+
     /**
      * User is successfully authenticated and logged in (230).
      * The client now has full access based on user permissions.
@@ -91,4 +92,5 @@ public enum FTPAuthenticationResult {
      * The server has reached its user connection limit.
      */
     USER_LIMIT_EXCEEDED
+
 }

@@ -27,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.UUID;
@@ -339,14 +340,15 @@ public class SessionManager {
         long now = System.currentTimeMillis();
         long maxAge = timeout * 1000L;
         synchronized (sessions) {
-            sessions.entrySet().removeIf(entry -> {
+            Iterator<Map.Entry<String, Session>> it = sessions.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, Session> entry = it.next();
                 Session session = entry.getValue();
                 if (now - session.lastAccessedTime > maxAge) {
                     session.invalidate();
-                    return true;
+                    it.remove();
                 }
-                return false;
-            });
+            }
         }
     }
 

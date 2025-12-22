@@ -147,7 +147,7 @@ Browser                 Gumdrop Server
 ### Custom Message Handling
 
 ```java
-// Extend EchoWebSocketHandler for custom behavior
+// Extend EchoWebSocketHandler for custom behaviour
 public class ChatWebSocketHandler extends EchoWebSocketHandler {
     @Override
     protected void handleMessage(String message) {

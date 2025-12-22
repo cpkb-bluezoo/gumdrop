@@ -131,7 +131,7 @@ public final class ServiceRef implements Description, Injectable {
      * Corresponds to the {@code jaxrpc-mapping-file} element in the deployment descriptor.
      * <p>
      * This is a path relative to the module root. Only used with JAX-RPC style
-     * web services (deprecated in favor of JAX-WS).
+     * web services (deprecated in favour of JAX-WS).
      *
      * @param jaxrpcMappingFile the JAX-RPC mapping file path
      * @see <a href="https://jakarta.ee/specifications/servlet/4.0/servlet-spec-4.0.html#service-ref">

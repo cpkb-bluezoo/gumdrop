@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.mime.rfc5322;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 
 /**
  * High-performance RFC 5322 compliant email address parser.
@@ -49,7 +50,9 @@ import java.util.List;
  */
 public final class EmailAddressParser {
 
-	/** Prevents instantiation. */
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.rfc5322.L10N");
+
+	// Prevent instantiation
 	private EmailAddressParser() {
 	}
 
@@ -78,7 +81,6 @@ public final class EmailAddressParser {
 		if (value == null || value.isEmpty()) {
 			return new ArrayList<>();
 		}
-
 		// Trim leading/trailing whitespace
 		int start = 0;
 		int end = value.length();
@@ -91,23 +93,18 @@ public final class EmailAddressParser {
 		if (start >= end) {
 			return new ArrayList<>();
 		}
-
 		try {
 			char[] input = value.toCharArray();
 			int[] pos = new int[] { start };
 			StringBuilder tokenBuffer = new StringBuilder(256);
 			List<EmailAddress> addresses = new ArrayList<>();
-
 			skipWhitespaceAndComments(input, end, pos);
-
 			while (pos[0] < end) {
 				EmailAddress address = parseAddress(input, end, pos, tokenBuffer, smtputf8);
 				if (address != null) {
 					addresses.add(address);
 				}
-
 				skipWhitespaceAndComments(input, end, pos);
-
 				if (pos[0] < end && input[pos[0]] == ',') {
 					pos[0]++;
 					skipWhitespaceAndComments(input, end, pos);
@@ -116,7 +113,6 @@ public final class EmailAddressParser {
 					return null;
 				}
 			}
-
 			return addresses;
 		} catch (Exception e) {
 			return null;
@@ -137,21 +133,17 @@ public final class EmailAddressParser {
 		if (value == null || value.isEmpty()) {
 			return null;
 		}
-
 		try {
 			char[] input = value.toCharArray();
 			int length = input.length;
 			int[] pos = new int[] { 0 };
 			StringBuilder tokenBuffer = new StringBuilder(256);
-
 			skipWhitespaceAndComments(input, length, pos);
 			EmailAddress address = parseIndividualAddress(input, length, pos, tokenBuffer);
 			skipWhitespaceAndComments(input, length, pos);
-
 			if (pos[0] < length) {
 				return null;
 			}
-
 			return address;
 		} catch (Exception e) {
 			return null;
@@ -188,12 +180,10 @@ public final class EmailAddressParser {
 		if (value == null) {
 			return null;
 		}
-
 		int len = value.length();
 		if (len == 0) {
 			return null;
 		}
-
 		// Find the @ separator
 		int atPos = -1;
 		boolean inQuote = false;
@@ -208,22 +198,17 @@ public final class EmailAddressParser {
 				atPos = i;
 			}
 		}
-
 		if (atPos <= 0 || atPos >= len - 1) {
 			return null;
 		}
-
 		String localPart = value.substring(0, atPos);
 		String domain = value.substring(atPos + 1);
-
 		if (!isValidLocalPart(localPart, smtputf8)) {
 			return null;
 		}
-
 		if (!isValidDomain(domain, smtputf8)) {
 			return null;
 		}
-
 		return new EmailAddress(null, localPart, domain, true);
 	}
 
@@ -238,7 +223,6 @@ public final class EmailAddressParser {
 		if (len == 0 || len > 64) {
 			return false;
 		}
-
 		if (localPart.charAt(0) == '"') {
 			if (len < 2 || localPart.charAt(len - 1) != '"') {
 				return false;
@@ -256,11 +240,9 @@ public final class EmailAddressParser {
 			}
 			return true;
 		}
-
 		if (localPart.charAt(0) == '.' || localPart.charAt(len - 1) == '.') {
 			return false;
 		}
-
 		boolean prevDot = false;
 		for (int i = 0; i < len; i++) {
 			char c = localPart.charAt(i);
@@ -288,7 +270,6 @@ public final class EmailAddressParser {
 		if (len == 0 || len > 255) {
 			return false;
 		}
-
 		if (domain.charAt(0) == '[') {
 			// Address literal - same rules apply regardless of SMTPUTF8
 			if (domain.charAt(len - 1) != ']') {
@@ -302,11 +283,9 @@ public final class EmailAddressParser {
 			}
 			return true;
 		}
-
 		if (domain.charAt(0) == '.' || domain.charAt(len - 1) == '.') {
 			return false;
 		}
-
 		boolean prevDot = false;
 		for (int i = 0; i < len; i++) {
 			char c = domain.charAt(i);
@@ -358,13 +337,11 @@ public final class EmailAddressParser {
 
 	// -- RFC 5322 address list parsing --
 
-	private static EmailAddress parseAddress(char[] input, int length, int[] pos,
-	                                          StringBuilder tokenBuffer) {
+	private static EmailAddress parseAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		return parseAddress(input, length, pos, tokenBuffer, false);
 	}
 
-	private static EmailAddress parseAddress(char[] input, int length, int[] pos,
-	                                          StringBuilder tokenBuffer, boolean smtputf8) {
+	private static EmailAddress parseAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		skipWhitespaceAndComments(input, length, pos);
 
 		if (pos[0] >= length) {
@@ -381,88 +358,68 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static GroupEmailAddress parseGroup(char[] input, int length, int[] pos,
-	                                             StringBuilder tokenBuffer) {
+	private static GroupEmailAddress parseGroup(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		return parseGroup(input, length, pos, tokenBuffer, false);
 	}
 
-	private static GroupEmailAddress parseGroup(char[] input, int length, int[] pos,
-	                                             StringBuilder tokenBuffer, boolean smtputf8) {
+	private static GroupEmailAddress parseGroup(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		String groupName = parseDisplayName(input, length, pos, tokenBuffer, smtputf8);
 		if (groupName == null || pos[0] >= length || input[pos[0]] != ':') {
-			throw new IllegalArgumentException("Invalid group syntax");
+			throw new IllegalArgumentException(L10N.getString("err.invalid_group_syntax"));
 		}
-
 		pos[0]++;
 		skipWhitespaceAndComments(input, length, pos);
-
 		List<EmailAddress> members = new ArrayList<>();
-
 		while (pos[0] < length && input[pos[0]] != ';') {
 			EmailAddress member = parseIndividualAddress(input, length, pos, tokenBuffer, smtputf8);
 			if (member != null) {
 				members.add(member);
 			}
-
 			skipWhitespaceAndComments(input, length, pos);
-
 			if (pos[0] < length && input[pos[0]] == ',') {
 				pos[0]++;
 				skipWhitespaceAndComments(input, length, pos);
 			} else if (pos[0] < length && input[pos[0]] != ';') {
-				throw new IllegalArgumentException("Expected comma or semicolon in group");
+				throw new IllegalArgumentException(L10N.getString("err.expected_comma_or_semicolon_in_group"));
 			}
 		}
-
 		if (pos[0] >= length || input[pos[0]] != ';') {
-			throw new IllegalArgumentException("Group not terminated with semicolon");
+			throw new IllegalArgumentException(L10N.getString("err.group_not_semicolon_terminated"));
 		}
-
 		pos[0]++;
 		skipWhitespaceAndComments(input, length, pos);
-
 		return new GroupEmailAddress(groupName, members, null);
 	}
 
-	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos,
-	                                                    StringBuilder tokenBuffer) {
+	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		return parseIndividualAddress(input, length, pos, tokenBuffer, false);
 	}
 
-	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos,
-	                                                    StringBuilder tokenBuffer, boolean smtputf8) {
+	private static EmailAddress parseIndividualAddress(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		skipWhitespaceAndComments(input, length, pos);
-
 		if (pos[0] >= length) {
 			return null;
 		}
-
 		String displayName = null;
 		String localPart;
 		String domain;
 		boolean isLegacyFormat = false;
-
 		int anglePos = findNextUnquotedChar(input, length, '<', pos[0]);
-
 		if (anglePos != -1) {
 			if (anglePos > pos[0]) {
 				displayName = parseDisplayName(input, length, pos, tokenBuffer, smtputf8);
 				skipWhitespaceAndComments(input, length, pos);
 			}
-
 			if (pos[0] >= length || input[pos[0]] != '<') {
-				throw new IllegalArgumentException("Expected '<' after display name");
+				throw new IllegalArgumentException(L10N.getString("err.expected_lt_after_display_name"));
 			}
-
 			pos[0]++;
 			String[] addrParts = parseAddrSpec(input, length, pos, tokenBuffer, smtputf8);
 			localPart = addrParts[0];
 			domain = addrParts[1];
-
 			if (pos[0] >= length || input[pos[0]] != '>') {
-				throw new IllegalArgumentException("Expected '>' after address");
+				throw new IllegalArgumentException(L10N.getString("err.expected_gt_after_address"));
 			}
-
 			pos[0]++;
 		} else {
 			String[] addrParts = parseAddrSpec(input, length, pos, tokenBuffer, smtputf8);
@@ -470,7 +427,6 @@ public final class EmailAddressParser {
 			domain = addrParts[1];
 			isLegacyFormat = true;
 		}
-
 		if (isLegacyFormat) {
 			return new EmailAddress(displayName, localPart, domain, true);
 		} else {
@@ -478,19 +434,15 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static String parseDisplayName(char[] input, int length, int[] pos,
-	                                        StringBuilder tokenBuffer) {
+	private static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		return parseDisplayName(input, length, pos, tokenBuffer, false);
 	}
 
-	private static String parseDisplayName(char[] input, int length, int[] pos,
-	                                        StringBuilder tokenBuffer, boolean smtputf8) {
+	private static String parseDisplayName(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		tokenBuffer.setLength(0);
 		skipWhitespaceAndComments(input, length, pos);
-
 		while (pos[0] < length) {
 			char c = input[pos[0]];
-
 			if (c == '<' || c == ':' || c == ',' || c == ';') {
 				break;
 			} else if (c == '"') {
@@ -510,52 +462,40 @@ public final class EmailAddressParser {
 				break;
 			}
 		}
-
 		String result = tokenBuffer.toString().trim();
 		return result.isEmpty() ? null : result;
 	}
 
-	private static String[] parseAddrSpec(char[] input, int length, int[] pos,
-	                                       StringBuilder tokenBuffer) {
+	private static String[] parseAddrSpec(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		return parseAddrSpec(input, length, pos, tokenBuffer, false);
 	}
 
-	private static String[] parseAddrSpec(char[] input, int length, int[] pos,
-	                                       StringBuilder tokenBuffer, boolean smtputf8) {
+	private static String[] parseAddrSpec(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		tokenBuffer.setLength(0);
-
 		parseLocalPart(input, length, pos, tokenBuffer, smtputf8);
 		String localPart = tokenBuffer.toString();
-
 		if (pos[0] >= length || input[pos[0]] != '@') {
-			throw new IllegalArgumentException("Expected '@' in address");
+			throw new IllegalArgumentException(L10N.getString("err.expected_amp_in_address"));
 		}
-
 		pos[0]++;
 		tokenBuffer.setLength(0);
-
 		parseDomain(input, length, pos, tokenBuffer, smtputf8);
 		String domain = tokenBuffer.toString();
-
 		return new String[] { localPart, domain };
 	}
 
-	private static void parseLocalPart(char[] input, int length, int[] pos,
-	                                    StringBuilder tokenBuffer) {
+	private static void parseLocalPart(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		parseLocalPart(input, length, pos, tokenBuffer, false);
 	}
 
-	private static void parseLocalPart(char[] input, int length, int[] pos,
-	                                    StringBuilder tokenBuffer, boolean smtputf8) {
+	private static void parseLocalPart(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		if (pos[0] >= length) {
-			throw new IllegalArgumentException("Empty local part");
+			throw new IllegalArgumentException(L10N.getString("err.empty_local_part"));
 		}
-
 		if (input[pos[0]] == '"') {
 			parseQuotedString(input, length, pos, tokenBuffer);
 		} else {
 			parseAtom(input, length, pos, tokenBuffer, smtputf8);
-
 			while (pos[0] < length && input[pos[0]] == '.') {
 				tokenBuffer.append('.');
 				pos[0]++;
@@ -564,42 +504,38 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static void parseDomain(char[] input, int length, int[] pos,
-	                                 StringBuilder tokenBuffer) {
+	static void parseDomain(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		parseDomain(input, length, pos, tokenBuffer, false);
 	}
 
-	private static void parseDomain(char[] input, int length, int[] pos,
-	                                 StringBuilder tokenBuffer, boolean smtputf8) {
+	static void parseDomain(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		if (pos[0] >= length) {
-			throw new IllegalArgumentException("Empty domain");
+			throw new IllegalArgumentException(L10N.getString("err.empty_domain"));
 		}
-
 		if (input[pos[0]] == '[') {
 			tokenBuffer.append('[');
 			pos[0]++;
-
 			while (pos[0] < length && input[pos[0]] != ']') {
 				char c = input[pos[0]];
 				if (c == '\\' && pos[0] + 1 < length) {
+                    // Quoted-pair
 					tokenBuffer.append(c);
 					tokenBuffer.append(input[pos[0] + 1]);
 					pos[0] += 2;
-				} else {
+				} else if (isDtextChar(c)) {
 					tokenBuffer.append(c);
 					pos[0]++;
-				}
+				} else {
+                    throw new IllegalArgumentException(L10N.getString("err.invalid_char_in_domain"));
+                }
 			}
-
 			if (pos[0] >= length) {
-				throw new IllegalArgumentException("Unterminated domain literal");
+				throw new IllegalArgumentException(L10N.getString("err.unterminated_domain_literal"));
 			}
-
 			tokenBuffer.append(']');
 			pos[0]++;
 		} else {
 			parseAtom(input, length, pos, tokenBuffer, smtputf8);
-
 			while (pos[0] < length && input[pos[0]] == '.') {
 				tokenBuffer.append('.');
 				pos[0]++;
@@ -608,34 +544,27 @@ public final class EmailAddressParser {
 		}
 	}
 
-	private static void parseAtom(char[] input, int length, int[] pos,
-	                               StringBuilder tokenBuffer) {
+	static void parseAtom(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		parseAtom(input, length, pos, tokenBuffer, false);
 	}
 
-	private static void parseAtom(char[] input, int length, int[] pos,
-	                               StringBuilder tokenBuffer, boolean smtputf8) {
+	static void parseAtom(char[] input, int length, int[] pos, StringBuilder tokenBuffer, boolean smtputf8) {
 		int start = tokenBuffer.length();
-
 		while (pos[0] < length && isAtom(input[pos[0]], smtputf8)) {
 			tokenBuffer.append(input[pos[0]]);
 			pos[0]++;
 		}
-
 		if (tokenBuffer.length() == start) {
-			throw new IllegalArgumentException("Empty atom");
+			throw new IllegalArgumentException(L10N.getString("err.empty_atom"));
 		}
 	}
 
-	private static void parseQuotedString(char[] input, int length, int[] pos,
-	                                       StringBuilder tokenBuffer) {
+	static void parseQuotedString(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		if (pos[0] >= length || input[pos[0]] != '"') {
-			throw new IllegalArgumentException("Expected quoted string");
+			throw new IllegalArgumentException(L10N.getString("err.expected_quoted_string"));
 		}
-
 		tokenBuffer.append('"');
 		pos[0]++;
-
 		while (pos[0] < length && input[pos[0]] != '"') {
 			char c = input[pos[0]];
 			if (c == '\\' && pos[0] + 1 < length) {
@@ -647,26 +576,21 @@ public final class EmailAddressParser {
 				pos[0]++;
 			}
 		}
-
 		if (pos[0] >= length) {
-			throw new IllegalArgumentException("Unterminated quoted string");
+			throw new IllegalArgumentException(L10N.getString("err.unterminated_quoted_string"));
 		}
-
 		tokenBuffer.append('"');
 		pos[0]++;
 	}
 
-	private static void skipComment(char[] input, int length, int[] pos) {
+	static void skipComment(char[] input, int length, int[] pos) {
 		if (pos[0] >= length || input[pos[0]] != '(') {
 			return;
 		}
-
 		pos[0]++;
 		int depth = 1;
-
 		while (pos[0] < length && depth > 0) {
 			char c = input[pos[0]];
-
 			if (c == '(') {
 				depth++;
 			} else if (c == ')') {
@@ -674,16 +598,14 @@ public final class EmailAddressParser {
 			} else if (c == '\\' && pos[0] + 1 < length) {
 				pos[0]++;
 			}
-
 			pos[0]++;
 		}
-
 		if (depth > 0) {
-			throw new IllegalArgumentException("Unterminated comment");
+			throw new IllegalArgumentException(L10N.getString("err.unterminated_comment"));
 		}
 	}
 
-	private static void skipWhitespaceAndComments(char[] input, int length, int[] pos) {
+	static void skipWhitespaceAndComments(char[] input, int length, int[] pos) {
 		while (pos[0] < length) {
 			char c = input[pos[0]];
 			if (isWhitespace(c)) {
@@ -699,10 +621,8 @@ public final class EmailAddressParser {
 	private static int findNextUnquotedChar(char[] input, int length, char target, int start) {
 		boolean inQuotes = false;
 		int commentDepth = 0;
-
 		for (int i = start; i < length; i++) {
 			char c = input[i];
-
 			if (c == '"' && commentDepth == 0) {
 				if (i == 0 || input[i - 1] != '\\') {
 					inQuotes = !inQuotes;
@@ -719,15 +639,15 @@ public final class EmailAddressParser {
 		return -1;
 	}
 
-	private static boolean isWhitespace(char c) {
+	static boolean isWhitespace(char c) {
 		return c == ' ' || c == '\t' || c == '\r' || c == '\n';
 	}
 
-	private static boolean isAtom(char c) {
+	static boolean isAtom(char c) {
 		return isAtom(c, false);
 	}
 
-	private static boolean isAtom(char c, boolean smtputf8) {
+	static boolean isAtom(char c, boolean smtputf8) {
 		// SMTPUTF8 allows UTF-8 characters (code points > 127) per RFC 6531/6532
 		if (smtputf8 && c > 127) {
 			return true;
@@ -738,5 +658,9 @@ public final class EmailAddressParser {
 		       c != '"';
 	}
 
-}
+    static boolean isDtextChar(char c) {
+        // RFC 5322 dtext = %d33-90 / %d94-126 (printable ASCII except [ ] \)
+        return c >= 33 && c <= 126 && c != '[' && c != ']' && c != '\\';
+    }
 
+}

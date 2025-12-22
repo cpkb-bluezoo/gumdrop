@@ -98,7 +98,8 @@ integer, or double)</li>
 
 <p>
 Telemetry is configured via the <code>TelemetryConfig</code> component in
-gumdroprc:
+gumdroprc. <b>HTTPS is strongly recommended</b> for OTLP export to protect
+telemetry data in transit:
 </p>
 
 <pre>
@@ -109,8 +110,12 @@ gumdroprc:
     &lt;property name="service-namespace"&gt;production&lt;/property&gt;
     &lt;property name="deployment-environment"&gt;prod-east&lt;/property&gt;
     
-    &lt;!-- OTLP endpoint (OpenTelemetry Collector) --&gt;
-    &lt;property name="endpoint"&gt;http://otel-collector:4318&lt;/property&gt;
+    &lt;!-- OTLP endpoint (OpenTelemetry Collector) - use HTTPS in production --&gt;
+    &lt;property name="endpoint"&gt;https://otel-collector:4318&lt;/property&gt;
+    
+    &lt;!-- TLS configuration for OTLP export --&gt;
+    &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
+    &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
     
     &lt;!-- Metrics configuration --&gt;
     &lt;property name="metrics-temporality-name"&gt;cumulative&lt;/property&gt;
@@ -136,10 +141,12 @@ metrics) can be disabled if needed.
 <tr><td><code>service-namespace</code></td><td>-</td><td>Service namespace</td></tr>
 <tr><td><code>service-instance-id</code></td><td>-</td><td>Unique instance identifier</td></tr>
 <tr><td><code>deployment-environment</code></td><td>-</td><td>Environment (prod, staging, dev)</td></tr>
-<tr><td><code>endpoint</code></td><td>-</td><td>Base OTLP endpoint URL</td></tr>
+<tr><td><code>endpoint</code></td><td>-</td><td>Base OTLP endpoint URL (use https:// in production)</td></tr>
 <tr><td><code>traces-endpoint</code></td><td>endpoint + /v1/traces</td><td>Traces-specific endpoint</td></tr>
 <tr><td><code>logs-endpoint</code></td><td>endpoint + /v1/logs</td><td>Logs-specific endpoint</td></tr>
 <tr><td><code>metrics-endpoint</code></td><td>endpoint + /v1/metrics</td><td>Metrics-specific endpoint</td></tr>
+<tr><td><code>truststore-file</code></td><td>-</td><td>PKCS12 truststore for HTTPS endpoints</td></tr>
+<tr><td><code>truststore-pass</code></td><td>-</td><td>Password for the truststore</td></tr>
 <tr><td><code>metrics-temporality-name</code></td><td>"cumulative"</td><td>Aggregation: "delta" or "cumulative"</td></tr>
 <tr><td><code>metrics-interval-ms</code></td><td>60000</td><td>Metrics collection interval</td></tr>
 <tr><td><code>headers</code></td><td>-</td><td>Extra HTTP headers (key1=value1,key2=value2)</td></tr>
@@ -718,22 +725,62 @@ visualization tools.
 
 <p>
 The <code>OTLPExporter</code> sends telemetry data to an OpenTelemetry Collector
-using OTLP/HTTP with Protocol Buffers encoding.
+using OTLP/HTTP with Protocol Buffers encoding. <b>HTTPS should be used in
+production</b> to protect sensitive telemetry data including trace context,
+service identifiers, and custom attributes.
 </p>
 
 <h4>Architecture</h4>
 
 <ul>
 <li>Uses Gumdrop's native HTTP client with SelectorLoop affinity</li>
+<li>Supports HTTP/2 and HTTP/1.1 with TLS (ALPN negotiation)</li>
 <li>Asynchronous batching reduces network overhead</li>
 <li>Background thread handles serialization and export</li>
 <li>Large payloads are chunked for efficient transfer</li>
 </ul>
 
+<h4>TLS Configuration</h4>
+
+<p>
+For HTTPS endpoints, configure a truststore containing the CA certificate(s)
+that signed the collector's certificate:
+</p>
+
+<pre>
+&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
+    &lt;property name="service-name"&gt;my-service&lt;/property&gt;
+    &lt;property name="endpoint"&gt;https://otel-collector:4318&lt;/property&gt;
+    
+    &lt;!-- Truststore containing the CA certificate for the collector --&gt;
+    &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
+    &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
+&lt;/component&gt;
+</pre>
+
+<p>
+Create a PKCS12 truststore containing your CA certificate:
+</p>
+
+<pre>
+# Import a CA certificate into a new PKCS12 truststore
+keytool -importcert -alias otel-ca \
+    -file /path/to/ca-cert.pem \
+    -keystore otlp-truststore.p12 \
+    -storetype PKCS12 \
+    -storepass changeit
+</pre>
+
+<p>
+If no truststore is configured and the endpoint uses HTTPS, the default JVM
+truststore will be used. This is suitable when the collector uses a certificate
+signed by a well-known CA.
+</p>
+
 <h4>Collector Configuration</h4>
 
 <p>
-Example OpenTelemetry Collector configuration to receive Gumdrop traces:
+Example OpenTelemetry Collector configuration with TLS to receive Gumdrop traces:
 </p>
 
 <pre>
@@ -743,6 +790,9 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: /etc/otel/server.crt
+          key_file: /etc/otel/server.key
 
 exporters:
   jaeger:
@@ -776,13 +826,18 @@ For authenticated endpoints, use the <code>headers</code> property:
 <h4>Complete Example Configuration</h4>
 
 <pre>
-&lt;!-- Telemetry configuration --&gt;
+&lt;!-- Telemetry configuration with HTTPS --&gt;
 &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
     &lt;property name="service-name"&gt;mail-gateway&lt;/property&gt;
     &lt;property name="service-version"&gt;2.1.0&lt;/property&gt;
     &lt;property name="deployment-environment"&gt;production&lt;/property&gt;
     &lt;property name="service-instance-id"&gt;mail-gw-01&lt;/property&gt;
-    &lt;property name="endpoint"&gt;http://otel-collector.monitoring:4318&lt;/property&gt;
+    
+    &lt;!-- HTTPS endpoint (recommended for production) --&gt;
+    &lt;property name="endpoint"&gt;https://otel-collector.monitoring:4318&lt;/property&gt;
+    &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
+    &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
+    
     &lt;property name="batch-size"&gt;256&lt;/property&gt;
     &lt;property name="flush-interval-ms"&gt;3000&lt;/property&gt;
     &lt;property name="metrics-interval-ms"&gt;30000&lt;/property&gt;

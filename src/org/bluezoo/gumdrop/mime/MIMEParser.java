@@ -25,8 +25,10 @@ import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.ResourceBundle;
 
 /**
  * A parser for MIME entities.
@@ -83,6 +85,8 @@ import java.util.Deque;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MIMEParser {
+
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N");
 
 	/**
 	 * Locator implementation for tracking parse position.
@@ -196,7 +200,7 @@ public class MIMEParser {
 	 */
 	public void setMaxBufferSize(int maxBufferSize) {
 		if (maxBufferSize <= 0) {
-			throw new IllegalArgumentException("maxBufferSize must be positive");
+			throw new IllegalArgumentException(L10N.getString("err.max_buffer_size_not_positive"));
 		}
 		this.maxBufferSize = maxBufferSize;
 	}
@@ -241,7 +245,7 @@ public class MIMEParser {
 	 */
 	public void receive(ByteBuffer data) throws MIMEParseException {
 		if (handler == null) {
-			throw new IllegalStateException("No handler set");
+			throw new IllegalStateException(L10N.getString("err.no_handler"));
 		}
 
 		// Reset underflow at start of each receive
@@ -360,7 +364,7 @@ public class MIMEParser {
 			// LWSP-char
 			// This is a header line continuation in a folded header
 			if (headerName == null) { // no field-name in previous line
-				throw new MIMEParseException("No field-name", locator);
+				throw new MIMEParseException(L10N.getString("err.no_field_name"), locator);
 			}
 
 			// Note that according to RFC822 unfolding rules, the CRLF+LWSP
@@ -397,12 +401,13 @@ public class MIMEParser {
 				}
 				if (pos <= 0) {
 					// header field name is empty
-					throw new MIMEParseException("Field-name is empty", locator);
+					throw new MIMEParseException(L10N.getString("err.field_name_empty"), locator);
 				}
 				for (int i = 0; i <= pos; i++) {
 					c = bytes[i];
 					if (c < 33 || c > 126) { // illegal field-name character
-						throw new MIMEParseException("Illegal field-name character", locator);
+                        String msg = MessageFormat.format(L10N.getString("err.illegal_field_name_char"), Integer.toString(c & 0xFF));
+						throw new MIMEParseException(msg, locator);
 					}
 				}
 				headerName = new String(bytes, 0, pos + 1, StandardCharsets.ISO_8859_1).trim();
@@ -412,7 +417,7 @@ public class MIMEParser {
 				}
 				// Note: if colonPos + 1 >= length, the header has no value (colon at end)
 			} else {
-				throw new MIMEParseException("No colon in header", locator);
+				throw new MIMEParseException(L10N.getString("err.no_colon_in_header"), locator);
 			}
 		}
 	}
@@ -655,7 +660,8 @@ public class MIMEParser {
 			case HEADER:
 				// Defensive programming: these states should not occur in bodyLine processing
 				// If they do, it indicates a parser state management issue
-				throw new MIMEParseException("Unexpected parser state " + state + " in body processing", locator);
+				String msg = MessageFormat.format(L10N.getString("err.unexpected_parser_state"), state);
+				throw new MIMEParseException(msg, locator);
 		}
 	}
 
@@ -696,29 +702,25 @@ public class MIMEParser {
 		while (source.hasRemaining()) {
 			decodeBuffer.clear();
 
-			// Create temporary ByteBuffer from source data for decoders
-			int chunkSize = Math.min(source.remaining(), maxBufferSize);
-			byte[] inputBytes = new byte[chunkSize];
-			source.get(inputBytes);
-			ByteBuffer inputBuffer = ByteBuffer.wrap(inputBytes);
-
 			// Decode using ByteBuffer API
 			// Use endOfStream=true when this is the last chunk AND (before boundary OR end of stream)
 			boolean isLastChunk = !source.hasRemaining();
 			boolean flushRemaining = isLastChunk && (isBeforeBoundary || endOfStream);
-			DecodeResult result;
+			int consumed;
+            int decodeBufferPos = decodeBuffer.position();
 			switch (transferEncoding) {
 				case BASE64:
-					result = Base64Decoder.decode(inputBuffer, decodeBuffer, maxBufferSize, flushRemaining);
+					consumed = Base64Decoder.decode(source, decodeBuffer, maxBufferSize, flushRemaining);
 					break;
 				case QUOTED_PRINTABLE:
-					result = QuotedPrintableDecoder.decode(inputBuffer, decodeBuffer, maxBufferSize, flushRemaining);
+					consumed = QuotedPrintableDecoder.decode(source, decodeBuffer, maxBufferSize, flushRemaining);
 					break;
 				default:
-					throw new IllegalArgumentException("Unsupported transfer encoding for decoding: " + transferEncoding);
+                    String msg = MessageFormat.format(L10N.getString("err.unsupported_parser_encoding"), transferEncoding);
+					throw new IllegalArgumentException(msg);
 			}
-
-			if (result.decodedBytes > 0) {
+            int decoded = decodeBuffer.position() - decodeBufferPos;
+			if (decoded > 0) {
 				decodeBuffer.flip(); // ready for reading
 
 				// If this is the last chunk and isBeforeBoundary, strip trailing line ending
@@ -746,16 +748,9 @@ public class MIMEParser {
 			}
 
 			// Check if we made progress
-			if (result.consumedBytes <= 0) {
+			if (consumed <= 0) {
 				// If no progress made, stop to avoid infinite loop
 				break;
-			} else if (result.consumedBytes < inputBytes.length) {
-				// Partial consumption - put back unconsumed bytes
-				int unconsumedBytes = inputBytes.length - result.consumedBytes;
-				byte[] remaining = new byte[unconsumedBytes];
-				System.arraycopy(inputBytes, result.consumedBytes, remaining, 0, unconsumedBytes);
-				// We need to "rewind" the source by putting bytes back
-				// This is complex, so for now we'll process all input and let the decoder handle partial sequences
 			}
 		}
 		// Set contentFlushed appropriately - indicates we processed content
@@ -867,12 +862,12 @@ public class MIMEParser {
 				case INIT:
 				case HEADER:
 					// Incomplete headers are always an error
-					throw new MIMEParseException("Incomplete header at end of stream", locator);
+					throw new MIMEParseException(L10N.getString("err.incomplete_header"), locator);
 				case FIRST_BOUNDARY:
 				case BOUNDARY_OR_CONTENT:
 				case BOUNDARY_ONLY:
 					// Incomplete data in multipart context is an error
-					throw new MIMEParseException("Incomplete multipart data at end of stream", locator);
+					throw new MIMEParseException(L10N.getString("err.incomplete_multipart"), locator);
 				case BODY:
 					// Non-multipart body can end without final newline - this is valid
 					// The underflow content is just the final line of the body
@@ -890,7 +885,8 @@ public class MIMEParser {
 
 		// Validate that all multipart boundaries are properly closed
 		if (!boundaries.isEmpty()) {
-			throw new MIMEParseException("Unclosed multipart boundary: " + boundaries.getLast(), locator);
+			String msg = MessageFormat.format(L10N.getString("err.unclosed_boundary"), boundaries.getLast());
+			throw new MIMEParseException(msg, locator);
 		}
 
 		handler.endEntity(null);

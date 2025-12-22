@@ -28,20 +28,32 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
+import org.bluezoo.gumdrop.http.h2.H2Parser;
+import org.bluezoo.gumdrop.http.h2.H2Writer;
+import org.bluezoo.gumdrop.http.hpack.Decoder;
+import org.bluezoo.gumdrop.http.hpack.Encoder;
+import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 
 import java.io.IOException;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.MessageFormat;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLParameters;
 
 /**
  * HTTP client connection that handles protocol-level communication.
@@ -71,8 +83,10 @@ import javax.net.ssl.SSLEngine;
  * @see HTTPClient
  * @see HTTPRequest
  */
-public class HTTPClientConnection extends Connection {
+public class HTTPClientConnection extends Connection implements H2FrameHandler {
 
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
     private static final Logger logger = Logger.getLogger(HTTPClientConnection.class.getName());
 
     // Parent client
@@ -90,17 +104,42 @@ public class HTTPClientConnection extends Connection {
     private volatile boolean open;
 
     // h2c upgrade state (for cleartext HTTP/2)
-    // Note: h2c upgrade is currently disabled by default because the server-side
-    // implementation is incomplete (doesn't properly handle the original request body
-    // after 101 response). Enable via client.setH2cUpgradeEnabled(true) when testing.
-    private boolean h2cUpgradeEnabled = false; // Set to true to enable h2c upgrade attempts
-    private boolean h2cUpgradePending;  // True if we should attempt h2c upgrade with next request
-    private boolean h2cUpgradeInFlight; // True if we sent upgrade headers, waiting for response
+    // HTTP/2 via ALPN is enabled by default for TLS connections.
+    // Set to false via setH2Enabled(false) to disable and use HTTP/1.1 over TLS.
+    private boolean h2Enabled = true;
+
+    // h2c upgrade is enabled by default for plaintext connections.
+    // Most servers won't support it, but we try anyway (opportunistic upgrade).
+    // Set to false via setH2cUpgradeEnabled(false) to disable.
+    private boolean h2cUpgradeEnabled = true;
+    private boolean h2cUpgradeAttempted; // True once we've tried h2c upgrade (don't retry)
+    private boolean h2cUpgradeInFlight;  // True if we sent upgrade headers, waiting for response
     private HTTPStream h2cUpgradeRequest; // The request that triggered the upgrade
+
+    // HTTP/2 with prior knowledge (skip h2c upgrade, send PRI directly)
+    private boolean h2WithPriorKnowledge = false;
 
     // Active streams (by stream ID for HTTP/2, single entry for HTTP/1.1)
     private final Map<Integer, HTTPStream> activeStreams = new ConcurrentHashMap<>();
     private int nextStreamId = 1;
+
+    // HTTP/2 frame parser and writer
+    private H2Parser h2Parser;
+    private H2Writer h2Writer;
+    private Decoder hpackDecoder;
+    private Encoder hpackEncoder;
+
+    // HTTP/2 settings (defaults per RFC 7540)
+    private int headerTableSize = 4096;
+    private int maxConcurrentStreams = 100;
+    private int initialWindowSize = 65535;
+    private int maxFrameSize = 16384;
+    private int maxHeaderListSize = 8192;
+    private boolean serverPushEnabled = true;
+
+    // HTTP/2 CONTINUATION state
+    private int continuationStreamId;
+    private ByteBuffer headerBlockBuffer;
 
     // HTTP/1.1 parsing state
     private HTTPStream currentStream;
@@ -120,7 +159,8 @@ public class HTTPClientConnection extends Connection {
         CHUNK_SIZE,
         CHUNK_DATA,
         CHUNK_TRAILER,
-        H2C_UPGRADE_PENDING // Waiting for HTTP/2 preface after 101
+        H2C_UPGRADE_PENDING, // Waiting for server's SETTINGS after sending PRI preface
+        HTTP2                 // HTTP/2 mode - processing frames
     }
 
     // Authentication
@@ -148,6 +188,9 @@ public class HTTPClientConnection extends Connection {
         this.host = client.getHost().getHostAddress();
         this.port = client.getPort();
         this.parseBuffer = ByteBuffer.allocate(8192);
+        
+        // Note: ALPN configuration is done in setH2Enabled() which is called
+        // after construction but before the handshake starts
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -303,7 +346,7 @@ public class HTTPClientConnection extends Connection {
         open = false;
 
         // Fail any active requests
-        Exception closeException = new IOException("Connection closed");
+        Exception closeException = new IOException(L10N.getString("err.connection_closed"));
         for (HTTPStream request : activeStreams.values()) {
             HTTPResponseHandler responseHandler = request.getHandler();
             if (responseHandler != null) {
@@ -324,6 +367,34 @@ public class HTTPClientConnection extends Connection {
     }
 
     /**
+     * Enables or disables HTTP/2 via ALPN for TLS connections.
+     *
+     * <p>When enabled (the default), TLS connections will offer "h2" in ALPN
+     * negotiation, allowing the server to select HTTP/2 if it supports it.
+     *
+     * <p>Disable this if you specifically need to use HTTP/1.1 over TLS.
+     *
+     * <p>Note: This must be set before the connection is established. Changing
+     * it after TLS handshake has no effect.
+     *
+     * @param enabled true to offer HTTP/2 in ALPN negotiation
+     */
+    public void setH2Enabled(boolean enabled) {
+        this.h2Enabled = enabled;
+        
+        // Configure ALPN on the SSL engine if we have one
+        if (engine != null) {
+            SSLParameters sp = engine.getSSLParameters();
+            if (enabled) {
+                sp.setApplicationProtocols(new String[] { "h2", "http/1.1" });
+            } else {
+                sp.setApplicationProtocols(new String[] { "http/1.1" });
+            }
+            engine.setSSLParameters(sp);
+        }
+    }
+
+    /**
      * Enables or disables h2c (HTTP/2 over cleartext) upgrade attempts.
      *
      * <p>When enabled, the first request on a non-TLS connection will include
@@ -338,9 +409,26 @@ public class HTTPClientConnection extends Connection {
      */
     public void setH2cUpgradeEnabled(boolean enabled) {
         this.h2cUpgradeEnabled = enabled;
-        if (enabled && negotiatedVersion == HTTPVersion.HTTP_1_1 && !secure && !h2cUpgradeInFlight) {
-            h2cUpgradePending = true;
+        if (enabled) {
+            // Reset attempted flag so we can try again if re-enabled
+            h2cUpgradeAttempted = false;
         }
+    }
+
+    /**
+     * Enables or disables HTTP/2 with prior knowledge.
+     *
+     * <p>When enabled on a plaintext (non-TLS) connection, the client will
+     * immediately send the HTTP/2 connection preface (PRI * HTTP/2.0...) 
+     * upon connection establishment, without first attempting an h2c upgrade.
+     *
+     * <p>This should only be enabled when you know the server supports HTTP/2,
+     * as the connection will fail if the server doesn't understand HTTP/2.
+     *
+     * @param enabled true to use HTTP/2 with prior knowledge
+     */
+    public void setH2WithPriorKnowledge(boolean enabled) {
+        this.h2WithPriorKnowledge = enabled;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -349,7 +437,7 @@ public class HTTPClientConnection extends Connection {
 
     private HTTPRequest createRequest(String method, String path) {
         if (!open) {
-            throw new IllegalStateException("Connection is not open");
+            throw new IllegalStateException(L10N.getString("err.connection_not_open"));
         }
         return new HTTPStream(this, method, path);
     }
@@ -466,7 +554,7 @@ public class HTTPClientConnection extends Connection {
 
         // h2c upgrade: Add upgrade headers with first request on non-TLS connection
         boolean attemptingH2cUpgrade = false;
-        if (h2cUpgradePending && !h2cUpgradeInFlight) {
+        if (h2cUpgradeEnabled && !h2cUpgradeAttempted && !h2cUpgradeInFlight && !secure) {
             // Add h2c upgrade headers
             sb.append("Connection: Upgrade, HTTP2-Settings\r\n");
             sb.append("Upgrade: h2c\r\n");
@@ -474,12 +562,21 @@ public class HTTPClientConnection extends Connection {
             sb.append(createHTTP2SettingsHeaderValue());
             sb.append("\r\n");
             h2cUpgradeInFlight = true;
-            h2cUpgradePending = false;
+            h2cUpgradeAttempted = true;
             h2cUpgradeRequest = request;
             attemptingH2cUpgrade = true;
         } else if (!headers.containsName("Connection")) {
             // Connection keep-alive (only if not doing h2c upgrade)
             sb.append("Connection: keep-alive\r\n");
+        }
+
+        // For HTTP/1.1 with body but no Content-Length, add Transfer-Encoding: chunked
+        boolean usingChunked = false;
+        if (hasBody && !headers.containsName("Content-Length") && !headers.containsName("Transfer-Encoding")) {
+            sb.append("Transfer-Encoding: chunked\r\n");
+            usingChunked = true;
+            // Also add to request headers so sendHTTP11Data knows to use chunked format
+            request.getHeaders().add("Transfer-Encoding", "chunked");
         }
 
         // End of headers
@@ -557,26 +654,119 @@ public class HTTPClientConnection extends Connection {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTP/2 implementation (placeholder)
+    // HTTP/2 Request Sending
     // ─────────────────────────────────────────────────────────────────────────
 
     private void sendHTTP2Request(HTTPStream request, int streamId, boolean hasBody) {
-        // TODO: Implement HTTP/2 HEADERS frame
-        throw new UnsupportedOperationException("HTTP/2 not yet implemented");
+        try {
+            // Build headers block
+            ByteBuffer headerBlock = encodeRequestHeaders(request);
+
+            // Send HEADERS frame on SelectorLoop thread
+            final int fStreamId = streamId;
+            final boolean fHasBody = hasBody;
+            getSelectorLoop().invokeLater(new SendHeadersTask(fStreamId, headerBlock, fHasBody, request));
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "Error encoding HTTP/2 request headers", e);
+            HTTPResponseHandler responseHandler = request.getHandler();
+            if (responseHandler != null) {
+                try {
+                    responseHandler.failed(e);
+                } catch (Exception ex) {
+                    logger.log(Level.WARNING, "Error in response handler", ex);
+                }
+            }
+            activeStreams.remove(streamId);
+        }
     }
 
     private int sendHTTP2Data(HTTPStream request, ByteBuffer data) {
-        // TODO: Implement HTTP/2 DATA frame
-        throw new UnsupportedOperationException("HTTP/2 not yet implemented");
+        int streamId = findStreamId(request);
+        if (streamId < 0) {
+            logger.warning("Cannot send data for unknown stream");
+            return 0;
+        }
+
+        // Calculate bytes to write and copy buffer for async dispatch
+        int written = data.remaining();
+        if (written == 0) {
+            return 0;
+        }
+        
+        ByteBuffer copy = ByteBuffer.allocate(written);
+        copy.put(data);
+        copy.flip();
+        
+        final int fStreamId = streamId;
+        getSelectorLoop().invokeLater(new SendDataTask(fStreamId, copy, false));
+        
+        return written;
     }
 
     private void endHTTP2Data(HTTPStream request) {
-        // TODO: Implement HTTP/2 END_STREAM
-        throw new UnsupportedOperationException("HTTP/2 not yet implemented");
+        int streamId = findStreamId(request);
+        if (streamId < 0) {
+            return;
+        }
+
+        final int fStreamId = streamId;
+        getSelectorLoop().invokeLater(new SendDataTask(fStreamId, ByteBuffer.allocate(0), true));
     }
 
     private void sendHTTP2Reset(int streamId) {
-        // TODO: Implement HTTP/2 RST_STREAM
+        sendRstStream(streamId, H2FrameHandler.ERROR_CANCEL);
+    }
+
+    private ByteBuffer encodeRequestHeaders(HTTPStream request) throws IOException {
+        // Build header list with pseudo-headers first
+        java.util.List<Header> headerList = new java.util.ArrayList<Header>();
+
+        // Pseudo-headers (must come first)
+        headerList.add(new Header(":method", request.getMethod()));
+        headerList.add(new Header(":scheme", secure ? "https" : "http"));
+        headerList.add(new Header(":authority", host + ":" + port));
+        headerList.add(new Header(":path", request.getPath()));
+
+        // Regular headers
+        Headers headers = request.getHeaders();
+        if (headers != null) {
+            for (Header header : headers) {
+                String name = header.getName().toLowerCase();
+                // Skip connection-specific headers
+                if ("connection".equals(name) || "transfer-encoding".equals(name) ||
+                    "upgrade".equals(name) || "host".equals(name)) {
+                    continue;
+                }
+                headerList.add(new Header(name, header.getValue()));
+            }
+        }
+
+        // Encode headers
+        ByteBuffer buffer = ByteBuffer.allocate(headerTableSize);
+        boolean success = false;
+
+        while (!success) {
+            try {
+                buffer.clear();
+                hpackEncoder.encode(buffer, headerList);
+                success = true;
+            } catch (BufferOverflowException e) {
+                // Grow buffer and retry
+                buffer = ByteBuffer.allocate(buffer.capacity() * 2);
+            }
+        }
+
+        buffer.flip();
+        return buffer;
+    }
+
+    private int findStreamId(HTTPStream request) {
+        for (Map.Entry<Integer, HTTPStream> entry : activeStreams.entrySet()) {
+            if (entry.getValue() == request) {
+                return entry.getKey();
+            }
+        }
+        return -1;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -586,15 +776,23 @@ public class HTTPClientConnection extends Connection {
     @Override
     public void connected() {
         super.connected();
-        open = true;
 
-        // For non-TLS, start with HTTP/1.1
-        // If h2c upgrade is enabled, attempt upgrade with first request
+        // For non-TLS connections, we're ready immediately
         if (!secure) {
+            open = true;
+            
+            // Check for HTTP/2 with prior knowledge
+            if (h2WithPriorKnowledge) {
+                // Skip h2c upgrade - send HTTP/2 preface directly
+                negotiatedVersion = HTTPVersion.HTTP_2_0;
+                initializeHTTP2();
+                sendConnectionPreface();
+                parseState = ParseState.H2C_UPGRADE_PENDING; // Wait for server's SETTINGS
+                logger.fine("HTTP/2 connection established to " + host + ":" + port + " (prior knowledge)");
+            } else {
             negotiatedVersion = HTTPVersion.HTTP_1_1;
             if (h2cUpgradeEnabled) {
-                h2cUpgradePending = true;
-                logger.fine("HTTP/1.1 connection established to " + host + ":" + port + ", h2c upgrade pending");
+                    logger.fine("HTTP/1.1 connection established to " + host + ":" + port + ", will attempt h2c upgrade");
             } else {
                 logger.fine("HTTP/1.1 connection established to " + host + ":" + port);
             }
@@ -603,6 +801,17 @@ public class HTTPClientConnection extends Connection {
         // Notify handler
         if (handler != null) {
             handler.onConnected(createConnectionInfo());
+            }
+        } else {
+            // For TLS connections, initiate the handshake
+            // The connection will become 'open' after handshakeComplete()
+            logger.fine("TCP connected to " + host + ":" + port + ", initiating TLS handshake");
+            initiateClientTLSHandshake();
+
+            // Notify handler of TCP connect (TLS not yet complete)
+            if (handler != null) {
+                handler.onConnected(createConnectionInfo());
+            }
         }
     }
 
@@ -610,10 +819,16 @@ public class HTTPClientConnection extends Connection {
     protected void handshakeComplete(String protocol) {
         super.handshakeComplete(protocol);
 
+        // Connection is now ready for requests
+        open = true;
+
         // Determine version from ALPN
         if ("h2".equals(protocol)) {
             negotiatedVersion = HTTPVersion.HTTP_2_0;
-            logger.fine("HTTP/2 connection established to " + host + ":" + port);
+            initializeHTTP2();
+            sendConnectionPreface();
+            parseState = ParseState.H2C_UPGRADE_PENDING; // Wait for server's SETTINGS frame
+            logger.fine("HTTP/2 (ALPN) connection established to " + host + ":" + port);
         } else {
             negotiatedVersion = HTTPVersion.HTTP_1_1;
             logger.fine("HTTP/1.1 connection established to " + host + ":" + port);
@@ -634,28 +849,9 @@ public class HTTPClientConnection extends Connection {
         negotiatedVersion = HTTPVersion.HTTP_2_0;
         h2cUpgradeInFlight = false;
         
-        // Send HTTP/2 connection preface
-        // The preface is: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" followed by SETTINGS frame
-        ByteBuffer preface = ByteBuffer.allocate(64);
-        
-        // Connection preface string
-        byte[] prefaceBytes = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
-        preface.put(prefaceBytes);
-        
-        // SETTINGS frame (empty - use defaults)
-        // Frame header: length (3 bytes), type (1 byte), flags (1 byte), stream ID (4 bytes)
-        preface.put((byte) 0x00); // length high
-        preface.put((byte) 0x00); // length mid
-        preface.put((byte) 0x00); // length low (0 bytes payload)
-        preface.put((byte) 0x04); // type = SETTINGS
-        preface.put((byte) 0x00); // flags = 0
-        preface.put((byte) 0x00); // stream ID (4 bytes, must be 0 for SETTINGS)
-        preface.put((byte) 0x00);
-        preface.put((byte) 0x00);
-        preface.put((byte) 0x00);
-        
-        preface.flip();
-        send(preface);
+        // Initialize HTTP/2 and send connection preface
+        initializeHTTP2();
+        sendConnectionPreface();
         
         // The upgrade request becomes stream 1
         // Per RFC 7540 Section 3.2, the request that triggered the upgrade
@@ -677,7 +873,7 @@ public class HTTPClientConnection extends Connection {
         open = false;
 
         // Fail any active requests
-        Exception disconnectException = new IOException("Connection disconnected");
+        Exception disconnectException = new IOException(L10N.getString("err.connection_disconnected"));
         for (HTTPStream request : activeStreams.values()) {
             HTTPResponseHandler responseHandler = request.getHandler();
             if (responseHandler != null) {
@@ -743,7 +939,9 @@ public class HTTPClientConnection extends Connection {
         parseBuffer.put(data);
 
         // Process based on protocol
-        if (negotiatedVersion == HTTPVersion.HTTP_2_0 || parseState == ParseState.H2C_UPGRADE_PENDING) {
+        if (negotiatedVersion == HTTPVersion.HTTP_2_0 || 
+            parseState == ParseState.H2C_UPGRADE_PENDING ||
+            parseState == ParseState.HTTP2) {
             processHTTP2Response();
         } else {
             processHTTP11Response();
@@ -803,6 +1001,7 @@ public class HTTPClientConnection extends Connection {
                         return;
                         
                     case H2C_UPGRADE_PENDING:
+                    case HTTP2:
                         // After h2c upgrade, switch to HTTP/2 processing
                         parseBuffer.compact();
                         processHTTP2Response();
@@ -810,7 +1009,9 @@ public class HTTPClientConnection extends Connection {
                 }
             }
         } finally {
-            if (parseState != ParseState.IDLE && parseState != ParseState.H2C_UPGRADE_PENDING) {
+            // Always compact to discard consumed data and prepare for next append
+            // (except IDLE which doesn't expect more data on this connection)
+            if (parseState != ParseState.IDLE) {
                 parseBuffer.compact();
             }
         }
@@ -875,6 +1076,11 @@ public class HTTPClientConnection extends Connection {
                     if (upgrade != null && upgrade.equalsIgnoreCase("h2c")) {
                         // Server accepted h2c upgrade
                         logger.fine("h2c upgrade accepted, switching to HTTP/2");
+                        
+                        // The 101 is just the upgrade acknowledgment.
+                        // The actual response to the request will come over HTTP/2 on stream 1.
+                        // Do NOT notify the handler here - the response comes over HTTP/2.
+                        
                         completeH2cUpgrade();
                         return true;
                     } else {
@@ -1170,7 +1376,12 @@ public class HTTPClientConnection extends Connection {
     }
 
     private void processHTTP2Response() {
-        // TODO: Implement HTTP/2 frame processing
+        parseBuffer.flip();
+        try {
+            h2Parser.receive(parseBuffer);
+        } finally {
+            parseBuffer.compact();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1458,5 +1669,537 @@ public class HTTPClientConnection extends Connection {
      */
     public int getPort() {
         return port;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTP/2 Initialization
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Initializes HTTP/2 parser, writer, and HPACK codec.
+     */
+    private void initializeHTTP2() {
+        h2Parser = new H2Parser(this);
+        h2Parser.setMaxFrameSize(maxFrameSize);
+        h2Writer = new H2Writer(new ConnectionChannel());
+        hpackDecoder = new Decoder(headerTableSize);
+        hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
+    }
+
+    /**
+     * Sends the HTTP/2 connection preface (PRI string + SETTINGS frame).
+     */
+    private void sendConnectionPreface() {
+        // Send PRI preface
+        byte[] prefaceBytes = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
+        send(ByteBuffer.wrap(prefaceBytes));
+
+        // Send empty SETTINGS frame on SelectorLoop thread
+        getSelectorLoop().invokeLater(new SendSettingsTask());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // H2FrameHandler Implementation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Override
+    public void dataFrameReceived(int streamId, boolean endStream, ByteBuffer data) {
+        HTTPStream stream = activeStreams.get(streamId);
+        if (stream == null) {
+            logger.warning("Received DATA for unknown stream " + streamId);
+            sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
+            return;
+        }
+
+        HTTPResponseHandler responseHandler = stream.getHandler();
+        if (responseHandler != null) {
+            try {
+                responseHandler.responseBodyContent(data);
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error in response handler", e);
+            }
+        }
+
+        if (endStream) {
+            completeStream(stream, streamId);
+        }
+    }
+
+    @Override
+    public void headersFrameReceived(int streamId, boolean endStream, boolean endHeaders,
+            int streamDependency, boolean exclusive, int weight,
+            ByteBuffer headerBlockFragment) {
+        HTTPStream stream = activeStreams.get(streamId);
+        if (stream == null) {
+            logger.warning("Received HEADERS for unknown stream " + streamId);
+            sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
+            return;
+        }
+
+        appendHeaderBlockFragment(streamId, headerBlockFragment);
+
+        if (endHeaders) {
+            processHeaders(stream, streamId, endStream);
+        } else {
+            continuationStreamId = streamId;
+        }
+    }
+
+    @Override
+    public void priorityFrameReceived(int streamId, int streamDependency,
+            boolean exclusive, int weight) {
+        // Client doesn't need to act on PRIORITY frames from server
+    }
+
+    @Override
+    public void rstStreamFrameReceived(int streamId, int errorCode) {
+        HTTPStream stream = activeStreams.remove(streamId);
+        if (stream != null) {
+            HTTPResponseHandler responseHandler = stream.getHandler();
+            if (responseHandler != null) {
+                try {
+                    String errorName = H2FrameHandler.errorToString(errorCode);
+                    String msg = MessageFormat.format(L10N.getString("err.stream_reset"), errorName);
+                    responseHandler.failed(new IOException(msg));
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error in response handler", e);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void settingsFrameReceived(boolean ack, Map<Integer, Integer> settings) {
+        // Transition from H2C_UPGRADE_PENDING to HTTP2 on first SETTINGS
+        if (parseState == ParseState.H2C_UPGRADE_PENDING) {
+            parseState = ParseState.HTTP2;
+            logger.fine("HTTP/2 handshake complete, ready for requests");
+        }
+        
+        if (!ack) {
+            // Apply server settings
+            for (Map.Entry<Integer, Integer> entry : settings.entrySet()) {
+                int identifier = entry.getKey();
+                int value = entry.getValue();
+                switch (identifier) {
+                    case H2FrameHandler.SETTINGS_HEADER_TABLE_SIZE:
+                        headerTableSize = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_ENABLE_PUSH:
+                        serverPushEnabled = (value == 1);
+                        break;
+                    case H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS:
+                        maxConcurrentStreams = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE:
+                        initialWindowSize = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_MAX_FRAME_SIZE:
+                        maxFrameSize = value;
+                        if (h2Parser != null) {
+                            h2Parser.setMaxFrameSize(value);
+                        }
+                        break;
+                    case H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE:
+                        maxHeaderListSize = value;
+                        break;
+                }
+            }
+            if (hpackEncoder != null) {
+                hpackEncoder.setHeaderTableSize(headerTableSize);
+                hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
+            }
+            // Send SETTINGS ACK
+            sendSettingsAck();
+        }
+    }
+
+    @Override
+    public void pushPromiseFrameReceived(int streamId, int promisedStreamId,
+            boolean endHeaders, ByteBuffer headerBlockFragment) {
+        if (!serverPushEnabled) {
+            sendRstStream(promisedStreamId, H2FrameHandler.ERROR_REFUSED_STREAM);
+            return;
+        }
+        // TODO: Handle server push - create a new stream for the promised response
+        logger.fine("Received PUSH_PROMISE for stream " + promisedStreamId);
+    }
+
+    @Override
+    public void pingFrameReceived(boolean ack, long opaqueData) {
+        if (!ack) {
+            // Respond to PING with ACK - already on SelectorLoop thread
+            try {
+                h2Writer.writePing(opaqueData, true);
+                h2Writer.flush();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error sending PING ACK", e);
+            }
+        }
+    }
+
+    @Override
+    public void goawayFrameReceived(int lastStreamId, int errorCode, ByteBuffer debugData) {
+        logger.info("Received GOAWAY: lastStreamId=" + lastStreamId +
+            ", error=" + H2FrameHandler.errorToString(errorCode));
+
+        // Fail streams with ID > lastStreamId
+        for (Map.Entry<Integer, HTTPStream> entry : activeStreams.entrySet()) {
+            if (entry.getKey() > lastStreamId) {
+                HTTPStream stream = activeStreams.remove(entry.getKey());
+                if (stream != null) {
+                    HTTPResponseHandler responseHandler = stream.getHandler();
+                    if (responseHandler != null) {
+                        try {
+                            responseHandler.failed(new IOException(L10N.getString("err.connection_closed_by_server")));
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING, "Error in response handler", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Close connection after GOAWAY
+        close();
+    }
+
+    @Override
+    public void windowUpdateFrameReceived(int streamId, int windowSizeIncrement) {
+        // TODO: Implement flow control
+    }
+
+    @Override
+    public void continuationFrameReceived(int streamId, boolean endHeaders,
+            ByteBuffer headerBlockFragment) {
+        HTTPStream stream = activeStreams.get(streamId);
+        if (stream == null) {
+            logger.warning("Received CONTINUATION for unknown stream " + streamId);
+            return;
+        }
+
+        appendHeaderBlockFragment(streamId, headerBlockFragment);
+
+        if (endHeaders) {
+            processHeaders(stream, streamId, false);
+            continuationStreamId = 0;
+        }
+    }
+
+    @Override
+    public void frameError(int errorCode, int streamId, String message) {
+        logger.warning("HTTP/2 frame error: " + message + " (error=" +
+            H2FrameHandler.errorToString(errorCode) + ", stream=" + streamId + ")");
+
+        if (streamId == 0) {
+            // Connection error
+            sendGoaway(errorCode);
+        } else {
+            // Stream error
+            sendRstStream(streamId, errorCode);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTP/2 Helper Methods
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void appendHeaderBlockFragment(int streamId, ByteBuffer fragment) {
+        if (headerBlockBuffer == null) {
+            headerBlockBuffer = ByteBuffer.allocate(Math.max(4096, fragment.remaining()));
+        }
+        if (headerBlockBuffer.remaining() < fragment.remaining()) {
+            // Grow buffer
+            int newCapacity = headerBlockBuffer.capacity() * 2 + fragment.remaining();
+            ByteBuffer newBuffer = ByteBuffer.allocate(newCapacity);
+            headerBlockBuffer.flip();
+            newBuffer.put(headerBlockBuffer);
+            headerBlockBuffer = newBuffer;
+        }
+        headerBlockBuffer.put(fragment);
+    }
+
+    private void processHeaders(HTTPStream stream, int streamId, boolean endStream) {
+        if (headerBlockBuffer == null) {
+            return;
+        }
+
+        headerBlockBuffer.flip();
+        final Headers headers = new Headers();
+
+        try {
+            hpackDecoder.decode(headerBlockBuffer, new HeaderHandler() {
+                @Override
+                public void header(Header header) {
+                    headers.add(header);
+                }
+            });
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "HPACK decode error", e);
+            sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
+            return;
+        } finally {
+            headerBlockBuffer = null;
+        }
+
+        // Extract status from :status pseudo-header
+        String statusStr = headers.getValue(":status");
+        if (statusStr != null) {
+            int statusCode = Integer.parseInt(statusStr);
+            HTTPStatus status = HTTPStatus.fromCode(statusCode);
+            HTTPResponseHandler responseHandler = stream.getHandler();
+            if (responseHandler != null) {
+                try {
+                    // Create response object
+                    HTTPResponse response = new HTTPResponse(status);
+                    if (status.isSuccess()) {
+                        responseHandler.ok(response);
+                    } else {
+                        responseHandler.error(response);
+                    }
+
+                    // Send individual headers
+                    for (Header header : headers) {
+                        String name = header.getName();
+                        if (!name.startsWith(":")) { // Skip pseudo-headers
+                            responseHandler.header(name, header.getValue());
+                        }
+                    }
+
+                    // If not end of stream, body data will follow
+                    if (!endStream) {
+                        responseHandler.startResponseBody();
+                    }
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Error in response handler", e);
+                }
+            }
+        }
+
+        if (endStream) {
+            completeStream(stream, streamId);
+        }
+    }
+
+    private void completeStream(HTTPStream stream, int streamId) {
+        activeStreams.remove(streamId);
+        HTTPResponseHandler responseHandler = stream.getHandler();
+        if (responseHandler != null) {
+            try {
+                responseHandler.endResponseBody();
+                responseHandler.close();
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Error in response handler", e);
+            }
+        }
+    }
+
+    private void sendSettingsAck() {
+        // Use invokeLater - executes immediately if already on SelectorLoop
+        getSelectorLoop().invokeLater(new SendSettingsAckTask());
+    }
+
+    private void sendRstStream(int streamId, int errorCode) {
+        // Use invokeLater - executes immediately if already on SelectorLoop
+        getSelectorLoop().invokeLater(new SendRstStreamTask(streamId, errorCode));
+    }
+
+    private void sendGoaway(int errorCode) {
+        // Calculate lastStreamId before queuing
+        int lastStreamId = 0;
+        for (int id : activeStreams.keySet()) {
+            if (id > lastStreamId) {
+                lastStreamId = id;
+            }
+        }
+        final int fLastStreamId = lastStreamId;
+        
+        // Use invokeLater - executes immediately if already on SelectorLoop
+        getSelectorLoop().invokeLater(new SendGoawayTask(fLastStreamId, errorCode));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // WritableByteChannel Adapter for H2Writer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Adapts the Connection's send() method to WritableByteChannel interface
+     * for use with H2Writer.
+     */
+    private class ConnectionChannel implements WritableByteChannel {
+
+        private boolean open = true;
+
+        @Override
+        public int write(ByteBuffer src) {
+            if (!open) {
+                return 0;
+            }
+            int written = src.remaining();
+            if (written > 0) {
+                // Create a copy since send() may be asynchronous
+                ByteBuffer copy = ByteBuffer.allocate(written);
+                copy.put(src);
+                copy.flip();
+                send(copy);
+            }
+            return written;
+        }
+
+        @Override
+        public boolean isOpen() {
+            return open;
+        }
+
+        @Override
+        public void close() {
+            open = false;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTP/2 Frame Sending Tasks
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Task that sends HTTP/2 HEADERS frame on the SelectorLoop thread.
+     */
+    private class SendHeadersTask implements Runnable {
+        private final int streamId;
+        private final ByteBuffer headerBlock;
+        private final boolean hasBody;
+        private final HTTPStream request;
+
+        SendHeadersTask(int streamId, ByteBuffer headerBlock, boolean hasBody, HTTPStream request) {
+            this.streamId = streamId;
+            this.headerBlock = headerBlock;
+            this.hasBody = hasBody;
+            this.request = request;
+        }
+
+        @Override
+        public void run() {
+            try {
+                // endStream is true only if there's no body
+                h2Writer.writeHeaders(streamId, headerBlock, !hasBody, true, 0, 0, 0, false);
+                h2Writer.flush();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error sending HTTP/2 request", e);
+                HTTPResponseHandler responseHandler = request.getHandler();
+                if (responseHandler != null) {
+                    try {
+                        responseHandler.failed(e);
+                    } catch (Exception ex) {
+                        logger.log(Level.WARNING, "Error in response handler", ex);
+                    }
+                }
+                activeStreams.remove(streamId);
+            }
+        }
+    }
+
+    /**
+     * Task that sends HTTP/2 DATA frame on the SelectorLoop thread.
+     */
+    private class SendDataTask implements Runnable {
+        private final int streamId;
+        private final ByteBuffer data;
+        private final boolean endStream;
+
+        SendDataTask(int streamId, ByteBuffer data, boolean endStream) {
+            this.streamId = streamId;
+            this.data = data;
+            this.endStream = endStream;
+        }
+
+        @Override
+        public void run() {
+            try {
+                h2Writer.writeData(streamId, data, endStream, 0);
+                h2Writer.flush();
+            } catch (IOException e) {
+                String msg = endStream ? "Error ending HTTP/2 stream" : "Error sending HTTP/2 data";
+                logger.log(Level.WARNING, msg, e);
+            }
+        }
+    }
+
+    /**
+     * Task that sends HTTP/2 SETTINGS frame on the SelectorLoop thread.
+     */
+    private class SendSettingsTask implements Runnable {
+        @Override
+        public void run() {
+            try {
+                h2Writer.writeSettings(new LinkedHashMap<Integer, Integer>());
+                h2Writer.flush();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error sending HTTP/2 connection preface", e);
+                close();
+            }
+        }
+    }
+
+    /**
+     * Task that sends HTTP/2 SETTINGS ACK frame on the SelectorLoop thread.
+     */
+    private class SendSettingsAckTask implements Runnable {
+        @Override
+        public void run() {
+            try {
+                h2Writer.writeSettingsAck();
+                h2Writer.flush();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error sending SETTINGS ACK", e);
+            }
+        }
+    }
+
+    /**
+     * Task that sends HTTP/2 RST_STREAM frame on the SelectorLoop thread.
+     */
+    private class SendRstStreamTask implements Runnable {
+        private final int streamId;
+        private final int errorCode;
+
+        SendRstStreamTask(int streamId, int errorCode) {
+            this.streamId = streamId;
+            this.errorCode = errorCode;
+        }
+
+        @Override
+        public void run() {
+            try {
+                h2Writer.writeRstStream(streamId, errorCode);
+                h2Writer.flush();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error sending RST_STREAM", e);
+            }
+        }
+    }
+
+    /**
+     * Task that sends HTTP/2 GOAWAY frame on the SelectorLoop thread.
+     */
+    private class SendGoawayTask implements Runnable {
+        private final int lastStreamId;
+        private final int errorCode;
+
+        SendGoawayTask(int lastStreamId, int errorCode) {
+            this.lastStreamId = lastStreamId;
+            this.errorCode = errorCode;
+        }
+
+        @Override
+        public void run() {
+            try {
+                h2Writer.writeGoaway(lastStreamId, errorCode, ByteBuffer.allocate(0));
+                h2Writer.flush();
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "Error sending GOAWAY", e);
+            } finally {
+                close();
+            }
+        }
     }
 }

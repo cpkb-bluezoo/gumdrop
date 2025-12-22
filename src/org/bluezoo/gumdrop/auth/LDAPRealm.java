@@ -22,9 +22,11 @@
 package org.bluezoo.gumdrop.auth;
 
 import java.net.UnknownHostException;
+import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -85,6 +87,7 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  */
 public class LDAPRealm implements Realm {
 
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
     private static final Logger LOGGER = Logger.getLogger(LDAPRealm.class.getName());
 
     /** Default timeout for LDAP operations in seconds. */
@@ -238,7 +241,8 @@ public class LDAPRealm implements Realm {
             // Now try to bind as the user
             return attemptBind(userDN, password);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "LDAP authentication error for user: " + username, e);
+            String msg = MessageFormat.format(L10N.getString("warn.ldap_auth_error"), username);
+            LOGGER.log(Level.WARNING, msg, e);
             return false;
         }
     }
@@ -252,7 +256,7 @@ public class LDAPRealm implements Realm {
     @Override
     @Deprecated
     public String getPassword(String username) {
-        throw new UnsupportedOperationException("LDAP realm does not expose passwords");
+        throw new UnsupportedOperationException(L10N.getString("warn.ldap_no_passwords"));
     }
 
     @Override
@@ -264,7 +268,8 @@ public class LDAPRealm implements Realm {
         try {
             return checkUserRole(username, role);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "LDAP role check error for user: " + username, e);
+            String msg = MessageFormat.format(L10N.getString("warn.ldap_role_error"), username);
+            LOGGER.log(Level.WARNING, msg, e);
             return false;
         }
     }
@@ -278,7 +283,8 @@ public class LDAPRealm implements Realm {
         try {
             return findUserDN(username) != null;
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "LDAP user lookup error: " + username, e);
+            String msg = MessageFormat.format(L10N.getString("warn.ldap_user_error"), username);
+            LOGGER.log(Level.WARNING, msg, e);
             return false;
         }
     }
@@ -330,7 +336,8 @@ public class LDAPRealm implements Realm {
 
                     @Override
                     public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
-                        error.set(new Exception("LDAP bind failed: " + result));
+                        String msg = MessageFormat.format(L10N.getString("err.ldap_bind"), result);
+                        error.set(new Exception(msg));
                         conn.unbind();
                         latch.countDown();
                     }
@@ -367,7 +374,7 @@ public class LDAPRealm implements Realm {
         });
 
         if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception("LDAP operation timed out");
+            throw new Exception(L10N.getString("err.ldap_timeout"));
         }
 
         if (error.get() != null) {
@@ -430,7 +437,7 @@ public class LDAPRealm implements Realm {
         });
 
         if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception("LDAP bind timed out");
+            throw new Exception(L10N.getString("err.ldap_timeout"));
         }
 
         if (error.get() != null) {
@@ -493,7 +500,8 @@ public class LDAPRealm implements Realm {
 
                     @Override
                     public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
-                        error.set(new Exception("LDAP bind failed: " + result));
+                        String msg = MessageFormat.format(L10N.getString("err.ldap_bind"), result);
+                        error.set(new Exception(msg));
                         conn.unbind();
                         latch.countDown();
                     }
@@ -529,7 +537,7 @@ public class LDAPRealm implements Realm {
         });
 
         if (!latch.await(timeout, TimeUnit.SECONDS)) {
-            throw new Exception("LDAP operation timed out");
+            throw new Exception(L10N.getString("err.ldap_timeout"));
         }
 
         if (error.get() != null) {
@@ -544,7 +552,7 @@ public class LDAPRealm implements Realm {
      */
     private LDAPClient createClient() throws UnknownHostException {
         if (selectorLoop == null) {
-            throw new IllegalStateException("LDAPRealm requires a SelectorLoop - use forSelectorLoop() first");
+            throw new IllegalStateException(L10N.getString("err.ldap_no_selectorloop"));
         }
         LDAPClient client = new LDAPClient(selectorLoop, host, port);
         client.setSecure(secure);
@@ -575,7 +583,7 @@ public class LDAPRealm implements Realm {
                 case ')':
                     sb.append("\\29");
                     break;
-                case '\0':
+                case '\u0000':
                     sb.append("\\00");
                     break;
                 default:
@@ -584,4 +592,5 @@ public class LDAPRealm implements Realm {
         }
         return sb.toString();
     }
+
 }

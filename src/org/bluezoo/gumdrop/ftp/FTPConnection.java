@@ -40,6 +40,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
+import java.security.cert.Certificate;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLSession;
 
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
@@ -117,14 +119,26 @@ public class FTPConnection extends LineBasedConnection {
                 clientAddr = (InetSocketAddress) channel.getRemoteAddress();
                 serverAddr = (InetSocketAddress) channel.getLocalAddress();
             }
+
+            Certificate[] certificates = null;
+            String cipherSuite = null;
+            String protocol = null;
+            if (engine != null) {
+                SSLSession sslSession = engine.getSession();
+                if (sslSession != null) {
+                    certificates = sslSession.getPeerCertificates();
+                    cipherSuite = sslSession.getCipherSuite();
+                    protocol = sslSession.getProtocol();
+                }
+            }
             
             tempMetadata = new FTPConnectionMetadata(
                 clientAddr,
                 serverAddr,
                 secure, // isSecureConnection
-                null, // clientCertificates - TODO: get from SSLEngine if available
-                null, // cipherSuite - TODO: get from SSLEngine if available
-                null, // protocolVersion - TODO: get from SSLEngine if available
+                certificates, // clientCertificates
+                cipherSuite, // cipherSuite
+                protocol, // protocolVersion
                 System.currentTimeMillis(), // connectionStartTimeMillis
                 "ftp" // connectorDescription
             );
@@ -524,7 +538,7 @@ public class FTPConnection extends LineBasedConnection {
             FTPAuthenticationResult result = handler.authenticate(user, null, null, metadata);
             handleAuthenticationResult(result);
         } else {
-            // Default behavior without handler - just ask for password
+            // Default behaviour without handler - just ask for password
             reply(331, L10N.getString("ftp.user_ok_need_password"));
         }
     }
@@ -544,7 +558,7 @@ public class FTPConnection extends LineBasedConnection {
             FTPAuthenticationResult result = handler.authenticate(user, password, account, metadata);
             handleAuthenticationResult(result);
         } else {
-            // Default behavior without handler - always deny
+            // Default behaviour without handler - always deny
             reply(530, L10N.getString("ftp.err.invalid_password"));
         }
     }
@@ -564,7 +578,7 @@ public class FTPConnection extends LineBasedConnection {
             FTPAuthenticationResult result = handler.authenticate(user, password, account, metadata);
             handleAuthenticationResult(result);
         } else {
-            // Default behavior without handler - account not required
+            // Default behaviour without handler - account not required
             reply(202, L10N.getString("ftp.command_ok"));
         }
     }

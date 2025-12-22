@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.http.client;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.channels.SocketChannel;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 
 import javax.net.ssl.SSLEngine;
 
@@ -132,6 +134,9 @@ import org.bluezoo.gumdrop.http.HTTPVersion;
  */
 public class HTTPClient extends Client {
 
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
+
     /** Default HTTP port. */
     public static final int DEFAULT_PORT = 80;
 
@@ -140,6 +145,15 @@ public class HTTPClient extends Client {
 
     // The current connection (single connection mode)
     private HTTPClientConnection connection;
+
+    // HTTP/2 enabled via ALPN (for TLS connections) - defaults to true
+    private boolean h2Enabled = true;
+
+    // h2c upgrade setting - propagated to connections
+    private boolean h2cUpgradeEnabled = true;
+
+    // HTTP/2 with prior knowledge - skip h2c upgrade, send PRI directly
+    private boolean h2WithPriorKnowledge = false;
 
     // Authentication credentials
     private String username;
@@ -270,6 +284,11 @@ public class HTTPClient extends Client {
         if (username != null) {
             conn.credentials(username, password);
         }
+
+        // Transfer HTTP/2 settings
+        conn.setH2Enabled(h2Enabled);
+        conn.setH2cUpgradeEnabled(h2cUpgradeEnabled);
+        conn.setH2WithPriorKnowledge(h2WithPriorKnowledge);
 
         return conn;
     }
@@ -471,6 +490,91 @@ public class HTTPClient extends Client {
         return connection;
     }
 
+    /**
+     * Enables or disables HTTP/2 via ALPN for TLS connections.
+     *
+     * <p>When enabled (the default), TLS connections will offer "h2" in ALPN
+     * negotiation, allowing the server to select HTTP/2 if it supports it.
+     *
+     * <p>Disable this if you specifically need to use HTTP/1.1 over TLS, for
+     * example to test HTTP/1.1 behaviour or connect to servers with HTTP/2 issues.
+     *
+     * @param enabled true to offer HTTP/2 in ALPN negotiation
+     */
+    public void setH2Enabled(boolean enabled) {
+        this.h2Enabled = enabled;
+        if (connection != null) {
+            connection.setH2Enabled(enabled);
+        }
+    }
+
+    /**
+     * Returns whether HTTP/2 via ALPN is enabled.
+     *
+     * @return true if HTTP/2 via ALPN is enabled
+     */
+    public boolean isH2Enabled() {
+        return h2Enabled;
+    }
+
+    /**
+     * Enables or disables h2c (HTTP/2 over cleartext) upgrade attempts.
+     *
+     * <p>When enabled (the default), plaintext HTTP connections will attempt
+     * to upgrade to HTTP/2 using the h2c upgrade mechanism. Most servers
+     * don't support this, but attempting it is harmless.
+     *
+     * <p>Disable this if you specifically need to test or use HTTP/1.1 only.
+     *
+     * @param enabled true to attempt h2c upgrade on plaintext connections
+     */
+    public void setH2cUpgradeEnabled(boolean enabled) {
+        this.h2cUpgradeEnabled = enabled;
+        if (connection != null) {
+            connection.setH2cUpgradeEnabled(enabled);
+        }
+    }
+
+    /**
+     * Returns whether h2c upgrade is enabled.
+     *
+     * @return true if h2c upgrade is enabled
+     */
+    public boolean isH2cUpgradeEnabled() {
+        return h2cUpgradeEnabled;
+    }
+
+    /**
+     * Enables or disables HTTP/2 with prior knowledge.
+     *
+     * <p>When enabled on a plaintext (non-TLS) connection, the client will
+     * immediately send the HTTP/2 connection preface (PRI * HTTP/2.0...) 
+     * without first attempting an h2c upgrade handshake.
+     *
+     * <p>This should only be enabled when you know the server supports HTTP/2,
+     * as the connection will fail if the server doesn't understand HTTP/2.
+     *
+     * <p>This setting is mutually exclusive with h2c upgrade - if prior knowledge
+     * is enabled, h2c upgrade is bypassed.
+     *
+     * @param enabled true to use HTTP/2 with prior knowledge on plaintext connections
+     */
+    public void setH2WithPriorKnowledge(boolean enabled) {
+        this.h2WithPriorKnowledge = enabled;
+        if (connection != null) {
+            connection.setH2WithPriorKnowledge(enabled);
+        }
+    }
+
+    /**
+     * Returns whether HTTP/2 with prior knowledge is enabled.
+     *
+     * @return true if HTTP/2 with prior knowledge is enabled
+     */
+    public boolean isH2WithPriorKnowledge() {
+        return h2WithPriorKnowledge;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
@@ -511,7 +615,8 @@ public class HTTPClient extends Client {
             try {
                 connect(null);
             } catch (Exception e) {
-                throw new IllegalStateException("Failed to connect: " + e.getMessage(), e);
+                String msg = MessageFormat.format(L10N.getString("err.failed_to_connect"), e.getMessage());
+                throw new IllegalStateException(msg, e);
             }
         }
         return connection;

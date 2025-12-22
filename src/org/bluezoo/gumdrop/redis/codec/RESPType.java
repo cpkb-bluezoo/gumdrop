@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.redis.codec;
 
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
+
 /**
  * RESP (Redis Serialization Protocol) data types.
  *
@@ -97,9 +100,9 @@ public enum RESPType {
             case '*':
                 return ARRAY;
             default:
-                throw new RESPException("Unknown RESP type prefix: " + (char) prefix);
+                String msg = MessageFormat.format(RESPDecoder.L10N.getString("err.unknown_type_prefix"), (char) prefix);
+                throw new RESPException(msg);
         }
     }
 
 }
-

@@ -119,6 +119,46 @@ final class SSLState {
     }
 
     /**
+     * Initiates the TLS handshake for client connections.
+     *
+     * <p>This method starts the handshake process by calling beginHandshake()
+     * and processing the initial NEED_WRAP state to generate the ClientHello.
+     * The ClientHello is written to connection.netOut and a write is requested.
+     *
+     * <p>Only call this for client connections - server connections wait for
+     * the client's ClientHello to arrive via normal data flow.
+     */
+    void startClientHandshake() {
+        if (closed) {
+            return;
+        }
+
+        try {
+            if (!handshakeStarted) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    Object sa = connection.getRemoteAddress();
+                    String message = Gumdrop.L10N.getString("info.ssl_begin_handshake");
+                    message = MessageFormat.format(message, sa);
+                    LOGGER.fine(message);
+                }
+                engine.beginHandshake();
+                handshakeStarted = true;
+            }
+
+            // Process the initial handshake - for clients, this will NEED_WRAP
+            SSLEngineResult.HandshakeStatus hs = engine.getHandshakeStatus();
+            if (hs != SSLEngineResult.HandshakeStatus.FINISHED &&
+                hs != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
+                processHandshake(hs);
+            }
+
+        } catch (SSLException e) {
+            LOGGER.log(Level.SEVERE, "Failed to initiate client TLS handshake", e);
+            handleClosed("client-handshake-init");
+        }
+    }
+
+    /**
      * Processes incoming encrypted data from connection.netIn.
      * Called by Connection.processInbound() after data is appended to netIn.
      * The connection.netIn buffer is in read mode (flipped).
@@ -149,42 +189,44 @@ final class SSLState {
         }
 
         try {
-            // Wrap application data into encrypted output
-            boolean done = false;
-            while (!done && data.hasRemaining()) {
-                // Ensure netOut has space - wrap directly into it
-                ensureNetOutCapacity(session.getPacketBufferSize());
+            synchronized (connection.netOutLock) {
+                // Wrap application data into encrypted output
+                boolean done = false;
+                while (!done && data.hasRemaining()) {
+                    // Ensure netOut has space - wrap directly into it
+                    ensureNetOutCapacity(session.getPacketBufferSize());
+                    
+                    SSLEngineResult result = engine.wrap(data, connection.netOut);
+
+                    switch (result.getStatus()) {
+                        case OK:
+                            // Data was wrapped successfully into connection.netOut
+                            break;
+                        case BUFFER_OVERFLOW:
+                            // Need more space in netOut
+                            growNetOut(session.getPacketBufferSize());
+                            break;
+                        case CLOSED:
+                            done = true;
+                            break;
+                        default:
+                            done = true;
+                            break;
+                    }
+
+                    // Handle any handshake events
+                    SSLEngineResult.HandshakeStatus hs = result.getHandshakeStatus();
+                    if (hs == SSLEngineResult.HandshakeStatus.NEED_TASK) {
+                        runDelegatedTasks();
+                    } else if (hs == SSLEngineResult.HandshakeStatus.NEED_UNWRAP) {
+                        done = true;
+                    }
+                }
                 
-                SSLEngineResult result = engine.wrap(data, connection.netOut);
-
-                switch (result.getStatus()) {
-                    case OK:
-                        // Data was wrapped successfully into connection.netOut
-                        break;
-                    case BUFFER_OVERFLOW:
-                        // Need more space in netOut
-                        growNetOut(session.getPacketBufferSize());
-                        break;
-                    case CLOSED:
-                        done = true;
-                        break;
-                    default:
-                        done = true;
-                        break;
+                // Request write if we produced output
+                if (connection.netOut.position() > 0 && connection.getSelectorLoop() != null) {
+                    connection.getSelectorLoop().requestWrite(connection);
                 }
-
-                // Handle any handshake events
-                SSLEngineResult.HandshakeStatus hs = result.getHandshakeStatus();
-                if (hs == SSLEngineResult.HandshakeStatus.NEED_TASK) {
-                    runDelegatedTasks();
-                } else if (hs == SSLEngineResult.HandshakeStatus.NEED_UNWRAP) {
-                    done = true;
-                }
-            }
-            
-            // Request write if we produced output
-            if (connection.netOut.position() > 0 && connection.getSelectorLoop() != null) {
-                connection.getSelectorLoop().requestWrite(connection);
             }
         } catch (SSLException e) {
             LOGGER.log(Level.SEVERE, "SSL wrap error", e);
@@ -225,9 +267,12 @@ final class SSLState {
             engine.closeOutbound();
 
             // Generate close_notify into connection.netOut
-            ensureNetOutCapacity(session.getPacketBufferSize());
-            ByteBuffer empty = ByteBuffer.allocate(0);
-            engine.wrap(empty, connection.netOut);
+            // Synchronize to prevent race with application thread calling wrap()
+            synchronized (connection.netOutLock) {
+                ensureNetOutCapacity(session.getPacketBufferSize());
+                ByteBuffer empty = ByteBuffer.allocate(0);
+                engine.wrap(empty, connection.netOut);
+            }
 
         } catch (SSLException e) {
             LOGGER.log(Level.WARNING, "Error sending close_notify", e);
@@ -267,31 +312,41 @@ final class SSLState {
 
             switch (hs) {
                 case NEED_WRAP:
-                    ensureNetOutCapacity(session.getPacketBufferSize());
-                    ByteBuffer empty = ByteBuffer.allocate(0);
-                    result = engine.wrap(empty, connection.netOut);
+                    // Synchronize on netOutLock since we're writing to connection.netOut
+                    // This prevents race with application thread calling wrap()
+                    synchronized (connection.netOutLock) {
+                        ensureNetOutCapacity(session.getPacketBufferSize());
+                        ByteBuffer empty = ByteBuffer.allocate(0);
+                        result = engine.wrap(empty, connection.netOut);
 
-                    switch (result.getStatus()) {
-                        case OK:
-                            // Handshake data written to connection.netOut
-                            if (connection.netOut.position() > 0 && 
-                                connection.getSelectorLoop() != null) {
-                                connection.getSelectorLoop().requestWrite(connection);
-                            }
-                            break;
-                        case BUFFER_OVERFLOW:
-                            growNetOut(session.getPacketBufferSize());
-                            loop = true;
-                            break;
-                        case CLOSED:
-                            handleClosed("handshake-wrap");
-                            return;
-                        default:
-                            break;
+                        switch (result.getStatus()) {
+                            case OK:
+                                // Handshake data written to connection.netOut
+                                if (connection.netOut.position() > 0 && 
+                                    connection.getSelectorLoop() != null) {
+                                    connection.getSelectorLoop().requestWrite(connection);
+                                }
+                                break;
+                            case BUFFER_OVERFLOW:
+                                growNetOut(session.getPacketBufferSize());
+                                loop = true;
+                                break;
+                            case CLOSED:
+                                handleClosed("handshake-wrap");
+                                return;
+                            default:
+                                break;
+                        }
                     }
                     break;
 
                 case NEED_UNWRAP:
+                    // Check if netIn is in read mode and has data
+                    // If no data available, return and wait for more from network
+                    if (connection.netIn.position() == 0 && connection.netIn.limit() == connection.netIn.capacity()) {
+                        // Buffer is in write mode (never flipped), no data to read
+                        return;
+                    }
                     result = engine.unwrap(connection.netIn, appIn);
 
                     switch (result.getStatus()) {
@@ -404,12 +459,15 @@ final class SSLState {
                 runDelegatedTasks();
             } else if (hs == SSLEngineResult.HandshakeStatus.NEED_WRAP) {
                 // Need to send data (e.g., close_notify response)
-                ensureNetOutCapacity(session.getPacketBufferSize());
-                ByteBuffer empty = ByteBuffer.allocate(0);
-                engine.wrap(empty, connection.netOut);
-                if (connection.netOut.position() > 0 && 
-                    connection.getSelectorLoop() != null) {
-                    connection.getSelectorLoop().requestWrite(connection);
+                // Synchronize to prevent race with application thread calling wrap()
+                synchronized (connection.netOutLock) {
+                    ensureNetOutCapacity(session.getPacketBufferSize());
+                    ByteBuffer empty = ByteBuffer.allocate(0);
+                    engine.wrap(empty, connection.netOut);
+                    if (connection.netOut.position() > 0 && 
+                        connection.getSelectorLoop() != null) {
+                        connection.getSelectorLoop().requestWrite(connection);
+                    }
                 }
             }
         }

@@ -24,15 +24,7 @@ package org.bluezoo.gumdrop.mime;
 import java.nio.ByteBuffer;
 
 /**
- * High-performance Quoted-Printable decoder for Content-Transfer-Encoding processing.
- * Optimized for time efficiency with minimal memory allocation.
- *
- * <p>Performance optimizations:
- * <ul>
- *   <li>Lookup table for O(1) hex character decoding</li>
- *   <li>Array-backed buffer fast path for direct memory access</li>
- *   <li>Minimized position manipulations and backtracking</li>
- * </ul>
+ * Quoted-Printable decoder for Content-Transfer-Encoding processing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -63,9 +55,9 @@ class QuotedPrintableDecoder {
 	 * @param src the source buffer containing Quoted-Printable encoded data (position/limit define the range)
 	 * @param dst the destination buffer to write decoded bytes to
 	 * @param max maximum bytes to write to destination buffer
-	 * @return DecodeResult containing decoded bytes and consumed input bytes
+	 * @return the number of bytes consumed
 	 */
-	static DecodeResult decode(ByteBuffer src, ByteBuffer dst, int max) {
+	static int decode(ByteBuffer src, ByteBuffer dst, int max) {
 		return decode(src, dst, max, false);
 	}
 
@@ -79,20 +71,21 @@ class QuotedPrintableDecoder {
 	 * @param dst the destination buffer to write decoded bytes to
 	 * @param max maximum bytes to write to destination buffer
 	 * @param endOfStream true if this is the final chunk of data (no more data coming)
-	 * @return DecodeResult containing decoded bytes and consumed input bytes
+	 * @return the number of bytes consumed
 	 */
-	static DecodeResult decode(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
+	static int decode(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
 		// Use array-backed fast path if available
 		if (src.hasArray() && dst.hasArray()) {
 			return decodeArrayBacked(src, dst, max, endOfStream);
-		}
-		return decodeByteBuffer(src, dst, max, endOfStream);
+		} else {
+		    return decodeByteBuffer(src, dst, max, endOfStream);
+        }
 	}
 
 	/**
 	 * Optimized decode using direct array access.
 	 */
-	private static DecodeResult decodeArrayBacked(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
+	private static int decodeArrayBacked(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
 		byte[] srcArray = src.array();
 		byte[] dstArray = dst.array();
 		int srcOffset = src.arrayOffset();
@@ -184,18 +177,16 @@ class QuotedPrintableDecoder {
 		}
 
 		// Update buffer positions
-		int outputBytes = dstPos - startDstPos;
-		int consumedBytes = srcPos - startSrcPos;
 		src.position(srcPos - srcOffset);
 		dst.position(dstPos - dstOffset);
 
-		return new DecodeResult(outputBytes, consumedBytes);
+		return srcPos - startSrcPos;
 	}
 
 	/**
 	 * Standard ByteBuffer-based decode for non-array-backed buffers.
 	 */
-	private static DecodeResult decodeByteBuffer(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
+	private static int decodeByteBuffer(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
 		int startPos = src.position();
 		int outputBytes = 0;
 
@@ -297,8 +288,7 @@ class QuotedPrintableDecoder {
 			}
 		}
 
-		int consumedBytes = src.position() - startPos;
-		return new DecodeResult(outputBytes, consumedBytes);
+		return src.position() - startPos;
 	}
 
 	/**
@@ -321,4 +311,3 @@ class QuotedPrintableDecoder {
 	}
 
 }
-

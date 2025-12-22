@@ -26,22 +26,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * High-performance parser for RFC 5322 Message-ID lists.
- * Uses single-pass character-level parsing for maximum efficiency.
+ * Parser for RFC 5322 Message-ID lists.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MessageIDParser {
 
-	private final char[] input;
-	private final int length;
-	private int pos;
-	private final StringBuilder tokenBuffer = new StringBuilder(128);
-	private final ArrayList<ContentID> messageIDs = new ArrayList<>();
-
-	private MessageIDParser(String value) {
-		this.input = value.toCharArray();
-		this.length = input.length;
-		this.pos = 0;
+    // Prevent instantiation
+	private MessageIDParser() {
 	}
 
 	/**
@@ -69,202 +60,102 @@ public class MessageIDParser {
 		if (value == null || value.trim().isEmpty()) {
 			return new ArrayList<>();
 		}
-
 		try {
-			MessageIDParser parser = new MessageIDParser(value);
-			return parser.parseMessageIDs();
+			char[] input = value.toCharArray();
+            int[] pos = new int[] { 0 };
+			return parseMessageIDs(input, input.length, pos);
 		} catch (Exception e) {
 			// Return null for any parsing errors
 			return null;
 		}
 	}
 
-	private List<ContentID> parseMessageIDs() {
-		messageIDs.clear();
-		skipWhitespaceCommentsAndCommas();
-
-		while (pos < length) {
-			ContentID messageID = parseMessageID();
+	static List<ContentID> parseMessageIDs(char[] input, int end, int[] pos) {
+		ArrayList<ContentID> messageIDs = new ArrayList<>();
+        StringBuilder tokenBuffer = new StringBuilder();
+		skipWhitespaceCommentsAndCommas(input, end, pos);
+		while (pos[0] < end) {
+			ContentID messageID = parseMessageID(input, end, pos, tokenBuffer);
 			if (messageID != null) {
 				messageIDs.add(messageID);
 			}
-
-			skipWhitespaceCommentsAndCommas();
+			skipWhitespaceCommentsAndCommas(input, end, pos);
 		}
-
 		return new ArrayList<>(messageIDs);
 	}
 
-	private ContentID parseMessageID() {
-		skipWhitespaceCommentsAndCommas();
-
-		if (pos >= length || input[pos] != '<') {
-			throw new IllegalArgumentException("Expected '<' to start message ID");
+	static ContentID parseMessageID(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
+		if (pos[0] >= length || input[pos[0]] != '<') {
+			throw new IllegalArgumentException(); // will be caught at top level
 		}
 
-		pos++; // Skip '<'
+		pos[0]++; // Skip '<'
 
 		// Parse id-left (local part)
-		String localPart = parseIdLeft();
+		String localPart = parseIdLeft(input, length, pos, tokenBuffer);
 
-		if (pos >= length || input[pos] != '@') {
-			throw new IllegalArgumentException("Expected '@' in message ID");
+		if (pos[0] >= length || input[pos[0]] != '@') {
+			throw new IllegalArgumentException(); // will be caught at top level
 		}
 
-		pos++; // Skip '@'
+		pos[0]++; // Skip '@'
 
 		// Parse id-right (domain)
-		String domain = parseIdRight();
+		String domain = parseIdRight(input, length, pos, tokenBuffer);
 
-		if (pos >= length || input[pos] != '>') {
-			throw new IllegalArgumentException("Expected '>' to end message ID");
+		if (pos[0] >= length || input[pos[0]] != '>') {
+			throw new IllegalArgumentException(); // will be caught at top level
 		}
 
-		pos++; // Skip '>'
+		pos[0]++; // Skip '>'
 
 		return new ContentID(localPart, domain);
 	}
 
-	private String parseIdLeft() {
+	static String parseIdLeft(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		tokenBuffer.setLength(0);
-
 		// Parse dot-atom-text for id-left
-		parseDotAtomText();
-
+		parseDotAtomText(input, length, pos, tokenBuffer);
 		return tokenBuffer.toString();
 	}
 
-	private String parseIdRight() {
+	static String parseIdRight(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		tokenBuffer.setLength(0);
-
-		if (pos < length && input[pos] == '[') {
+		if (pos[0] < length && input[pos[0]] == '[') {
 			// Domain literal: [dtext]
-			parseDomainLiteral();
+			EmailAddressParser.parseDomain(input, length, pos, tokenBuffer);
 		} else {
 			// Dot-atom-text
-			parseDotAtomText();
+			parseDotAtomText(input, length, pos, tokenBuffer);
 		}
-
 		return tokenBuffer.toString();
 	}
 
-	private void parseDotAtomText() {
+	static void parseDotAtomText(char[] input, int length, int[] pos, StringBuilder tokenBuffer) {
 		// Parse atom
-		parseAtom();
-
+		EmailAddressParser.parseAtom(input, length, pos, tokenBuffer);
 		// Parse additional dot-atom parts
-		while (pos < length && input[pos] == '.') {
+		while (pos[0] < length && input[pos[0]] == '.') {
 			tokenBuffer.append('.');
-			pos++; // Skip dot
-			parseAtom();
+			pos[0]++; // Skip dot
+			EmailAddressParser.parseAtom(input, length, pos, tokenBuffer);
 		}
 	}
 
-	private void parseAtom() {
-		int startLength = tokenBuffer.length();
-
-		while (pos < length && isAtextChar(input[pos])) {
-			tokenBuffer.append(input[pos]);
-			pos++;
-		}
-
-		if (tokenBuffer.length() == startLength) {
-			throw new IllegalArgumentException("Empty atom in message ID");
-		}
-	}
-
-	private void parseDomainLiteral() {
-		if (pos >= length || input[pos] != '[') {
-			throw new IllegalArgumentException("Expected '[' for domain literal");
-		}
-
-		tokenBuffer.append('[');
-		pos++; // Skip '['
-
-		while (pos < length && input[pos] != ']') {
-			char c = input[pos];
-			if (c == '\\' && pos + 1 < length) {
-				// Quoted-pair
-				tokenBuffer.append(c).append(input[pos + 1]);
-				pos += 2;
-			} else if (isDtextChar(c)) {
-				tokenBuffer.append(c);
-				pos++;
-			} else {
-				throw new IllegalArgumentException("Invalid character in domain literal");
-			}
-		}
-
-		if (pos >= length) {
-			throw new IllegalArgumentException("Unterminated domain literal");
-		}
-
-		tokenBuffer.append(']');
-		pos++; // Skip ']'
-	}
-
-	private void skipWhitespaceCommentsAndCommas() {
-		while (pos < length) {
-			char c = input[pos];
-			if (isWhitespace(c)) {
-				pos++;
+	static void skipWhitespaceCommentsAndCommas(char[] input, int length, int[] pos) {
+		while (pos[0] < length) {
+			char c = input[pos[0]];
+			if (EmailAddressParser.isWhitespace(c)) {
+				pos[0]++;
 			} else if (c == '(') {
-				skipComment();
+				EmailAddressParser.skipComment(input, length, pos);
 			} else if (c == ',') {
 				// Accept comma as separator for compatibility with Outlook and other email clients
-				pos++;
+				pos[0]++;
 			} else {
 				break;
 			}
 		}
 	}
 
-	private void skipComment() {
-		if (pos >= length || input[pos] != '(') {
-			return;
-		}
-
-		pos++; // Skip '('
-		int depth = 1;
-
-		while (pos < length && depth > 0) {
-			char c = input[pos];
-
-			if (c == '(') {
-				depth++;
-			} else if (c == ')') {
-				depth--;
-			} else if (c == '\\' && pos + 1 < length) {
-				pos++; // Skip escaped character
-			}
-
-			pos++;
-		}
-
-		if (depth > 0) {
-			throw new IllegalArgumentException("Unterminated comment");
-		}
-	}
-
-	private static boolean isWhitespace(char c) {
-		return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-	}
-
-	private static boolean isAtextChar(char c) {
-		// RFC 5322 atext = ALPHA / DIGIT / "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "/" / "=" / "?" / "^" / "_" / "`" / "{" / "|" / "}" / "~"
-		return (c >= 'a' && c <= 'z') ||
-			(c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') ||
-			c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
-			c == '\'' || c == '*' || c == '+' || c == '-' || c == '/' ||
-			c == '=' || c == '?' || c == '^' || c == '_' || c == '`' ||
-			c == '{' || c == '|' || c == '}' || c == '~';
-	}
-
-	private static boolean isDtextChar(char c) {
-		// RFC 5322 dtext = %d33-90 / %d94-126 (printable ASCII except [ ] \)
-		return c >= 33 && c <= 126 && c != '[' && c != ']' && c != '\\';
-	}
-
 }
-

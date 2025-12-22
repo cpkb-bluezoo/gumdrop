@@ -106,7 +106,7 @@ public class JSPParserFactory {
     
     /**
      * Parses a JSP file using the specified resolved JSP properties.
-     * This method uses the JSP configuration to determine parsing behavior,
+     * This method uses the JSP configuration to determine parsing behaviour,
      * including whether to force XML parsing via the isXml property.
      * 
      * @param input the input stream containing JSP content

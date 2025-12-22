@@ -30,7 +30,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * Unit tests for QuotedPrintableDecoder.
  * Tests include basic decoding, incomplete input handling, streaming scenarios,
- * and end-of-stream behavior.
+ * and end-of-stream behaviour.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -41,8 +41,8 @@ public class QuotedPrintableDecoderTest {
 	private String decode(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.ISO_8859_1));
 		ByteBuffer dst = ByteBuffer.allocate(QuotedPrintableDecoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, dst.capacity());
-		byte[] decoded = new byte[result.decodedBytes];
+		QuotedPrintableDecoder.decode(src, dst, dst.capacity());
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return new String(decoded, StandardCharsets.UTF_8);
@@ -51,8 +51,8 @@ public class QuotedPrintableDecoderTest {
 	private String decodeWithEndOfStream(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.ISO_8859_1));
 		ByteBuffer dst = ByteBuffer.allocate(QuotedPrintableDecoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, dst.capacity(), true);
-		byte[] decoded = new byte[result.decodedBytes];
+		QuotedPrintableDecoder.decode(src, dst, dst.capacity(), true);
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return new String(decoded, StandardCharsets.UTF_8);
@@ -61,8 +61,8 @@ public class QuotedPrintableDecoderTest {
 	private String decodeISO(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.ISO_8859_1));
 		ByteBuffer dst = ByteBuffer.allocate(QuotedPrintableDecoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, dst.capacity());
-		byte[] decoded = new byte[result.decodedBytes];
+		QuotedPrintableDecoder.decode(src, dst, dst.capacity());
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return new String(decoded, StandardCharsets.ISO_8859_1);
@@ -71,8 +71,8 @@ public class QuotedPrintableDecoderTest {
 	private String decodeISOWithEndOfStream(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.ISO_8859_1));
 		ByteBuffer dst = ByteBuffer.allocate(QuotedPrintableDecoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, dst.capacity(), true);
-		byte[] decoded = new byte[result.decodedBytes];
+		QuotedPrintableDecoder.decode(src, dst, dst.capacity(), true);
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return new String(decoded, StandardCharsets.ISO_8859_1);
@@ -125,9 +125,9 @@ public class QuotedPrintableDecoderTest {
 	public void testDecodeEmptyInput() {
 		ByteBuffer src = ByteBuffer.wrap(new byte[0]);
 		ByteBuffer dst = ByteBuffer.allocate(100);
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100);
-		assertEquals(0, result.decodedBytes);
-		assertEquals(0, result.consumedBytes);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100);
+		assertEquals(0, dst.position());
+		assertEquals(0, consumedBytes);
 	}
 
 	@Test
@@ -139,8 +139,8 @@ public class QuotedPrintableDecoderTest {
 	public void testDecodeLimitedOutput() {
 		ByteBuffer src = ByteBuffer.wrap("Hello World".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(5);
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 5);
-		assertEquals(5, result.decodedBytes);
+		QuotedPrintableDecoder.decode(src, dst, 5);
+		assertEquals(5, dst.position());
 	}
 
 	@Test
@@ -172,10 +172,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
 
-		assertEquals("Should decode 5 bytes (Hello)", 5, result.decodedBytes);
-		assertEquals("Should consume 5 bytes (stop at =)", 5, result.consumedBytes);
+		assertEquals("Should decode 5 bytes (Hello)", 5, dst.position());
+		assertEquals("Should consume 5 bytes (stop at =)", 5, consumedBytes);
 		assertEquals("Source position should be at =", 5, src.position());
 	}
 
@@ -185,10 +185,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, true);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, true);
 
-		assertEquals("Should decode 6 bytes (Hello=)", 6, result.decodedBytes);
-		assertEquals("Should consume all 6 bytes", 6, result.consumedBytes);
+		assertEquals("Should decode 6 bytes (Hello=)", 6, dst.position());
+		assertEquals("Should consume all 6 bytes", 6, consumedBytes);
 		dst.flip();
 		byte[] output = new byte[6];
 		dst.get(output);
@@ -201,10 +201,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=4".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
 
-		assertEquals("Should decode 5 bytes (Hello)", 5, result.decodedBytes);
-		assertEquals("Should consume 5 bytes (stop before =4)", 5, result.consumedBytes);
+		assertEquals("Should decode 5 bytes (Hello)", 5, dst.position());
+		assertEquals("Should consume 5 bytes (stop before =4)", 5, consumedBytes);
 	}
 
 	@Test
@@ -213,9 +213,9 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=4".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, true);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, true);
 
-		assertEquals("Should decode 7 bytes", 7, result.decodedBytes);
+		assertEquals("Should decode 7 bytes", 7, dst.position());
 		dst.flip();
 		byte[] output = new byte[7];
 		dst.get(output);
@@ -228,10 +228,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=\r".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
 
-		assertEquals("Should decode 5 bytes (Hello)", 5, result.decodedBytes);
-		assertEquals("Should consume 5 bytes (stop before =\\r)", 5, result.consumedBytes);
+		assertEquals("Should decode 5 bytes (Hello)", 5, dst.position());
+		assertEquals("Should consume 5 bytes (stop before =\\r)", 5, consumedBytes);
 	}
 
 	@Test
@@ -240,9 +240,9 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=\r".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, true);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, true);
 
-		assertEquals("Should decode 7 bytes", 7, result.decodedBytes);
+		assertEquals("Should decode 7 bytes", 7, dst.position());
 	}
 
 	// ========== Streaming / multi-chunk tests ==========
@@ -254,13 +254,13 @@ public class QuotedPrintableDecoderTest {
 
 		// First chunk: "Hello"
 		ByteBuffer src1 = ByteBuffer.wrap("Hello".getBytes(StandardCharsets.US_ASCII));
-		DecodeResult r1 = QuotedPrintableDecoder.decode(src1, dst, 100, false);
-		assertEquals(5, r1.decodedBytes);
+		QuotedPrintableDecoder.decode(src1, dst, 100, false);
+		assertEquals(5, dst.position());
 
 		// Second chunk: " World"
 		ByteBuffer src2 = ByteBuffer.wrap(" World".getBytes(StandardCharsets.US_ASCII));
-		DecodeResult r2 = QuotedPrintableDecoder.decode(src2, dst, 100, true);
-		assertEquals(6, r2.decodedBytes);
+		QuotedPrintableDecoder.decode(src2, dst, 100, true);
+		assertEquals(11, dst.position());
 
 		dst.flip();
 		byte[] output = new byte[11];
@@ -274,19 +274,20 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
 		// First chunk: "Hello=" (incomplete)
-		ByteBuffer src1 = ByteBuffer.wrap("Hello=".getBytes(StandardCharsets.US_ASCII));
-		DecodeResult r1 = QuotedPrintableDecoder.decode(src1, dst, 100, false);
-		assertEquals("First chunk: decode Hello", 5, r1.decodedBytes);
-		assertEquals("First chunk: consume Hello", 5, r1.consumedBytes);
+		ByteBuffer src = ByteBuffer.allocate(100);
+        src.put("Hello=".getBytes(StandardCharsets.US_ASCII));
+        src.flip();
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		assertEquals("First chunk: decode Hello", 5, dst.position());
+		assertEquals("First chunk: consume Hello", 5, consumedBytes);
 
-		// Simulate compact: keep the "="
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(20);
-		receiveBuffer.put((byte) '='); // The unconsumed =
-		receiveBuffer.put("20World".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
+		// compact: keep the "="
+		src.compact();
+		src.put("20World".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
 
-		DecodeResult r2 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, true);
-		assertEquals("Second chunk: decode space + World", 6, r2.decodedBytes);
+		QuotedPrintableDecoder.decode(src, dst, 100, true);
+		assertEquals("Second chunk: decode space + World", 11, dst.position());
 
 		dst.flip();
 		byte[] output = new byte[11];
@@ -298,21 +299,21 @@ public class QuotedPrintableDecoderTest {
 	public void testStreamingWithSplitEscapeMiddle() {
 		// "=2" split then "0" arrives
 		ByteBuffer dst = ByteBuffer.allocate(100);
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(20);
+		ByteBuffer src = ByteBuffer.allocate(100);
 
 		// First receive: "Hello=2"
-		receiveBuffer.put("Hello=2".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
-		DecodeResult r1 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, false);
-		assertEquals("Should consume only Hello", 5, r1.consumedBytes);
+		src.put("Hello=2".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		assertEquals("Should consume only Hello", 5, consumedBytes);
 
-		// Compact and add more: "=20World"
-		receiveBuffer.compact();
-		receiveBuffer.put("0World".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
+		// Compact and add more: "0World"
+		src.compact();
+		src.put("0World".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
 
-		DecodeResult r2 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, true);
-		assertEquals("Should decode space + World", 6, r2.decodedBytes);
+		QuotedPrintableDecoder.decode(src, dst, 100, true);
+		assertEquals("Should decode space + World", 11, dst.position());
 
 		dst.flip();
 		byte[] output = new byte[11];
@@ -324,21 +325,21 @@ public class QuotedPrintableDecoderTest {
 	public void testStreamingWithSplitSoftBreak() {
 		// Soft break "=\r\n" split across chunks
 		ByteBuffer dst = ByteBuffer.allocate(100);
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(20);
+		ByteBuffer src = ByteBuffer.allocate(20);
 
 		// First receive: "Hello=\r"
-		receiveBuffer.put("Hello=\r".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
-		DecodeResult r1 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, false);
-		assertEquals("Should consume only Hello", 5, r1.consumedBytes);
+		src.put("Hello=\r".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		assertEquals("Should consume only Hello", 5, consumedBytes);
 
 		// Compact and add: "\nWorld"
-		receiveBuffer.compact();
-		receiveBuffer.put("\nWorld".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
+		src.compact();
+		src.put("\nWorld".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
 
-		DecodeResult r2 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, true);
-		assertEquals("Should decode World (soft break removed)", 5, r2.decodedBytes);
+		QuotedPrintableDecoder.decode(src, dst, 100, true);
+		assertEquals("Should decode World (soft break removed)", 10, dst.position());
 
 		dst.flip();
 		byte[] output = new byte[10];
@@ -353,6 +354,7 @@ public class QuotedPrintableDecoderTest {
 		String encoded = "The quick brown fox =3D jumps over the lazy dog";
 
 		ByteBuffer dst = ByteBuffer.allocate(200);
+        ByteBuffer src = ByteBuffer.allocate(200);
 		int[] chunkSizes = {5, 7, 3, 11, 8, 100};
 		int offset = 0;
 
@@ -361,13 +363,15 @@ public class QuotedPrintableDecoderTest {
 			String chunk = encoded.substring(offset, end);
 			boolean isLast = (end >= encoded.length());
 
-			ByteBuffer src = ByteBuffer.wrap(chunk.getBytes(StandardCharsets.US_ASCII));
-			DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 200, isLast);
+			src.put(chunk.getBytes(StandardCharsets.US_ASCII));
+            src.flip();
+			int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 200, isLast);
 
-			offset += result.consumedBytes;
-			if (result.consumedBytes < chunk.length()) {
-				offset -= (chunk.length() - result.consumedBytes);
+			offset += consumedBytes;
+			if (consumedBytes < chunk.length()) {
+				offset -= (chunk.length() - consumedBytes);
 			}
+            src.compact();
 		}
 
 		dst.flip();
@@ -383,10 +387,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
 
-		assertEquals(5, result.decodedBytes);
-		assertEquals(5, result.consumedBytes);
+		assertEquals(5, dst.position());
+		assertEquals(5, consumedBytes);
 		assertEquals("Source position should be at end", 5, src.position());
 		assertFalse("Source should have no remaining", src.hasRemaining());
 	}
@@ -396,10 +400,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello=".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
 
-		assertEquals(5, result.decodedBytes);
-		assertEquals(5, result.consumedBytes);
+		assertEquals(5, dst.position());
+		assertEquals(5, consumedBytes);
 		assertEquals("Source position should be at =", 5, src.position());
 		assertEquals("Source should have 1 remaining", 1, src.remaining());
 	}
@@ -409,10 +413,10 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello World!".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(5);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 5);
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 5);
 
-		assertEquals(5, result.decodedBytes);
-		assertEquals(5, result.consumedBytes);
+		assertEquals(5, dst.position());
+		assertEquals(5, consumedBytes);
 		assertTrue("Source should have remaining data", src.hasRemaining());
 	}
 
@@ -421,9 +425,9 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("Hello World!".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 5);
+		QuotedPrintableDecoder.decode(src, dst, 5);
 
-		assertEquals("Should respect max parameter", 5, result.decodedBytes);
+		assertEquals("Should respect max parameter", 5, dst.position());
 	}
 
 	// ========== Edge cases ==========
@@ -468,9 +472,9 @@ public class QuotedPrintableDecoderTest {
 		ByteBuffer src = ByteBuffer.wrap(encoded.toString().getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(256);
 
-		DecodeResult result = QuotedPrintableDecoder.decode(src, dst, 256, true);
+		QuotedPrintableDecoder.decode(src, dst, 256, true);
 
-		assertEquals(256, result.decodedBytes);
+		assertEquals(256, dst.position());
 		dst.flip();
 		for (int i = 0; i < 256; i++) {
 			assertEquals("Byte " + i + " mismatch", (byte) i, dst.get());
@@ -494,7 +498,7 @@ public class QuotedPrintableDecoderTest {
 			receiveBuffer.flip();
 
 			boolean isLast = (srcOffset >= encodedBytes.length);
-			DecodeResult result = QuotedPrintableDecoder.decode(receiveBuffer, output, 100, isLast);
+			QuotedPrintableDecoder.decode(receiveBuffer, output, 100, isLast);
 
 			receiveBuffer.compact();
 		}
@@ -509,17 +513,18 @@ public class QuotedPrintableDecoderTest {
 	public void testSplitEscapeAtBufferBoundary() {
 		// Test escape sequence exactly at buffer boundary
 		ByteBuffer dst = ByteBuffer.allocate(100);
+		ByteBuffer src = ByteBuffer.allocate(100);
 
 		// "Test=" then "20More"
-		ByteBuffer src1 = ByteBuffer.wrap("Test=".getBytes(StandardCharsets.US_ASCII));
-		QuotedPrintableDecoder.decode(src1, dst, 100, false);
+		src.put("Test=".getBytes(StandardCharsets.US_ASCII));
+        src.flip();
+		QuotedPrintableDecoder.decode(src, dst, 100, false);
 
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(10);
-		receiveBuffer.put((byte) '=');
-		receiveBuffer.put("20More".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
+        src.compact();
+		src.put("20More".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
 
-		QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, true);
+		QuotedPrintableDecoder.decode(src, dst, 100, true);
 
 		dst.flip();
 		byte[] output = new byte[dst.remaining()];
@@ -532,29 +537,31 @@ public class QuotedPrintableDecoderTest {
 		// Simulate network receiving byte by byte
 		String encoded = "=41";
 		ByteBuffer dst = ByteBuffer.allocate(100);
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(10);
+		ByteBuffer src = ByteBuffer.allocate(10);
 
 		// Receive "="
-		receiveBuffer.put((byte) '=');
-		receiveBuffer.flip();
-		DecodeResult r1 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, false);
-		assertEquals("Just = should not be consumed", 0, r1.consumedBytes);
-		receiveBuffer.compact();
+		src.put((byte) '=');
+		src.flip();
+		int consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		assertEquals("Just = should not be consumed", 0, consumedBytes);
+		src.compact();
 
 		// Receive "4"
-		receiveBuffer.put((byte) '4');
-		receiveBuffer.flip();
-		DecodeResult r2 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, false);
-		assertEquals("=4 should not be consumed", 0, r2.consumedBytes);
-		receiveBuffer.compact();
+		src.put((byte) '4');
+		src.flip();
+		consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, false);
+		assertEquals("=4 should not be consumed", 0, consumedBytes);
+		src.compact();
 
 		// Receive "1"
-		receiveBuffer.put((byte) '1');
-		receiveBuffer.flip();
-		DecodeResult r3 = QuotedPrintableDecoder.decode(receiveBuffer, dst, 100, true);
-		assertEquals("=41 should decode to 1 byte", 1, r3.decodedBytes);
+		src.put((byte) '1');
+		src.flip();
+		consumedBytes = QuotedPrintableDecoder.decode(src, dst, 100, true);
+		assertEquals("=41 should consume 3 bytes", 3, consumedBytes);
+		assertEquals("=41 should decode to 1 byte", 1, dst.position());
 
 		dst.flip();
 		assertEquals("Should decode to 'A'", 'A', dst.get());
 	}
+
 }

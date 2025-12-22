@@ -928,4 +928,3 @@ public interface RedisSession {
     void command(ArrayResultHandler handler, String command, byte[]... args);
 
 }
-

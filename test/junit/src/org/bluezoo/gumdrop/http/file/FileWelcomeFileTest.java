@@ -46,7 +46,7 @@ import java.util.logging.Logger;
  * JUnit 4 test for FileHTTPConnection welcome file functionality.
  * 
  * <p>This test verifies that the welcome file mechanism works correctly,
- * including default behavior, custom configurations, and order of preference.
+ * including default behaviour, custom configurations, and order of preference.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -124,7 +124,7 @@ public class FileWelcomeFileTest {
         Files.write(tempRoot.resolve("index.html"), 
                    "<html><body>Root Index</body></html>".getBytes(StandardCharsets.UTF_8));
         
-        // dir1 has no welcome files - for testing empty directory behavior
+        // dir1 has no welcome files - for testing empty directory behaviour
     }
     
     /**

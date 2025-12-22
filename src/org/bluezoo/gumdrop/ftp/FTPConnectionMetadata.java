@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.ftp;
 
 import java.net.InetSocketAddress;
-import java.security.cert.X509Certificate;
+import java.security.cert.Certificate;
 
 /**
  * Provides comprehensive metadata about an active FTP connection.
@@ -35,10 +35,11 @@ import java.security.cert.X509Certificate;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FTPConnectionMetadata {
+
     private final InetSocketAddress clientAddress;
     private final InetSocketAddress serverAddress;
     private final boolean secureConnection;
-    private final X509Certificate[] clientCertificates;
+    private final Certificate[] clientCertificates;
     private final String cipherSuite;
     private final String protocolVersion;
     private final long connectionStartTimeMillis;
@@ -101,7 +102,7 @@ public class FTPConnectionMetadata {
             InetSocketAddress clientAddress,
             InetSocketAddress serverAddress,
             boolean secureConnection,
-            X509Certificate[] clientCertificates,
+            Certificate[] clientCertificates,
             String cipherSuite,
             String protocolVersion,
             long connectionStartTimeMillis,
@@ -138,7 +139,7 @@ public class FTPConnectionMetadata {
         return secureConnection;
     }
 
-    public X509Certificate[] getClientCertificates() {
+    public Certificate[] getClientCertificates() {
         return clientCertificates != null ? clientCertificates.clone() : null;
     }
 
@@ -273,4 +274,5 @@ public class FTPConnectionMetadata {
     void clearSiteCommandResponse() {
         this.siteCommandResponse = null;
     }
+
 }

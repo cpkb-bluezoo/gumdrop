@@ -24,22 +24,13 @@ package org.bluezoo.gumdrop.mime;
 import java.nio.ByteBuffer;
 
 /**
- * High-performance BASE64 decoder for Content-Transfer-Encoding processing.
- * Optimized for time efficiency with minimal memory allocation.
- *
- * <p>Performance optimizations:
- * <ul>
- *   <li>Lookup table for O(1) character validation and decoding</li>
- *   <li>Array-backed buffer fast path for direct memory access</li>
- *   <li>Batch processing of 4-character quantums</li>
- *   <li>Minimized branching in hot loops</li>
- * </ul>
+ * BASE64 decoder for Content-Transfer-Encoding processing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class Base64Decoder {
 
-	// BASE64 decoding table - maps ASCII values to 6-bit values
+	// BASE64 decoding table - maps ASCII values to 6 bits
 	// Values: 0-63 for valid chars, -1 for invalid, -2 for whitespace (skip)
 	private static final byte[] DECODE_TABLE = new byte[256];
 
@@ -48,7 +39,7 @@ class Base64Decoder {
 	private static final byte WHITESPACE = -2;
 
 	static {
-		// Initialize decode table with INVALID
+		// Default is INVALID
 		for (int i = 0; i < 256; i++) {
 			DECODE_TABLE[i] = INVALID;
 		}
@@ -80,9 +71,9 @@ class Base64Decoder {
 	 * @param src the source buffer containing BASE64 encoded data (position/limit define the range)
 	 * @param dst the destination buffer to write decoded bytes to
 	 * @param max maximum bytes to write to destination buffer
-	 * @return DecodeResult containing decoded bytes and consumed input bytes
+	 * @return the number of bytes consumed
 	 */
-	static DecodeResult decode(ByteBuffer src, ByteBuffer dst, int max) {
+	static int decode(ByteBuffer src, ByteBuffer dst, int max) {
 		return decode(src, dst, max, false);
 	}
 
@@ -96,20 +87,21 @@ class Base64Decoder {
 	 * @param dst the destination buffer to write decoded bytes to
 	 * @param max maximum bytes to write to destination buffer
 	 * @param endOfStream true if this is the final chunk of data (no more data coming)
-	 * @return DecodeResult containing decoded bytes and consumed input bytes
+	 * @return the number of bytes consumed
 	 */
-	static DecodeResult decode(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
+	static int decode(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
 		// Use array-backed fast path if available
 		if (src.hasArray() && dst.hasArray()) {
 			return decodeArrayBacked(src, dst, max, endOfStream);
-		}
-		return decodeByteBuffer(src, dst, max, endOfStream);
+		} else {
+		    return decodeByteBuffer(src, dst, max, endOfStream);
+        }
 	}
 
 	/**
 	 * Optimized decode using direct array access.
 	 */
-	private static DecodeResult decodeArrayBacked(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
+	private static int decodeArrayBacked(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
 		byte[] srcArray = src.array();
 		byte[] dstArray = dst.array();
 		int srcOffset = src.arrayOffset();
@@ -170,18 +162,16 @@ class Base64Decoder {
 		}
 
 		// Update buffer positions
-		int outputBytes = dstPos - startDstPos;
-		int consumedBytes = lastValidSrcPos - startSrcPos;
 		src.position(lastValidSrcPos - srcOffset);
 		dst.position(dstPos - dstOffset);
 
-		return new DecodeResult(outputBytes, consumedBytes);
+		return lastValidSrcPos - startSrcPos;
 	}
 
 	/**
 	 * Standard ByteBuffer-based decode for non-array-backed buffers.
 	 */
-	private static DecodeResult decodeByteBuffer(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
+	private static int decodeByteBuffer(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
 		int startPos = src.position();
 		int outputBytes = 0;
 		int quantum = 0;
@@ -230,8 +220,8 @@ class Base64Decoder {
 		}
 
 		src.position(lastValidPos);
-		int consumedBytes = lastValidPos - startPos;
-		return new DecodeResult(outputBytes, consumedBytes);
+
+		return lastValidPos - startPos;
 	}
 
 	/**

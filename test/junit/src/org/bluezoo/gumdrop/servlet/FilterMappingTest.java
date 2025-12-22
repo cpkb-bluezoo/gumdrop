@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
  * - Dispatcher type matching
  * - URL pattern management
  * - Servlet name management
- * - Default dispatcher behavior
+ * - Default dispatcher behaviour
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

@@ -30,7 +30,7 @@ import javax.net.ssl.SSLEngine;
 
 /**
  * Connection factory for HTTP connections on a given port.
- * Provides default HTTPConnection instances with 404 behavior.
+ * Provides default HTTPConnection instances with 404 behaviour.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -56,7 +56,7 @@ public class HTTPServer extends Server {
 
     /**
      * Handler factory for creating request handlers.
-     * If null, the default 404 behavior is used.
+     * If null, the default 404 behaviour is used.
      */
     private HTTPRequestHandlerFactory handlerFactory;
 
@@ -156,7 +156,7 @@ public class HTTPServer extends Server {
      *
      * <p>If no factory is set, requests receive a 404 Not Found response.
      *
-     * @param factory the handler factory, or null to use default 404 behavior
+     * @param factory the handler factory, or null to use default 404 behaviour
      * @see HTTPRequestHandlerFactory
      */
     public void setHandlerFactory(HTTPRequestHandlerFactory factory) {

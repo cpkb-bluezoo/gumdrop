@@ -99,7 +99,7 @@ If you want to customize JSP processing, you can override the automatic configur
 
 ### JSP Configuration Options
 
-Configure JSP behavior using the `<jsp-config>` section:
+Configure JSP behaviour using the `<jsp-config>` section:
 
 ```xml
 <jsp-config>

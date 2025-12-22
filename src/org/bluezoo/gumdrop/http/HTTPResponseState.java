@@ -205,7 +205,7 @@ public interface HTTPResponseState {
      * this sends the END_STREAM flag. For HTTP/1.1 with chunked encoding,
      * this sends the final chunk marker.
      *
-     * <p>Behavior depends on buffered state:
+     * <p>Behaviour depends on buffered state:
      * <ul>
      *   <li>If headers buffered (no body or trailers pending): flush with END_STREAM</li>
      *   <li>If no headers buffered: send empty frame with END_STREAM</li>

@@ -118,8 +118,12 @@ public final class IndentConfig {
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (!(obj instanceof IndentConfig)) return false;
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof IndentConfig)) {
+            return false;
+        }
         IndentConfig other = (IndentConfig) obj;
         return indentChar == other.indentChar && indentCount == other.indentCount;
     }

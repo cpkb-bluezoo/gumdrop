@@ -78,7 +78,7 @@ import java.util.logging.Logger;
  */
 public class Gumdrop {
 
-    public static final String VERSION = "0.9";
+    public static final String VERSION = "1.0";
 
     /** Default worker count for client-only mode (no configuration). */
     private static final int CLIENT_MODE_WORKERS = 1;

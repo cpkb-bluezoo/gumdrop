@@ -30,7 +30,7 @@ import java.util.Base64;
  *
  * Implements selective encoding that groups nearby non-ASCII sequences
  * to reduce fragmentation while maintaining compatibility with
- * native message-library behavior.
+ * native message-library behaviour.
  *
  * This implementation uses character-by-character processing for
  * optimal performance and precise control over encoding boundaries.
@@ -206,7 +206,9 @@ public class RFC2047Encoder {
 						chunkSize--;
 					}
 
-					if (chunkSize <= 0) chunkSize = 1;
+					if (chunkSize <= 0) {
+						chunkSize = 1;
+					}
 
 					byte[] chunk = new byte[chunkSize];
 					System.arraycopy(segmentBytes, offset, chunk, 0, chunkSize);

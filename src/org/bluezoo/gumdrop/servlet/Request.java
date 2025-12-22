@@ -144,9 +144,15 @@ class Request implements HttpServletRequest {
     }
 
     private int getKeySize(String cipherSuite) {
-        if (cipherSuite == null) return -1;
-        if (cipherSuite.contains("256")) return 256;
-        if (cipherSuite.contains("128")) return 128;
+        if (cipherSuite == null) {
+            return -1;
+        }
+        if (cipherSuite.contains("256")) {
+            return 256;
+        }
+        if (cipherSuite.contains("128")) {
+            return 128;
+        }
         return -1;
     }
 

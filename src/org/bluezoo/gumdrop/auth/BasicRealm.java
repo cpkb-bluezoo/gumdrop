@@ -27,12 +27,15 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.ResourceBundle;
+import java.util.logging.Logger;
 
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
@@ -86,6 +89,9 @@ import org.xml.sax.helpers.DefaultHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class BasicRealm extends DefaultHandler implements Realm {
+
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
+    static final Logger LOGGER = Logger.getLogger(BasicRealm.class.getName());
 
     /**
      * Users and their passwords.
@@ -215,7 +221,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
             md.update(password.getBytes(StandardCharsets.US_ASCII));
             return ByteArrays.toHexString(md.digest());
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("MD5 algorithm not available", e);
+            throw new RuntimeException(L10N.getString("err.no_md5"), e);
         }
     }
 
@@ -349,8 +355,8 @@ public class BasicRealm extends DefaultHandler implements Realm {
                 // Look up the role name for this group id
                 String roleName = groupIdToName.get(groupId);
                 if (roleName == null) {
-                    System.err.println("Warning: Realm user '" + username + 
-                                       "' references undefined group id '" + groupId + "'");
+                    String msg = MessageFormat.format(L10N.getString("warn.undefined_group"), username, groupId);
+                    LOGGER.warning(msg);
                     // Use the id as the role name as fallback
                     roleName = groupId;
                 }
@@ -390,4 +396,3 @@ public class BasicRealm extends DefaultHandler implements Realm {
     }
 
 }
-

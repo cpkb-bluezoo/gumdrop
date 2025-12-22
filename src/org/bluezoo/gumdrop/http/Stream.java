@@ -30,11 +30,14 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.TLSInfo;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
@@ -112,7 +115,7 @@ class Stream implements HTTPResponseState {
     // Fields accessed by HTTPConnection
     boolean closeConnection;
     Collection<String> upgrade;
-    SettingsFrame settingsFrame;
+    Map<Integer, Integer> h2cSettings;
     long timestampCompleted = 0L;
 
     // Telemetry span for this request/response (null if telemetry disabled)
@@ -198,19 +201,10 @@ class Stream implements HTTPResponseState {
             // Get next available server stream ID (must be even for server-initiated streams)
             int promisedStreamId = httpConnection.getNextServerStreamId();
             
-            // Create PUSH_PROMISE frame with the headers
+            // Create and send PUSH_PROMISE frame with the headers
             byte[] headerBlock = httpConnection.encodeHeaders(headers);
-            PushPromiseFrame pushPromiseFrame = new PushPromiseFrame(
-                this.streamId,      // Parent stream ID
-                false,              // Not padded
-                true,               // End headers
-                0,                  // Pad length (not used)
-                promisedStreamId,   // Promised stream ID
-                headerBlock         // Encoded headers
-            );
-            
-            // Send PUSH_PROMISE frame
-            httpConnection.sendFrame(pushPromiseFrame);
+            httpConnection.sendPushPromise(this.streamId, promisedStreamId, 
+                ByteBuffer.wrap(headerBlock), true);
             
             // Create the promised stream for handling the pushed response
             Stream promisedStream = httpConnection.createPushedStream(promisedStreamId, method, uri, headers);
@@ -324,11 +318,35 @@ class Stream implements HTTPResponseState {
         headerBlock.put(hbf);
     }
 
-    void streamEndHeaders() throws IOException {
+    /**
+     * Parses HTTP2-Settings header value into a settings map.
+     */
+    private static Map<Integer, Integer> parseH2cSettings(ByteBuffer payload) {
+        Map<Integer, Integer> settings = new LinkedHashMap<Integer, Integer>();
+        while (payload.remaining() >= 6) {
+            int identifier = ((payload.get() & 0xff) << 8) | (payload.get() & 0xff);
+            int value = ((payload.get() & 0xff) << 24)
+                | ((payload.get() & 0xff) << 16)
+                | ((payload.get() & 0xff) << 8)
+                | (payload.get() & 0xff);
+            settings.put(identifier, value);
+        }
+        return settings.isEmpty() ? null : settings;
+    }
+
+    void streamEndHeaders() {
         if (headerBlock != null) {
             headerBlock.flip();
             headers = new Headers();
-            connection.hpackDecoder.decode(headerBlock, hpackHandler);
+            try {
+                connection.hpackDecoder.decode(headerBlock, hpackHandler);
+            } catch (IOException e) {
+                // HPACK decompression failure is a connection-level error
+                HTTPConnection.LOGGER.log(Level.WARNING, 
+                    "HPACK decompression error", e);
+                connection.sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
+                return;
+            }
             headerBlock = null;
         }
         if (state == State.IDLE) {
@@ -343,7 +361,7 @@ class Stream implements HTTPResponseState {
         if (headers != null) {
             boolean isUpgrade = false;
             Collection<String> upgradeProtocols = null;
-            SettingsFrame http2Settings = null;
+            Map<Integer, Integer> http2Settings = null;
             for (Iterator<Header> i = headers.iterator(); i.hasNext(); ) {
                 Header header = i.next();
                 String name = header.getName();
@@ -384,12 +402,7 @@ class Stream implements HTTPResponseState {
                     } else if ("HTTP2-Settings".equalsIgnoreCase(name)) {
                         try {
                             byte[] settings = Base64.getUrlDecoder().decode(value);
-                            try {
-                                http2Settings = new SettingsFrame(0, ByteBuffer.wrap(settings));
-                            } catch (ProtocolException e) {
-                                HTTPConnection.LOGGER.log(Level.SEVERE, 
-                                    HTTPConnection.L10N.getString("err.decode_http2_settings"), e);
-                            }
+                            http2Settings = parseH2cSettings(ByteBuffer.wrap(settings));
                         } catch (IllegalArgumentException e) {
                             // Invalid base64 in HTTP2-Settings header - ignore it
                             HTTPConnection.LOGGER.log(Level.WARNING, 
@@ -400,42 +413,39 @@ class Stream implements HTTPResponseState {
             }
             if (isUpgrade && upgradeProtocols != null) {
                 this.upgrade = upgradeProtocols;
-                this.settingsFrame = http2Settings;
+                this.h2cSettings = http2Settings;
             }
         }
-        if (this.upgrade != null && this.upgrade.contains("h2c") && this.settingsFrame != null) {
-            // Upgrading the connection is handled specially by the
-            // connection and not delivered to the stream implementation
+        // Initialize telemetry span if enabled
+        initTelemetrySpan();
+        
+        // Dispatch to handler if present
+        if (handler != null) {
+            // Handler already set - this is a continuation or trailer headers
+            if (handlerBodyStarted && !handlerBodyEnded) {
+                // Body was in progress, this must be trailer headers
+                handlerBodyEnded = true;
+                handler.endRequestBody(this);
+            }
+            handler.headers(headers, this);
         } else {
-            // Initialize telemetry span if enabled
-            initTelemetrySpan();
-            
-            // Dispatch to handler if present
-            if (handler != null) {
-                // Handler already set - this is a continuation or trailer headers
-                if (handlerBodyStarted && !handlerBodyEnded) {
-                    // Body was in progress, this must be trailer headers
-                    handlerBodyEnded = true;
-                    handler.endRequestBody(this);
+            // No handler yet - try to create one via factory
+            // Note: We create the handler even for h2c upgrade requests, because
+            // the request body (if any) arrives before the protocol switch.
+            HTTPRequestHandlerFactory factory = connection.getHandlerFactory();
+            if (factory != null) {
+                handler = factory.createHandler(headers, this);
+                if (handler != null) {
+                    handler.headers(headers, this);
                 }
-                handler.headers(headers, this);
+                // If handler is null, factory may have sent a response (401, 404, etc.)
             } else {
-                // No handler yet - try to create one via factory
-                HTTPRequestHandlerFactory factory = connection.getHandlerFactory();
-                if (factory != null) {
-                    handler = factory.createHandler(headers, this);
-                    if (handler != null) {
-                        handler.headers(headers, this);
-                    }
-                    // If handler is null, factory may have sent a response (401, 404, etc.)
-                } else {
-                    // No factory configured - send 404 Not Found
-                    try {
-                        sendError(404);
-                    } catch (ProtocolException e) {
-                        HTTPConnection.LOGGER.warning(MessageFormat.format(
-                            HTTPConnection.L10N.getString("warn.default_404_failed"), e.getMessage()));
-                    }
+                // No factory configured - send 404 Not Found
+                try {
+                    sendError(404);
+                } catch (ProtocolException e) {
+                    HTTPConnection.LOGGER.warning(MessageFormat.format(
+                        HTTPConnection.L10N.getString("warn.default_404_failed"), e.getMessage()));
                 }
             }
         }

@@ -264,4 +264,3 @@ public class MessageParser extends MIMEParser {
 	}
 
 }
-

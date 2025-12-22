@@ -265,6 +265,29 @@ public abstract class Connection implements ChannelHandler, SSLState.Callback {
         bufferSize = sslState.getBufferSize();
     }
 
+    /**
+     * Initiates the TLS handshake for client connections.
+     *
+     * <p>For client TLS connections, the client must send the ClientHello first.
+     * This method triggers that initial handshake step. It should be called
+     * after TCP connect completes for connections that start secure.
+     *
+     * <p>Server connections should NOT call this - they wait for the client's
+     * ClientHello to arrive via normal data reception.
+     *
+     * <p>This method is safe to call if SSL is not configured - it does nothing.
+     */
+    protected final void initiateClientTLSHandshake() {
+        if (sslState != null && isClientConnection()) {
+            // Start the TLS handshake - this will:
+            // 1. Begin the handshake (engine.beginHandshake())
+            // 2. See NEED_WRAP status for client
+            // 3. Wrap ClientHello into netOut
+            // 4. Request write via selectorLoop to send ClientHello
+            sslState.startClientHandshake();
+        }
+    }
+
     // -- Package-private methods called by SelectorLoop --
 
     /**

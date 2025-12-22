@@ -29,7 +29,7 @@ package org.bluezoo.gumdrop;
  * <p>Client handlers are event-driven and asynchronous, responding to
  * network events delivered by the underlying Connection. Protocol-specific
  * subinterfaces extend this base interface to add protocol-specific events
- * and behaviors.
+ * and behaviours.
  * 
  * <p>All handler methods are called from the Connection's executor thread
  * and should not perform blocking operations. Long-running or blocking

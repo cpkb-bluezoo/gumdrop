@@ -29,7 +29,7 @@ import java.time.Instant;
  * <p>This interface encapsulates all SMTP extensions that describe how the
  * sender wants the message to be delivered. Unlike message content options
  * (like SMTPUTF8 which affects parsing), these options affect routing and
- * delivery behavior.
+ * delivery behaviour.
  * 
  * <p>Supported extensions:
  * <ul>
@@ -44,7 +44,7 @@ import java.time.Instant;
  * via {@link DSNRecipientParameters}.
  * 
  * <p>Handlers must respect these delivery requirements when relaying messages.
- * Failure to honor REQUIRETLS or DELIVERBY constraints should result in
+ * Failure to honour REQUIRETLS or DELIVERBY constraints should result in
  * bouncing the message rather than violating the sender's requirements.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

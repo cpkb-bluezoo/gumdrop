@@ -31,7 +31,7 @@ import java.util.Base64;
 /**
  * Unit tests for Base64Decoder.
  * Tests include basic decoding, incomplete input handling, streaming scenarios,
- * and end-of-stream behavior.
+ * and end-of-stream behaviour.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -42,8 +42,8 @@ public class Base64DecoderTest {
 	private String decode(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(Base64Decoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = Base64Decoder.decode(src, dst, dst.capacity());
-		byte[] decoded = new byte[result.decodedBytes];
+		Base64Decoder.decode(src, dst, dst.capacity());
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return new String(decoded, StandardCharsets.UTF_8);
@@ -52,8 +52,8 @@ public class Base64DecoderTest {
 	private String decodeWithEndOfStream(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(Base64Decoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = Base64Decoder.decode(src, dst, dst.capacity(), true);
-		byte[] decoded = new byte[result.decodedBytes];
+		Base64Decoder.decode(src, dst, dst.capacity(), true);
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return new String(decoded, StandardCharsets.UTF_8);
@@ -62,8 +62,8 @@ public class Base64DecoderTest {
 	private byte[] decodeBytes(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(Base64Decoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = Base64Decoder.decode(src, dst, dst.capacity());
-		byte[] decoded = new byte[result.decodedBytes];
+		Base64Decoder.decode(src, dst, dst.capacity());
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return decoded;
@@ -72,8 +72,8 @@ public class Base64DecoderTest {
 	private byte[] decodeBytesWithEndOfStream(String encoded) {
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(Base64Decoder.estimateDecodedSize(encoded.length()));
-		DecodeResult result = Base64Decoder.decode(src, dst, dst.capacity(), true);
-		byte[] decoded = new byte[result.decodedBytes];
+		Base64Decoder.decode(src, dst, dst.capacity(), true);
+		byte[] decoded = new byte[dst.position()];
 		dst.flip();
 		dst.get(decoded);
 		return decoded;
@@ -141,9 +141,9 @@ public class Base64DecoderTest {
 	public void testDecodeEmptyInput() {
 		ByteBuffer src = ByteBuffer.wrap(new byte[0]);
 		ByteBuffer dst = ByteBuffer.allocate(100);
-		DecodeResult result = Base64Decoder.decode(src, dst, 100);
-		assertEquals(0, result.decodedBytes);
-		assertEquals(0, result.consumedBytes);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100);
+		assertEquals(0, dst.position());
+		assertEquals(0, consumedBytes);
 	}
 
 	@Test
@@ -151,8 +151,8 @@ public class Base64DecoderTest {
 		String encoded = "SGVsbG8gV29ybGQ="; // "Hello World"
 		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(3);
-		DecodeResult result = Base64Decoder.decode(src, dst, 3);
-		assertTrue(result.decodedBytes <= 3);
+		Base64Decoder.decode(src, dst, 3);
+		assertTrue(dst.position() <= 3);
 	}
 
 	@Test
@@ -165,7 +165,7 @@ public class Base64DecoderTest {
 	@Test
 	public void testDecodeSpecialChars() {
 		// Test + and / characters which are valid Base64
-		byte[] original = {(byte) 0xFB, (byte) 0xEF, (byte) 0xBE};
+		byte[] original = { (byte) 0xFB, (byte) 0xEF, (byte) 0xBE };
 		String encoded = Base64.getEncoder().encodeToString(original);
 		assertArrayEquals(original, decodeBytes(encoded));
 	}
@@ -185,10 +185,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("S".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("1 char incomplete: should decode 0 bytes", 0, result.decodedBytes);
-		assertEquals("1 char incomplete: should consume 0 bytes", 0, result.consumedBytes);
+		assertEquals("1 char incomplete: should decode 0 bytes", 0, dst.position());
+		assertEquals("1 char incomplete: should consume 0 bytes", 0, consumedBytes);
 		assertEquals("Source position should be at start", 0, src.position());
 	}
 
@@ -198,10 +198,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("SG".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("2 char incomplete: should decode 0 bytes", 0, result.decodedBytes);
-		assertEquals("2 char incomplete: should consume 0 bytes", 0, result.consumedBytes);
+		assertEquals("2 char incomplete: should decode 0 bytes", 0, dst.position());
+		assertEquals("2 char incomplete: should consume 0 bytes", 0, consumedBytes);
 	}
 
 	@Test
@@ -210,10 +210,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("SGV".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("3 char incomplete: should decode 0 bytes", 0, result.decodedBytes);
-		assertEquals("3 char incomplete: should consume 0 bytes", 0, result.consumedBytes);
+		assertEquals("3 char incomplete: should decode 0 bytes", 0, dst.position());
+		assertEquals("3 char incomplete: should consume 0 bytes", 0, consumedBytes);
 	}
 
 	@Test
@@ -222,9 +222,9 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("SG".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, true);
+		Base64Decoder.decode(src, dst, 100, true);
 
-		assertEquals("2 chars EOS: should decode 1 byte", 1, result.decodedBytes);
+		assertEquals("2 chars EOS: should decode 1 byte", 1, dst.position());
 		dst.flip();
 		assertEquals("First byte should be 'H'", 'H', dst.get());
 	}
@@ -235,9 +235,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("SGV".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, true);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, true);
 
-		assertEquals("3 chars EOS: should decode 2 bytes", 2, result.decodedBytes);
+		assertEquals("3 chars EOS: should decode 2 bytes", 2, dst.position());
+		assertEquals("3 chars EOS: should consume 3 bytes", 3, consumedBytes);
 		dst.flip();
 		assertEquals("First byte should be 'H'", 'H', dst.get());
 		assertEquals("Second byte should be 'e'", 'e', dst.get());
@@ -250,19 +251,22 @@ public class Base64DecoderTest {
 		// "Hello" = "SGVsbG8=" - decode in 4-char chunks
 		String encoded = "SGVsbG8=";
 		ByteBuffer dst = ByteBuffer.allocate(100);
+		ByteBuffer src = ByteBuffer.allocate(100);
 		StringBuilder result = new StringBuilder();
 
 		// First chunk: "SGVs" (complete quantum)
-		ByteBuffer src1 = ByteBuffer.wrap("SGVs".getBytes(StandardCharsets.US_ASCII));
-		DecodeResult r1 = Base64Decoder.decode(src1, dst, 100, false);
-		assertEquals("First chunk: should decode 3 bytes", 3, r1.decodedBytes);
-		assertEquals("First chunk: should consume 4 bytes", 4, r1.consumedBytes);
+		src.put("SGVs".getBytes(StandardCharsets.US_ASCII));
+        src.flip();
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
+		assertEquals("First chunk: should decode 3 bytes", 3, dst.position());
+		assertEquals("First chunk: should consume 4 bytes", 4, consumedBytes);
 
 		// Second chunk: "bG8=" (complete quantum with padding)
-		dst.clear();
-		ByteBuffer src2 = ByteBuffer.wrap("bG8=".getBytes(StandardCharsets.US_ASCII));
-		DecodeResult r2 = Base64Decoder.decode(src2, dst, 100, false);
-		assertEquals("Second chunk: should decode 2 bytes", 2, r2.decodedBytes);
+		src.compact();
+		src.put("bG8=".getBytes(StandardCharsets.US_ASCII));
+        src.flip();
+		Base64Decoder.decode(src, dst, 100, false);
+		assertEquals("Second chunk: should decode 2 bytes", 5, dst.position());
 	}
 
 	@Test
@@ -271,26 +275,26 @@ public class Base64DecoderTest {
 		// "Hello" = "SGVsbG8="
 
 		// Buffer that simulates network receive - 10 bytes capacity
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(10);
+		ByteBuffer src = ByteBuffer.allocate(10);
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
 		// First receive: "SGVsb" (5 chars - 1 complete quantum + 1 incomplete)
-		receiveBuffer.put("SGVsb".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
+		src.put("SGVsb".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
 
-		DecodeResult r1 = Base64Decoder.decode(receiveBuffer, dst, 100, false);
-		assertEquals("First pass: should decode 3 bytes (1 quantum)", 3, r1.decodedBytes);
-		assertEquals("First pass: should consume 4 bytes", 4, r1.consumedBytes);
-		assertEquals("Buffer should have 1 byte remaining", 1, receiveBuffer.remaining());
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
+		assertEquals("First pass: should decode 3 bytes (1 quantum)", 3, dst.position());
+		assertEquals("First pass: should consume 4 bytes", 4, consumedBytes);
+		assertEquals("Buffer should have 1 byte remaining", 1, src.remaining());
 
 		// Compact and add more data: "G8="
-		receiveBuffer.compact();
-		receiveBuffer.put("G8=".getBytes(StandardCharsets.US_ASCII));
-		receiveBuffer.flip();
+		src.compact();
+		src.put("G8=".getBytes(StandardCharsets.US_ASCII));
+		src.flip();
 
-		DecodeResult r2 = Base64Decoder.decode(receiveBuffer, dst, 100, false);
-		assertEquals("Second pass: should decode 2 bytes", 2, r2.decodedBytes);
-		assertEquals("Second pass: should consume 4 bytes", 4, r2.consumedBytes);
+		consumedBytes = Base64Decoder.decode(src, dst, 100, false);
+		assertEquals("Second pass: should decode 2 bytes", 5, dst.position());
+		assertEquals("Second pass: should consume 4 bytes", 4, consumedBytes);
 
 		// Verify complete output
 		dst.flip();
@@ -306,22 +310,22 @@ public class Base64DecoderTest {
 		String encoded = Base64.getEncoder().encodeToString(original.getBytes(StandardCharsets.UTF_8));
 		byte[] encodedBytes = encoded.getBytes(StandardCharsets.US_ASCII);
 
-		ByteBuffer receiveBuffer = ByteBuffer.allocate(16);
+		ByteBuffer src = ByteBuffer.allocate(16);
 		ByteBuffer dst = ByteBuffer.allocate(200);
 		int srcOffset = 0;
 
 		while (srcOffset < encodedBytes.length) {
 			// Simulate receiving data in chunks
-			int toRead = Math.min(receiveBuffer.remaining(), encodedBytes.length - srcOffset);
-			receiveBuffer.put(encodedBytes, srcOffset, toRead);
+			int toRead = Math.min(src.remaining(), encodedBytes.length - srcOffset);
+			src.put(encodedBytes, srcOffset, toRead);
 			srcOffset += toRead;
-			receiveBuffer.flip();
+			src.flip();
 
 			boolean isLast = (srcOffset >= encodedBytes.length);
-			Base64Decoder.decode(receiveBuffer, dst, 200, isLast);
+			Base64Decoder.decode(src, dst, 200, isLast);
 
 			// Compact moves unconsumed bytes to the start
-			receiveBuffer.compact();
+			src.compact();
 		}
 
 		dst.flip();
@@ -337,10 +341,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("TWFu".getBytes(StandardCharsets.US_ASCII)); // "Man"
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+	    int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("Should decode 3 bytes", 3, result.decodedBytes);
-		assertEquals("Should consume 4 bytes", 4, result.consumedBytes);
+		assertEquals("Should decode 3 bytes", 3, dst.position());
+		assertEquals("Should consume 4 bytes", 4, consumedBytes);
 		assertEquals("Source position should be at end", 4, src.position());
 		assertFalse("Source should have no remaining", src.hasRemaining());
 	}
@@ -351,10 +355,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("TWFuT".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("Should decode 3 bytes", 3, result.decodedBytes);
-		assertEquals("Should consume 4 bytes", 4, result.consumedBytes);
+		assertEquals("Should decode 3 bytes", 3, dst.position());
+		assertEquals("Should consume 4 bytes", 4, consumedBytes);
 		assertEquals("Source position should be after complete quantum", 4, src.position());
 		assertEquals("Source should have 1 remaining", 1, src.remaining());
 	}
@@ -365,10 +369,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("SGVsbG8gV29ybGQ=".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(3); // Only room for 1 quantum
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 3);
+		int consumedBytes = Base64Decoder.decode(src, dst, 3);
 
-		assertEquals("Should decode exactly 3 bytes", 3, result.decodedBytes);
-		assertEquals("Should consume 4 bytes (1 quantum)", 4, result.consumedBytes);
+		assertEquals("Should decode exactly 3 bytes", 3, dst.position());
+		assertEquals("Should consume 4 bytes (1 quantum)", 4, consumedBytes);
 		assertTrue("Source should have remaining data", src.hasRemaining());
 	}
 
@@ -377,9 +381,9 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("SGVsbG8gV29ybGQ=".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 3); // max=3
+		Base64Decoder.decode(src, dst, 3); // max=3
 
-		assertTrue("Should respect max parameter", result.decodedBytes <= 3);
+		assertTrue("Should respect max parameter", dst.position() <= 3);
 	}
 
 	// ========== Edge cases ==========
@@ -395,9 +399,9 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("   \r\n\t  ".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, true);
+		Base64Decoder.decode(src, dst, 100, true);
 
-		assertEquals("Whitespace only: should decode 0 bytes", 0, result.decodedBytes);
+		assertEquals("Whitespace only: should decode 0 bytes", 0, dst.position());
 	}
 
 	@Test
@@ -416,9 +420,9 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("TWFu".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+		Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("Complete quantum: should decode 3 bytes", 3, result.decodedBytes);
+		assertEquals("Complete quantum: should decode 3 bytes", 3, dst.position());
 		dst.flip();
 		byte[] output = new byte[3];
 		dst.get(output);
@@ -431,10 +435,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("TWFuTWFu".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, false);
+		int consumedBytes = Base64Decoder.decode(src, dst, 100, false);
 
-		assertEquals("Two quantums: should decode 6 bytes", 6, result.decodedBytes);
-		assertEquals("Should consume all 8 bytes", 8, result.consumedBytes);
+		assertEquals("Two quantums: should decode 6 bytes", 6, dst.position());
+		assertEquals("Should consume all 8 bytes", 8, consumedBytes);
 	}
 
 	@Test
@@ -453,15 +457,17 @@ public class Base64DecoderTest {
 	public void testStreamingWithWhitespaceBreaks() {
 		// MIME often has line breaks every 76 chars
 		String original = "The quick brown fox jumps over the lazy dog";
-		String encoded = Base64.getMimeEncoder().encodeToString(original.getBytes(StandardCharsets.UTF_8));
+		String encoded = "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZw==";
 
-		ByteBuffer src = ByteBuffer.wrap(encoded.getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer src = ByteBuffer.allocate(100);
 		ByteBuffer dst = ByteBuffer.allocate(200);
+        src.put(encoded.getBytes(StandardCharsets.US_ASCII));
+        src.flip();
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 200, true);
+		Base64Decoder.decode(src, dst, 200, true);
 
+		byte[] output = new byte[dst.position()];
 		dst.flip();
-		byte[] output = new byte[result.decodedBytes];
 		dst.get(output);
 		assertEquals(original, new String(output, StandardCharsets.UTF_8));
 	}
@@ -472,10 +478,10 @@ public class Base64DecoderTest {
 		ByteBuffer src = ByteBuffer.wrap("T".getBytes(StandardCharsets.US_ASCII));
 		ByteBuffer dst = ByteBuffer.allocate(100);
 
-		DecodeResult result = Base64Decoder.decode(src, dst, 100, true);
+		Base64Decoder.decode(src, dst, 100, true);
 
 		// Only 6 bits - not enough for even 1 byte
-		assertEquals("Single char at EOS: should decode 0 bytes (only 6 bits)", 0, result.decodedBytes);
+		assertEquals("Single char at EOS: should decode 0 bytes (only 6 bits)", 0, dst.position());
 	}
 
 	@Test
@@ -496,7 +502,7 @@ public class Base64DecoderTest {
 			receiveBuffer.flip();
 
 			boolean isLast = (srcOffset >= encodedBytes.length);
-			DecodeResult result = Base64Decoder.decode(receiveBuffer, output, 100, isLast);
+			Base64Decoder.decode(receiveBuffer, output, 100, isLast);
 
 			// Compact remaining unconsumed bytes
 			receiveBuffer.compact();
@@ -507,4 +513,5 @@ public class Base64DecoderTest {
 		output.get(decoded);
 		assertEquals("Hello World!", new String(decoded, StandardCharsets.UTF_8));
 	}
+
 }

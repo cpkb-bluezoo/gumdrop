@@ -29,9 +29,11 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
 
 /**
  * Utility methods for SASL authentication mechanisms.
@@ -40,6 +42,8 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class SASLUtils {
+
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
 
     private static final Charset US_ASCII = StandardCharsets.US_ASCII;
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
@@ -196,7 +200,7 @@ public final class SASLUtils {
             MessageDigest md = MessageDigest.getInstance("MD5");
             return md.digest(data);
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("MD5 not available", e);
+            throw new RuntimeException(L10N.getString("err.no_md5"), e);
         }
     }
 
@@ -221,7 +225,7 @@ public final class SASLUtils {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             return md.digest(data);
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
+            throw new RuntimeException(L10N.getString("err.no_sha256"), e);
         }
     }
 
@@ -238,7 +242,8 @@ public final class SASLUtils {
             mac.init(new SecretKeySpec(key, "HmacMD5"));
             return mac.doFinal(data);
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            throw new RuntimeException("HMAC-MD5 failed", e);
+            String msg = MessageFormat.format(L10N.getString("err.sasl_algorithm_failed"), "HMAC-MD5");
+            throw new RuntimeException(msg, e);
         }
     }
 
@@ -255,7 +260,8 @@ public final class SASLUtils {
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
             return mac.doFinal(data);
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            throw new RuntimeException("HMAC-SHA256 failed", e);
+            String msg = MessageFormat.format(L10N.getString("err.sasl_algorithm_failed"), "HMAC-SHA256");
+            throw new RuntimeException(msg, e);
         }
     }
 
@@ -384,7 +390,7 @@ public final class SASLUtils {
         }
         
         if (firstNull < 0 || secondNull < 0) {
-            throw new IllegalArgumentException("Invalid PLAIN credentials format");
+            throw new IllegalArgumentException(L10N.getString("err.sasl_plain"));
         }
         
         String authzid = new String(credentials, 0, firstNull, UTF_8);

@@ -242,6 +242,28 @@ public abstract class Connector {
     public void setKeystoreFormat(String format) {
         keystoreFormat = format;
     }
+
+    /**
+     * Sets the SSL context to use for secure connections.
+     *
+     * <p>This allows clients to configure a custom SSL context, for example
+     * with specific trust managers or key managers. When set, this context
+     * is used instead of creating one from the keystore configuration.
+     *
+     * @param context the SSL context to use
+     */
+    public void setSSLContext(SSLContext context) {
+        this.context = context;
+    }
+
+    /**
+     * Returns the SSL context used for secure connections.
+     *
+     * @return the SSL context, or null if not configured
+     */
+    public SSLContext getSSLContext() {
+        return context;
+    }
     
     /**
      * Sets the SNI (Server Name Indication) hostname to certificate alias mapping.
@@ -297,14 +319,14 @@ public abstract class Connector {
      * Initializes SSL context if SSL configuration is provided.
      */
     protected void start() {
-        // Validation: secure=true REQUIRES SSL configuration
-        if (secure && (keystoreFile == null || keystorePass == null)) {
+        // Validation: secure=true REQUIRES SSL configuration (keystore OR SSLContext)
+        if (secure && context == null && (keystoreFile == null || keystorePass == null)) {
             String message = Gumdrop.L10N.getString("err.no_keystore");
             throw new RuntimeException("Secure connector requires keystore configuration: " + message);
         }
 
-        // Create SSL context if SSL configuration is provided
-        if (keystoreFile != null && keystorePass != null) {
+        // Create SSL context if SSL configuration is provided and not already set
+        if (context == null && keystoreFile != null && keystorePass != null) {
             try {
                 KeyStore ks = KeyStore.getInstance(keystoreFormat);
                 InputStream in = new FileInputStream(keystoreFile);

@@ -158,7 +158,7 @@ public class FTPServer extends Server {
             } catch (Exception e) {
                 // Log error but don't fail connection creation
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "Failed to create FTP handler, using default behavior", e);
+                    LOGGER.log(Level.WARNING, "Failed to create FTP handler, using default behaviour", e);
                 }
             }
         }

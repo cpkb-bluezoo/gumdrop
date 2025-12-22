@@ -160,17 +160,23 @@ class DefaultDeliveryRequirements implements DeliveryRequirements {
             first = false;
         }
         if (priority != null) {
-            if (!first) sb.append(", ");
+            if (!first) {
+                sb.append(", ");
+            }
             sb.append("MT-PRIORITY=").append(priority);
             first = false;
         }
         if (releaseTime != null) {
-            if (!first) sb.append(", ");
+            if (!first) {
+                sb.append(", ");
+            }
             sb.append("HOLDUNTIL=").append(releaseTime);
             first = false;
         }
         if (deliverByDeadline != null) {
-            if (!first) sb.append(", ");
+            if (!first) {
+                sb.append(", ");
+            }
             sb.append("BY=").append(deliverByDeadline);
             if (deliverByReturn != null) {
                 sb.append(deliverByReturn ? ";R" : ";N");

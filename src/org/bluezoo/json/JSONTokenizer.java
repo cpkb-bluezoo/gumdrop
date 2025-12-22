@@ -889,7 +889,7 @@ class JSONTokenizer implements JSONLocator {
 
     /**
      * Parse a number string into appropriate Number type.
-     * This method is now deprecated in favor of parseNumberDirect.
+     * This method is now deprecated in favour of parseNumberDirect.
      */
     private Number parseNumber(String s) throws JSONException {
         try {

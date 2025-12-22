@@ -26,8 +26,11 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.util.ResourceBundle;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.DNSResolver;
+import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.smtp.SMTPPipeline;
@@ -37,51 +40,41 @@ import org.bluezoo.gumdrop.smtp.SMTPPipeline;
  *
  * <p>AuthPipeline implements {@link SMTPPipeline} to integrate with
  * SMTPConnection. Configure it with callbacks for the checks you want,
- * then associate it with the connection. The SMTP layer automatically:
+ * then associate it with the connection.
  *
+ * <p>The pipeline is purely event-driven:
  * <ul>
- *   <li>Runs SPF check on MAIL FROM and invokes your SPFCallback</li>
- *   <li>Feeds raw message bytes for DKIM signature verification</li>
- *   <li>Tees bytes to your registered MessageHandler (if any)</li>
- *   <li>Runs DKIM verification at end-of-data and invokes your DKIMCallback</li>
- *   <li>Runs DMARC evaluation and invokes your DMARCCallback</li>
+ *   <li>SPF check runs at MAIL FROM, delivers result via {@link SPFCallback}</li>
+ *   <li>DKIM verification runs at end-of-data, delivers result via {@link DKIMCallback}</li>
+ *   <li>DMARC evaluation runs when DKIM completes (using accumulated SPF result
+ *       and From domain), delivers result via {@link DMARCCallback}</li>
  * </ul>
  *
  * <p>Example usage:
  *
  * <pre><code>
- * // In connected() or mailFrom(), create and configure pipeline
- * AuthPipeline.Builder builder = new AuthPipeline.Builder(resolver, clientIP, heloHost);
- *
- * builder.onSPF(new SPFCallback() {
- *     public void onResult(SPFResult result, String explanation) {
+ * AuthPipeline pipeline = new AuthPipeline.Builder(resolver, clientIP, heloHost)
+ *     .onSPF((result, explanation) -&gt; {
  *         if (result == SPFResult.FAIL) {
- *             callback.mailFromReply(SenderPolicyResult.REJECT);
- *         } else {
- *             callback.mailFromReply(SenderPolicyResult.ACCEPT);
+ *             // Log or take action
  *         }
- *     }
- * });
- *
- * builder.onDMARC(new DMARCCallback() {
- *     public void onResult(DMARCResult result, DMARCPolicy policy, String domain) {
- *         if (result == DMARCResult.FAIL &amp;&amp; policy == DMARCPolicy.REJECT) {
- *             dataCallback.reply(DataEndReply.REJECT);
- *         } else {
- *             dataCallback.reply(DataEndReply.ACCEPT);
+ *     })
+ *     .onDMARC((result, policy, domain, verdict) -&gt; {
+ *         if (verdict == AuthVerdict.REJECT) {
+ *             // Reject message
  *         }
- *     }
- * });
- *
- * // Associate with connection
- * connection.setPipeline(builder.build());
+ *     })
+ *     .build();
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SMTPPipeline
- * @see AuthCheck
+ * @see DMARCValidator
+ * @see DMARCMessageHandler
  */
 public class AuthPipeline implements SMTPPipeline {
+
+    private static final Logger LOGGER = Logger.getLogger(AuthPipeline.class.getName());
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.auth.L10N");
@@ -90,7 +83,7 @@ public class AuthPipeline implements SMTPPipeline {
     private final InetAddress clientIP;
     private final String heloHost;
 
-    // Callbacks
+    // User callbacks
     private final SPFCallback spfCallback;
     private final DKIMCallback dkimCallback;
     private final DMARCCallback dmarcCallback;
@@ -98,14 +91,13 @@ public class AuthPipeline implements SMTPPipeline {
     // User's message handler for teed content
     private final MessageHandler messageHandler;
 
-    // Shared validator instances
+    // Validators
     private final SPFValidator spfValidator;
     private final DKIMValidator dkimValidator;
-    private final DMARCValidator dmarcValidator;
 
     // Per-message state
-    private AuthCheck currentCheck;
-    private AuthCheckChannel currentChannel;
+    private DKIMMessageParser parser;
+    private DMARCValidator dmarcValidator;
 
     /**
      * Creates a pipeline from the builder.
@@ -120,21 +112,53 @@ public class AuthPipeline implements SMTPPipeline {
         this.dmarcCallback = builder.dmarcCallback;
         this.messageHandler = builder.messageHandler;
 
-        // Create validators based on what callbacks are registered
-        this.spfValidator = (spfCallback != null) ? new SPFValidator(resolver) : null;
-        this.dkimValidator = (dkimCallback != null || dmarcCallback != null)
-                ? new DKIMValidator(resolver) : null;
-        this.dmarcValidator = (dmarcCallback != null)
-                ? new DMARCValidator(resolver) : null;
+        // Create validators
+        this.spfValidator = new SPFValidator(resolver);
+        this.dkimValidator = new DKIMValidator(resolver);
     }
 
     // -- SMTPPipeline implementation --
 
     @Override
     public void mailFrom(EmailAddress sender) {
-        // Create new check for this message
-        currentCheck = new AuthCheck(this, clientIP, heloHost);
-        currentCheck.checkSender(sender);
+        // Create DMARCValidator for this message (it aggregates SPF + DKIM results)
+        dmarcValidator = new DMARCValidator(resolver, dmarcCallback);
+
+        // Set SPF domain on DMARCValidator
+        String spfDomain = (sender != null) ? sender.getDomain() : heloHost;
+        dmarcValidator.setSpfDomain(spfDomain);
+
+        // Create SPF callback that forwards to both user callback and DMARCValidator
+        SPFCallback effectiveSpfCallback = new SPFCallback() {
+            @Override
+            public void spfResult(SPFResult result, String explanation) {
+                // Forward to DMARCValidator for DMARC evaluation
+                dmarcValidator.spfResult(result, explanation);
+                // Forward to user callback if registered
+                if (spfCallback != null) {
+                    spfCallback.spfResult(result, explanation);
+                }
+            }
+        };
+
+        // Run SPF check
+        spfValidator.check(sender, clientIP, heloHost, effectiveSpfCallback);
+
+        // Create DKIM message parser
+        parser = new DKIMMessageParser();
+
+        // Create DMARCMessageHandler that:
+        // 1. Extracts From domain for DMARC
+        // 2. Tees to user's MessageHandler
+        DMARCMessageHandler.FromDomainCallback fromDomainCallback =
+                new DMARCMessageHandler.FromDomainCallback() {
+                    @Override
+                    public void onFromDomain(String domain) {
+                        dmarcValidator.setFromDomain(domain);
+                    }
+                };
+        DMARCMessageHandler dmarcHandler = new DMARCMessageHandler(fromDomainCallback, messageHandler);
+        parser.setMessageHandler(dmarcHandler);
     }
 
     @Override
@@ -144,100 +168,79 @@ public class AuthPipeline implements SMTPPipeline {
 
     @Override
     public WritableByteChannel getMessageChannel() {
-        if (currentCheck == null) {
+        if (parser == null) {
             return null;
         }
-        currentChannel = new AuthCheckChannel(currentCheck);
-        return currentChannel;
+        return new ParserChannel(parser);
     }
 
     @Override
     public void endData() {
-        if (currentCheck != null) {
-            currentCheck.close();
+        if (parser == null) {
+            return;
         }
+
+        // Close parser
+        try {
+            parser.close();
+        } catch (MIMEParseException e) {
+            LOGGER.log(Level.WARNING, "Error closing message parser", e);
+        }
+
+        // Create DKIM callback that forwards to both user callback and DMARCValidator
+        DKIMCallback effectiveDkimCallback = new DKIMCallback() {
+            @Override
+            public void dkimResult(DKIMResult result, String signingDomain, String selector) {
+                // Forward to user callback if registered
+                if (dkimCallback != null) {
+                    dkimCallback.dkimResult(result, signingDomain, selector);
+                }
+                // Forward to DMARCValidator - this triggers DMARC evaluation
+                dmarcValidator.dkimResult(result, signingDomain, selector);
+            }
+        };
+
+        // Verify DKIM signature
+        dkimValidator.setMessageParser(parser);
+        byte[] bodyHash = parser.getBodyHash();
+        if (bodyHash != null) {
+            dkimValidator.setBodyHash(bodyHash);
+        }
+        dkimValidator.verify(effectiveDkimCallback);
     }
 
     @Override
     public void reset() {
-        currentCheck = null;
-        currentChannel = null;
-    }
-
-    // -- Internal accessors for AuthCheck --
-
-    /**
-     * Returns whether SPF checking is enabled.
-     */
-    boolean isSPFEnabled() {
-        return spfValidator != null;
+        parser = null;
+        dmarcValidator = null;
     }
 
     /**
-     * Returns whether DKIM checking is enabled.
+     * WritableByteChannel that forwards bytes to the DKIMMessageParser.
      */
-    boolean isDKIMEnabled() {
-        return dkimValidator != null;
-    }
+    private static class ParserChannel implements WritableByteChannel {
 
-    /**
-     * Returns whether DMARC checking is enabled.
-     */
-    boolean isDMARCEnabled() {
-        return dmarcValidator != null;
-    }
-
-    SPFCallback getSPFCallback() {
-        return spfCallback;
-    }
-
-    DKIMCallback getDKIMCallback() {
-        return dkimCallback;
-    }
-
-    DMARCCallback getDMARCCallback() {
-        return dmarcCallback;
-    }
-
-    MessageHandler getMessageHandler() {
-        return messageHandler;
-    }
-
-    SPFValidator getSPFValidator() {
-        return spfValidator;
-    }
-
-    DKIMValidator getDKIMValidator() {
-        return dkimValidator;
-    }
-
-    DMARCValidator getDMARCValidator() {
-        return dmarcValidator;
-    }
-
-    DNSResolver getResolver() {
-        return resolver;
-    }
-
-    // -- Channel adapter --
-
-    /**
-     * WritableByteChannel adapter that forwards writes to AuthCheck.
-     */
-    private static class AuthCheckChannel implements WritableByteChannel {
-
-        private final AuthCheck check;
+        private final DKIMMessageParser parser;
         private boolean open = true;
 
-        AuthCheckChannel(AuthCheck check) {
-            this.check = check;
+        ParserChannel(DKIMMessageParser parser) {
+            this.parser = parser;
         }
 
         @Override
         public int write(ByteBuffer src) throws IOException {
-            int remaining = src.remaining();
-            check.receive(src);
-            return remaining;
+            if (!open) {
+                throw new IOException("Channel is closed");
+            }
+            int count = src.remaining();
+            if (count > 0) {
+                try {
+                    parser.receive(src);
+                } catch (MIMEParseException e) {
+                    throw new IOException("Parse error", e);
+                }
+            }
+            return count;
         }
 
         @Override
@@ -248,9 +251,7 @@ public class AuthPipeline implements SMTPPipeline {
         @Override
         public void close() throws IOException {
             open = false;
-            // Don't call check.close() here - endData() does that
         }
-
     }
 
     // -- Builder --
@@ -330,8 +331,8 @@ public class AuthPipeline implements SMTPPipeline {
         /**
          * Registers a message handler to receive parsed message events.
          *
-         * <p>The raw message bytes will be teed to a MessageParser that
-         * invokes this handler.
+         * <p>The raw message bytes will be parsed and events forwarded
+         * to this handler.
          *
          * @param handler the message handler to receive parsed events
          * @return this builder

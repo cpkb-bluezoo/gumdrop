@@ -27,9 +27,11 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.HTTPServer;
 import org.bluezoo.gumdrop.smtp.SMTPServer;
 
+import java.io.File;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -82,8 +84,8 @@ public class TelemetryIntegrationTest {
         originalLogLevel = rootLogger.getLevel();
         rootLogger.setLevel(Level.INFO);  // Changed from WARNING to INFO to see connection flow
 
-        // Start the mock OTLP collector first
-        collector = new MockOTLPCollector(COLLECTOR_PORT);
+        // Start the mock OTLP collector with HTTPS (the standard for OTLP)
+        collector = new MockOTLPCollector(COLLECTOR_PORT, true);  // secure=true
         collector.start();
 
         // Configure telemetry to send to our mock collector
@@ -96,6 +98,15 @@ public class TelemetryIntegrationTest {
         telemetryConfig.setFlushIntervalMs(100); // Fast flush for testing
         telemetryConfig.setBatchSize(1); // Send immediately
         telemetryConfig.setTimeoutMs(5000);
+
+        // Configure truststore for HTTPS endpoints
+        if (collector.isSecure()) {
+            TestCertificateManager certManager = collector.getCertificateManager();
+            File certsDir = new File(System.getProperty("java.io.tmpdir"), "otlp-test-certs");
+            File truststoreFile = new File(certsDir, "test-truststore.p12");
+            telemetryConfig.setTruststoreFile(truststoreFile.getAbsolutePath());
+            telemetryConfig.setTruststorePass("testpass");
+        }
 
         // Initialize the config - this automatically creates the exporter
         // (In production, this is called by ComponentRegistry after setting properties)
@@ -175,7 +186,7 @@ public class TelemetryIntegrationTest {
         // Make an HTTP request
         String response = sendHttpRequest("GET", "/", null);
         
-        // Verify we got the 404 response (default behavior)
+        // Verify we got the 404 response (default behaviour)
         assertTrue("Should receive HTTP response", response.contains("HTTP/1.1"));
         assertTrue("Should receive 404 status", response.contains("404"));
 

@@ -40,7 +40,7 @@
     
     <p>Welcome message would be: <%= getWelcomeMessage() %></p>
     
-    <h2>Expected Behavior</h2>
+    <h2>Expected Behaviour</h2>
     
     <p>When you try to access this JSP, you should see an error message indicating 
        that scripting is disabled for this JSP page. The exact error will be:</p>

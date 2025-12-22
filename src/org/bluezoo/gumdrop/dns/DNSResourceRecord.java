@@ -25,7 +25,9 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.Arrays;
+import java.util.ResourceBundle;
 
 /**
  * A DNS resource record.
@@ -36,6 +38,8 @@ import java.util.Arrays;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class DNSResourceRecord {
+
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private final String name;
     private final DNSType type;
@@ -251,12 +255,13 @@ public final class DNSResourceRecord {
      */
     public InetAddress getAddress() {
         if (type != DNSType.A && type != DNSType.AAAA) {
-            throw new IllegalStateException("Not an address record: " + type);
+            String msg = MessageFormat.format(L10N.getString("err.not_address_record"), type);
+            throw new IllegalStateException(msg);
         }
         try {
             return InetAddress.getByAddress(rdata);
         } catch (UnknownHostException e) {
-            throw new IllegalStateException("Invalid address data", e);
+            throw new IllegalStateException(L10N.getString("err.invalid_address_data"), e);
         }
     }
 
@@ -268,7 +273,8 @@ public final class DNSResourceRecord {
      */
     public String getTargetName() {
         if (type != DNSType.CNAME && type != DNSType.PTR && type != DNSType.NS) {
-            throw new IllegalStateException("Not a name record: " + type);
+            String msg = MessageFormat.format(L10N.getString("err.not_name_record"), type);
+            throw new IllegalStateException(msg);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         return DNSMessage.decodeName(buf, buf);
@@ -282,7 +288,8 @@ public final class DNSResourceRecord {
      */
     public String getText() {
         if (type != DNSType.TXT) {
-            throw new IllegalStateException("Not a TXT record: " + type);
+            String msg = MessageFormat.format(L10N.getString("err.not_txt_record"), type);
+            throw new IllegalStateException(msg);
         }
         StringBuilder sb = new StringBuilder();
         ByteBuffer buf = ByteBuffer.wrap(rdata);
@@ -303,7 +310,8 @@ public final class DNSResourceRecord {
      */
     public int getMXPreference() {
         if (type != DNSType.MX) {
-            throw new IllegalStateException("Not an MX record: " + type);
+            String msg = MessageFormat.format(L10N.getString("err.not_mx_record"), type);
+            throw new IllegalStateException(msg);
         }
         return ((rdata[0] & 0xFF) << 8) | (rdata[1] & 0xFF);
     }
@@ -316,7 +324,8 @@ public final class DNSResourceRecord {
      */
     public String getMXExchange() {
         if (type != DNSType.MX) {
-            throw new IllegalStateException("Not an MX record: " + type);
+            String msg = MessageFormat.format(L10N.getString("err.not_mx_record"), type);
+            throw new IllegalStateException(msg);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.getShort(); // skip preference
