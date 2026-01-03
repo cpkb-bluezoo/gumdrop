@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry.protobuf;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.Attribute;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanEvent;
@@ -197,7 +198,7 @@ public class TraceSerializer {
             // string name = 1
             writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
             // string version = 2
-            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, "0.4");
+            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, Gumdrop.VERSION);
         }
     }
 

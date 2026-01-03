@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
@@ -463,7 +464,7 @@ public class OTLPExporter implements TelemetryExporter {
                 }
 
                 try {
-                    metricSerializer.serialize(metrics, "gumdrop", "0.4", channel);
+                    metricSerializer.serialize(metrics, "gumdrop", Gumdrop.VERSION, channel);
                     channel.close();
                 } catch (IOException e) {
                     logger.warning(MessageFormat.format(L10N.getString("warn.serialize_metrics_failed"), e.getMessage()));

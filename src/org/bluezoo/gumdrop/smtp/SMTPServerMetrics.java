@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.Attributes;
 import org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram;
@@ -50,7 +51,6 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 public class SMTPServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.smtp";
-    private static final String METER_VERSION = "0.4";
 
     // Connection metrics
     private final LongCounter connectionCounter;
@@ -78,7 +78,7 @@ public class SMTPServerMetrics {
      * @param config the telemetry configuration
      */
     public SMTPServerMetrics(TelemetryConfig config) {
-        Meter meter = config.getMeter(METER_NAME, METER_VERSION);
+        Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Connection counters
         this.connectionCounter = meter.counterBuilder("smtp.server.connections")

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.session;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.Attributes;
 import org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram;
@@ -59,7 +60,6 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 public class ClusterMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.cluster";
-    private static final String METER_VERSION = "0.4";
 
     // Node tracking
     private final LongUpDownCounter activeNodes;
@@ -99,7 +99,7 @@ public class ClusterMetrics {
      * @param config the telemetry configuration
      */
     public ClusterMetrics(TelemetryConfig config) {
-        Meter meter = config.getMeter(METER_NAME, METER_VERSION);
+        Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Active nodes gauge
         this.activeNodes = meter.upDownCounterBuilder("cluster.nodes.active")

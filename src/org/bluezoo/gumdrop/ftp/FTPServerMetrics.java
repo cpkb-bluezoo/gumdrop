@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.ftp;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.Attributes;
 import org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram;
@@ -52,7 +53,6 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 public class FTPServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.ftp";
-    private static final String METER_VERSION = "0.4";
 
     // Connection metrics
     private final LongCounter connectionCounter;
@@ -93,7 +93,7 @@ public class FTPServerMetrics {
      * @param config the telemetry configuration
      */
     public FTPServerMetrics(TelemetryConfig config) {
-        Meter meter = config.getMeter(METER_NAME, METER_VERSION);
+        Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Connection counters
         this.connectionCounter = meter.counterBuilder("ftp.server.connections")

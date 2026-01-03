@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.metrics.Attributes;
 import org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram;
@@ -50,7 +51,6 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 public class HTTPServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.http";
-    private static final String METER_VERSION = "0.4";
 
     // Synchronous counters
     private final LongCounter requestCounter;
@@ -68,7 +68,7 @@ public class HTTPServerMetrics {
      * @param config the telemetry configuration
      */
     public HTTPServerMetrics(TelemetryConfig config) {
-        Meter meter = config.getMeter(METER_NAME, METER_VERSION);
+        Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Request counter - total requests
         this.requestCounter = meter.counterBuilder("http.server.requests")
