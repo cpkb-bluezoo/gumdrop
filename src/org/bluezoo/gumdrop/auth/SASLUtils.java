@@ -413,17 +413,23 @@ public final class SASLUtils {
      * @throws IllegalArgumentException if format is invalid
      */
     public static Map<String, String> parseOAuthBearerCredentials(String credentials) {
-        Map<String, String> result = new HashMap<>();
+        Map<String, String> result = new HashMap<String, String>();
         
-        // Split on ^A (0x01)
-        String[] parts = credentials.split("\u0001");
-        
-        for (String part : parts) {
+        // Parse parts separated by ^A (0x01)
+        int partStart = 0;
+        int credLen = credentials.length();
+        while (partStart <= credLen) {
+            int partEnd = credentials.indexOf('\u0001', partStart);
+            if (partEnd < 0) {
+                partEnd = credLen;
+            }
+            String part = credentials.substring(partStart, partEnd);
             if (part.startsWith("a=")) {
                 result.put("user", part.substring(2));
             } else if (part.startsWith("auth=Bearer ")) {
                 result.put("token", part.substring(12));
             }
+            partStart = partEnd + 1;
         }
         
         return result;

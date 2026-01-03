@@ -323,7 +323,7 @@ public class OAuthRealm implements Realm {
 
     @Override
     public String getPassword(String username) throws UnsupportedOperationException {
-        throw new UnsupportedOperationException(L10N.getString("err.oauth.no_passwords"));
+        throw new UnsupportedOperationException("OAuth realm does not support password retrieval");
     }
     
     // ─────────────────────────────────────────────────────────────────────────────
@@ -526,20 +526,50 @@ public class OAuthRealm implements Realm {
             if (key.startsWith(prefix)) {
                 String role = key.substring(prefix.length());
                 String scopesString = config.getProperty(key);
-                String[] scopes = scopesString.split(",");
                 
-                // Trim whitespace from scopes
-                for (int i = 0; i < scopes.length; i++) {
-                    scopes[i] = scopes[i].trim();
+                // Count scopes to allocate array
+                int scopeCount = 1;
+                for (int i = 0; i < scopesString.length(); i++) {
+                    if (scopesString.charAt(i) == ',') {
+                        scopeCount++;
+                    }
+                }
+                
+                // Parse comma-separated scopes
+                String[] scopes = new String[scopeCount];
+                int scopeIndex = 0;
+                int start = 0;
+                int length = scopesString.length();
+                while (start <= length) {
+                    int end = scopesString.indexOf(',', start);
+                    if (end < 0) {
+                        end = length;
+                    }
+                    scopes[scopeIndex++] = scopesString.substring(start, end).trim();
+                    start = end + 1;
                 }
                 
                 mapping.put(role, scopes);
-                String msg = MessageFormat.format(L10N.getString("info.oauth_mapped_role"), role, String.join(", ", scopes));
+                String msg = MessageFormat.format(L10N.getString("info.oauth_mapped_role"), role, joinStrings(scopes, ", "));
                 LOGGER.info(msg);
             }
         }
         
         return mapping;
+    }
+    
+    /**
+     * Joins an array of strings with a delimiter.
+     */
+    private static String joinStrings(String[] strings, String delimiter) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < strings.length; i++) {
+            if (i > 0) {
+                sb.append(delimiter);
+            }
+            sb.append(strings[i]);
+        }
+        return sb.toString();
     }
     
     /**
@@ -709,7 +739,52 @@ public class OAuthRealm implements Realm {
             if (scopeString == null || scopeString.trim().isEmpty()) {
                 return new String[0];
             }
-            return scopeString.trim().split("\\s+");
+            String trimmed = scopeString.trim();
+            
+            // Count whitespace-separated tokens
+            int tokenCount = 0;
+            boolean inToken = false;
+            for (int i = 0; i < trimmed.length(); i++) {
+                char c = trimmed.charAt(i);
+                if (Character.isWhitespace(c)) {
+                    inToken = false;
+                } else if (!inToken) {
+                    tokenCount++;
+                    inToken = true;
+                }
+            }
+            
+            if (tokenCount == 0) {
+                return new String[0];
+            }
+            
+            // Parse tokens
+            String[] scopes = new String[tokenCount];
+            int tokenIndex = 0;
+            int start = 0;
+            int length = trimmed.length();
+            
+            // Skip leading whitespace
+            while (start < length && Character.isWhitespace(trimmed.charAt(start))) {
+                start++;
+            }
+            
+            while (start < length && tokenIndex < tokenCount) {
+                // Find end of token
+                int end = start;
+                while (end < length && !Character.isWhitespace(trimmed.charAt(end))) {
+                    end++;
+                }
+                scopes[tokenIndex++] = trimmed.substring(start, end);
+                
+                // Skip whitespace to next token
+                start = end;
+                while (start < length && Character.isWhitespace(trimmed.charAt(start))) {
+                    start++;
+                }
+            }
+            
+            return scopes;
         }
         
         long getExpiration() {

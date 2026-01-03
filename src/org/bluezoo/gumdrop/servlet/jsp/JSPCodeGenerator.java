@@ -292,9 +292,18 @@ public class JSPCodeGenerator implements JSPElementVisitor {
                 break;
             case "import":
                 // Handle comma-separated imports
-                String[] importList = value.split(",");
-                for (String imp : importList) {
-                    imports.add(imp.trim());
+                int impStart = 0;
+                int impLen = value.length();
+                while (impStart <= impLen) {
+                    int impEnd = value.indexOf(',', impStart);
+                    if (impEnd < 0) {
+                        impEnd = impLen;
+                    }
+                    String imp = value.substring(impStart, impEnd).trim();
+                    if (!imp.isEmpty()) {
+                        imports.add(imp);
+                    }
+                    impStart = impEnd + 1;
                 }
                 break;
             case "extends":
@@ -410,9 +419,16 @@ public class JSPCodeGenerator implements JSPElementVisitor {
                            .append("\n");
             
             // Add proper indentation to the Java code
-            String[] lines = javaCode.split("\n");
-            for (String line : lines) {
+            int lineStart = 0;
+            int codeLen = javaCode.length();
+            while (lineStart <= codeLen) {
+                int lineEnd = javaCode.indexOf('\n', lineStart);
+                if (lineEnd < 0) {
+                    lineEnd = codeLen;
+                }
+                String line = javaCode.substring(lineStart, lineEnd);
                 serviceMethodBody.append("            ").append(line).append("\n");
+                lineStart = lineEnd + 1;
             }
         }
     }

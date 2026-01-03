@@ -345,12 +345,23 @@ public class BasicRealm extends DefaultHandler implements Realm {
             String groupsAttr = entry.getValue();
             
             // Parse space-separated group id references (IDREFS format)
-            String[] groupIds = groupsAttr.split("\\s+");
-            for (String groupId : groupIds) {
-                groupId = groupId.trim();
-                if (groupId.isEmpty()) {
-                    continue;
+            int idStart = 0;
+            int attrLen = groupsAttr.length();
+            while (idStart < attrLen) {
+                // Skip whitespace
+                while (idStart < attrLen && Character.isWhitespace(groupsAttr.charAt(idStart))) {
+                    idStart++;
                 }
+                if (idStart >= attrLen) {
+                    break;
+                }
+                // Find end of token
+                int idEnd = idStart;
+                while (idEnd < attrLen && !Character.isWhitespace(groupsAttr.charAt(idEnd))) {
+                    idEnd++;
+                }
+                String groupId = groupsAttr.substring(idStart, idEnd);
+                idStart = idEnd;
                 
                 // Look up the role name for this group id
                 String roleName = groupIdToName.get(groupId);

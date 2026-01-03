@@ -256,7 +256,7 @@ public class LDAPRealm implements Realm {
     @Override
     @Deprecated
     public String getPassword(String username) {
-        throw new UnsupportedOperationException(L10N.getString("warn.ldap_no_passwords"));
+        throw new UnsupportedOperationException("LDAP realm does not support password retrieval");
     }
 
     @Override

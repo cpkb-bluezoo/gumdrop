@@ -84,9 +84,6 @@ public class MboxMailboxStore implements MailboxStore {
     /** The hierarchy delimiter for mailbox names */
     private static final char HIERARCHY_DELIMITER = '/';
     
-    /** Pattern for valid mailbox name characters */
-    private static final Pattern VALID_NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_.\\-]+$");
-    
     /** File storing subscribed mailbox list */
     private static final String SUBSCRIPTIONS_FILE = ".subscriptions";
     
@@ -585,18 +582,27 @@ public class MboxMailboxStore implements MailboxStore {
             return INBOX;
         }
         
-        // Normalize any path component that is INBOX
-        String[] parts = name.split(String.valueOf(HIERARCHY_DELIMITER));
+        // Normalize any path component that is INBOX by iterating through delimiter-separated parts
         StringBuilder result = new StringBuilder();
-        for (int i = 0; i < parts.length; i++) {
-            if (i > 0) {
+        int start = 0;
+        int length = name.length();
+        boolean first = true;
+        while (start <= length) {
+            int end = name.indexOf(HIERARCHY_DELIMITER, start);
+            if (end < 0) {
+                end = length;
+            }
+            String part = name.substring(start, end);
+            if (!first) {
                 result.append(HIERARCHY_DELIMITER);
             }
-            if (INBOX.equalsIgnoreCase(parts[i])) {
+            first = false;
+            if (INBOX.equalsIgnoreCase(part)) {
                 result.append(INBOX);
             } else {
-                result.append(parts[i]);
+                result.append(part);
             }
+            start = end + 1;
         }
         
         return result.toString();
@@ -607,27 +613,45 @@ public class MboxMailboxStore implements MailboxStore {
      * Mailbox name components are encoded for filesystem safety.
      */
     private Path resolveMailboxPath(String mailboxName) throws IOException {
-        String[] parts = mailboxName.split(String.valueOf(HIERARCHY_DELIMITER));
+        // Count the number of parts to determine which is last
+        int partCount = 1;
+        for (int i = 0; i < mailboxName.length(); i++) {
+            if (mailboxName.charAt(i) == HIERARCHY_DELIMITER) {
+                partCount++;
+            }
+        }
         
         Path current = userDirectory;
-        for (int i = 0; i < parts.length - 1; i++) {
-            // Encode the component for filesystem safety
-            String encoded = MailboxNameCodec.encode(parts[i]);
-            String sanitized = sanitizePathComponent(encoded);
-            if (sanitized.isEmpty()) {
-                throw new IOException("Invalid mailbox name component: " + parts[i]);
+        int start = 0;
+        int length = mailboxName.length();
+        int partIndex = 0;
+        
+        while (start <= length) {
+            int end = mailboxName.indexOf(HIERARCHY_DELIMITER, start);
+            if (end < 0) {
+                end = length;
             }
-            current = resolveSafePath(current, sanitized);
+            String part = mailboxName.substring(start, end);
+            String encoded = MailboxNameCodec.encode(part);
+            String sanitized = sanitizePathComponent(encoded);
+            
+            if (sanitized.isEmpty()) {
+                throw new IOException("Invalid mailbox name component: " + part);
+            }
+            
+            if (partIndex == partCount - 1) {
+                // Last component gets the extension
+                return resolveSafePath(current, sanitized + extension);
+            } else {
+                current = resolveSafePath(current, sanitized);
+            }
+            
+            partIndex++;
+            start = end + 1;
         }
         
-        // Last component gets the extension
-        String encoded = MailboxNameCodec.encode(parts[parts.length - 1]);
-        String lastPart = sanitizePathComponent(encoded);
-        if (lastPart.isEmpty()) {
-            throw new IOException("Invalid mailbox name: " + mailboxName);
-        }
-        
-        return resolveSafePath(current, lastPart + extension);
+        // Should not reach here
+        throw new IOException("Invalid mailbox name: " + mailboxName);
     }
 
     /**

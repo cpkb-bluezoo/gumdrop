@@ -613,9 +613,18 @@ public class ELEvaluator {
         List<Object> args = new ArrayList<Object>();
         if (!argsString.trim().isEmpty()) {
             // Simple argument parsing - doesn't handle complex nested expressions
-            String[] argParts = argsString.split(",");
-            for (String arg : argParts) {
-                args.add(evaluateExpression(arg.trim()));
+            int argStart = 0;
+            int argsLen = argsString.length();
+            while (argStart <= argsLen) {
+                int argEnd = argsString.indexOf(',', argStart);
+                if (argEnd < 0) {
+                    argEnd = argsLen;
+                }
+                String arg = argsString.substring(argStart, argEnd).trim();
+                if (!arg.isEmpty()) {
+                    args.add(evaluateExpression(arg));
+                }
+                argStart = argEnd + 1;
             }
         }
         

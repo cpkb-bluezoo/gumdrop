@@ -166,18 +166,30 @@ public class QuotaPolicy {
         long multiplier = 1;
         String numberPart = sizeStr;
         
-        if (sizeStr.endsWith("TB") || sizeStr.endsWith("T")) {
+        if (sizeStr.endsWith("TB")) {
             multiplier = TB;
-            numberPart = sizeStr.replaceAll("[TB]+$", "");
-        } else if (sizeStr.endsWith("GB") || sizeStr.endsWith("G")) {
+            numberPart = sizeStr.substring(0, sizeStr.length() - 2);
+        } else if (sizeStr.endsWith("T")) {
+            multiplier = TB;
+            numberPart = sizeStr.substring(0, sizeStr.length() - 1);
+        } else if (sizeStr.endsWith("GB")) {
             multiplier = GB;
-            numberPart = sizeStr.replaceAll("[GB]+$", "");
-        } else if (sizeStr.endsWith("MB") || sizeStr.endsWith("M")) {
+            numberPart = sizeStr.substring(0, sizeStr.length() - 2);
+        } else if (sizeStr.endsWith("G")) {
+            multiplier = GB;
+            numberPart = sizeStr.substring(0, sizeStr.length() - 1);
+        } else if (sizeStr.endsWith("MB")) {
             multiplier = MB;
-            numberPart = sizeStr.replaceAll("[MB]+$", "");
-        } else if (sizeStr.endsWith("KB") || sizeStr.endsWith("K")) {
+            numberPart = sizeStr.substring(0, sizeStr.length() - 2);
+        } else if (sizeStr.endsWith("M")) {
+            multiplier = MB;
+            numberPart = sizeStr.substring(0, sizeStr.length() - 1);
+        } else if (sizeStr.endsWith("KB")) {
             multiplier = KB;
-            numberPart = sizeStr.replaceAll("[KB]+$", "");
+            numberPart = sizeStr.substring(0, sizeStr.length() - 2);
+        } else if (sizeStr.endsWith("K")) {
+            multiplier = KB;
+            numberPart = sizeStr.substring(0, sizeStr.length() - 1);
         }
         
         try {

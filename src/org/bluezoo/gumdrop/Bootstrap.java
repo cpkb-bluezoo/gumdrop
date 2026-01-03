@@ -62,9 +62,20 @@ public class Bootstrap {
         String containerDependencies = mainAttributes.getValue("Container-Dependencies");
         // URLs for container classloader
         URL containerUrl = new URL("jar:" + bootstrapUrl + "!/" + containerJar);
-        List<URL> urls = new ArrayList<>();
-        for (String dependency : containerDependencies.split(" ")) {
-            urls.add(new URL("jar:" + bootstrapUrl + "!/" + dependency));
+        List<URL> urls = new ArrayList<URL>();
+        // Parse space-separated dependencies
+        int depStart = 0;
+        int depsLen = containerDependencies.length();
+        while (depStart <= depsLen) {
+            int depEnd = containerDependencies.indexOf(' ', depStart);
+            if (depEnd < 0) {
+                depEnd = depsLen;
+            }
+            String dependency = containerDependencies.substring(depStart, depEnd);
+            if (!dependency.isEmpty()) {
+                urls.add(new URL("jar:" + bootstrapUrl + "!/" + dependency));
+            }
+            depStart = depEnd + 1;
         }
         // Set up container classloader
         ClassLoader bootstrapClassLoader = Bootstrap.class.getClassLoader();

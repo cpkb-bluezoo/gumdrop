@@ -1394,7 +1394,24 @@ public class SMTPConnection extends LineBasedConnection
         long declaredSize = -1;
         boolean useSmtputf8 = false;
         if (paramsPart != null && !paramsPart.isEmpty()) {
-            for (String param : paramsPart.split("\\s+")) {
+            // Iterate through whitespace-separated parameters
+            int paramStart = 0;
+            int paramsLen = paramsPart.length();
+            while (paramStart < paramsLen) {
+                // Skip whitespace
+                while (paramStart < paramsLen && Character.isWhitespace(paramsPart.charAt(paramStart))) {
+                    paramStart++;
+                }
+                if (paramStart >= paramsLen) {
+                    break;
+                }
+                // Find end of token
+                int paramEnd = paramStart;
+                while (paramEnd < paramsLen && !Character.isWhitespace(paramsPart.charAt(paramEnd))) {
+                    paramEnd++;
+                }
+                String param = paramsPart.substring(paramStart, paramEnd);
+                paramStart = paramEnd;
                 String upperParam = param.toUpperCase();
                 if (upperParam.startsWith("SIZE=")) {
                     try {
@@ -1682,7 +1699,25 @@ public class SMTPConnection extends LineBasedConnection
         String orcptType = null;
         String orcptAddress = null;
         if (paramsPart != null && !paramsPart.isEmpty()) {
-            for (String param : paramsPart.split("\\s+")) {
+            // Iterate through whitespace-separated parameters
+            int paramStart = 0;
+            int paramsLen = paramsPart.length();
+            while (paramStart < paramsLen) {
+                // Skip whitespace
+                while (paramStart < paramsLen && Character.isWhitespace(paramsPart.charAt(paramStart))) {
+                    paramStart++;
+                }
+                if (paramStart >= paramsLen) {
+                    break;
+                }
+                // Find end of token
+                int paramEnd = paramStart;
+                while (paramEnd < paramsLen && !Character.isWhitespace(paramsPart.charAt(paramEnd))) {
+                    paramEnd++;
+                }
+                String param = paramsPart.substring(paramStart, paramEnd);
+                paramStart = paramEnd;
+                
                 String upperParam = param.toUpperCase();
                 if (upperParam.startsWith("NOTIFY=")) {
                     // RFC 3461 - DSN notify conditions
@@ -1693,8 +1728,19 @@ public class SMTPConnection extends LineBasedConnection
                     String notifyValue = param.substring(7);
                     dsnNotify = EnumSet.noneOf(DSNNotify.class);
                     try {
-                        for (String keyword : notifyValue.split(",")) {
-                            dsnNotify.add(DSNNotify.parse(keyword.trim()));
+                        // Parse comma-separated keywords
+                        int kwStart = 0;
+                        int kwLen = notifyValue.length();
+                        while (kwStart <= kwLen) {
+                            int kwEnd = notifyValue.indexOf(',', kwStart);
+                            if (kwEnd < 0) {
+                                kwEnd = kwLen;
+                            }
+                            String keyword = notifyValue.substring(kwStart, kwEnd).trim();
+                            if (!keyword.isEmpty()) {
+                                dsnNotify.add(DSNNotify.parse(keyword));
+                            }
+                            kwStart = kwEnd + 1;
                         }
                     } catch (IllegalArgumentException e) {
                         reply(501, "5.5.4 Invalid NOTIFY parameter");
@@ -1859,18 +1905,53 @@ public class SMTPConnection extends LineBasedConnection
             return;
         }
 
-        String[] parts = args.trim().split("\\s+");
-        if (parts.length < 1 || parts.length > 2) {
+        // Parse whitespace-separated tokens (at most 2: size and optional LAST)
+        String trimmedArgs = args.trim();
+        String sizePart;
+        String lastPart = null;
+        
+        // Skip leading whitespace and find first token
+        int pos = 0;
+        while (pos < trimmedArgs.length() && Character.isWhitespace(trimmedArgs.charAt(pos))) {
+            pos++;
+        }
+        int sizeStart = pos;
+        while (pos < trimmedArgs.length() && !Character.isWhitespace(trimmedArgs.charAt(pos))) {
+            pos++;
+        }
+        if (sizeStart >= trimmedArgs.length()) {
             reply(501, "5.5.4 Syntax: BDAT size [LAST]");
             return;
+        }
+        sizePart = trimmedArgs.substring(sizeStart, pos);
+        
+        // Check for second token
+        while (pos < trimmedArgs.length() && Character.isWhitespace(trimmedArgs.charAt(pos))) {
+            pos++;
+        }
+        if (pos < trimmedArgs.length()) {
+            int lastStart = pos;
+            while (pos < trimmedArgs.length() && !Character.isWhitespace(trimmedArgs.charAt(pos))) {
+                pos++;
+            }
+            lastPart = trimmedArgs.substring(lastStart, pos);
+            
+            // Skip whitespace and check for unexpected third token
+            while (pos < trimmedArgs.length() && Character.isWhitespace(trimmedArgs.charAt(pos))) {
+                pos++;
+            }
+            if (pos < trimmedArgs.length()) {
+                reply(501, "5.5.4 Syntax: BDAT size [LAST]");
+                return;
+            }
         }
 
         // Parse chunk size
         long chunkSize;
         try {
-            chunkSize = Long.parseLong(parts[0]);
+            chunkSize = Long.parseLong(sizePart);
         } catch (NumberFormatException e) {
-            reply(501, "5.5.4 Invalid BDAT size: " + parts[0]);
+            reply(501, "5.5.4 Invalid BDAT size: " + sizePart);
             return;
         }
 
@@ -1889,11 +1970,11 @@ public class SMTPConnection extends LineBasedConnection
 
         // Parse LAST parameter
         boolean last = false;
-        if (parts.length == 2) {
-            if ("LAST".equalsIgnoreCase(parts[1])) {
+        if (lastPart != null) {
+            if ("LAST".equalsIgnoreCase(lastPart)) {
                 last = true;
             } else {
-                reply(501, "5.5.4 Invalid BDAT parameter: " + parts[1]);
+                reply(501, "5.5.4 Invalid BDAT parameter: " + lastPart);
                 return;
             }
         }
@@ -2084,9 +2165,26 @@ public class SMTPConnection extends LineBasedConnection
             return;
         }
 
-        // Parse attribute=value pairs
-        String[] pairs = args.trim().split("\\s+");
-        for (String pair : pairs) {
+        // Parse attribute=value pairs (whitespace-separated)
+        String trimmedArgs = args.trim();
+        int pairStart = 0;
+        int pairLen = trimmedArgs.length();
+        while (pairStart < pairLen) {
+            // Skip whitespace
+            while (pairStart < pairLen && Character.isWhitespace(trimmedArgs.charAt(pairStart))) {
+                pairStart++;
+            }
+            if (pairStart >= pairLen) {
+                break;
+            }
+            // Find end of token
+            int pairEnd = pairStart;
+            while (pairEnd < pairLen && !Character.isWhitespace(trimmedArgs.charAt(pairEnd))) {
+                pairEnd++;
+            }
+            String pair = trimmedArgs.substring(pairStart, pairEnd);
+            pairStart = pairEnd;
+            
             int eqIdx = pair.indexOf('=');
             if (eqIdx <= 0) {
                 reply(501, "5.5.4 Invalid XCLIENT attribute syntax: " + pair);
@@ -2482,17 +2580,21 @@ public class SMTPConnection extends LineBasedConnection
             byte[] decoded = Base64.getDecoder().decode(credentials);
             String authString = new String(decoded, US_ASCII);
 
-            // Parse authzid\0username\0password
-            String[] parts = authString.split("\0", -1);
-            if (parts.length != 3) {
+            // Parse authzid\0username\0password (exactly two null bytes expected)
+            int firstNull = authString.indexOf('\0');
+            int secondNull = (firstNull >= 0) ? authString.indexOf('\0', firstNull + 1) : -1;
+            
+            // Validate exactly two null bytes and no third
+            if (firstNull < 0 || secondNull < 0 || 
+                authString.indexOf('\0', secondNull + 1) >= 0) {
                 reply(535, "5.7.8 Authentication credentials invalid");
                 resetAuthState();
                 return;
             }
 
-            String authzid = parts[0]; // Authorization identity (can be empty)
-            String username = parts[1];
-            String password = parts[2];
+            String authzid = authString.substring(0, firstNull); // Authorization identity (can be empty)
+            String username = authString.substring(firstNull + 1, secondNull);
+            String password = authString.substring(secondNull + 1);
 
             if (username.isEmpty() || password.isEmpty()) {
                 reply(535, "5.7.8 Authentication credentials invalid");
@@ -3227,16 +3329,25 @@ public class SMTPConnection extends LineBasedConnection
                 return;
             }
             
-            String[] parts = message.substring(3).split(",");
+            // Parse comma-separated attributes after "n,,"
+            String attrString = message.substring(3);
             String username = null;
             String clientNonce = null;
             
-            for (String part : parts) {
+            int attrStart = 0;
+            int attrLen = attrString.length();
+            while (attrStart <= attrLen) {
+                int attrEnd = attrString.indexOf(',', attrStart);
+                if (attrEnd < 0) {
+                    attrEnd = attrLen;
+                }
+                String part = attrString.substring(attrStart, attrEnd);
                 if (part.startsWith("n=")) {
                     username = part.substring(2);
                 } else if (part.startsWith("r=")) {
                     clientNonce = part.substring(2);
                 }
+                attrStart = attrEnd + 1;
             }
             
             if (username == null || clientNonce == null) {
@@ -3285,16 +3396,24 @@ public class SMTPConnection extends LineBasedConnection
             String tokenString = new String(decoded, "UTF-8");
             
             // Parse bearer token format: n,a=authzid,^Ahost=hostname^Aport=port^Aauth=Bearer token^A^A
-            String[] parts = tokenString.split("\1"); // ASCII 0x01 separator
+            // ASCII 0x01 separator
             String username = null;
             String token = null;
             
-            for (String part : parts) {
+            int partStart = 0;
+            int tokenLen = tokenString.length();
+            while (partStart <= tokenLen) {
+                int partEnd = tokenString.indexOf('\1', partStart);
+                if (partEnd < 0) {
+                    partEnd = tokenLen;
+                }
+                String part = tokenString.substring(partStart, partEnd);
                 if (part.startsWith("a=")) {
                     username = part.substring(2);
                 } else if (part.startsWith("auth=Bearer ")) {
                     token = part.substring(12);
                 }
+                partStart = partEnd + 1;
             }
             
             if (username == null || token == null) {
@@ -3373,10 +3492,17 @@ public class SMTPConnection extends LineBasedConnection
      * @return extracted username, or null if not found
      */
     private String extractUsernameFromCertificate(String certSubject) {
-        // Try to extract from Common Name (CN)
-        String[] parts = certSubject.split(",");
-        for (String part : parts) {
-            part = part.trim();
+        // Try to extract from Common Name (CN) by parsing comma-separated attributes
+        int partStart = 0;
+        int subjectLen = certSubject.length();
+        while (partStart <= subjectLen) {
+            int partEnd = certSubject.indexOf(',', partStart);
+            if (partEnd < 0) {
+                partEnd = subjectLen;
+            }
+            String part = certSubject.substring(partStart, partEnd).trim();
+            partStart = partEnd + 1;
+            
             if (part.startsWith("CN=")) {
                 String cn = part.substring(3);
                 // Remove quotes if present

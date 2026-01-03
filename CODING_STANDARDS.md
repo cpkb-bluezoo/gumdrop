@@ -322,12 +322,145 @@ public void compileAsync(String source, CompilationCallback callback) {
 
 ## Localisation
 
-All strings that will be user facing in Gumdrop use ResourceBundle for
-localisation. Packages will have a ResourceBundle called L10N. We maintain
-translations for English, French, Spanish and German.
+Gumdrop supports internationalisation (i18n) and localisation (l10n) for user-facing strings. We maintain translations for English, French, Spanish, and German.
 
-All code additions that add user facing strings including most exceptions
-must use the localisation system.
+### ResourceBundle Structure
+
+Each package that requires localisation has a ResourceBundle called `L10N`:
+- `L10N.properties` - Default (English) messages
+- `L10N_en.properties` - English (explicit)
+- `L10N_fr.properties` - French
+- `L10N_es.properties` - Spanish
+- `L10N_de.properties` - German
+
+Access localised strings using:
+```java
+private static final ResourceBundle L10N =
+    ResourceBundle.getBundle(MyClass.class.getPackage().getName() + ".L10N");
+
+String message = L10N.getString("key.name");
+String formatted = MessageFormat.format(L10N.getString("key.with.args"), arg1, arg2);
+```
+
+### What MUST Be Localised
+
+The following categories of strings **must** use the L10N system:
+
+#### 1. Log Messages
+All log messages that operators will see in production logs:
+```java
+// Good
+logger.info(L10N.getString("info.connection_accepted"));
+logger.warning(L10N.getString("warn.auth_failed"));
+
+// Bad
+logger.info("Connection accepted from " + address);
+```
+
+#### 2. Protocol Response Messages
+Text sent to clients as part of protocol responses (SMTP replies, IMAP responses, FTP messages, HTTP error pages):
+```java
+// Good - SMTP greeting
+String greeting = L10N.getString("smtp.greeting");
+send("220 " + hostname + " " + greeting);
+
+// Good - IMAP error
+respond(tag, "NO " + L10N.getString("imap.err.mailbox_not_found"));
+```
+
+#### 3. Configuration and Startup Errors
+Errors shown during server startup or configuration parsing:
+```java
+// Good
+throw new ConfigurationException(L10N.getString("err.missing_keystore"));
+```
+
+#### 4. User-Facing Exceptions
+Exceptions whose messages may be displayed to end users (e.g., through error pages or API responses):
+```java
+// Good - quota exceeded is shown to users
+throw new QuotaExceededException(
+    MessageFormat.format(L10N.getString("err.quota_exceeded"), used, limit));
+```
+
+### What Should NOT Be Localised
+
+The following categories should use hardcoded English strings:
+
+#### 1. Programming/API Contract Errors
+Exceptions that indicate programmer errors or API misuse. These are for developers, not end users:
+```java
+// Good - hardcoded, this is a programming error
+if (username == null) {
+    throw new IllegalArgumentException("Username cannot be null");
+}
+
+if (buffer == null) {
+    throw new NullPointerException("buffer");
+}
+
+// Good - unsupported operation in default interface method
+throw new UnsupportedOperationException("Append not supported");
+```
+
+#### 2. Internal State Errors
+`IllegalStateException` for invalid internal states that indicate bugs:
+```java
+// Good - hardcoded, indicates internal bug
+if (!open) {
+    throw new IllegalStateException("Connection is not open");
+}
+
+if (appendBuffer != null) {
+    throw new IllegalStateException("Append already in progress");
+}
+```
+
+#### 3. Low-Level Parsing/Protocol Errors
+Errors in parsers or codecs that are caught and handled internally, or represent malformed data from external sources:
+```java
+// Good - hardcoded, internal parsing error
+throw new ASN1Exception("Invalid tag: 0x" + Integer.toHexString(tag));
+
+// Good - hardcoded, protocol violation
+throw new ProtocolException("Invalid HPACK index: " + index);
+```
+
+#### 4. Utility/Library Code
+Code in utility packages (`util`, `json`, `hpack`) that may be used outside the server context:
+```java
+// Good - utility code, hardcoded
+throw new JSONParseException("Expected ':' after object key");
+```
+
+### Naming Conventions for L10N Keys
+
+Use a hierarchical naming scheme:
+- `info.*` - Informational log messages
+- `warn.*` - Warning log messages  
+- `err.*` - Error messages and exceptions
+- `{protocol}.*` - Protocol-specific messages (e.g., `smtp.greeting`, `imap.err.auth_failed`)
+- `telemetry.*` - Telemetry span names and descriptions
+
+### Package Guidelines
+
+| Package Type | Needs L10N | Rationale |
+|-------------|------------|-----------|
+| Protocol servers (smtp, imap, pop3, ftp, http, dns) | Yes | Protocol responses are user-facing |
+| Handler packages | Inherit from parent | Use parent package's L10N for responses |
+| Client packages | Yes | Log messages for operators |
+| Mailbox implementations | Minimal | Only for messages exposed to users |
+| Parsers/codecs (hpack, asn1, json) | No | Internal/developer errors only |
+| Utilities (util) | No | API contract errors only |
+| Telemetry/metrics | Minimal | Span names may be localised |
+
+### Adding New Translations
+
+When adding a new localised string:
+1. Add the key to `L10N.properties` (default)
+2. Add translations to all four language files (`_en`, `_fr`, `_es`, `_de`)
+3. Use `MessageFormat` placeholders `{0}`, `{1}` for dynamic values
+4. Keep messages concise and avoid culture-specific idioms
 
 ## Telemetry
 

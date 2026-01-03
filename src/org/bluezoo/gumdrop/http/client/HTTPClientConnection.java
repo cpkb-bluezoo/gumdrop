@@ -683,7 +683,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
     private int sendHTTP2Data(HTTPStream request, ByteBuffer data) {
         int streamId = findStreamId(request);
         if (streamId < 0) {
-            logger.warning("Cannot send data for unknown stream");
+            logger.warning(L10N.getString("warn.unknown_stream_data"));
             return 0;
         }
 
@@ -1036,7 +1036,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
         int secondSpace = line.indexOf(' ', firstSpace + 1);
 
         if (firstSpace < 0) {
-            logger.warning("Invalid status line: " + line);
+            logger.warning(MessageFormat.format(L10N.getString("warn.invalid_status_line"), line));
             responseStatus = HTTPStatus.UNKNOWN;
         } else {
             int statusCode;
@@ -1085,7 +1085,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
                         return true;
                     } else {
                         // Not h2c upgrade, treat as error
-                        logger.warning("Unexpected 101 response without h2c upgrade");
+                        logger.warning(L10N.getString("warn.unexpected_101_response"));
                         h2cUpgradeInFlight = false;
                     }
                 } else if (h2cUpgradeInFlight) {
@@ -1245,7 +1245,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
         try {
             contentLength = Long.parseLong(line.trim(), 16);
         } catch (NumberFormatException e) {
-            logger.warning("Invalid chunk size: " + line);
+            logger.warning(MessageFormat.format(L10N.getString("warn.invalid_chunk_size"), line));
             contentLength = 0;
         }
 
@@ -1484,7 +1484,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
         String algorithm = parseDirective(wwwAuthenticate, "algorithm");
 
         if (realm == null || nonce == null) {
-            logger.warning("Invalid Digest challenge: missing realm or nonce");
+            logger.warning(L10N.getString("warn.invalid_digest_challenge"));
             return null;
         }
 
@@ -1572,7 +1572,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
             return auth.toString();
 
         } catch (NoSuchAlgorithmException e) {
-            logger.warning("Unsupported digest algorithm: " + algorithm);
+            logger.warning(MessageFormat.format(L10N.getString("warn.unsupported_digest_algorithm"), algorithm));
             return null;
         }
     }
@@ -1706,7 +1706,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
     public void dataFrameReceived(int streamId, boolean endStream, ByteBuffer data) {
         HTTPStream stream = activeStreams.get(streamId);
         if (stream == null) {
-            logger.warning("Received DATA for unknown stream " + streamId);
+            logger.warning(MessageFormat.format(L10N.getString("warn.data_for_unknown_stream"), streamId));
             sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
             return;
         }
@@ -1731,7 +1731,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
             ByteBuffer headerBlockFragment) {
         HTTPStream stream = activeStreams.get(streamId);
         if (stream == null) {
-            logger.warning("Received HEADERS for unknown stream " + streamId);
+            logger.warning(MessageFormat.format(L10N.getString("warn.headers_for_unknown_stream"), streamId));
             sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
             return;
         }
@@ -1840,8 +1840,8 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
 
     @Override
     public void goawayFrameReceived(int lastStreamId, int errorCode, ByteBuffer debugData) {
-        logger.info("Received GOAWAY: lastStreamId=" + lastStreamId +
-            ", error=" + H2FrameHandler.errorToString(errorCode));
+        logger.info(MessageFormat.format(L10N.getString("info.goaway_received"), 
+            lastStreamId, H2FrameHandler.errorToString(errorCode)));
 
         // Fail streams with ID > lastStreamId
         for (Map.Entry<Integer, HTTPStream> entry : activeStreams.entrySet()) {
@@ -1874,7 +1874,7 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
             ByteBuffer headerBlockFragment) {
         HTTPStream stream = activeStreams.get(streamId);
         if (stream == null) {
-            logger.warning("Received CONTINUATION for unknown stream " + streamId);
+            logger.warning(MessageFormat.format(L10N.getString("warn.continuation_for_unknown_stream"), streamId));
             return;
         }
 
@@ -1888,8 +1888,8 @@ public class HTTPClientConnection extends Connection implements H2FrameHandler {
 
     @Override
     public void frameError(int errorCode, int streamId, String message) {
-        logger.warning("HTTP/2 frame error: " + message + " (error=" +
-            H2FrameHandler.errorToString(errorCode) + ", stream=" + streamId + ")");
+        logger.warning(MessageFormat.format(L10N.getString("warn.h2_frame_error"), 
+            message, H2FrameHandler.errorToString(errorCode) + ", stream=" + streamId));
 
         if (streamId == 0) {
             // Connection error

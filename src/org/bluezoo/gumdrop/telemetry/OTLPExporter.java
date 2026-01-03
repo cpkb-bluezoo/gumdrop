@@ -28,10 +28,11 @@ import org.bluezoo.gumdrop.telemetry.protobuf.LogSerializer;
 import org.bluezoo.gumdrop.telemetry.protobuf.MetricSerializer;
 import org.bluezoo.gumdrop.telemetry.protobuf.TraceSerializer;
 import java.io.IOException;
-
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -64,6 +65,8 @@ import java.util.logging.Logger;
  */
 public class OTLPExporter implements TelemetryExporter {
 
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
     private static final Logger logger = Logger.getLogger(OTLPExporter.class.getName());
 
     private static final int DEFAULT_BUFFER_SIZE = 1024 * 1024; // 1 MB
@@ -154,10 +157,10 @@ public class OTLPExporter implements TelemetryExporter {
             this.metricsCollectionThread = null;
         }
 
-        logger.info("OTLP exporter started" +
-                (tracesEndpoint != null ? ", traces: " + tracesEndpoint : "") +
+        String endpoints = (tracesEndpoint != null ? ", traces: " + tracesEndpoint : "") +
                 (logsEndpoint != null ? ", logs: " + logsEndpoint : "") +
-                (metricsEndpoint != null ? ", metrics: " + metricsEndpoint : ""));
+                (metricsEndpoint != null ? ", metrics: " + metricsEndpoint : "");
+        logger.info(MessageFormat.format(L10N.getString("info.exporter_started"), endpoints));
     }
 
     @Override
@@ -233,7 +236,7 @@ public class OTLPExporter implements TelemetryExporter {
             metricsEndpoint.close();
         }
 
-        logger.info("OTLP exporter shut down");
+        logger.info(L10N.getString("info.exporter_shutdown"));
     }
 
     /**
@@ -416,7 +419,8 @@ public class OTLPExporter implements TelemetryExporter {
                     traceSerializer.serialize(trace, channel);
                     channel.close();
                 } catch (IOException e) {
-                    logger.warning("Failed to serialize trace " + trace.getTraceIdHex() + ": " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.serialize_trace_failed"), 
+                        trace.getTraceIdHex(), e.getMessage()));
                     pendingExports.remove(handler);
                 }
             }
@@ -439,7 +443,7 @@ public class OTLPExporter implements TelemetryExporter {
                 logSerializer.serialize(records, channel);
                 channel.close();
             } catch (IOException e) {
-                logger.warning("Failed to serialize logs: " + e.getMessage());
+                logger.warning(MessageFormat.format(L10N.getString("warn.serialize_logs_failed"), e.getMessage()));
                 pendingExports.remove(handler);
             }
         }
@@ -462,7 +466,7 @@ public class OTLPExporter implements TelemetryExporter {
                     metricSerializer.serialize(metrics, "gumdrop", "0.4", channel);
                     channel.close();
                 } catch (IOException e) {
-                    logger.warning("Failed to serialize metrics: " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.serialize_metrics_failed"), e.getMessage()));
                     pendingExports.remove(handler);
                 }
             }

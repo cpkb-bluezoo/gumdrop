@@ -48,10 +48,24 @@ class FileHandlerFactory implements HTTPRequestHandlerFactory {
         
         // Parse comma-separated welcome file list
         if (welcomeFile != null && !welcomeFile.trim().isEmpty()) {
-            String[] files = welcomeFile.split(",");
-            welcomeFiles = new String[files.length];
-            for (int i = 0; i < files.length; i++) {
-                welcomeFiles[i] = files[i].trim();
+            // Count commas to determine array size
+            int fileCount = 1;
+            for (int i = 0; i < welcomeFile.length(); i++) {
+                if (welcomeFile.charAt(i) == ',') {
+                    fileCount++;
+                }
+            }
+            welcomeFiles = new String[fileCount];
+            int fileIndex = 0;
+            int start = 0;
+            int length = welcomeFile.length();
+            while (start <= length && fileIndex < fileCount) {
+                int end = welcomeFile.indexOf(',', start);
+                if (end < 0) {
+                    end = length;
+                }
+                welcomeFiles[fileIndex++] = welcomeFile.substring(start, end).trim();
+                start = end + 1;
             }
         } else {
             welcomeFiles = new String[]{"index.html"};

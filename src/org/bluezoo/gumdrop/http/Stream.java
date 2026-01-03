@@ -375,12 +375,21 @@ class Stream implements HTTPResponseState {
                         if ("close".equalsIgnoreCase(value)) {
                             closeConnection = true;
                         } else {
-                            for (String v : value.split(",")) {
-                                if ("Upgrade".equalsIgnoreCase(v.trim())) {
+                            // Parse comma-separated connection tokens
+                            int vStart = 0;
+                            int vLen = value.length();
+                            while (vStart <= vLen) {
+                                int vEnd = value.indexOf(',', vStart);
+                                if (vEnd < 0) {
+                                    vEnd = vLen;
+                                }
+                                String v = value.substring(vStart, vEnd).trim();
+                                if ("Upgrade".equalsIgnoreCase(v)) {
                                     isUpgrade = true;
                                     break;
                                 }
-                            } 
+                                vStart = vEnd + 1;
+                            }
                         }
                     } else if ("Content-Length".equalsIgnoreCase(name)) {
                         try {
@@ -394,10 +403,21 @@ class Stream implements HTTPResponseState {
                         i.remove(); // do not pass this on to stream implementation
                     } else if ("Upgrade".equalsIgnoreCase(name)) {
                         if (upgradeProtocols == null) {
-                            upgradeProtocols = new LinkedHashSet<>();
+                            upgradeProtocols = new LinkedHashSet<String>();
                         }
-                        for (String v : value.split(",")) {
-                            upgradeProtocols.add(v.trim());
+                        // Parse comma-separated upgrade protocols
+                        int vStart = 0;
+                        int vLen = value.length();
+                        while (vStart <= vLen) {
+                            int vEnd = value.indexOf(',', vStart);
+                            if (vEnd < 0) {
+                                vEnd = vLen;
+                            }
+                            String v = value.substring(vStart, vEnd).trim();
+                            if (!v.isEmpty()) {
+                                upgradeProtocols.add(v);
+                            }
+                            vStart = vEnd + 1;
                         }
                     } else if ("HTTP2-Settings".equalsIgnoreCase(name)) {
                         try {

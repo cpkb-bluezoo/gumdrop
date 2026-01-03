@@ -190,10 +190,17 @@ public final class MessageSet implements Iterable<MessageSet.Range> {
         }
 
         List<Range> ranges = new ArrayList<Range>();
-        String[] parts = imapSet.split(",");
-        
-        for (String part : parts) {
-            part = part.trim();
+        // Parse comma-separated ranges
+        int partStart = 0;
+        int setLen = imapSet.length();
+        while (partStart <= setLen) {
+            int partEnd = imapSet.indexOf(',', partStart);
+            if (partEnd < 0) {
+                partEnd = setLen;
+            }
+            String part = imapSet.substring(partStart, partEnd).trim();
+            partStart = partEnd + 1;
+            
             if (part.isEmpty()) {
                 continue;
             }

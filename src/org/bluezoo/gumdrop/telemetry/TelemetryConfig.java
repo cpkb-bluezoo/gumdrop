@@ -425,14 +425,21 @@ public class TelemetryConfig {
     public Map<String, String> getParsedHeaders() {
         Map<String, String> result = new HashMap<String, String>();
         if (headers != null && headers.length() > 0) {
-            String[] pairs = headers.split(",");
-            for (String pair : pairs) {
+            int start = 0;
+            int length = headers.length();
+            while (start <= length) {
+                int end = headers.indexOf(',', start);
+                if (end < 0) {
+                    end = length;
+                }
+                String pair = headers.substring(start, end);
                 int idx = pair.indexOf('=');
                 if (idx > 0) {
                     String key = pair.substring(0, idx).trim();
                     String value = pair.substring(idx + 1).trim();
                     result.put(key, value);
                 }
+                start = end + 1;
             }
         }
         return result;

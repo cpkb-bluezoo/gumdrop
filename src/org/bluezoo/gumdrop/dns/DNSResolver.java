@@ -220,7 +220,7 @@ public class DNSResolver {
             return;
         }
         if (servers.isEmpty()) {
-            throw new IOException("No DNS servers configured");
+            throw new IOException(L10N.getString("err.no_dns_servers"));
         }
         for (InetSocketAddress server : servers) {
             ResolverClient client = new ResolverClient(server.getAddress(), server.getPort());

@@ -69,14 +69,16 @@ public class CIDRNetwork {
     public CIDRNetwork(String cidr) throws IllegalArgumentException {
         this.originalCIDR = cidr;
         
-        String[] parts = cidr.split("/");
-        if (parts.length != 2) {
+        int slashIndex = cidr.indexOf('/');
+        if (slashIndex < 0) {
             throw new IllegalArgumentException("Invalid CIDR format (missing /prefix): " + cidr);
         }
+        String addressPart = cidr.substring(0, slashIndex);
+        String prefixPart = cidr.substring(slashIndex + 1);
         
         try {
-            InetAddress addr = InetAddress.getByName(parts[0]);
-            int prefixLength = Integer.parseInt(parts[1]);
+            InetAddress addr = InetAddress.getByName(addressPart);
+            int prefixLength = Integer.parseInt(prefixPart);
             
             if (addr instanceof Inet4Address) {
                 // IPv4 processing
@@ -265,14 +267,21 @@ public class CIDRNetwork {
      * @throws IllegalArgumentException if any CIDR format is invalid
      */
     public static java.util.List<CIDRNetwork> parseList(String cidrList) {
-        java.util.List<CIDRNetwork> networks = new java.util.ArrayList<>();
+        java.util.List<CIDRNetwork> networks = new java.util.ArrayList<CIDRNetwork>();
         
         if (cidrList != null && !cidrList.trim().isEmpty()) {
-            for (String cidr : cidrList.split(",")) {
-                String trimmed = cidr.trim();
+            int start = 0;
+            int length = cidrList.length();
+            while (start <= length) {
+                int end = cidrList.indexOf(',', start);
+                if (end < 0) {
+                    end = length;
+                }
+                String trimmed = cidrList.substring(start, end).trim();
                 if (!trimmed.isEmpty()) {
                     networks.add(new CIDRNetwork(trimmed));
                 }
+                start = end + 1;
             }
         }
         

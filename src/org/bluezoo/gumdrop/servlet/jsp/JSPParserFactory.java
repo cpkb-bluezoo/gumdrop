@@ -66,8 +66,18 @@ public class JSPParserFactory {
     public JSPParserFactory(SAXParserFactory saxParserFactory) {
         this.saxParserFactory = saxParserFactory;
         
-        // Register default parsers with injected SAX factory
-        availableParsers.add(new XMLJSPParser(saxParserFactory));
+        // Register default parsers
+        // XML parser requires a SAX factory - create one if not provided
+        try {
+            if (saxParserFactory != null) {
+                availableParsers.add(new XMLJSPParser(saxParserFactory));
+            } else {
+                availableParsers.add(new XMLJSPParser());
+            }
+        } catch (JSPParseException e) {
+            LOGGER.log(Level.WARNING, "Unable to create XML JSP parser: " + e.getMessage());
+            // Continue without XML parser support
+        }
         availableParsers.add(new TraditionalJSPParser());
     }
     
@@ -159,11 +169,20 @@ public class JSPParserFactory {
      * @param parserType the type of parser to create
      * @return a new parser instance
      * @throws IllegalArgumentException if the parser type is unknown
+     * @throws IllegalStateException if XML parser cannot be created
      */
     public JSPParser createParser(ParserType parserType) {
         switch (parserType) {
             case XML:
-                return new XMLJSPParser(saxParserFactory);
+                try {
+                    if (saxParserFactory != null) {
+                        return new XMLJSPParser(saxParserFactory);
+                    } else {
+                        return new XMLJSPParser();
+                    }
+                } catch (JSPParseException e) {
+                    throw new IllegalStateException("Unable to create XML JSP parser", e);
+                }
             case TRADITIONAL:
                 return new TraditionalJSPParser();
             default:
@@ -256,13 +275,19 @@ public class JSPParserFactory {
             return "UTF-8";
         }
         
-        // Look for charset in content type
-        String[] parts = contentType.split(";");
-        for (String part : parts) {
-            part = part.trim();
+        // Look for charset in content type by iterating through semicolon-separated parts
+        int start = 0;
+        int length = contentType.length();
+        while (start < length) {
+            int end = contentType.indexOf(';', start);
+            if (end < 0) {
+                end = length;
+            }
+            String part = contentType.substring(start, end).trim();
             if (part.startsWith("charset=")) {
                 return part.substring(8).trim();
             }
+            start = end + 1;
         }
         
         return "UTF-8";

@@ -361,15 +361,42 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         }
         
         String args = command.substring(8).trim(); // Remove "SETQUOTA"
-        String[] parts = args.split("\\s+");
         
-        if (parts.length < 2) {
-            return FTPFileOperationResult.NOT_SUPPORTED;
+        // Parse whitespace-separated arguments: username storageLimit [messageLimit]
+        String targetUser = null;
+        String storageStr = null;
+        String messageStr = "-1";
+        int argIndex = 0;
+        int start = 0;
+        int length = args.length();
+        while (start < length && argIndex < 3) {
+            // Skip whitespace
+            while (start < length && Character.isWhitespace(args.charAt(start))) {
+                start++;
+            }
+            if (start >= length) {
+                break;
+            }
+            // Find end of token
+            int end = start;
+            while (end < length && !Character.isWhitespace(args.charAt(end))) {
+                end++;
+            }
+            String token = args.substring(start, end);
+            if (argIndex == 0) {
+                targetUser = token;
+            } else if (argIndex == 1) {
+                storageStr = token;
+            } else {
+                messageStr = token;
+            }
+            argIndex++;
+            start = end;
         }
         
-        String targetUser = parts[0];
-        String storageStr = parts[1];
-        String messageStr = parts.length > 2 ? parts[2] : "-1";
+        if (targetUser == null || storageStr == null) {
+            return FTPFileOperationResult.NOT_SUPPORTED;
+        }
         
         try {
             long storageLimit = QuotaPolicy.parseSize(storageStr);

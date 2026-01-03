@@ -1317,16 +1317,25 @@ public class IMAPConnection extends LineBasedConnection {
                 return;
             }
             
-            String[] parts = clientFirst.substring(3).split(",");
+            // Parse comma-separated attributes
+            String attrString = clientFirst.substring(3);
             String username = null;
             String clientNonce = null;
             
-            for (String part : parts) {
+            int partStart = 0;
+            int attrLen = attrString.length();
+            while (partStart <= attrLen) {
+                int partEnd = attrString.indexOf(',', partStart);
+                if (partEnd < 0) {
+                    partEnd = attrLen;
+                }
+                String part = attrString.substring(partStart, partEnd);
                 if (part.startsWith("n=")) {
                     username = part.substring(2);
                 } else if (part.startsWith("r=")) {
                     clientNonce = part.substring(2);
                 }
+                partStart = partEnd + 1;
             }
             
             if (username == null || clientNonce == null) {

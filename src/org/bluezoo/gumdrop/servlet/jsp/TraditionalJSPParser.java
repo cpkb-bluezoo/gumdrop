@@ -587,8 +587,19 @@ public class TraditionalJSPParser implements JSPParser {
         
         if (attributes.containsKey("import")) {
             String imports = attributes.get("import");
-            for (String importStatement : imports.split(",")) {
-                page.addImport(importStatement.trim());
+            // Parse comma-separated import statements
+            int impStart = 0;
+            int impLen = imports.length();
+            while (impStart <= impLen) {
+                int impEnd = imports.indexOf(',', impStart);
+                if (impEnd < 0) {
+                    impEnd = impLen;
+                }
+                String importStatement = imports.substring(impStart, impEnd).trim();
+                if (!importStatement.isEmpty()) {
+                    page.addImport(importStatement);
+                }
+                impStart = impEnd + 1;
             }
         }
         

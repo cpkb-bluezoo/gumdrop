@@ -144,10 +144,18 @@ public class WebSocketHandshake {
         if (headerValue == null) {
             return false;
         }
-        for (String v : headerValue.split(",")) {
-            if (token.equalsIgnoreCase(v.trim())) {
+        int start = 0;
+        int length = headerValue.length();
+        while (start <= length) {
+            int end = headerValue.indexOf(',', start);
+            if (end < 0) {
+                end = length;
+            }
+            String v = headerValue.substring(start, end).trim();
+            if (token.equalsIgnoreCase(v)) {
                 return true;
             }
+            start = end + 1;
         }
         return false;
     }

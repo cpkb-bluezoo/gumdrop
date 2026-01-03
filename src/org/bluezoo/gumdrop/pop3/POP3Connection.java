@@ -1047,12 +1047,19 @@ public class POP3Connection extends LineBasedConnection
      */
     private String extractCertificateUsername(X509Certificate cert) {
         String dn = cert.getSubjectX500Principal().getName();
-        // Extract CN from DN
-        for (String part : dn.split(",")) {
-            String trimmed = part.trim();
+        // Extract CN from DN by parsing comma-separated attributes
+        int partStart = 0;
+        int dnLen = dn.length();
+        while (partStart <= dnLen) {
+            int partEnd = dn.indexOf(',', partStart);
+            if (partEnd < 0) {
+                partEnd = dnLen;
+            }
+            String trimmed = dn.substring(partStart, partEnd).trim();
             if (trimmed.startsWith("CN=")) {
                 return trimmed.substring(3);
             }
+            partStart = partEnd + 1;
         }
         return null;
     }
@@ -1133,14 +1140,21 @@ public class POP3Connection extends LineBasedConnection
             }
             
             String messageBody = clientFirst.substring(3);
-            String[] parts = messageBody.split(",");
-            
-            for (String part : parts) {
+            // Parse comma-separated attributes
+            int partStart = 0;
+            int msgLen = messageBody.length();
+            while (partStart <= msgLen) {
+                int partEnd = messageBody.indexOf(',', partStart);
+                if (partEnd < 0) {
+                    partEnd = msgLen;
+                }
+                String part = messageBody.substring(partStart, partEnd);
                 if (part.startsWith("n=")) {
                     pendingAuthUsername = part.substring(2);
                 } else if (part.startsWith("r=")) {
                     authClientNonce = part.substring(2);
                 }
+                partStart = partEnd + 1;
             }
             
             if (pendingAuthUsername == null || authClientNonce == null) {

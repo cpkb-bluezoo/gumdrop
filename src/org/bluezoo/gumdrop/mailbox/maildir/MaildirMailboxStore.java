@@ -188,17 +188,26 @@ public class MaildirMailboxStore implements MailboxStore {
             return ""; // INBOX is the root Maildir
         }
         
-        // Split by hierarchy delimiter, encode each component, then join with Maildir++ separator
-        String[] parts = mailboxName.split(String.valueOf(HIERARCHY_DELIMITER));
+        // Parse hierarchy delimiter-separated components, encode each, then join with Maildir++ separator
         StringBuilder result = new StringBuilder();
         result.append(MAILDIR_FOLDER_PREFIX);
         
-        for (int i = 0; i < parts.length; i++) {
-            if (i > 0) {
+        int partStart = 0;
+        int nameLen = mailboxName.length();
+        boolean first = true;
+        while (partStart <= nameLen) {
+            int partEnd = mailboxName.indexOf(HIERARCHY_DELIMITER, partStart);
+            if (partEnd < 0) {
+                partEnd = nameLen;
+            }
+            String part = mailboxName.substring(partStart, partEnd);
+            if (!first) {
                 result.append(MAILDIR_FOLDER_PREFIX);
             }
+            first = false;
             // Encode each component for filesystem safety
-            result.append(MailboxNameCodec.encode(parts[i]));
+            result.append(MailboxNameCodec.encode(part));
+            partStart = partEnd + 1;
         }
         
         return result.toString();
@@ -223,16 +232,24 @@ public class MaildirMailboxStore implements MailboxStore {
             dirName = dirName.substring(1);
         }
         
-        // Split by Maildir++ separator, decode each component, then join with hierarchy delimiter
-        String[] parts = dirName.split("\\.");
+        // Parse dot-separated components, decode each, then join with hierarchy delimiter
         StringBuilder result = new StringBuilder();
-        
-        for (int i = 0; i < parts.length; i++) {
-            if (i > 0) {
+        int partStart = 0;
+        int nameLen = dirName.length();
+        boolean first = true;
+        while (partStart <= nameLen) {
+            int partEnd = dirName.indexOf('.', partStart);
+            if (partEnd < 0) {
+                partEnd = nameLen;
+            }
+            String part = dirName.substring(partStart, partEnd);
+            if (!first) {
                 result.append(HIERARCHY_DELIMITER);
             }
+            first = false;
             // Decode each component from filesystem encoding
-            result.append(MailboxNameCodec.decode(parts[i]));
+            result.append(MailboxNameCodec.decode(part));
+            partStart = partEnd + 1;
         }
         
         return result.toString();

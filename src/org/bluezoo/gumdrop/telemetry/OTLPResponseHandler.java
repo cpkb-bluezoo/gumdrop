@@ -25,6 +25,8 @@ import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -42,6 +44,8 @@ import java.util.logging.Logger;
  */
 class OTLPResponseHandler extends DefaultHTTPResponseHandler {
 
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
     private static final Logger logger = Logger.getLogger(OTLPResponseHandler.class.getName());
 
     private final String endpointName;
@@ -78,7 +82,7 @@ class OTLPResponseHandler extends DefaultHTTPResponseHandler {
         this.success = false;
 
         if (logger.isLoggable(Level.WARNING)) {
-            logger.warning("OTLP " + endpointName + " export failed: " + status);
+            logger.warning(MessageFormat.format(L10N.getString("warn.export_failed"), endpointName, status));
         }
 
         // Check for retryable errors

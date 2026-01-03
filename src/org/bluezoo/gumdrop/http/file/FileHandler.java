@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.http.HTTPDateFormat;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.quota.QuotaPolicy;
 
 import java.io.File;
 import java.io.IOException;
@@ -427,9 +428,17 @@ class FileHandler extends DefaultHTTPRequestHandler {
         
         try {
             Path resolvedPath = rootPath;
-            String[] pathComponents = requestPath.split("/");
-            
-            for (String component : pathComponents) {
+            // Parse path components separated by /
+            int compStart = 0;
+            int pathLen = requestPath.length();
+            while (compStart <= pathLen) {
+                int compEnd = requestPath.indexOf('/', compStart);
+                if (compEnd < 0) {
+                    compEnd = pathLen;
+                }
+                String component = requestPath.substring(compStart, compEnd);
+                compStart = compEnd + 1;
+                
                 if (component.isEmpty()) {
                     continue;
                 }
@@ -654,16 +663,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
     }
 
     private String formatFileSize(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        }
-        if (bytes < 1024 * 1024) {
-            return String.format("%.1f KB", bytes / 1024.0);
-        }
-        if (bytes < 1024 * 1024 * 1024) {
-            return String.format("%.1f MB", bytes / (1024.0 * 1024));
-        }
-        return String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024));
+        return QuotaPolicy.formatSize(bytes);
     }
 
     private static class DirectoryListingComparator implements Comparator<File> {

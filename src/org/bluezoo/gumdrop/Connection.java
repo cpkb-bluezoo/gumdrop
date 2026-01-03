@@ -821,8 +821,17 @@ public abstract class Connection implements ChannelHandler, SSLState.Callback {
         if (cipherSuite == null) {
             return -1;
         }
-        String[] comps = cipherSuite.split("_");
-        for (String comp : comps) {
+        // Parse underscore-separated components
+        int compStart = 0;
+        int suiteLen = cipherSuite.length();
+        while (compStart <= suiteLen) {
+            int compEnd = cipherSuite.indexOf('_', compStart);
+            if (compEnd < 0) {
+                compEnd = suiteLen;
+            }
+            String comp = cipherSuite.substring(compStart, compEnd);
+            compStart = compEnd + 1;
+            
             try {
                 return Integer.parseInt(comp);
             } catch (NumberFormatException e) {

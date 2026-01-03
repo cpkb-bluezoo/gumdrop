@@ -34,7 +34,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.security.KeyStore;
+import java.text.MessageFormat;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -49,6 +51,8 @@ import java.util.logging.Logger;
  */
 class OTLPEndpoint {
 
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
     private static final Logger logger = Logger.getLogger(OTLPEndpoint.class.getName());
 
     private final String name;
@@ -88,7 +92,7 @@ class OTLPEndpoint {
             URI uri = URI.create(url);
             String host = uri.getHost();
             if (host == null) {
-                logger.warning("Invalid OTLP " + name + " endpoint URL: " + url);
+                logger.warning(MessageFormat.format(L10N.getString("warn.invalid_endpoint_url"), name, url));
                 return null;
             }
 
@@ -115,7 +119,7 @@ class OTLPEndpoint {
             return endpoint;
 
         } catch (IllegalArgumentException e) {
-            logger.warning("Invalid OTLP " + name + " endpoint URL: " + url + " - " + e.getMessage());
+            logger.warning(MessageFormat.format(L10N.getString("warn.invalid_endpoint_url"), name, url + " - " + e.getMessage()));
             return null;
         }
     }
@@ -308,7 +312,7 @@ class OTLPEndpoint {
             // Initiate connection with handler
             client.connect(new OTLPConnectionHandler());
 
-            logger.info("Connecting to OTLP " + name + " endpoint " + host + ":" + port);
+            logger.info(MessageFormat.format(L10N.getString("info.endpoint_connecting"), name, host, port));
 
             // Return null here - the connection is asynchronous
             // The next call to getClient() will return the client once connected
@@ -330,7 +334,7 @@ class OTLPEndpoint {
         public void onConnected(ConnectionInfo info) {
             connecting = false;
             connected = true;
-            logger.info("Connected to OTLP " + name + " endpoint " + host + ":" + port);
+            logger.info(MessageFormat.format(L10N.getString("info.endpoint_connected"), name, host, port));
         }
 
         @Override
@@ -350,7 +354,7 @@ class OTLPEndpoint {
         public void onDisconnected() {
             connecting = false;
             connected = false;
-            logger.info("Disconnected from OTLP " + name + " endpoint");
+            logger.info(L10N.getString("info.endpoint_disconnected"));
         }
     }
 

@@ -64,13 +64,19 @@ public class ObsoleteParserUtils {
 	}
 
 	private static List<EmailAddress> parseAddressList(String value) {
-		List<EmailAddress> addresses = new ArrayList<>();
+		List<EmailAddress> addresses = new ArrayList<EmailAddress>();
 
 		// Try to parse as comma-separated addresses with potential obsolete syntax
-		String[] addressParts = value.split(",");
+		int partStart = 0;
+		int valueLen = value.length();
+		while (partStart <= valueLen) {
+			int partEnd = value.indexOf(',', partStart);
+			if (partEnd < 0) {
+				partEnd = valueLen;
+			}
+			String part = value.substring(partStart, partEnd).trim();
+			partStart = partEnd + 1;
 
-		for (String part : addressParts) {
-			part = part.trim();
 			if (part.isEmpty()) {
 				continue;
 			}

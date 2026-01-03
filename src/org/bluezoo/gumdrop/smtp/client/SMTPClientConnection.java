@@ -203,7 +203,7 @@ class SMTPClientConnection extends Connection
     
     @Override
     protected void disconnected() throws IOException {
-        logger.info("SMTP connection disconnected");
+        logger.info(L10N.getString("client.info.connection_disconnected"));
         state = SMTPState.CLOSED;
         handler.onDisconnected();
     }
@@ -642,7 +642,7 @@ class SMTPClientConnection extends Connection
                 if (useBdat) {
                     dispatchBdatChunkReply(code, message);
                 } else {
-                    logger.warning("Unexpected response in DATA_MODE: " + code + " " + message);
+                    logger.warning(MessageFormat.format(L10N.getString("client.warn.unexpected_response_data_mode"), code, message));
                 }
                 break;
                 
@@ -660,7 +660,7 @@ class SMTPClientConnection extends Connection
                 break;
                 
             default:
-                logger.warning("Unexpected response in state " + state + ": " + code + " " + message);
+                logger.warning(MessageFormat.format(L10N.getString("client.warn.unexpected_response_in_state"), state, code, message));
         }
     }
     
@@ -919,9 +919,24 @@ class SMTPClientConnection extends Connection
                 }
             } else if (upper.startsWith("AUTH")) {
                 // AUTH PLAIN LOGIN CRAM-MD5 ...
-                String[] parts = line.split("\\s+");
-                for (int i = 1; i < parts.length; i++) {
-                    ehloAuthMethods.add(parts[i].toUpperCase());
+                // Parse whitespace-separated auth methods after "AUTH "
+                int start = 4; // Skip "AUTH"
+                int length = line.length();
+                while (start < length) {
+                    // Skip whitespace
+                    while (start < length && Character.isWhitespace(line.charAt(start))) {
+                        start++;
+                    }
+                    if (start >= length) {
+                        break;
+                    }
+                    // Find end of token
+                    int end = start;
+                    while (end < length && !Character.isWhitespace(line.charAt(end))) {
+                        end++;
+                    }
+                    ehloAuthMethods.add(line.substring(start, end).toUpperCase());
+                    start = end;
                 }
             } else if (upper.equals("PIPELINING")) {
                 ehloPipelining = true;
@@ -959,7 +974,7 @@ class SMTPClientConnection extends Connection
     // ─────────────────────────────────────────────────────────────────────────
     
     private void handleError(SMTPException error) {
-        logger.warning("SMTP error: " + error.getMessage());
+        logger.warning(MessageFormat.format(L10N.getString("client.warn.smtp_error"), error.getMessage()));
         state = SMTPState.ERROR;
         handler.onError(error);
     }

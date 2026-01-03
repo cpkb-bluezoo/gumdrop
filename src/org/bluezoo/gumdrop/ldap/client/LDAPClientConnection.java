@@ -24,10 +24,12 @@ package org.bluezoo.gumdrop.ldap.client;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -60,6 +62,8 @@ import org.bluezoo.gumdrop.ldap.asn1.BEREncoder;
 public class LDAPClientConnection extends Connection
         implements LDAPConnected, LDAPPostTLS, LDAPSession {
 
+    private static final ResourceBundle L10N = 
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.ldap.client.L10N");
     private static final Logger logger = Logger.getLogger(LDAPClientConnection.class.getName());
 
     // Message ID generator
@@ -526,21 +530,40 @@ public class LDAPClientConnection extends Connection
         encoder.writeOctetString(attr);
         encoder.beginSequence();
 
-        String[] parts = value.split("\\*", -1);
-        for (int i = 0; i < parts.length; i++) {
-            if (parts[i].isEmpty()) {
-                continue;
+        // Count the number of parts to determine positions
+        int partCount = 1;
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == '*') {
+                partCount++;
             }
-            if (i == 0) {
-                // Initial
-                encoder.writeContext(0, parts[i].getBytes(StandardCharsets.UTF_8));
-            } else if (i == parts.length - 1) {
-                // Final
-                encoder.writeContext(2, parts[i].getBytes(StandardCharsets.UTF_8));
-            } else {
-                // Any
-                encoder.writeContext(1, parts[i].getBytes(StandardCharsets.UTF_8));
+        }
+
+        int start = 0;
+        int length = value.length();
+        int partIndex = 0;
+        
+        while (start <= length) {
+            int end = value.indexOf('*', start);
+            if (end < 0) {
+                end = length;
             }
+            String part = value.substring(start, end);
+            
+            if (!part.isEmpty()) {
+                if (partIndex == 0) {
+                    // Initial
+                    encoder.writeContext(0, part.getBytes(StandardCharsets.UTF_8));
+                } else if (partIndex == partCount - 1) {
+                    // Final
+                    encoder.writeContext(2, part.getBytes(StandardCharsets.UTF_8));
+                } else {
+                    // Any
+                    encoder.writeContext(1, part.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            
+            partIndex++;
+            start = end + 1;
         }
 
         encoder.endSequence();
@@ -600,7 +623,8 @@ public class LDAPClientConnection extends Connection
                 handleExtendedResponse(messageId, protocolOp);
                 break;
             default:
-                logger.warning("Unknown LDAP response tag: 0x" + Integer.toHexString(tag));
+                logger.warning(MessageFormat.format(L10N.getString("warn.unknown_ldap_response_tag"), 
+                    Integer.toHexString(tag)));
         }
     }
 
@@ -772,7 +796,8 @@ public class LDAPClientConnection extends Connection
                     initializeSSLState();
                     logger.fine("TLS upgrade initiated after STARTTLS response");
                 } catch (IOException e) {
-                    logger.warning("Failed to initialize TLS after STARTTLS: " + e.getMessage());
+                    logger.warning(MessageFormat.format(L10N.getString("warn.starttls_failed"), 
+                        e.getMessage()));
                     if (startTLSCallback != null) {
                         StartTLSResultHandler callback = startTLSCallback;
                         startTLSCallback = null;

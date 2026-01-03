@@ -699,9 +699,24 @@ public class FTPConnection extends LineBasedConnection {
             reply(522, L10N.getString("ftp.err.epsv_all_active"));
             return;
         }
-        String[] fields = args.split(",");
+        
+        // Parse comma-separated fields: h1,h2,h3,h4,p1,p2
+        String[] fields = new String[6];
+        int fieldIndex = 0;
+        int start = 0;
+        int length = args.length();
+        while (start <= length && fieldIndex < 6) {
+            int end = args.indexOf(',', start);
+            if (end < 0) {
+                end = length;
+            }
+            fields[fieldIndex++] = args.substring(start, end);
+            start = end + 1;
+        }
+        
         try {
-            if (fields.length != 6) {
+            if (fieldIndex != 6 || start <= length) {
+                // Either didn't find 6 fields or there's more content after 6 fields
                 String message = L10N.getString("ftp.err.invalid_port_arguments");
                 reply(501, MessageFormat.format(message, args));
                 return;
@@ -1669,14 +1684,40 @@ public class FTPConnection extends LineBasedConnection {
         
         // Parse: SETQUOTA username storageLimit
         String argPart = args.substring(8).trim(); // Remove "SETQUOTA"
-        String[] parts = argPart.split("\\s+");
-        if (parts.length < 2) {
+        
+        // Parse whitespace-separated tokens
+        String targetUser = null;
+        String storageStr = null;
+        int start = 0;
+        int length = argPart.length();
+        int tokenIndex = 0;
+        while (start < length && tokenIndex < 2) {
+            // Skip whitespace
+            while (start < length && Character.isWhitespace(argPart.charAt(start))) {
+                start++;
+            }
+            if (start >= length) {
+                break;
+            }
+            // Find end of token
+            int end = start;
+            while (end < length && !Character.isWhitespace(argPart.charAt(end))) {
+                end++;
+            }
+            String token = argPart.substring(start, end);
+            if (tokenIndex == 0) {
+                targetUser = token;
+            } else {
+                storageStr = token;
+            }
+            tokenIndex++;
+            start = end;
+        }
+        
+        if (targetUser == null || storageStr == null) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
         }
-        
-        String targetUser = parts[0];
-        String storageStr = parts[1];
         
         try {
             long storageLimit = QuotaPolicy.parseSize(storageStr);
@@ -1701,17 +1742,56 @@ public class FTPConnection extends LineBasedConnection {
      * Sends a multi-line response.
      */
     private void replyMultiLine(int code, String message) throws IOException {
-        String[] lines = message.split("\r\n|\n");
-        StringBuilder response = new StringBuilder();
+        // Count lines to determine which is last
+        int lineCount = 1;
+        for (int i = 0; i < message.length(); i++) {
+            char c = message.charAt(i);
+            if (c == '\n') {
+                lineCount++;
+            }
+        }
         
-        for (int i = 0; i < lines.length; i++) {
-            if (i == lines.length - 1) {
+        StringBuilder response = new StringBuilder();
+        int lineStart = 0;
+        int msgLen = message.length();
+        int lineIndex = 0;
+        
+        while (lineStart <= msgLen) {
+            // Find end of line (either \r\n or \n)
+            int lineEnd = -1;
+            for (int i = lineStart; i < msgLen; i++) {
+                char c = message.charAt(i);
+                if (c == '\n') {
+                    lineEnd = i;
+                    break;
+                } else if (c == '\r' && i + 1 < msgLen && message.charAt(i + 1) == '\n') {
+                    lineEnd = i;
+                    break;
+                }
+            }
+            
+            String line;
+            if (lineEnd < 0) {
+                line = message.substring(lineStart);
+                lineStart = msgLen + 1; // Exit loop after this
+            } else {
+                line = message.substring(lineStart, lineEnd);
+                // Skip past the line ending
+                if (lineEnd < msgLen && message.charAt(lineEnd) == '\r') {
+                    lineStart = lineEnd + 2; // Skip \r\n
+                } else {
+                    lineStart = lineEnd + 1; // Skip \n
+                }
+            }
+            
+            if (lineIndex == lineCount - 1) {
                 // Last line uses space after code
-                response.append(code).append(" ").append(lines[i]).append("\r\n");
+                response.append(code).append(" ").append(line).append("\r\n");
             } else {
                 // Intermediate lines use hyphen after code
-                response.append(code).append("-").append(lines[i]).append("\r\n");
+                response.append(code).append("-").append(line).append("\r\n");
             }
+            lineIndex++;
         }
         
         send(US_ASCII.encode(response.toString()));
