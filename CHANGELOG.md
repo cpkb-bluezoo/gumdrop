@@ -5,7 +5,7 @@ All notable changes to Gumdrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1] - 2026-01-06
+## [1.1] - 2026-01-10
 
 ### Added
 
@@ -30,10 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `module-info.java`. The jar is compiled with `-release 8` for Java 8 runtime
   compatibility while including `module-info.class` for Java 9+ module system support.
 
-- **External JSON and XML parser dependencies**: The JSON parser (`jsonparser-1.2.jar`)
-  and XML parser (`gonzalez-0.3.jar`) are now included as external JAR dependencies
-  rather than embedded source code. These are bundled in the fat jar and loaded via
-  the `ContainerClassLoader`.
+- **Integrated XML and JSON parsing**: The Gonzalez XML parser (`org.bluezoo.gonzalez`)
+  and JSON parser (`org.bluezoo.json`) are now integrated directly into the gumdrop
+  source tree. These packages are part of the gumdrop API and available to users of
+  the library. Gumdrop remains a **zero external dependency** framework.
 
 - **`XMLParseUtils` utility class**: New utility class (`org.bluezoo.gumdrop.util.XMLParseUtils`)
   provides convenient methods for parsing XML using Gonzalez with NIO. Supports:
@@ -48,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   external DTD references.
 
 ### Changed
+
+- **Release artifact naming**: The release artifacts have been renamed for clarity:
+  - `gumdrop-1.1.jar` - Core library for building on top of the Gumdrop framework
+  - `gumdrop-container-1.1.jar` - Self-contained servlet container (executable fat jar)
+  - `gumdrop-manager-1.1.war` - Manager web application
+  
+  The previous `server.jar` is now `gumdrop.jar`. The previous `gumdrop.jar` (fat jar)
+  is now `gumdrop-container.jar`. This naming better reflects the intended use:
+  - Use `gumdrop.jar` as a library dependency when extending Gumdrop's servers
+  - Use `gumdrop-container.jar` for immediate deployment as a servlet container
 
 - **All XML parsing now uses Gonzalez**: Replaced blocking SAX parser with the Gonzalez
   streaming XML parser throughout the codebase for consistent non-blocking behavior:
@@ -71,7 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Embedded `org.bluezoo.json` package (now provided by external `jsonparser.jar`)
+- External `gonzalez-1.0.jar` and `jsonparser-1.2.jar` dependencies from `lib/`
+  (sources now integrated directly into gumdrop)
 
 ## [1.0] - 2025-12-01
 

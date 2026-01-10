@@ -10,13 +10,13 @@
  * event loop that handles all I/O operations, enabling high concurrency
  * with minimal thread overhead.
  *
- * <h2>Note on Dependencies</h2>
+ * <h2>Zero Dependencies</h2>
  *
- * <p>Gumdrop bundles its dependencies (servlet-api, javamail, jsonparser,
- * gonzalez, etc.) inside the gumdrop.jar fat jar. These are loaded at runtime
- * via a custom ContainerClassLoader and are not declared as JPMS dependencies.
- * This allows gumdrop.jar to be used as a standalone executable without
- * external module dependencies.
+ * <p>Gumdrop has zero external dependencies. It includes integrated XML parsing
+ * ({@link org.bluezoo.gonzalez}) and JSON parsing ({@link org.bluezoo.json})
+ * capabilities as part of the core library. The J2EE APIs (servlet-api, javamail,
+ * etc.) are bundled inside gumdrop-container.jar for servlet container deployment
+ * and loaded via a custom ContainerClassLoader.
  *
  * @see org.bluezoo.gumdrop.Bootstrap
  * @see org.bluezoo.gumdrop.Gumdrop
@@ -26,6 +26,11 @@ module org.bluezoo.gumdrop {
     requires java.logging;
     requires java.naming;          // JNDI for servlet container
     requires java.management;      // JMX for monitoring
+    requires java.xml;             // JAXP for gonzalez SAX parser
+    
+    // Integrated parsing libraries (zero external dependencies)
+    exports org.bluezoo.gonzalez;
+    exports org.bluezoo.json;
     
     // Core server framework
     exports org.bluezoo.gumdrop;
@@ -80,5 +85,9 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.protobuf;
+    
+    // JAXP service provider for gonzalez SAX parser
+    provides javax.xml.parsers.SAXParserFactory
+        with org.bluezoo.gonzalez.GonzalezSAXParserFactory;
 }
 

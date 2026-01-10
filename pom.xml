@@ -8,8 +8,8 @@
   Ant-built artifacts from dist/.
   
   Artifacts deployed:
-    - gumdrop (jar) - Bootstrap launcher
-    - gumdrop-server (jar) - Server and servlet container
+    - gumdrop (jar) - Core library with zero external dependencies
+    - gumdrop-container (jar) - Self-contained servlet container
     - gumdrop-manager (war) - Manager web application
   
   To deploy to GitHub Packages:
@@ -27,7 +27,7 @@
     <packaging>jar</packaging>
 
     <name>Gumdrop</name>
-    <description>Multipurpose Java server with HTTP, SMTP, POP3, IMAP, FTP, DNS and Servlet container</description>
+    <description>Zero-dependency multipurpose Java server with HTTP, SMTP, POP3, IMAP, FTP, DNS and Servlet container</description>
 
     <licenses>
         <license>
@@ -39,8 +39,10 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- The Ant-built jar to deploy -->
-        <ant.jar>${basedir}/dist/gumdrop-${project.version}.jar</ant.jar>
+        <!-- The Ant-built jars to deploy -->
+        <ant.gumdrop.jar>${basedir}/dist/gumdrop-${project.version}.jar</ant.gumdrop.jar>
+        <ant.container.jar>${basedir}/dist/gumdrop-container-${project.version}.jar</ant.container.jar>
+        <ant.manager.war>${basedir}/dist/gumdrop-manager-${project.version}.war</ant.manager.war>
     </properties>
 
     <build>
@@ -76,7 +78,7 @@
                 </executions>
             </plugin>
 
-            <!-- Install/deploy the Ant-built jar (must run 'ant release' first) -->
+            <!-- Install/deploy the Ant-built jars (must run 'ant release' first) -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
@@ -91,7 +93,7 @@
                         <configuration>
                             <artifacts>
                                 <artifact>
-                                    <file>${ant.jar}</file>
+                                    <file>${ant.gumdrop.jar}</file>
                                     <type>jar</type>
                                 </artifact>
                             </artifacts>
@@ -155,4 +157,3 @@
     </distributionManagement>
 
 </project>
-

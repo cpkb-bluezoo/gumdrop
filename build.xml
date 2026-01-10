@@ -30,9 +30,12 @@
   <property name='manager' location='manager'/>
   <property name='dist' location='dist'/>
   <property name='test' location='test'/>
-  <property name='server.jar' location='${dist}/server.jar'/>
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
+  <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
   <property name='manager.war' location='${dist}/manager.war'/>
+  <!-- Separate jars for servlet context classloader access in container (internal build artifacts) -->
+  <property name='gonzalez.jar' location='${build-bootstrap}/gonzalez.jar'/>
+  <property name='jsonparser.jar' location='${build-bootstrap}/jsonparser.jar'/>
   
   <!--
     Java version compatibility settings.
@@ -60,8 +63,6 @@
   <property name='ejb.jar' value='javax.ejb-api-3.2.2.jar'/>
   <property name='persistence.jar' value='javax.persistence-api-2.2.jar'/>
   <property name='jaxws.jar' value='jaxws-api-2.3.1.jar'/>
-  <property name='jsonparser.jar' value='jsonparser-1.2.jar'/>
-  <property name='gonzalez.jar' value='gonzalez-1.0.jar'/>
 
   <!-- JUnit dependencies -->
   <property name='junit.jar' value='junit-4.13.1.jar'/>
@@ -103,8 +104,6 @@
         <pathelement location='${lib}/${ejb.jar}'/>
         <pathelement location='${lib}/${persistence.jar}'/>
         <pathelement location='${lib}/${jaxws.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
       </classpath>
       <include name="**/*.java"/>
       <exclude name="module-info.java"/>
@@ -119,20 +118,43 @@
     <copy todir='${build}'>
       <fileset dir='${src}'>
         <include name='**/*.properties'/>
+        <include name='META-INF/**'/>
       </fileset>
     </copy>
   </target>
 
-  <!-- server.jar contains the server and servlet container -->
+  <!-- gumdrop.jar contains the server, servlet container, and integrated parsing libraries -->
   <target name='jar' depends='build'>
     <mkdir dir='${dist}'/>
-    <jar destfile='${server.jar}' basedir='${build}'/>
+    <jar destfile='${gumdrop.jar}' basedir='${build}'/>
+  </target>
+
+  <!-- Build separate gonzalez.jar for servlet context classloader access -->
+  <target name='gonzalez-jar' depends='build'>
+    <mkdir dir='${build-bootstrap}'/>
+    <jar destfile='${gonzalez.jar}'>
+      <fileset dir='${build}'>
+        <include name='org/bluezoo/gonzalez/**'/>
+        <include name='META-INF/**'/>
+      </fileset>
+    </jar>
+  </target>
+
+  <!-- Build separate jsonparser.jar for servlet context classloader access -->
+  <target name='jsonparser-jar' depends='build'>
+    <mkdir dir='${build-bootstrap}'/>
+    <jar destfile='${jsonparser.jar}'>
+      <fileset dir='${build}'>
+        <include name='org/bluezoo/json/**'/>
+      </fileset>
+    </jar>
   </target>
 
   <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
-  <!-- the server.jar, and the J2EE dependencies for the server and container. -->
+  <!-- the gumdrop.jar, and the J2EE dependencies for the server and container. -->
   <!-- Bootstrap will create a new classloader to load these jars -->
-  <target name='build-bootstrap' depends='jar'>
+  <!-- Separate gonzalez.jar and jsonparser.jar are built into build-bootstrap so servlets can use them -->
+  <target name='build-bootstrap' depends='jar,gonzalez-jar,jsonparser-jar'>
     <mkdir dir='${build-bootstrap}'/>
     <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'
            release='${java.release.version}'
@@ -141,7 +163,8 @@
       <include name="org/bluezoo/gumdrop/Bootstrap.java"/>
       <include name="org/bluezoo/gumdrop/ContainerClassLoader.java"/>
     </javac>
-    <copy todir='${build-bootstrap}' file='${server.jar}'/>
+    <copy todir='${build-bootstrap}' file='${gumdrop.jar}'/>
+    <!-- gonzalez.jar and jsonparser.jar are already in build-bootstrap from their targets -->
     <copy todir='${build-bootstrap}'>
       <fileset dir='${lib}'>
         <include name='${servlet.jar}'/>
@@ -150,20 +173,18 @@
         <include name='${ejb.jar}'/>
         <include name='${persistence.jar}'/>
         <include name='${jaxws.jar}'/>
-        <include name='${jsonparser.jar}'/>
-        <include name='${gonzalez.jar}'/>
       </fileset>
     </copy>
   </target>
 
-  <!-- The bootstrap jar contains the only class loaded by the bootstrap classloader -->
-  <target name='bootstrap-jar' depends='build-bootstrap'>
+  <!-- The container jar contains the bootstrap class and all dependencies -->
+  <target name='container-jar' depends='build-bootstrap'>
     <mkdir dir='${dist}'/>
-    <jar destfile='${gumdrop.jar}' basedir='build-bootstrap'>
+    <jar destfile='${gumdrop-container.jar}' basedir='build-bootstrap'>
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
-        <attribute name='Container-Jar' value='server.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${jsonparser.jar} ${gonzalez.jar}'/>
+        <attribute name='Container-Jar' value='gumdrop.jar'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} gonzalez.jar jsonparser.jar'/>
       </manifest>
     </jar>
   </target>
@@ -174,17 +195,17 @@
     <jar destfile='${manager.war}' basedir='${manager}'/>
   </target>
 
-  <target name='dist' depends='bootstrap-jar,manager-war'/>
+  <target name='dist' depends='container-jar,manager-war'/>
 
   <!-- Release target creates versioned artifacts for distribution -->
   <target name='release' depends='dist' description='Create versioned release artifacts'>
     <copy file='${gumdrop.jar}' tofile='${dist}/gumdrop-${version}.jar'/>
-    <copy file='${server.jar}' tofile='${dist}/server-${version}.jar'/>
-    <copy file='${manager.war}' tofile='${dist}/manager-${version}.war'/>
+    <copy file='${gumdrop-container.jar}' tofile='${dist}/gumdrop-container-${version}.jar'/>
+    <copy file='${manager.war}' tofile='${dist}/gumdrop-manager-${version}.war'/>
     <echo message='Release artifacts created:'/>
-    <echo message='  ${dist}/gumdrop-${version}.jar'/>
-    <echo message='  ${dist}/server-${version}.jar'/>
-    <echo message='  ${dist}/manager-${version}.war'/>
+    <echo message='  ${dist}/gumdrop-${version}.jar (core library)'/>
+    <echo message='  ${dist}/gumdrop-container-${version}.jar (servlet container)'/>
+    <echo message='  ${dist}/gumdrop-manager-${version}.war (manager webapp)'/>
   </target>
 
   <!-- Generate Javadoc API documentation -->
@@ -212,8 +233,6 @@
         <pathelement location='${lib}/${ejb.jar}'/>
         <pathelement location='${lib}/${persistence.jar}'/>
         <pathelement location='${lib}/${jaxws.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
       </classpath>
     </javadoc>
   </target>

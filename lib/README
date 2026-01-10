@@ -1,2 +1,8 @@
-This directory holds jar files that should need to be accessible to gumdrop
-itself, such as JDBC drivers.
+This directory holds the J2EE API jars required for compilation.
+
+These are bundled into gumdrop-container.jar at build time and loaded by the
+ContainerClassLoader at runtime, ensuring servlet implementations cannot
+access gumdrop's internal classes.
+
+Note: gonzalez (XML parsing) and jsonparser (JSON parsing) sources are now
+integrated directly into gumdrop with zero external dependencies.
