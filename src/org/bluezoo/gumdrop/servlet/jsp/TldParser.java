@@ -21,14 +21,11 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
+import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
-import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
-import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.parsers.SAXParserFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Stack;
@@ -82,18 +79,8 @@ public class TldParser {
      */
     public static TagLibraryDescriptor parseTld(InputStream input, String sourceLocation) throws IOException {
         try {
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(true);
-            factory.setValidating(false);
-            XMLReader reader = factory.newSAXParser().getXMLReader();
-
             TldHandler handler = new TldHandler(sourceLocation);
-            reader.setContentHandler(handler);
-            reader.setErrorHandler(handler);
-
-            InputSource source = new InputSource(input);
-            source.setSystemId(sourceLocation);
-            reader.parse(source);
+            XMLParseUtils.parseStream(input, handler, handler, sourceLocation, null);
 
             TagLibraryDescriptor tld = handler.getTagLibraryDescriptor();
             if (tld != null) {
@@ -103,7 +90,7 @@ public class TldParser {
 
             return tld;
 
-        } catch (ParserConfigurationException | SAXException e) {
+        } catch (SAXException e) {
             LOGGER.log(Level.WARNING, "Failed to parse TLD: " + sourceLocation, e);
             throw new IOException("TLD parsing error: " + e.getMessage(), e);
         }

@@ -1,6 +1,6 @@
 /*
  * FileHTTPServer.java
- * Copyright (C) 2005, 2013, 2025 Chris Burdess
+ * Copyright (C) 2005, 2013, 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -35,7 +35,9 @@ import javax.net.ssl.SSLEngine;
 
 /**
  * HTTP connector for serving files from a filesystem root.
- * This replaces the older FileBasedHTTPConnector.
+ *
+ * <p>When WebDAV is enabled, this server supports RFC 2518 distributed authoring
+ * including PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, and UNLOCK methods.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -45,6 +47,7 @@ public class FileHTTPServer extends HTTPServer {
 
     private Path rootPath = Paths.get(".");
     private boolean allowWrite = false;
+    private boolean webdavEnabled = false;
     private String welcomeFile = "index.html"; // Default welcome file list
 
     public Path getRootPath() {
@@ -70,6 +73,27 @@ public class FileHTTPServer extends HTTPServer {
         this.allowWrite = allowWrite;
     }
 
+    /**
+     * Returns whether WebDAV (RFC 2518) support is enabled.
+     *
+     * @return true if WebDAV is enabled
+     */
+    public boolean isWebdavEnabled() {
+        return webdavEnabled;
+    }
+
+    /**
+     * Enables or disables WebDAV (RFC 2518) support.
+     *
+     * <p>When enabled, the server supports PROPFIND, PROPPATCH, MKCOL, COPY, MOVE,
+     * LOCK, and UNLOCK methods in addition to the standard HTTP methods.
+     *
+     * @param webdavEnabled true to enable WebDAV
+     */
+    public void setWebdavEnabled(boolean webdavEnabled) {
+        this.webdavEnabled = webdavEnabled;
+    }
+
     public String getWelcomeFile() {
         return welcomeFile;
     }
@@ -82,13 +106,15 @@ public class FileHTTPServer extends HTTPServer {
 
     @Override
     public Connection newConnection(SocketChannel channel, SSLEngine engine) {
-        return new FileHTTPConnection(channel, engine, secure, rootPath, allowWrite, welcomeFile);
+        return new FileHTTPConnection(channel, engine, secure, rootPath, allowWrite, 
+                welcomeFile, webdavEnabled);
     }
 
     @Override
     public String getDescription() {
-        return String.format("%s file server (root: %s, write: %s, welcome: %s)", 
-                            super.getDescription(), rootPath, allowWrite, welcomeFile);
+        String webdav = webdavEnabled ? ", webdav: enabled" : "";
+        return String.format("%s file server (root: %s, write: %s, welcome: %s%s)", 
+                            super.getDescription(), rootPath, allowWrite, welcomeFile, webdav);
     }
 
     /**

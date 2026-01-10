@@ -243,11 +243,11 @@ final class DTLSSession {
 
                 case NEED_UNWRAP:
                     // Need more data from remote - return and wait
+                    // Also handles NEED_UNWRAP_AGAIN (Java 9+) for DTLS buffered data
                     return;
 
-                case NEED_UNWRAP_AGAIN:
-                    // DTLS-specific: need to process buffered data
-                    // This is handled by the next incoming datagram
+                default:
+                    // Handle any unknown status (including future additions)
                     return;
             }
 

@@ -342,7 +342,7 @@ public class RFC2047Decoder {
 		}
 		try {
 			// Decode percent-encoding to raw bytes (using ISO-8859-1 preserves byte values)
-			String raw = URLDecoder.decode(result.encoded, StandardCharsets.ISO_8859_1);
+			String raw = URLDecoder.decode(result.encoded, "ISO-8859-1");
 			// Convert raw bytes to string using the specified charset
 			return bytesToString(raw.getBytes(StandardCharsets.ISO_8859_1), result.charset);
 		} catch (Exception e) {

@@ -55,6 +55,7 @@ container</a> and static file server.
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#client">HTTP Client</a></li>
 <li><a href="#file-server">File HTTP Server</a></li>
+<li><a href="#webdav">WebDAV Support</a></li>
 </ul>
 
 <h3 id="versions">HTTP Versions</h3>
@@ -799,6 +800,196 @@ For HTTP/2 connections, the file server can benefit from the priority-aware
 server when serving mixed content (HTML, CSS, JavaScript, images) by
 prioritising critical resources.
 </p>
+
+<h3 id="webdav">WebDAV Support</h3>
+
+<p>
+The file HTTP server supports WebDAV (RFC 2518) distributed authoring when
+enabled via the <code>webdavEnabled</code> property. This allows WebDAV
+clients such as Windows Explorer, macOS Finder, or dedicated clients like
+Cyberduck to access the file server as a network drive.
+</p>
+
+<h4>Enabling WebDAV</h4>
+
+<pre>
+&lt;server id="webdav" class="org.bluezoo.gumdrop.http.file.FileHTTPServer"&gt;
+  &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
+  &lt;property name="allow-write"&gt;true&lt;/property&gt;
+  &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
+&lt;/server&gt;
+</pre>
+
+<p>
+When WebDAV is enabled, the server advertises <code>DAV: 1,2</code> in
+OPTIONS responses and supports the following additional HTTP methods:
+</p>
+
+<h4>WebDAV Methods</h4>
+
+<ul>
+<li><b>PROPFIND</b> - Query properties of resources. Supports
+<code>allprop</code>, <code>propname</code>, or specific property requests.
+The <code>Depth</code> header controls recursion (0, 1, or infinity).</li>
+
+<li><b>PROPPATCH</b> - Set or remove dead properties on resources.
+Live properties (those computed from the filesystem) cannot be modified.</li>
+
+<li><b>MKCOL</b> - Create a new collection (directory). The request must
+not have a body. The parent directory must exist.</li>
+
+<li><b>COPY</b> - Copy a resource or collection to a new location. Uses
+the <code>Destination</code> header for the target URL. The
+<code>Overwrite</code> header controls whether existing resources are
+replaced (default: true). For collections, <code>Depth</code> controls
+whether children are copied.</li>
+
+<li><b>MOVE</b> - Move a resource or collection. Semantically equivalent
+to COPY followed by DELETE. Requires valid lock tokens if resources are
+locked.</li>
+
+<li><b>LOCK</b> - Lock a resource to prevent concurrent modifications.
+Supports exclusive and shared write locks. Returns an opaque lock token
+that must be included in subsequent modifying requests.</li>
+
+<li><b>UNLOCK</b> - Release a lock using its token. The token is passed
+in the <code>Lock-Token</code> header.</li>
+</ul>
+
+<h4>Live Properties</h4>
+
+<p>
+The following live properties are computed from the filesystem and returned
+by PROPFIND requests:
+</p>
+
+<ul>
+<li><code>creationdate</code> - file creation time (ISO 8601 format)</li>
+<li><code>displayname</code> - filename</li>
+<li><code>getcontentlength</code> - file size in bytes (files only)</li>
+<li><code>getcontenttype</code> - MIME type</li>
+<li><code>getetag</code> - entity tag for conditional requests</li>
+<li><code>getlastmodified</code> - last modification time (HTTP date format)</li>
+<li><code>lockdiscovery</code> - active locks on the resource</li>
+<li><code>resourcetype</code> - empty for files, <code>&lt;collection/&gt;</code>
+for directories</li>
+<li><code>supportedlock</code> - supported lock types (exclusive and shared
+write locks)</li>
+</ul>
+
+<h4>Locking</h4>
+
+<p>
+WebDAV locks prevent conflicting modifications when multiple clients access
+the same resource. Locks are:
+</p>
+
+<ul>
+<li><b>In-memory</b> - locks are not persisted and are lost on server restart</li>
+<li><b>Thread-safe</b> - lock management is safe for concurrent access</li>
+<li><b>Time-limited</b> - locks have a configurable timeout (default: 1 hour,
+maximum: 1 week)</li>
+<li><b>Depth-aware</b> - locks can cover a resource only (depth 0), a
+collection and its immediate children (depth 1), or an entire subtree
+(depth infinity)</li>
+</ul>
+
+<p>
+When a resource is locked, modifying operations (PUT, DELETE, MOVE, PROPPATCH)
+require a valid lock token in the <code>If</code> or <code>Lock-Token</code>
+header.
+</p>
+
+<h4>Example: PROPFIND Request</h4>
+
+<pre>
+PROPFIND /documents/ HTTP/1.1
+Host: example.com
+Depth: 1
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;propfind xmlns="DAV:"&gt;
+  &lt;prop&gt;
+    &lt;displayname/&gt;
+    &lt;getcontentlength/&gt;
+    &lt;getlastmodified/&gt;
+  &lt;/prop&gt;
+&lt;/propfind&gt;
+</pre>
+
+<p>
+Response (207 Multi-Status):
+</p>
+
+<pre>
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;D:multistatus xmlns:D="DAV:"&gt;
+  &lt;D:response&gt;
+    &lt;D:href&gt;/documents/&lt;/D:href&gt;
+    &lt;D:propstat&gt;
+      &lt;D:prop&gt;
+        &lt;D:displayname&gt;documents&lt;/D:displayname&gt;
+      &lt;/D:prop&gt;
+      &lt;D:status&gt;HTTP/1.1 200 OK&lt;/D:status&gt;
+    &lt;/D:propstat&gt;
+  &lt;/D:response&gt;
+  &lt;D:response&gt;
+    &lt;D:href&gt;/documents/report.pdf&lt;/D:href&gt;
+    &lt;D:propstat&gt;
+      &lt;D:prop&gt;
+        &lt;D:displayname&gt;report.pdf&lt;/D:displayname&gt;
+        &lt;D:getcontentlength&gt;245678&lt;/D:getcontentlength&gt;
+        &lt;D:getlastmodified&gt;Tue, 06 Jan 2026 12:00:00 GMT&lt;/D:getlastmodified&gt;
+      &lt;/D:prop&gt;
+      &lt;D:status&gt;HTTP/1.1 200 OK&lt;/D:status&gt;
+    &lt;/D:propstat&gt;
+  &lt;/D:response&gt;
+&lt;/D:multistatus&gt;
+</pre>
+
+<h4>Example: LOCK Request</h4>
+
+<pre>
+LOCK /documents/report.pdf HTTP/1.1
+Host: example.com
+Timeout: Second-3600
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;lockinfo xmlns="DAV:"&gt;
+  &lt;lockscope&gt;&lt;exclusive/&gt;&lt;/lockscope&gt;
+  &lt;locktype&gt;&lt;write/&gt;&lt;/locktype&gt;
+  &lt;owner&gt;user@example.com&lt;/owner&gt;
+&lt;/lockinfo&gt;
+</pre>
+
+<p>
+Response includes the lock token:
+</p>
+
+<pre>
+HTTP/1.1 200 OK
+Lock-Token: &lt;opaquelocktoken:a1b2c3d4-e5f6-7890-abcd-ef1234567890&gt;
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;D:prop xmlns:D="DAV:"&gt;
+  &lt;D:lockdiscovery&gt;
+    &lt;D:activelock&gt;
+      &lt;D:locktype&gt;&lt;D:write/&gt;&lt;/D:locktype&gt;
+      &lt;D:lockscope&gt;&lt;D:exclusive/&gt;&lt;/D:lockscope&gt;
+      &lt;D:depth&gt;infinity&lt;/D:depth&gt;
+      &lt;D:owner&gt;user@example.com&lt;/D:owner&gt;
+      &lt;D:timeout&gt;Second-3600&lt;/D:timeout&gt;
+      &lt;D:locktoken&gt;
+        &lt;D:href&gt;opaquelocktoken:a1b2c3d4-e5f6-7890-abcd-ef1234567890&lt;/D:href&gt;
+      &lt;/D:locktoken&gt;
+    &lt;/D:activelock&gt;
+  &lt;/D:lockdiscovery&gt;
+&lt;/D:prop&gt;
+</pre>
 
 <hr/>
 

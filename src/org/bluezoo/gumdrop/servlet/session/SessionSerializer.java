@@ -30,9 +30,10 @@ import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputFilter;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.HashSet;
@@ -83,12 +84,6 @@ class SessionSerializer {
     private static final int ATTR_BYTES_VALUE = 6;
     private static final int ATTR_FLOAT_VALUE = 7;
 
-    // Maximum depth for Java deserialization (prevent stack overflow attacks)
-    private static final int MAX_DESERIALIZATION_DEPTH = 20;
-    // Maximum array size for Java deserialization
-    private static final int MAX_ARRAY_LENGTH = 10000;
-    // Maximum number of references (object graph size)
-    private static final long MAX_REFERENCES = 10000L;
 
     private SessionSerializer() {
         // Utility class
@@ -380,70 +375,49 @@ class SessionSerializer {
 
     /**
      * ObjectInputStream with a strict deserialization filter.
+     * Uses resolveClass() for Java 8 compatibility.
      */
     private static class FilteredObjectInputStream extends ObjectInputStream {
 
-        FilteredObjectInputStream(ByteArrayInputStream in) throws IOException {
-            super(in);
-            setObjectInputFilter(new SessionDeserializationFilter());
-        }
-    }
-
-    /**
-     * Deserialization filter for session attributes.
-     */
-    private static class SessionDeserializationFilter implements ObjectInputFilter {
-
         // Safe JDK packages that are commonly used in session attributes
-        private static final Set<String> ALLOWED_PACKAGES = Set.of(
-                "java.lang.",
-                "java.util.",
-                "java.math.",
-                "java.time.",
-                "java.io.Serializable",
-                "java.net.URI",
-                "java.net.URL"
-        );
+        private static final Set<String> ALLOWED_PACKAGES;
+        static {
+            Set<String> allowed = new HashSet<>();
+            allowed.add("java.lang.");
+            allowed.add("java.util.");
+            allowed.add("java.math.");
+            allowed.add("java.time.");
+            allowed.add("java.io.Serializable");
+            allowed.add("java.net.URI");
+            allowed.add("java.net.URL");
+            ALLOWED_PACKAGES = allowed;
+        }
 
         // Explicitly denied classes (known gadget classes)
-        private static final Set<String> DENIED_CLASSES = Set.of(
-                "org.apache.commons.collections.functors.",
-                "org.apache.commons.collections4.functors.",
-                "org.apache.xalan.",
-                "com.sun.org.apache.xalan.",
-                "org.codehaus.groovy.runtime.",
-                "org.springframework.beans.factory.",
-                "com.mchange.v2.c3p0.",
-                "com.sun.rowset.JdbcRowSetImpl",
-                "java.rmi.server.UnicastRemoteObject",
-                "javax.management."
-        );
+        private static final Set<String> DENIED_CLASSES;
+        static {
+            Set<String> denied = new HashSet<>();
+            denied.add("org.apache.commons.collections.functors.");
+            denied.add("org.apache.commons.collections4.functors.");
+            denied.add("org.apache.xalan.");
+            denied.add("com.sun.org.apache.xalan.");
+            denied.add("org.codehaus.groovy.runtime.");
+            denied.add("org.springframework.beans.factory.");
+            denied.add("com.mchange.v2.c3p0.");
+            denied.add("com.sun.rowset.JdbcRowSetImpl");
+            denied.add("java.rmi.server.UnicastRemoteObject");
+            denied.add("javax.management.");
+            DENIED_CLASSES = denied;
+        }
+
+        FilteredObjectInputStream(ByteArrayInputStream in) throws IOException {
+            super(in);
+        }
 
         @Override
-        public Status checkInput(FilterInfo filterInfo) {
-            Class<?> clazz = filterInfo.serialClass();
-
-            // Check depth limit
-            if (filterInfo.depth() > MAX_DESERIALIZATION_DEPTH) {
-                return Status.REJECTED;
-            }
-
-            // Check array length
-            if (filterInfo.arrayLength() > MAX_ARRAY_LENGTH) {
-                return Status.REJECTED;
-            }
-
-            // Check reference count
-            if (filterInfo.references() > MAX_REFERENCES) {
-                return Status.REJECTED;
-            }
-
-            // If no class info, this is a primitive or the filter is checking metrics
-            if (clazz == null) {
-                return Status.UNDECIDED;
-            }
-
-            String className = clazz.getName();
+        protected Class<?> resolveClass(ObjectStreamClass desc)
+                throws IOException, ClassNotFoundException {
+            String className = desc.getName();
 
             // Check denied list first
             for (String denied : DENIED_CLASSES) {
@@ -451,45 +425,48 @@ class SessionSerializer {
                     String message = L10N.getString("warn.blocked_class");
                     message = MessageFormat.format(message, className);
                     LOGGER.warning(message);
-                    return Status.REJECTED;
+                    throw new InvalidClassException(className, "Blocked class");
                 }
-            }
-
-            // Allow primitives and arrays of primitives
-            if (clazz.isPrimitive()) {
-                return Status.ALLOWED;
-            }
-
-            // Allow arrays (the component type will be checked separately)
-            if (clazz.isArray()) {
-                return Status.UNDECIDED;
             }
 
             // Check allowed JDK packages
             for (String allowed : ALLOWED_PACKAGES) {
                 if (className.startsWith(allowed)) {
-                    return Status.ALLOWED;
+                    return super.resolveClass(desc);
                 }
+            }
+
+            // For other classes, resolve first then check classloader
+            Class<?> clazz = super.resolveClass(desc);
+
+            // Allow primitives
+            if (clazz.isPrimitive()) {
+                return clazz;
+            }
+
+            // Allow arrays (the component type will be checked separately)
+            if (clazz.isArray()) {
+                return clazz;
             }
 
             // Allow enum types
             if (clazz.isEnum()) {
-                return Status.ALLOWED;
+                return clazz;
             }
 
-            // For other classes, check if they're from the webapp's classloader
+            // Check if class is from the webapp's classloader
             ClassLoader classLoader = clazz.getClassLoader();
             ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
 
             if (classLoader == contextClassLoader) {
-                return Status.ALLOWED;
+                return clazz;
             }
 
             // Check parent classloaders
             ClassLoader parent = contextClassLoader;
             while (parent != null) {
                 if (classLoader == parent) {
-                    return Status.ALLOWED;
+                    return clazz;
                 }
                 parent = parent.getParent();
             }
@@ -498,7 +475,7 @@ class SessionSerializer {
             String message = L10N.getString("warn.rejected_class");
             message = MessageFormat.format(message, className);
             LOGGER.warning(message);
-            return Status.REJECTED;
+            throw new InvalidClassException(className, "Rejected class");
         }
     }
 

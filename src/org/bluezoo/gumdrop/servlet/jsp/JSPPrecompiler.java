@@ -92,15 +92,7 @@ public class JSPPrecompiler {
      */
     public JSPPrecompiler() {
         // Initialize parser factory
-        try {
-            javax.xml.parsers.SAXParserFactory saxFactory = 
-                javax.xml.parsers.SAXParserFactory.newInstance();
-            saxFactory.setNamespaceAware(true);
-            saxFactory.setValidating(false);
-            this.parserFactory = new JSPParserFactory(saxFactory);
-        } catch (Exception e) {
-            throw new RuntimeException(L10N.getString("precompiler.init_failed"), e);
-        }
+        this.parserFactory = new JSPParserFactory();
         
         // Initialize compiler
         this.compiler = new InMemoryJavaCompiler();

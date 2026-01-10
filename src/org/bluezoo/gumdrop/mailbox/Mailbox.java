@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -176,7 +177,7 @@ public interface Mailbox {
      * @throws IOException if flags cannot be retrieved
      */
     default Set<Flag> getFlags(int messageNumber) throws IOException {
-        return Set.of();
+        return Collections.emptySet();
     }
 
     /**

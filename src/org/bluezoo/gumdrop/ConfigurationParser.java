@@ -21,20 +21,15 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
-import org.xml.sax.InputSource;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
-import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashMap;
@@ -98,6 +93,7 @@ public class ConfigurationParser extends DefaultHandler {
     
     /**
      * Parse a configuration file and return the result.
+     * Uses Gonzalez streaming XML parser with NIO for non-blocking I/O.
      * 
      * @param file the configuration file
      * @return the parse result containing the component registry
@@ -107,37 +103,14 @@ public class ConfigurationParser extends DefaultHandler {
     public ParseResult parse(File file) throws SAXException, IOException {
         registry = new ComponentRegistry();
         
-        InputStream in = null;
-        try {
-            in = new BufferedInputStream(new FileInputStream(file));
-            InputSource source = new InputSource(in);
-            source.setSystemId(file.toURI().toString());
-            
-            SAXParserFactory factory = SAXParserFactory.newInstance();
-            factory.setNamespaceAware(true);
-            SAXParser parser = factory.newSAXParser();
-            parser.parse(source, this);
-            
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Parsed configuration file: " + file + 
-                           " (" + registry.getComponentIds().size() + " components)");
-            }
-            
-            return new ParseResult(registry);
-        } catch (Exception e) {
-            if (e instanceof SAXException) {
-                throw (SAXException) e;
-            }
-            if (e instanceof IOException) {
-                throw (IOException) e;
-            }
-            SAXException se = new SAXException("Failed to parse configuration file", e);
-            throw se;
-        } finally {
-            if (in != null) {
-                in.close();
-            }
+        XMLParseUtils.parseFile(file, this, null, null, null);
+        
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Parsed configuration file: " + file + 
+                       " (" + registry.getComponentIds().size() + " components)");
         }
+        
+        return new ParseResult(registry);
     }
     
     @Override

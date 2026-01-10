@@ -21,19 +21,17 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.ErrorHandler;
-import org.xml.sax.InputSource;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
-import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.MessageFormat;
@@ -47,9 +45,6 @@ import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import javax.persistence.PersistenceContextType;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
 import javax.servlet.DispatcherType;
 import javax.servlet.SessionTrackingMode;
 import javax.servlet.annotation.ServletSecurity;
@@ -414,16 +409,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
 
     State mode;
     MessageDigest digest;
-    
-    // Keep reference to working SAX parser factory for reuse
-    private SAXParserFactory saxParserFactory;
 
     DeploymentDescriptorParser() {
-        this(null);
-    }
-
-    DeploymentDescriptorParser(SAXParserFactory saxParserFactory) {
-        this.saxParserFactory = saxParserFactory;
         try {
             digest = MessageDigest.getInstance("MD5");
         } catch (NoSuchAlgorithmException e) {
@@ -434,12 +421,18 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         }
     }
 
+    /**
+     * Parses a deployment descriptor from an InputStream using the Gonzalez
+     * streaming XML parser. The digest is computed while parsing.
+     *
+     * @param descriptor the deployment descriptor to populate
+     * @param in the InputStream containing the XML
+     * @throws IOException if an I/O error occurs
+     * @throws SAXException if a parsing error occurs
+     */
     public void parse(DeploymentDescriptor descriptor, InputStream in) throws IOException, SAXException {
         this.descriptor = descriptor;
-        DigestInputStream di = new DigestInputStream(in, digest);
-        InputSource source = new InputSource(di);
-        //source.setSystemId(url.toString());
-        parse(source);
+        XMLParseUtils.parseStreamWithDigest(in, this, this, null, digest);
     }
 
     /**
@@ -448,37 +441,6 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
      */
     byte[] getDigest() {
         return digest.digest();
-    }
-
-    private void parse(InputSource in) throws IOException, SAXException {
-        try {
-            // Use provided factory or create new one
-            if (saxParserFactory == null) {
-                saxParserFactory = SAXParserFactory.newInstance();
-                saxParserFactory.setNamespaceAware(true);
-                saxParserFactory.setValidating(false);
-            }
-            
-            SAXParser parser = saxParserFactory.newSAXParser();
-            XMLReader reader = parser.getXMLReader();
-            reader.setContentHandler(this);
-            reader.setErrorHandler(this);
-            reader.parse(in);
-        } catch (ParserConfigurationException e) {
-            SAXException e2 = new SAXException(e.getMessage());
-            e2.initCause(e);
-            throw e2;
-        }
-    }
-    
-    /**
-     * Returns the SAXParserFactory that was successfully used to parse the deployment descriptor.
-     * This factory can be reused for other XML parsing tasks like JSP files.
-     * 
-     * @return the working SAXParserFactory, or null if parsing hasn't been performed
-     */
-    public SAXParserFactory getSAXParserFactory() {
-        return saxParserFactory;
     }
 
     void pushText() {

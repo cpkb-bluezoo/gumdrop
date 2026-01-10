@@ -21,15 +21,12 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
+import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
-import org.xml.sax.InputSource;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
-import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.parsers.SAXParserFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
@@ -65,34 +62,13 @@ public class XMLJSPParser implements JSPParser {
     private static final String JSP_NAMESPACE = "http://java.sun.com/JSP/Page";
     private static final String XML_DECLARATION_PREFIX = "<?xml";
     private static final String JSP_ROOT_ELEMENT = "jsp:root";
-    
-    // SAX parser factory for XML parsing
-    private final SAXParserFactory saxParserFactory;
 
     /**
-     * Creates an XML JSP parser using the default SAX parser factory.
-     * 
-     * @throws JSPParseException if SAX parser factory cannot be created
+     * Creates an XML JSP parser.
+     * Uses the Gonzalez streaming XML parser for non-blocking parsing.
      */
-    public XMLJSPParser() throws JSPParseException {
-        try {
-            this.saxParserFactory = SAXParserFactory.newInstance();
-        } catch (Exception e) {
-            throw new JSPParseException("Failed to create SAX parser factory", null, -1, -1, e);
-        }
-    }
-
-    /**
-     * Creates an XML JSP parser with a custom SAX parser factory.
-     * 
-     * @param saxParserFactory the SAX parser factory to use (must not be null)
-     * @throws IllegalArgumentException if saxParserFactory is null
-     */
-    public XMLJSPParser(SAXParserFactory saxParserFactory) {
-        if (saxParserFactory == null) {
-            throw new IllegalArgumentException("SAX parser factory cannot be null");
-        }
-        this.saxParserFactory = saxParserFactory;
+    public XMLJSPParser() {
+        // No-op - Gonzalez is used directly
     }
 
     @Override
@@ -107,30 +83,14 @@ public class XMLJSPParser implements JSPParser {
             throws IOException, JSPParseException {
 
         try {
-            // Configure the SAX parser
-            saxParserFactory.setNamespaceAware(true);
-            saxParserFactory.setValidating(false);
-            javax.xml.parsers.SAXParser parser = saxParserFactory.newSAXParser();
-            XMLReader reader = parser.getXMLReader();
-
             // Create content handler with JSP properties
             JSPContentHandler handler = new JSPContentHandler(jspUri, encoding, jspProperties);
-            reader.setContentHandler(handler);
-            reader.setErrorHandler(handler);
-
-            // Parse the input
-            InputSource source = new InputSource(input);
-            if (encoding != null) {
-                source.setEncoding(encoding);
-            }
-            source.setSystemId(jspUri);
-
-            reader.parse(source);
+            
+            // Use Gonzalez streaming parser
+            XMLParseUtils.parseStream(input, handler, handler, jspUri, null);
 
             return handler.getJSPPage();
 
-        } catch (ParserConfigurationException e) {
-            throw new JSPParseException("Failed to create XML parser", jspUri, -1, -1, e);
         } catch (SAXException e) {
             // Check if this wraps a JSPParseException
             if (e.getCause() instanceof JSPParseException) {

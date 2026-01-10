@@ -70,25 +70,19 @@ public class MaildirFilename {
     private static final AtomicLong COUNTER = new AtomicLong(0);
 
     static {
-        // Get process ID - try ProcessHandle first (Java 9+), fall back to RuntimeMXBean
+        // Get process ID using RuntimeMXBean (Java 8 compatible)
         String pid;
         try {
-            // Java 9+ way - doesn't require network access
-            pid = String.valueOf(ProcessHandle.current().pid());
-        } catch (Exception | NoClassDefFoundError e) {
-            // Fallback for older Java or restricted environments
-            try {
-                String runtimeName = ManagementFactory.getRuntimeMXBean().getName();
-                int atIndex = runtimeName.indexOf('@');
-                if (atIndex > 0) {
-                    pid = runtimeName.substring(0, atIndex);
-                } else {
-                    pid = runtimeName;
-                }
-            } catch (Exception e2) {
-                // Last resort - use a random value
-                pid = String.valueOf(System.nanoTime() % 100000);
+            String runtimeName = ManagementFactory.getRuntimeMXBean().getName();
+            int atIndex = runtimeName.indexOf('@');
+            if (atIndex > 0) {
+                pid = runtimeName.substring(0, atIndex);
+            } else {
+                pid = runtimeName;
             }
+        } catch (Exception e) {
+            // Last resort - use a random value
+            pid = String.valueOf(System.nanoTime() % 100000);
         }
         PID = pid;
     }

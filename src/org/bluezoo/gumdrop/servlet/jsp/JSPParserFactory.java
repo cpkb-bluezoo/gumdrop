@@ -29,8 +29,6 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.xml.parsers.SAXParserFactory;
-
 /**
  * Factory for creating JSP parsers and automatically detecting JSP format.
  * 
@@ -52,32 +50,16 @@ public class JSPParserFactory {
     
     private static final Logger LOGGER = Logger.getLogger(JSPParserFactory.class.getName());
     
-    // Working SAX parser factory from deployment descriptor parsing
-    private final SAXParserFactory saxParserFactory;
-    
     // Registry of available parsers  
     private final List<JSPParser> availableParsers = new ArrayList<>();
     
     /**
-     * Creates a JSP parser factory with a working SAX parser factory.
-     * 
-     * @param saxParserFactory the SAX parser factory that successfully parsed web.xml (may be null)
+     * Creates a JSP parser factory.
+     * Uses Gonzalez streaming XML parser for XML-format JSP files.
      */
-    public JSPParserFactory(SAXParserFactory saxParserFactory) {
-        this.saxParserFactory = saxParserFactory;
-        
+    public JSPParserFactory() {
         // Register default parsers
-        // XML parser requires a SAX factory - create one if not provided
-        try {
-            if (saxParserFactory != null) {
-                availableParsers.add(new XMLJSPParser(saxParserFactory));
-            } else {
-                availableParsers.add(new XMLJSPParser());
-            }
-        } catch (JSPParseException e) {
-            LOGGER.log(Level.WARNING, "Unable to create XML JSP parser: " + e.getMessage());
-            // Continue without XML parser support
-        }
+        availableParsers.add(new XMLJSPParser());
         availableParsers.add(new TraditionalJSPParser());
     }
     
@@ -140,7 +122,7 @@ public class JSPParserFactory {
         
         // Check if isXml property forces XML parsing
         if (jspProperties != null && jspProperties.getIsXml() != null && jspProperties.getIsXml()) {
-            // Force XML parsing with SAX factory if available
+            // Force XML parsing
             parser = createParser(ParserType.XML);
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("Forcing XML parser due to isXml=true for: " + jspUri);
@@ -174,15 +156,7 @@ public class JSPParserFactory {
     public JSPParser createParser(ParserType parserType) {
         switch (parserType) {
             case XML:
-                try {
-                    if (saxParserFactory != null) {
-                        return new XMLJSPParser(saxParserFactory);
-                    } else {
-                        return new XMLJSPParser();
-                    }
-                } catch (JSPParseException e) {
-                    throw new IllegalStateException("Unable to create XML JSP parser", e);
-                }
+                return new XMLJSPParser();
             case TRADITIONAL:
                 return new TraditionalJSPParser();
             default:

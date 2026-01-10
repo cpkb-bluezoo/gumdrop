@@ -60,6 +60,10 @@ non-blocking, event-driven I/O. It supports:
     - simple file-based HTTP server
         - supports fast NIO based data transfer
         - PUT and DELETE
+        - WebDAV (RFC 2518) distributed authoring
+            - PROPFIND, PROPPATCH for property management
+            - MKCOL, COPY, MOVE for resource operations
+            - LOCK, UNLOCK for write locking
     - complete, conformant Java servlet 4.0 container
         - secure classloader separation
         - separate thread pool configuration for servlet worker threads,

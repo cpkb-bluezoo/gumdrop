@@ -20,6 +20,9 @@
 -->
 <project name='gumdrop' default='dist'>
 
+  <!-- Project version -->
+  <property name='version' value='1.1'/>
+
   <property name='src' location='src'/>
   <property name='lib' location='lib'/>
   <property name='build' location='build'/>
@@ -33,12 +36,21 @@
   
   <!--
     Java version compatibility settings.
-    Gumdrop targets Java 8 (1.8) to ensure broad compatibility with:
+    Gumdrop targets Java 8 to ensure broad compatibility with:
     - Legacy enterprise Java runtimes still in production use
     - Embedded systems and appliances with older JVMs
     - Organizations with strict upgrade policies
-    This is enforced at compile time with source/target settings.
+    
+    Build strategy:
+    - Main code compiled with -release 8 (Java 8 bytecode + API)
+    - module-info.java compiled separately with -release 9 (JPMS)
+    
+    This produces a JAR usable on:
+    - Java 8 (classpath mode, module-info ignored)
+    - Java 9+ (module-path mode, full JPMS support)
   -->
+  <property name='java.release.version' value='8'/>
+  <!-- Fallback for JDK 8 builds (source/target used when release attr unavailable) -->
   <property name='java.source.version' value='1.8'/>
   <property name='java.target.version' value='1.8'/>
   
@@ -48,6 +60,8 @@
   <property name='ejb.jar' value='javax.ejb-api-3.2.2.jar'/>
   <property name='persistence.jar' value='javax.persistence-api-2.2.jar'/>
   <property name='jaxws.jar' value='jaxws-api-2.3.1.jar'/>
+  <property name='jsonparser.jar' value='jsonparser-1.2.jar'/>
+  <property name='gonzalez.jar' value='gonzalez-1.0.jar'/>
 
   <!-- JUnit dependencies -->
   <property name='junit.jar' value='junit-4.13.1.jar'/>
@@ -76,7 +90,9 @@
   <!-- Target for the server/servlet container and all its resources -->
   <target name='build'>
     <mkdir dir='${build}'/>
+    <!-- Compile main sources with Java 8 compatibility -->
     <javac srcdir='${src}' destdir='${build}' debug='true'
+           release='${java.release.version}'
            source='${java.source.version}' target='${java.target.version}'
            includeantruntime='false'
            createMissingPackageInfoClass='false'>
@@ -87,9 +103,18 @@
         <pathelement location='${lib}/${ejb.jar}'/>
         <pathelement location='${lib}/${persistence.jar}'/>
         <pathelement location='${lib}/${jaxws.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
       </classpath>
       <include name="**/*.java"/>
+      <exclude name="module-info.java"/>
       <exclude name="org/bluezoo/gumdrop/Bootstrap.java"/>
+      <exclude name="org/bluezoo/gumdrop/ContainerClassLoader.java"/>
+    </javac>
+    <!-- Compile module-info.java separately with Java 9 (for JPMS support) -->
+    <javac srcdir='${src}' destdir='${build}' debug='true'
+           release='9' includeantruntime='false'>
+      <include name="module-info.java"/>
     </javac>
     <copy todir='${build}'>
       <fileset dir='${src}'>
@@ -110,6 +135,7 @@
   <target name='build-bootstrap' depends='jar'>
     <mkdir dir='${build-bootstrap}'/>
     <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'
+           release='${java.release.version}'
            source='${java.source.version}' target='${java.target.version}'
            includeantruntime='false'>
       <include name="org/bluezoo/gumdrop/Bootstrap.java"/>
@@ -124,6 +150,8 @@
         <include name='${ejb.jar}'/>
         <include name='${persistence.jar}'/>
         <include name='${jaxws.jar}'/>
+        <include name='${jsonparser.jar}'/>
+        <include name='${gonzalez.jar}'/>
       </fileset>
     </copy>
   </target>
@@ -135,7 +163,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='server.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar}'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${jsonparser.jar} ${gonzalez.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -147,6 +175,17 @@
   </target>
 
   <target name='dist' depends='bootstrap-jar,manager-war'/>
+
+  <!-- Release target creates versioned artifacts for distribution -->
+  <target name='release' depends='dist' description='Create versioned release artifacts'>
+    <copy file='${gumdrop.jar}' tofile='${dist}/gumdrop-${version}.jar'/>
+    <copy file='${server.jar}' tofile='${dist}/server-${version}.jar'/>
+    <copy file='${manager.war}' tofile='${dist}/manager-${version}.war'/>
+    <echo message='Release artifacts created:'/>
+    <echo message='  ${dist}/gumdrop-${version}.jar'/>
+    <echo message='  ${dist}/server-${version}.jar'/>
+    <echo message='  ${dist}/manager-${version}.war'/>
+  </target>
 
   <!-- Generate Javadoc API documentation -->
   <target name='javadoc' description='Generate Javadoc API documentation'>
@@ -173,6 +212,8 @@
         <pathelement location='${lib}/${ejb.jar}'/>
         <pathelement location='${lib}/${persistence.jar}'/>
         <pathelement location='${lib}/${jaxws.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
       </classpath>
     </javadoc>
   </target>

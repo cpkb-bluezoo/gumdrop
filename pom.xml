@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This POM is for distribution only - it allows the release jars to be
+  downloaded from GitHub Packages as Maven dependencies.
+  
+  IMPORTANT: You must run 'ant release' before 'mvn deploy'.
+  Maven does not build the project - it only packages and deploys the
+  Ant-built artifacts from dist/.
+  
+  Artifacts deployed:
+    - gumdrop (jar) - Bootstrap launcher
+    - gumdrop-server (jar) - Server and servlet container
+    - gumdrop-manager (war) - Manager web application
+  
+  To deploy to GitHub Packages:
+    ant release
+    mvn deploy
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.bluezoo</groupId>
+    <artifactId>gumdrop</artifactId>
+    <version>1.1</version>
+    <packaging>jar</packaging>
+
+    <name>Gumdrop</name>
+    <description>Multipurpose Java server with HTTP, SMTP, POP3, IMAP, FTP, DNS and Servlet container</description>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- The Ant-built jar to deploy -->
+        <ant.jar>${basedir}/dist/gumdrop-${project.version}.jar</ant.jar>
+    </properties>
+
+    <build>
+        <plugins>
+
+            <!-- Skip default compilation - Ant handles this -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Skip default jar creation - use Ant-built jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Install/deploy the Ant-built jar (must run 'ant release' first) -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.4.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-artifact</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>attach-artifact</goal>
+                        </goals>
+                        <configuration>
+                            <artifacts>
+                                <artifact>
+                                    <file>${ant.jar}</file>
+                                    <type>jar</type>
+                                </artifact>
+                            </artifacts>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Attach sources jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.0</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Attach javadoc jar -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <sourcepath>${basedir}/src</sourcepath>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Deploy to GitHub Packages -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-deploy-plugin</artifactId>
+                <version>3.1.1</version>
+            </plugin>
+
+        </plugins>
+    </build>
+
+    <!-- Deploy as Maven repository -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/cpkb-bluezoo/gumdrop</url>
+        </repository>
+    </distributionManagement>
+
+</project>
+

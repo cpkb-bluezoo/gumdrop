@@ -180,8 +180,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     // JSP configuration
     JspConfigDescriptor jspConfig;
     
-    // Working SAX parser factory and JSP parser factory
-    private javax.xml.parsers.SAXParserFactory saxParserFactory;
+    // JSP parser factory
     private JSPParserFactory jspParserFactory;
     
     // In-memory JSP compiler (eliminates temp file I/O)
@@ -264,17 +263,6 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
         // Create session manager
         this.sessionManager = new SessionManager(this);
-
-        // Create SAX parser factory early for web.xml and JSP parsing
-        try {
-            this.saxParserFactory = javax.xml.parsers.SAXParserFactory.newInstance();
-            this.saxParserFactory.setNamespaceAware(true);
-            this.saxParserFactory.setValidating(false);
-        } catch (Exception e) {
-            // Log but continue - we'll handle missing factory later
-            LOGGER.log(Level.WARNING, "Failed to create SAX parser factory", e);
-            this.saxParserFactory = null;
-        }
 
         // Work out if this context is the manager webapp
         boolean manager = false;
@@ -422,7 +410,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             initializeInternal();
         }
         InputStream webXml = getResourceAsStream("/WEB-INF/web.xml");
-        DeploymentDescriptorParser parser = new DeploymentDescriptorParser(saxParserFactory);
+        DeploymentDescriptorParser parser = new DeploymentDescriptorParser();
         if (webXml != null) {
             parser.parse(this, webXml);
             resolve();
@@ -2363,7 +2351,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
      */
     private synchronized void initializeJSPInfrastructure() {
         if (jspParserFactory == null) {
-            jspParserFactory = new JSPParserFactory(saxParserFactory);
+            jspParserFactory = new JSPParserFactory();
         }
         
         if (jspCompiler == null) {

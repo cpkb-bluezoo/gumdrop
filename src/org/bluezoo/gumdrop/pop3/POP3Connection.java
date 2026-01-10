@@ -239,10 +239,26 @@ public class POP3Connection extends LineBasedConnection
      * @return the APOP timestamp
      */
     private String generateAPOPTimestamp() {
-        long pid = ProcessHandle.current().pid();
+        long pid = getProcessId();
         long timestamp = System.currentTimeMillis();
         String hostname = getLocalSocketAddress().toString();
         return "<" + pid + "." + timestamp + "@" + hostname + ">";
+    }
+
+    /**
+     * Gets the current process ID in a Java 8 compatible way.
+     */
+    private static long getProcessId() {
+        String runtimeName = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
+        int atIndex = runtimeName.indexOf('@');
+        if (atIndex > 0) {
+            try {
+                return Long.parseLong(runtimeName.substring(0, atIndex));
+            } catch (NumberFormatException e) {
+                // Fall through
+            }
+        }
+        return System.nanoTime() & 0x7FFFFFFFFFFFFFFFL;
     }
 
     @Override

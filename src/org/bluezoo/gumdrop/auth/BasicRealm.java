@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.auth;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -37,13 +38,10 @@ import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
-import javax.xml.parsers.SAXParser;
-import javax.xml.parsers.SAXParserFactory;
-
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.bluezoo.util.ByteArrays;
 import org.xml.sax.Attributes;
-import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
@@ -239,23 +237,17 @@ public class BasicRealm extends DefaultHandler implements Realm {
     }
 
     public void setHref(String href) {
-        SAXParserFactory factory = SAXParserFactory.newInstance();
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
             URL cwd = new File(".").toURL();
             URL url = new URL(cwd, href);
-            SAXParser parser = factory.newSAXParser();
-            InputSource source = new InputSource(url.toString());
-            parser.parse(source, this);
+            XMLParseUtils.parseURL(url, this, null);
             
             // Resolve pending group references after parsing
             resolvePendingGroupReferences();
             
-        } catch (Exception e) {
-            if (e instanceof RuntimeException) {
-                throw (RuntimeException) e;
-            }
-            RuntimeException e2 = new RuntimeException();
+        } catch (IOException | SAXException e) {
+            RuntimeException e2 = new RuntimeException("Failed to parse realm configuration: " + href);
             e2.initCause(e);
             throw e2;
         } finally {
