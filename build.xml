@@ -69,7 +69,9 @@
   <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
 
   <!-- Remove compiled classes and build directories -->
-  <target name='clean' depends='clean-junit,clean-integration,clean-javadoc'>
+  <!-- Note: does NOT delete doc/ directory to avoid constant javadoc churn in git -->
+  <!-- Use 'ant clean-javadoc' explicitly if you need to regenerate all documentation -->
+  <target name='clean' depends='clean-junit,clean-integration'>
     <delete dir='${build-bootstrap}'/>
     <delete dir='${build}'/>
     <delete dir='${dist}'/>
@@ -208,8 +210,16 @@
     <echo message='  ${dist}/gumdrop-manager-${version}.war (manager webapp)'/>
   </target>
 
-  <!-- Generate Javadoc API documentation -->
-  <target name='javadoc' description='Generate Javadoc API documentation'>
+  <!-- Check if javadoc needs to be regenerated -->
+  <target name='javadoc-check'>
+    <uptodate property='javadoc.uptodate' targetfile='doc/index.html'>
+      <srcfiles dir='${src}' includes='**/*.java'/>
+    </uptodate>
+  </target>
+
+  <!-- Generate Javadoc API documentation (only if sources have changed) -->
+  <target name='javadoc' depends='javadoc-check' unless='javadoc.uptodate'
+          description='Generate Javadoc API documentation (incremental)'>
     <mkdir dir='doc'/>
     <javadoc destdir='doc'
              sourcepath='${src}'
@@ -236,6 +246,10 @@
       </classpath>
     </javadoc>
   </target>
+
+  <!-- Force regeneration of all Javadoc (bypasses uptodate check) -->
+  <target name='javadoc-force' depends='clean-javadoc,javadoc'
+          description='Force complete regeneration of Javadoc'/>
 
   <!-- Clean generated documentation -->
   <target name='clean-javadoc' description='Remove generated Javadoc'>
