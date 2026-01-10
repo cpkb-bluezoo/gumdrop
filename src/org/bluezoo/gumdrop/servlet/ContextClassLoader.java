@@ -190,9 +190,13 @@ final class ContextClassLoader extends ClassLoader {
      * If the context is based in the filesystem, this can return a File
      * directly. If the context is in a war file, we will extract the
      * content of the jar to a temporary file and return that.
-     * @param path the resource path, prefixed with '/'
+     * @param path the resource path, with or without leading '/'
      */
     synchronized File getFile(String path) {
+        // Normalize path to have leading /
+        if (path.charAt(0) != '/') {
+            path = "/" + path;
+        }
         File file = files.get(path);
         if (file == null) {
             if (context.root.isDirectory()) {

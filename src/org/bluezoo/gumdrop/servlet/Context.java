@@ -1406,7 +1406,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                         if (entry.startsWith(entryPath) && !entry.equals(entryPath)) {
                             // check that it is directly contained in entryPath
                             if (entry.indexOf('/', entryPath.length()) == -1) {
-                                ret.add(entry);
+                                ret.add("/" + entry);
                             }
                         }
                         // entries in jar in WEB-INF/lib
