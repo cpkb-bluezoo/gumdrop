@@ -29,7 +29,7 @@ jobs:
       - name: Build with Ant
         run: ant release
 
-      - name: Deploy gumdrop (bootstrap) to GitHub Packages
+      - name: Deploy gumdrop (core library) to GitHub Packages
         run: |
           mvn deploy:deploy-file \
             -DgroupId=org.bluezoo \
@@ -43,14 +43,14 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Deploy gumdrop-server to GitHub Packages
+      - name: Deploy gumdrop-container to GitHub Packages
         run: |
           mvn deploy:deploy-file \
             -DgroupId=org.bluezoo \
-            -DartifactId=gumdrop-server \
+            -DartifactId=gumdrop-container \
             -Dversion=1.1 \
             -Dpackaging=jar \
-            -Dfile=dist/server-1.1.jar \
+            -Dfile=dist/gumdrop-container-1.1.jar \
             -DrepositoryId=github \
             -Durl=https://maven.pkg.github.com/cpkb-bluezoo/gumdrop
         env:
@@ -64,7 +64,7 @@ jobs:
             -DartifactId=gumdrop-manager \
             -Dversion=1.1 \
             -Dpackaging=war \
-            -Dfile=dist/manager-1.1.war \
+            -Dfile=dist/gumdrop-manager-1.1.war \
             -DrepositoryId=github \
             -Durl=https://maven.pkg.github.com/cpkb-bluezoo/gumdrop
         env:
