@@ -42,11 +42,7 @@ public class JSPParserTest {
 
     @Before
     public void setUp() throws Exception {
-        javax.xml.parsers.SAXParserFactory saxFactory = 
-            javax.xml.parsers.SAXParserFactory.newInstance();
-        saxFactory.setNamespaceAware(true);
-        saxFactory.setValidating(false);
-        parserFactory = new JSPParserFactory(saxFactory);
+        parserFactory = new JSPParserFactory();
     }
 
     // ===== Basic Parsing Tests =====

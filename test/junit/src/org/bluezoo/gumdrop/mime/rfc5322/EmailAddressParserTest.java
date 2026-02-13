@@ -202,7 +202,8 @@ public class EmailAddressParserTest {
         EmailAddress addr = EmailAddressParser.parseEmailAddress("\"John Q. Doe\" <john@example.com>");
         
         assertNotNull(addr);
-        assertEquals("\"John Q. Doe\"", addr.getDisplayName());
+        // Canonical display name (no surrounding quotes)
+        assertEquals("John Q. Doe", addr.getDisplayName());
         assertEquals("john", addr.getLocalPart());
     }
 

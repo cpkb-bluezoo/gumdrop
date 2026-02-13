@@ -25,6 +25,11 @@ import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.MIMEHandler;
 import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.MIMEParser;
+import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -53,6 +58,8 @@ public class MessageParser extends MIMEParser {
 	private MessageHandler messageHandler;
 	private boolean usedObsoleteSyntax = false; // track obsolete syntax in structured headers
 	private boolean smtputf8 = false; // RFC 6531/6532 internationalized email mode
+	private CharsetDecoder headerDecoder;
+	private CharsetDecoder utf8HeaderDecoder;
 
 	/**
 	 * Constructor.
@@ -106,20 +113,13 @@ public class MessageParser extends MIMEParser {
 	}
 
 	/**
-	 * We have received a complete header (name and value).
-	 * At this point we will decide if this is a structured header or not. If
-	 * so we will try to parse it and call the associated structured method
-	 * on the handler. If parsing fails we call unexpectedHeader. For
-	 * unstructured headers we just call header.
+	 * We have received a complete header (name and value as bytes).
+	 * Decode to string only for headers we handle; apply RFC 2047 for unstructured and address headers.
 	 */
 	@Override
-	protected void header(String name, String value) throws MIMEParseException {
-		// First let the parent handle MIME-specific headers
-		// Intern the lowercase version of the name here for fast
-		// comparison using ==. The set of likely possible field-names
-		// here is not large.
-		switch (name.toLowerCase().intern()) {
-			// MIME headers - handled by parent
+	protected void header(String name, ByteBuffer value) throws MIMEParseException {
+		String lower = name.toLowerCase().intern();
+		switch (lower) {
 			case "content-type":
 			case "content-disposition":
 			case "content-transfer-encoding":
@@ -128,7 +128,6 @@ public class MessageParser extends MIMEParser {
 			case "mime-version":
 				super.header(name, value);
 				break;
-			// RFC 5322 structured headers
 			case "date":
 			case "resent-date":
 				handleDateHeader(name, value);
@@ -163,76 +162,109 @@ public class MessageParser extends MIMEParser {
 				handleReceivedHeader(name, value);
 				break;
 			default:
-				// Unstructured header
-				if (messageHandler != null) {
-					messageHandler.header(name, value);
+				if (isUnstructuredHeader(lower)) {
+					String valueStr = decodeHeaderValueWithRFC2047(value, smtputf8);
+					if (messageHandler != null) {
+						messageHandler.header(name, valueStr);
+					}
 				}
 		}
 	}
 
-	protected void handleDateHeader(String name, String value) throws MIMEParseException {
+	private static boolean isUnstructuredHeader(String lowerName) {
+		return "subject".equals(lowerName)
+			|| "comments".equals(lowerName)
+			|| "keywords".equals(lowerName)
+			|| "received".equals(lowerName)
+			|| lowerName.startsWith("x-");
+	}
+
+	/**
+	 * Decodes header value bytes with RFC 2047 and optional trim.
+	 * Used for unstructured and address headers when SMTPUTF8 may apply.
+	 */
+	private String decodeHeaderValueWithRFC2047(ByteBuffer value, boolean smtputf8) {
+		int len = value.remaining();
+		if (len == 0) {
+			return "";
+		}
+		byte[] bytes = new byte[len];
+		value.duplicate().get(bytes);
+		String s = RFC2047Decoder.decodeHeaderValue(bytes, smtputf8);
+		return stripHeaderWhitespace ? s.trim() : s;
+	}
+
+	private static boolean isAddressHeader(String lowerName) {
+		switch (lowerName) {
+			case "from": case "sender": case "to": case "cc": case "bcc":
+			case "reply-to": case "resent-from": case "return-path": case "resent-sender":
+			case "resent-to": case "resent-cc": case "resent-bcc": case "resent-reply-to":
+			case "envelope-to": case "delivered-to": case "x-original-to":
+			case "errors-to": case "apparently-to":
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	protected void handleDateHeader(String name, ByteBuffer value) throws MIMEParseException {
 		if (messageHandler == null) {
 			return;
 		}
-		usedObsoleteSyntax = false; // Reset before parsing
-		OffsetDateTime dateTime = parseRFC5322DateTime(value);
+		String valueStr = decodeTokenHeaderValue(value.duplicate(), getHeaderDecoder());
+		usedObsoleteSyntax = false;
+		OffsetDateTime dateTime = parseRFC5322DateTime(valueStr);
 		if (dateTime != null) {
 			if (usedObsoleteSyntax) {
-				// Notify handler of obsolete syntax before processing
 				messageHandler.obsoleteStructure(ObsoleteStructureType.OBSOLETE_DATE_TIME_SYNTAX);
 				usedObsoleteSyntax = false;
 			}
 			messageHandler.dateHeader(name, dateTime);
 		} else {
-			messageHandler.unexpectedHeader(name, value);
+			messageHandler.unexpectedHeader(name, valueStr);
 		}
 	}
 
-	protected void handleAddressHeader(String name, String value) throws MIMEParseException {
+	protected void handleAddressHeader(String name, ByteBuffer value) throws MIMEParseException {
 		if (messageHandler == null) {
 			return;
 		}
-		List<EmailAddress> addresses = EmailAddressParser.parseEmailAddressList(value, smtputf8);
+		List<EmailAddress> addresses = EmailAddressParser.parseEmailAddressList(value.duplicate(), getHeaderDecoder());
 		if (addresses != null && !addresses.isEmpty()) {
 			messageHandler.addressHeader(name, addresses);
 		} else {
-			// Try obsolete address syntax parsing as fallback
-			List<EmailAddress> obsoleteAddresses = ObsoleteParserUtils.parseObsoleteAddressList(value);
+			List<EmailAddress> obsoleteAddresses = ObsoleteParserUtils.parseObsoleteAddressList(value.duplicate(), getHeaderDecoder());
 			if (obsoleteAddresses != null && !obsoleteAddresses.isEmpty()) {
-				// Notify handler of obsolete syntax before processing
 				messageHandler.obsoleteStructure(ObsoleteStructureType.OBSOLETE_ADDRESS_SYNTAX);
 				messageHandler.addressHeader(name, obsoleteAddresses);
 			} else {
-				messageHandler.unexpectedHeader(name, value);
+				messageHandler.unexpectedHeader(name, decodeHeaderValueWithRFC2047(value, smtputf8));
 			}
 		}
 	}
 
-	protected void handleMessageIDHeader(String name, String value) throws MIMEParseException {
+	protected void handleMessageIDHeader(String name, ByteBuffer value) throws MIMEParseException {
 		if (messageHandler == null) {
 			return;
 		}
-		List<ContentID> messageIDs = MessageIDParser.parseMessageIDList(value);
+		List<ContentID> messageIDs = MessageIDParser.parseMessageIDList(value.duplicate(), getHeaderDecoder());
 		if (messageIDs != null && !messageIDs.isEmpty()) {
 			messageHandler.messageIDHeader(name, messageIDs);
 		} else {
-			// Try obsolete message-ID syntax parsing as fallback
-			List<ContentID> obsoleteMessageIDs = ObsoleteParserUtils.parseObsoleteMessageIDList(value);
+			List<ContentID> obsoleteMessageIDs = ObsoleteParserUtils.parseObsoleteMessageIDList(value.duplicate(), getHeaderDecoder());
 			if (obsoleteMessageIDs != null && !obsoleteMessageIDs.isEmpty()) {
-				// Notify handler of obsolete syntax before processing
 				messageHandler.obsoleteStructure(ObsoleteStructureType.OBSOLETE_MESSAGE_ID_SYNTAX);
 				messageHandler.messageIDHeader(name, obsoleteMessageIDs);
 			} else {
-				messageHandler.unexpectedHeader(name, value);
+				messageHandler.unexpectedHeader(name, decodeHeaderBytes(value.duplicate(), StandardCharsets.ISO_8859_1, true));
 			}
 		}
 	}
 
-	protected void handleReceivedHeader(String name, String value) throws MIMEParseException {
-		// Technically this is a structured header. Perhaps consider
-		// parsing it. For now though report as unstructured
+	protected void handleReceivedHeader(String name, ByteBuffer value) throws MIMEParseException {
 		if (messageHandler != null) {
-			messageHandler.header(name, value);
+			String valueStr = decodeHeaderValueWithRFC2047(value, smtputf8);
+			messageHandler.header(name, valueStr);
 		}
 	}
 
@@ -254,6 +286,23 @@ public class MessageParser extends MIMEParser {
 				return null;
 			}
 		}
+	}
+
+	private CharsetDecoder getHeaderDecoder() {
+		if (smtputf8) {
+			if (utf8HeaderDecoder == null) {
+				utf8HeaderDecoder = StandardCharsets.UTF_8.newDecoder()
+					.onMalformedInput(CodingErrorAction.REPLACE)
+					.onUnmappableCharacter(CodingErrorAction.REPLACE);
+			}
+			return utf8HeaderDecoder;
+		}
+		if (headerDecoder == null) {
+			headerDecoder = StandardCharsets.ISO_8859_1.newDecoder()
+				.onMalformedInput(CodingErrorAction.REPLACE)
+				.onUnmappableCharacter(CodingErrorAction.REPLACE);
+		}
+		return headerDecoder;
 	}
 
 	@Override

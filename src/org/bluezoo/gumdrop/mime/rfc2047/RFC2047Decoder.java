@@ -23,7 +23,10 @@ package org.bluezoo.gumdrop.mime.rfc2047;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Base64;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
 import java.net.URLDecoder;
@@ -81,21 +84,279 @@ public class RFC2047Decoder {
 
 	/**
 	 * Main decoding method for RFC 822 header field-values.
+	 * Delegates to {@link #decodeHeaderValue(byte[], boolean)} with {@code smtpUtf8 = false}.
 	 * @param headerBytes raw header field-value bytes (without CRLF or continuation whitespace)
 	 * @return decoded Unicode String
 	 */
 	public static String decodeHeaderValue(byte[] headerBytes) {
+		return decodeHeaderValue(headerBytes, false);
+	}
+
+	/**
+	 * Decode RFC 822 header field-value bytes with optional SMTPUTF8 (RFC 6531) mode.
+	 * When {@code smtpUtf8} is true, bytes are first interpreted as UTF-8 and only
+	 * fall back to ISO-8859-1 when UTF-8 decoding fails or produces replacement characters.
+	 * @param headerBytes raw header field-value bytes (without CRLF or continuation whitespace)
+	 * @param smtpUtf8 true when the message uses SMTPUTF8 (UTF-8 header values)
+	 * @return decoded Unicode String
+	 */
+	public static String decodeHeaderValue(byte[] headerBytes, boolean smtpUtf8) {
 		if (headerBytes == null || headerBytes.length == 0) {
 			return "";
 		}
+		if (smtpUtf8) {
+			try {
+				String asUtf8 = new String(headerBytes, StandardCharsets.UTF_8);
+				if (!containsReplacementChar(asUtf8)) {
+					String decoded = decodeEncodedWords(asUtf8);
+					return handleRaw8BitData(decoded, true);
+				}
+			} catch (Exception e) {
+				// Fall through to legacy path
+			}
+		}
+		// Legacy path (or when smtpUtf8 is false)
 		try {
 			String rawHeader = new String(headerBytes, StandardCharsets.ISO_8859_1);
 			String decoded = decodeEncodedWords(rawHeader);
-			decoded = handleRaw8BitData(decoded);
-			return decoded;
+			return handleRaw8BitData(decoded, smtpUtf8);
 		} catch (Exception e) {
 			return fallbackDecode(headerBytes);
 		}
+	}
+
+	/**
+	 * Decode a header value that is already a string (e.g. after parser bytes→string).
+	 * Delegates to {@link #decodeHeaderValue(String, boolean)} with {@code smtpUtf8 = false}.
+	 * @param headerValue the header value string, possibly containing RFC 2047 encoded-words
+	 * @return decoded Unicode String
+	 */
+	public static String decodeHeaderValue(String headerValue) {
+		return decodeHeaderValue(headerValue, false);
+	}
+
+	/**
+	 * Decode RFC 2047 encoded-words in an already-decoded header value string.
+	 * @param headerValue the header value string, possibly containing RFC 2047 encoded-words
+	 * @param smtpUtf8 true when the message uses SMTPUTF8 (affects raw 8-bit interpretation)
+	 * @return decoded Unicode String; on exception returns {@code headerValue}
+	 */
+	public static String decodeHeaderValue(String headerValue, boolean smtpUtf8) {
+		if (headerValue == null || headerValue.isEmpty()) {
+			return headerValue;
+		}
+		try {
+			String decoded = decodeEncodedWords(headerValue);
+			return handleRaw8BitData(decoded, smtpUtf8);
+		} catch (Exception e) {
+			return headerValue;
+		}
+	}
+
+	// ----- ByteBuffer-in API (Phase A) -----
+
+	/**
+	 * Decodes an unstructured header value from a ByteBuffer: applies inline folding
+	 * (CRLF+LWSP, LF+LWSP → space), decodes each segment with the given decoder,
+	 * expands RFC 2047 encoded-words, and consumes the buffer to its limit.
+	 *
+	 * @param value the header value bytes (position to limit); position is advanced to limit
+	 * @param decoder charset decoder for literal segments (reset per segment)
+	 * @param strip whether to trim the result
+	 * @param strict unused; reserved for strict encoded-word parsing
+	 * @return decoded string
+	 */
+	public static String decodeUnstructuredHeaderValue(ByteBuffer value, CharsetDecoder decoder, boolean strip, boolean strict) {
+		if (value == null || !value.hasRemaining()) {
+			if (value != null) {
+				value.position(value.limit());
+			}
+			return "";
+		}
+		int pos = value.position();
+		int stop = value.limit();
+		StringBuilder out = new StringBuilder();
+		while (pos < stop) {
+			int fold = findNextFold(value, pos, stop);
+			int segmentEnd = fold >= 0 ? fold : stop;
+			if (segmentEnd > pos) {
+				String segment = decodeBufferSegment(value, pos, segmentEnd, decoder);
+				if (!segment.isEmpty()) {
+					if (out.length() > 0) {
+						out.append(' ');
+					}
+					out.append(segment);
+				}
+			}
+			if (fold < 0) {
+				break;
+			}
+			pos = skipFold(value, fold, stop);
+		}
+		String combined = out.toString();
+		String decoded = decodeEncodedWords(combined);
+		if (strip) {
+			decoded = decoded.trim();
+		}
+		value.position(value.limit());
+		return decoded;
+	}
+
+	/**
+	 * Decodes a display-name phrase until the first unquoted occurrence of a stop byte.
+	 * Handles quoted-strings and RFC 2047 encoded-words. Advances {@code input.position()}
+	 * to the stop byte (does not consume it).
+	 *
+	 * @param input the buffer (position at start of phrase); position is advanced to the stop byte
+	 * @param decoder charset decoder for literal spans
+	 * @param strict unused; reserved for strict encoded-word parsing
+	 * @param stopBytes bytes that end the phrase when unquoted (e.g. '&lt;', ':', ',', ';')
+	 * @return decoded phrase (no surrounding quotes), or empty string if no phrase
+	 */
+	public static String decodeDisplayName(ByteBuffer input, CharsetDecoder decoder, boolean strict, byte[] stopBytes) {
+		if (input == null || !input.hasRemaining()) {
+			return "";
+		}
+		int start = input.position();
+		int end = findPhraseEnd(input, start, input.limit(), stopBytes);
+		if (end <= start) {
+			return "";
+		}
+		String raw = decodeBufferSegment(input, start, end, decoder);
+		String decoded = decodeEncodedWords(raw);
+		// Strip surrounding quotes if present
+		if (decoded.length() >= 2 && decoded.charAt(0) == '"' && decoded.charAt(decoded.length() - 1) == '"') {
+			decoded = decoded.substring(1, decoded.length() - 1);
+		}
+		input.position(end);
+		return decoded.trim();
+	}
+
+	/**
+	 * Decodes one parameter value (quoted-string or token) from the buffer.
+	 * Expands RFC 2047 encoded-words. Advances {@code value.position()} past the value.
+	 *
+	 * @param value the buffer (position at start of value); position is advanced past the value
+	 * @param decoder charset decoder for literal spans
+	 * @param strict unused; reserved for strict encoded-word parsing
+	 * @return decoded value (no surrounding quotes)
+	 */
+	public static String decodeParameterValue(ByteBuffer value, CharsetDecoder decoder, boolean strict) {
+		if (value == null || !value.hasRemaining()) {
+			return "";
+		}
+		int start = value.position();
+		int limit = value.limit();
+		int end;
+		if (value.get(start) == '"') {
+			end = start + 1;
+			while (end < limit) {
+				byte b = value.get(end);
+				if (b == '\\' && end + 1 < limit) {
+					end += 2;
+					continue;
+				}
+				if (b == '"') {
+					end++;
+					break;
+				}
+				end++;
+			}
+		} else {
+			end = start;
+			while (end < limit) {
+				byte b = value.get(end);
+				if (b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == ';' || b == '"') {
+					break;
+				}
+				end++;
+			}
+		}
+		int valueStart = value.get(start) == '"' ? start + 1 : start;
+		int valueEnd = value.get(start) == '"' && end > start ? end - 1 : end;
+		String raw = decodeBufferSegment(value, valueStart, valueEnd, decoder);
+		String decoded = decodeEncodedWords(raw);
+		value.position(end);
+		return decoded.trim();
+	}
+
+	private static int findNextFold(ByteBuffer value, int from, int stop) {
+		for (int pos = from; pos < stop; pos++) {
+			byte b = value.get(pos);
+			if (b == '\r' && pos + 2 <= stop && value.get(pos + 1) == '\n'
+					&& pos + 2 < stop && (value.get(pos + 2) == ' ' || value.get(pos + 2) == '\t')) {
+				return pos;
+			}
+			if (b == '\n' && pos + 1 < stop && (value.get(pos + 1) == ' ' || value.get(pos + 1) == '\t')) {
+				return pos;
+			}
+		}
+		return -1;
+	}
+
+	private static int skipFold(ByteBuffer value, int foldStart, int limit) {
+		if (foldStart + 2 <= limit && value.get(foldStart) == '\r' && value.get(foldStart + 1) == '\n') {
+			return foldStart + 2;
+		}
+		if (foldStart + 1 < limit && value.get(foldStart) == '\n') {
+			return foldStart + 1;
+		}
+		return foldStart + 1;
+	}
+
+	/** Decode buffer region [start, end) with decoder; does not advance buffer. */
+	private static String decodeBufferSegment(ByteBuffer buf, int start, int end, CharsetDecoder decoder) {
+		if (start >= end) {
+			return "";
+		}
+		ByteBuffer slice = buf.duplicate();
+		slice.position(start).limit(end);
+		try {
+			decoder.reset();
+			CharBuffer out = CharBuffer.allocate(slice.remaining() * 2);
+			decoder.decode(slice, out, true);
+			decoder.flush(out);
+			out.flip();
+			return out.toString().trim();
+		} catch (Exception e) {
+			ByteBuffer dup = buf.duplicate();
+			dup.position(start).limit(end);
+			byte[] bytes = new byte[dup.remaining()];
+			dup.get(bytes);
+			Charset cs = decoder.charset();
+			return new String(bytes, cs != null ? cs : StandardCharsets.ISO_8859_1).trim();
+		}
+	}
+
+	/** Find end of phrase: first unquoted stop byte; respects quoted-strings. */
+	private static int findPhraseEnd(ByteBuffer input, int from, int limit, byte[] stopBytes) {
+		int pos = from;
+		while (pos < limit) {
+			byte b = input.get(pos);
+			if (b == '"') {
+				pos++;
+				while (pos < limit) {
+					byte q = input.get(pos);
+					if (q == '\\' && pos + 1 < limit) {
+						pos += 2;
+						continue;
+					}
+					if (q == '"') {
+						pos++;
+						break;
+					}
+					pos++;
+				}
+				continue;
+			}
+			for (byte stop : stopBytes) {
+				if (b == stop) {
+					return pos;
+				}
+			}
+			pos++;
+		}
+		return pos;
 	}
 
 	/**
@@ -299,11 +560,38 @@ public class RFC2047Decoder {
 		return true;
 	}
 
-	private static String handleRaw8BitData(String input) {
+	/**
+	 * Interpret raw 8-bit data (non-ASCII not part of RFC 2047 encoded-words).
+	 * Must not damage strings that are already full Unicode (e.g. UTF-8-decoded emoji).
+	 * @param input string possibly containing raw 8-bit data
+	 * @param smtpUtf8 true when SMTPUTF8 mode: assume raw 8-bit is UTF-8, fall back to ISO-8859-1 on error
+	 * @return interpreted string
+	 */
+	private static String handleRaw8BitData(String input, boolean smtpUtf8) {
 		if (!hasNonAsciiData(input)) {
 			return input;
 		}
+		// Already full Unicode (e.g. emoji): do not re-encode as ISO-8859-1
+		if (hasCodePointAbove255(input)) {
+			return input;
+		}
 		byte[] bytes = input.getBytes(StandardCharsets.ISO_8859_1);
+		if (smtpUtf8) {
+			try {
+				String utf8Decoded = new String(bytes, StandardCharsets.UTF_8);
+				if (!containsReplacementChar(utf8Decoded)) {
+					return utf8Decoded;
+				}
+			} catch (Exception e) {
+				// Fall through
+			}
+			try {
+				return new String(bytes, StandardCharsets.ISO_8859_1);
+			} catch (Exception e) {
+				return input;
+			}
+		}
+		// Legacy: try UTF-8 then windows-1252
 		try {
 			String utf8Test = new String(bytes, StandardCharsets.UTF_8);
 			if (!containsReplacementChar(utf8Test)) {
@@ -312,7 +600,20 @@ public class RFC2047Decoder {
 		} catch (Exception e) {
 			// Fall through
 		}
-		return input;
+		try {
+			return new String(bytes, Charset.forName("windows-1252"));
+		} catch (Exception e) {
+			return input;
+		}
+	}
+
+	private static boolean hasCodePointAbove255(String s) {
+		for (int i = 0; i < s.length(); i++) {
+			if (s.charAt(i) > 255) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static String fallbackDecode(byte[] bytes) {

@@ -22,6 +22,10 @@
 package org.bluezoo.gumdrop.mime.rfc5322;
 
 import org.bluezoo.gumdrop.mime.ContentID;
+import org.bluezoo.gumdrop.mime.MIMEParser;
+import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -45,49 +49,40 @@ public class ObsoleteParserUtils {
 	// ===========================================
 
 	/**
-	 * Attempt to parse obsolete address syntax into modern EmailAddress objects.
+	 * Attempt to parse obsolete address syntax from a ByteBuffer (comma-separated segments).
+	 * Decodes each segment with RFC 2047 and parses; avoids building a full-value String.
 	 *
-	 * @param value the address header value that failed standard RFC 5322 parsing
+	 * @param value the address header value bytes (position to limit); not consumed
+	 * @param decoder charset decoder for segment decoding
 	 * @return List of EmailAddress objects if obsolete syntax was successfully parsed, null otherwise
 	 */
-	public static List<EmailAddress> parseObsoleteAddressList(String value) {
-		if (value == null || value.trim().isEmpty()) {
+	public static List<EmailAddress> parseObsoleteAddressList(ByteBuffer value, CharsetDecoder decoder) {
+		if (value == null || !value.hasRemaining()) {
 			return null;
 		}
-
 		try {
-			return parseAddressList(value);
+			List<EmailAddress> addresses = new ArrayList<>();
+			int limit = value.limit();
+			while (value.position() < limit) {
+				int comma = MIMEParser.indexOf(value, (byte) ',');
+				int end = comma >= 0 ? comma : limit;
+				if (end > value.position()) {
+					ByteBuffer segment = value.duplicate();
+					segment.limit(end);
+					String part = RFC2047Decoder.decodeUnstructuredHeaderValue(segment, decoder, true, false);
+					if (!part.trim().isEmpty()) {
+						EmailAddress addr = parseObsoleteAddress(part);
+						if (addr != null) {
+							addresses.add(addr);
+						}
+					}
+				}
+				value.position(comma >= 0 ? comma + 1 : limit);
+			}
+			return addresses.isEmpty() ? null : addresses;
 		} catch (Exception e) {
-			// Return null for any parsing errors
 			return null;
 		}
-	}
-
-	private static List<EmailAddress> parseAddressList(String value) {
-		List<EmailAddress> addresses = new ArrayList<EmailAddress>();
-
-		// Try to parse as comma-separated addresses with potential obsolete syntax
-		int partStart = 0;
-		int valueLen = value.length();
-		while (partStart <= valueLen) {
-			int partEnd = value.indexOf(',', partStart);
-			if (partEnd < 0) {
-				partEnd = valueLen;
-			}
-			String part = value.substring(partStart, partEnd).trim();
-			partStart = partEnd + 1;
-
-			if (part.isEmpty()) {
-				continue;
-			}
-
-			EmailAddress address = parseObsoleteAddress(part);
-			if (address != null) {
-				addresses.add(address);
-			}
-		}
-
-		return addresses.isEmpty() ? null : addresses;
 	}
 
 	/**
@@ -223,58 +218,47 @@ public class ObsoleteParserUtils {
 	// ===========================================
 
 	/**
-	 * Attempt to parse obsolete message-ID syntax into modern ContentID objects.
+	 * Attempt to parse obsolete message-ID syntax from a ByteBuffer (whitespace/comma-separated segments).
+	 * Decodes each segment with the given decoder; avoids building a full-value String.
 	 *
-	 * @param value the message-ID header value that failed standard RFC 5322 parsing
+	 * @param value the message-ID header value bytes (position to limit); not consumed
+	 * @param decoder charset decoder for segment decoding
 	 * @return List of ContentID objects if obsolete syntax was successfully parsed, null otherwise
 	 */
-	public static List<ContentID> parseObsoleteMessageIDList(String value) {
-		if (value == null || value.trim().isEmpty()) {
+	public static List<ContentID> parseObsoleteMessageIDList(ByteBuffer value, CharsetDecoder decoder) {
+		if (value == null || !value.hasRemaining()) {
 			return null;
 		}
-
 		try {
-			return parseMessageIDList(value);
+			List<ContentID> messageIDs = new ArrayList<>();
+			int limit = value.limit();
+			int segmentStart = value.position();
+			int pos = segmentStart;
+			while (pos <= limit) {
+				byte b = pos < limit ? value.get(pos) : (byte) ' ';
+				boolean isSep = b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == ',';
+				if (isSep || pos == limit) {
+					if (pos > segmentStart) {
+						int savedLimit = value.limit();
+						value.position(segmentStart).limit(pos);
+						String part = MIMEParser.decodeSlice(value, decoder);
+						value.limit(savedLimit);
+						if (!part.trim().isEmpty()) {
+							ContentID id = parseObsoleteMessageID(part);
+							if (id != null) {
+								messageIDs.add(id);
+							}
+						}
+					}
+					segmentStart = pos + 1;
+				}
+				pos++;
+			}
+			value.position(limit);
+			return messageIDs.isEmpty() ? null : messageIDs;
 		} catch (Exception e) {
-			// Return null for any parsing errors
 			return null;
 		}
-	}
-
-	private static List<ContentID> parseMessageIDList(String value) {
-		List<ContentID> messageIDs = new ArrayList<>();
-
-		// Parse as whitespace and/or comma-separated message-IDs
-		List<String> idParts = new ArrayList<>();
-		StringBuilder current = new StringBuilder();
-		for (int i = 0; i < value.length(); i++) {
-			char c = value.charAt(i);
-			if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',') {
-				if (current.length() > 0) {
-					idParts.add(current.toString());
-					current.setLength(0);
-				}
-			} else {
-				current.append(c);
-			}
-		}
-		if (current.length() > 0) {
-			idParts.add(current.toString());
-		}
-
-		for (String part : idParts) {
-			part = part.trim();
-			if (part.isEmpty()) {
-				continue;
-			}
-
-			ContentID messageID = parseObsoleteMessageID(part);
-			if (messageID != null) {
-				messageIDs.add(messageID);
-			}
-		}
-
-		return messageIDs.isEmpty() ? null : messageIDs;
 	}
 
 	/**

@@ -31,6 +31,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -61,7 +62,8 @@ public class FileSecurityTest {
     private static class TestFileHandler extends FileHandler {
         
         public TestFileHandler(Path rootPath) {
-            super(rootPath, true, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"});
+            super(rootPath, true, false, "GET, HEAD, PUT, DELETE, OPTIONS", new String[]{"index.html"},
+                    Collections.emptyMap(), null);
         }
         
         public Path testValidateAndResolvePath(String requestPath) throws Exception {

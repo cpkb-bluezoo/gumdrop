@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.mime;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -35,7 +39,44 @@ public final class ContentDispositionParser {
 	}
 
 	/**
-	 * Parses a Content-Disposition header value.
+	 * Parses a Content-Disposition header value from bytes, decoding only the particles required.
+	 *
+	 * @param value the header value bytes (position to limit)
+	 * @param decoder charset decoder for decoding slices (e.g. ISO-8859-1); will be reset per use
+	 * @return the parsed ContentDisposition, or null if the value is invalid
+	 */
+	public static ContentDisposition parse(ByteBuffer value, CharsetDecoder decoder) {
+		if (value == null || !value.hasRemaining()) {
+			return null;
+		}
+		int start = value.position();
+		int end = value.limit();
+		int len = end - start;
+		if (len < 3) {
+			return null;
+		}
+		value.position(start + 3);
+		int semicolonIndex = MIMEParser.indexOf(value, (byte) ';');
+		int typeEnd = semicolonIndex < 0 ? end : semicolonIndex;
+		value.position(start);
+		value.limit(typeEnd);
+		String dispositionType = MIMEParser.decodeSlice(value, decoder);
+		value.limit(end);
+		if (dispositionType == null || !MIMEUtils.isToken(dispositionType)) {
+			value.position(start);
+			return null;
+		}
+		int paramsStart = semicolonIndex < 0 ? end : semicolonIndex + 1;
+		value.position(paramsStart);
+		value.limit(end);
+		List<Parameter> parameters = ContentTypeParser.parseParameterList(value, decoder);
+		value.position(end);
+		return new ContentDisposition(dispositionType, parameters);
+	}
+
+	/**
+	 * Parses a Content-Disposition header value from a string (convenience).
+	 *
 	 * @param value the header value string
 	 * @return the parsed ContentDisposition, or null if the value is invalid
 	 */
@@ -43,21 +84,11 @@ public final class ContentDispositionParser {
 		if (value == null || value.isEmpty()) {
 			return null;
 		}
-
-		// Find the separator between disposition type and parameters
-		int semicolonIndex = value.indexOf(';', 3);
-		String dispositionPart = semicolonIndex < 0 ? value : value.substring(0, semicolonIndex);
-		String paramsPart = semicolonIndex < 0 ? "" : value.substring(semicolonIndex + 1).trim();
-
-		String dispositionType = dispositionPart.trim();
-		if (!MIMEUtils.isToken(dispositionType)) {
-			return null;
-		}
-
-		// Parse parameters (reuse the implementation from ContentTypeParser)
-		List<Parameter> parameters = ContentTypeParser.parseParameterList(paramsPart);
-
-		return new ContentDisposition(dispositionType, parameters);
+		ByteBuffer buf = ByteBuffer.wrap(value.getBytes(StandardCharsets.ISO_8859_1));
+		CharsetDecoder decoder = StandardCharsets.ISO_8859_1.newDecoder()
+			.onMalformedInput(CodingErrorAction.REPLACE)
+			.onUnmappableCharacter(CodingErrorAction.REPLACE);
+		return parse(buf, decoder);
 	}
 
 }

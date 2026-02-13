@@ -21,12 +21,18 @@
 
 package org.bluezoo.gumdrop.mime;
 
+import org.bluezoo.gumdrop.mime.rfc5322.MessageIDParser;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Parser for MIME Content-ID and RFC 5322 Message-ID header values.
  * The format is identical: {@code <id-left@id-right>}
+ * Uses ByteBuffer and CharsetDecoder only; decoder is typically US-ASCII or UTF-8 (SMTPUTF8).
+ *
  * @see <a href='https://www.rfc-editor.org/rfc/rfc5322#section-3.6.4'>RFC 5322</a>
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2045#section-7'>RFC 2045</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -38,143 +44,36 @@ public final class ContentIDParser {
 	}
 
 	/**
-	 * Parses a single Content-ID or Message-ID value.
-	 * @param value the header value string (with or without angle brackets)
-	 * @return the parsed ContentID, or null if the value is invalid
+	 * Parses a single Content-ID or Message-ID value from the buffer.
+	 * Uses position and limit; advances position as the value is consumed.
+	 *
+	 * @param value the header value bytes (position to limit); position is advanced
+	 * @param decoder charset decoder for id-left and id-right (e.g. US-ASCII or UTF-8)
+	 * @return the parsed ContentID, or null if the value is invalid or not exactly one msg-id
 	 */
-	public static ContentID parse(String value) {
-		if (value == null || value.isEmpty()) {
+	public static ContentID parse(ByteBuffer value, CharsetDecoder decoder) {
+		if (value == null || !value.hasRemaining()) {
 			return null;
 		}
-
-		value = value.trim();
-
-		// Remove angle brackets if present
-		int start = 0;
-		int end = value.length();
-		if (value.charAt(0) == '<') {
-			start = 1;
-		}
-		if (value.charAt(end - 1) == '>') {
-			end--;
-		}
-
-		if (start >= end) {
+		ByteBuffer dup = value.duplicate();
+		List<ContentID> list = MessageIDParser.parseMessageIDList(dup, decoder);
+		if (list == null || list.size() != 1) {
 			return null;
 		}
-
-		// Find the @ separator
-		String content = value.substring(start, end);
-		int atIndex = content.indexOf('@');
-		if (atIndex < 1 || atIndex >= content.length() - 1) {
-			return null;
-		}
-
-		String localPart = content.substring(0, atIndex);
-		String domain = content.substring(atIndex + 1);
-
-		if (localPart.isEmpty() || domain.isEmpty()) {
-			return null;
-		}
-
-		return new ContentID(localPart, domain);
+		value.position(dup.position());
+		return list.get(0);
 	}
 
 	/**
-	 * Parses a list of Content-ID or Message-ID values.
+	 * Parses a list of Content-ID or Message-ID values from the buffer.
 	 * Values may be separated by whitespace, comments, and/or commas.
-	 * @param value the header value string containing one or more IDs
+	 * Uses position and limit; advances position as values are consumed.
+	 *
+	 * @param value the header value bytes (position to limit); position is advanced
+	 * @param decoder charset decoder for id-left and id-right (e.g. US-ASCII or UTF-8)
 	 * @return list of ContentID objects, or null if parsing fails
 	 */
-	public static List<ContentID> parseList(String value) {
-		if (value == null || value.trim().isEmpty()) {
-			return new ArrayList<>();
-		}
-
-		List<ContentID> result = new ArrayList<>();
-		int pos = 0;
-		int len = value.length();
-
-		while (pos < len) {
-			// Skip whitespace, comments, and commas
-			pos = skipWhitespaceAndComments(value, pos);
-			if (pos >= len) {
-				break;
-			}
-
-			// Skip comma separators
-			if (value.charAt(pos) == ',') {
-				pos++;
-				continue;
-			}
-
-			// Look for opening angle bracket
-			if (value.charAt(pos) != '<') {
-				// Skip to next < or end
-				int nextAngle = value.indexOf('<', pos);
-				if (nextAngle < 0) {
-					break;
-				}
-				pos = nextAngle;
-			}
-
-			// Find closing angle bracket
-			int closeAngle = value.indexOf('>', pos);
-			if (closeAngle < 0) {
-				return null; // Malformed
-			}
-
-			String idValue = value.substring(pos, closeAngle + 1);
-			ContentID id = parse(idValue);
-			if (id != null) {
-				result.add(id);
-			}
-
-			pos = closeAngle + 1;
-		}
-
-		return result.isEmpty() ? null : result;
+	public static List<ContentID> parseList(ByteBuffer value, CharsetDecoder decoder) {
+		return MessageIDParser.parseMessageIDList(value, decoder);
 	}
-
-	private static int skipWhitespaceAndComments(String value, int pos) {
-		int len = value.length();
-		while (pos < len) {
-			char c = value.charAt(pos);
-			if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
-				pos++;
-			} else if (c == '(') {
-				// Skip comment
-				pos = skipComment(value, pos);
-			} else {
-				break;
-			}
-		}
-		return pos;
-	}
-
-	private static int skipComment(String value, int pos) {
-		int len = value.length();
-		if (pos >= len || value.charAt(pos) != '(') {
-			return pos;
-		}
-
-		pos++; // Skip opening paren
-		int depth = 1;
-
-		while (pos < len && depth > 0) {
-			char c = value.charAt(pos);
-			if (c == '(') {
-				depth++;
-			} else if (c == ')') {
-				depth--;
-			} else if (c == '\\' && pos + 1 < len) {
-				pos++; // Skip escaped character
-			}
-			pos++;
-		}
-
-		return pos;
-	}
-
 }
-

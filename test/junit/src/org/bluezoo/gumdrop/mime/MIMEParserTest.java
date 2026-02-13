@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.mime;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -196,6 +198,58 @@ public class MIMEParserTest {
         parse(parser, content);
         
         assertEquals("base64", handler.contentTransferEncoding);
+    }
+
+    /** Subclass to test protected token/slice decode helpers. */
+    static class MIMEParserForDecodeTest extends MIMEParser {
+        String decodeToken(ByteBuffer value, CharsetDecoder decoder) {
+            return decodeTokenHeaderValue(value, decoder);
+        }
+        static String callDecodeSlice(ByteBuffer buf, int start, int end, CharsetDecoder decoder) {
+            int savedLimit = buf.limit();
+            buf.position(start).limit(end);
+            String s = MIMEParser.decodeSlice(buf, decoder);
+            buf.limit(savedLimit);
+            return s;
+        }
+    }
+
+    private static CharsetDecoder asciiDecoder() {
+        return StandardCharsets.US_ASCII.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE);
+    }
+
+    @Test
+    public void testDecodeTokenHeaderValueSimple() {
+        MIMEParserForDecodeTest parser = new MIMEParserForDecodeTest();
+        ByteBuffer buf = ByteBuffer.wrap("base64".getBytes(StandardCharsets.US_ASCII));
+        assertEquals("base64", parser.decodeToken(buf, asciiDecoder()));
+        assertEquals(buf.limit(), buf.position()); // consumed to limit
+    }
+
+    @Test
+    public void testDecodeTokenHeaderValueWithFolding() {
+        MIMEParserForDecodeTest parser = new MIMEParserForDecodeTest();
+        // CRLF + LWSP → space
+        ByteBuffer buf = ByteBuffer.wrap("quoted-printable\r\n\t".getBytes(StandardCharsets.US_ASCII));
+        assertEquals("quoted-printable", parser.decodeToken(buf, asciiDecoder()));
+    }
+
+    @Test
+    public void testDecodeTokenHeaderValueMultipleFolds() {
+        MIMEParserForDecodeTest parser = new MIMEParserForDecodeTest();
+        ByteBuffer buf = ByteBuffer.wrap("1.0\r\n \r\n ".getBytes(StandardCharsets.US_ASCII));
+        assertEquals("1.0", parser.decodeToken(buf, asciiDecoder()));
+    }
+
+    @Test
+    public void testDecodeSlice() {
+        ByteBuffer buf = ByteBuffer.wrap("text/plain".getBytes(StandardCharsets.US_ASCII));
+        assertEquals("text", MIMEParserForDecodeTest.callDecodeSlice(buf, 0, 4, asciiDecoder()));
+        assertEquals("plain", MIMEParserForDecodeTest.callDecodeSlice(buf, 5, 10, asciiDecoder()));
+        assertEquals("", MIMEParserForDecodeTest.callDecodeSlice(buf, 0, 0, asciiDecoder()));
+        assertEquals(0, buf.position()); // last call had limit 0 so position is 0
     }
     
     @Test

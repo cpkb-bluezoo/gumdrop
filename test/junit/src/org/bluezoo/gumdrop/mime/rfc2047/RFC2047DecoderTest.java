@@ -11,6 +11,9 @@ package org.bluezoo.gumdrop.mime.rfc2047;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -151,7 +154,7 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeHeaderValueEmpty() {
 		assertEquals("", RFC2047Decoder.decodeHeaderValue(new byte[0]));
-		assertEquals("", RFC2047Decoder.decodeHeaderValue(null));
+		assertEquals("", RFC2047Decoder.decodeHeaderValue((byte[]) null));
 	}
 
 	// ========== decodeRFC2231Parameter tests ==========
@@ -227,6 +230,72 @@ public class RFC2047DecoderTest {
 		String encoded2 = "=?UTF8?B?SGVsbG8=?=";
 		assertEquals("Hello", RFC2047Decoder.decodeEncodedWords(encoded1));
 		assertEquals("Hello", RFC2047Decoder.decodeEncodedWords(encoded2));
+	}
+
+	// ========== ByteBuffer-in API (Phase A) ==========
+
+	private static CharsetDecoder isoDecoder() {
+		return StandardCharsets.ISO_8859_1.newDecoder()
+			.onMalformedInput(CodingErrorAction.REPLACE)
+			.onUnmappableCharacter(CodingErrorAction.REPLACE);
+	}
+
+	@Test
+	public void testDecodeUnstructuredHeaderValueSimple() {
+		ByteBuffer buf = ByteBuffer.wrap("Hello".getBytes(StandardCharsets.ISO_8859_1));
+		String out = RFC2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
+		assertEquals("Hello", out);
+		assertFalse(buf.hasRemaining());
+	}
+
+	@Test
+	public void testDecodeUnstructuredHeaderValueWithFolding() {
+		ByteBuffer buf = ByteBuffer.wrap("Hello\r\n world".getBytes(StandardCharsets.ISO_8859_1));
+		String out = RFC2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
+		assertEquals("Hello world", out);
+		assertFalse(buf.hasRemaining());
+	}
+
+	@Test
+	public void testDecodeUnstructuredHeaderValueWithEncodedWord() {
+		ByteBuffer buf = ByteBuffer.wrap("Subject: =?UTF-8?B?SGVsbG8=?=".getBytes(StandardCharsets.ISO_8859_1));
+		String out = RFC2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
+		assertEquals("Subject: Hello", out);
+		assertFalse(buf.hasRemaining());
+	}
+
+	@Test
+	public void testDecodeDisplayNameStopsAtAngle() {
+		ByteBuffer buf = ByteBuffer.wrap("John Doe <j@x.org>".getBytes(StandardCharsets.ISO_8859_1));
+		byte[] stop = new byte[] { '<' };
+		String out = RFC2047Decoder.decodeDisplayName(buf, isoDecoder(), false, stop);
+		assertEquals("John Doe", out.trim());
+		assertEquals('<', buf.get(buf.position()));
+	}
+
+	@Test
+	public void testDecodeDisplayNameWithEncodedWord() {
+		ByteBuffer buf = ByteBuffer.wrap("=?UTF-8?B?Sm9obiBEb2U=?= <j@x.org>".getBytes(StandardCharsets.ISO_8859_1));
+		byte[] stop = new byte[] { '<' };
+		String out = RFC2047Decoder.decodeDisplayName(buf, isoDecoder(), false, stop);
+		assertEquals("John Doe", out);
+		assertEquals('<', buf.get(buf.position()));
+	}
+
+	@Test
+	public void testDecodeParameterValueToken() {
+		ByteBuffer buf = ByteBuffer.wrap("utf-8".getBytes(StandardCharsets.ISO_8859_1));
+		String out = RFC2047Decoder.decodeParameterValue(buf, isoDecoder(), false);
+		assertEquals("utf-8", out);
+		assertFalse(buf.hasRemaining());
+	}
+
+	@Test
+	public void testDecodeParameterValueQuoted() {
+		ByteBuffer buf = ByteBuffer.wrap("\"hello world\"".getBytes(StandardCharsets.ISO_8859_1));
+		String out = RFC2047Decoder.decodeParameterValue(buf, isoDecoder(), false);
+		assertEquals("hello world", out);
+		assertFalse(buf.hasRemaining());
 	}
 }
 

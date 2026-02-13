@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.mime.rfc5322;
 
+import org.bluezoo.gumdrop.mime.MIMEParser;
+import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -77,6 +81,67 @@ public final class EmailAddressParser {
 	 * @param smtputf8 if true, allow UTF-8 characters per RFC 6531/6532
 	 * @return list of EmailAddress objects, or null if parsing fails
 	 */
+	public static List<EmailAddress> parseEmailAddressList(ByteBuffer value, CharsetDecoder decoder) {
+		if (value == null || !value.hasRemaining()) {
+			return new ArrayList<>();
+		}
+		try {
+			List<EmailAddress> addresses = new ArrayList<>();
+			int limit = value.limit();
+			while (value.position() < limit) {
+				skipCfws(value);
+				if (value.position() >= limit) {
+					break;
+				}
+				byte b = value.get(value.position());
+				if (b == ':' || b == ';') {
+					skipGroup(value);
+					continue;
+				}
+				String displayName = null;
+				if (b != '<') {
+					byte[] stopBytes = new byte[] { '<', ':', ',', ';' };
+					displayName = RFC2047Decoder.decodeDisplayName(value, decoder, false, stopBytes);
+					if (value.position() >= limit) {
+						break;
+					}
+					b = value.get(value.position());
+				}
+				if (b != '<') {
+					break;
+				}
+				value.position(value.position() + 1);
+				int[] localRange = parseLocalPartRange(value);
+				if (localRange == null) {
+					break;
+				}
+				int savedLimit = value.limit();
+				value.position(localRange[0]).limit(localRange[1]);
+				String localPart = MIMEParser.decodeSlice(value, decoder);
+				value.limit(savedLimit);
+				if (value.position() >= limit || value.get(value.position()) != '@') {
+					break;
+				}
+				value.position(value.position() + 1);
+				int[] domainRange = parseDomainRange(value);
+				if (domainRange == null) {
+					break;
+				}
+				value.position(domainRange[0]).limit(domainRange[1]);
+				String domain = MIMEParser.decodeSlice(value, decoder);
+				value.limit(savedLimit);
+				if (value.position() >= limit || value.get(value.position()) != '>') {
+					break;
+				}
+				value.position(value.position() + 1);
+				addresses.add(new EmailAddress(displayName, localPart, domain, (List<String>) null));
+			}
+			return addresses;
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
 	public static List<EmailAddress> parseEmailAddressList(String value, boolean smtputf8) {
 		if (value == null || value.isEmpty()) {
 			return new ArrayList<>();
@@ -463,6 +528,10 @@ public final class EmailAddressParser {
 			}
 		}
 		String result = tokenBuffer.toString().trim();
+		// Canonical form: display-name does not include surrounding quotes
+		if (result.length() >= 2 && result.charAt(0) == '"' && result.charAt(result.length() - 1) == '"') {
+			result = result.substring(1, result.length() - 1);
+		}
 		return result.isEmpty() ? null : result;
 	}
 
@@ -662,5 +731,135 @@ public final class EmailAddressParser {
         // RFC 5322 dtext = %d33-90 / %d94-126 (printable ASCII except [ ] \)
         return c >= 33 && c <= 126 && c != '[' && c != ']' && c != '\\';
     }
+
+	// ----- ByteBuffer-based parsing (Phase F) -----
+
+	private static int indexOf(ByteBuffer buf, byte target, int from, int to) {
+		for (int i = from; i < to; i++) {
+			if (buf.get(i) == target) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/** Advances value.position() past CFWS. */
+	private static void skipCfws(ByteBuffer value) {
+		int limit = value.limit();
+		while (value.position() < limit) {
+			byte b = value.get(value.position());
+			if (b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == ',') {
+				value.position(value.position() + 1);
+			} else if (b == '(') {
+				skipCommentBytes(value);
+			} else {
+				break;
+			}
+		}
+	}
+
+	private static void skipCommentBytes(ByteBuffer value) {
+		int limit = value.limit();
+		if (value.position() >= limit || value.get(value.position()) != '(') {
+			return;
+		}
+		value.position(value.position() + 1);
+		int depth = 1;
+		while (value.position() < limit && depth > 0) {
+			int pos = value.position();
+			byte b = value.get(pos);
+			if (b == '\\' && pos + 1 < limit) {
+				value.position(pos + 2);
+				continue;
+			}
+			if (b == '(') {
+				depth++;
+			} else if (b == ')') {
+				depth--;
+			}
+			value.position(pos + 1);
+		}
+	}
+
+	/** Advances value.position() past the group (until and past next ';'). */
+	private static void skipGroup(ByteBuffer value) {
+		int limit = value.limit();
+		while (value.position() < limit && value.get(value.position()) != ';') {
+			value.position(value.position() + 1);
+		}
+		if (value.position() < limit) {
+			value.position(value.position() + 1);
+		}
+	}
+
+	private static boolean isAtext(byte b) {
+		if (b <= 32 || b >= 127) {
+			return false;
+		}
+		return b != '(' && b != ')' && b != '<' && b != '>' && b != '[' && b != ']'
+			&& b != ':' && b != ';' && b != '@' && b != '\\' && b != ',' && b != '"';
+	}
+
+	/** Returns { start, end } for local-part (exclusive end), or null. Uses value.position() and value.limit(); does not advance. */
+	private static int[] parseLocalPartRange(ByteBuffer value) {
+		int limit = value.limit();
+		int pos = value.position();
+		if (pos >= limit) {
+			return null;
+		}
+		int start = pos;
+		if (value.get(pos) == '"') {
+			pos++;
+			while (pos < limit) {
+				byte b = value.get(pos);
+				if (b == '\\' && pos + 1 < limit) {
+					pos += 2;
+					continue;
+				}
+				if (b == '"') {
+					pos++;
+					return new int[] { start + 1, pos - 1 };
+				}
+				pos++;
+			}
+			return null;
+		}
+		while (pos < limit && (isAtext(value.get(pos)) || value.get(pos) == '.')) {
+			pos++;
+		}
+		if (pos == start) {
+			return null;
+		}
+		return new int[] { start, pos };
+	}
+
+	/** Returns { start, end } for domain (exclusive end), or null. Uses value.position() and value.limit(); does not advance. */
+	private static int[] parseDomainRange(ByteBuffer value) {
+		int limit = value.limit();
+		int pos = value.position();
+		if (pos >= limit) {
+			return null;
+		}
+		int start = pos;
+		if (value.get(pos) == '[') {
+			pos++;
+			while (pos < limit && value.get(pos) != ']') {
+				if (value.get(pos) == '\\' && pos + 1 < limit) {
+					pos += 2;
+					continue;
+				}
+				pos++;
+			}
+			if (pos >= limit) {
+				return null;
+			}
+			pos++;
+			return new int[] { start, pos };
+		}
+		while (pos < limit && (isAtext(value.get(pos)) || value.get(pos) == '.')) {
+			pos++;
+		}
+		return new int[] { start, pos };
+	}
 
 }

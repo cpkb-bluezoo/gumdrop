@@ -164,8 +164,8 @@ public class ContentDispositionParserTest {
     
     @Test
     public void testParseInternationalFilename() {
-        // UTF-8 filename directly in value (common in modern implementations)
-        ContentDisposition cd = ContentDispositionParser.parse("attachment; filename=\"日本語.txt\"");
+        // RFC 2231 filename*=UTF-8''percent-encoded (standard for non-ASCII filenames)
+        ContentDisposition cd = ContentDispositionParser.parse("attachment; filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E.txt");
         
         assertNotNull(cd);
         assertEquals("日本語.txt", cd.getParameter("filename"));

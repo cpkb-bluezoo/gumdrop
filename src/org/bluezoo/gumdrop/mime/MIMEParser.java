@@ -21,10 +21,12 @@
 
 package org.bluezoo.gumdrop.mime;
 
-import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
-import java.io.ByteArrayOutputStream;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -148,20 +150,24 @@ public class MIMEParser {
 	 */
 	private static final int MAX_HEADER_LINE_LENGTH = 1000;
 
+	private static final int INITIAL_HEADER_VALUE_CAPACITY = 1024;
+	private static final int INITIAL_PENDING_BODY_CAPACITY = 4096;
+
 	protected MIMEHandler handler; // event sink
 	protected MIMEParserLocator locator;
 	private State state = State.INIT; // current parser state
 	private Deque<String> boundaries = new ArrayDeque<>(); // stack of boundary delimiters
 	private boolean boundarySet;
 	private String headerName;
-	private ByteArrayOutputStream headerValueSink = new ByteArrayOutputStream();
-	private boolean stripHeaderWhitespace = true; // leading and trailing ws in field-body
+	private ByteBuffer headerValueSink = ByteBuffer.allocate(INITIAL_HEADER_VALUE_CAPACITY);
+	protected boolean stripHeaderWhitespace = true; // leading and trailing ws in field-body
+	private CharsetDecoder iso8859Decoder; // lazy, for decoding header bytes
 	private boolean allowMalformedButRecoverableMultipart = false;
 	private boolean allowMalformed = false; // allow malformed structures (line endings, boundaries, etc.)
 	private int maxBufferSize = 4096;
 	private ByteBuffer decodeBuffer;  // Lazy allocated when needed for decoding
 	private boolean contentFlushed; // manage state for content flushing
-	private ByteArrayOutputStream pendingBodyContent; // Buffer for deferred body content flushing
+	private ByteBuffer pendingBodyContent; // Buffer for deferred body content flushing (null until first use)
 	private boolean pendingBodyContentUnexpected; // Whether pending content is unexpected
 	private TransferEncoding transferEncoding = TransferEncoding.BINARY;
 	private boolean allowCRLineEnd = false;
@@ -371,49 +377,49 @@ public class MIMEParser {
 			// is equivalent to a LWSP. So we will append the LWSP to the
 			// value here.
 			if (length > 0) {
-				// Write bytes directly from buffer without allocation
-				byte[] bytes = new byte[length];
-				buffer.get(bytes);
-				headerValueSink.write(bytes, 0, length);
+				ensureHeaderValueSinkCapacity(length);
+				int savedLimit = buffer.limit();
+				buffer.limit(start + length);
+				buffer.position(start);
+				headerValueSink.put(buffer);
+				buffer.limit(savedLimit);
 			}
 		} else {
 			// flush existing header
 			if (headerName != null) {
-				String headerValue = decodeHeaderValue(headerName, headerValueSink.toByteArray());
-				if (stripHeaderWhitespace) {
-					headerValue = headerValue.trim();
-				}
-
-				header(headerName, headerValue);
+				ByteBuffer valueView = headerValueSink.duplicate();
+				valueView.flip();
+				header(headerName, valueView);
 				headerName = null;
-				headerValueSink.reset();
+				headerValueSink.clear();
 			}
 			// field-name [FWS] ":"
 			int colonPos = indexOf(buffer, (byte) ':');
 			if (colonPos >= 0) {
-				byte[] bytes = new byte[length];
-				buffer.get(bytes);
-				colonPos -= start; // adjust to be relative to current line
-				// Use iso-8859-1 and validate afterwards
-				int pos = colonPos - 1;
-				while (pos > 0 && (bytes[pos] == ' ' || bytes[pos] == '\t')) {
-					pos--;
+				// Trim trailing WS from field-name
+				int nameEnd = colonPos;
+				while (nameEnd > start && isHeaderWhitespace(buffer.get(nameEnd - 1))) {
+					nameEnd--;
 				}
-				if (pos <= 0) {
-					// header field name is empty
+				if (nameEnd <= start) {
 					throw new MIMEParseException(L10N.getString("err.field_name_empty"), locator);
 				}
-				for (int i = 0; i <= pos; i++) {
-					c = bytes[i];
+				for (int i = start; i < nameEnd; i++) {
+					c = buffer.get(i);
 					if (c < 33 || c > 126) { // illegal field-name character
-                        String msg = MessageFormat.format(L10N.getString("err.illegal_field_name_char"), Integer.toString(c & 0xFF));
+						String msg = MessageFormat.format(L10N.getString("err.illegal_field_name_char"), Integer.toString(c & 0xFF));
 						throw new MIMEParseException(msg, locator);
 					}
 				}
-				headerName = new String(bytes, 0, pos + 1, StandardCharsets.ISO_8859_1).trim();
+				ByteBuffer nameView = buffer.duplicate();
+				nameView.position(start).limit(nameEnd);
+				headerName = decodeHeaderBytes(nameView, StandardCharsets.ISO_8859_1, true);
 				// header value
-				if (colonPos + 1 < length) {
-					headerValueSink.write(bytes, colonPos + 1, length - (colonPos + 1));
+				int valueLength = end - colonPos - 1;
+				if (valueLength > 0) {
+					ensureHeaderValueSinkCapacity(valueLength);
+					buffer.position(colonPos + 1).limit(end);
+					headerValueSink.put(buffer);
 				}
 				// Note: if colonPos + 1 >= length, the header has no value (colon at end)
 			} else {
@@ -422,13 +428,84 @@ public class MIMEParser {
 		}
 	}
 
+	private static boolean isHeaderWhitespace(byte b) {
+		return b == ' ' || b == '\t';
+	}
+
 	/**
-	 * Finds the first occurrence of a byte in the buffer.
-	 * @param buffer the buffer to search
-	 * @param target the byte to find
-	 * @return the absolute position of the byte, or -1 if not found
+	 * Ensures headerValueSink has at least {@code required} bytes remaining.
+	 * Compacts and grows the buffer if necessary.
 	 */
-	private static int indexOf(ByteBuffer buffer, byte target) {
+	private void ensureHeaderValueSinkCapacity(int required) {
+		if (headerValueSink.remaining() >= required) {
+			return;
+		}
+		headerValueSink.compact();
+		if (headerValueSink.remaining() < required) {
+			int newCapacity = Math.max(headerValueSink.capacity() * 2, headerValueSink.position() + required);
+			ByteBuffer newBuf = ByteBuffer.allocate(newCapacity);
+			headerValueSink.flip();
+			newBuf.put(headerValueSink);
+			headerValueSink = newBuf;
+		}
+	}
+
+	/**
+	 * Decodes header value bytes to a String using the given charset.
+	 * Optionally trims leading and trailing whitespace when {@code trim} is true
+	 * (respects {@link #stripHeaderWhitespace} when trim is true).
+	 *
+	 * @param buf the bytes to decode (position to limit)
+	 * @param charset the charset for decoding
+	 * @param trim whether to trim; when true, result is trimmed if stripHeaderWhitespace is set
+	 * @return the decoded string, possibly trimmed
+	 */
+	protected String decodeHeaderBytes(ByteBuffer buf, Charset charset, boolean trim) {
+		if (!buf.hasRemaining()) {
+			return "";
+		}
+		try {
+			CharsetDecoder decoder = charset.equals(StandardCharsets.ISO_8859_1)
+				? getIso8859Decoder() : charset.newDecoder()
+					.onMalformedInput(CodingErrorAction.REPLACE)
+					.onUnmappableCharacter(CodingErrorAction.REPLACE);
+			CharBuffer out = CharBuffer.allocate(buf.remaining() * 2);
+			decoder.reset();
+			decoder.decode(buf, out, true);
+			decoder.flush(out);
+			out.flip();
+			String s = out.toString();
+			if (trim && stripHeaderWhitespace) {
+				s = s.trim();
+			}
+			return s;
+		} catch (Exception e) {
+			String s = charset.decode(buf.duplicate()).toString();
+			if (trim && stripHeaderWhitespace) {
+				s = s.trim();
+			}
+			return s;
+		}
+	}
+
+	private CharsetDecoder getIso8859Decoder() {
+		if (iso8859Decoder == null) {
+			iso8859Decoder = StandardCharsets.ISO_8859_1.newDecoder()
+				.onMalformedInput(CodingErrorAction.REPLACE)
+				.onUnmappableCharacter(CodingErrorAction.REPLACE);
+		}
+		return iso8859Decoder;
+	}
+
+	/**
+	 * Finds the first occurrence of a byte in the buffer between position and limit.
+	 * Does not advance the buffer.
+	 *
+	 * @param buffer the buffer to search (searches from position to limit)
+	 * @param target the byte to find
+	 * @return the index of the byte, or -1 if not found
+	 */
+	public static int indexOf(ByteBuffer buffer, byte target) {
 		int start = buffer.position();
 		int end = buffer.limit();
 		for (int i = start; i < end; i++) {
@@ -439,27 +516,117 @@ public class MIMEParser {
 		return -1;
 	}
 
+	/** Position of first byte of a fold (CR or LF starting CRLF+LWSP or LF+LWSP), or -1. */
+	private static int findNextFold(ByteBuffer value, int from, int stop) {
+		for (int pos = from; pos < stop; pos++) {
+			byte b = value.get(pos);
+			if (b == '\r' && pos + 2 <= stop && value.get(pos + 1) == '\n'
+					&& pos + 2 < stop && (value.get(pos + 2) == ' ' || value.get(pos + 2) == '\t')) {
+				return pos;
+			}
+			if (b == '\n' && pos + 1 < stop && (value.get(pos + 1) == ' ' || value.get(pos + 1) == '\t')) {
+				return pos;
+			}
+		}
+		return -1;
+	}
+
+	/** Skip only the line-end (CRLF or LF); return position at the following LWSP so it is decoded. */
+	private static int skipFold(ByteBuffer value, int foldStart, int limit) {
+		if (foldStart + 2 <= limit && value.get(foldStart) == '\r' && value.get(foldStart + 1) == '\n') {
+			return foldStart + 2;
+		}
+		if (foldStart + 1 < limit && value.get(foldStart) == '\n') {
+			return foldStart + 1;
+		}
+		return foldStart + 1;
+	}
+
 	/**
-	 * Decode header value to a String.
-	 * @param name the header name
-	 * @param header the byte value of the header value
-	 * @return a String representing the header value
+	 * Decodes the buffer segment [position, limit) with the given decoder and consumes it.
+	 * On return, buf.position() is set to buf.limit(). Result is trimmed.
+	 *
+	 * @param buf the buffer (segment to decode is position to limit)
+	 * @param decoder charset decoder (will be reset)
+	 * @return decoded string, or "" if position >= limit
 	 */
-	protected String decodeHeaderValue(String name, byte[] header) {
-		return RFC2047Decoder.decodeHeaderValue(header);
+	public static String decodeSlice(ByteBuffer buf, CharsetDecoder decoder) {
+		if (!buf.hasRemaining()) {
+			return "";
+		}
+		int end = buf.limit();
+		try {
+			decoder.reset();
+			CharBuffer out = CharBuffer.allocate(buf.remaining() * 2);
+			decoder.decode(buf, out, true);
+			decoder.flush(out);
+			out.flip();
+			String s = out.toString().trim();
+			buf.position(end);
+			return s;
+		} catch (Exception e) {
+			ByteBuffer dup = buf.duplicate();
+			byte[] bytes = new byte[dup.remaining()];
+			dup.get(bytes);
+			buf.position(end);
+			return new String(bytes, decoder.charset()).trim();
+		}
+	}
+
+	/**
+	 * Decodes a token-only header value from the buffer: handles inline folding
+	 * (CRLF+LWSP, LF+LWSP → space), decodes each segment with the decoder, joins with space.
+	 * Advances value.position() to value.limit() (consumes the value).
+	 * No RFC 2047 encoded-word expansion.
+	 *
+	 * @param value the header value bytes (position to limit); position is advanced to limit
+	 * @param decoder charset decoder (reset per segment)
+	 * @return decoded trimmed string
+	 */
+	protected String decodeTokenHeaderValue(ByteBuffer value, CharsetDecoder decoder) {
+		int stop = value.limit();
+		if (!value.hasRemaining()) {
+			return "";
+		}
+		StringBuilder out = new StringBuilder();
+		while (value.position() < stop) {
+			int pos = value.position();
+			int fold = findNextFold(value, pos, stop);
+			int segmentEnd = fold >= 0 ? fold : stop;
+			if (segmentEnd > pos) {
+				int savedLimit = value.limit();
+				value.limit(segmentEnd);
+				String segment = decodeSlice(value, decoder);
+				value.limit(savedLimit);
+				if (!segment.isEmpty()) {
+					if (out.length() > 0) {
+						out.append(' ');
+					}
+					out.append(segment);
+				}
+			}
+			if (fold < 0) {
+				break;
+			}
+			value.position(skipFold(value, segmentEnd, stop));
+		}
+		value.position(stop);
+		String s = out.toString();
+		if (stripHeaderWhitespace) {
+			s = s.trim();
+		}
+		return s;
 	}
 
 	/**
 	 * We have received a complete header (name and value).
-	 * At this point we will decide if this is a structured header or not. If
-	 * so we will try to parse it and call the associated structured method
-	 * on the handler. If parsing fails we call the unstructured header method.
+	 * The value is passed as bytes; each handle* method decodes to string when needed.
 	 * Subclasses can override this to handle additional headers.
+	 *
+	 * @param name the header field name
+	 * @param value the header field value bytes (position to limit)
 	 */
-	protected void header(String name, String value) throws MIMEParseException {
-		// Intern the lowercase version of the name here for fast
-		// comparison using ==. The set of likely possible field-names
-		// here is not large.
+	protected void header(String name, ByteBuffer value) throws MIMEParseException {
 		switch (name.toLowerCase().intern()) {
 			case "content-type":
 				handleContentTypeHeader(name, value);
@@ -486,8 +653,8 @@ public class MIMEParser {
 		}
 	}
 
-	protected void handleContentTypeHeader(String name, String value) throws MIMEParseException {
-		ContentType contentType = ContentTypeParser.parse(value);
+	protected void handleContentTypeHeader(String name, ByteBuffer value) throws MIMEParseException {
+		ContentType contentType = ContentTypeParser.parse(value.duplicate(), getIso8859Decoder());
 		if (contentType != null) {
 			if ("multipart".equalsIgnoreCase(contentType.getPrimaryType())) {
 				String boundary = contentType.getParameter("boundary");
@@ -504,50 +671,51 @@ public class MIMEParser {
 		}
 	}
 
-	protected void handleContentDispositionHeader(String name, String value) throws MIMEParseException {
-		ContentDisposition contentDisposition = ContentDispositionParser.parse(value);
+	protected void handleContentDispositionHeader(String name, ByteBuffer value) throws MIMEParseException {
+		ContentDisposition contentDisposition = ContentDispositionParser.parse(value.duplicate(), getIso8859Decoder());
 		if (contentDisposition != null) {
 			handler.contentDisposition(contentDisposition);
 		}
 	}
 
-	protected void handleContentTransferEncodingHeader(String name, String value) throws MIMEParseException {
-		switch (value.toLowerCase().intern()) {
+	protected void handleContentTransferEncodingHeader(String name, ByteBuffer value) throws MIMEParseException {
+		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
+		switch (valueStr.toLowerCase().intern()) {
 			case "base64":
 				transferEncoding = TransferEncoding.BASE64;
-				handler.contentTransferEncoding(value);
+				handler.contentTransferEncoding(valueStr);
 				break;
 			case "quoted-printable":
 				transferEncoding = TransferEncoding.QUOTED_PRINTABLE;
-				handler.contentTransferEncoding(value);
+				handler.contentTransferEncoding(valueStr);
 				break;
 			case "7bit":
 			case "8bit":
 			case "binary":
-				// transferEncoding already set to BINARY at startEntity
-				handler.contentTransferEncoding(value);
+				handler.contentTransferEncoding(valueStr);
 				break;
 			default:
-				// x-token extension - just pass through if valid
-				if (value.startsWith("x-") && MIMEUtils.isToken(value)) {
-					handler.contentTransferEncoding(value);
+				if (valueStr.startsWith("x-") && MIMEUtils.isToken(valueStr)) {
+					handler.contentTransferEncoding(valueStr);
 				}
 		}
 	}
 
-	protected void handleContentIDHeader(String name, String value) throws MIMEParseException {
-		ContentID id = ContentIDParser.parse(value);
+	protected void handleContentIDHeader(String name, ByteBuffer value) throws MIMEParseException {
+		ContentID id = ContentIDParser.parse(value.duplicate(), getIso8859Decoder());
 		if (id != null) {
 			handler.contentID(id);
 		}
 	}
 
-	protected void handleContentDescriptionHeader(String name, String value) throws MIMEParseException {
-		handler.contentDescription(value);
+	protected void handleContentDescriptionHeader(String name, ByteBuffer value) throws MIMEParseException {
+		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
+		handler.contentDescription(valueStr);
 	}
 
-	protected void handleMIMEVersionHeader(String name, String value) throws MIMEParseException {
-		MIMEVersion mimeVersion = MIMEVersion.parse(value);
+	protected void handleMIMEVersionHeader(String name, ByteBuffer value) throws MIMEParseException {
+		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
+		MIMEVersion mimeVersion = MIMEVersion.parse(valueStr);
 		if (mimeVersion != null) {
 			handler.mimeVersion(mimeVersion);
 		}
@@ -563,14 +731,11 @@ public class MIMEParser {
 
 	private void endHeaders() throws MIMEParseException {
 		if (headerName != null) {
-			String headerValue = decodeHeaderValue(headerName, headerValueSink.toByteArray());
-			if (stripHeaderWhitespace) {
-				headerValue = headerValue.trim();
-			}
-
-			header(headerName, headerValue);
+			ByteBuffer valueView = headerValueSink.duplicate();
+			valueView.flip();
+			header(headerName, valueView);
 			headerName = null;
-			headerValueSink.reset();
+			headerValueSink.clear();
 		}
 		handler.endHeaders();
 		if (boundarySet) {  // Set in header() method
@@ -815,14 +980,28 @@ public class MIMEParser {
 	 */
 	private void bufferBodyContent(ByteBuffer buffer, boolean unexpected) {
 		if (pendingBodyContent == null) {
-			pendingBodyContent = new ByteArrayOutputStream();
+			pendingBodyContent = ByteBuffer.allocate(INITIAL_PENDING_BODY_CAPACITY);
 		}
-		int start = buffer.position();
-		int end = buffer.limit();
-		for (int i = start; i < end; i++) {
-			pendingBodyContent.write(buffer.get(i));
-		}
+		ensurePendingBodyContentCapacity(buffer.remaining());
+		pendingBodyContent.put(buffer);
 		pendingBodyContentUnexpected = unexpected;
+	}
+
+	/**
+	 * Ensures pendingBodyContent has at least {@code required} bytes remaining.
+	 */
+	private void ensurePendingBodyContentCapacity(int required) {
+		if (pendingBodyContent.remaining() >= required) {
+			return;
+		}
+		pendingBodyContent.compact();
+		if (pendingBodyContent.remaining() < required) {
+			int newCapacity = Math.max(pendingBodyContent.capacity() * 2, pendingBodyContent.position() + required);
+			ByteBuffer newBuf = ByteBuffer.allocate(newCapacity);
+			pendingBodyContent.flip();
+			newBuf.put(pendingBodyContent);
+			pendingBodyContent = newBuf;
+		}
 	}
 
 	/**
@@ -830,11 +1009,11 @@ public class MIMEParser {
 	 * @param isBeforeBoundary true if this content precedes a boundary
 	 */
 	private void flushPendingBodyContent(boolean isBeforeBoundary) throws MIMEParseException {
-		if (pendingBodyContent != null && pendingBodyContent.size() > 0) {
-			byte[] bytes = pendingBodyContent.toByteArray();
-			ByteBuffer buffer = ByteBuffer.wrap(bytes);
-			flushBodyContent(buffer, pendingBodyContentUnexpected, isBeforeBoundary);
-			pendingBodyContent.reset();
+		if (pendingBodyContent != null && pendingBodyContent.position() > 0) {
+			ByteBuffer view = pendingBodyContent.duplicate();
+			view.flip();
+			flushBodyContent(view, pendingBodyContentUnexpected, isBeforeBoundary);
+			pendingBodyContent.clear();
 		}
 	}
 
@@ -843,7 +1022,7 @@ public class MIMEParser {
 	 */
 	private void clearPendingBodyContent() {
 		if (pendingBodyContent != null) {
-			pendingBodyContent.reset();
+			pendingBodyContent.clear();
 		}
 	}
 
@@ -899,7 +1078,7 @@ public class MIMEParser {
 		locator.reset();
 		state = State.INIT;
 		headerName = null;
-		headerValueSink.reset();
+		headerValueSink.clear();
 		decodeBuffer = null;
 		contentFlushed = false;
 		clearPendingBodyContent();  // Clear any pending body content

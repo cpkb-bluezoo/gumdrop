@@ -725,8 +725,8 @@ public class MessageParserTest {
         assertNotNull(addresses);
         assertEquals(1, addresses.size());
         assertEquals("alice@example.com", addresses.get(0).getAddress());
-        // The RFC5322AddressParser keeps quotes in quoted-string display names
-        assertEquals("\"Smith, Alice\"", addresses.get(0).getDisplayName());
+        // ByteBuffer path returns canonical display name (no surrounding quotes)
+        assertEquals("Smith, Alice", addresses.get(0).getDisplayName());
     }
 }
 
