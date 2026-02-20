@@ -31,10 +31,16 @@ jobs:
       - name: Generate Javadoc
         run: ant javadoc-force
 
+      - name: Stage site so Javadoc is at /doc/
+        run: |
+          mkdir -p _site/doc
+          cp -r doc/. _site/doc/
+          echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=doc/"><script>location.href="doc/"</script></head><body><a href="doc/">Gumdrop Javadoc</a></body></html>' > _site/index.html
+
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: doc
+          path: _site
 
   deploy:
     needs: javadoc
