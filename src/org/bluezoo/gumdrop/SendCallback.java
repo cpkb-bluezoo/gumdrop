@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop;
 import java.nio.ByteBuffer;
 
 /**
- * Callback interface for handling data sent via {@link Connection#send(ByteBuffer)}.
+ * Callback interface for handling data sent via an {@link Endpoint}.
  * This allows test classes to intercept and capture sent data without involving the server.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -32,10 +32,10 @@ import java.nio.ByteBuffer;
 public interface SendCallback {
 
     /**
-     * Called when data is sent via a connection.
-     * @param connection the connection sending the data
+     * Called when data is sent via an endpoint.
+     * @param endpoint the endpoint sending the data
      * @param buf the data being sent, or null to close after send
      */
-    void onSend(Connection connection, ByteBuffer buf);
+    void onSend(Endpoint endpoint, ByteBuffer buf);
 
 }

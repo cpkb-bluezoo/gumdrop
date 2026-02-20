@@ -55,8 +55,7 @@ import java.util.Set;
  * </ul>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LoginState#loginOk
- * @see AuthenticateState#authenticationOk
+ * @see AuthenticateState#accept
  */
 public interface AuthenticatedHandler {
 
@@ -65,88 +64,88 @@ public interface AuthenticatedHandler {
      * 
      * <p>SELECT opens a mailbox for read-write access.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox name
-     * @param state operations for responding
      */
-    void select(MailboxStore store, String mailboxName, SelectState state);
+    void select(SelectState state, MailboxStore store, String mailboxName);
 
     /**
      * Called when the client sends EXAMINE command.
      * 
      * <p>EXAMINE opens a mailbox for read-only access.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox name
-     * @param state operations for responding
      */
-    void examine(MailboxStore store, String mailboxName, SelectState state);
+    void examine(SelectState state, MailboxStore store, String mailboxName);
 
     /**
      * Called when the client sends CREATE command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the new mailbox name
-     * @param state operations for responding
      */
-    void create(MailboxStore store, String mailboxName, CreateState state);
+    void create(CreateState state, MailboxStore store, String mailboxName);
 
     /**
      * Called when the client sends DELETE command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox to delete
-     * @param state operations for responding
      */
-    void delete(MailboxStore store, String mailboxName, DeleteState state);
+    void delete(DeleteState state, MailboxStore store, String mailboxName);
 
     /**
      * Called when the client sends RENAME command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param oldName the current mailbox name
      * @param newName the new mailbox name
-     * @param state operations for responding
      */
-    void rename(MailboxStore store, String oldName, String newName, RenameState state);
+    void rename(RenameState state, MailboxStore store, String oldName, String newName);
 
     /**
      * Called when the client sends SUBSCRIBE command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox to subscribe to
-     * @param state operations for responding
      */
-    void subscribe(MailboxStore store, String mailboxName, SubscribeState state);
+    void subscribe(SubscribeState state, MailboxStore store, String mailboxName);
 
     /**
      * Called when the client sends UNSUBSCRIBE command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox to unsubscribe from
-     * @param state operations for responding
      */
-    void unsubscribe(MailboxStore store, String mailboxName, SubscribeState state);
+    void unsubscribe(SubscribeState state, MailboxStore store, String mailboxName);
 
     /**
      * Called when the client sends LIST command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param reference the reference name
      * @param pattern the mailbox pattern (may contain wildcards)
-     * @param state operations for responding
      */
-    void list(MailboxStore store, String reference, String pattern, ListState state);
+    void list(ListState state, MailboxStore store, String reference, String pattern);
 
     /**
      * Called when the client sends LSUB command.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param reference the reference name
      * @param pattern the mailbox pattern
-     * @param state operations for responding
      */
-    void lsub(MailboxStore store, String reference, String pattern, ListState state);
+    void lsub(ListState state, MailboxStore store, String reference, String pattern);
 
     /**
      * Called when the client sends STATUS command.
@@ -154,55 +153,58 @@ public interface AuthenticatedHandler {
      * <p>STATUS queries information about a mailbox without selecting it.
      * The handler can use this for logging or access control.
      * 
+     * @param state operations for responding
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox to query
      * @param statusItems the status items requested
-     * @param state operations for responding
      */
-    void status(MailboxStore store, String mailboxName, Set<StatusItem> statusItems, AuthenticatedStatusState state);
+    void status(AuthenticatedStatusState state, MailboxStore store, String mailboxName,
+               Set<StatusItem> statusItems);
 
     /**
      * Called when the client sends APPEND command.
      * 
+     * @param state operations for receiving the message literal
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the target mailbox
      * @param flags optional flags for the message (may be null)
      * @param internalDate optional internal date (may be null)
-     * @param state operations for receiving the message literal
      */
-    void append(MailboxStore store, String mailboxName, Set<Flag> flags, 
-                OffsetDateTime internalDate, AppendState state);
+    void append(AppendState state, MailboxStore store, String mailboxName, Set<Flag> flags,
+                OffsetDateTime internalDate);
 
     /**
      * Called when the client sends GETQUOTA command.
      * 
+     * @param state operations for responding
      * @param quotaManager the server's quota manager (may be null if not configured)
      * @param store the user's mailbox store (may be null if not configured)
      * @param quotaRoot the quota root name
-     * @param state operations for responding
      */
-    void getQuota(QuotaManager quotaManager, MailboxStore store, String quotaRoot, QuotaState state);
+    void getQuota(QuotaState state, QuotaManager quotaManager, MailboxStore store,
+                  String quotaRoot);
 
     /**
      * Called when the client sends GETQUOTAROOT command.
      * 
+     * @param state operations for responding
      * @param quotaManager the server's quota manager (may be null if not configured)
      * @param store the user's mailbox store (may be null if not configured)
      * @param mailboxName the mailbox name
-     * @param state operations for responding
      */
-    void getQuotaRoot(QuotaManager quotaManager, MailboxStore store, String mailboxName, QuotaState state);
+    void getQuotaRoot(QuotaState state, QuotaManager quotaManager, MailboxStore store,
+                      String mailboxName);
 
     /**
      * Called when the client sends SETQUOTA command.
      * 
+     * @param state operations for responding
      * @param quotaManager the server's quota manager (may be null if not configured)
      * @param store the user's mailbox store (may be null if not configured)
      * @param quotaRoot the quota root name
      * @param resourceLimits the resource limits (resource name to limit value)
-     * @param state operations for responding
      */
-    void setQuota(QuotaManager quotaManager, MailboxStore store, String quotaRoot, 
-                  Map<String, Long> resourceLimits, QuotaState state);
+    void setQuota(QuotaState state, QuotaManager quotaManager, MailboxStore store,
+                  String quotaRoot, Map<String, Long> resourceLimits);
 
 }

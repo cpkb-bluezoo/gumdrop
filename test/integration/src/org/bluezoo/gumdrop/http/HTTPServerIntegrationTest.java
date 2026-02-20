@@ -29,10 +29,10 @@ import java.io.File;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for raw HTTPServer.
- * 
- * <p>Tests a raw HTTPServer instance (not subclassed) with real network connections.
- * A raw HTTPServer should:
+ * Integration test for raw HTTPListener.
+ *
+ * <p>Tests a raw HTTPListener instance (not subclassed) with real network connections.
+ * A raw HTTPListener should:
  * <ul>
  *   <li>Accept connections and respond to valid HTTP requests</li>
  *   <li>Return 404 for any resources (it has nothing to serve)</li>

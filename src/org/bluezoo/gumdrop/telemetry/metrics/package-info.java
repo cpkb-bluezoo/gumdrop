@@ -65,7 +65,7 @@
  *     .setDescription("Currently active connections")
  *     .buildWithCallback(new ObservableCallback() {
  *         public void observe(ObservableMeasurement measurement) {
- *             measurement.record(server.getActiveConnectionCount());
+ *             measurement.record(server.getActiveEndpointCount());
  *         }
  *     });
  *

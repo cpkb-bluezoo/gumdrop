@@ -90,7 +90,7 @@ public interface HTTPResponseHandler {
      * Called when an error response (4xx, 5xx, or client-side pseudo-status) is received.
      *
      * <p>This is called for HTTP error responses and client-detected conditions
-     * like {@link HTTPStatus#REDIRECT_LOOP}. The response may still have headers
+     * like {@link org.bluezoo.gumdrop.http.HTTPStatus#REDIRECT_LOOP}. The response may still have headers
      * and a body (e.g., an HTML error page), which will be delivered via subsequent
      * callbacks before {@link #close()}.
      *

@@ -61,7 +61,6 @@ public class ConfigurationParser extends DefaultHandler {
     private static final Map<String, String> DEFAULT_CLASS_NAMES;
     static {
         Map<String, String> map = new LinkedHashMap<String, String>();
-        map.put("server", "org.bluezoo.gumdrop.http.HTTPServer");
         map.put("realm", "org.bluezoo.gumdrop.auth.BasicRealm");
         map.put("container", "org.bluezoo.gumdrop.servlet.Container");
         map.put("context", "org.bluezoo.gumdrop.servlet.Context");
@@ -72,7 +71,6 @@ public class ConfigurationParser extends DefaultHandler {
         map.put("connection-factory", "org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory");
         map.put("administered-object", "org.bluezoo.gumdrop.servlet.jndi.AdministeredObject");
         map.put("mailbox-factory", "org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory");
-        map.put("smtp-handler-factory", "org.bluezoo.gumdrop.smtp.LocalDeliveryHandlerFactory");
         map.put("ftp-handler-factory", "org.bluezoo.gumdrop.ftp.FTPConnectionHandlerFactory");
         map.put("component", "java.lang.Object");
         DEFAULT_CLASS_NAMES = map;
@@ -134,6 +132,8 @@ public class ConfigurationParser extends DefaultHandler {
         } else if (isInlineContextElement(name)) {
             // Special handling for Context which requires constructor args
             startInlineContext(atts);
+        } else if ("listener".equals(name)) {
+            startListenElement(atts);
         } else if ("property".equals(name)) {
             startProperty(atts);
         } else if ("ref".equals(name)) {
@@ -172,6 +172,8 @@ public class ConfigurationParser extends DefaultHandler {
             endComponent();
         } else if (isInlineContextElement(name)) {
             endInlineContext();
+        } else if ("listener".equals(name)) {
+            endListenElement();
         } else if ("property".equals(name)) {
             endProperty();
         } else if ("list".equals(name)) {
@@ -184,7 +186,7 @@ public class ConfigurationParser extends DefaultHandler {
     }
     
     private boolean isComponentElement(String name) {
-        return "server".equals(name) || 
+        return "service".equals(name) ||
                "realm".equals(name) || 
                "container".equals(name) ||
                "component".equals(name) ||
@@ -195,7 +197,6 @@ public class ConfigurationParser extends DefaultHandler {
                "connection-factory".equals(name) ||
                "administered-object".equals(name) ||
                "mailbox-factory".equals(name) ||
-               "smtp-handler-factory".equals(name) ||
                "ftp-handler-factory".equals(name);
     }
     
@@ -216,6 +217,13 @@ public class ConfigurationParser extends DefaultHandler {
                     locator);
             }
             containerDeclared = true;
+        }
+        
+        // <service> requires an explicit class attribute
+        if ("service".equals(type) && className == null) {
+            throw new SAXParseException(
+                    "<service> requires a 'class' attribute at line "
+                            + locator.getLineNumber(), locator);
         }
         
         // Map element name to default class if not specified
@@ -290,6 +298,85 @@ public class ConfigurationParser extends DefaultHandler {
         currentComponent = getParentComponent();
     }
     
+    private void startListenElement(Attributes atts) throws SAXException {
+        // <listener> must appear inside a <service>
+        ComponentDefinition parentComponent = getParentComponent();
+        if (parentComponent == null
+                || !Service.class.isAssignableFrom(
+                        parentComponent.getComponentClass())) {
+            throw new SAXParseException(
+                    "<listener> must be inside a <service> element at line "
+                            + locator.getLineNumber(), locator);
+        }
+
+        String className = atts.getValue("class");
+        if (className == null) {
+            className = getDefaultClassName("listener");
+        }
+
+        try {
+            Class clazz = Class.forName(className);
+            ComponentDefinition listenerDef =
+                    new ComponentDefinition(null, clazz);
+
+            for (int i = 0; i < atts.getLength(); i++) {
+                String attrName = getAttributeName(atts, i);
+                if (!"class".equals(attrName)) {
+                    listenerDef.addProperty(
+                            new PropertyDefinition(
+                                    attrName, atts.getValue(i)));
+                }
+            }
+
+            currentComponent = listenerDef;
+            contextStack.push(new ComponentContext(listenerDef));
+        } catch (ClassNotFoundException e) {
+            throw new SAXParseException(
+                    "Class not found: " + className + " at line "
+                            + locator.getLineNumber(), locator, e);
+        }
+    }
+
+    private void endListenElement() {
+        ComponentContext ctx = (ComponentContext) contextStack.pop();
+        currentComponent = getParentComponent();
+        ComponentDefinition listenerDef = ctx.component;
+
+        // Add listener to the parent service's "listeners" list
+        ParseContext parent = contextStack.isEmpty()
+                ? null : contextStack.peek();
+        if (parent instanceof ComponentContext) {
+            ComponentDefinition parentDef =
+                    ((ComponentContext) parent).component;
+
+            PropertyDefinition listenersProp = null;
+            for (int i = 0; i < parentDef.getProperties().size(); i++) {
+                PropertyDefinition prop =
+                        (PropertyDefinition) parentDef.getProperties()
+                                .get(i);
+                if ("listeners".equals(prop.getName())) {
+                    listenersProp = prop;
+                    break;
+                }
+            }
+
+            if (listenersProp == null) {
+                ListValue listenersList = new ListValue();
+                listenersList.addItem(listenerDef);
+                listenersProp = new PropertyDefinition(
+                        "listeners", listenersList);
+                parentDef.addProperty(listenersProp);
+            } else {
+                Object existing = listenersProp.getValue();
+                if (existing instanceof ListValue) {
+                    ((ListValue) existing).addItem(listenerDef);
+                }
+            }
+        }
+
+        currentComponent = getParentComponent();
+    }
+
     private ComponentDefinition getParentComponent() {
         for (ParseContext ctx : contextStack) {
             if (ctx instanceof ComponentContext) {

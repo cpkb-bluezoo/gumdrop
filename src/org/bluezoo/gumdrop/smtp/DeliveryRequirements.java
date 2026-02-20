@@ -48,7 +48,7 @@ import java.time.Instant;
  * bouncing the message rather than violating the sender's requirements.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MailFromHandler#mailFrom
+ * @see org.bluezoo.gumdrop.smtp.handler.MailFromHandler#mailFrom
  */
 public interface DeliveryRequirements {
 

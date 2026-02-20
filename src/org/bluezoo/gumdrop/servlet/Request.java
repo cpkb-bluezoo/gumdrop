@@ -21,15 +21,14 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPDateFormat;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPVersion;
-import org.bluezoo.gumdrop.http.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.mime.ContentTypeParser;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
@@ -112,15 +111,14 @@ class Request implements HttpServletRequest {
         }
         
         HTTPResponseState state = handler.getState();
-        ConnectionInfo connInfo = state.getConnectionInfo();
-        this.secure = connInfo != null && connInfo.isSecure();
+        this.secure = state.isSecure();
 
         if (secure) {
-            TLSInfo tlsInfo = state.getTLSInfo();
-            if (tlsInfo != null) {
-                Certificate[] certificates = tlsInfo.getPeerCertificates();
-                String cipherSuite = tlsInfo.getCipherSuite();
-                int keySize = getKeySize(cipherSuite);
+            SecurityInfo secInfo = state.getSecurityInfo();
+            if (secInfo != null) {
+                Certificate[] certificates = secInfo.getPeerCertificates();
+                String cipherSuite = secInfo.getCipherSuite();
+                int keySize = secInfo.getKeySize();
                 populateTLSAttributes(certificates, cipherSuite, keySize);
             }
         }
@@ -143,22 +141,10 @@ class Request implements HttpServletRequest {
         }
     }
 
-    private int getKeySize(String cipherSuite) {
-        if (cipherSuite == null) {
-            return -1;
-        }
-        if (cipherSuite.contains("256")) {
-            return 256;
-        }
-        if (cipherSuite.contains("128")) {
-            return 128;
-        }
-        return -1;
-    }
 
     private Certificate[] getPeerCertificates() {
-        TLSInfo tlsInfo = handler.getState().getTLSInfo();
-        return tlsInfo != null ? tlsInfo.getPeerCertificates() : null;
+        SecurityInfo secInfo = handler.getState().getSecurityInfo();
+        return secInfo != null ? secInfo.getPeerCertificates() : null;
     }
 
     // Helper methods for accessing connection info
@@ -172,13 +158,19 @@ class Request implements HttpServletRequest {
     }
 
     private java.net.InetSocketAddress getRemoteSocketAddress() {
-        ConnectionInfo connInfo = handler.getState().getConnectionInfo();
-        return connInfo != null ? connInfo.getRemoteAddress() : null;
+        java.net.SocketAddress addr = handler.getState().getRemoteAddress();
+        if (addr instanceof java.net.InetSocketAddress) {
+            return (java.net.InetSocketAddress) addr;
+        }
+        return null;
     }
 
     private java.net.InetSocketAddress getLocalSocketAddress() {
-        ConnectionInfo connInfo = handler.getState().getConnectionInfo();
-        return connInfo != null ? connInfo.getLocalAddress() : null;
+        java.net.SocketAddress addr = handler.getState().getLocalAddress();
+        if (addr instanceof java.net.InetSocketAddress) {
+            return (java.net.InetSocketAddress) addr;
+        }
+        return null;
     }
 
     private boolean isStreamClosed() {

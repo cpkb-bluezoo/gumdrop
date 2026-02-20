@@ -35,7 +35,8 @@ public enum HTTPVersion {
     UNKNOWN(null, null),
     HTTP_1_0("HTTP/1.0", "http/1.0"),
     HTTP_1_1("HTTP/1.1", "http/1.1"),
-    HTTP_2_0("HTTP/2.0", "h2");
+    HTTP_2_0("HTTP/2.0", "h2"),
+    HTTP_3("HTTP/3", "h3");
 
     private final String versionString;
     private final String alpnIdentifier;
@@ -140,7 +141,7 @@ public enum HTTPVersion {
      * @return true for HTTP/2, false for HTTP/1.x
      */
     public boolean supportsMultiplexing() {
-        return this == HTTP_2_0;
+        return this == HTTP_2_0 || this == HTTP_3;
     }
 
     /**
@@ -149,6 +150,6 @@ public enum HTTPVersion {
      * @return true for HTTP/1.1 and HTTP/2, false for HTTP/1.0
      */
     public boolean requiresHostHeader() {
-        return this == HTTP_1_1 || this == HTTP_2_0;
+        return this == HTTP_1_1 || this == HTTP_2_0 || this == HTTP_3;
     }
 }

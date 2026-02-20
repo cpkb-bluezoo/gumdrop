@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPServer;
+import org.bluezoo.gumdrop.http.HTTPListener;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 
 import javax.net.ssl.SSLContext;
@@ -50,7 +50,7 @@ import java.util.logging.Logger;
  * 
  * <p>This class implements a minimal OTLP/HTTP endpoint that receives
  * telemetry data (traces, logs, metrics) and stores the raw requests 
- * for verification in tests. It runs as a Gumdrop HTTPServer subclass.
+ * for verification in tests. It runs as a Gumdrop HTTPListener subclass.
  * 
  * <p>Usage:
  * <pre>
@@ -135,7 +135,7 @@ public class MockOTLPCollector {
 
         System.setProperty("gumdrop.workers", "2");
         gumdrop = Gumdrop.getInstance();
-        gumdrop.addServer(server);
+        gumdrop.addListener(server);
         gumdrop.start();
 
         // Wait for server to be ready
@@ -327,7 +327,7 @@ public class MockOTLPCollector {
     /**
      * Custom HTTP server that handles OTLP requests.
      */
-    static class OTLPCollectorServer extends HTTPServer {
+    static class OTLPCollectorServer extends HTTPListener {
 
         OTLPCollectorServer(MockOTLPCollector collector) {
             setHandlerFactory(new OTLPHandlerFactory(collector));
@@ -346,7 +346,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state) {
+        public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
             return new OTLPRequestHandler(collector);
         }
     }
@@ -374,7 +374,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void headers(Headers headers, HTTPResponseState state) {
+        public void headers(HTTPResponseState state, Headers headers) {
             this.state = state;
             this.currentPath = headers.getPath();
             
@@ -388,7 +388,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
             try {
                 int remaining = data.remaining();
                 byte[] buf = new byte[remaining];

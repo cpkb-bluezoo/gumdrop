@@ -70,14 +70,13 @@ public interface MailFromHandler {
      * then call the appropriate method on the state interface to accept
      * or reject.
      * 
+     * @param state operations for responding
      * @param sender the sender address, or null for bounce messages (&lt;&gt;)
      * @param smtputf8 true if SMTPUTF8 extension requested (RFC 6531)
      * @param deliveryRequirements delivery options (REQUIRETLS, DSN, priority, etc.)
-     * @param state operations for responding
      */
-    void mailFrom(EmailAddress sender, boolean smtputf8,
-                  DeliveryRequirements deliveryRequirements,
-                  MailFromState state);
+    void mailFrom(MailFromState state, EmailAddress sender, boolean smtputf8,
+                  DeliveryRequirements deliveryRequirements);
 
     /**
      * Called when client sends RSET.

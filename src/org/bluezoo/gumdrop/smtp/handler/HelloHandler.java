@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.handler;
 
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.SecurityInfo;
 
 import java.security.Principal;
 
@@ -41,7 +41,7 @@ import java.security.Principal;
  * If the client requests STARTTLS and TLS is configured, the connection
  * performs the TLS handshake and then:
  * <ol>
- *   <li>Calls {@link #tlsEstablished(TLSInfo)} with session details</li>
+ *   <li>Calls {@link #tlsEstablished(SecurityInfo)} with session details</li>
  *   <li>Awaits the required post-TLS EHLO (RFC 3207)</li>
  *   <li>Calls {@link #hello} with the new EHLO</li>
  * </ol>
@@ -64,25 +64,25 @@ public interface HelloHandler {
      * whether to accept or reject the greeting. Accepting transitions
      * to the mail-from ready state.
      * 
+     * @param state operations for responding to the greeting
      * @param extended true for EHLO (Extended SMTP), false for HELO
      * @param hostname the client's announced hostname
-     * @param state operations for responding to the greeting
      */
-    void hello(boolean extended, String hostname, HelloState state);
+    void hello(HelloState state, boolean extended, String hostname);
 
     /**
      * Called when TLS is established after STARTTLS.
      * 
      * <p>STARTTLS is handled automatically by the connection. This
      * notification allows the handler to log the TLS upgrade or
-     * adjust policy based on TLS parameters.
+     * adjust policy based on security parameters.
      * 
      * <p>After this call, the client must re-issue EHLO per RFC 3207,
      * which will arrive via {@link #hello}.
      * 
-     * @param tlsInfo information about the TLS session
+     * @param securityInfo information about the security session
      */
-    void tlsEstablished(TLSInfo tlsInfo);
+    void tlsEstablished(SecurityInfo securityInfo);
 
     /**
      * Called after successful SASL authentication.
@@ -94,10 +94,10 @@ public interface HelloHandler {
      * <p>The handler should decide whether to accept this principal
      * for sending mail.
      * 
-     * @param principal the authenticated identity
      * @param state operations for accepting or rejecting
+     * @param principal the authenticated identity
      */
-    void authenticated(Principal principal, AuthenticateState state);
+    void authenticated(AuthenticateState state, Principal principal);
 
     /**
      * Called when the client sends QUIT.

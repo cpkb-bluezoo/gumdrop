@@ -51,7 +51,7 @@ public interface UidlState {
      * Begins a multi-line UID listing for all messages.
      * 
      * <p>Sends a +OK response header and returns a writer for sending
-     * individual message UIDs. Call {@link UidlWriter#end()} when done.
+     * individual message UIDs. Call {@link UidlWriter#end(TransactionHandler)} when done.
      * 
      * @return a writer for sending message UIDs
      */

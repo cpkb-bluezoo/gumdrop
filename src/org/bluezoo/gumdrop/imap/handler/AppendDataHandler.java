@@ -52,9 +52,9 @@ public interface AppendDataHandler {
      * 
      * <p>The handler should finalize the message in the mailbox.
      * 
-     * @param mailbox the target mailbox for the message
      * @param state operations for completing the APPEND
+     * @param mailbox the target mailbox for the message
      */
-    void appendComplete(Mailbox mailbox, AppendCompleteState state);
+    void appendComplete(AppendCompleteState state, Mailbox mailbox);
 
 }

@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.imap.handler;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
 
 /**
  * Entry point handler for new IMAP client connections.
@@ -39,16 +39,18 @@ import org.bluezoo.gumdrop.ConnectionInfo;
  * public class MyIMAPHandler implements ClientConnected, NotAuthenticatedHandler, 
  *                                       AuthenticatedHandler, SelectedHandler {
  *     
- *     public void connected(ConnectionInfo info, ConnectedState state) {
+ *     public void connected(ConnectedState state, Endpoint endpoint) {
  *         state.acceptConnection("IMAP4rev2 server ready", this);
  *     }
  *     
- *     public void login(String tag, String username, String password, LoginState state) {
- *         if (authenticate(username, password)) {
- *             MailboxStore store = openStore(username);
- *             state.loginOk(store, this);
- *         } else {
- *             state.loginFailed("Invalid credentials", this);
+ *     public void authenticate(AuthenticateState state, Principal principal,
+ *                              MailboxFactory factory) {
+ *         try {
+ *             MailboxStore store = factory.createStore();
+ *             store.open(principal.getName());
+ *             state.accept(store, this);
+ *         } catch (IOException e) {
+ *             state.reject("Mailbox unavailable", this);
  *         }
  *     }
  *     
@@ -74,20 +76,23 @@ public interface ClientConnected {
      * handler should evaluate whether to accept this connection and call
      * the appropriate method on the state interface.
      * 
-     * <p>The connection information includes:
+     * <p>The endpoint provides access to:
      * <ul>
-     *   <li>Client and server socket addresses</li>
-     *   <li>TLS status and certificate information (if secure)</li>
+     *   <li>Client and server socket addresses via
+     *       {@link Endpoint#getRemoteAddress()} and
+     *       {@link Endpoint#getLocalAddress()}</li>
+     *   <li>TLS status via {@link Endpoint#isSecure()} and security details
+     *       via {@link Endpoint#getSecurityInfo()}</li>
      * </ul>
      * 
      * <p>To accept the connection, call {@code state.acceptConnection()} with
      * a greeting message and the handler for the not-authenticated state.
      * To reject, call {@code state.rejectConnection()}.
      * 
-     * @param info connection information (addresses, TLS status)
      * @param state operations available for responding
+     * @param endpoint the transport endpoint for this connection
      */
-    void connected(ConnectionInfo info, ConnectedState state);
+    void connected(ConnectedState state, Endpoint endpoint);
 
     /**
      * Called when the connection is closed for any reason.

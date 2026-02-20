@@ -61,10 +61,11 @@
  *   </property>
  * </container>
  *
- * <server id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
- *   <property name="port">8080</property>
+ * <service class="org.bluezoo.gumdrop.servlet.ServletService">
  *   <property name="container" ref="#mainContainer"/>
- * </server>
+ *   <listener class="org.bluezoo.gumdrop.http.HTTPListener"
+ *           port="8080"/>
+ * </service>
  * }</pre>
  *
  * <h2>Web Application Deployment</h2>

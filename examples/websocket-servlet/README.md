@@ -194,7 +194,7 @@ Enable verbose logging to troubleshoot issues:
 
 ```java
 Logger.getLogger("examples.websocket").setLevel(Level.FINE);
-Logger.getLogger("org.bluezoo.gumdrop.http.websocket").setLevel(Level.FINE);
+Logger.getLogger("org.bluezoo.gumdrop.websocket").setLevel(Level.FINE);
 ```
 
 This example provides a complete foundation for building WebSocket applications with Gumdrop's servlet container.

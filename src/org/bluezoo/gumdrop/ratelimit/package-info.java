@@ -56,7 +56,7 @@
  *
  * <h3>Server Configuration</h3>
  * <pre>
- * &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+ * &lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
  *     &lt;!-- Connection rate limiting --&gt;
  *     &lt;property name="max-connections-per-ip"&gt;10&lt;/property&gt;
  *     &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
@@ -106,7 +106,7 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.Server#acceptConnection
+ * @see org.bluezoo.gumdrop.TCPListener
  * @see org.bluezoo.gumdrop.telemetry.ErrorCategory#RATE_LIMITED
  */
 package org.bluezoo.gumdrop.ratelimit;

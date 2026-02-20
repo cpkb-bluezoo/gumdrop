@@ -31,8 +31,11 @@
  *
  * <h3>Core Components</h3>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.pop3.POP3Server} - Server connector that listens for POP3 connections</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.POP3Connection} - Connection handler implementing the POP3 protocol</li>
+ *   <li>{@link org.bluezoo.gumdrop.pop3.POP3Service} - Abstract base for
+ *       POP3 application services; owns configuration and creates
+ *       per-connection handlers</li>
+ *   <li>{@link org.bluezoo.gumdrop.pop3.POP3Listener} - TCP transport listener for POP3 connections</li>
+ *   <li>{@link org.bluezoo.gumdrop.pop3.POP3ProtocolHandler} - Endpoint handler implementing the POP3 protocol</li>
  *   <li>{@link org.bluezoo.gumdrop.pop3.POP3Exception} - POP3-specific exceptions</li>
  * </ul>
  *
@@ -162,7 +165,7 @@
  *
  * <pre>{@code
  * <!-- POP3 with STARTTLS support (port 110) -->
- * <server class="org.bluezoo.gumdrop.pop3.POP3Server" port="110"
+ * <server class="org.bluezoo.gumdrop.pop3.POP3Listener" port="110"
  *     realm="myRealm"
  *     loginDelay="3000"
  *     enableAPOP="true"
@@ -171,7 +174,7 @@
  *     keystorePass="password"/>
  *
  * <!-- POP3S with implicit TLS (port 995) -->
- * <server class="org.bluezoo.gumdrop.pop3.POP3Server" port="995"
+ * <server class="org.bluezoo.gumdrop.pop3.POP3Listener" port="995"
  *     secure="true"
  *     realm="myRealm"
  *     keystoreFile="/path/to/keystore.p12"
@@ -227,8 +230,8 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.POP3Server
- * @see org.bluezoo.gumdrop.pop3.POP3Connection
+ * @see org.bluezoo.gumdrop.pop3.POP3Listener
+ * @see org.bluezoo.gumdrop.pop3.POP3ProtocolHandler
  * @see org.bluezoo.gumdrop.mailbox.Mailbox
  * @see org.bluezoo.gumdrop.mailbox.mbox.MboxMailbox
  * @see org.bluezoo.gumdrop.auth.Realm

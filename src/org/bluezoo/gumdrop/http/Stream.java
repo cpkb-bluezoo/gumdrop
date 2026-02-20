@@ -34,15 +34,19 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.logging.Level;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.NullSecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
-import org.bluezoo.gumdrop.http.websocket.WebSocketConnection;
-import org.bluezoo.gumdrop.http.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketConnection;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
@@ -64,6 +68,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 class Stream implements HTTPResponseState {
 
     private static final Logger LOGGER = Logger.getLogger(Stream.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     /** Reusable empty buffer for completing responses without body. */
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
@@ -92,10 +98,10 @@ class Stream implements HTTPResponseState {
         HALF_CLOSED_REMOTE;
     }
 
-    final HTTPConnection connection;
+    final HTTPConnectionLike connection;
     final int streamId;
 
-    Stream(HTTPConnection connection, int streamId) {
+    Stream(HTTPConnectionLike connection, int streamId) {
         this.connection = connection;
         this.streamId = streamId;
     }
@@ -163,6 +169,11 @@ class Stream implements HTTPResponseState {
         return connection.getScheme();
     }
 
+    @Override
+    public SelectorLoop getSelectorLoop() {
+        return connection.getSelectorLoop();
+    }
+
     /**
      * Returns the version of the connection.
      */
@@ -196,18 +207,16 @@ class Stream implements HTTPResponseState {
         }
         
         try {
-            HTTPConnection httpConnection = (HTTPConnection) connection;
-            
             // Get next available server stream ID (must be even for server-initiated streams)
-            int promisedStreamId = httpConnection.getNextServerStreamId();
+            int promisedStreamId = connection.getNextServerStreamId();
             
             // Create and send PUSH_PROMISE frame with the headers
-            byte[] headerBlock = httpConnection.encodeHeaders(headers);
-            httpConnection.sendPushPromise(this.streamId, promisedStreamId, 
+            byte[] headerBlock = connection.encodeHeaders(headers);
+            connection.sendPushPromise(this.streamId, promisedStreamId,
                 ByteBuffer.wrap(headerBlock), true);
             
             // Create the promised stream for handling the pushed response
-            Stream promisedStream = httpConnection.createPushedStream(promisedStreamId, method, uri, headers);
+            Stream promisedStream = connection.createPushedStream(promisedStreamId, method, uri, headers);
             
             if (promisedStream != null) {
                 // Mark as push promise stream
@@ -339,10 +348,10 @@ class Stream implements HTTPResponseState {
             headerBlock.flip();
             headers = new Headers();
             try {
-                connection.hpackDecoder.decode(headerBlock, hpackHandler);
+                connection.getHpackDecoder().decode(headerBlock, hpackHandler);
             } catch (IOException e) {
                 // HPACK decompression failure is a connection-level error
-                HTTPConnection.LOGGER.log(Level.WARNING, 
+                LOGGER.log(Level.WARNING, 
                     "HPACK decompression error", e);
                 connection.sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
                 return;
@@ -370,7 +379,7 @@ class Stream implements HTTPResponseState {
                     if (isNoBodyMethod(value)) {
                         contentLength = 0;
                     }
-                } else if (connection.version != HTTPVersion.HTTP_2_0) { // HTTP/1
+                } else if (connection.getVersion() != HTTPVersion.HTTP_2_0) { // HTTP/1
                     if ("Connection".equalsIgnoreCase(name)) {
                         if ("close".equalsIgnoreCase(value)) {
                             closeConnection = true;
@@ -425,7 +434,7 @@ class Stream implements HTTPResponseState {
                             http2Settings = parseH2cSettings(ByteBuffer.wrap(settings));
                         } catch (IllegalArgumentException e) {
                             // Invalid base64 in HTTP2-Settings header - ignore it
-                            HTTPConnection.LOGGER.log(Level.WARNING, 
+                            LOGGER.log(Level.WARNING, 
                                 "Invalid base64 in HTTP2-Settings header: " + value, e);
                         }
                     }
@@ -447,16 +456,16 @@ class Stream implements HTTPResponseState {
                 handlerBodyEnded = true;
                 handler.endRequestBody(this);
             }
-            handler.headers(headers, this);
+            handler.headers(this, headers);
         } else {
             // No handler yet - try to create one via factory
             // Note: We create the handler even for h2c upgrade requests, because
             // the request body (if any) arrives before the protocol switch.
             HTTPRequestHandlerFactory factory = connection.getHandlerFactory();
             if (factory != null) {
-                handler = factory.createHandler(headers, this);
+                handler = factory.createHandler(this, headers);
                 if (handler != null) {
-                    handler.headers(headers, this);
+                    handler.headers(this, headers);
                 }
                 // If handler is null, factory may have sent a response (401, 404, etc.)
             } else {
@@ -464,8 +473,8 @@ class Stream implements HTTPResponseState {
                 try {
                     sendError(404);
                 } catch (ProtocolException e) {
-                    HTTPConnection.LOGGER.warning(MessageFormat.format(
-                        HTTPConnection.L10N.getString("warn.default_404_failed"), e.getMessage()));
+                    LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.default_404_failed"), e.getMessage()));
                 }
             }
         }
@@ -499,7 +508,7 @@ class Stream implements HTTPResponseState {
         // Build span name following OpenTelemetry semantic conventions: "HTTP {method}"
         String methodName = method != null ? method : "UNKNOWN";
         String spanName = MessageFormat.format(
-                HTTPConnection.L10N.getString("telemetry.http_request"), methodName);
+                L10N.getString("telemetry.http_request"), methodName);
 
         if (traceparent != null) {
             // Continue distributed trace from upstream service
@@ -595,7 +604,7 @@ class Stream implements HTTPResponseState {
                 handlerBodyStarted = true;
                 handler.startRequestBody(this);
             }
-            handler.requestBodyContent(buf, this);
+            handler.requestBodyContent(this, buf);
         }
         
         // Consume any remaining data (handler may not have consumed it)
@@ -765,10 +774,10 @@ class Stream implements HTTPResponseState {
     @Override
     public void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler) {
         if (!isWebSocketUpgradeRequest()) {
-            throw new IllegalStateException(HTTPConnection.L10N.getString("err.not_websocket_upgrade"));
+            throw new IllegalStateException(L10N.getString("err.not_websocket_upgrade"));
         }
         if (responseState != ResponseState.INITIAL) {
-            throw new IllegalStateException(HTTPConnection.L10N.getString("err.response_started"));
+            throw new IllegalStateException(L10N.getString("err.response_started"));
         }
         
         try {
@@ -823,12 +832,12 @@ class Stream implements HTTPResponseState {
         
         @Override
         protected void textMessageReceived(String message) {
-            handler.textMessageReceived(message);
+            handler.textMessageReceived(this, message);
         }
         
         @Override
         protected void binaryMessageReceived(ByteBuffer data) {
-            handler.binaryMessageReceived(data);
+            handler.binaryMessageReceived(this, data);
         }
         
         @Override
@@ -905,7 +914,7 @@ class Stream implements HTTPResponseState {
                 span.setStatusOk();
             } else {
                 span.recordError(ErrorCategory.CONNECTION_LOST, 
-                    HTTPConnection.L10N.getString("telemetry.stream_closed_abnormally"));
+                    L10N.getString("telemetry.stream_closed_abnormally"));
             }
             span.end();
         }
@@ -916,13 +925,26 @@ class Stream implements HTTPResponseState {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public ConnectionInfo getConnectionInfo() {
-        return connection.getConnectionInfoForStream();
+    public java.net.SocketAddress getRemoteAddress() {
+        return connection.getRemoteSocketAddress();
     }
 
     @Override
-    public TLSInfo getTLSInfo() {
-        return connection.isSecure() ? connection.getTLSInfoForStream() : null;
+    public java.net.SocketAddress getLocalAddress() {
+        return connection.getLocalSocketAddress();
+    }
+
+    @Override
+    public boolean isSecure() {
+        return connection.isSecure();
+    }
+
+    @Override
+    public SecurityInfo getSecurityInfo() {
+        if (connection.isSecure()) {
+            return connection.getSecurityInfoForStream();
+        }
+        return NullSecurityInfo.INSTANCE;
     }
 
     @Override
@@ -933,7 +955,7 @@ class Stream implements HTTPResponseState {
     @Override
     public void headers(Headers headers) {
         if (responseState == ResponseState.COMPLETE) {
-            throw new IllegalStateException(HTTPConnection.L10N.getString("err.response_complete"));
+            throw new IllegalStateException(L10N.getString("err.response_complete"));
         }
         // Buffer headers - they will be flushed on startResponseBody() or complete()
         if (bufferedResponseHeaders == null) {
@@ -1004,7 +1026,7 @@ class Stream implements HTTPResponseState {
         if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
             return false; // Server push only for HTTP/2
         }
-        if (!connection.enablePush) {
+        if (!connection.isEnablePush()) {
             return false; // Client disabled push
         }
         
@@ -1059,8 +1081,8 @@ class Stream implements HTTPResponseState {
                 // Invalid :status value is a server programming error
                 statusCode = 500;
             }
-            // Remove :status from headers - it's handled separately for HTTP/1
-            bufferedResponseHeaders.remove(":status");
+            // Remove :status from headers - it's handled separately
+            bufferedResponseHeaders.removeAll(":status");
         }
 
         try {

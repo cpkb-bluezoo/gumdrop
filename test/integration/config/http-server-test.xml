@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
     <!-- Raw HTTP server on port 18080 - no content, just 404s -->
-    <server id="testHttp" class="org.bluezoo.gumdrop.http.HTTPServer">
+    <server id="testHttp" class="org.bluezoo.gumdrop.http.HTTPListener">
         <property name="port">18080</property>
         <property name="addresses">127.0.0.1</property>
     </server>

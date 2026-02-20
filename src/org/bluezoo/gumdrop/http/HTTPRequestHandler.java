@@ -73,7 +73,7 @@ import java.nio.ByteBuffer;
  * public class HelloHandler extends DefaultHTTPRequestHandler {
  *     
  *     @Override
- *     public void headers(Headers headers, HTTPResponseState state) {
+ *     public void headers(HTTPResponseState state, Headers headers) {
  *         if ("GET".equals(headers.getMethod())) {
  *             Headers response = new Headers();
  *             response.status(HTTPStatus.OK);
@@ -111,10 +111,10 @@ public interface HTTPRequestHandler {
      * headers before {@code startRequestBody()} are request headers;
      * headers after {@code endRequestBody()} are trailers.
      *
-     * @param headers the headers (pseudo-headers normalized for all HTTP versions)
      * @param state the response state for sending the response
+     * @param headers the headers (pseudo-headers normalized for all HTTP versions)
      */
-    void headers(Headers headers, HTTPResponseState state);
+    void headers(HTTPResponseState state, Headers headers);
 
     /**
      * Request body is starting.
@@ -133,10 +133,10 @@ public interface HTTPRequestHandler {
      * times. The buffer is only valid during this callback - if the data
      * is needed later, it must be copied.
      *
-     * @param data the body data (position and limit define valid range)
      * @param state the response state
+     * @param data the body data (position and limit define valid range)
      */
-    void requestBodyContent(ByteBuffer data, HTTPResponseState state);
+    void requestBodyContent(HTTPResponseState state, ByteBuffer data);
 
     /**
      * Request body complete.

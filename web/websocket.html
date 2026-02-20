@@ -1,0 +1,602 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>WebSocket Service &amp; Client - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop WebSocket Service &amp; Client</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a standalone WebSocket service and client, built on top of the
+HTTP transport but presenting a clean, message-oriented programming model.
+WebSocket connections begin as HTTP upgrade requests but, once established,
+operate as raw bidirectional message channels with no further HTTP semantics.
+</p>
+
+<p>
+The same <code>WebSocketEventHandler</code> interface is used on both the server
+and client side, making it straightforward to write applications that operate in
+either role or both.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#service">WebSocket Service</a></li>
+<li><a href="#handler">Event Handler API</a></li>
+<li><a href="#subprotocols">Subprotocol Negotiation</a></li>
+<li><a href="#client">WebSocket Client</a></li>
+<li><a href="#use-cases">Use Cases</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#http-upgrade">Manual HTTP Upgrade</a></li>
+<li><a href="#servlet">Servlet Container Integration</a></li>
+</ul>
+
+<h3 id="overview">Overview</h3>
+
+<p>
+The WebSocket Protocol (RFC 6455) provides full-duplex communication over a
+single TCP connection. Unlike HTTP&rsquo;s request&ndash;response model, either
+side can send messages at any time once the connection is open. This makes it
+ideal for real-time applications such as chat, live feeds, collaborative
+editing, and IoT telemetry.
+</p>
+
+<p>
+Gumdrop&rsquo;s WebSocket implementation is structured around a clean separation
+of concerns:
+</p>
+
+<ul>
+<li><b>WebSocketService</b> &ndash; the application-level service that creates
+handlers for incoming connections. It implements the <code>Service</code>
+interface and knows nothing about HTTP.</li>
+<li><b>WebSocketListener</b> &ndash; a transport listener that extends
+<code>HTTPListener</code> and encapsulates the HTTP-to-WebSocket upgrade
+handshake. All HTTP machinery is confined to this layer.</li>
+<li><b>WebSocketClient</b> &ndash; a client-side facade that connects to a
+WebSocket server. It uses the same <code>WebSocketEventHandler</code>
+interface as the server.</li>
+<li><b>WebSocketEventHandler</b> &ndash; the user-facing interface for
+receiving WebSocket lifecycle events and messages, used identically on both
+server and client.</li>
+<li><b>WebSocketSession</b> &ndash; provided to the handler on connection open,
+used for sending messages and closing the connection.</li>
+</ul>
+
+<h3 id="service">WebSocket Service</h3>
+
+<p>
+To create a WebSocket server, extend <code>WebSocketService</code> and
+implement the <code>createConnectionHandler</code> method. This method is called
+for each incoming WebSocket connection and must return a
+<code>WebSocketEventHandler</code> (or <code>null</code> to reject the
+connection).
+</p>
+
+<pre>
+public class EchoService extends WebSocketService {
+
+    @Override
+    protected WebSocketEventHandler createConnectionHandler(
+            String requestPath, Headers upgradeHeaders) {
+        return new DefaultWebSocketEventHandler() {
+
+            @Override
+            public void textMessageReceived(WebSocketSession session,
+                                            String message) {
+                try {
+                    session.sendText("Echo: " + message);
+                } catch (IOException e) {
+                    // handle error
+                }
+            }
+        };
+    }
+}
+</pre>
+
+<p>
+The service receives the request path and upgrade headers, which can be used
+for routing or authentication decisions:
+</p>
+
+<pre>
+@Override
+protected WebSocketEventHandler createConnectionHandler(
+        String requestPath, Headers upgradeHeaders) {
+    
+    // Route based on path
+    if ("/chat".equals(requestPath)) {
+        return new ChatHandler();
+    } else if ("/notifications".equals(requestPath)) {
+        return new NotificationHandler();
+    }
+    
+    // Reject unknown paths
+    return null;
+}
+</pre>
+
+<h3 id="handler">Event Handler API</h3>
+
+<p>
+The <code>WebSocketEventHandler</code> interface provides five callbacks:
+</p>
+
+<ul>
+<li><code>opened(WebSocketSession session)</code> &ndash; connection established;
+the session is ready for sending messages</li>
+<li><code>textMessageReceived(WebSocketSession session, String message)</code>
+&ndash; a text message was received from the peer</li>
+<li><code>binaryMessageReceived(WebSocketSession session, ByteBuffer data)</code>
+&ndash; a binary message was received from the peer</li>
+<li><code>closed(int code, String reason)</code> &ndash; the connection was
+closed</li>
+<li><code>error(Throwable cause)</code> &ndash; an error occurred</li>
+</ul>
+
+<p>
+<code>DefaultWebSocketEventHandler</code> provides empty implementations of all
+methods for convenience.
+</p>
+
+<h4>WebSocket Session Methods</h4>
+
+<p>
+The <code>WebSocketSession</code> interface is provided to the handler in
+each callback. It does not need to be stored between calls:
+</p>
+
+<ul>
+<li><code>sendText(String message)</code> &ndash; send a text message</li>
+<li><code>sendBinary(ByteBuffer data)</code> &ndash; send binary data</li>
+<li><code>sendPing(ByteBuffer payload)</code> &ndash; send a ping frame (peer
+responds with pong automatically)</li>
+<li><code>close()</code> &ndash; close with normal status (1000)</li>
+<li><code>close(int code, String reason)</code> &ndash; close with a specific
+status code</li>
+<li><code>isOpen()</code> &ndash; check if the session is still active</li>
+</ul>
+
+<h4>Close Codes</h4>
+
+<p>
+Standard close codes are defined in <code>WebSocketConnection.CloseCodes</code>:
+</p>
+
+<ul>
+<li><code>1000</code> &ndash; Normal closure</li>
+<li><code>1001</code> &ndash; Going away (server shutdown or client navigating away)</li>
+<li><code>1002</code> &ndash; Protocol error</li>
+<li><code>1003</code> &ndash; Unsupported data type</li>
+<li><code>1009</code> &ndash; Message too big</li>
+<li><code>1011</code> &ndash; Internal server error</li>
+</ul>
+
+<h3 id="subprotocols">Subprotocol Negotiation</h3>
+
+<p>
+WebSocket supports application-level subprotocol negotiation via the
+<code>Sec-WebSocket-Protocol</code> header. Override
+<code>selectSubprotocol</code> on the service to participate:
+</p>
+
+<pre>
+@Override
+protected String selectSubprotocol(Headers upgradeHeaders) {
+    String requested = upgradeHeaders.getValue("Sec-WebSocket-Protocol");
+    if (requested != null) {
+        // Client may request multiple protocols, comma-separated
+        if (requested.contains("graphql-ws")) {
+            return "graphql-ws";
+        }
+        if (requested.contains("mqtt")) {
+            return "mqtt";
+        }
+    }
+    return null;  // no subprotocol
+}
+</pre>
+
+<h3 id="client">WebSocket Client</h3>
+
+<p>
+The <code>WebSocketClient</code> class provides a high-level facade for
+connecting to WebSocket servers. It uses the same
+<code>WebSocketEventHandler</code> interface as the server, so handler code can
+be reused in both roles.
+</p>
+
+<pre>
+WebSocketClient client = new WebSocketClient("echo.example.com", 443);
+client.setSecure(true);
+
+client.connect("/ws", new DefaultWebSocketEventHandler() {
+
+    @Override
+    public void opened(WebSocketSession session) {
+        try {
+            session.sendText("Hello from Gumdrop!");
+        } catch (IOException e) {
+            // handle error
+        }
+    }
+
+    @Override
+    public void textMessageReceived(WebSocketSession session,
+                                    String message) {
+        System.out.println("Received: " + message);
+    }
+
+    @Override
+    public void closed(int code, String reason) {
+        System.out.println("Connection closed: " + code);
+    }
+
+    @Override
+    public void error(Throwable cause) {
+        cause.printStackTrace();
+    }
+});
+</pre>
+
+<h4>Client Configuration</h4>
+
+<ul>
+<li><code>setSecure(boolean)</code> &ndash; use TLS (wss:// scheme)</li>
+<li><code>setSSLContext(SSLContext)</code> &ndash; provide a custom SSL context</li>
+<li><code>setSubprotocol(String)</code> &ndash; request a specific subprotocol
+during the handshake</li>
+</ul>
+
+<h4>SelectorLoop Affinity</h4>
+
+<p>
+Like the <a href="http.html#client">HTTP client</a>, the WebSocket client can
+be assigned to a specific <code>SelectorLoop</code> for efficient integration
+with server-side code:
+</p>
+
+<pre>
+// Use the same event loop as the server connection
+WebSocketClient client = new WebSocketClient(selectorLoop,
+        "upstream.example.com", 443);
+client.setSecure(true);
+client.connect("/events", handler);
+</pre>
+
+<p>
+This is useful for server-side scenarios where a Gumdrop service needs to
+maintain a WebSocket connection to an upstream service (for example, subscribing
+to a Nostr relay from within a server handler).
+</p>
+
+<h3 id="use-cases">Use Cases</h3>
+
+<h4>Nostr Relay</h4>
+
+<p>
+<a href="https://github.com/nostr-protocol/nostr">Nostr</a> is a decentralised
+social protocol where clients exchange JSON events with relay servers over
+WebSocket. A Nostr relay is a natural fit for Gumdrop&rsquo;s WebSocket
+service:
+</p>
+
+<pre>
+public class NostrRelayService extends WebSocketService {
+
+    private final NostrEventStore store = new NostrEventStore();
+    private final SubscriptionManager subscriptions =
+            new SubscriptionManager();
+
+    @Override
+    protected WebSocketEventHandler createConnectionHandler(
+            String requestPath, Headers upgradeHeaders) {
+        return new DefaultWebSocketEventHandler() {
+            private WebSocketSession session;
+
+            @Override
+            public void opened(WebSocketSession session) {
+                this.session = session;
+            }
+
+            @Override
+            public void textMessageReceived(WebSocketSession session,
+                                            String message) {
+                // Parse Nostr message: ["EVENT", ...], ["REQ", ...], ["CLOSE", ...]
+                NostrMessage msg = NostrMessage.parse(message);
+                try {
+                    if (msg.isEvent()) {
+                        store.save(msg.getEvent());
+                        session.sendText("[\"OK\",\"" + msg.getEventId()
+                                + "\",true,\"\"]");
+                        subscriptions.broadcast(msg.getEvent());
+                    } else if (msg.isRequest()) {
+                        subscriptions.subscribe(session,
+                                msg.getSubscriptionId(),
+                                msg.getFilters());
+                    } else if (msg.isClose()) {
+                        subscriptions.unsubscribe(session,
+                                msg.getSubscriptionId());
+                    }
+                } catch (IOException e) {
+                    // handle send error
+                }
+            }
+
+            @Override
+            public void closed(int code, String reason) {
+                subscriptions.removeAll(session);
+            }
+        };
+    }
+}
+</pre>
+
+<h4>Live Dashboard</h4>
+
+<p>
+Push server-side metrics to browser clients in real time:
+</p>
+
+<pre>
+public class DashboardService extends WebSocketService {
+
+    private final Set&lt;WebSocketSession&gt; sessions =
+            Collections.synchronizedSet(new HashSet&lt;WebSocketSession&gt;());
+
+    @Override
+    protected WebSocketEventHandler createConnectionHandler(
+            String requestPath, Headers upgradeHeaders) {
+        return new DefaultWebSocketEventHandler() {
+            private WebSocketSession session;
+
+            @Override
+            public void opened(WebSocketSession session) {
+                this.session = session;
+                sessions.add(session);
+            }
+
+            @Override
+            public void closed(int code, String reason) {
+                sessions.remove(session);
+            }
+        };
+    }
+
+    /** Called periodically by a timer to push metrics. */
+    public void broadcastMetrics(String json) {
+        synchronized (sessions) {
+            for (WebSocketSession session : sessions) {
+                if (session.isOpen()) {
+                    try {
+                        session.sendText(json);
+                    } catch (IOException e) {
+                        // remove on next tick
+                    }
+                }
+            }
+        }
+    }
+}
+</pre>
+
+<h4>IoT / Sensor Gateway</h4>
+
+<p>
+Binary WebSocket messages are well suited for compact sensor data formats.
+Devices connect over WebSocket and push binary telemetry:
+</p>
+
+<pre>
+@Override
+public void binaryMessageReceived(WebSocketSession session,
+                                  ByteBuffer data) {
+    SensorReading reading = SensorReading.decode(data);
+    telemetryPipeline.ingest(reading);
+}
+</pre>
+
+<h4>Chat</h4>
+
+<p>
+A basic chat server can be built by broadcasting text messages to all connected
+sessions, following the same pattern as the dashboard example above with
+an additional <code>textMessageReceived</code> handler that calls
+<code>broadcastMessage</code>.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>Basic WebSocket Service</h4>
+
+<pre>
+&lt;service id="echo" class="com.example.EchoService"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.websocket.WebSocketListener"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>Secure WebSocket (wss://)</h4>
+
+<pre>
+&lt;service id="echo" class="com.example.EchoService"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.websocket.WebSocketListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;/etc/gumdrop/keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>Multiple Listeners</h4>
+
+<p>
+A service can expose both plaintext and TLS listeners:
+</p>
+
+<pre>
+&lt;service id="relay" class="com.example.NostrRelayService"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.websocket.WebSocketListener"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;/listener&gt;
+  &lt;listener class="org.bluezoo.gumdrop.websocket.WebSocketListener"&gt;
+    &lt;property name="port"&gt;8443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;/etc/gumdrop/keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>Nostr Relay Configuration</h4>
+
+<p>
+A complete gumdroprc for running a Nostr relay:
+</p>
+
+<pre>
+&lt;gumdroprc&gt;
+  &lt;gumdrop workers="4"/&gt;
+
+  &lt;service id="nostr" class="com.example.NostrRelayService"&gt;
+    &lt;property name="event-store-path"&gt;/var/lib/nostr/events&lt;/property&gt;
+    &lt;listener class="org.bluezoo.gumdrop.websocket.WebSocketListener"&gt;
+      &lt;property name="port"&gt;443&lt;/property&gt;
+      &lt;property name="secure"&gt;true&lt;/property&gt;
+      &lt;property name="keystore-file"&gt;/etc/gumdrop/keystore.p12&lt;/property&gt;
+      &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+    &lt;/listener&gt;
+  &lt;/service&gt;
+&lt;/gumdroprc&gt;
+</pre>
+
+<h4>WebSocketListener Properties</h4>
+
+<p>
+<code>WebSocketListener</code> extends <code>HTTPListener</code> and inherits
+all of its properties:
+</p>
+
+<ul>
+<li><code>port</code> &ndash; listening port (required)</li>
+<li><code>secure</code> &ndash; enable TLS (default: false)</li>
+<li><code>keystore-file</code> &ndash; path to keystore for TLS</li>
+<li><code>keystore-pass</code> &ndash; keystore password</li>
+<li><code>keystore-format</code> &ndash; keystore format (default: PKCS12)</li>
+<li><code>need-client-auth</code> &ndash; require client certificates</li>
+<li><code>name</code> &ndash; optional listener name for identification</li>
+</ul>
+
+<h3 id="http-upgrade">Manual HTTP Upgrade</h3>
+
+<p>
+If you are building an HTTP service with
+<a href="http.html#server-handler">the HTTP server handler API</a> and want to
+support WebSocket alongside regular HTTP requests, you can perform the upgrade
+manually using <code>HTTPResponseState.upgradeToWebSocket()</code>:
+</p>
+
+<pre>
+public class MyHandler extends DefaultHTTPRequestHandler {
+
+    @Override
+    public void headers(HTTPResponseState state, Headers headers) {
+        if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
+            String protocol = headers.getValue("Sec-WebSocket-Protocol");
+            state.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
+        } else {
+            // Handle as regular HTTP request
+            Headers response = new Headers();
+            response.status(HTTPStatus.OK);
+            response.add("content-type", "text/plain");
+            state.headers(response);
+            state.startResponseBody();
+            state.responseBodyContent(
+                ByteBuffer.wrap("Hello!".getBytes()));
+            state.endResponseBody();
+            state.complete();
+        }
+    }
+}
+</pre>
+
+<p>
+This approach is useful when a single HTTP service needs to handle both regular
+HTTP traffic and WebSocket connections on the same port. For dedicated WebSocket
+services, the <code>WebSocketService</code> / <code>WebSocketListener</code>
+model described above is preferred because the HTTP upgrade is handled
+automatically.
+</p>
+
+<h3 id="servlet">Servlet Container Integration</h3>
+
+<p>
+The <a href="servlet.html">servlet container</a> (<code>ServletService</code>)
+provides its own WebSocket upgrade path via the standard
+<code>HttpServletRequest.upgrade()</code> mechanism. Both the standalone
+<code>WebSocketService</code> and the servlet container converge on the same
+<code>WebSocketEventHandler</code> interface and share the same internal
+WebSocket frame engine (<code>WebSocketConnection</code>). This means the
+underlying protocol handling is identical regardless of how the upgrade was
+initiated.
+</p>
+
+<p>
+For applications using the servlet container, WebSocket support is available
+through the standard Java WebSocket API (JSR 356) or by calling
+<code>HttpServletRequest.upgrade()</code> directly. For applications that do
+not need the servlet programming model, the standalone
+<code>WebSocketService</code> provides a simpler, more direct API.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="servlet.html">Servlet Container</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a> |
+<a href="dns.html">DNS Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop WebSocket Service &amp; Client</p>
+
+</body>
+</html>

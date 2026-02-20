@@ -97,9 +97,9 @@
  *             });
  *     }
  *     
- *     public void onConnected() { }
+ *     public void onConnected(Endpoint endpoint) { }
  *     public void onDisconnected() { }
- *     public void onTLSStarted() { }
+ *     public void onSecurityEstablished(SecurityInfo info) { }
  *     public void onError(Exception e) { e.printStackTrace(); }
  * });
  * }</pre>

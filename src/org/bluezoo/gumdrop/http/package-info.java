@@ -29,10 +29,13 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.http.HTTPServer} - The main HTTP server
- *       that listens for connections and delegates to handlers</li>
- *   <li>{@link org.bluezoo.gumdrop.http.HTTPConnection} - Handles a single
- *       HTTP connection, supporting both HTTP/1.1 and HTTP/2</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.HTTPService} - Abstract base for
+ *       HTTP application services; owns listeners and provides the
+ *       handler factory and authentication provider</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.HTTPListener} - TCP transport
+ *       listener for HTTP/1.1 and HTTP/2 connections</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.HTTPProtocolHandler} - Handles
+ *       a single HTTP session, supporting both HTTP/1.1 and HTTP/2</li>
  *   <li>{@link org.bluezoo.gumdrop.http.Stream} - Represents an HTTP/2
  *       stream or HTTP/1.1 request/response pair</li>
  *   <li>{@link org.bluezoo.gumdrop.http.Headers} - HTTP header collection</li>
@@ -69,10 +72,10 @@
  *
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.http.client} - HTTP client</li>
- *   <li>{@link org.bluezoo.gumdrop.http.file} - Static file serving</li>
+ *   <li>{@link org.bluezoo.gumdrop.webdav} - Static file serving and WebDAV</li>
  *   <li>{@link org.bluezoo.gumdrop.http.h2} - HTTP/2 frame parsing and writing</li>
  *   <li>{@link org.bluezoo.gumdrop.http.hpack} - HPACK compression</li>
- *   <li>{@link org.bluezoo.gumdrop.http.websocket} - WebSocket support</li>
+ *   <li>{@link org.bluezoo.gumdrop.websocket} - WebSocket support (separate package)</li>
  * </ul>
  *
  * <h2>Telemetry</h2>
@@ -85,8 +88,8 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.http.HTTPServer
- * @see org.bluezoo.gumdrop.http.HTTPConnection
- * @see org.bluezoo.gumdrop.http.websocket
+ * @see org.bluezoo.gumdrop.http.HTTPListener
+ * @see org.bluezoo.gumdrop.http.HTTPProtocolHandler
+ * @see org.bluezoo.gumdrop.websocket
  */
 package org.bluezoo.gumdrop.http;

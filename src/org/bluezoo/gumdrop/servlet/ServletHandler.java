@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -36,6 +37,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -57,7 +59,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
 
-    private final ServletServer server;
+    private final ServletService service;
     private final Container container;
     private final int bufferSize;
 
@@ -86,17 +88,17 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     private boolean responseComplete;
     private Supplier<Map<String, String>> trailerFieldsSupplier;
 
-    ServletHandler(ServletServer server, Container container, int bufferSize) {
-        this.server = server;
+    ServletHandler(ServletService service, Container container, int bufferSize) {
+        this.service = service;
         this.container = container;
         this.bufferSize = bufferSize;
     }
 
     /**
-     * Returns the servlet server.
+     * Returns the servlet service.
      */
-    ServletServer getServer() {
-        return server;
+    ServletService getService() {
+        return service;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void headers(Headers headers, HTTPResponseState state) {
+    public void headers(HTTPResponseState state, Headers headers) {
         this.state = state;
 
         // Check if this is trailer headers (after body)
@@ -146,17 +148,17 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             response = new Response(this, request, bufferSize);
 
             // Dispatch to worker thread for servlet execution
-            server.serviceRequest(this);
+            service.serviceRequest(this);
 
         } catch (IOException e) {
-            String message = ServletServer.L10N.getString("error.create_pipe");
+            String message = ServletService.L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
             sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
     @Override
-    public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
         if (pipe == null) {
             return;
         }
@@ -171,7 +173,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
                 readListener.onDataAvailable();
             }
         } catch (IOException e) {
-            String message = ServletServer.L10N.getString("error.write_pipe");
+            String message = ServletService.L10N.getString("error.write_pipe");
             LOGGER.log(Level.SEVERE, message, e);
             if (readListener != null) {
                 readListener.onError(e);
@@ -191,7 +193,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             try {
                 pipe.close();
             } catch (IOException e) {
-                String message = ServletServer.L10N.getString("error.close_pipe");
+                String message = ServletService.L10N.getString("error.close_pipe");
                 LOGGER.log(Level.SEVERE, message, e);
             }
         }
@@ -334,9 +336,40 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         state.complete();
     }
 
+    /**
+     * Sends the buffered response via {@link HTTPResponseState}.
+     *
+     * <p>If the response state is owned by a SelectorLoop and we are not
+     * on that thread, the actual send is marshalled onto the SelectorLoop
+     * via {@link SelectorLoop#invokeLater(Runnable)} so that transport
+     * implementations (e.g. HTTP/3 / QUIC) that are not thread-safe are
+     * only ever called from their owning I/O thread.
+     */
     private void sendResponse() {
+        SelectorLoop loop = state.getSelectorLoop();
+        if (loop == null) {
+            sendResponseDirect();
+            return;
+        }
+        final CountDownLatch latch = new CountDownLatch(1);
+        loop.invokeLater(new Runnable() {
+            public void run() {
+                try {
+                    sendResponseDirect();
+                } finally {
+                    latch.countDown();
+                }
+            }
+        });
         try {
-            // Build response headers with :status
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void sendResponseDirect() {
+        try {
             Headers headers = new Headers();
             headers.status(HTTPStatus.fromCode(statusCode));
             if (responseHeaders != null) {
@@ -345,7 +378,6 @@ class ServletHandler extends DefaultHTTPRequestHandler {
                 }
             }
 
-            // Check for trailer fields
             boolean hasTrailerFields = false;
             Map<String, String> trailerFields = null;
             if (trailerFieldsSupplier != null) {
@@ -357,10 +389,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
                 }
             }
 
-            // Send headers
             state.headers(headers);
 
-            // Send body if present
             if (responseBody != null && !responseBody.isEmpty()) {
                 state.startResponseBody();
                 for (ByteBuffer buf : responseBody) {
@@ -368,7 +398,6 @@ class ServletHandler extends DefaultHTTPRequestHandler {
                 }
                 state.endResponseBody();
 
-                // Send trailer fields if present
                 if (hasTrailerFields) {
                     Headers trailers = new Headers();
                     for (Map.Entry<String, String> entry : trailerFields.entrySet()) {

@@ -43,7 +43,7 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  *   <property name="root">/var/ftp</property>
  * </component>
  * 
- * <server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer" port="21">
+ * <server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPListener" port="21">
  *   <property name="handler-factory">
  *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
  *       <property name="realm" ref="#ftpRealm"/>

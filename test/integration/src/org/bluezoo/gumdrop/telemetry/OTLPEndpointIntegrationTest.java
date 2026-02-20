@@ -16,16 +16,18 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPServer;
+import org.bluezoo.gumdrop.http.HTTPListener;
 import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
+import org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
 
 import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
@@ -51,7 +53,7 @@ public class OTLPEndpointIntegrationTest {
     private static final Logger LOGGER = Logger.getLogger(OTLPEndpointIntegrationTest.class.getName());
 
     private Gumdrop gumdrop;
-    private HTTPServer server;
+    private HTTPListener server;
     private TestHandler lastHandler;
 
     @Before
@@ -59,12 +61,12 @@ public class OTLPEndpointIntegrationTest {
         Logger.getLogger("").setLevel(Level.FINE);
         
         // Create test server
-        server = new HTTPServer();
+        server = new HTTPListener();
         server.setPort(TEST_PORT);
         server.setAddresses("127.0.0.1");
         server.setHandlerFactory(new HTTPRequestHandlerFactory() {
             @Override
-            public HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state) {
+            public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
                 lastHandler = new TestHandler();
                 return lastHandler;
             }
@@ -73,7 +75,7 @@ public class OTLPEndpointIntegrationTest {
         // Start server
         System.setProperty("gumdrop.workers", "2");
         gumdrop = Gumdrop.getInstance();
-        gumdrop.addServer(server);
+        gumdrop.addListener(server);
         gumdrop.start();
 
         // Wait for server
@@ -91,40 +93,44 @@ public class OTLPEndpointIntegrationTest {
 
     @Test
     public void testHTTPClientChunkedUpload() throws Exception {
-        // Create client and connect
-        HTTPClient client = new HTTPClient("127.0.0.1", TEST_PORT);
-        client.setH2Enabled(false); // Force HTTP/1.1
-        
-        final CountDownLatch connected = new CountDownLatch(1);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
+                new HTTPClientHandler() {
+                    @Override
+                    public void onConnected(Endpoint endpoint) {
+                        LOGGER.info("Client connected");
+                    }
+                    @Override
+                    public void onSecurityEstablished(SecurityInfo info) {}
+                    @Override
+                    public void onError(Exception e) {
+                        LOGGER.log(Level.WARNING, "Connection error", e);
+                    }
+                    @Override
+                    public void onDisconnected() {
+                        LOGGER.info("Client disconnected");
+                    }
+                },
+                "127.0.0.1", TEST_PORT, false);
+        endpointHandler.setH2Enabled(false);
+
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(endpointHandler);
+
+        // Wait for connection to be ready
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertTrue("Should connect", endpointHandler.isOpen());
+
         final CountDownLatch responseLatch = new CountDownLatch(1);
         final AtomicReference<HTTPResponse> responseRef = new AtomicReference<>();
         final AtomicReference<Exception> errorRef = new AtomicReference<>();
-        
-        client.connect(new HTTPClientHandler() {
-            @Override
-            public void onConnected(ConnectionInfo info) {
-                LOGGER.info("Client connected");
-                connected.countDown();
-            }
-            @Override
-            public void onTLSStarted(TLSInfo info) {}
-            @Override
-            public void onError(Exception e) {
-                LOGGER.log(Level.WARNING, "Connection error", e);
-                errorRef.set(e);
-                connected.countDown();
-            }
-            @Override
-            public void onDisconnected() {
-                LOGGER.info("Client disconnected");
-            }
-        });
-
-        assertTrue("Should connect", connected.await(5, TimeUnit.SECONDS));
-        assertNull("Should not have error", errorRef.get());
 
         // Create POST request with Transfer-Encoding: chunked
-        HTTPRequest request = client.post("/v1/traces");
+        HTTPRequest request = endpointHandler.post("/v1/traces");
         request.header("Content-Type", "application/x-protobuf");
         request.header("Transfer-Encoding", "chunked");
 
@@ -172,36 +178,40 @@ public class OTLPEndpointIntegrationTest {
         LOGGER.info("Server received body: '" + receivedBody + "'");
         assertEquals("Body should match", testData, receivedBody);
 
-        client.close();
+        endpointHandler.close();
     }
 
     @Test
     public void testHTTPClientSimpleGET() throws Exception {
-        HTTPClient client = new HTTPClient("127.0.0.1", TEST_PORT);
-        client.setH2Enabled(false);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
+                new HTTPClientHandler() {
+                    @Override
+                    public void onConnected(Endpoint endpoint) {}
+                    @Override
+                    public void onSecurityEstablished(SecurityInfo info) {}
+                    @Override
+                    public void onError(Exception e) {}
+                    @Override
+                    public void onDisconnected() {}
+                },
+                "127.0.0.1", TEST_PORT, false);
+        endpointHandler.setH2Enabled(false);
 
-        final CountDownLatch connected = new CountDownLatch(1);
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(endpointHandler);
+
+        long deadline = System.currentTimeMillis() + 5000;
+        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertTrue("Should connect", endpointHandler.isOpen());
+
         final CountDownLatch responseLatch = new CountDownLatch(1);
         final AtomicReference<HTTPResponse> responseRef = new AtomicReference<>();
-        
-        client.connect(new HTTPClientHandler() {
-            @Override
-            public void onConnected(ConnectionInfo info) {
-                connected.countDown();
-            }
-            @Override
-            public void onTLSStarted(TLSInfo info) {}
-            @Override
-            public void onError(Exception e) {
-                connected.countDown();
-            }
-            @Override
-            public void onDisconnected() {}
-        });
 
-        assertTrue("Should connect", connected.await(5, TimeUnit.SECONDS));
-
-        HTTPRequest request = client.get("/test");
+        HTTPRequest request = endpointHandler.get("/test");
         request.send(new DefaultHTTPResponseHandler() {
             @Override
             public void ok(HTTPResponse response) {
@@ -221,7 +231,7 @@ public class OTLPEndpointIntegrationTest {
         assertNotNull("Should have response", responseRef.get());
         assertEquals("Should be 200 OK", HTTPStatus.OK, responseRef.get().getStatus());
 
-        client.close();
+        endpointHandler.close();
     }
 
     private void waitForPort(int port) throws InterruptedException {
@@ -252,7 +262,7 @@ public class OTLPEndpointIntegrationTest {
         private boolean hasBody;
 
         @Override
-        public void headers(Headers headers, HTTPResponseState state) {
+        public void headers(HTTPResponseState state, Headers headers) {
             this.state = state;
             this.requestHeaders = headers;
             this.path = headers.getPath();
@@ -268,7 +278,7 @@ public class OTLPEndpointIntegrationTest {
         }
 
         @Override
-        public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
             int remaining = data.remaining();
             byte[] buf = new byte[remaining];
             data.get(buf);

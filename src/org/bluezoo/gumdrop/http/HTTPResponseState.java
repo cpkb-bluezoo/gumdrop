@@ -21,11 +21,13 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.security.Principal;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 /**
  * State interface for sending an HTTP response.
@@ -110,18 +112,36 @@ public interface HTTPResponseState {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns connection information (addresses, etc.).
+     * Returns the remote (client) socket address.
      *
-     * @return the connection info
+     * @return the remote socket address
      */
-    ConnectionInfo getConnectionInfo();
+    SocketAddress getRemoteAddress();
 
     /**
-     * Returns TLS information, or null if the connection is not secure.
+     * Returns the local (server) socket address.
      *
-     * @return TLS info, or null
+     * @return the local socket address
      */
-    TLSInfo getTLSInfo();
+    SocketAddress getLocalAddress();
+
+    /**
+     * Returns whether the connection is secured by TLS (or QUIC).
+     *
+     * @return true if the connection is secure
+     */
+    boolean isSecure();
+
+    /**
+     * Returns security metadata for this connection.
+     *
+     * <p>When {@link #isSecure()} returns true, this provides details about
+     * the negotiated cipher suite, protocol version, certificates, and ALPN.
+     * When not secure, returns a NullSecurityInfo singleton.
+     *
+     * @return the security info, never null
+     */
+    SecurityInfo getSecurityInfo();
 
     /**
      * Returns the HTTP version being used for this request/response.
@@ -136,6 +156,17 @@ public interface HTTPResponseState {
      * @return the scheme
      */
     String getScheme();
+
+    /**
+     * Returns the SelectorLoop that owns this connection's I/O.
+     *
+     * <p>Used by services that dispatch to worker threads (e.g. the servlet
+     * container) to marshal response operations back onto the correct I/O
+     * thread. Returns {@code null} if no SelectorLoop is associated.
+     *
+     * @return the owning SelectorLoop, or null
+     */
+    SelectorLoop getSelectorLoop();
 
     /**
      * Returns the authenticated principal, or null if not authenticated.
@@ -248,17 +279,13 @@ public interface HTTPResponseState {
      *
      * <p>Example usage:
      * <pre>{@code
-     * public void headers(Headers headers, HTTPResponseState state) {
+     * public void headers(HTTPResponseState state, Headers headers) {
      *     if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
      *         String protocol = headers.getValue("Sec-WebSocket-Protocol");
      *         state.upgradeToWebSocket(protocol, new DefaultWebSocketEventHandler() {
-     *             private WebSocketSession session;
      *             
-     *             public void opened(WebSocketSession session) {
-     *                 this.session = session;
-     *             }
-     *             
-     *             public void textMessageReceived(String message) {
+     *             public void textMessageReceived(WebSocketSession session,
+     *                                             String message) {
      *                 session.sendText("Echo: " + message);
      *             }
      *         });

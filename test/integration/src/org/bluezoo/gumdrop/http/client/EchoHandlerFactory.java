@@ -57,7 +57,7 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
     }
 
     @Override
-    public HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state) {
+    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
         return new EchoHandler();
     }
 
@@ -73,7 +73,7 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
         @Override
-        public void headers(Headers headers, HTTPResponseState state) {
+        public void headers(HTTPResponseState state, Headers headers) {
             this.method = headers.getMethod();
             this.path = headers.getPath();
             this.contentType = headers.getValue("content-type");
@@ -96,7 +96,7 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
         }
 
         @Override
-        public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
             try {

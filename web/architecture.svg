@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 650" width="900" height="650">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 720" width="920" height="720">
   <defs>
     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
       <polygon points="0 0, 10 3.5, 0 7" fill="#555"/>
@@ -12,9 +12,17 @@
       <stop offset="0%" style="stop-color:#6ab04c;stop-opacity:1"/>
       <stop offset="100%" style="stop-color:#5a9a3c;stop-opacity:1"/>
     </linearGradient>
-    <linearGradient id="connGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="epGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#f0932b;stop-opacity:1"/>
       <stop offset="100%" style="stop-color:#d0831b;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="handlerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e67e22;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#c0691b;stop-opacity:1"/>
+    </linearGradient>
+    <linearGradient id="transportGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1abc9c;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#16a085;stop-opacity:1"/>
     </linearGradient>
     <linearGradient id="tlsGrad" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" style="stop-color:#9b59b6;stop-opacity:1"/>
@@ -29,137 +37,189 @@
     .sublabel { font: 10px sans-serif; fill: #eee; }
     .note { font: 10px sans-serif; fill: #555; }
     .arrow-label { font: 9px sans-serif; fill: #666; }
+    .section-title { font: bold 11px sans-serif; fill: #555; }
   </style>
   
   <!-- Background -->
-  <rect width="900" height="650" fill="#fafafa"/>
+  <rect width="920" height="720" fill="#fafafa"/>
   
   <!-- Title -->
-  <text x="450" y="30" text-anchor="middle" class="title">Gumdrop Architecture</text>
-  <text x="450" y="48" text-anchor="middle" class="subtitle">Asynchronous, Non-blocking, Event-driven Server Framework</text>
+  <text x="460" y="30" text-anchor="middle" class="title">Gumdrop Architecture</text>
+  <text x="460" y="48" text-anchor="middle" class="subtitle">Transport-Agnostic, Non-blocking, Event-driven Framework</text>
+  
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Row 1: Clients → AcceptSelectorLoop → Worker Pool → ServerListeners -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
   
   <!-- Clients section -->
-  <rect x="30" y="70" width="140" height="200" rx="8" fill="#e8e8e8" stroke="#ccc"/>
-  <text x="100" y="90" text-anchor="middle" class="note" style="font-weight:bold">Clients</text>
+  <rect x="20" y="68" width="130" height="190" rx="8" fill="#e8e8e8" stroke="#ccc"/>
+  <text x="85" y="88" text-anchor="middle" class="section-title">Clients</text>
   
-  <rect x="45" y="105" width="110" height="35" rx="4" fill="#777"/>
-  <text x="100" y="127" text-anchor="middle" class="label">TCP Client</text>
+  <rect x="32" y="100" width="106" height="32" rx="4" fill="#777"/>
+  <text x="85" y="121" text-anchor="middle" class="label">TCP Client</text>
   
-  <rect x="45" y="150" width="110" height="35" rx="4" fill="#777"/>
-  <text x="100" y="172" text-anchor="middle" class="label">TCP Client</text>
+  <rect x="32" y="140" width="106" height="32" rx="4" fill="#777"/>
+  <text x="85" y="161" text-anchor="middle" class="label">UDP Client</text>
   
-  <rect x="45" y="195" width="110" height="35" rx="4" fill="#777"/>
-  <text x="100" y="217" text-anchor="middle" class="label">UDP Client</text>
+  <rect x="32" y="180" width="106" height="32" rx="4" fill="#777"/>
+  <text x="85" y="201" text-anchor="middle" class="label">QUIC Client</text>
   
-  <text x="100" y="255" text-anchor="middle" class="note">···</text>
+  <text x="85" y="240" text-anchor="middle" class="note">···</text>
   
   <!-- AcceptSelectorLoop -->
-  <rect x="220" y="90" width="160" height="80" rx="8" fill="url(#loopGrad)" stroke="#4a9a3c" stroke-width="2"/>
-  <text x="300" y="120" text-anchor="middle" class="label">AcceptSelectorLoop</text>
-  <text x="300" y="138" text-anchor="middle" class="sublabel">Single Thread</text>
-  <text x="300" y="152" text-anchor="middle" class="sublabel">Accepts all connections</text>
+  <rect x="195" y="88" width="155" height="72" rx="8" fill="url(#loopGrad)" stroke="#4a9a3c" stroke-width="2"/>
+  <text x="272" y="116" text-anchor="middle" class="label">AcceptSelectorLoop</text>
+  <text x="272" y="132" text-anchor="middle" class="sublabel">Single Thread</text>
+  <text x="272" y="146" text-anchor="middle" class="sublabel">Accepts all endpoints</text>
   
   <!-- Arrows from clients to AcceptSelectorLoop -->
-  <line x1="155" y1="122" x2="215" y2="122" stroke="#555" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-  <line x1="155" y1="167" x2="190" y2="130" stroke="#555" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="138" y1="116" x2="190" y2="116" stroke="#555" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  <line x1="138" y1="156" x2="175" y2="130" stroke="#555" stroke-width="1.5" marker-end="url(#arrowhead)"/>
   
   <!-- SelectorLoop pool -->
-  <rect x="420" y="70" width="280" height="210" rx="8" fill="#e8f5e8" stroke="#5a9a3c" stroke-dasharray="5,3"/>
-  <text x="560" y="90" text-anchor="middle" class="note" style="font-weight:bold">Worker SelectorLoop Pool</text>
+  <rect x="395" y="68" width="270" height="200" rx="8" fill="#e8f5e8" stroke="#5a9a3c" stroke-dasharray="5,3"/>
+  <text x="530" y="88" text-anchor="middle" class="section-title">Worker SelectorLoop Pool</text>
   
-  <rect x="440" y="105" width="110" height="50" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
-  <text x="495" y="127" text-anchor="middle" class="label">SelectorLoop-1</text>
-  <text x="495" y="143" text-anchor="middle" class="sublabel">I/O Worker</text>
+  <rect x="412" y="100" width="110" height="48" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
+  <text x="467" y="120" text-anchor="middle" class="label">SelectorLoop-1</text>
+  <text x="467" y="136" text-anchor="middle" class="sublabel">I/O Worker</text>
   
-  <rect x="570" y="105" width="110" height="50" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
-  <text x="625" y="127" text-anchor="middle" class="label">SelectorLoop-2</text>
-  <text x="625" y="143" text-anchor="middle" class="sublabel">I/O Worker</text>
+  <rect x="540" y="100" width="110" height="48" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
+  <text x="595" y="120" text-anchor="middle" class="label">SelectorLoop-2</text>
+  <text x="595" y="136" text-anchor="middle" class="sublabel">I/O Worker</text>
   
-  <rect x="440" y="165" width="110" height="50" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
-  <text x="495" y="187" text-anchor="middle" class="label">SelectorLoop-3</text>
-  <text x="495" y="203" text-anchor="middle" class="sublabel">I/O Worker</text>
+  <rect x="412" y="158" width="110" height="48" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
+  <text x="467" y="178" text-anchor="middle" class="label">SelectorLoop-3</text>
+  <text x="467" y="194" text-anchor="middle" class="sublabel">I/O Worker</text>
   
-  <rect x="570" y="165" width="110" height="50" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
-  <text x="625" y="187" text-anchor="middle" class="label">SelectorLoop-N</text>
-  <text x="625" y="203" text-anchor="middle" class="sublabel">I/O Worker</text>
+  <rect x="540" y="158" width="110" height="48" rx="6" fill="url(#loopGrad)" stroke="#4a9a3c"/>
+  <text x="595" y="178" text-anchor="middle" class="label">SelectorLoop-N</text>
+  <text x="595" y="194" text-anchor="middle" class="sublabel">I/O Worker</text>
   
-  <text x="560" y="235" text-anchor="middle" class="note">2 × CPU cores (configurable)</text>
-  <text x="560" y="250" text-anchor="middle" class="note">Round-robin assignment</text>
+  <text x="530" y="228" text-anchor="middle" class="note">2 × CPU cores (configurable)</text>
+  <text x="530" y="242" text-anchor="middle" class="note">Round-robin assignment</text>
   
   <!-- Arrow from Accept to Worker pool -->
-  <line x1="380" y1="130" x2="415" y2="130" stroke="#555" stroke-width="2" marker-end="url(#arrowhead)"/>
-  <text x="398" y="145" class="arrow-label">assign</text>
+  <line x1="350" y1="124" x2="390" y2="124" stroke="#555" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="370" y="139" class="arrow-label">assign</text>
   
-  <!-- Servers section -->
-  <rect x="740" y="70" width="140" height="200" rx="8" fill="#e0ecf8" stroke="#4a90d9"/>
-  <text x="810" y="90" text-anchor="middle" class="note" style="font-weight:bold">Servers (Ports)</text>
+  <!-- ServerListeners section -->
+  <rect x="710" y="68" width="190" height="228" rx="8" fill="#e0ecf8" stroke="#4a90d9"/>
+  <text x="805" y="88" text-anchor="middle" class="section-title">ServerListeners (Ports)</text>
   
-  <rect x="755" y="105" width="110" height="30" rx="4" fill="url(#serverGrad)"/>
-  <text x="810" y="125" text-anchor="middle" class="label">HTTP :8080</text>
+  <rect x="725" y="100" width="160" height="28" rx="4" fill="url(#serverGrad)"/>
+  <text x="805" y="119" text-anchor="middle" class="label">HTTP :8080</text>
   
-  <rect x="755" y="145" width="110" height="30" rx="4" fill="url(#serverGrad)"/>
-  <text x="810" y="165" text-anchor="middle" class="label">SMTP :25</text>
+  <rect x="725" y="136" width="160" height="28" rx="4" fill="url(#serverGrad)"/>
+  <text x="805" y="155" text-anchor="middle" class="label">HTTP/3 :443 (QUIC)</text>
   
-  <rect x="755" y="185" width="110" height="30" rx="4" fill="url(#serverGrad)"/>
-  <text x="810" y="205" text-anchor="middle" class="label">IMAP :993</text>
+  <rect x="725" y="172" width="160" height="28" rx="4" fill="url(#serverGrad)"/>
+  <text x="805" y="191" text-anchor="middle" class="label">SMTP :25</text>
   
-  <rect x="755" y="225" width="110" height="30" rx="4" fill="url(#serverGrad)"/>
-  <text x="810" y="245" text-anchor="middle" class="label">DNS :53</text>
+  <rect x="725" y="208" width="160" height="28" rx="4" fill="url(#serverGrad)"/>
+  <text x="805" y="227" text-anchor="middle" class="label">IMAP :993</text>
   
-  <!-- Connection handling section -->
-  <rect x="30" y="300" width="850" height="150" rx="8" fill="#fff8e8" stroke="#d0831b" stroke-dasharray="5,3"/>
-  <text x="455" y="320" text-anchor="middle" class="note" style="font-weight:bold">Connection Management</text>
+  <rect x="725" y="244" width="160" height="28" rx="4" fill="url(#serverGrad)"/>
+  <text x="805" y="263" text-anchor="middle" class="label">DNS :53 (UDP)</text>
   
-  <!-- Connection types -->
-  <rect x="50" y="340" width="130" height="50" rx="6" fill="url(#connGrad)" stroke="#c0731b"/>
-  <text x="115" y="362" text-anchor="middle" class="label">HTTPConnection</text>
-  <text x="115" y="378" text-anchor="middle" class="sublabel">Streams (HTTP/2)</text>
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Row 2: Listener + ProtocolHandler (the core pattern)              -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <rect x="20" y="285" width="880" height="160" rx="8" fill="#fff8e8" stroke="#d0831b" stroke-dasharray="5,3"/>
+  <text x="460" y="305" text-anchor="middle" class="section-title">Listener + ProtocolHandler Pattern</text>
   
-  <rect x="200" y="340" width="130" height="50" rx="6" fill="url(#connGrad)" stroke="#c0731b"/>
-  <text x="265" y="362" text-anchor="middle" class="label">SMTPConnection</text>
-  <text x="265" y="378" text-anchor="middle" class="sublabel">Sessions</text>
+  <!-- Listener types (I/O) -->
+  <text x="195" y="325" text-anchor="middle" class="note" style="font-weight:bold">Listeners (I/O)</text>
   
-  <rect x="350" y="340" width="130" height="50" rx="6" fill="url(#connGrad)" stroke="#c0731b"/>
-  <text x="415" y="362" text-anchor="middle" class="label">IMAPConnection</text>
-  <text x="415" y="378" text-anchor="middle" class="sublabel">Mailbox ops</text>
+  <rect x="30" y="335" width="130" height="44" rx="6" fill="url(#epGrad)" stroke="#c0731b"/>
+  <text x="95" y="354" text-anchor="middle" class="label">TCPListener</text>
+  <text x="95" y="368" text-anchor="middle" class="sublabel">Stream I/O</text>
   
-  <rect x="500" y="340" width="130" height="50" rx="6" fill="url(#connGrad)" stroke="#c0731b"/>
-  <text x="565" y="362" text-anchor="middle" class="label">POP3Connection</text>
-  <text x="565" y="378" text-anchor="middle" class="sublabel">Message access</text>
+  <rect x="170" y="335" width="130" height="44" rx="6" fill="url(#epGrad)" stroke="#c0731b"/>
+  <text x="235" y="354" text-anchor="middle" class="label">DatagramListener</text>
+  <text x="235" y="368" text-anchor="middle" class="sublabel">Datagram I/O</text>
   
-  <rect x="650" y="340" width="130" height="50" rx="6" fill="url(#connGrad)" stroke="#c0731b"/>
-  <text x="715" y="362" text-anchor="middle" class="label">DatagramServer</text>
-  <text x="715" y="378" text-anchor="middle" class="sublabel">UDP handling</text>
+  <rect x="310" y="335" width="130" height="44" rx="6" fill="url(#epGrad)" stroke="#c0731b"/>
+  <text x="375" y="354" text-anchor="middle" class="label">QuicStreamEp</text>
+  <text x="375" y="368" text-anchor="middle" class="sublabel">QUIC Stream I/O</text>
   
-  <text x="455" y="420" text-anchor="middle" class="note">Each connection bound to one SelectorLoop for its entire lifetime</text>
+  <!-- Separator arrow -->
+  <text x="475" y="360" text-anchor="middle" class="note" style="font-size:20px;fill:#999">⟷</text>
   
-  <!-- TLS section -->
-  <rect x="30" y="470" width="850" height="80" rx="8" fill="#f5e8f8" stroke="#8b49a6" stroke-dasharray="5,3"/>
-  <text x="455" y="490" text-anchor="middle" class="note" style="font-weight:bold">Transparent TLS Layer</text>
+  <!-- ProtocolHandler types (protocol logic) -->
+  <text x="700" y="325" text-anchor="middle" class="note" style="font-weight:bold">ProtocolHandlers (Protocol)</text>
   
-  <rect x="70" y="505" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
-  <text x="130" y="527" text-anchor="middle" class="label">SSL/TLS</text>
+  <rect x="498" y="335" width="95" height="44" rx="6" fill="url(#handlerGrad)" stroke="#b0591b"/>
+  <text x="545" y="354" text-anchor="middle" class="label">HTTP</text>
+  <text x="545" y="368" text-anchor="middle" class="sublabel">H/1.1, H/2</text>
   
-  <rect x="210" y="505" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
-  <text x="270" y="527" text-anchor="middle" class="label">STARTTLS</text>
+  <rect x="601" y="335" width="95" height="44" rx="6" fill="url(#handlerGrad)" stroke="#b0591b"/>
+  <text x="648" y="354" text-anchor="middle" class="label">HTTP/3</text>
+  <text x="648" y="368" text-anchor="middle" class="sublabel">quiche h3</text>
   
-  <rect x="350" y="505" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
-  <text x="410" y="527" text-anchor="middle" class="label">DTLS (UDP)</text>
+  <rect x="704" y="335" width="80" height="44" rx="6" fill="url(#handlerGrad)" stroke="#b0591b"/>
+  <text x="744" y="354" text-anchor="middle" class="label">SMTP</text>
+  <text x="744" y="368" text-anchor="middle" class="sublabel">Sessions</text>
   
-  <rect x="490" y="505" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
-  <text x="550" y="527" text-anchor="middle" class="label">Client Auth</text>
+  <rect x="792" y="335" width="95" height="44" rx="6" fill="url(#handlerGrad)" stroke="#b0591b"/>
+  <text x="839" y="354" text-anchor="middle" class="label">IMAP/POP3</text>
+  <text x="839" y="368" text-anchor="middle" class="sublabel">Mailbox ops</text>
   
-  <rect x="630" y="505" width="130" height="35" rx="4" fill="url(#tlsGrad)"/>
-  <text x="695" y="527" text-anchor="middle" class="label">SNI Support</text>
+  <!-- Annotation -->
+  <text x="235" y="400" text-anchor="middle" class="note">Transport-specific, owns the channel</text>
+  <text x="700" y="400" text-anchor="middle" class="note">Transport-agnostic, owns the protocol</text>
+  <text x="460" y="425" text-anchor="middle" class="note">Each endpoint bound to one SelectorLoop for its entire lifetime • Handlers use composable LineParser</text>
   
-  <!-- Key benefits footer -->
-  <rect x="30" y="570" width="850" height="65" rx="8" fill="#f0f0f0" stroke="#ccc"/>
-  <text x="455" y="590" text-anchor="middle" class="note" style="font-weight:bold">Key Benefits</text>
-  <text x="130" y="615" text-anchor="middle" class="note">✓ Tens of thousands of connections</text>
-  <text x="310" y="615" text-anchor="middle" class="note">✓ Minimal threads</text>
-  <text x="470" y="615" text-anchor="middle" class="note">✓ No thread-per-connection</text>
-  <text x="650" y="615" text-anchor="middle" class="note">✓ Zero-copy I/O</text>
-  <text x="800" y="615" text-anchor="middle" class="note">✓ No race conditions</text>
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Row 3: TransportFactory layer                                     -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <rect x="20" y="460" width="880" height="80" rx="8" fill="#e8f8f5" stroke="#16a085" stroke-dasharray="5,3"/>
+  <text x="460" y="480" text-anchor="middle" class="section-title">TransportFactory (pluggable per ServerListener)</text>
+  
+  <rect x="80" y="494" width="180" height="35" rx="4" fill="url(#transportGrad)"/>
+  <text x="170" y="516" text-anchor="middle" class="label">TCPTransportFactory</text>
+  
+  <rect x="310" y="494" width="180" height="35" rx="4" fill="url(#transportGrad)"/>
+  <text x="400" y="516" text-anchor="middle" class="label">UDPTransportFactory</text>
+  
+  <rect x="540" y="494" width="180" height="35" rx="4" fill="url(#transportGrad)"/>
+  <text x="630" y="516" text-anchor="middle" class="label">QuicTransportFactory</text>
+  
+  <text x="810" y="516" text-anchor="middle" class="note" style="font-style:italic">Custom…</text>
+  
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Row 4: Transparent Security layer                                 -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <rect x="20" y="555" width="880" height="80" rx="8" fill="#f5e8f8" stroke="#8b49a6" stroke-dasharray="5,3"/>
+  <text x="460" y="575" text-anchor="middle" class="section-title">Transparent Security (SecurityInfo)</text>
+  
+  <rect x="50" y="590" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
+  <text x="110" y="612" text-anchor="middle" class="label">SSL/TLS</text>
+  
+  <rect x="190" y="590" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
+  <text x="250" y="612" text-anchor="middle" class="label">STARTTLS</text>
+  
+  <rect x="330" y="590" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
+  <text x="390" y="612" text-anchor="middle" class="label">DTLS (UDP)</text>
+  
+  <rect x="470" y="590" width="140" height="35" rx="4" fill="url(#tlsGrad)"/>
+  <text x="540" y="612" text-anchor="middle" class="label">QUIC TLS 1.3</text>
+  
+  <rect x="630" y="590" width="120" height="35" rx="4" fill="url(#tlsGrad)"/>
+  <text x="690" y="612" text-anchor="middle" class="label">Client Auth</text>
+  
+  <rect x="770" y="590" width="110" height="35" rx="4" fill="url(#tlsGrad)"/>
+  <text x="825" y="612" text-anchor="middle" class="label">SNI / ALPN</text>
+  
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- Footer: Key benefits                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <rect x="20" y="650" width="880" height="55" rx="8" fill="#f0f0f0" stroke="#ccc"/>
+  <text x="460" y="668" text-anchor="middle" class="section-title">Key Benefits</text>
+  <text x="100" y="690" text-anchor="middle" class="note">✓ Tens of thousands of endpoints</text>
+  <text x="280" y="690" text-anchor="middle" class="note">✓ Minimal threads</text>
+  <text x="450" y="690" text-anchor="middle" class="note">✓ Transport-agnostic handlers</text>
+  <text x="640" y="690" text-anchor="middle" class="note">✓ Zero-copy I/O</text>
+  <text x="810" y="690" text-anchor="middle" class="note">✓ No race conditions</text>
   
 </svg>
-

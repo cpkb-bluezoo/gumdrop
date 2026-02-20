@@ -375,7 +375,8 @@ class SessionSerializer {
 
     /**
      * ObjectInputStream with a strict deserialization filter.
-     * Uses resolveClass() for Java 8 compatibility.
+     * Uses resolveClass() to restrict deserializable classes.
+     * TODO: Could be migrated to ObjectInputFilter (available since Java 9).
      */
     private static class FilteredObjectInputStream extends ObjectInputStream {
 

@@ -54,8 +54,7 @@ final class DTLSSession {
     private final InetSocketAddress remoteAddress;
 
     // Reference to parent for sending handshake messages
-    private final DatagramServer server;
-    private final DatagramClient client;
+    private final UDPEndpoint endpoint;
 
     // Buffers for DTLS operations
     private ByteBuffer netIn;
@@ -66,25 +65,16 @@ final class DTLSSession {
     private boolean closed;
 
     /**
-     * Creates a DTLS session for a server.
+     * Creates a DTLS session.
+     *
+     * @param engine the SSLEngine for DTLS operations
+     * @param endpoint the datagram endpoint for sending handshake data
+     * @param remoteAddress the remote peer address
      */
-    DTLSSession(SSLEngine engine, DatagramServer server, InetSocketAddress remoteAddress) {
+    DTLSSession(SSLEngine engine, UDPEndpoint endpoint, InetSocketAddress remoteAddress) {
         this.engine = engine;
         this.session = engine.getSession();
-        this.server = server;
-        this.client = null;
-        this.remoteAddress = remoteAddress;
-        initBuffers();
-    }
-
-    /**
-     * Creates a DTLS session for a client.
-     */
-    DTLSSession(SSLEngine engine, DatagramClient client, InetSocketAddress remoteAddress) {
-        this.engine = engine;
-        this.session = engine.getSession();
-        this.server = null;
-        this.client = client;
+        this.endpoint = endpoint;
         this.remoteAddress = remoteAddress;
         initBuffers();
     }
@@ -267,10 +257,8 @@ final class DTLSSession {
      * Sends handshake data to the remote peer.
      */
     private void sendHandshakeData(ByteBuffer data) {
-        if (server != null) {
-            server.netSend(data, remoteAddress);
-        } else if (client != null) {
-            client.netSend(data);
+        if (endpoint != null) {
+            endpoint.sendTo(data, remoteAddress);
         }
     }
 

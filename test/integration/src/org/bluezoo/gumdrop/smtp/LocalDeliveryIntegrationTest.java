@@ -22,13 +22,15 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.*;
+import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
 import org.junit.Before;
 import org.junit.Rule;
@@ -117,8 +119,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubject("Test Subject via SMTP");
         handler.setBody("This message was delivered via SMTP.");
 
-        SMTPClient client = new SMTPClient("127.0.0.1", TEST_PORT);
-        client.connect(handler);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(new SMTPClientProtocolHandler(handler));
 
         // Wait for the transaction to complete
         assertTrue("Transaction should complete within timeout",
@@ -160,8 +164,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setBody("Body");
         handler.setExpectRecipientRejection(true);
 
-        SMTPClient client = new SMTPClient("127.0.0.1", TEST_PORT);
-        client.connect(handler);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -176,8 +182,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubject("Multi-recipient Test");
         handler.setBody("This message was sent to multiple recipients.");
 
-        SMTPClient client = new SMTPClient("127.0.0.1", TEST_PORT);
-        client.connect(handler);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -199,8 +207,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubjects(new String[]{"First Message", "Second Message"});
         handler.setBodies(new String[]{"First body.", "Second body."});
 
-        SMTPClient client = new SMTPClient("127.0.0.1", TEST_PORT);
-        client.connect(handler);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("All transactions should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -229,8 +239,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         RsetTestHandler handler = new RsetTestHandler();
         handler.setRecipient(TEST_USER + "@" + LOCAL_DOMAIN);
 
-        SMTPClient client = new SMTPClient("127.0.0.1", TEST_PORT);
-        client.connect(handler);
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("Test should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -330,7 +342,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ServerGreeting
         @Override
-        public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+        public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
             hello.ehlo("test.client.local", this);
         }
 
@@ -342,8 +354,8 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ServerEhloReplyHandler
         @Override
-        public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                               boolean pipelining, ClientSession session) {
+        public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                               List<String> authMethods, boolean pipelining) {
             session.mailFrom(new EmailAddress(null, "sender", "external.com", true), this);
         }
 
@@ -488,7 +500,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ClientHandler
         @Override
-        public void onConnected(ConnectionInfo info) {
+        public void onConnected(Endpoint endpoint) {
             // Connection established - greeting will follow
         }
 
@@ -504,7 +516,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
+        public void onSecurityEstablished(SecurityInfo info) {
             // TLS upgrade completed
         }
     }
@@ -552,7 +564,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ServerGreeting
         @Override
-        public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+        public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
             hello.ehlo("test.client.local", this);
         }
 
@@ -564,8 +576,8 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ServerEhloReplyHandler
         @Override
-        public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                               boolean pipelining, ClientSession session) {
+        public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                               List<String> authMethods, boolean pipelining) {
             startTransaction(session);
         }
 
@@ -669,7 +681,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ClientHandler
         @Override
-        public void onConnected(ConnectionInfo info) {
+        public void onConnected(Endpoint endpoint) {
         }
 
         @Override
@@ -684,7 +696,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
+        public void onSecurityEstablished(SecurityInfo info) {
         }
     }
 
@@ -713,7 +725,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ServerGreeting
         @Override
-        public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+        public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
             hello.ehlo("test.client.local", this);
         }
 
@@ -725,8 +737,8 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ServerEhloReplyHandler
         @Override
-        public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                               boolean pipelining, ClientSession session) {
+        public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                               List<String> authMethods, boolean pipelining) {
             session.mailFrom(new EmailAddress(null, "sender", "external.com", true), this);
         }
 
@@ -796,7 +808,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         // ClientHandler
         @Override
-        public void onConnected(ConnectionInfo info) {
+        public void onConnected(Endpoint endpoint) {
         }
 
         @Override
@@ -811,7 +823,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
+        public void onSecurityEstablished(SecurityInfo info) {
         }
     }
 }

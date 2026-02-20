@@ -48,7 +48,7 @@ public interface ListState {
      * Begins a multi-line listing for all messages.
      * 
      * <p>Sends a +OK response header and returns a writer for sending
-     * individual message listings. Call {@link ListWriter#end()} when done.
+     * individual message listings. Call {@link ListWriter#end(TransactionHandler)} when done.
      * 
      * @param messageCount the total number of messages
      * @return a writer for sending message listings

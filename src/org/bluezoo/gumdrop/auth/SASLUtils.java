@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.auth;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.lang.management.ManagementFactory;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -163,19 +162,10 @@ public final class SASLUtils {
     }
 
     /**
-     * Gets the current process ID in a Java 8 compatible way.
+     * Gets the current process ID.
      */
     private static int getProcessId() {
-        String runtimeName = ManagementFactory.getRuntimeMXBean().getName();
-        int atIndex = runtimeName.indexOf('@');
-        if (atIndex > 0) {
-            try {
-                return Integer.parseInt(runtimeName.substring(0, atIndex));
-            } catch (NumberFormatException e) {
-                // Fall through
-            }
-        }
-        return (int) (System.nanoTime() & 0x7FFFFFFF);
+        return (int) ProcessHandle.current().pid();
     }
 
     /**

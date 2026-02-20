@@ -27,8 +27,11 @@
  *
  * <h2>Architecture</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.imap.IMAPServer} - Connection factory for IMAP connections</li>
- *   <li>{@link org.bluezoo.gumdrop.imap.IMAPConnection} - Protocol handler for IMAP sessions</li>
+ *   <li>{@link org.bluezoo.gumdrop.imap.IMAPService} - Abstract base for
+ *       IMAP application services; owns configuration and creates
+ *       per-connection handlers</li>
+ *   <li>{@link org.bluezoo.gumdrop.imap.IMAPListener} - TCP transport listener for IMAP connections</li>
+ *   <li>{@link org.bluezoo.gumdrop.imap.IMAPProtocolHandler} - Endpoint handler for IMAP protocol logic</li>
  * </ul>
  *
  * <h2>Supported RFCs</h2>
@@ -69,13 +72,13 @@
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
- * IMAPServer imap = new IMAPServer();
+ * IMAPListener imap = new IMAPListener();
  * imap.setPort(143);
  * imap.setRealm(myRealm);
  * imap.setMailboxFactory(new MboxMailboxFactory(new File("/var/mail")));
  * 
  * // Optional: Enable implicit TLS
- * IMAPServer imaps = new IMAPServer();
+ * IMAPListener imaps = new IMAPListener();
  * imaps.setPort(993);
  * imaps.setSecure(true);
  * imaps.setSSLContext(sslContext);

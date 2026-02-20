@@ -36,12 +36,12 @@ import java.security.cert.Certificate;
  */
 public class FTPConnectionMetadata {
 
-    private final InetSocketAddress clientAddress;
-    private final InetSocketAddress serverAddress;
-    private final boolean secureConnection;
-    private final Certificate[] clientCertificates;
-    private final String cipherSuite;
-    private final String protocolVersion;
+    private InetSocketAddress clientAddress;
+    private InetSocketAddress serverAddress;
+    private boolean secureConnection;
+    private Certificate[] clientCertificates;
+    private String cipherSuite;
+    private String protocolVersion;
     private final long connectionStartTimeMillis;
     private final String connectorDescription;
 
@@ -215,6 +215,30 @@ public class FTPConnectionMetadata {
 
     void setTransferType(FTPTransferType transferType) {
         this.transferType = transferType;
+    }
+
+    void setClientAddress(InetSocketAddress clientAddress) {
+        this.clientAddress = clientAddress;
+    }
+
+    void setServerAddress(InetSocketAddress serverAddress) {
+        this.serverAddress = serverAddress;
+    }
+
+    void setSecureConnection(boolean secureConnection) {
+        this.secureConnection = secureConnection;
+    }
+
+    void setClientCertificates(Certificate[] clientCertificates) {
+        this.clientCertificates = clientCertificates != null ? clientCertificates.clone() : null;
+    }
+
+    void setCipherSuite(String cipherSuite) {
+        this.cipherSuite = cipherSuite;
+    }
+
+    void setProtocolVersion(String protocolVersion) {
+        this.protocolVersion = protocolVersion;
     }
 
     void setDataConnection(String dataHost, int dataPort, boolean passiveMode) {

@@ -48,11 +48,11 @@ class RequestHandler implements Runnable {
     static final DateFormat df = new SimpleDateFormat("[dd/MMM/yyyy:HH:mm:ss Z]");
 
     final ServletHandler handler;
-    final ServletServer server;
+    final ServletService service;
 
-    RequestHandler(ServletHandler handler, ServletServer server) {
+    RequestHandler(ServletHandler handler, ServletService service) {
         this.handler = handler;
-        this.server = server;
+        this.service = service;
     }
 
     public void run() {
@@ -105,7 +105,7 @@ class RequestHandler implements Runnable {
         long t2 = System.currentTimeMillis();
         // System.err.println(getName() + ": " + (t2 - t1) + "ms");
         String logEntry = createLogEntry(t1, request, response);
-        server.log(logEntry);
+        service.log(logEntry);
     }
 
     void notifyRequestInitialized(Request request) {
@@ -174,13 +174,13 @@ class RequestHandler implements Runnable {
         String path = (uri == null) ? "" : uri.getPath();
 
         // Lookup context
-        Context context = server.getContainer().getContextByPath(path);
+        Context context = service.getContainer().getContextByPath(path);
         // Lookup request dispatcher
         if (context == null) {
             return null;
         }
         Thread.currentThread().setContextClassLoader(context.getContextClassLoader());
-        context.server = server;
+        context.service = service;
         request.context = context;
         request.contextPath = context.contextPath;
         response.context = context;

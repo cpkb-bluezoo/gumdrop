@@ -1,6 +1,6 @@
 /*
  * LDAPClient.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -21,187 +21,215 @@
 
 package org.bluezoo.gumdrop.ldap.client;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.channels.SocketChannel;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLContext;
 
-import org.bluezoo.gumdrop.Client;
-import org.bluezoo.gumdrop.ClientHandler;
-import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 
 /**
- * LDAP client implementation that creates and manages LDAP client connections.
+ * High-level LDAP client facade.
  *
- * <p>This class extends {@link Client} to provide LDAP-specific client
- * functionality for connecting to LDAP servers and creating connection
- * instances.
+ * <p>This class provides a simple, concrete API for connecting to LDAP servers.
+ * It internally creates a {@link TCPTransportFactory},
+ * {@link ClientEndpoint}, and {@link LDAPClientProtocolHandler}, wiring
+ * them together and forwarding lifecycle events to the caller's
+ * {@link LDAPConnectionReady} handler.
  *
- * <h4>Standalone Usage</h4>
+ * <h4>Basic Usage</h4>
  * <pre>{@code
- * // Simple - no Gumdrop setup needed
- * LDAPClient client = new LDAPClient("ldap.example.com", 389);
+ * LDAPClient client = new LDAPClient(selectorLoop, "ldap.example.com", 389);
  * client.connect(new LDAPConnectionReady() {
  *     public void handleReady(LDAPConnected connection) {
  *         connection.bind("cn=admin,dc=example,dc=com", "secret",
  *             new BindResultHandler() {
  *                 public void handleBindSuccess(LDAPSession session) {
- *                     // Perform searches, modifications, etc.
- *                     session.search(request, new MySearchHandler());
+ *                     // Perform operations
  *                 }
  *                 public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
  *                     conn.unbind();
  *                 }
  *             });
  *     }
- *     // ... other callbacks
+ *     public void onConnected(Endpoint endpoint) { }
+ *     public void onSecurityEstablished(SecurityInfo info) { }
+ *     public void onError(Exception cause) { cause.printStackTrace(); }
+ *     public void onDisconnected() { }
  * });
  * }</pre>
  *
- * <h4>Server Integration (with SelectorLoop affinity)</h4>
- * <pre>{@code
- * // Use the same SelectorLoop as your server connection
- * LDAPClient client = new LDAPClient(connection.getSelectorLoop(), "ldap.example.com", 389);
- * client.connect(handler);
- * }</pre>
- *
- * <h4>LDAPS (implicit TLS)</h4>
- * <pre>{@code
- * LDAPClient client = new LDAPClient("ldap.example.com", 636);
- * client.setSecure(true);
- * client.setKeystoreFile("/path/to/truststore.p12");
- * client.connect(handler);
- * }</pre>
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see LDAPConnectionReady
+ * @see LDAPClientProtocolHandler
  */
-public class LDAPClient extends Client {
+public class LDAPClient {
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constructors without SelectorLoop (standalone usage)
-    // ─────────────────────────────────────────────────────────────────────────
+    private static final Logger LOGGER =
+            Logger.getLogger(LDAPClient.class.getName());
+
+    private final InetAddress hostAddress;
+    private final int port;
+    private final SelectorLoop selectorLoop;
+
+    // Configuration (set before connect)
+    private boolean secure;
+    private SSLContext sslContext;
+    private String keystoreFile;
+    private String keystorePass;
+    private String keystoreFormat;
+
+    // Internal transport components (created at connect time)
+    private TCPTransportFactory transportFactory;
+    private ClientEndpoint clientEndpoint;
+    private LDAPClientProtocolHandler endpointHandler;
 
     /**
-     * Creates an LDAP client that will connect to the specified host and port.
+     * Creates an LDAP client for the given host and port.
      *
-     * <p>The Gumdrop infrastructure is managed automatically - it starts
-     * when {@link #connect} is called and stops when all connections close.
+     * <p>Uses the next available worker loop from the global
+     * {@link Gumdrop} instance.
      *
-     * @param host the LDAP server host as a String
-     * @param port the LDAP server port number (typically 389 or 636)
-     * @throws UnknownHostException if the host cannot be resolved
+     * @param host the remote hostname or IP address
+     * @param port the remote port
+     * @throws UnknownHostException if the hostname cannot be resolved
      */
     public LDAPClient(String host, int port) throws UnknownHostException {
-        super(host, port);
+        this(null, host, port);
     }
 
     /**
-     * Creates an LDAP client that will connect to the default LDAP port (389).
+     * Creates an LDAP client with an explicit selector loop.
      *
-     * @param host the LDAP server host as a String
-     * @throws UnknownHostException if the host cannot be resolved
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote hostname or IP address
+     * @param port the remote port
+     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public LDAPClient(String host) throws UnknownHostException {
-        super(host, LDAPConstants.DEFAULT_PORT);
+    public LDAPClient(SelectorLoop selectorLoop, String host, int port)
+            throws UnknownHostException {
+        this.selectorLoop = selectorLoop;
+        this.hostAddress = InetAddress.getByName(host);
+        this.port = port;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Configuration (before connect)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Sets whether this client uses TLS (LDAPS).
+     *
+     * @param secure true for TLS
+     */
+    public void setSecure(boolean secure) {
+        this.secure = secure;
     }
 
     /**
-     * Creates an LDAP client that will connect to the specified host and port.
+     * Sets an externally-configured SSL context.
      *
-     * @param host the LDAP server host as an InetAddress
-     * @param port the LDAP server port number (typically 389 or 636)
+     * @param context the SSL context
      */
-    public LDAPClient(InetAddress host, int port) {
-        super(host, port);
+    public void setSSLContext(SSLContext context) {
+        this.sslContext = context;
     }
 
     /**
-     * Creates an LDAP client that will connect to the default LDAP port (389).
+     * Sets the keystore file for client certificate authentication.
      *
-     * @param host the LDAP server host as an InetAddress
+     * @param path the keystore file path
      */
-    public LDAPClient(InetAddress host) {
-        super(host, LDAPConstants.DEFAULT_PORT);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constructors with SelectorLoop (server integration)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Creates an LDAP client that will connect to the specified host and port,
-     * using the provided SelectorLoop for I/O.
-     *
-     * <p>Use this constructor for server integration where you want the
-     * client to share a SelectorLoop with server connections for efficiency.
-     *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the LDAP server host as a String
-     * @param port the LDAP server port number (typically 389 or 636)
-     * @throws UnknownHostException if the host cannot be resolved
-     */
-    public LDAPClient(SelectorLoop selectorLoop, String host, int port) throws UnknownHostException {
-        super(selectorLoop, host, port);
+    public void setKeystoreFile(String path) {
+        this.keystoreFile = path;
     }
 
     /**
-     * Creates an LDAP client that will connect to the default LDAP port (389),
-     * using the provided SelectorLoop for I/O.
+     * Sets the keystore password.
      *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the LDAP server host as a String
-     * @throws UnknownHostException if the host cannot be resolved
+     * @param password the keystore password
      */
-    public LDAPClient(SelectorLoop selectorLoop, String host) throws UnknownHostException {
-        super(selectorLoop, host, LDAPConstants.DEFAULT_PORT);
+    public void setKeystorePass(String password) {
+        this.keystorePass = password;
     }
 
     /**
-     * Creates an LDAP client that will connect to the specified host and port,
-     * using the provided SelectorLoop for I/O.
+     * Sets the keystore format (e.g. JKS, PKCS12).
      *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the LDAP server host as an InetAddress
-     * @param port the LDAP server port number (typically 389 or 636)
+     * @param format the keystore format
      */
-    public LDAPClient(SelectorLoop selectorLoop, InetAddress host, int port) {
-        super(selectorLoop, host, port);
+    public void setKeystoreFormat(String format) {
+        this.keystoreFormat = format;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Lifecycle
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Connects to the remote LDAP server.
+     *
+     * <p>Creates the transport factory, endpoint handler, and client
+     * endpoint, then initiates the connection. Lifecycle events are
+     * forwarded to the given handler.
+     *
+     * @param handler the handler to receive connection lifecycle events
+     */
+    public void connect(LDAPConnectionReady handler) {
+        transportFactory = new TCPTransportFactory();
+        transportFactory.setSecure(secure);
+        if (sslContext != null) {
+            transportFactory.setSSLContext(sslContext);
+        }
+        if (keystoreFile != null) {
+            transportFactory.setKeystoreFile(keystoreFile);
+        }
+        if (keystorePass != null) {
+            transportFactory.setKeystorePass(keystorePass);
+        }
+        if (keystoreFormat != null) {
+            transportFactory.setKeystoreFormat(keystoreFormat);
+        }
+        transportFactory.start();
+
+        endpointHandler = new LDAPClientProtocolHandler(handler, secure);
+
+        try {
+            if (selectorLoop != null) {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, selectorLoop,
+                        hostAddress, port);
+            } else {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, hostAddress, port);
+            }
+            clientEndpoint.connect(endpointHandler);
+        } catch (IOException e) {
+            handler.onError(e);
+        }
     }
 
     /**
-     * Creates an LDAP client that will connect to the default LDAP port (389),
-     * using the provided SelectorLoop for I/O.
+     * Returns whether the connection is open.
      *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the LDAP server host as an InetAddress
+     * @return true if connected and open
      */
-    public LDAPClient(SelectorLoop selectorLoop, InetAddress host) {
-        super(selectorLoop, host, LDAPConstants.DEFAULT_PORT);
+    public boolean isOpen() {
+        return endpointHandler != null && endpointHandler.isOpen();
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Connection factory
-    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Creates a new LDAP client connection with a handler.
-     *
-     * @param channel the socket channel for the connection
-     * @param engine optional SSL engine for secure connections
-     * @param handler the client handler to receive LDAP events (must be {@link LDAPConnectionReady})
-     * @return a new LDAPClientConnection instance
-     * @throws ClassCastException if handler is not an LDAPConnectionReady
+     * Closes the connection.
      */
-    @Override
-    protected Connection newConnection(SocketChannel channel, SSLEngine engine, ClientHandler handler) {
-        return new LDAPClientConnection(this, engine, secure, (LDAPConnectionReady) handler);
+    public void close() {
+        if (endpointHandler != null) {
+            endpointHandler.close();
+        }
     }
-
-    @Override
-    public String getDescription() {
-        return "LDAP Client (" + host.getHostAddress() + ":" + port + ")";
-    }
-
 }

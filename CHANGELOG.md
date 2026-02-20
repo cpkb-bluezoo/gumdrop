@@ -5,12 +5,56 @@ All notable changes to Gumdrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **HTTP/3 server and client over QUIC**: Full HTTP/3 support via the quiche
+  native library (BoringSSL + quiche JNI bindings). Servers advertise HTTP/3
+  availability through `Alt-Svc` headers; clients can connect directly over
+  QUIC or discover HTTP/3 transparently via Alt-Svc upgrade.
+  - `HTTPClient` supports `--http3` for direct QUIC connections with optional
+    client certificates and SNI for alternate-host Alt-Svc targets
+  - `HTTPClient` CLI (`main()`) for debugging HTTP connections across all
+    protocol versions (HTTP/1.1, HTTP/2, HTTP/3), similar to curl
+
+### Fixed
+
+- `HTTPClientProtocolHandler` now fires `onConnected` and
+  `onSecurityEstablished` callbacks on the `HTTPClientHandler`
+- TLS client handshake is now initiated after TCP connect completes
+- HEAD responses no longer hang waiting for a body that will never arrive
+
+### Changed
+
+- **Minimum Java version raised to 17 (LTS)**: Gumdrop v2 requires Java 17 or
+  later. This enables native UNIX domain socket support (JEP 380) without
+  JNI or third-party libraries. The build now uses `--release 17` exclusively;
+  the legacy `source`/`target` fallback properties have been removed.
+
+- **UNIX domain socket support**: Any TCP-based listener can now bind to a UNIX
+  domain socket by specifying a `path` attribute instead of `port`. Once
+  accepted, connections use the same `SocketChannel`/`TCPEndpoint`/`ProtocolHandler`
+  infrastructure as TCP. Stale socket files are cleaned up on bind and shutdown.
+
+- **Renamed `<listen>` to `<listener>` in gumdroprc**: The configuration element
+  for declaring listeners within a `<service>` has been renamed from `<listen>` to
+  `<listener>` for consistency with the `Listener` class name.
+
+- **Externalized parsing libraries**: The
+  [Gonzalez](https://github.com/cpkb-bluezoo/gonzalez) XML parser and
+  [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) JSON parser are now
+  external dependencies instead of bundled source. They are downloaded
+  automatically by `ant resolve-deps` (called as part of the default build).
+  The JPMS module-info now uses `requires transitive` for both modules.
+
 ## [1.1] - 2026-01-10
 
 ### Added
 
-- **WebDAV (RFC 2518) support for file server**: The `FileHTTPServer` now supports
-  distributed authoring via WebDAV when enabled with the `webdavEnabled` property.
+- **WebDAV (RFC 2518) support for file server**: The `WebDAVService` (formerly
+  `FileHTTPServer`) supports distributed authoring via WebDAV when enabled with
+  the `webdavEnabled` property.
   Full implementation includes:
   - PROPFIND - query resource properties with Depth 0, 1, or infinity
   - PROPPATCH - set/remove dead properties
@@ -31,9 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatibility while including `module-info.class` for Java 9+ module system support.
 
 - **Integrated XML and JSON parsing**: The Gonzalez XML parser (`org.bluezoo.gonzalez`)
-  and JSON parser (`org.bluezoo.json`) are now integrated directly into the gumdrop
-  source tree. These packages are part of the gumdrop API and available to users of
-  the library. Gumdrop remains a **zero external dependency** framework.
+  and JSON parser (`org.bluezoo.json`) are now part of the gumdrop API and available
+  to users of the library. (These were later externalized as separate dependencies;
+  see the [Unreleased] section above.)
 
 - **`XMLParseUtils` utility class**: New utility class (`org.bluezoo.gumdrop.util.XMLParseUtils`)
   provides convenient methods for parsing XML using Gonzalez with NIO. Supports:

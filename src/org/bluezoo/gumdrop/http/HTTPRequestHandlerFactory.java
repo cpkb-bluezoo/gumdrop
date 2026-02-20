@@ -26,7 +26,7 @@ import java.util.Set;
 /**
  * Factory for creating {@link HTTPRequestHandler} instances.
  *
- * <p>Set on {@link HTTPServer} to provide handlers for incoming requests.
+ * <p>Provided by an {@link HTTPService} and wired to its listeners.
  * The factory is called once per stream (request) when the initial headers
  * are received.
  *
@@ -38,7 +38,7 @@ import java.util.Set;
  * <pre>{@code
  * public class MyFactory implements HTTPRequestHandlerFactory {
  *     
- *     public HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state) {
+ *     public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
  *         String path = headers.getValue(":path");
  *         
  *         if (path.startsWith("/api/")) {
@@ -63,7 +63,7 @@ import java.util.Set;
  * authentication. The factory can reject unauthenticated requests:
  *
  * <pre>{@code
- * public HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state) {
+ * public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
  *     String auth = headers.getValue("authorization");
  *     if (!isValidAuth(auth)) {
  *         // Send 401 and return null
@@ -88,7 +88,7 @@ import java.util.Set;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTPRequestHandler
- * @see HTTPServer#setHandlerFactory
+ * @see HTTPListener#setHandlerFactory
  */
 public interface HTTPRequestHandlerFactory {
 
@@ -102,14 +102,14 @@ public interface HTTPRequestHandlerFactory {
      * callback with the same headers - the factory is for routing/creation,
      * the handler performs the actual request processing.
      *
-     * @param headers the initial request headers (includes :method, :path,
-     *                :scheme, :authority pseudo-headers)
      * @param state the response state for this stream (can be used to send
      *              early responses like 401)
+     * @param headers the initial request headers (includes :method, :path,
+     *                :scheme, :authority pseudo-headers)
      * @return a handler for this request, or null to reject (sends 404 if
      *         no response was sent via state)
      */
-    HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state);
+    HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers);
 
     /**
      * Returns the set of HTTP methods supported by this factory.

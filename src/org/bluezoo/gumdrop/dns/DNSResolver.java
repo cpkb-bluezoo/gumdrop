@@ -41,8 +41,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.DatagramClient;
+import org.bluezoo.gumdrop.UDPEndpoint;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.UDPTransportFactory;
 
 /**
  * Asynchronous DNS resolver using non-blocking I/O.
@@ -53,6 +58,11 @@ import org.bluezoo.gumdrop.TimerHandle;
  * <p>Queries are sent to configured upstream DNS servers and responses
  * are delivered via the {@link DNSQueryCallback} interface. Timeout
  * handling is integrated with the Gumdrop scheduler.
+ *
+ * <p>SelectorLoop affinity: when used inside a Gumdrop service (e.g. from an
+ * HTTP or SMTP handler), call {@link #setSelectorLoop(SelectorLoop)} with
+ * the endpoint's SelectorLoop so that DNS callbacks run on the same thread
+ * and avoid cross-thread coordination.
  *
  * <p>Example usage:
  * <pre><code>
@@ -96,6 +106,7 @@ public class DNSResolver {
 
     private long timeoutMs;
     private boolean opened;
+    private SelectorLoop selectorLoop;
 
     /**
      * Creates a new DNS resolver with no servers configured.
@@ -167,6 +178,29 @@ public class DNSResolver {
     }
 
     /**
+     * Returns the SelectorLoop used for resolver I/O, or null if not set.
+     *
+     * @return the SelectorLoop, or null
+     */
+    public SelectorLoop getSelectorLoop() {
+        return selectorLoop;
+    }
+
+    /**
+     * Sets the SelectorLoop for resolver I/O. When set, all DNS client
+     * connections and timers use this loop, so callbacks are invoked on
+     * the same thread. Use this when the resolver is used from a Gumdrop
+     * service (e.g. HTTP or SMTP handler) to avoid cross-thread coordination.
+     *
+     * <p>Must be called before {@link #open()}.
+     *
+     * @param loop the SelectorLoop, or null to use a Gumdrop worker loop
+     */
+    public void setSelectorLoop(SelectorLoop loop) {
+        this.selectorLoop = loop;
+    }
+
+    /**
      * Adds the system's default DNS resolvers.
      * This reads from /etc/resolv.conf on Unix-like systems.
      */
@@ -223,8 +257,7 @@ public class DNSResolver {
             throw new IOException(L10N.getString("err.no_dns_servers"));
         }
         for (InetSocketAddress server : servers) {
-            ResolverClient client = new ResolverClient(server.getAddress(), server.getPort());
-            client.open();
+            ResolverClient client = new ResolverClient(server.getAddress(), server.getPort(), selectorLoop);
             clients.add(client);
         }
         opened = true;
@@ -423,16 +456,43 @@ public class DNSResolver {
     }
 
     /**
-     * DatagramClient implementation for DNS queries.
+     * Client for DNS queries using {@link UDPEndpoint}.
      */
-    private class ResolverClient extends DatagramClient {
+    private class ResolverClient {
 
-        ResolverClient(InetAddress host, int port) {
-            super(host, port);
+        private final UDPEndpoint endpoint;
+
+        ResolverClient(InetAddress host, int port, SelectorLoop loop) throws IOException {
+            UDPTransportFactory factory = new UDPTransportFactory();
+            factory.start();
+            this.endpoint = factory.connect(host, port, new ResolverProtocolHandler(), loop);
+        }
+
+        void send(ByteBuffer data) {
+            endpoint.send(data);
+        }
+
+        TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+            return endpoint.scheduleTimer(delayMs, callback);
+        }
+
+        void close() {
+            endpoint.close();
+        }
+    }
+
+    /**
+     * Endpoint handler for DNS resolver client.
+     */
+    private class ResolverProtocolHandler implements ProtocolHandler {
+
+        @Override
+        public void connected(Endpoint ep) {
+            // Connected to DNS server
         }
 
         @Override
-        protected void receive(ByteBuffer data) {
+        public void receive(ByteBuffer data) {
             try {
                 DNSMessage response = DNSMessage.parse(data);
                 handleResponse(response);
@@ -442,8 +502,18 @@ public class DNSResolver {
         }
 
         @Override
-        public String getDescription() {
-            return "dns-resolver";
+        public void disconnected() {
+            // Client disconnected
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+            // No-op for plain UDP
+        }
+
+        @Override
+        public void error(Exception cause) {
+            LOGGER.log(Level.WARNING, "DNS resolver endpoint error", cause);
         }
     }
 

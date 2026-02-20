@@ -32,9 +32,9 @@ import org.bluezoo.gumdrop.http.Headers;
  * <p>In HTTP/2, each request/response exchange occurs on a separate stream.
  * In HTTP/1.1, there is logically one stream per request on the connection.
  * This class encapsulates the request state and delegates actual I/O to
- * the owning {@link HTTPClientConnection}.
+ * the owning {@link HTTPClientProtocolHandler}.
  *
- * <p>Instances are created internally by {@link HTTPClientConnection} via
+ * <p>Instances are created internally via factory methods like
  * factory methods like {@link HTTPClient#get(String)}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -44,7 +44,7 @@ class HTTPStream implements HTTPRequest {
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
-    private final HTTPClientConnection connection;
+    private final HTTPClientConnectionOps connection;
     private final String method;
     private final String path;
     private final Headers headers;
@@ -70,7 +70,7 @@ class HTTPStream implements HTTPRequest {
      * @param method the HTTP method
      * @param path the request path
      */
-    HTTPStream(HTTPClientConnection connection, String method, String path) {
+    HTTPStream(HTTPClientConnectionOps connection, String method, String path) {
         this.connection = connection;
         this.method = method;
         this.path = path;

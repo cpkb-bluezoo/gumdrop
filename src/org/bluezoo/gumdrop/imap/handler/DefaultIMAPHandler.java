@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.imap.handler;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.imap.StatusItem;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
@@ -62,7 +62,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     // ============== ClientConnected ==============
 
     @Override
-    public void connected(ConnectionInfo info, ConnectedState state) {
+    public void connected(ConnectedState state, Endpoint endpoint) {
         state.acceptConnection("IMAP4rev2 server ready", this);
     }
 
@@ -74,7 +74,8 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     // ============== NotAuthenticatedHandler ==============
 
     @Override
-    public void authenticate(Principal principal, MailboxFactory factory, AuthenticateState state) {
+    public void authenticate(AuthenticateState state, Principal principal,
+            MailboxFactory factory) {
         try {
             MailboxStore store = factory.createStore();
             store.open(principal.getName());
@@ -88,7 +89,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     // ============== AuthenticatedHandler ==============
 
     @Override
-    public void select(MailboxStore store, String mailboxName, SelectState state) {
+    public void select(SelectState state, MailboxStore store, String mailboxName) {
         try {
             Mailbox mailbox = store.openMailbox(mailboxName, false);
             if (mailbox == null) {
@@ -103,7 +104,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void examine(MailboxStore store, String mailboxName, SelectState state) {
+    public void examine(SelectState state, MailboxStore store, String mailboxName) {
         try {
             Mailbox mailbox = store.openMailbox(mailboxName, true);
             if (mailbox == null) {
@@ -118,7 +119,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void create(MailboxStore store, String mailboxName, CreateState state) {
+    public void create(CreateState state, MailboxStore store, String mailboxName) {
         try {
             store.createMailbox(mailboxName);
             state.created(this);
@@ -129,7 +130,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void delete(MailboxStore store, String mailboxName, DeleteState state) {
+    public void delete(DeleteState state, MailboxStore store, String mailboxName) {
         try {
             store.deleteMailbox(mailboxName);
             state.deleted(this);
@@ -140,7 +141,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void rename(MailboxStore store, String oldName, String newName, RenameState state) {
+    public void rename(RenameState state, MailboxStore store, String oldName, String newName) {
         try {
             store.renameMailbox(oldName, newName);
             state.renamed(this);
@@ -151,7 +152,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void subscribe(MailboxStore store, String mailboxName, SubscribeState state) {
+    public void subscribe(SubscribeState state, MailboxStore store, String mailboxName) {
         try {
             store.subscribe(mailboxName);
             state.subscribed(this);
@@ -162,7 +163,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void unsubscribe(MailboxStore store, String mailboxName, SubscribeState state) {
+    public void unsubscribe(SubscribeState state, MailboxStore store, String mailboxName) {
         try {
             store.unsubscribe(mailboxName);
             state.subscribed(this); // Same response for both subscribe and unsubscribe
@@ -173,7 +174,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void list(MailboxStore store, String reference, String pattern, ListState state) {
+    public void list(ListState state, MailboxStore store, String reference, String pattern) {
         try {
             List<String> mailboxes = store.listMailboxes(reference, pattern);
             String delimiter = String.valueOf(store.getHierarchyDelimiter());
@@ -189,7 +190,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void lsub(MailboxStore store, String reference, String pattern, ListState state) {
+    public void lsub(ListState state, MailboxStore store, String reference, String pattern) {
         try {
             List<String> mailboxes = store.listSubscribed(reference, pattern);
             String delimiter = String.valueOf(store.getHierarchyDelimiter());
@@ -205,13 +206,14 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void status(MailboxStore store, String mailboxName, Set<StatusItem> statusItems, AuthenticatedStatusState state) {
+    public void status(AuthenticatedStatusState state, MailboxStore store,
+            String mailboxName, Set<StatusItem> statusItems) {
         state.proceed(this);
     }
 
     @Override
-    public void append(MailboxStore store, String mailboxName, Set<Flag> flags,
-                       OffsetDateTime internalDate, AppendState state) {
+    public void append(AppendState state, MailboxStore store, String mailboxName,
+            Set<Flag> flags, OffsetDateTime internalDate) {
         try {
             Mailbox mailbox = store.openMailbox(mailboxName, false);
             if (mailbox == null) {
@@ -227,7 +229,8 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void getQuota(QuotaManager quotaManager, MailboxStore store, String quotaRoot, QuotaState state) {
+    public void getQuota(QuotaState state, QuotaManager quotaManager, MailboxStore store,
+            String quotaRoot) {
         if (quotaManager == null) {
             state.quotaNotSupported(this);
         } else {
@@ -236,7 +239,8 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void getQuotaRoot(QuotaManager quotaManager, MailboxStore store, String mailboxName, QuotaState state) {
+    public void getQuotaRoot(QuotaState state, QuotaManager quotaManager, MailboxStore store,
+            String mailboxName) {
         if (quotaManager == null) {
             state.quotaNotSupported(this);
         } else {
@@ -245,8 +249,8 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void setQuota(QuotaManager quotaManager, MailboxStore store, String quotaRoot,
-                         Map<String, Long> resourceLimits, QuotaState state) {
+    public void setQuota(QuotaState state, QuotaManager quotaManager, MailboxStore store,
+            String quotaRoot, Map<String, Long> resourceLimits) {
         if (quotaManager == null) {
             state.quotaNotSupported(this);
         } else {
@@ -257,12 +261,13 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     // ============== SelectedHandler (additional methods) ==============
 
     @Override
-    public void status(MailboxStore store, String mailboxName, Set<StatusItem> statusItems, SelectedStatusState state) {
+    public void status(SelectedStatusState state, MailboxStore store, String mailboxName,
+            Set<StatusItem> statusItems) {
         state.proceed(this);
     }
 
     @Override
-    public void close(Mailbox mailbox, CloseState state) {
+    public void close(CloseState state, Mailbox mailbox) {
         try {
             mailbox.close(true); // Expunge on close
             state.closed(this);
@@ -273,7 +278,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void unselect(Mailbox mailbox, CloseState state) {
+    public void unselect(CloseState state, Mailbox mailbox) {
         try {
             mailbox.close(false); // Don't expunge
             state.closed(this);
@@ -284,7 +289,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void expunge(Mailbox mailbox, ExpungeState state) {
+    public void expunge(ExpungeState state, Mailbox mailbox) {
         try {
             // Expunge messages marked as deleted
             for (int i = mailbox.getMessageCount(); i >= 1; i--) {
@@ -302,15 +307,15 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void uidExpunge(Mailbox mailbox, MessageSet uidSet, ExpungeState state) {
+    public void uidExpunge(ExpungeState state, Mailbox mailbox, MessageSet uidSet) {
         // UID EXPUNGE only expunges messages in the specified UID set
         // For now, just do a regular expunge (TODO: filter by UID set)
-        expunge(mailbox, state);
+        expunge(state, mailbox);
     }
 
     @Override
-    public void store(Mailbox mailbox, MessageSet messages, StoreAction action,
-                      Set<Flag> flags, boolean silent, StoreState state) {
+    public void store(StoreState state, Mailbox mailbox, MessageSet messages,
+            StoreAction action, Set<Flag> flags, boolean silent) {
         try {
             int msgCount = mailbox.getMessageCount();
             List<MessageSet.Range> ranges = messages.getRanges();
@@ -335,57 +340,59 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     }
 
     @Override
-    public void uidStore(Mailbox mailbox, MessageSet uidSet, StoreAction action,
-                         Set<Flag> flags, boolean silent, StoreState state) {
+    public void uidStore(StoreState state, Mailbox mailbox, MessageSet uidSet,
+            StoreAction action, Set<Flag> flags, boolean silent) {
         // TODO: Implement UID-based store
         state.storeFailed("UID STORE not yet implemented", this);
     }
 
     @Override
-    public void copy(MailboxStore store, Mailbox mailbox, MessageSet messages,
-                     String targetMailbox, CopyState state) {
+    public void copy(CopyState state, MailboxStore store, Mailbox mailbox,
+            MessageSet messages, String targetMailbox) {
         // TODO: Implement COPY
         state.copyFailed("COPY not yet implemented", this);
     }
 
     @Override
-    public void uidCopy(MailboxStore store, Mailbox mailbox, MessageSet uidSet,
-                        String targetMailbox, CopyState state) {
+    public void uidCopy(CopyState state, MailboxStore store, Mailbox mailbox,
+            MessageSet uidSet, String targetMailbox) {
         // TODO: Implement UID COPY
         state.copyFailed("UID COPY not yet implemented", this);
     }
 
     @Override
-    public void move(MailboxStore store, Mailbox mailbox, MessageSet messages,
-                     String targetMailbox, MoveState state) {
+    public void move(MoveState state, MailboxStore store, Mailbox mailbox,
+            MessageSet messages, String targetMailbox) {
         // TODO: Implement MOVE
         state.moveFailed("MOVE not yet implemented", this);
     }
 
     @Override
-    public void uidMove(MailboxStore store, Mailbox mailbox, MessageSet uidSet,
-                        String targetMailbox, MoveState state) {
+    public void uidMove(MoveState state, MailboxStore store, Mailbox mailbox,
+            MessageSet uidSet, String targetMailbox) {
         // TODO: Implement UID MOVE
         state.moveFailed("UID MOVE not yet implemented", this);
     }
 
     @Override
-    public void fetch(Mailbox mailbox, MessageSet messages, Set<String> fetchItems, FetchState state) {
+    public void fetch(FetchState state, Mailbox mailbox, MessageSet messages,
+            Set<String> fetchItems) {
         state.proceed(this);
     }
 
     @Override
-    public void uidFetch(Mailbox mailbox, MessageSet uidSet, Set<String> fetchItems, FetchState state) {
+    public void uidFetch(FetchState state, Mailbox mailbox, MessageSet uidSet,
+            Set<String> fetchItems) {
         state.proceed(this);
     }
 
     @Override
-    public void search(Mailbox mailbox, SearchCriteria criteria, SearchState state) {
+    public void search(SearchState state, Mailbox mailbox, SearchCriteria criteria) {
         state.proceed(this);
     }
 
     @Override
-    public void uidSearch(Mailbox mailbox, SearchCriteria criteria, SearchState state) {
+    public void uidSearch(SearchState state, Mailbox mailbox, SearchCriteria criteria) {
         state.proceed(this);
     }
 
@@ -407,7 +414,7 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
         }
 
         @Override
-        public void appendComplete(Mailbox mailbox, AppendCompleteState state) {
+        public void appendComplete(AppendCompleteState state, Mailbox mailbox) {
             state.appended(parent);
         }
     }

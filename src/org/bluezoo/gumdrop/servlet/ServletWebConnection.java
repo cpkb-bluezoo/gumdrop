@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.DefaultWebSocketEventHandler;
-import org.bluezoo.gumdrop.http.WebSocketEventHandler;
-import org.bluezoo.gumdrop.http.WebSocketSession;
+import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 import javax.servlet.ServletInputStream;
 import javax.servlet.ServletOutputStream;
@@ -190,7 +190,8 @@ class ServletWebConnection implements WebConnection {
         }
 
         @Override
-        public void textMessageReceived(String message) {
+        public void textMessageReceived(WebSocketSession session,
+                                        String message) {
             try {
                 byte[] data = message.getBytes(StandardCharsets.UTF_8);
                 pipeOut.write(data);
@@ -203,7 +204,8 @@ class ServletWebConnection implements WebConnection {
         }
 
         @Override
-        public void binaryMessageReceived(ByteBuffer data) {
+        public void binaryMessageReceived(WebSocketSession session,
+                                          ByteBuffer data) {
             try {
                 byte[] bytes = new byte[data.remaining()];
                 data.get(bytes);

@@ -38,6 +38,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.quic.QuicEngine;
+
 /**
  * Worker selector loop for handling I/O events.
  *
@@ -47,12 +49,6 @@ import java.util.logging.Logger;
  *
  * <p>All I/O and TLS/DTLS processing for a handler occurs on its
  * assigned SelectorLoop thread.
- *
- * <p><strong>TODO:</strong> Add a task queue facility to allow external threads
- * to submit tasks for execution on the loop thread. This would enable truly
- * async handler responses in the staged handler pattern - handlers could
- * respond from any thread, and the State implementations would queue the
- * response for execution on the correct SelectorLoop.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -83,7 +79,7 @@ public class SelectorLoop implements Runnable {
      *
      * @param index the 1-based index for naming
      */
-    SelectorLoop(int index) {
+    public SelectorLoop(int index) {
         this.index = index;
         this.readBuffer = ByteBuffer.allocate(65536);
         this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
@@ -153,7 +149,7 @@ public class SelectorLoop implements Runnable {
 
                         if (key.isValid() && key.isConnectable()) {
                             // Only TCP connections have OP_CONNECT
-                            doConnect(key, (Connection) handler);
+                            doTcpEndpointConnect(key, (TCPEndpoint) handler);
                         }
                     }
                 } catch (CancelledKeyException e) {
@@ -238,13 +234,14 @@ public class SelectorLoop implements Runnable {
     private void doRead(SelectionKey key, ChannelHandler handler) {
         switch (handler.getChannelType()) {
             case TCP:
-                doTcpRead(key, (Connection) handler);
+                doTcpEndpointRead(key, (TCPEndpoint) handler);
                 break;
             case DATAGRAM_SERVER:
-                doDatagramServerRead(key, (DatagramServer) handler);
-                break;
             case DATAGRAM_CLIENT:
-                doDatagramClientRead(key, (DatagramClient) handler);
+                doUDPEndpointRead(key, (UDPEndpoint) handler);
+                break;
+            case QUIC:
+                doQuicRead(key, (QuicEngine) handler);
                 break;
         }
     }
@@ -252,20 +249,21 @@ public class SelectorLoop implements Runnable {
     private void doWrite(SelectionKey key, ChannelHandler handler) {
         switch (handler.getChannelType()) {
             case TCP:
-                doTcpWrite(key, (Connection) handler);
+                doTcpEndpointWrite(key, (TCPEndpoint) handler);
                 break;
             case DATAGRAM_SERVER:
-                doDatagramServerWrite(key, (DatagramServer) handler);
-                break;
             case DATAGRAM_CLIENT:
-                doDatagramClientWrite(key, (DatagramClient) handler);
+                doUDPEndpointWrite(key, (UDPEndpoint) handler);
+                break;
+            case QUIC:
+                doQuicWrite(key, (QuicEngine) handler);
                 break;
         }
     }
 
-    // -- TCP methods --
+    // -- TCPEndpoint methods --
 
-    private void doTcpRead(SelectionKey key, Connection connection) {
+    private void doTcpEndpointRead(SelectionKey key, TCPEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
         readBuffer.clear();
 
@@ -273,8 +271,7 @@ public class SelectorLoop implements Runnable {
             int len = sc.read(readBuffer);
 
             if (len == -1) {
-                // EOF - peer closed the connection
-                connection.handleEOF();
+                endpoint.handleEOF();
             } else if (len > 0) {
                 readBuffer.flip();
 
@@ -285,27 +282,23 @@ public class SelectorLoop implements Runnable {
                     LOGGER.finest(message);
                 }
 
-                // Append to connection's netIn buffer (handles growth if needed)
-                connection.appendToNetIn(readBuffer);
-                
-                // Flip netIn for reading and process
-                connection.netIn.flip();
-                connection.processInbound();
+                endpoint.appendToNetIn(readBuffer);
+                endpoint.netIn.flip();
+                endpoint.processInbound();
             }
         } catch (IOException e) {
-            connection.handleReadError(e);
+            endpoint.handleReadError(e);
         }
     }
 
-    private void doTcpWrite(SelectionKey key, Connection connection) {
+    private void doTcpEndpointWrite(SelectionKey key, TCPEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
-        ByteBuffer netOut = connection.getNetOut();
+        ByteBuffer netOut = endpoint.getNetOut();
 
         try {
-            synchronized (connection.netOutLock) {
-                // Flip netOut for reading (it's in write mode after appends)
+            synchronized (endpoint.netOutLock) {
                 netOut.flip();
-                
+
                 if (netOut.hasRemaining()) {
                     int len = sc.write(netOut);
 
@@ -317,37 +310,34 @@ public class SelectorLoop implements Runnable {
                     }
 
                     if (netOut.hasRemaining()) {
-                        // Socket buffer full - compact and wait for next OP_WRITE
                         netOut.compact();
                         return;
                     }
                 }
-                
-                // All data written - clear buffer and OP_WRITE interest
+
                 netOut.clear();
             }
-            
-            // Check if close was requested
-            if (connection.closeRequested) {
-                connection.doClose();
+
+            if (endpoint.closeRequested) {
+                endpoint.doClose();
                 key.cancel();
                 return;
             }
-            
+
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
 
         } catch (IOException e) {
-            connection.handleWriteError(e);
+            endpoint.handleWriteError(e);
         }
     }
 
-    private void doConnect(SelectionKey key, Connection connection) {
+    private void doTcpEndpointConnect(SelectionKey key, TCPEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
 
         try {
             if (sc.finishConnect()) {
-                // Remove OP_CONNECT, add OP_READ
-                key.interestOps((key.interestOps() & ~SelectionKey.OP_CONNECT) | SelectionKey.OP_READ);
+                key.interestOps((key.interestOps() & ~SelectionKey.OP_CONNECT)
+                        | SelectionKey.OP_READ);
 
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     String message = Gumdrop.L10N.getString("info.connected");
@@ -355,158 +345,125 @@ public class SelectorLoop implements Runnable {
                     LOGGER.finest(message);
                 }
 
-                connection.connected();
+                endpoint.connected();
+                endpoint.initiateClientTLSHandshake();
             }
         } catch (IOException e) {
-            connection.handleConnectError(e);
+            endpoint.handleConnectError(e);
         }
     }
 
-    // -- Datagram Server methods --
+    // -- UDPEndpoint methods --
 
-    private void doDatagramServerRead(SelectionKey key, DatagramServer server) {
+    private void doUDPEndpointRead(SelectionKey key,
+                                         UDPEndpoint endpoint) {
         DatagramChannel dc = (DatagramChannel) key.channel();
-        server.netIn.clear();
+        endpoint.netIn.clear();
 
         try {
-            InetSocketAddress source = (InetSocketAddress) dc.receive(server.netIn);
+            InetSocketAddress source =
+                    (InetSocketAddress) dc.receive(endpoint.netIn);
             if (source == null) {
                 return;
             }
 
-            server.netIn.flip();
+            endpoint.netIn.flip();
 
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                String message = Gumdrop.L10N.getString("info.received");
-                message = MessageFormat.format(message, server.netIn.remaining(), source);
-                LOGGER.finest(message);
-            }
-
-            server.netReceive(server.netIn, source);
-
-        } catch (IOException e) {
-            server.handleReadError(e);
-        }
-    }
-
-    private void doDatagramServerWrite(SelectionKey key, DatagramServer server) {
-        DatagramChannel dc = (DatagramChannel) key.channel();
-
-        try {
-            // Process queued datagrams
-            DatagramServer.PendingDatagram pending;
-            while ((pending = server.pendingDatagrams.poll()) != null) {
-                ByteBuffer data = pending.data;
-                InetSocketAddress dest = pending.destination;
-                
-                int len = dc.send(data, dest);
-
-                if (LOGGER.isLoggable(Level.FINEST)) {
-                    String message = Gumdrop.L10N.getString("info.sent");
-                    message = MessageFormat.format(message, len, dest);
-                    LOGGER.finest(message);
-                }
-
-                if (data.hasRemaining()) {
-                    // Couldn't send all data - re-queue at front and return
-                    server.pendingDatagrams.addFirst(pending);
-                    return;
-                }
-            }
-
-            // All data written, clear OP_WRITE interest
-            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
-
-        } catch (IOException e) {
-            server.handleWriteError(e);
-        }
-    }
-
-    // -- Datagram Client methods --
-
-    private void doDatagramClientRead(SelectionKey key, DatagramClient client) {
-        DatagramChannel dc = (DatagramChannel) key.channel();
-        client.netIn.clear();
-
-        try {
-            // For connected channel, receive() returns null for address
-            dc.receive(client.netIn);
-            client.netIn.flip();
-
-            if (!client.netIn.hasRemaining()) {
+            if (!endpoint.netIn.hasRemaining()) {
                 return;
             }
 
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String message = Gumdrop.L10N.getString("info.received");
-                message = MessageFormat.format(message, client.netIn.remaining(), client.getRemoteAddress());
+                message = MessageFormat.format(message,
+                        endpoint.netIn.remaining(), source);
                 LOGGER.finest(message);
             }
 
-            client.netReceive(client.netIn);
+            endpoint.netReceive(endpoint.netIn, source);
 
         } catch (IOException e) {
-            client.handleReadError(e);
+            LOGGER.log(Level.WARNING,
+                    "Error reading from datagram endpoint", e);
+            endpoint.close();
         }
     }
 
-    private void doDatagramClientWrite(SelectionKey key, DatagramClient client) {
+    private void doUDPEndpointWrite(SelectionKey key,
+                                          UDPEndpoint endpoint) {
         DatagramChannel dc = (DatagramChannel) key.channel();
 
         try {
-            // Process queued datagrams
-            ByteBuffer data;
-            while ((data = client.pendingDatagrams.poll()) != null) {
-                int len = dc.write(data);  // Connected channel, no address needed
+            UDPEndpoint.PendingDatagram pending;
+            while ((pending = endpoint.pendingDatagrams.poll()) != null) {
+                ByteBuffer data = pending.data;
+                InetSocketAddress dest = pending.destination;
+
+                int len;
+                if (dest != null) {
+                    len = dc.send(data, dest);
+                } else {
+                    len = dc.write(data);
+                }
 
                 if (LOGGER.isLoggable(Level.FINEST)) {
+                    Object target = dest != null ? dest
+                            : endpoint.getRemoteAddress();
                     String message = Gumdrop.L10N.getString("info.sent");
-                    message = MessageFormat.format(message, len, client.getRemoteAddress());
+                    message = MessageFormat.format(message, len, target);
                     LOGGER.finest(message);
                 }
 
                 if (data.hasRemaining()) {
-                    // Couldn't send all data - re-queue at front and return
-                    client.pendingDatagrams.addFirst(data);
+                    endpoint.pendingDatagrams.addFirst(pending);
                     return;
                 }
             }
 
-            // All data written, clear OP_WRITE interest
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
 
         } catch (IOException e) {
-            client.handleWriteError(e);
+            LOGGER.log(Level.WARNING,
+                    "Error writing to datagram endpoint", e);
+            endpoint.close();
         }
+    }
+
+    // -- QUIC methods --
+
+    private void doQuicRead(SelectionKey key, QuicEngine engine) {
+        engine.onReadable();
+    }
+
+    private void doQuicWrite(SelectionKey key, QuicEngine engine) {
+        engine.onWritable();
     }
 
     // -- Registration methods --
 
     /**
-     * Registers a new TCP connection with this SelectorLoop.
-     * Called by AcceptSelectorLoop to hand off a newly accepted connection.
+     * Registers a TCPEndpoint with this SelectorLoop.
      * Thread-safe.
      *
      * @param channel the socket channel
-     * @param connection the connection object
+     * @param endpoint the TCPEndpoint
      */
-    void register(SocketChannel channel, Connection connection) {
-        pendingRegistrations.add(new PendingRegistration(channel, connection, false));
+    void register(SocketChannel channel, TCPEndpoint endpoint) {
+        pendingRegistrations.add(new PendingRegistration(channel, endpoint, false));
         if (selector != null) {
             selector.wakeup();
         }
     }
 
     /**
-     * Registers a TCP client connection for CONNECT events.
-     * Used for outbound connections (e.g., SMTP relay).
+     * Registers a TCPEndpoint for CONNECT events.
      * Thread-safe.
      *
      * @param channel the socket channel
-     * @param connection the connection object
+     * @param endpoint the TCPEndpoint
      */
-    void registerForConnect(SocketChannel channel, Connection connection) {
-        pendingRegistrations.add(new PendingRegistration(channel, connection, true));
+    void registerForConnect(SocketChannel channel, TCPEndpoint endpoint) {
+        pendingRegistrations.add(new PendingRegistration(channel, endpoint, true));
         if (selector != null) {
             selector.wakeup();
         }
@@ -519,7 +476,7 @@ public class SelectorLoop implements Runnable {
      * @param channel the datagram channel
      * @param handler the datagram server or client
      */
-    void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
+    public void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
         pendingRegistrations.add(new PendingRegistration(channel, handler, false));
         if (selector != null) {
             selector.wakeup();
@@ -553,14 +510,13 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Requests OP_WRITE interest for a TCP connection.
-     * Called when a connection has data to send.
+     * Requests OP_WRITE interest for a TCPEndpoint.
      * May be called from any thread.
      *
-     * @param connection the connection with pending data
+     * @param endpoint the endpoint with pending data
      */
-    void requestWrite(Connection connection) {
-        requestWriteInternal(connection);
+    void requestWrite(TCPEndpoint endpoint) {
+        requestWriteInternal(endpoint);
     }
 
     /**
@@ -570,7 +526,7 @@ public class SelectorLoop implements Runnable {
      *
      * @param handler the handler with pending data
      */
-    void requestDatagramWrite(ChannelHandler handler) {
+    public void requestDatagramWrite(ChannelHandler handler) {
         requestWriteInternal(handler);
     }
 
@@ -591,7 +547,7 @@ public class SelectorLoop implements Runnable {
     /**
      * Shuts down this SelectorLoop.
      */
-    void shutdown() {
+    public void shutdown() {
         active = false;
         if (selector != null) {
             selector.wakeup();

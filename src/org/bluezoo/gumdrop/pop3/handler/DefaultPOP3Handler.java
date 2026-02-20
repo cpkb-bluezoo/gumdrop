@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3.handler;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -55,7 +55,7 @@ import java.util.logging.Logger;
  * </ul>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DefaultPOP3HandlerFactory
+ * @see org.bluezoo.gumdrop.pop3.DefaultPOP3Service
  */
 public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler, 
         TransactionHandler {
@@ -76,7 +76,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     // ============== ClientConnected ==============
 
     @Override
-    public void connected(ConnectionInfo info, ConnectedState state) {
+    public void connected(ConnectedState state, Endpoint endpoint) {
         state.acceptConnection(greeting, this);
     }
 
@@ -88,8 +88,8 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     // ============== AuthorizationHandler ==============
 
     @Override
-    public void authenticate(Principal principal, MailboxFactory mailboxFactory,
-                             AuthenticateState state) {
+    public void authenticate(AuthenticateState state, Principal principal,
+                             MailboxFactory mailboxFactory) {
         try {
             MailboxStore store = mailboxFactory.createStore();
             store.open(principal.getName());
@@ -110,7 +110,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     // ============== TransactionHandler ==============
 
     @Override
-    public void mailboxStatus(Mailbox mailbox, MailboxStatusState state) {
+    public void mailboxStatus(MailboxStatusState state, Mailbox mailbox) {
         try {
             int count = mailbox.getMessageCount();
             long size = mailbox.getMailboxSize();
@@ -122,7 +122,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void list(Mailbox mailbox, int messageNumber, ListState state) {
+    public void list(ListState state, Mailbox mailbox, int messageNumber) {
         try {
             if (messageNumber > 0) {
                 // Single message listing
@@ -155,7 +155,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void retrieveMessage(Mailbox mailbox, int messageNumber, RetrieveState state) {
+    public void retrieveMessage(RetrieveState state, Mailbox mailbox, int messageNumber) {
         try {
             MessageDescriptor msg = mailbox.getMessage(messageNumber);
             if (msg == null) {
@@ -173,7 +173,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void markDeleted(Mailbox mailbox, int messageNumber, MarkDeletedState state) {
+    public void markDeleted(MarkDeletedState state, Mailbox mailbox, int messageNumber) {
         try {
             MessageDescriptor msg = mailbox.getMessage(messageNumber);
             if (msg == null) {
@@ -191,7 +191,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void reset(Mailbox mailbox, ResetState state) {
+    public void reset(ResetState state, Mailbox mailbox) {
         try {
             mailbox.undeleteAll();
             int count = mailbox.getMessageCount();
@@ -204,7 +204,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void top(Mailbox mailbox, int messageNumber, int lines, TopState state) {
+    public void top(TopState state, Mailbox mailbox, int messageNumber, int lines) {
         try {
             MessageDescriptor msg = mailbox.getMessage(messageNumber);
             if (msg == null) {
@@ -222,7 +222,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void uidl(Mailbox mailbox, int messageNumber, UidlState state) {
+    public void uidl(UidlState state, Mailbox mailbox, int messageNumber) {
         try {
             if (messageNumber > 0) {
                 // Single message UID
@@ -256,7 +256,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     }
 
     @Override
-    public void quit(Mailbox mailbox, UpdateState state) {
+    public void quit(UpdateState state, Mailbox mailbox) {
         try {
             mailbox.close(true); // Expunge on close
             state.commitAndClose();

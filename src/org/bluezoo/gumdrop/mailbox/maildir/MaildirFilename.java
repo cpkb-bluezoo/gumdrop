@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.mailbox.maildir;
 
 import org.bluezoo.gumdrop.mailbox.Flag;
 
-import java.lang.management.ManagementFactory;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
@@ -70,21 +69,7 @@ public class MaildirFilename {
     private static final AtomicLong COUNTER = new AtomicLong(0);
 
     static {
-        // Get process ID using RuntimeMXBean (Java 8 compatible)
-        String pid;
-        try {
-            String runtimeName = ManagementFactory.getRuntimeMXBean().getName();
-            int atIndex = runtimeName.indexOf('@');
-            if (atIndex > 0) {
-                pid = runtimeName.substring(0, atIndex);
-            } else {
-                pid = runtimeName;
-            }
-        } catch (Exception e) {
-            // Last resort - use a random value
-            pid = String.valueOf(System.nanoTime() % 100000);
-        }
-        PID = pid;
+        PID = String.valueOf(ProcessHandle.current().pid());
     }
 
     private final long timestamp;

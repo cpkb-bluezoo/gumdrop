@@ -26,8 +26,8 @@ import java.nio.ByteBuffer;
 /**
  * Represents an HTTP request to be sent by an HTTP client.
  *
- * <p>Instances are obtained from an {@link HTTPClientSession} via factory methods
- * like {@link HTTPClientSession#get(String)}, {@link HTTPClientSession#post(String)}, etc.
+ * <p>Instances are obtained from an {@link HTTPClientProtocolHandler} via factory methods
+ * like {@link HTTPClientProtocolHandler#get(String)}, {@link HTTPClientProtocolHandler#post(String)}, etc.
  * The request is configured by calling setter methods, then sent via {@link #send(HTTPResponseHandler)}
  * or {@link #startRequestBody(HTTPResponseHandler)}.
  *
@@ -76,7 +76,7 @@ import java.nio.ByteBuffer;
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPClientSession
+ * @see HTTPClientProtocolHandler
  * @see HTTPResponseHandler
  */
 public interface HTTPRequest {

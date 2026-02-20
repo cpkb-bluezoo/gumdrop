@@ -282,8 +282,8 @@ Note that all filters in the filter chain must also have
 
 <p>
 Gumdrop implements the Servlet 4.0 specification, providing modern HTTP features
-that leverage HTTP/2 capabilities. These features work transparently with
-Gumdrop's <a href="http.html#server-handler">HTTP Server Handler API</a>.
+that leverage HTTP/3 and HTTP/2 capabilities. These features work transparently
+with Gumdrop&rsquo;s <a href="http.html#server-handler">HTTP Server Handler API</a>.
 </p>
 
 <h4>HTTP/2 Server Push (PushBuilder)</h4>
@@ -420,8 +420,8 @@ public class MyWebSocketHandler implements HttpUpgradeHandler {
 </pre>
 
 <p>
-For most WebSocket applications, consider using Gumdrop's native
-<a href="http.html#websocket">WebSocket API</a> directly, which provides
+For most WebSocket applications, consider using Gumdrop&rsquo;s native
+<a href="websocket.html">WebSocket API</a> directly, which provides
 a simpler event-driven model. The Servlet upgrade API is primarily useful
 for applications that need to maintain Servlet API compatibility.
 </p>
@@ -469,8 +469,8 @@ change (default: <code>true</code>)</li>
 <h4>Servlet Server Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.servlet.ServletServer</code> extends the base
-HTTP server with servlet-specific configuration:
+<code>org.bluezoo.gumdrop.servlet.ServletService</code> is the HTTP
+application service for the servlet container:
 </p>
 
 <ul>
@@ -489,10 +489,45 @@ independent tuning based on workload characteristics.
 </p>
 
 <p>
-The servlet server inherits from the base Gumdrop HTTP server which it uses for
-all the protocol level, thus benefiting from features such as
-<a href="http.html#http2">HTTP/2</a> (including HPACK header compression,
-stream multiplexing, and flow control), chunked encoding, HTTPS, and
+Because the servlet container is an HTTP service, it inherits Gumdrop&rsquo;s
+full transport and protocol independence layer. This means the servlet
+container can serve applications over <a href="http.html#http3">HTTP/3</a>
+(QUIC), <a href="http.html#http2">HTTP/2</a>, and HTTP/1.1 simply by
+configuring the appropriate listeners. Adding an <code>HTTP3Listener</code>
+alongside an <code>HTTPListener</code> is all that is required to enable
+HTTP/3 for servlet applications:
+</p>
+
+<pre>
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+  &lt;property name="container" ref="#container"/&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+  &lt;/listener&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
+    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+Mainstream servlet containers such as Apache Tomcat, GlassFish, and Undertow
+do not support HTTP/3 natively, typically requiring a reverse proxy to
+terminate QUIC connections. Gumdrop&rsquo;s architecture makes this
+unnecessary: servlets, filters, and JSP pages operate identically regardless
+of the underlying HTTP version, benefiting from HTTP/3&rsquo;s reduced
+latency and elimination of head-of-line blocking without any code changes.
+</p>
+
+<p>
+The servlet container also benefits from HTTP/2 features including HPACK
+header compression, stream multiplexing, flow control, and server push, as
+well as chunked encoding, HTTPS, and
 <a href="telemetry.html">OpenTelemetry integration</a>. See the
 <a href="http.html">HTTP documentation</a> for details on the underlying
 HTTP implementation.
@@ -1176,6 +1211,7 @@ expressions, directives, JSTL usage, custom tags, and EL expressions, see the
 <p>
 <a href="index.html">&larr; Back to Main Page</a> |
 <a href="http.html">HTTP Server &amp; Client</a> |
+<a href="websocket.html">WebSocket Service &amp; Client</a> |
 <a href="smtp.html">SMTP Server &amp; Client</a> |
 <a href="imap.html">IMAP Server</a> |
 <a href="pop3.html">POP3 Server</a> |

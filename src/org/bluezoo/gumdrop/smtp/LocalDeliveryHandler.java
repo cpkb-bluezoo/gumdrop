@@ -31,8 +31,8 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.smtp.handler.*;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
@@ -54,7 +54,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  *
  * <p>This handler requires:
  * <ul>
- *   <li>A {@link MailboxFactory} - set via constructor or factory</li>
+ *   <li>A {@link MailboxFactory} - set via constructor or service</li>
  *   <li>A local domain - the domain this server accepts mail for</li>
  * </ul>
  *
@@ -121,7 +121,7 @@ public class LocalDeliveryHandler
     // ═══════════════════════════════════════════════════════════════════════
 
     @Override
-    public void connected(ConnectionInfo info, ConnectedState state) {
+    public void connected(ConnectedState state, Endpoint endpoint) {
         state.acceptConnection(hostname + " ESMTP Service ready", this);
     }
 
@@ -136,17 +136,17 @@ public class LocalDeliveryHandler
     // ═══════════════════════════════════════════════════════════════════════
 
     @Override
-    public void hello(boolean extended, String hostname, HelloState state) {
+    public void hello(HelloState state, boolean extended, String hostname) {
         state.acceptHello(this);
     }
 
     @Override
-    public void tlsEstablished(TLSInfo tlsInfo) {
+    public void tlsEstablished(SecurityInfo securityInfo) {
         // TLS established - nothing special to do
     }
 
     @Override
-    public void authenticated(Principal principal, AuthenticateState state) {
+    public void authenticated(AuthenticateState state, Principal principal) {
         // Accept any authenticated principal for local delivery
         state.accept(this);
     }
@@ -166,8 +166,8 @@ public class LocalDeliveryHandler
     }
 
     @Override
-    public void mailFrom(EmailAddress sender, boolean smtputf8,
-                         DeliveryRequirements deliveryRequirements, MailFromState state) {
+    public void mailFrom(MailFromState state, EmailAddress sender, boolean smtputf8,
+                         DeliveryRequirements deliveryRequirements) {
         this.sender = sender;
         this.recipients.clear();
         this.messageBuffer = new ByteArrayOutputStream();
@@ -185,7 +185,7 @@ public class LocalDeliveryHandler
     // ═══════════════════════════════════════════════════════════════════════
 
     @Override
-    public void rcptTo(EmailAddress recipient, MailboxFactory factory, RecipientState state) {
+    public void rcptTo(RecipientState state, EmailAddress recipient, MailboxFactory factory) {
         // Check if recipient is in local domain
         String domain = recipient.getDomain();
         if (domain == null || !domain.toLowerCase().equals(localDomain)) {

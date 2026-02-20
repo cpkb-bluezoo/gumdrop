@@ -30,7 +30,7 @@ import java.nio.channels.SelectionKey;
  *
  * <p>Implementations include:
  * <ul>
- * <li>{@link Connection} - TCP stream connections</li>
+ * <li>{@link TCPEndpoint} - TCP stream endpoints</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -46,7 +46,9 @@ public interface ChannelHandler {
         /** UDP server using unconnected DatagramChannel */
         DATAGRAM_SERVER,
         /** UDP client using connected DatagramChannel */
-        DATAGRAM_CLIENT
+        DATAGRAM_CLIENT,
+        /** QUIC engine managing connections over DatagramChannel */
+        QUIC
     }
 
     /**

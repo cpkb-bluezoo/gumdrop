@@ -262,35 +262,40 @@ servers:
     &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
 &lt;/mailboxFactory&gt;
 
-&lt;!-- IMAP server using Maildir --&gt;
-&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="port"&gt;143&lt;/property&gt;
+&lt;!-- IMAP service using Maildir --&gt;
+&lt;service class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
     &lt;property name="mailbox-factory" ref="#maildirFactory"/&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="143"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="993"
+            secure="true"/&gt;
+&lt;/service&gt;
 
-&lt;!-- POP3 server using mbox --&gt;
-&lt;server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
-    &lt;property name="port"&gt;110&lt;/property&gt;
+&lt;!-- POP3 service using mbox --&gt;
+&lt;service class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service"&gt;
     &lt;property name="mailbox-factory" ref="#mboxFactory"/&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener" port="110"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener" port="995"
+            secure="true"/&gt;
+&lt;/service&gt;
 </pre>
 
 <p>
-SMTP servers can also reference a mailbox factory for local delivery:
+SMTP services can also reference a mailbox factory for local delivery:
 </p>
 
 <pre>
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="handler-factory" ref="#localDeliveryHandler"/&gt;
-&lt;/server&gt;
+&lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryService"&gt;
+    &lt;property name="mailbox-factory" ref="#mboxFactory"/&gt;
+    &lt;property name="local-domain"&gt;example.com&lt;/property&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+&lt;/service&gt;
 </pre>
 
 <p>
-The SMTP handler factory can then use the mailbox factory to deliver messages
-to local recipients.
+The <code>LocalDeliveryService</code> uses the mailbox factory to deliver
+messages to local recipients.
 </p>
 
 <h3 id="mbox">Mbox Implementation</h3>

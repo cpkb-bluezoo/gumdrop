@@ -50,9 +50,9 @@ import java.util.logging.Logger;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for POP3Server with real mailbox stores.
- * 
- * <p>Tests POP3Server instances with both mbox and Maildir mailbox backends
+ * Integration test for POP3Listener with real mailbox stores.
+ *
+ * <p>Tests POP3Listener instances with both mbox and Maildir mailbox backends
  * using real network connections. Each mailbox contains 2 test messages:
  * <ul>
  *   <li>Message 1: "Welcome to Gumdrop!"</li>
@@ -78,8 +78,8 @@ public class POP3ServerIntegrationTest {
         .build();
     
     private Gumdrop gumdrop;
-    private POP3Server mboxServer;
-    private POP3Server maildirServer;
+    private POP3Listener mboxServer;
+    private POP3Listener maildirServer;
     
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -100,7 +100,7 @@ public class POP3ServerIntegrationTest {
         TestRealm realm = new TestRealm();
         
         // Create mbox server
-        mboxServer = new POP3Server();
+        mboxServer = new POP3Listener();
         mboxServer.setPort(MBOX_PORT);
         mboxServer.setAddresses("127.0.0.1");
         mboxServer.setEnableAPOP(false);
@@ -108,7 +108,7 @@ public class POP3ServerIntegrationTest {
         mboxServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         
         // Create Maildir server
-        maildirServer = new POP3Server();
+        maildirServer = new POP3Listener();
         maildirServer.setPort(MAILDIR_PORT);
         maildirServer.setAddresses("127.0.0.1");
         maildirServer.setEnableAPOP(false);
@@ -118,8 +118,8 @@ public class POP3ServerIntegrationTest {
         // Start servers using singleton with lifecycle management
         System.setProperty("gumdrop.workers", "2");
         gumdrop = Gumdrop.getInstance();
-        gumdrop.addServer(mboxServer);
-        gumdrop.addServer(maildirServer);
+        gumdrop.addListener(mboxServer);
+        gumdrop.addListener(maildirServer);
         gumdrop.start();
         
         // Wait for servers to be ready

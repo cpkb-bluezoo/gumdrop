@@ -78,7 +78,7 @@ public abstract class AbstractServerIntegrationTest {
     
     protected Gumdrop gumdrop;
     protected ComponentRegistry registry;
-    protected Collection<Server> servers;
+    protected Collection<TCPListener> servers;
     
     /** Test context for diagnostics and utilities */
     protected final IntegrationTestContext testContext = IntegrationTestContext.getInstance();
@@ -170,7 +170,7 @@ public abstract class AbstractServerIntegrationTest {
         // Parse configuration
         ParseResult result = new ConfigurationParser().parse(configFile);
         registry = result.getRegistry();
-        servers = result.getServers();
+        servers = result.getListeners();
         
         // Verify we have servers
         if (servers == null || servers.isEmpty()) {
@@ -180,7 +180,7 @@ public abstract class AbstractServerIntegrationTest {
         }
         
         // Log server details
-        for (Server server : servers) {
+        for (TCPListener server : servers) {
             String addr = "127.0.0.1:" + server.getPort();
             serverAddresses.add(addr);
             testContext.logEvent("SERVER_CONFIG", server.getClass().getSimpleName() + " on " + addr);
@@ -191,8 +191,8 @@ public abstract class AbstractServerIntegrationTest {
         
         // Get the Gumdrop singleton and add servers
         gumdrop = Gumdrop.getInstance();
-        for (Server server : servers) {
-            gumdrop.addServer(server);
+        for (TCPListener server : servers) {
+            gumdrop.addListener(server);
         }
         
         try {
@@ -273,7 +273,7 @@ public abstract class AbstractServerIntegrationTest {
             boolean allReady = true;
             StringBuilder status = new StringBuilder();
             
-            for (Server server : servers) {
+            for (TCPListener server : servers) {
                 int port = server.getPort();
                 boolean listening = isPortListening("127.0.0.1", port);
                 status.append(server.getClass().getSimpleName())
@@ -298,7 +298,7 @@ public abstract class AbstractServerIntegrationTest {
         
         // Build detailed failure message
         StringBuilder msg = new StringBuilder("Server failed to start within timeout:\n");
-        for (Server server : servers) {
+        for (TCPListener server : servers) {
             int port = server.getPort();
             boolean listening = isPortListening("127.0.0.1", port);
             msg.append("  ").append(server.getClass().getSimpleName())
@@ -367,7 +367,7 @@ public abstract class AbstractServerIntegrationTest {
             StringBuilder diag = new StringBuilder();
             diag.append("Assertion failed: ").append(message).append("\n");
             diag.append("Server status:\n");
-            for (Server server : servers) {
+            for (TCPListener server : servers) {
                 int port = server.getPort();
                 boolean listening = isPortListening("127.0.0.1", port);
                 diag.append("  ").append(server.getClass().getSimpleName())

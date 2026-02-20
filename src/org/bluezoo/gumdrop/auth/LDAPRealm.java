@@ -34,9 +34,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TLSInfo;
 import org.bluezoo.gumdrop.ldap.client.BindResultHandler;
 import org.bluezoo.gumdrop.ldap.client.LDAPClient;
 import org.bluezoo.gumdrop.ldap.client.LDAPConnected;
@@ -352,7 +352,7 @@ public class LDAPRealm implements Realm {
             }
 
             @Override
-            public void onConnected(ConnectionInfo info) {
+            public void onConnected(Endpoint endpoint) {
                 // Connection established
             }
 
@@ -368,8 +368,8 @@ public class LDAPRealm implements Realm {
             }
 
             @Override
-            public void onTLSStarted(TLSInfo info) {
-                // TLS established
+            public void onSecurityEstablished(SecurityInfo info) {
+                // Security established
             }
         });
 
@@ -415,7 +415,7 @@ public class LDAPRealm implements Realm {
             }
 
             @Override
-            public void onConnected(ConnectionInfo info) {
+            public void onConnected(Endpoint endpoint) {
                 // Connection established
             }
 
@@ -431,8 +431,8 @@ public class LDAPRealm implements Realm {
             }
 
             @Override
-            public void onTLSStarted(TLSInfo info) {
-                // TLS established
+            public void onSecurityEstablished(SecurityInfo info) {
+                // Security established
             }
         });
 
@@ -515,7 +515,7 @@ public class LDAPRealm implements Realm {
             }
 
             @Override
-            public void onConnected(ConnectionInfo info) {
+            public void onConnected(Endpoint endpoint) {
                 // Connection established
             }
 
@@ -531,8 +531,8 @@ public class LDAPRealm implements Realm {
             }
 
             @Override
-            public void onTLSStarted(TLSInfo info) {
-                // TLS established
+            public void onSecurityEstablished(SecurityInfo info) {
+                // Security established
             }
         });
 

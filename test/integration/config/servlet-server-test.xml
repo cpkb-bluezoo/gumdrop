@@ -2,14 +2,12 @@
 <!--
   Servlet container integration test configuration.
   
-  This configuration sets up a ServletServer with a test web application
+  This configuration sets up a ServletService with a test web application
   for integration testing.
 -->
 <gumdrop>
-    <!-- Servlet container on port 19080 -->
-    <server id="testServlet" class="org.bluezoo.gumdrop.servlet.ServletServer">
-        <property name="port">19080</property>
-        <property name="addresses">127.0.0.1</property>
+    <!-- Servlet container -->
+    <service id="testServlet" class="org.bluezoo.gumdrop.servlet.ServletService">
         <property name="bufferSize">8192</property>
         
         <!-- Container configuration -->
@@ -20,6 +18,12 @@
                 </context>
             </container>
         </property>
-    </server>
+
+        <!-- TCP listener -->
+        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+            <property name="port">19080</property>
+            <property name="addresses">127.0.0.1</property>
+        </listener>
+    </service>
 </gumdrop>
 

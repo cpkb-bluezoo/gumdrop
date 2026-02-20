@@ -21,62 +21,62 @@
 
 package org.bluezoo.gumdrop.buffer;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.SecurityInfo;
 
-import java.nio.channels.SocketChannel;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import javax.net.ssl.SSLEngine;
-
 /**
  * A minimal test server for buffer handling integration tests.
- * 
+ *
  * <p>This server creates {@link BufferTestConnection} instances that look
  * for complete message patterns, testing underflow data handling when
  * messages are split across TCP reads.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class BufferTestServer extends Server {
-    
+public class BufferTestServer extends TCPListener {
+
     private int port = 19080;
-    
+
     /** The message pattern to look for. Default is "0123456789". */
     private byte[] messagePattern = "0123456789".getBytes();
-    
+
     /** Track all created connections for test inspection */
     private final List<BufferTestConnection> connections;
-    
+
     public BufferTestServer() {
         super();
         this.connections = Collections.synchronizedList(new ArrayList<BufferTestConnection>());
     }
-    
+
     @Override
-    protected int getPort() {
+    public int getPort() {
         return port;
     }
-    
+
     public void setPort(int port) {
         this.port = port;
     }
-    
+
     /**
      * Sets the message pattern that defines a complete message.
      * The connection will scan for and consume complete instances of this pattern.
-     * 
+     *
      * @param pattern the message pattern bytes
      */
     public void setMessagePattern(byte[] pattern) {
         this.messagePattern = pattern;
     }
-    
+
     /**
      * Sets the message pattern from a string.
-     * 
+     *
      * @param pattern the message pattern string (US-ASCII encoded)
      */
     public void setMessagePattern(String pattern) {
@@ -86,38 +86,40 @@ public class BufferTestServer extends Server {
             this.messagePattern = pattern.getBytes();
         }
     }
-    
+
     /**
      * Returns the message pattern that defines a complete message.
-     * 
+     *
      * @return the message pattern bytes
      */
     public byte[] getMessagePattern() {
         return messagePattern;
     }
-    
+
     @Override
-    protected Connection newConnection(SocketChannel channel, SSLEngine engine) {
-        BufferTestConnection connection = new BufferTestConnection(this, channel, engine, isSecure());
-        connections.add(connection);
-        return connection;
+    protected ProtocolHandler createHandler() {
+        return new BufferTestConnection(this);
     }
-    
+
     @Override
-    protected String getDescription() {
+    public String getDescription() {
         return "BufferTest";
     }
-    
+
+    void addConnection(BufferTestConnection connection) {
+        connections.add(connection);
+    }
+
     /**
      * Returns all connections created by this server.
      * Useful for test assertions.
-     * 
+     *
      * @return unmodifiable list of connections
      */
     public List<BufferTestConnection> getConnections() {
         return Collections.unmodifiableList(connections);
     }
-    
+
     /**
      * Clears the tracked connections.
      * Call before each test to reset state.

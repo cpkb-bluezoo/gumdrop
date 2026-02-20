@@ -21,73 +21,89 @@
 
 package org.bluezoo.gumdrop.buffer;
 
-import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLEngine;
-
 /**
  * Test connection that looks for complete messages and leaves incomplete data.
- * 
+ *
  * <p>This connection simulates a real message-based protocol. It scans the
  * buffer for complete message patterns, consumes all complete messages found,
  * and leaves any incomplete trailing data for the next receive() call.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class BufferTestConnection extends Connection {
-    
+public class BufferTestConnection implements ProtocolHandler {
+
     private static final Logger LOGGER = Logger.getLogger(BufferTestConnection.class.getName());
-    
+
     private final BufferTestServer server;
-    private final SocketChannel channel;
-    
+    private Endpoint endpoint;
+
     /** All complete messages received, in order */
     private final List<String> receivedMessages;
-    
+
     /** The bytes seen at the start of each receive() call (for debugging) */
     private final List<byte[]> receiveCallData;
-    
+
     /** Number of times receive() has been called */
     private int receiveCallCount;
-    
+
     /** Flag to track if connection was closed by peer */
     private volatile boolean peerClosed;
-    
+
     /**
      * Creates a new buffer test connection.
-     * 
+     *
      * @param server the parent server
-     * @param channel the socket channel
-     * @param engine the SSL engine (may be null)
-     * @param secure whether TLS is active immediately
      */
-    public BufferTestConnection(BufferTestServer server, SocketChannel channel, 
-                                 SSLEngine engine, boolean secure) {
-        super(engine, secure);
+    public BufferTestConnection(BufferTestServer server) {
         this.server = server;
-        this.channel = channel;
         this.receivedMessages = Collections.synchronizedList(new ArrayList<String>());
         this.receiveCallData = Collections.synchronizedList(new ArrayList<byte[]>());
         this.receiveCallCount = 0;
         this.peerClosed = false;
     }
-    
+
+    @Override
+    public void connected(Endpoint endpoint) {
+        this.endpoint = endpoint;
+        server.addConnection(this);
+    }
+
+    @Override
+    public void disconnected() {
+        peerClosed = true;
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Connection closed by peer after " + receiveCallCount + " receive calls");
+        }
+    }
+
+    @Override
+    public void securityEstablished(SecurityInfo info) {
+        // No-op for buffer test
+    }
+
+    @Override
+    public void error(Exception cause) {
+        peerClosed = true;
+    }
+
     /**
      * Receives data from the client.
-     * 
+     *
      * <p>This method looks for complete message patterns in the buffer,
      * consumes all complete messages found, and leaves any incomplete
      * trailing data for the next receive() call.
-     * 
+     *
      * @param data the application data received
      */
     @Override
@@ -95,41 +111,41 @@ public class BufferTestConnection extends Connection {
         receiveCallCount++;
         int available = data.remaining();
         byte[] messagePattern = server.getMessagePattern();
-        
+
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("receive() call #" + receiveCallCount + 
-                       ": available=" + available + 
+            LOGGER.fine("receive() call #" + receiveCallCount +
+                       ": available=" + available +
                        ", looking for pattern: " + new String(messagePattern));
         }
-        
+
         // Record the data at the start of this receive call (for test verification)
         byte[] snapshot = new byte[available];
         int originalPosition = data.position();
         data.get(snapshot);
         data.position(originalPosition); // Reset for actual consumption
         receiveCallData.add(snapshot);
-        
+
         // Consume all complete messages we can find
         int messagesFound = 0;
         while (data.remaining() >= messagePattern.length) {
             // Check if the next bytes match the message pattern
             boolean matches = true;
             int checkPos = data.position();
-            
+
             for (int i = 0; i < messagePattern.length; i++) {
                 if (data.get(checkPos + i) != messagePattern[i]) {
                     matches = false;
                     break;
                 }
             }
-            
+
             if (matches) {
                 // Found a complete message - consume it
                 byte[] message = new byte[messagePattern.length];
                 data.get(message);
                 receivedMessages.add(new String(message));
                 messagesFound++;
-                
+
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine("Found complete message #" + messagesFound);
                 }
@@ -139,28 +155,20 @@ public class BufferTestConnection extends Connection {
                 break;
             }
         }
-        
+
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("After consume: found " + messagesFound + " messages, " +
                        "remaining=" + data.remaining() + " bytes (incomplete)");
         }
-        
+
         // Note: We leave the buffer position where it is.
         // Any remaining bytes are incomplete message data that the
         // framework should preserve for the next receive() call.
     }
-    
-    @Override
-    protected void disconnected() throws IOException {
-        peerClosed = true;
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Connection closed by peer after " + receiveCallCount + " receive calls");
-        }
-    }
-    
+
     /**
      * Returns all complete messages received.
-     * 
+     *
      * @return list of received messages in order
      */
     public List<String> getReceivedMessages() {
@@ -168,19 +176,19 @@ public class BufferTestConnection extends Connection {
             return new ArrayList<String>(receivedMessages);
         }
     }
-    
+
     /**
      * Returns the total bytes consumed (complete messages only).
-     * 
+     *
      * @return total consumed byte count
      */
     public int getTotalBytesConsumed() {
         return receivedMessages.size() * server.getMessagePattern().length;
     }
-    
+
     /**
      * Returns the data snapshot from a specific receive() call.
-     * 
+     *
      * @param callIndex 0-based index of the receive() call
      * @return the bytes available at the start of that call, or null if invalid index
      */
@@ -192,25 +200,25 @@ public class BufferTestConnection extends Connection {
             return null;
         }
     }
-    
+
     /**
      * Returns the number of times receive() has been called.
-     * 
+     *
      * @return receive call count
      */
     public int getReceiveCallCount() {
         return receiveCallCount;
     }
-    
+
     /**
      * Returns true if the peer closed the connection.
-     * 
+     *
      * @return true if disconnected() was called
      */
     public boolean isPeerClosed() {
         return peerClosed;
     }
-    
+
     /**
      * Resets all recorded data for fresh testing.
      */

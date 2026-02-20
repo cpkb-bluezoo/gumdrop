@@ -53,13 +53,15 @@ implementation for developers building UDP-based services.
 <li><a href="#custom">Custom Resolution</a></li>
 <li><a href="#records">Record Types</a></li>
 <li><a href="#configuration">Configuration</a></li>
+<li><a href="#listeners">Listeners</a></li>
+<li><a href="#resolver">DNS Resolver (Client)</a></li>
 <li><a href="#udp">UDP Protocol Support</a></li>
 </ul>
 
 <h3 id="architecture">Architecture</h3>
 
 <p>
-The DNS server is built on Gumdrop's <code>DatagramServer</code> abstraction,
+The DNS server is built on Gumdrop's <code>UDPEndpoint</code> abstraction,
 which provides non-blocking UDP I/O using the same SelectorLoop architecture as
 TCP servers. Each DNS query arrives as a datagram, is parsed, processed, and
 the response is sent back—all within the event-driven framework.
@@ -79,7 +81,8 @@ the response is sent back—all within the event-driven framework.
 <h4>Core Components</h4>
 
 <ul>
-<li><code>DNSServer</code> - the main server class; handles queries and proxying</li>
+<li><code>DNSService</code> - the application service; handles queries, caching, and proxying</li>
+<li><code>DNSListener</code>, <code>DoTListener</code>, <code>DoQListener</code> - transport listeners (see <a href="#listeners">Listeners</a>)</li>
 <li><code>DNSMessage</code> - parses and serializes DNS wire format</li>
 <li><code>DNSQuestion</code> - represents a query question</li>
 <li><code>DNSResourceRecord</code> - represents answer records</li>
@@ -127,7 +130,7 @@ encrypted DNS for privacy-conscious deployments.
 <h3 id="custom">Custom Resolution</h3>
 
 <p>
-The DNS server is designed for extension. By subclassing <code>DNSServer</code>
+The DNS service is designed for extension. By subclassing <code>DNSService</code>
 and overriding the <code>resolve()</code> method, you can implement custom name
 resolution for any use case.
 </p>
@@ -155,11 +158,11 @@ makes it easy to:
 <h4>Example: Internal Domain Resolution</h4>
 
 <pre>
-public class InternalDNSServer extends DNSServer {
+public class InternalDNSService extends DNSService {
     
     private Map&lt;String, InetAddress&gt; internalHosts = new HashMap&lt;&gt;();
     
-    public InternalDNSServer() {
+    public InternalDNSService() {
         internalHosts.put("app.internal", InetAddress.getByName("10.0.1.10"));
         internalHosts.put("db.internal", InetAddress.getByName("10.0.1.20"));
         internalHosts.put("cache.internal", InetAddress.getByName("10.0.1.30"));
@@ -191,7 +194,7 @@ public class InternalDNSServer extends DNSServer {
 <h4>Example: DNS-Based Ad Blocking</h4>
 
 <pre>
-public class AdBlockingDNSServer extends DNSServer {
+public class AdBlockingDNSService extends DNSService {
     
     private Set&lt;String&gt; blockedDomains = new HashSet&lt;&gt;();
     
@@ -219,7 +222,7 @@ public class AdBlockingDNSServer extends DNSServer {
 <h4>Example: Dynamic Service Discovery</h4>
 
 <pre>
-public class ServiceDiscoveryDNS extends DNSServer {
+public class ServiceDiscoveryDNS extends DNSService {
     
     private ServiceRegistry registry;
     
@@ -279,44 +282,111 @@ record types:
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>DNSServer Properties</h4>
+<h4 id="listeners">Listeners</h4>
+
+<p>
+A DNSService can have <b>multiple listeners</b>. Each listener exposes the same
+resolution logic over a different transport. You can combine any of the following:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Listener</th><th>Class</th><th>Transport</th><th>Description</th></tr>
+<tr><td>DNSListener</td><td><code>org.bluezoo.gumdrop.dns.DNSListener</code></td><td>UDP</td><td>Standard DNS over UDP, default port 53</td></tr>
+<tr><td>DoTListener</td><td><code>org.bluezoo.gumdrop.dns.DoTListener</code></td><td>TCP + TLS</td><td>DNS over TLS (DoT), default port 853</td></tr>
+<tr><td>DoQListener</td><td><code>org.bluezoo.gumdrop.dns.DoQListener</code></td><td>QUIC</td><td>DNS over QUIC (DoQ), default port 853</td></tr>
+</table>
+
+<p>
+Configure one or more <code>&lt;listener&gt;</code> elements per service. For example,
+you can serve plain DNS on 5353 and DoT on 853 from the same service.
+</p>
+
+<h4>DNSService Properties</h4>
+
+<p>
+Property names use kebab-case in configuration; the dependency injection
+framework maps them to camelCase setters (e.g. <code>upstream-servers</code>
+&rarr; <code>setUpstreamServers</code>). Same convention as HTTP and other services.
+</p>
 
 <ul>
-<li><code>port</code> - listening port (default: 53)</li>
-<li><code>upstreamServers</code> - space-separated list of upstream DNS servers</li>
-<li><code>useSystemResolvers</code> - use <code>/etc/resolv.conf</code> nameservers
+<li><code>upstream-servers</code> - space-separated list of upstream DNS servers</li>
+<li><code>use-system-resolvers</code> - use <code>/etc/resolv.conf</code> nameservers
 (default: true)</li>
-<li><code>cacheEnabled</code> - enable response caching (default: true)</li>
+<li><code>cache-enabled</code> - enable response caching (default: true)</li>
 <li><code>addresses</code> - bind addresses (default: all interfaces)</li>
 </ul>
 
-<h4>DTLS Properties</h4>
+<h4>Listener Properties</h4>
 
 <ul>
-<li><code>secure</code> - enable DTLS (default: false)</li>
-<li><code>keyStore</code> - path to keystore file</li>
-<li><code>keyStorePassword</code> - keystore password</li>
-<li><code>needClientAuth</code> - require client certificates (default: false)</li>
+<li><code>port</code> - listening port (optional). If omitted, defaults are:
+    <code>DNSListener</code> 53, <code>DoTListener</code> 853, <code>DoQListener</code> 853.</li>
+</ul>
+
+<h4>TLS/DTLS Properties (DNSListener, DoTListener)</h4>
+
+<p>
+For UDP with DTLS and for DoT (TCP+TLS), use the same keystore properties as
+other TLS listeners (e.g. HTTP, SMTP):
+</p>
+
+<ul>
+<li><code>secure</code> - enable DTLS/TLS (default: false; DoTListener is always secure)</li>
+<li><code>keystore-file</code> - path to keystore file (e.g. PKCS12)</li>
+<li><code>keystore-pass</code> - keystore password</li>
+<li><code>need-client-auth</code> - require client certificates (default: false)</li>
+</ul>
+
+<h4>QUIC Properties (DoQListener)</h4>
+
+<p>
+DoQ uses QUIC (TLS 1.3 with PEM certs), like the HTTP/3 listener. Use
+<code>cert-file</code> and <code>key-file</code>, not keystore properties:
+</p>
+
+<ul>
+<li><code>cert-file</code> - path to certificate chain (PEM)</li>
+<li><code>key-file</code> - path to private key (PEM)</li>
 </ul>
 
 <h4>Example Configuration</h4>
 
 <pre>
 &lt;!-- DNS proxy on non-privileged port --&gt;
-&lt;server id="dns" class="org.bluezoo.gumdrop.dns.DNSServer"&gt;
-    &lt;property name="port"&gt;5353&lt;/property&gt;
+&lt;service id="dns" class="org.bluezoo.gumdrop.dns.DNSService"&gt;
     &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
     &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.dns.DNSListener"
+            port="5353"/&gt;
+&lt;/service&gt;
 
-&lt;!-- DNS over DTLS --&gt;
-&lt;server id="dns-secure" class="org.bluezoo.gumdrop.dns.DNSServer"&gt;
-    &lt;property name="port"&gt;853&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="key-store"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="key-store-password"&gt;secret&lt;/property&gt;
+&lt;!-- DNS with DoT listener (keystore-file / keystore-pass like HTTP/SMTP) --&gt;
+&lt;service id="dns-secure" class="org.bluezoo.gumdrop.dns.DNSService"&gt;
     &lt;property name="upstream-servers"&gt;8.8.8.8&lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.dns.DNSListener"
+            port="53"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.dns.DoTListener"
+            port="853" secure="true"
+            keystore-file="keystore.p12"
+            keystore-pass="secret"/&gt;
+&lt;/service&gt;
+
+&lt;!-- DNS with UDP, DoT, and DoQ listeners (DoQ uses cert-file / key-file like HTTP/3) --&gt;
+&lt;service id="dns-full" class="org.bluezoo.gumdrop.dns.DNSService"&gt;
+    &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
+    &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
+    &lt;listener class="org.bluezoo.gumdrop.dns.DNSListener"
+            port="5353"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.dns.DoTListener"
+            port="853" secure="true"
+            keystore-file="keystore.p12"
+            keystore-pass="secret"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.dns.DoQListener"
+            port="853" secure="true"
+            cert-file="cert.pem"
+            key-file="key.pem"/&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Upstream Server Format</h4>
@@ -332,44 +402,121 @@ Upstream servers can be specified with optional ports:
 <li><code>[2001:4860:4860::8888]:53</code> - IPv6 with port</li>
 </ul>
 
+<h3 id="resolver">DNS Resolver (Client)</h3>
+
+<p>
+<code>DNSResolver</code> is an <b>asynchronous DNS client</b> for outbound lookups.
+It uses non-blocking I/O and delivers results via the
+<code>DNSQueryCallback</code> interface. Use it when your Gumdrop service needs to resolve names (e.g. MX
+lookups for SMTP, TXT for SPF/DKIM/DMARC, or A/AAAA for connecting to backends).
+</p>
+
+<h4>Using DNSResolver Inside Gumdrop Services</h4>
+
+<p>
+You can configure a <code>DNSResolver</code> as a component and inject it into
+services that need DNS. The resolver runs on the event loop. When you set the
+resolver's SelectorLoop to match the handler's endpoint (see
+<b>SelectorLoop Affinity</b> below), callbacks are invoked on the same thread as
+the handler, so you can safely update handler state from the callback without
+extra locking.
+</p>
+
+<ul>
+<li><b>SMTP</b> – resolve MX records, TXT for SPF/DKIM/DMARC</li>
+<li><b>HTTP</b> – resolve backends, certificate hostnames</li>
+<li><b>Custom protocols</b> – any service that needs name resolution</li>
+</ul>
+
+<p>
+Configure upstream servers (e.g. <code>upstream-servers</code> or
+<code>use-system-resolvers</code>), then call <code>queryA</code>,
+<code>queryTXT</code>, <code>queryMX</code>, etc. with a
+<code>DNSQueryCallback</code>. Results and errors are delivered asynchronously.
+</p>
+
+<h4>SelectorLoop Affinity</h4>
+
+<p>
+When a <code>DNSResolver</code> is used from a Gumdrop service (e.g. an HTTP
+or SMTP handler), set the resolver's <b>SelectorLoop</b> to the same loop as the
+connection's endpoint. That way all DNS callbacks run on the same thread as the
+handler, avoiding cross-thread coordination.
+</p>
+
+<p>
+Call <code>setSelectorLoop(SelectorLoop)</code> with the endpoint's loop
+<em>before</em> calling <code>open()</code>. If you do not set a SelectorLoop,
+the resolver uses an arbitrary Gumdrop worker loop; callbacks will still be
+correct but may run on a different thread than the handler that started the
+query.
+</p>
+
+<pre>
+// In a handler that has access to the endpoint's SelectorLoop:
+SelectorLoop loop = endpoint.getSelectorLoop();
+resolver.setSelectorLoop(loop);
+resolver.open();
+
+resolver.queryTXT("_dmarc.example.com", new DNSQueryCallback() {
+    public void onResponse(DNSMessage response) {
+        // Runs on the same SelectorLoop thread as the handler
+        for (DNSResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() == DNSType.TXT) {
+                String txt = rr.getTxtData();
+                // Use result...
+            }
+        }
+    }
+    public void onError(String error) {
+        // Handle timeout or error
+    }
+});
+</pre>
+
+<p>
+In configuration, if your service obtains the resolver by reference (e.g. from
+the registry), the service's <code>init()</code> or the code that wires the
+resolver to the handler should set the SelectorLoop from the handler's
+endpoint when the first request arrives, or use a shared loop if your design
+assigns one loop per service.
+</p>
+
 <h3 id="udp">UDP Protocol Support</h3>
 
 <p>
 The DNS server showcases Gumdrop's UDP protocol support through the
-<code>DatagramServer</code> and <code>DatagramClient</code> abstractions.
-These classes demonstrate how to build UDP-based services within the
-event-driven framework.
+<code>UDPEndpoint</code> abstraction, created via <code>UDPTransportFactory</code>.
+This demonstrates how to build UDP-based services within the event-driven framework.
 </p>
 
-<h4>DatagramServer</h4>
+<h4>UDPEndpoint</h4>
 
 <p>
-<code>DatagramServer</code> is the UDP equivalent of <code>Server</code> for
-TCP. Unlike TCP, there are no per-client connection objects—the server receives
-datagrams directly and sends responses to the source address.
+<code>UDPEndpoint</code> is the UDP equivalent of <code>TCPEndpoint</code>.
+Unlike TCP, there are no per-client endpoint objects—the server receives
+datagrams directly and sends responses to the source address. A
+<code>UDPEndpoint</code> is created by adding a <code>UDPTransportFactory</code>
+to a <code>UDPListener</code>.
 </p>
 
 <pre>
-public abstract class DatagramServer {
+public abstract class UDPEndpoint extends Endpoint {
     
     // Override to handle incoming datagrams
     protected abstract void receive(ByteBuffer data, InetSocketAddress source);
     
     // Send a response datagram
-    public void send(ByteBuffer data, InetSocketAddress destination);
-    
-    // Server identification
-    protected abstract int getPort();
-    protected abstract String getDescription();
+    public void sendTo(ByteBuffer data, InetSocketAddress destination);
 }
 </pre>
 
 <h4>Key Differences from TCP</h4>
 
 <table border="1" cellpadding="5">
-<tr><th>Aspect</th><th>TCP (Server)</th><th>UDP (DatagramServer)</th></tr>
-<tr><td>Connection model</td><td>Per-client Connection objects</td>
-<td>Single server, multiple sources</td></tr>
+<tr><th>Aspect</th><th>TCP (TCPListener)</th><th>UDP (UDPEndpoint)</th></tr>
+<tr><td>Endpoint model</td><td>Per-client TCPEndpoint instances</td>
+<td>Single endpoint, multiple sources</td></tr>
 <tr><td>Message boundaries</td><td>Stream-based, must frame</td>
 <td>Preserved per datagram</td></tr>
 <tr><td>Reliability</td><td>Guaranteed delivery</td>
@@ -381,32 +528,34 @@ public abstract class DatagramServer {
 <h4>Building Custom UDP Services</h4>
 
 <p>
-The DNS server serves as a template for building other UDP-based services:
+The DNS server serves as a template for building other UDP-based services.
+Create a <code>UDPListener</code> with a <code>UDPTransportFactory</code>
+and provide an <code>ProtocolHandler</code> to process datagrams:
 </p>
 
 <pre>
-public class MyUDPService extends DatagramServer {
-    
-    @Override
-    protected int getPort() {
-        return 9000;
+UDPListener server = new UDPListener();
+server.setPort(9000);
+server.setDescription("my-service");
+server.setTransportFactory(new UDPTransportFactory());
+server.setHandlerFactory(new ProtocolHandlerFactory() {
+    public ProtocolHandler createHandler() {
+        return new MyUDPHandler();
     }
+});
+
+public class MyUDPHandler implements ProtocolHandler {
     
     @Override
-    protected String getDescription() {
-        return "my-service";
-    }
-    
-    @Override
-    protected void receive(ByteBuffer data, InetSocketAddress source) {
+    public void receive(ByteBuffer data, Endpoint endpoint) {
         // Parse the datagram
         MyProtocolMessage request = MyProtocolMessage.parse(data);
         
         // Process and generate response
         MyProtocolMessage response = process(request);
         
-        // Send response back to sender
-        send(response.serialize(), source);
+        // Send response back
+        endpoint.write(response.serialize());
     }
 }
 </pre>

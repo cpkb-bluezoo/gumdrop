@@ -96,7 +96,7 @@
  * </table>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.POP3Server
- * @see org.bluezoo.gumdrop.imap.IMAPServer
+ * @see org.bluezoo.gumdrop.pop3.POP3Listener
+ * @see org.bluezoo.gumdrop.imap.IMAPListener
  */
 package org.bluezoo.gumdrop.mailbox;

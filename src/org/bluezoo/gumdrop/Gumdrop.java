@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop;
 
 import java.io.File;
-import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,8 +49,8 @@ import java.util.logging.Logger;
  *
  * // Or configure programmatically
  * Gumdrop gumdrop = Gumdrop.getInstance();
- * gumdrop.addServer(new HTTPServer(8080));
- * gumdrop.addServer(new SMTPServer(25));
+ * gumdrop.addService(myServletService);
+ * gumdrop.addService(mySmtpService);
  *
  * // Start processing
  * gumdrop.start();
@@ -69,7 +68,7 @@ import java.util.logging.Logger;
  * <ul>
  *   <li>Infrastructure is created lazily on first {@code getInstance()} call</li>
  *   <li>{@code start()} begins event processing</li>
- *   <li>Auto-shutdown when no servers and no active handlers remain</li>
+ *   <li>Auto-shutdown when no server listeners and no active handlers remain</li>
  *   <li>Can restart after shutdown by calling {@code start()} again</li>
  *   <li>JVM shutdown hook ensures cleanup</li>
  * </ul>
@@ -78,7 +77,7 @@ import java.util.logging.Logger;
  */
 public class Gumdrop {
 
-    public static final String VERSION = "1.1";
+    public static final String VERSION = "2.0";
 
     /** Default worker count for client-only mode (no configuration). */
     private static final int CLIENT_MODE_WORKERS = 1;
@@ -92,8 +91,11 @@ public class Gumdrop {
     // Singleton instance
     private static Gumdrop instance;
 
-    // TCP servers (controls AcceptSelectorLoop lifecycle)
-    private final List<Server> servers;
+    // Services (own and manage their listeners)
+    private final List services;
+
+    // Server listeners (controls AcceptSelectorLoop lifecycle)
+    private final List<TCPListener> serverListeners;
 
     // Active channel handlers (controls worker/timer lifecycle)
     private final Set<ChannelHandler> activeHandlers;
@@ -119,8 +121,8 @@ public class Gumdrop {
      * <p>This method creates a minimal instance suitable for client-only use:
      * <ul>
      *   <li>1 worker thread</li>
-     *   <li>No servers configured</li>
-     *   <li>No AcceptSelectorLoop (created on first addServer)</li>
+     *   <li>No listeners configured</li>
+     *   <li>No AcceptSelectorLoop (created on first addTCPListener)</li>
      * </ul>
      *
      * <p>For server mode with configuration file, use {@link #getInstance(File)}.
@@ -135,7 +137,7 @@ public class Gumdrop {
      * Returns the singleton Gumdrop instance, creating it if necessary.
      *
      * <p>If a configuration file is provided, it is parsed and the instance
-     * is configured with the specified servers and worker count.
+     * is configured with the specified server listeners and worker count.
      *
      * <p>If the configuration file is null, a minimal client-only instance
      * is created with 1 worker thread.
@@ -147,18 +149,24 @@ public class Gumdrop {
         synchronized (Gumdrop.class) {
             if (instance == null) {
                 int workerCount;
-                Collection<Server> initialServers = null;
+                Collection initialServices = null;
+                Collection initialListeners = null;
 
                 if (gumdroprc != null && gumdroprc.exists()) {
                     // Server mode with configuration
-                    workerCount = Integer.getInteger("gumdrop.workers", SERVER_MODE_WORKERS);
+                    workerCount = Integer.getInteger("gumdrop.workers",
+                            SERVER_MODE_WORKERS);
                     try {
-                        ParseResult parseResult = new ConfigurationParser().parse(gumdroprc);
-                        initialServers = parseResult.getServers();
-                        // TODO: handle worker count from config, registry cleanup
+                        ParseResult parseResult =
+                                new ConfigurationParser().parse(gumdroprc);
+                        initialServices =
+                                parseResult.getServices();
+                        initialListeners =
+                                parseResult.getListeners();
                     } catch (Exception e) {
-                        LOGGER.log(Level.SEVERE, "Failed to parse configuration: " + gumdroprc, e);
-                        // Fall back to empty config
+                        LOGGER.log(Level.SEVERE,
+                                "Failed to parse configuration: "
+                                        + gumdroprc, e);
                         workerCount = SERVER_MODE_WORKERS;
                     }
                 } else {
@@ -168,10 +176,18 @@ public class Gumdrop {
 
                 instance = new Gumdrop(workerCount);
 
-                // Add any servers from configuration
-                if (initialServers != null) {
-                    for (Server server : initialServers) {
-                        instance.addServer(server);
+                // Add services from configuration
+                if (initialServices != null) {
+                    for (Object svc : initialServices) {
+                        instance.addService((Service) svc);
+                    }
+                }
+
+                // Add standalone server listeners from configuration
+                if (initialListeners != null) {
+                    for (Object server : initialListeners) {
+                        instance.addListener(
+                                (TCPListener) server);
                     }
                 }
             }
@@ -191,7 +207,9 @@ public class Gumdrop {
             throw new IllegalArgumentException("workerCount must be at least 1");
         }
 
-        this.servers = Collections.synchronizedList(new ArrayList<Server>());
+        this.services = Collections.synchronizedList(new ArrayList());
+        this.serverListeners =
+                Collections.synchronizedList(new ArrayList<TCPListener>());
         this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
         this.workerCount = workerCount;
         this.nextWorker = new AtomicInteger(0);
@@ -213,55 +231,40 @@ public class Gumdrop {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Server management
+    // Service management
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Adds a TCP server to be managed by Gumdrop.
+     * Adds a service to be managed by Gumdrop.
      *
-     * <p>If Gumdrop has already been started, the server is registered
-     * immediately and begins accepting connections. Otherwise, it will
-     * be registered when {@link #start()} is called.
+     * <p>If Gumdrop has already been started, the service is started
+     * immediately and its TCP listeners are registered with the accept
+     * loop. Otherwise, the service is queued and will be started when
+     * {@link #start()} is called.
      *
-     * @param server the server to add
+     * @param service the service to add
      */
-    public void addServer(Server server) {
-        servers.add(server);
-        server.start(); // Initialize connector, SSL context, etc.
+    public void addService(Service service) {
+        services.add(service);
 
-        // If already started, handle dynamic registration
         if (started) {
-            // Create or recreate AcceptSelectorLoop if needed
-            if (acceptLoop == null || !acceptLoop.isRunning()) {
-                acceptLoop = new AcceptSelectorLoop(this);
-                acceptLoop.start();
-                acceptLoopRunning = true;
-            }
-            acceptLoop.registerServer(server);
+            service.start();
+            registerServiceListeners(service);
         }
     }
 
     /**
-     * Removes a TCP server from Gumdrop.
+     * Removes a service from Gumdrop and stops it.
      *
-     * <p>The server stops accepting new connections immediately.
-     * Existing connections continue until they close naturally.
-     *
-     * <p>If this was the last server, the AcceptSelectorLoop is shut down.
-     *
-     * @param server the server to remove
+     * @param service the service to remove
      */
-    public void removeServer(Server server) {
-        servers.remove(server);
-        try {
-            server.stop();
-            server.closeServerChannels();
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error closing server: " + e.getMessage(), e);
-        }
+    public void removeService(Service service) {
+        services.remove(service);
+        unregisterServiceListeners(service);
+        service.stop();
 
-        // If no more servers, shut down AcceptSelectorLoop
-        if (servers.isEmpty() && acceptLoopRunning) {
+        if (services.isEmpty() && serverListeners.isEmpty()
+                && acceptLoopRunning) {
             acceptLoop.shutdown();
             acceptLoopRunning = false;
         }
@@ -270,12 +273,119 @@ public class Gumdrop {
     }
 
     /**
-     * Returns the collection of TCP servers managed by this Gumdrop instance.
+     * Returns the collection of services managed by this Gumdrop
+     * instance.
      *
-     * @return unmodifiable view of the servers
+     * @return unmodifiable view of the services
      */
-    public Collection<Server> getServers() {
-        return Collections.unmodifiableList(servers);
+    public List getServices() {
+        return Collections.unmodifiableList(services);
+    }
+
+    /**
+     * Registers a service's TCP listeners with the accept loop.
+     * Listeners that manage their own I/O (e.g. QUIC) are tracked
+     * but not registered for TCP accept.
+     */
+    private void registerServiceListeners(Service service) {
+        List listeners = service.getListeners();
+        for (int i = 0; i < listeners.size(); i++) {
+            Object listener = listeners.get(i);
+            if (listener instanceof TCPListener) {
+                TCPListener ep = (TCPListener) listener;
+                serverListeners.add(ep);
+                if (ep.requiresTcpAccept()) {
+                    ensureAcceptLoop();
+                    acceptLoop.registerListener(ep);
+                }
+            }
+        }
+    }
+
+    /**
+     * Unregisters a service's TCP listeners from the accept loop.
+     */
+    private void unregisterServiceListeners(Service service) {
+        List listeners = service.getListeners();
+        for (int i = 0; i < listeners.size(); i++) {
+            Object listener = listeners.get(i);
+            if (listener instanceof TCPListener) {
+                TCPListener ep = (TCPListener) listener;
+                serverListeners.remove(ep);
+                if (ep.requiresTcpAccept()) {
+                    ep.closeServerChannels();
+                }
+            }
+        }
+    }
+
+    /**
+     * Ensures the AcceptSelectorLoop is created and running.
+     */
+    private void ensureAcceptLoop() {
+        if (acceptLoop == null || !acceptLoop.isRunning()) {
+            acceptLoop = new AcceptSelectorLoop(this);
+            acceptLoop.start();
+            acceptLoopRunning = true;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Endpoint server management (direct, non-service endpoints)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Adds a standalone endpoint server to be managed by Gumdrop.
+     *
+     * <p>For endpoints that are part of a {@link Service}, use
+     * {@link #addService(Service)} instead. This method is for
+     * standalone endpoints not owned by any service.
+     *
+     * <p>If Gumdrop has already been started, the server is registered
+     * immediately and begins accepting connections. Otherwise, it will
+     * be registered when {@link #start()} is called.
+     *
+     * @param server the endpoint server to add
+     */
+    public void addListener(TCPListener server) {
+        serverListeners.add(server);
+        server.start();
+
+        if (started) {
+            ensureAcceptLoop();
+            acceptLoop.registerListener(server);
+        }
+    }
+
+    /**
+     * Removes an endpoint server from Gumdrop.
+     *
+     * <p>The server stops accepting new connections immediately.
+     * Existing connections continue until they close naturally.
+     *
+     * @param server the endpoint server to remove
+     */
+    public void removeListener(TCPListener server) {
+        serverListeners.remove(server);
+        server.stop();
+        server.closeServerChannels();
+
+        if (serverListeners.isEmpty() && acceptLoopRunning) {
+            acceptLoop.shutdown();
+            acceptLoopRunning = false;
+        }
+
+        checkAutoShutdown();
+    }
+
+    /**
+     * Returns the collection of server listeners managed by this
+     * Gumdrop instance.
+     *
+     * @return unmodifiable view of the server listeners
+     */
+    public Collection<TCPListener> getListeners() {
+        return Collections.unmodifiableList(serverListeners);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -297,7 +407,7 @@ public class Gumdrop {
     /**
      * Deregisters an active channel handler.
      *
-     * <p>Called when a connection closes or fails. If no servers and no
+     * <p>Called when a connection closes or fails. If no server listeners and no
      * handlers remain, triggers automatic shutdown.
      *
      * @param handler the handler to deregister
@@ -326,11 +436,11 @@ public class Gumdrop {
      * Starts the Gumdrop infrastructure.
      *
      * <p>This starts all worker SelectorLoops and the scheduled timer.
-     * If servers are registered, the AcceptSelectorLoop is also started.
+     * If server listeners are registered, the AcceptSelectorLoop is also started.
      *
      * <p>If already started, this method is a no-op.
      *
-     * <p>If no servers and no active handlers exist when start() completes,
+     * <p>If no server listeners and no active handlers exist when start() completes,
      * the infrastructure will shut down automatically.
      *
      * <p>Can be called after shutdown() to restart the infrastructure.
@@ -369,14 +479,16 @@ public class Gumdrop {
             loop.start();
         }
 
-        // Start AcceptSelectorLoop if we have servers
-        if (!servers.isEmpty()) {
-            // Create or recreate AcceptSelectorLoop
-            if (acceptLoop == null || !acceptLoop.isRunning()) {
-                acceptLoop = new AcceptSelectorLoop(this);
-            }
-            acceptLoop.start();
-            acceptLoopRunning = true;
+        // Start all registered services and collect their TCP listeners
+        for (int i = 0; i < services.size(); i++) {
+            Service service = (Service) services.get(i);
+            service.start();
+            registerServiceListeners(service);
+        }
+
+        // Start AcceptSelectorLoop if we have server listeners
+        if (!serverListeners.isEmpty()) {
+            ensureAcceptLoop();
         }
 
         long t2 = System.currentTimeMillis();
@@ -409,8 +521,8 @@ public class Gumdrop {
      * Checks if automatic shutdown should occur.
      *
      * <p>Shutdown occurs when:
-     * <ul>
-     *   <li>No TCP servers are registered</li>
+ * <ul>
+ *   <li>No server listeners are registered</li>
      *   <li>No active channel handlers exist</li>
      *   <li>Gumdrop has been started (not during initial setup)</li>
      * </ul>
@@ -419,7 +531,8 @@ public class Gumdrop {
         if (!started) {
             return;
         }
-        if (servers.isEmpty() && activeHandlers.isEmpty()) {
+        if (services.isEmpty() && serverListeners.isEmpty()
+                && activeHandlers.isEmpty()) {
             shutdown();
         }
     }
@@ -444,16 +557,20 @@ public class Gumdrop {
             acceptLoopRunning = false;
         }
 
-        // Stop all TCP servers
-        for (Server server : new ArrayList<Server>(servers)) {
-            try {
-                server.stop();
-                server.closeServerChannels();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing server: " + e.getMessage(), e);
-            }
+        // Stop all services (services stop their own listeners)
+        for (int i = 0; i < services.size(); i++) {
+            Service service = (Service) services.get(i);
+            service.stop();
         }
-        servers.clear();
+        services.clear();
+
+        // Stop any standalone server listeners
+        for (TCPListener server :
+                new ArrayList<TCPListener>(serverListeners)) {
+            server.stop();
+            server.closeServerChannels();
+        }
+        serverListeners.clear();
 
         // Stop worker loops
         for (SelectorLoop loop : workerLoops) {
@@ -522,7 +639,7 @@ public class Gumdrop {
      * @param callback the callback to execute
      * @return a handle that can be used to cancel the timer
      */
-    TimerHandle scheduleTimer(ChannelHandler handler, long delayMs, Runnable callback) {
+    public TimerHandle scheduleTimer(ChannelHandler handler, long delayMs, Runnable callback) {
         return scheduledTimer.schedule(handler, delayMs, callback);
     }
 

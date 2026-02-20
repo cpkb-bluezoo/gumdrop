@@ -22,7 +22,7 @@
 import org.bluezoo.gumdrop.Realm;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.pop3.FilesystemMailboxFactory;
-import org.bluezoo.gumdrop.pop3.POP3Server;
+import org.bluezoo.gumdrop.pop3.POP3Listener;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -94,7 +94,7 @@ public class POP3Example {
         FilesystemMailboxFactory mailboxFactory = new FilesystemMailboxFactory(mailboxBase);
 
         // Configure POP3 server (port 110, plaintext with STARTTLS)
-        POP3Server pop3Server = new POP3Server();
+        POP3Listener pop3Server = new POP3Listener();
         pop3Server.setPort(110);
         pop3Server.setRealm(realm);
         pop3Server.setMailboxFactory(mailboxFactory);
@@ -107,7 +107,7 @@ public class POP3Example {
         // pop3Server.setKeystorePass("keystorePassword");
 
         // Configure POP3S server (port 995, implicit TLS)
-        POP3Server pop3sServer = new POP3Server();
+        POP3Listener pop3sServer = new POP3Listener();
         pop3sServer.setPort(995);
         pop3sServer.setSecure(true); // Implicit TLS
         pop3sServer.setRealm(realm);

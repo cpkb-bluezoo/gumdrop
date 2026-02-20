@@ -36,15 +36,20 @@
  * <h3>Key Components</h3>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.Bootstrap} - Application entry point that
- *       initializes the server from configuration</li>
+ *   <li>{@link org.bluezoo.gumdrop.Endpoint} - Transport-agnostic I/O
+ *       interface (TCP, UDP, QUIC)</li>
+ *   <li>{@link org.bluezoo.gumdrop.ProtocolHandler} - Callback interface
+ *       for protocol logic</li>
+ *   <li>{@link org.bluezoo.gumdrop.TCPListener} - Base class for
+ *       protocol servers</li>
+ *   <li>{@link org.bluezoo.gumdrop.ClientEndpoint} - Initiates outbound
+ *       connections</li>
+ *   <li>{@link org.bluezoo.gumdrop.TransportFactory} - Pluggable transport
+ *       layer (TCP, UDP, QUIC)</li>
+ *   <li>{@link org.bluezoo.gumdrop.SecurityInfo} - Security metadata after
+ *       TLS/DTLS/QUIC handshake</li>
  *   <li>{@link org.bluezoo.gumdrop.SelectorLoop} - The central event loop
  *       handling all non-blocking I/O operations</li>
- *   <li>{@link org.bluezoo.gumdrop.Server} - Base class for TCP servers</li>
- *   <li>{@link org.bluezoo.gumdrop.Connector} - Factory for creating
- *       protocol-specific connections</li>
- *   <li>{@link org.bluezoo.gumdrop.Connection} - Base class for handling
- *       individual client connections</li>
  *   <li>{@link org.bluezoo.gumdrop.ComponentRegistry} - Dependency injection
  *       container for wiring components</li>
  * </ul>
@@ -70,7 +75,10 @@
  *
  * <h2>SSL/TLS Support</h2>
  *
- * <p>All TCP servers support SSL/TLS through standard Java keystores.
+ * <p>Security is configured on the {@link org.bluezoo.gumdrop.TransportFactory}
+ * and is transparent to protocol handlers. All endpoints support TLS (TCP),
+ * DTLS (UDP), and QUIC (always TLS 1.3). Protocol handlers receive plaintext
+ * and query {@link org.bluezoo.gumdrop.SecurityInfo} for TLS metadata.
  * SNI (Server Name Indication) is supported for virtual hosting with
  * different certificates per hostname.
  *

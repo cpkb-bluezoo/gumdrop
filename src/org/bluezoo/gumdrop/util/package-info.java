@@ -51,7 +51,7 @@
  *   <li>No external dependencies</li>
  *   <li>Thread-safe where applicable</li>
  *   <li>Memory efficient</li>
- *   <li>Java 8 compatible</li>
+ *   <li>Java 17 compatible</li>
  * </ul>
  *
  * <h2>Internal Use</h2>

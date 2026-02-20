@@ -31,8 +31,7 @@
  * <p>The client follows the same patterns as other Gumdrop clients:
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.redis.client.RedisClient} - Connection factory</li>
- *   <li>{@link org.bluezoo.gumdrop.redis.client.RedisClientConnection} - Protocol handler</li>
+ *   <li>{@link org.bluezoo.gumdrop.redis.client.RedisClientProtocolHandler} - Protocol handler</li>
  *   <li>{@link org.bluezoo.gumdrop.redis.client.RedisConnectionReady} - Entry point handler</li>
  *   <li>{@link org.bluezoo.gumdrop.redis.client.RedisSession} - Operations interface</li>
  * </ul>
@@ -40,9 +39,9 @@
  * <h2>Basic Usage</h2>
  *
  * <pre>{@code
- * RedisClient client = new RedisClient(selectorLoop, "localhost", 6379);
- *
- * client.connect(new RedisConnectionReady() {
+ * TCPTransportFactory factory = new TCPTransportFactory();
+ * factory.start();
+ * RedisConnectionReady handler = new RedisConnectionReady() {
  *     public void handleReady(RedisSession session) {
  *         // Set a value
  *         session.set("mykey", "myvalue", new StringResultHandler() {
@@ -55,11 +54,14 @@
  *         });
  *     }
  *
- *     public void onConnected(ConnectionInfo info) { }
+ *     public void onConnected(Endpoint endpoint) { }
  *     public void onDisconnected() { }
- *     public void onTLSStarted(TLSInfo info) { }
+ *     public void onSecurityEstablished(SecurityInfo info) { }
  *     public void onError(Exception e) { e.printStackTrace(); }
- * });
+ * };
+ * RedisClientProtocolHandler endpointHandler = new RedisClientProtocolHandler(handler);
+ * ClientEndpoint endpoint = new ClientEndpoint(factory, selectorLoop, "localhost", 6379);
+ * endpoint.connect(endpointHandler);
  * }</pre>
  *
  * <h2>Authentication</h2>
@@ -88,10 +90,13 @@
  * <h2>TLS/SSL Connections</h2>
  *
  * <pre>{@code
- * RedisClient client = new RedisClient(selectorLoop, "redis.example.com", 6379);
- * client.setSecure(true);
- * client.setKeystoreFile("/path/to/truststore.p12");
- * client.connect(handler);
+ * TCPTransportFactory factory = new TCPTransportFactory();
+ * factory.setSecure(true);
+ * factory.setKeystoreFile("/path/to/truststore.p12");
+ * factory.start();
+ * RedisClientProtocolHandler endpointHandler = new RedisClientProtocolHandler(handler);
+ * ClientEndpoint endpoint = new ClientEndpoint(factory, selectorLoop, "redis.example.com", 6379);
+ * endpoint.connect(endpointHandler);
  * }</pre>
  *
  * <h2>Data Types</h2>

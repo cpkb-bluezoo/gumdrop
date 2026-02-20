@@ -32,7 +32,8 @@ import org.bluezoo.gumdrop.ClientHandler;
  *
  * <p>Unlike protocols with a server greeting, Redis clients can send commands
  * immediately upon connection. The handler receives a {@link RedisSession}
- * interface as soon as the TCP connection (and optional TLS handshake) completes.
+ * interface as soon as the connection (and optional TLS/QUIC handshake)
+ * completes.
  *
  * <h4>Example Usage</h4>
  * <pre>{@code
@@ -51,9 +52,9 @@ import org.bluezoo.gumdrop.ClientHandler;
  *         });
  *     }
  *
- *     public void onConnected(ConnectionInfo info) { }
+ *     public void onConnected(Endpoint endpoint) { }
  *     public void onDisconnected() { }
- *     public void onTLSStarted(TLSInfo info) { }
+ *     public void onSecurityEstablished(SecurityInfo info) { }
  *     public void onError(Exception e) { e.printStackTrace(); }
  * }
  * }</pre>

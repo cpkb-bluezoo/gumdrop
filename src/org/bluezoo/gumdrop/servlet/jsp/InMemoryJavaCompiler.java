@@ -98,12 +98,10 @@ public class InMemoryJavaCompiler {
         }
         this.parentClassLoader = parentClassLoader;
         
-        // Default compiler options for Java 8 compatibility
+        // Default compiler options
         this.compilerOptions = new ArrayList<String>();
-        this.compilerOptions.add("-source");
-        this.compilerOptions.add("1.8");
-        this.compilerOptions.add("-target");
-        this.compilerOptions.add("1.8");
+        this.compilerOptions.add("--release");
+        this.compilerOptions.add("17");
         this.compilerOptions.add("-g"); // Include debug info
     }
     

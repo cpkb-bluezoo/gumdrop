@@ -26,9 +26,10 @@ import org.bluezoo.gumdrop.ClientHandler;
 /**
  * Handler interface for HTTP client connection lifecycle events.
  *
- * <p>This interface extends {@link ClientHandler} to receive TCP connection
- * lifecycle events for HTTP clients. Unlike stateful protocols such as SMTP,
- * HTTP is stateless and does not require protocol-specific session callbacks.
+ * <p>This interface extends {@link ClientHandler} to receive
+ * connection lifecycle events for HTTP clients. Unlike stateful protocols
+ * such as SMTP, HTTP is stateless and does not require protocol-specific
+ * session callbacks.
  *
  * <p>Once a connection is established (via {@link #onConnected}), the client
  * can immediately begin making HTTP requests through the {@link HTTPClient}
@@ -39,13 +40,13 @@ import org.bluezoo.gumdrop.ClientHandler;
  * HTTPClient client = new HTTPClient("api.example.com", 443);
  * client.setSecure(true);
  * client.connect(new HTTPClientHandler() {
- *     public void onConnected(ConnectionInfo info) {
+ *     public void onConnected(Endpoint endpoint) {
  *         // Connection ready - can now make requests
  *         client.get("/users").send(responseHandler);
  *     }
  *
- *     public void onTLSStarted(TLSInfo info) {
- *         // TLS handshake complete
+ *     public void onSecurityEstablished(SecurityInfo info) {
+ *         // TLS/QUIC handshake complete
  *     }
  *
  *     public void onError(Exception cause) {
@@ -61,9 +62,9 @@ import org.bluezoo.gumdrop.ClientHandler;
  * <h4>HTTP/2 ALPN Negotiation</h4>
  *
  * <p>For secure connections, the HTTP version is negotiated during the TLS
- * handshake via ALPN. The {@link #onTLSStarted} callback indicates when this
- * negotiation is complete. After this callback, {@link HTTPClient#getVersion()}
- * returns the negotiated version (HTTP/1.1 or HTTP/2).
+ * handshake via ALPN. The {@link #onSecurityEstablished} callback indicates
+ * when this negotiation is complete. After this callback,
+ * {@link HTTPClient#getVersion()} returns the negotiated version.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTPClient

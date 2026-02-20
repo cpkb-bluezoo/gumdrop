@@ -52,14 +52,14 @@ public interface ServerEhloReplyHandler extends ServerReplyHandler {
      * <li>Begin sending mail via {@code session.mailFrom()}</li>
      * </ul>
      * 
+     * @param session operations available in the established session
      * @param starttls true if STARTTLS extension is available
      * @param maxSize maximum message size in bytes (0 if SIZE not advertised)
      * @param authMethods list of available SASL mechanisms (empty if AUTH not advertised)
      * @param pipelining true if PIPELINING extension is available
-     * @param session operations available in the established session
      */
-    void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                    boolean pipelining, ClientSession session);
+    void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                    List<String> authMethods, boolean pipelining);
 
     /**
      * Called when EHLO is not supported (502).

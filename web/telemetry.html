@@ -74,7 +74,7 @@ timing, attributes, and events</li>
 <li><b>OpenTelemetry compatibility</b> - exports via OTLP/HTTP to any
 OpenTelemetry Collector</li>
 <li><b>Native integration</b> - uses Gumdrop's HTTP client for non-blocking
-export with SelectorLoop affinity and connection pooling</li>
+export with SelectorLoop affinity and endpoint pooling</li>
 <li><b>Zero-dependency</b> - self-contained protobuf serialization, no external
 OpenTelemetry SDK required</li>
 </ul>
@@ -169,9 +169,11 @@ To enable telemetry for a server, reference the configuration:
     &lt;!-- other properties --&gt;
 &lt;/server&gt;
 
-&lt;server id="http" class="org.bluezoo.gumdrop.servlet.HTTPServletServer"&gt;
-    &lt;property name="port"&gt;8080&lt;/property&gt;
+&lt;server id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;property name="port"&gt;8080&lt;/property&gt;
+    &lt;/listener&gt;
     &lt;!-- other properties --&gt;
 &lt;/server&gt;
 </pre>
@@ -470,30 +472,28 @@ span.setStatus(SpanStatus.UNSET);
 span.recordException(exception);
 </pre>
 
-<h4>Example: Custom Connection Handler</h4>
+<h4>Example: Custom Endpoint Handler</h4>
 
 <pre>
-public class MyProtocolConnection extends Connection {
+public class MyProtocolHandler implements ProtocolHandler {
     
-    private Trace connectionTrace;
+    private Trace endpointTrace;
     
     @Override
-    public void init() throws IOException {
-        super.init();
-        
-        // Create connection-level trace
-        TelemetryConfig config = server.getTelemetryConfig();
+    public void connected(Endpoint endpoint) {
+        // Create endpoint-level trace
+        TelemetryConfig config = endpoint.getServerEndpoint().getTelemetryConfig();
         if (config != null && config.isTracesEnabled()) {
-            connectionTrace = config.createTrace("MyProtocol connection", SpanKind.SERVER);
-            connectionTrace.addAttribute("net.peer.ip", getRemoteAddress());
+            endpointTrace = config.createTrace("MyProtocol endpoint", SpanKind.SERVER);
+            endpointTrace.addAttribute("net.peer.ip", endpoint.getRemoteAddress());
         }
     }
     
     protected void processRequest(MyRequest request) {
         // Start a span for this request
         Span requestSpan = null;
-        if (connectionTrace != null) {
-            requestSpan = connectionTrace.startSpan("Process request");
+        if (endpointTrace != null) {
+            requestSpan = endpointTrace.startSpan("Process request");
             requestSpan.addAttribute("request.type", request.getType());
         }
         
@@ -516,11 +516,10 @@ public class MyProtocolConnection extends Connection {
     }
     
     @Override
-    public void close() {
-        if (connectionTrace != null) {
-            connectionTrace.end();
+    public void disconnected() {
+        if (endpointTrace != null) {
+            endpointTrace.end();
         }
-        super.close();
     }
 }
 </pre>
@@ -850,11 +849,13 @@ For authenticated endpoints, use the <code>headers</code> property:
     &lt;property name="handler-factory" ref="#smtpHandler"/&gt;
 &lt;/server&gt;
 
-&lt;!-- HTTP server with telemetry --&gt;
-&lt;server id="http" class="org.bluezoo.gumdrop.servlet.HTTPServletServer"&gt;
-    &lt;property name="port"&gt;8080&lt;/property&gt;
+&lt;!-- HTTP servlet service with telemetry --&gt;
+&lt;server id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;property name="web-app" ref="#webapp"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;property name="port"&gt;8080&lt;/property&gt;
+    &lt;/listener&gt;
 &lt;/server&gt;
 </pre>
 

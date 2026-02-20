@@ -841,26 +841,35 @@ public void mailFrom(EmailAddress sender, boolean smtputf8,
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>SMTPServer Properties</h4>
+<h4>SMTPService Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.smtp.SMTPServer</code> supports:
+SMTP services (<code>org.bluezoo.gumdrop.smtp.SMTPService</code> subclasses) support:
 </p>
 
 <ul>
-<li><code>port</code> - listening port (default: 25, or 465 for secure)</li>
-<li><code>secure</code> - enable implicit TLS (SMTPS)</li>
-<li><code>keystoreFile</code> - keystore for TLS/STARTTLS</li>
-<li><code>keystorePass</code> - keystore password</li>
-<li><code>realm</code> - reference to a Realm for authentication</li>
-<li><code>handlerFactory</code> - reference to an SMTPConnectionHandlerFactory</li>
-<li><code>maxMessageSize</code> - maximum message size in bytes (default: ~35MB)</li>
-<li><code>maxRecipients</code> - maximum recipients per transaction (default: 100)</li>
-<li><code>maxTransactionsPerSession</code> - maximum MAIL FROM commands per session (default: 0/unlimited)</li>
-<li><code>authRequired</code> - require authentication (for submission port)</li>
-<li><code>maxConnectionsPerIP</code> - concurrent connection limit per IP (default: 10)</li>
-<li><code>allowedNetworks</code> - CIDR networks to allow (e.g., "192.168.0.0/16")</li>
-<li><code>blockedNetworks</code> - CIDR networks to block</li>
+<li><code>realm</code> &ndash; reference to a Realm for authentication</li>
+<li><code>mailbox-factory</code> &ndash; reference to a MailboxFactory (for local delivery)</li>
+<li><code>max-message-size</code> &ndash; maximum message size in bytes (default: ~35MB)</li>
+<li><code>max-recipients</code> &ndash; maximum recipients per transaction (default: 100)</li>
+<li><code>max-transactions-per-session</code> &ndash; maximum MAIL FROM commands per session (default: 0/unlimited)</li>
+<li><code>auth-required</code> &ndash; require authentication (for submission port)</li>
+</ul>
+
+<h4>SMTPListener Properties</h4>
+
+<p>
+Each <code>&lt;listener&gt;</code> element within the service configures a listener:
+</p>
+
+<ul>
+<li><code>port</code> &ndash; listening port (default: 25, or 465 for secure)</li>
+<li><code>secure</code> &ndash; enable implicit TLS (SMTPS)</li>
+<li><code>keystore-file</code> &ndash; keystore for TLS/STARTTLS</li>
+<li><code>keystore-pass</code> &ndash; keystore password</li>
+<li><code>max-connections-per-ip</code> &ndash; concurrent connection limit per IP (default: 10)</li>
+<li><code>allowed-networks</code> &ndash; CIDR networks to allow (e.g., "192.168.0.0/16")</li>
+<li><code>blocked-networks</code> &ndash; CIDR networks to block</li>
 </ul>
 
 <h4>Example Configuration</h4>
@@ -871,30 +880,28 @@ public void mailFrom(EmailAddress sender, boolean smtputf8,
     &lt;property name="href"&gt;mail-users.xml&lt;/property&gt;
 &lt;/realm&gt;
 
-&lt;!-- Handler factory --&gt;
-&lt;smtp-handler-factory id="mailHandler" 
-                class="com.example.MyMailHandlerFactory"/&gt;
-
-&lt;!-- SMTP server (port 25) --&gt;
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;property name="handler-factory" ref="#mailHandler"/&gt;
-    &lt;property name="max-message-size"&gt;52428800&lt;/property&gt;
-    &lt;property name="max-connections-per-ip"&gt;20&lt;/property&gt;
-    &lt;property name="blocked-networks"&gt;10.0.0.0/8&lt;/property&gt;
-&lt;/server&gt;
-
-&lt;!-- Submission server (port 587) --&gt;
-&lt;server id="submission" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;587&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+&lt;!-- SMTP service with MX and submission listeners --&gt;
+&lt;service class="com.example.MyMailService"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;property name="auth-required"&gt;true&lt;/property&gt;
-    &lt;property name="handler-factory" ref="#mailHandler"/&gt;
-&lt;/server&gt;
+    &lt;property name="max-message-size"&gt;52428800&lt;/property&gt;
+
+    &lt;!-- MX listener (port 25) --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+            name="mx" port="25"
+            keystore-file="keystore.p12" keystore-pass="secret"
+            max-connections-per-ip="20"
+            blocked-networks="10.0.0.0/8"/&gt;
+
+    &lt;!-- Submission listener (port 587, auth required) --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+            name="submission" port="587"
+            keystore-file="keystore.p12" keystore-pass="secret"
+            auth-required="true"/&gt;
+
+    &lt;!-- UNIX domain socket for local delivery agents --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+            name="local" path="/var/run/smtp.sock"/&gt;
+&lt;/service&gt;
 </pre>
 
 <h3 id="client">SMTP Client</h3>
@@ -958,12 +965,12 @@ client.connect(new SMTPClientHandler() {
     }
     
     @Override
-    public void onGreeting(SMTPResponse greeting, SMTPClientConnection conn) {
-        conn.ehlo("myhost.example.com");
+    public void onGreeting(SMTPResponse greeting, SMTPClientProtocolHandler handler) {
+        handler.ehlo("myhost.example.com");
     }
     
     @Override
-    public void onReply(SMTPResponse response, SMTPClientConnection conn) {
+    public void onReply(SMTPResponse response, SMTPClientProtocolHandler handler) {
         // Handle command responses
         if (response.isSuccess()) {
             // Proceed with next command

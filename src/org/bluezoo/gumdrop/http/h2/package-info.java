@@ -23,8 +23,8 @@
  * HTTP/2 framing support shared by server and client.
  *
  * <p>This package provides low-level HTTP/2 frame parsing and writing
- * that can be used by both server-side ({@code HTTPConnection}) and
- * client-side ({@code HTTPClientConnection}) implementations.
+ * that can be used by both server-side ({@code HTTPProtocolHandler})
+ * and client-side ({@code HTTPClientProtocolHandler}) implementations.
  *
  * <h2>Key Components</h2>
  *

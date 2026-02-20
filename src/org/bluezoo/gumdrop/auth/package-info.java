@@ -97,7 +97,7 @@
  * <realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"
  *        href="users.xml"/>
  *
- * <server class="org.bluezoo.gumdrop.imap.IMAPServer"
+ * <server class="org.bluezoo.gumdrop.imap.IMAPListener"
  *         port="993" secure="true"
  *         realm="#myRealm"/>
  * }</pre>

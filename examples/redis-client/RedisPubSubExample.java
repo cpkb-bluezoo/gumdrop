@@ -19,8 +19,8 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
 import org.bluezoo.gumdrop.redis.client.MessageHandler;
 import org.bluezoo.gumdrop.redis.client.RedisClient;
@@ -160,8 +160,8 @@ public class RedisPubSubExample {
         }
 
         @Override
-        public void onConnected(ConnectionInfo info) {
-            System.out.println("[Subscriber TCP] Connected");
+        public void onConnected(Endpoint endpoint) {
+            System.out.println("[Subscriber] Connected");
         }
 
         @Override
@@ -170,7 +170,7 @@ public class RedisPubSubExample {
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
+        public void onSecurityEstablished(SecurityInfo info) {
             System.out.println("[Subscriber TLS] " + info.getProtocol());
         }
 
@@ -227,8 +227,8 @@ public class RedisPubSubExample {
         }
 
         @Override
-        public void onConnected(ConnectionInfo info) {
-            System.out.println("[Publisher TCP] Connected");
+        public void onConnected(Endpoint endpoint) {
+            System.out.println("[Publisher] Connected");
         }
 
         @Override
@@ -237,7 +237,7 @@ public class RedisPubSubExample {
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
+        public void onSecurityEstablished(SecurityInfo info) {
             System.out.println("[Publisher TLS] " + info.getProtocol());
         }
 

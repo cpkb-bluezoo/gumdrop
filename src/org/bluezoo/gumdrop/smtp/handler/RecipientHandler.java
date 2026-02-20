@@ -51,11 +51,11 @@ public interface RecipientHandler {
      * the handler can check if a mailbox exists for this recipient to make
      * appropriate policy decisions.
      * 
+     * @param state operations for responding
      * @param recipient the recipient address
      * @param factory the mailbox factory for local delivery (may be null)
-     * @param state operations for responding
      */
-    void rcptTo(EmailAddress recipient, MailboxFactory factory, RecipientState state);
+    void rcptTo(RecipientState state, EmailAddress recipient, MailboxFactory factory);
 
     /**
      * Called when client sends DATA or BDAT to begin message transfer.

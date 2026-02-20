@@ -143,7 +143,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     File root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
-    ServletServer server;
+    ServletService service;
     byte[] digest; // MD5 digest of web.xml
 
     Map<String,Realm> realms = new LinkedHashMap<>();
@@ -320,15 +320,15 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     }
 
     @Override public ThreadPoolExecutor getWorkerThreadPool() {
-        return server.getWorkerThreadPool();
+        return service.getWorkerThreadPool();
     }
 
     @Override public String getWorkerKeepAlive() {
-        return server.getWorkerKeepAlive();
+        return service.getWorkerKeepAlive();
     }
 
     @Override public void setWorkerKeepAlive(String val) {
-        server.setWorkerKeepAlive(val);
+        service.setWorkerKeepAlive(val);
     }
 
     @Override public HitStatistics getHitStatistics() {
@@ -1071,9 +1071,10 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         }
 
         // Configure authentication provider if authentication is configured
-        if (getAuthMethod() != null && server != null) {
-            ServletAuthenticationProvider authProvider = new ServletAuthenticationProvider(this);
-            server.setAuthenticationProvider(authProvider);
+        if (getAuthMethod() != null && service != null) {
+            ServletAuthenticationProvider authProvider =
+                    new ServletAuthenticationProvider(this);
+            service.setAuthenticationProvider(authProvider);
         }
 
         // Register with cluster (or re-register with new UUID after reload)

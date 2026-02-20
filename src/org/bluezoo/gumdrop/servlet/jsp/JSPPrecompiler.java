@@ -381,10 +381,8 @@ public class JSPPrecompiler {
      * Writes the compiled class to a file.
      */
     private void writeClassFile(String fullClassName, Class<?> clazz) throws IOException {
-        // Note: In Java 8, we cannot easily get bytecode from a loaded class
-        // This is a limitation - in production we'd need to capture bytecode during compilation
-        // For now, this is a placeholder that would need the InMemoryJavaCompiler to 
-        // also provide the raw bytecode
+        // This is a placeholder - to persist compiled classes, the InMemoryJavaCompiler
+        // would need to also provide the raw bytecode captured during compilation
         
         if (verbose) {
             System.out.println(MessageFormat.format(

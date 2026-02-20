@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
     <!-- POP3 server with Maildir mailbox store on port 11111 -->
-    <server id="testPop3Maildir" class="org.bluezoo.gumdrop.pop3.POP3Server">
+    <server id="testPop3Maildir" class="org.bluezoo.gumdrop.pop3.POP3Listener">
         <property name="port">11111</property>
         <property name="addresses">127.0.0.1</property>
         <property name="enable-apop">false</property>

@@ -10,13 +10,14 @@
  * event loop that handles all I/O operations, enabling high concurrency
  * with minimal thread overhead.
  *
- * <h2>Zero Dependencies</h2>
+ * <h2>Dependencies</h2>
  *
- * <p>Gumdrop has zero external dependencies. It includes integrated XML parsing
- * ({@link org.bluezoo.gonzalez}) and JSON parsing ({@link org.bluezoo.json})
- * capabilities as part of the core library. The J2EE APIs (servlet-api, javamail,
- * etc.) are bundled inside gumdrop-container.jar for servlet container deployment
- * and loaded via a custom ContainerClassLoader.
+ * <p>Gumdrop has minimal external dependencies. XML parsing is provided by
+ * <a href="https://github.com/cpkb-bluezoo/gonzalez">Gonzalez</a> and JSON
+ * parsing by <a href="https://github.com/cpkb-bluezoo/jsonparser">jsonparser</a>.
+ * The J2EE APIs (servlet-api, javamail, etc.) are bundled inside
+ * gumdrop-container.jar for servlet container deployment and loaded via a
+ * custom ContainerClassLoader.
  *
  * @see org.bluezoo.gumdrop.Bootstrap
  * @see org.bluezoo.gumdrop.Gumdrop
@@ -28,9 +29,9 @@ module org.bluezoo.gumdrop {
     requires java.management;      // JMX for monitoring
     requires java.xml;             // JAXP for gonzalez SAX parser
     
-    // Integrated parsing libraries (zero external dependencies)
-    exports org.bluezoo.gonzalez;
-    exports org.bluezoo.json;
+    // External parsing libraries (internal use only, not re-exported)
+    requires org.bluezoo.gonzalez;
+    requires org.bluezoo.json;
     
     // Core server framework
     exports org.bluezoo.gumdrop;
@@ -39,8 +40,8 @@ module org.bluezoo.gumdrop {
     // Protocol implementations
     exports org.bluezoo.gumdrop.http;
     exports org.bluezoo.gumdrop.http.client;
-    exports org.bluezoo.gumdrop.http.file;
-    exports org.bluezoo.gumdrop.http.websocket;
+    exports org.bluezoo.gumdrop.webdav;
+    exports org.bluezoo.gumdrop.websocket;
     exports org.bluezoo.gumdrop.http.h2;
     exports org.bluezoo.gumdrop.http.hpack;
     exports org.bluezoo.gumdrop.smtp;
@@ -86,8 +87,5 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.protobuf;
     
-    // JAXP service provider for gonzalez SAX parser
-    provides javax.xml.parsers.SAXParserFactory
-        with org.bluezoo.gonzalez.GonzalezSAXParserFactory;
 }
 

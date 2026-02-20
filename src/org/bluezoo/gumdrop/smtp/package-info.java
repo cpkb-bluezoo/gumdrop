@@ -37,19 +37,17 @@
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.ClientConnected} - Entry point for new connections</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.HelloHandler} - Receives HELO/EHLO, STARTTLS, AUTH</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.handler.PostTlsHandler} - Receives post-STARTTLS EHLO</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.handler.AuthResponseHandler} - Receives SASL auth responses</li>
+ *   <li>{@link org.bluezoo.gumdrop.smtp.handler.HelloHandler#tlsEstablished} - Receives post-STARTTLS notification</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.MailFromHandler} - Receives MAIL FROM commands</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.RecipientHandler} - Receives RCPT TO, DATA/BDAT</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.MessageDataHandler} - Receives message completion</li>
  * </ul>
  *
- * <h3>State Interfaces (provided by SMTPConnection)</h3>
+ * <h3>State Interfaces (provided by SMTPProtocolHandler)</h3>
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.ConnectedState} - Accept/reject connection</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.HelloState} - Accept/reject greeting</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.handler.StarttlsState} - Accept/reject TLS upgrade</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.handler.AuthState} - Auth challenge/success/failure</li>
+ *   <li>{@link org.bluezoo.gumdrop.smtp.handler.AuthenticateState} - Auth challenge/success/failure</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.MailFromState} - Accept/reject sender</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.RecipientState} - Accept/reject recipient</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.handler.MessageStartState} - Accept/reject message start</li>
@@ -64,20 +62,20 @@
  *                                        MailFromHandler, RecipientHandler,
  *                                        MessageDataHandler {
  *     
- *     public void connected(ConnectionInfo info, ConnectedState state) {
+ *     public void connected(ConnectedState state, Endpoint endpoint) {
  *         state.acceptConnection("mail.example.com ESMTP", this);
  *     }
  *     
- *     public void hello(boolean extended, String hostname, HelloState state) {
+ *     public void hello(HelloState state, boolean extended, String hostname) {
  *         state.acceptHello(this);  // transitions to MailFromHandler
  *     }
  *     
- *     public void mailFrom(EmailAddress sender, boolean smtputf8,
- *                          DeliveryRequirements delivery, MailFromState state) {
+ *     public void mailFrom(MailFromState state, EmailAddress sender, boolean smtputf8,
+ *                          DeliveryRequirements delivery) {
  *         state.acceptSender(this);  // transitions to RecipientHandler
  *     }
  *     
- *     public void rcptTo(EmailAddress recipient, RecipientState state) {
+ *     public void rcptTo(RecipientState state, EmailAddress recipient, MailboxFactory factory) {
  *         state.acceptRecipient(this);
  *     }
  *     
@@ -96,12 +94,13 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.smtp.SMTPServer} - The main SMTP server
- *       that accepts incoming connections</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.SMTPConnection} - Handles a single
- *       SMTP session and command processing</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.handler.ClientConnectedFactory} -
- *       Factory for creating per-session handlers</li>
+ *   <li>{@link org.bluezoo.gumdrop.smtp.SMTPService} - Abstract base for
+ *       SMTP application services; owns configuration and creates
+ *       per-connection handlers</li>
+ *   <li>{@link org.bluezoo.gumdrop.smtp.SMTPListener} - TCP transport
+ *       listener for SMTP connections</li>
+ *   <li>{@link org.bluezoo.gumdrop.smtp.SMTPProtocolHandler} - Handles
+ *       a single SMTP session and command processing</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.SMTPPipeline} - Generic interface
  *       for message processing pipelines</li>
  * </ul>
@@ -123,7 +122,7 @@
  * }</pre>
  *
  * <p>The pipeline is obtained from {@link org.bluezoo.gumdrop.smtp.handler.MailFromHandler#getPipeline()}
- * when a sender is accepted. SMTPConnection automatically:
+ * when a sender is accepted. The endpoint handler automatically:
  * <ul>
  *   <li>Calls {@code mailFrom()} when sender is accepted</li>
  *   <li>Calls {@code rcptTo()} for each accepted recipient</li>
@@ -182,17 +181,13 @@
  *   <property name="href">mail-users.xml</property>
  * </realm>
  *
- * <smtp-handler-factory id="smtpHandler" class="com.example.MySmtpHandlerFactory">
- *   <property name="queue-dir">/var/spool/mail</property>
- * </smtp-handler-factory>
- *
- * <server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer">
- *   <property name="port">25</property>
+ * <service class="com.example.MySmtpService">
  *   <property name="realm" ref="#mailRealm"/>
- *   <property name="handler-factory" ref="#smtpHandler"/>
- *   <property name="keystore-file">server.p12</property>
- *   <property name="keystore-pass">changeit</property>
- * </server>
+ *   <listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+ *           port="25"
+ *           keystore-file="server.p12"
+ *           keystore-pass="changeit"/>
+ * </service>
  * }</pre>
  *
  * <h2>Security</h2>
@@ -220,7 +215,7 @@
  * (SPF at MAIL FROM, DKIM/DMARC at end-of-data).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.SMTPServer
+ * @see org.bluezoo.gumdrop.smtp.SMTPListener
  * @see org.bluezoo.gumdrop.smtp.handler.ClientConnected
  * @see org.bluezoo.gumdrop.smtp.SMTPPipeline
  * @see org.bluezoo.gumdrop.smtp.handler

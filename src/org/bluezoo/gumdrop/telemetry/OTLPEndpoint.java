@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
@@ -331,15 +331,15 @@ class OTLPEndpoint {
     private class OTLPConnectionHandler implements HTTPClientHandler {
 
         @Override
-        public void onConnected(ConnectionInfo info) {
+        public void onConnected(Endpoint endpoint) {
             connecting = false;
             connected = true;
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connected"), name, host, port));
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
-            // TLS handshake complete - connection is now secure
+        public void onSecurityEstablished(SecurityInfo info) {
+            // Security handshake complete - connection is now secure
             logger.fine("TLS established with OTLP " + name + " endpoint");
         }
 

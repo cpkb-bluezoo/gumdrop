@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.ClientHandler;
  * <pre>{@code
  * public class MyMailHandler implements ServerGreeting {
  *     
- *     public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+ *     public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
  *         if (esmtp) {
  *             hello.ehlo("my.hostname.com", new MyEhloHandler());
  *         } else {
@@ -68,11 +68,11 @@ public interface ServerGreeting extends ClientHandler {
      * establish the session. Use the {@code esmtp} parameter to determine
      * which command is appropriate.
      * 
+     * @param hello operations available to begin the session
      * @param message the greeting text (e.g., "mail.example.com ESMTP ready")
      * @param esmtp true if the server advertised ESMTP support in the greeting
-     * @param hello operations available to begin the session
      */
-    void handleGreeting(String message, boolean esmtp, ClientHelloState hello);
+    void handleGreeting(ClientHelloState hello, String message, boolean esmtp);
 
     /**
      * Called when the server is not accepting connections.

@@ -28,94 +28,91 @@
 		</property>
 	</container>
 	
-	<!-- HTTP servlet server on port 8080 -->
-	<server id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
-		<property name="port">8080</property>
+	<!-- Servlet container service with HTTP and HTTPS listeners -->
+	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
 		<property name="container" ref="#mainContainer"/>
-	</server>
+
+		<!-- HTTP listener on port 8080 -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port">8080</property>
+		</listener>
+
+		<!-- HTTPS listener on port 8443 -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port">8443</property>
+			<property name="secure">true</property>
+			<property name="keystore-file">localhost+2.p12</property>
+			<property name="keystore-pass">changeit</property>
+		</listener>
+	</service>
 	
-	<!-- HTTPS servlet server on port 8443 -->
-	<server id="https" class="org.bluezoo.gumdrop.servlet.ServletServer">
-		<property name="port">8443</property>
-		<property name="secure">true</property>
-		<property name="keystore-file">testkeystore.p12</property>
-		<property name="keystore-pass">changeit</property>
-		<property name="container" ref="#mainContainer"/>
-	</server>
-	
-	<!-- Additional server examples (commented out) -->
+	<!-- Additional service examples (commented out) -->
 	
 	<!-- HTTPS with SNI (Server Name Indication) support
 	     Serve different certificates based on the hostname the client requests.
 	     The keystore must contain certificates with the specified aliases.
-	<server id="httpsSni" class="org.bluezoo.gumdrop.servlet.ServletServer">
-		<property name="port">8444</property>
-		<property name="secure">true</property>
-		<property name="keystore-file">multi-domain.p12</property>
-		<property name="keystore-pass">changeit</property>
-		<property name="sni-hostnames">
-			<map>
-				<entry key="example.com" value="example-cert"/>
-				<entry key="*.example.com" value="example-wildcard"/>
-				<entry key="other.com" value="other-cert"/>
-			</map>
-		</property>
-		<property name="sni-default-alias">default-cert</property>
+	<service id="httpsSni" class="org.bluezoo.gumdrop.servlet.ServletService">
 		<property name="container" ref="#mainContainer"/>
-	</server>
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port">8444</property>
+			<property name="secure">true</property>
+			<property name="keystore-file">multi-domain.p12</property>
+			<property name="keystore-pass">changeit</property>
+			<property name="sni-hostnames">
+				<map>
+					<entry key="example.com" value="example-cert"/>
+					<entry key="*.example.com" value="example-wildcard"/>
+					<entry key="other.com" value="other-cert"/>
+				</map>
+			</property>
+			<property name="sni-default-alias">default-cert</property>
+		</listener>
+	</service>
 	-->
 	
-	<!-- File-based HTTP server
-	<server id="fileHttp" class="org.bluezoo.gumdrop.http.file.FileHTTPServer">
-		<property name="port">8081</property>
+	<!-- File/WebDAV service
+	<service id="fileHttp" class="org.bluezoo.gumdrop.webdav.WebDAVService">
 		<property name="root-path">web</property>
 		<property name="allow-write">false</property>
 		<property name="welcome-file">index.html</property>
-	</server>
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port">8081</property>
+		</listener>
+	</service>
 	-->
 	
-	<!-- File-based HTTPS server
-	<server id="fileHttps" class="org.bluezoo.gumdrop.http.file.FileHTTPServer">
-		<property name="port">8082</property>
-		<property name="secure">true</property>
-		<property name="keystore-file">testkeystore.p12</property>
-		<property name="keystore-pass">changeit</property>
+	<!-- File/WebDAV HTTPS service
+	<service id="fileHttps" class="org.bluezoo.gumdrop.webdav.WebDAVService">
 		<property name="root-path">web</property>
-	</server>
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port">8082</property>
+			<property name="secure">true</property>
+			<property name="keystore-file">localhost+2.p12</property>
+			<property name="keystore-pass">changeit</property>
+		</listener>
+	</service>
 	-->
 	
-	<!-- FTP server (requires handler factory implementation)
-	<ftp-handler-factory id="ftpHandler" class="com.example.MyFTPHandlerFactory">
-		<property name="root">web</property>
-	</ftp-handler-factory>
-	
-	<server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer">
-		<property name="port">8083</property>
-		<property name="handler-factory" ref="#ftpHandler"/>
-	</server>
+	<!-- FTP service (requires a concrete FTPService subclass)
+	<service id="ftp" class="com.example.MyFTPService">
+		<property name="require-tls-for-data">false</property>
+		<listener class="org.bluezoo.gumdrop.ftp.FTPListener"
+		        port="8083"/>
+	</service>
 	-->
 	
-	<!-- SMTP server (requires handler factory implementation)
-	<smtp-handler-factory id="smtpHandler" class="com.example.MySmtpHandlerFactory">
-		<property name="queue-dir">/var/spool/mail</property>
-	</smtp-handler-factory>
-	
-	<server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer">
-		<property name="port">25</property>
+	<!-- SMTP service (requires a concrete SMTPService subclass)
+	<service id="smtp" class="com.example.MySMTPService">
 		<property name="realm" ref="#myRealm"/>
-		<property name="handler-factory" ref="#smtpHandler"/>
-	</server>
-	-->
-	
-	<!-- SMTPS server
-	<server id="smtps" class="org.bluezoo.gumdrop.smtp.SMTPServer">
-		<property name="port">465</property>
-		<property name="secure">true</property>
-		<property name="keystore-file">server.p12</property>
-		<property name="keystore-pass">changeit</property>
-		<property name="realm" ref="#myRealm"/>
-		<property name="handler-factory" ref="#smtpHandler"/>
-	</server>
+		<property name="max-message-size">35882577</property>
+		<listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+		        name="mx" port="25"/>
+		<listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+		        name="submission" port="587" auth-required="true"/>
+		<listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+		        name="smtps" port="465" secure="true"
+		        keystore-file="server.p12" keystore-pass="changeit"/>
+	</service>
 	-->
 	
 	<!-- Mail servers (IMAP and POP3) require a mailbox factory for storage -->
@@ -127,58 +124,41 @@
 	</mailbox-factory>
 	-->
 	
-	<!-- IMAP server for mail access (cleartext with STARTTLS support)
-	<server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer">
-		<property name="port">143</property>
-		<property name="keystore-file">testkeystore.p12</property>
-		<property name="keystore-pass">changeit</property>
+	<!-- IMAP service (requires a concrete IMAPService subclass)
+	<service id="imap" class="com.example.MyIMAPService">
 		<property name="realm" ref="#myRealm"/>
 		<property name="mailbox-factory" ref="#mboxStorage"/>
 		<property name="enable-idle">true</property>
 		<property name="enable-namespace">true</property>
 		<property name="enable-quota">true</property>
 		<property name="enable-move">true</property>
-		<property name="idle-timeout">1800000</property>
 		<property name="max-literal-size">26214400</property>
-	</server>
+		<listener class="org.bluezoo.gumdrop.imap.IMAPListener"
+		        port="143"
+		        keystore-file="localhost+2.p12"
+		        keystore-pass="changeit"/>
+		<listener class="org.bluezoo.gumdrop.imap.IMAPListener"
+		        port="993" secure="true"
+		        keystore-file="localhost+2.p12"
+		        keystore-pass="changeit"/>
+	</service>
 	-->
 	
-	<!-- IMAPS server (implicit TLS)
-	<server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer">
-		<property name="port">993</property>
-		<property name="secure">true</property>
-		<property name="keystore-file">testkeystore.p12</property>
-		<property name="keystore-pass">changeit</property>
-		<property name="realm" ref="#myRealm"/>
-		<property name="mailbox-factory" ref="#mboxStorage"/>
-		<property name="enable-idle">true</property>
-		<property name="enable-quota">true</property>
-	</server>
-	-->
-	
-	<!-- POP3 server for legacy mail access (cleartext with STARTTLS support)
-	<server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server">
-		<property name="port">110</property>
-		<property name="keystore-file">testkeystore.p12</property>
-		<property name="keystore-pass">changeit</property>
+	<!-- POP3 service (requires a concrete POP3Service subclass)
+	<service id="pop3" class="com.example.MyPOP3Service">
 		<property name="realm" ref="#myRealm"/>
 		<property name="mailbox-factory" ref="#mboxStorage"/>
 		<property name="enable-apop">true</property>
 		<property name="enable-utf8">true</property>
-		<property name="transaction-timeout">600000</property>
-	</server>
-	-->
-	
-	<!-- POP3S server (implicit TLS)
-	<server id="pop3s" class="org.bluezoo.gumdrop.pop3.POP3Server">
-		<property name="port">995</property>
-		<property name="secure">true</property>
-		<property name="keystore-file">testkeystore.p12</property>
-		<property name="keystore-pass">changeit</property>
-		<property name="realm" ref="#myRealm"/>
-		<property name="mailbox-factory" ref="#mboxStorage"/>
-		<property name="enable-apop">true</property>
-		<property name="enable-utf8">true</property>
-	</server>
+		<property name="transaction-timeout-ms">600000</property>
+		<listener class="org.bluezoo.gumdrop.pop3.POP3Listener"
+		        port="110"
+		        keystore-file="localhost+2.p12"
+		        keystore-pass="changeit"/>
+		<listener class="org.bluezoo.gumdrop.pop3.POP3Listener"
+		        port="995" secure="true"
+		        keystore-file="localhost+2.p12"
+		        keystore-pass="changeit"/>
+	</service>
 	-->
 </gumdrop>

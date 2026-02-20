@@ -19,8 +19,8 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.redis.client.ArrayResultHandler;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
@@ -455,9 +455,8 @@ public class RedisClientExample {
         }
 
         @Override
-        public void onConnected(ConnectionInfo info) {
-            System.out.println("[TCP Connected] " + info.getLocalAddress() + 
-                               " -> " + info.getRemoteAddress());
+        public void onConnected(Endpoint endpoint) {
+            System.out.println("[Connected] " + endpoint.getRemoteAddress());
         }
 
         @Override
@@ -466,7 +465,7 @@ public class RedisClientExample {
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {
+        public void onSecurityEstablished(SecurityInfo info) {
             System.out.println("[TLS] " + info.getProtocol() + " " + info.getCipherSuite());
         }
 

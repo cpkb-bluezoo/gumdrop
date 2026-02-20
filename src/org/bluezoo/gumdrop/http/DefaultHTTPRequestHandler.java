@@ -35,7 +35,7 @@ import java.nio.ByteBuffer;
  * public class HelloHandler extends DefaultHTTPRequestHandler {
  *     
  *     @Override
- *     public void headers(Headers headers, HTTPResponseState state) {
+ *     public void headers(HTTPResponseState state, Headers headers) {
  *         if ("GET".equals(headers.getMethod())) {
  *             Headers response = new Headers();
  *             response.status(HTTPStatus.OK);
@@ -56,7 +56,7 @@ import java.nio.ByteBuffer;
 public class DefaultHTTPRequestHandler implements HTTPRequestHandler {
 
     @Override
-    public void headers(Headers headers, HTTPResponseState state) {
+    public void headers(HTTPResponseState state, Headers headers) {
         // Default: do nothing
     }
 
@@ -66,7 +66,7 @@ public class DefaultHTTPRequestHandler implements HTTPRequestHandler {
     }
 
     @Override
-    public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
         // Default: do nothing
     }
 

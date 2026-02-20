@@ -52,9 +52,7 @@ oauth.scope.mapping.readonly=read
            configFile="oauth.properties"/>
     
     <!-- Servlet container with OAuth authentication -->
-    <server id="api" class="org.bluezoo.gumdrop.servlet.ServletServer">
-        <property name="port">8443</property>
-        <property name="secure">true</property>
+    <server id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
         <property name="realm" ref="#oauth"/>
         
         <container class="org.bluezoo.gumdrop.servlet.Container">

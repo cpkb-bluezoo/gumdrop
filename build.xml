@@ -21,7 +21,10 @@
 <project name='gumdrop' default='dist'>
 
   <!-- Project version -->
-  <property name='version' value='1.1'/>
+  <property name='version' value='2.0-SNAPSHOT'/>
+
+  <!-- Import environment variables (for QUICHE_DIR, JAVA_HOME) -->
+  <property environment='env'/>
 
   <property name='src' location='src'/>
   <property name='lib' location='lib'/>
@@ -33,29 +36,19 @@
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
   <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
   <property name='manager.war' location='${dist}/manager.war'/>
-  <!-- Separate jars for servlet context classloader access in container (internal build artifacts) -->
-  <property name='gonzalez.jar' location='${build-bootstrap}/gonzalez.jar'/>
-  <property name='jsonparser.jar' location='${build-bootstrap}/jsonparser.jar'/>
+  <!-- External parsing library dependencies (downloaded by resolve-deps target) -->
+  <property name='gonzalez.jar' value='gonzalez-1.0.jar'/>
+  <property name='jsonparser.jar' value='jsonparser-1.2.jar'/>
   
   <!--
     Java version compatibility settings.
-    Gumdrop targets Java 8 to ensure broad compatibility with:
-    - Legacy enterprise Java runtimes still in production use
-    - Embedded systems and appliances with older JVMs
-    - Organizations with strict upgrade policies
+    Gumdrop v2 requires Java 17 (LTS) as the minimum baseline.
     
     Build strategy:
-    - Main code compiled with -release 8 (Java 8 bytecode + API)
-    - module-info.java compiled separately with -release 9 (JPMS)
-    
-    This produces a JAR usable on:
-    - Java 8 (classpath mode, module-info ignored)
-    - Java 9+ (module-path mode, full JPMS support)
+    - Main code compiled with -release 17
+    - module-info.java compiled separately with -release 17 (JPMS)
   -->
-  <property name='java.release.version' value='8'/>
-  <!-- Fallback for JDK 8 builds (source/target used when release attr unavailable) -->
-  <property name='java.source.version' value='1.8'/>
-  <property name='java.target.version' value='1.8'/>
+  <property name='java.release.version' value='17'/>
   
   <property name='servlet.jar' value='javax.servlet-api-4.0.1.jar'/>
   <property name='javamail.jar' value='javax.mail-1.6.2.jar'/>
@@ -90,16 +83,30 @@
     <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
   </target>
 
+  <!-- Download external parsing library dependencies from GitHub Releases -->
+  <target name='resolve-deps' description='Download external dependencies'>
+    <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v1.2/jsonparser-1.2.jar'
+         dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
+    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.0/gonzalez-1.0.jar'
+         dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
+  </target>
+
   <!-- Target for the server/servlet container and all its resources -->
-  <target name='build'>
+  <target name='build' depends='resolve-deps'>
     <mkdir dir='${build}'/>
-    <!-- Compile main sources with Java 8 compatibility -->
+    <!-- Remove module-info.class before main compilation to prevent javac from
+         detecting an existing module descriptor and entering module mode -->
+    <delete file='${build}/module-info.class' quiet='true'/>
+    <!-- Compile main sources (sourcepath='' prevents javac from auto-discovering
+         module-info.java on the source path and entering module mode) -->
     <javac srcdir='${src}' destdir='${build}' debug='true'
            release='${java.release.version}'
-           source='${java.source.version}' target='${java.target.version}'
+           sourcepath=''
            includeantruntime='false'
            createMissingPackageInfoClass='false'>
       <classpath>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -109,13 +116,15 @@
       </classpath>
       <include name="**/*.java"/>
       <exclude name="module-info.java"/>
-      <exclude name="org/bluezoo/gumdrop/Bootstrap.java"/>
-      <exclude name="org/bluezoo/gumdrop/ContainerClassLoader.java"/>
     </javac>
-    <!-- Compile module-info.java separately with Java 9 (for JPMS support) -->
+    <!-- Compile module-info.java separately (JPMS module descriptor) -->
     <javac srcdir='${src}' destdir='${build}' debug='true'
-           release='9' includeantruntime='false'>
+           release='${java.release.version}' includeantruntime='false'>
       <include name="module-info.java"/>
+      <modulepath>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
+      </modulepath>
     </javac>
     <copy todir='${build}'>
       <fileset dir='${src}'>
@@ -125,50 +134,142 @@
     </copy>
   </target>
 
-  <!-- gumdrop.jar contains the server, servlet container, and integrated parsing libraries -->
+  <!-- gumdrop.jar contains the server and servlet container -->
+  <!-- Bootstrap and ContainerClassLoader are excluded: they live in the container jar -->
   <target name='jar' depends='build'>
     <mkdir dir='${dist}'/>
-    <jar destfile='${gumdrop.jar}' basedir='${build}'/>
-  </target>
-
-  <!-- Build separate gonzalez.jar for servlet context classloader access -->
-  <target name='gonzalez-jar' depends='build'>
-    <mkdir dir='${build-bootstrap}'/>
-    <jar destfile='${gonzalez.jar}'>
-      <fileset dir='${build}'>
-        <include name='org/bluezoo/gonzalez/**'/>
-        <include name='META-INF/**'/>
-      </fileset>
+    <jar destfile='${gumdrop.jar}' basedir='${build}'>
+      <!-- Bootstrap classes live in the container jar; exclude from gumdrop.jar.
+           IteratorEnumeration and JarInputStream are kept in both jars since
+           they are used by the main codebase as well as the bootstrap chain. -->
+      <exclude name='org/bluezoo/gumdrop/Bootstrap.class'/>
+      <exclude name='org/bluezoo/gumdrop/Bootstrap$*.class'/>
+      <exclude name='org/bluezoo/gumdrop/DependencyClassLoader.class'/>
+      <exclude name='org/bluezoo/gumdrop/DependencyClassLoader$*.class'/>
+      <exclude name='org/bluezoo/gumdrop/ContainerClassLoader.class'/>
+      <exclude name='org/bluezoo/gumdrop/ContainerClassLoader$*.class'/>
     </jar>
   </target>
 
-  <!-- Build separate jsonparser.jar for servlet context classloader access -->
-  <target name='jsonparser-jar' depends='build'>
-    <mkdir dir='${build-bootstrap}'/>
-    <jar destfile='${jsonparser.jar}'>
-      <fileset dir='${build}'>
-        <include name='org/bluezoo/json/**'/>
-      </fileset>
-    </jar>
+  <!-- Native JNI library for QUIC support (optional) -->
+  <!-- Requires QUICHE_DIR environment variable pointing to the quiche source tree -->
+
+  <target name='native-check'>
+    <condition property='quiche.available'>
+      <and>
+        <isset property='env.QUICHE_DIR'/>
+        <available file='${env.QUICHE_DIR}/quiche/include/quiche.h'/>
+      </and>
+    </condition>
+    <!-- JNI include directory: prefer JAVA_HOME env var, fall back to java.home system property -->
+    <condition property='jni.home' value='${env.JAVA_HOME}'>
+      <and>
+        <isset property='env.JAVA_HOME'/>
+        <available file='${env.JAVA_HOME}/include/jni.h'/>
+      </and>
+    </condition>
+    <!-- JDK 9+ layout: java.home points to JDK root -->
+    <condition property='jni.home' value='${java.home}'>
+      <available file='${java.home}/include/jni.h'/>
+    </condition>
+    <!-- Fallback: try parent directory (older JDK layouts) -->
+    <property name='jni.home' value='${java.home}/..'/>
+    <!-- Platform-specific JNI include subdirectory and library name -->
+    <condition property='os.jni.subdir' value='darwin'>
+      <os family='mac'/>
+    </condition>
+    <condition property='os.jni.subdir' value='linux'>
+      <and>
+        <os family='unix'/>
+        <not><os family='mac'/></not>
+      </and>
+    </condition>
+    <condition property='native.lib.name' value='libgumdrop_quic.dylib'>
+      <os family='mac'/>
+    </condition>
+    <condition property='native.lib.name' value='libgumdrop_quic.so'>
+      <and>
+        <os family='unix'/>
+        <not><os family='mac'/></not>
+      </and>
+    </condition>
+  </target>
+
+  <target name='native' depends='native-check,jar' if='quiche.available'
+          description='Compile JNI native library for QUIC support'>
+    <mkdir dir='${dist}'/>
+    <!-- Locate the BoringSSL static libraries built by cargo/boring-sys -->
+    <first id='boringssl.libssl.ref'>
+      <fileset dir='${env.QUICHE_DIR}/target/release/build'
+               includes='boring-sys-*/out/build/libssl.a'/>
+    </first>
+    <pathconvert property='boringssl.libssl' refid='boringssl.libssl.ref'/>
+    <first id='boringssl.libcrypto.ref'>
+      <fileset dir='${env.QUICHE_DIR}/target/release/build'
+               includes='boring-sys-*/out/build/libcrypto.a'/>
+    </first>
+    <pathconvert property='boringssl.libcrypto' refid='boringssl.libcrypto.ref'/>
+    <!-- Get macOS version for deployment target (avoids ld warnings when linking
+         against BoringSSL static libs built by cargo with a different default) -->
+    <exec executable='sw_vers' outputproperty='macos.version' failonerror='false'>
+      <arg value='-productVersion'/>
+    </exec>
+    <exec executable='cc' failonerror='true'>
+      <env key='MACOSX_DEPLOYMENT_TARGET' value='${macos.version}'/>
+      <arg value='-shared'/>
+      <arg value='-fPIC'/>
+      <arg value='-o'/>
+      <arg value='${dist}/${native.lib.name}'/>
+      <arg value='-I${jni.home}/include'/>
+      <arg value='-I${jni.home}/include/${os.jni.subdir}'/>
+      <arg value='-I${env.QUICHE_DIR}/quiche/include'/>
+      <arg value='-I${env.QUICHE_DIR}/quiche/deps/boringssl/src/include'/>
+      <arg value='-L${env.QUICHE_DIR}/target/release'/>
+      <arg value='-lquiche'/>
+      <arg value='-Wl,-rpath,@loader_path'/>
+      <arg value='${boringssl.libssl}'/>
+      <arg value='${boringssl.libcrypto}'/>
+      <arg value='${src}/org/bluezoo/gumdrop/quic/jni/quiche_jni.c'/>
+      <arg value='${src}/org/bluezoo/gumdrop/quic/jni/ssl_ctx_jni.c'/>
+      <arg value='${src}/org/bluezoo/gumdrop/quic/jni/h3_jni.c'/>
+    </exec>
+    <!-- Fix quiche install name so the dynamic linker finds it next to our dylib -->
+    <exec executable='install_name_tool' failonerror='true'>
+      <arg value='-change'/>
+      <arg value='/usr/local/lib/libquiche.0.25.0.dylib'/>
+      <arg value='@loader_path/libquiche.dylib'/>
+      <arg value='${dist}/${native.lib.name}'/>
+    </exec>
+    <!-- Copy quiche dylib alongside ours so @loader_path resolves -->
+    <copy file='${env.QUICHE_DIR}/target/release/libquiche.dylib'
+          todir='${dist}' overwrite='true'/>
+    <echo message='Built native library: ${dist}/${native.lib.name}'/>
+  </target>
+
+  <target name='native-skip' depends='native-check' unless='quiche.available'>
+    <echo message='QUICHE_DIR not set or quiche headers not found -- skipping native build'/>
   </target>
 
   <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
-  <!-- the gumdrop.jar, and the J2EE dependencies for the server and container. -->
+  <!-- the gumdrop.jar, and the J2EE and parsing library dependencies for the server and container. -->
   <!-- Bootstrap will create a new classloader to load these jars -->
-  <!-- Separate gonzalez.jar and jsonparser.jar are built into build-bootstrap so servlets can use them -->
-  <target name='build-bootstrap' depends='jar,gonzalez-jar,jsonparser-jar'>
+  <target name='build-bootstrap' depends='jar'>
     <mkdir dir='${build-bootstrap}'/>
     <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'
            release='${java.release.version}'
-           source='${java.source.version}' target='${java.target.version}'
+           sourcepath=''
            includeantruntime='false'>
       <include name="org/bluezoo/gumdrop/Bootstrap.java"/>
+      <include name="org/bluezoo/gumdrop/DependencyClassLoader.java"/>
       <include name="org/bluezoo/gumdrop/ContainerClassLoader.java"/>
+      <include name="org/bluezoo/gumdrop/util/IteratorEnumeration.java"/>
+      <include name="org/bluezoo/gumdrop/util/JarInputStream.java"/>
     </javac>
     <copy todir='${build-bootstrap}' file='${gumdrop.jar}'/>
-    <!-- gonzalez.jar and jsonparser.jar are already in build-bootstrap from their targets -->
     <copy todir='${build-bootstrap}'>
       <fileset dir='${lib}'>
+        <include name='${gonzalez.jar}'/>
+        <include name='${jsonparser.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
         <include name='${annotation.jar}'/>
@@ -186,7 +287,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} gonzalez.jar jsonparser.jar'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -197,7 +298,7 @@
     <jar destfile='${manager.war}' basedir='${manager}'/>
   </target>
 
-  <target name='dist' depends='container-jar,manager-war'/>
+  <target name='dist' depends='container-jar,manager-war,native,native-skip'/>
 
   <!-- Release target creates versioned artifacts for distribution -->
   <target name='release' depends='dist' description='Create versioned release artifacts'>
@@ -218,12 +319,14 @@
   </target>
 
   <!-- Generate Javadoc API documentation (only if sources have changed) -->
+  <!-- Use a fileset (no sourcepath) and exclude module-info.java so Javadoc runs
+       in classpath mode. With sourcepath, Javadoc would enter module mode and fail
+       resolving requires org.bluezoo.gonzalez / org.bluezoo.json (those JARs are
+       not on the module path and may not be modular). -->
   <target name='javadoc' depends='javadoc-check' unless='javadoc.uptodate'
           description='Generate Javadoc API documentation (incremental)'>
     <mkdir dir='doc'/>
     <javadoc destdir='doc'
-             sourcepath='${src}'
-             packagenames='org.bluezoo.gumdrop.*'
              author='true'
              version='true'
              use='true'
@@ -231,12 +334,14 @@
              windowtitle='Gumdrop API'
              doctitle='Gumdrop API Documentation'
              header='&lt;b&gt;Gumdrop&lt;/b&gt;'
-             footer='Copyright &amp;copy; 2005, 2025 Chris Burdess. Licensed under LGPL.'
-             bottom='&lt;small&gt;Gumdrop is free software distributed under the GNU Lesser General Public License.&lt;/small&gt;'
-             source='${java.source.version}'
+             bottom='&lt;small&gt;Gumdrop is free software distributed under the GNU Lesser General Public License. Copyright &amp;copy; 2005, 2025 Chris Burdess.&lt;/small&gt;'
+             source='${java.release.version}'
              failonerror='false'
              additionalparam='-Xdoclint:none'>
+      <fileset dir='${src}' includes='**/*.java' excludes='module-info.java'/>
       <classpath>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -259,7 +364,7 @@
   <target name='cluster-test'>
     <mkdir dir='${test}/cluster/WEB-INF/classes'/>
     <javac srcdir='${test}/cluster' destdir='${test}/cluster/WEB-INF/classes' debug='true'
-           source='${java.source.version}' target='${java.target.version}'
+           release='${java.release.version}'
            includeantruntime='false'>
       <classpath>
         <pathelement location='${lib}/${servlet.jar}'/>
@@ -270,11 +375,13 @@
   <target name='junit-build' depends='build'>
     <mkdir dir='${test}/junit/classes'/>
     <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'
-           source='${java.source.version}' target='${java.target.version}'
+           release='${java.release.version}'
            includeantruntime='false'>
       <classpath>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${build}'/>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${jsp.jar}'/>
@@ -295,6 +402,8 @@
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
         <pathelement location='${build}'/>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${jsp.jar}'/>
@@ -318,7 +427,7 @@
     <mkdir dir='${test}/integration/classes'/>
     <javac srcdir='${test}/integration/src'
            destdir='${test}/integration/classes'
-           source='${java.source.version}' target='${java.target.version}'
+           release='${java.release.version}'
            includeantruntime='false'
            debug='true'>
       <classpath>
@@ -337,6 +446,8 @@
     <pathelement location='${test}/junit/lib/${junit.jar}'/>
     <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
     <pathelement location='${build}'/>
+    <pathelement location='${lib}/${gonzalez.jar}'/>
+    <pathelement location='${lib}/${jsonparser.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>

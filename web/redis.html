@@ -73,8 +73,8 @@ communication, with a streaming decoder that handles partial data gracefully.
 <ul>
 <li><code>org.bluezoo.gumdrop.redis.client.RedisClient</code> - connection
 factory that creates connections to a Redis server</li>
-<li><code>org.bluezoo.gumdrop.redis.client.RedisClientConnection</code> -
-protocol handler implementing the RESP protocol</li>
+<li><code>org.bluezoo.gumdrop.redis.client.RedisClientProtocolHandler</code> -
+endpoint handler implementing the RESP protocol</li>
 <li><code>org.bluezoo.gumdrop.redis.client.RedisSession</code> - interface
 exposing all Redis operations</li>
 <li><code>org.bluezoo.gumdrop.redis.client.RedisConnectionReady</code> -
@@ -132,8 +132,8 @@ client.connect(new RedisConnectionReady() {
     }
     
     @Override
-    public void onConnected(ConnectionInfo info) {
-        // TCP connection established
+    public void onConnected(Endpoint endpoint) {
+        // TCP connected
     }
     
     @Override
@@ -142,7 +142,7 @@ client.connect(new RedisConnectionReady() {
     }
     
     @Override
-    public void onTLSStarted(TLSInfo info) {
+    public void onSecurityEstablished(SecurityInfo info) {
         // TLS handshake complete (for secure connections)
     }
     
@@ -210,13 +210,13 @@ callbacks</li>
 <h4>Obtaining the SelectorLoop</h4>
 
 <p>
-Within a Gumdrop connection handler, obtain the current SelectorLoop from the
-connection object:
+Within a Gumdrop endpoint handler, obtain the current SelectorLoop from the
+endpoint:
 </p>
 
 <pre>
 // Inside an HTTP servlet or protocol handler
-SelectorLoop loop = connection.getSelectorLoop();
+SelectorLoop loop = endpoint.getSelectorLoop();
 
 // Create Redis client bound to this loop
 RedisClient redis = new RedisClient(loop, "localhost", 6379);
@@ -303,7 +303,7 @@ public class RedisPool {
             }
             
             @Override
-            public void onConnected(ConnectionInfo info) { }
+            public void onConnected(Endpoint endpoint) { }
             
             @Override
             public void onDisconnected() {
@@ -311,7 +311,7 @@ public class RedisPool {
             }
             
             @Override
-            public void onTLSStarted(TLSInfo info) { }
+            public void onSecurityEstablished(SecurityInfo info) { }
             
             @Override
             public void onError(Exception e) {
@@ -806,7 +806,7 @@ public class RedisSessionServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) 
             throws IOException {
         String sessionId = req.getSession().getId();
-        SelectorLoop loop = ((Request) req).getConnection().getSelectorLoop();
+        SelectorLoop loop = ((Request) req).getEndpoint().getSelectorLoop();
         
         redisPool.getSession(loop, new RedisPool.SessionCallback() {
             @Override

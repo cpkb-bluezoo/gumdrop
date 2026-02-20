@@ -36,7 +36,7 @@
  *   <li>{@link MessageDataHandler} - Receives message content and completion</li>
  * </ul>
  *
- * <h2>State Interfaces (provided by SMTPConnection)</h2>
+ * <h2>State Interfaces (provided by SMTPProtocolHandler)</h2>
  * <p>These interfaces are passed to your handler callbacks, allowing you to
  * accept or reject each protocol element:
  * <ul>
@@ -50,30 +50,30 @@
  *   <li>{@link ResetState} - Handle RSET command</li>
  * </ul>
  *
- * <h2>Protocol Mechanics Handled by Connection</h2>
- * <p>The following are handled automatically by SMTPConnection, with the
- * handler receiving only policy-relevant notifications:
+ * <h2>Protocol Mechanics Handled by Endpoint Handler</h2>
+ * <p>The following are handled automatically by SMTPProtocolHandler,
+ * with the handler receiving only policy-relevant notifications:
  * <ul>
  *   <li><b>STARTTLS</b> - Accepted automatically if TLS is configured.
  *       Handler receives {@link HelloHandler#tlsEstablished} notification.</li>
  *   <li><b>SASL Authentication</b> - Challenge/response exchange handled
- *       by connection. Handler receives {@link HelloHandler#authenticated}
+ *       by endpoint handler. Handler receives {@link HelloHandler#authenticated}
  *       with the authenticated Principal.</li>
  * </ul>
  *
- * <h2>Factory Interface</h2>
- * <p>The {@link ClientConnectedFactory} creates new handler instances for
- * each incoming connection. Configure this on the SMTP server:
+ * <h2>Service Integration</h2>
+ * <p>Handler instances are created by {@link org.bluezoo.gumdrop.smtp.SMTPService}
+ * subclasses via their {@code createHandler(TCPListener)} method:
  *
  * <pre>{@code
- * <server class="org.bluezoo.gumdrop.smtp.SMTPServer">
- *   <property name="handlerFactory" ref="#myHandlerFactory"/>
- * </server>
+ * <service class="com.example.MySmtpService">
+ *   <listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/>
+ * </service>
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp
- * @see org.bluezoo.gumdrop.smtp.SMTPConnection
+ * @see org.bluezoo.gumdrop.smtp.SMTPProtocolHandler
  */
 package org.bluezoo.gumdrop.smtp.handler;
 

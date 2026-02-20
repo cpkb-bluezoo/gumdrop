@@ -22,13 +22,16 @@
 package org.bluezoo.gumdrop.smtp.client;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
 
 import org.junit.BeforeClass;
 import org.junit.Ignore;
@@ -110,18 +113,54 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         certManager.saveServerKeystore(keystoreFile, "testpass");
     }
 
-    private AcceptAllHandlerFactory getHandlerFactory() {
-        return (AcceptAllHandlerFactory) registry.getComponent("acceptAllFactory");
+    private AcceptAllService getService() {
+        return (AcceptAllService) registry.getComponent("acceptAllService");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Helper Methods
     // ─────────────────────────────────────────────────────────────────────────
 
-    private SMTPClient createClient(int port) throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
-        return new SMTPClient(selectorLoop, TEST_HOST, port);
+    /**
+     * Helper that wraps ClientEndpoint + SMTPClientProtocolHandler for v2 API.
+     */
+    private static class SMTPClientHelper {
+        private final ClientEndpoint client;
+        private final TCPTransportFactory factory;
+        private final int port;
+        private boolean secure;
+        private javax.net.ssl.SSLContext sslContext;
+
+        SMTPClientHelper(int port) throws Exception {
+            this.port = port;
+            this.factory = new TCPTransportFactory();
+            this.factory.start();
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
+            this.client = new ClientEndpoint(factory, selectorLoop, TEST_HOST, port);
+        }
+
+        void setSecure(boolean secure) {
+            this.secure = secure;
+        }
+
+        void setSSLContext(javax.net.ssl.SSLContext sslContext) {
+            this.sslContext = sslContext;
+        }
+
+        void connect(ServerGreeting handler) throws Exception {
+            if (secure && sslContext != null) {
+                factory.setSecure(true);
+                factory.setSSLContext(sslContext);
+            } else if (sslContext != null) {
+                factory.setSSLContext(sslContext);
+            }
+            client.connect(new SMTPClientProtocolHandler(handler));
+        }
+    }
+
+    private SMTPClientHelper createClient(int port) throws Exception {
+        return new SMTPClientHelper(port);
     }
 
     /**
@@ -157,10 +196,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testSimpleMessage() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTP_PORT);
+        SMTPClientHelper client = createClient(SMTP_PORT);
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -174,13 +213,13 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 lastStep.set("GREETING");
                 assertTrue("Should support ESMTP", esmtp);
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         lastStep.set("EHLO");
                         session.mailFrom(email("sender@example.com"), 
                             new TestMailFromHandler(completeLatch, error) {
@@ -228,7 +267,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         // Wait for server-side message processing and verify
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have received 1 message (lastStep: " + lastStep.get() + ")", 1, messages.size());
         
         // Queue ID is optional - some servers don't provide it
@@ -237,32 +276,32 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             log("Message queued with ID: " + queueId.get());
         }
 
-        AcceptAllHandlerFactory.ReceivedMessage received = messages.get(0);
+        AcceptAllService.ReceivedMessage received = (AcceptAllService.ReceivedMessage) messages.get(0);
         assertEquals("Sender should match", "sender@example.com", received.getSender().getAddress());
         assertEquals("Should have 1 recipient", 1, received.getRecipients().size());
-        assertEquals("Recipient should match", "recipient@example.com", 
-                     received.getRecipients().get(0).getAddress());
+        assertEquals("Recipient should match", "recipient@example.com",
+                     ((EmailAddress) received.getRecipients().get(0)).getAddress());
         assertTrue("Content should contain body", 
                    received.getContentAsString().contains("Test body content."));
     }
 
     @Test
     public void testMultipleRecipients() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTP_PORT);
+        SMTPClientHelper client = createClient(SMTP_PORT);
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         session.mailFrom(email("sender@example.com"), 
                             new TestMailFromHandler(completeLatch, error) {
                                 @Override
@@ -314,17 +353,18 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
-        assertEquals("Should have 3 recipients", 3, messages.get(0).getRecipients().size());
+        assertEquals("Should have 3 recipients", 3,
+                ((AcceptAllService.ReceivedMessage) messages.get(0)).getRecipients().size());
     }
 
     @Test
     public void testRsetCommand() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTP_PORT);
+        SMTPClientHelper client = createClient(SMTP_PORT);
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -332,11 +372,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         // Start a transaction
                         session.mailFrom(email("sender@example.com"), 
                             new TestMailFromHandler(completeLatch, error) {
@@ -403,10 +443,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("RSET should succeed", rsetSucceeded.get());
 
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have 1 message (first was reset)", 1, messages.size());
         assertEquals("Sender should be from second transaction", 
-                     "new-sender@example.com", messages.get(0).getSender().getAddress());
+                     "new-sender@example.com",
+                     ((AcceptAllService.ReceivedMessage) messages.get(0)).getSender().getAddress());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -415,10 +456,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testSmtpsConnection() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTPS_PORT);
+        SMTPClientHelper client = createClient(SMTPS_PORT);
         client.setSecure(true);
         client.setSSLContext(certManager.createClientSSLContext());
 
@@ -428,11 +469,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         session.mailFrom(email("secure@example.com"), 
                             new TestMailFromHandler(completeLatch, error) {
                                 @Override
@@ -464,8 +505,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             }
 
             @Override
-            public void onConnected(ConnectionInfo info) {
-                tlsConfirmed.set(info.isSecure());
+            public void onConnected(Endpoint endpoint) {
+                tlsConfirmed.set(endpoint.isSecure());
             }
         });
 
@@ -479,9 +520,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("Connection should be TLS", tlsConfirmed.get());
 
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
-        assertTrue("Server should see TLS active", messages.get(0).isTlsActive());
+        assertTrue("Server should see TLS active",
+                ((AcceptAllService.ReceivedMessage) messages.get(0)).isTlsActive());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -490,10 +532,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testStarttlsUpgrade() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTP_PORT);
+        SMTPClientHelper client = createClient(SMTP_PORT);
         client.setSSLContext(certManager.createClientSSLContext());
 
         CountDownLatch completeLatch = new CountDownLatch(1);
@@ -502,11 +544,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         if (!starttls) {
                             error.set(new SMTPException("Server does not offer STARTTLS"));
                             completeLatch.countDown();
@@ -520,8 +562,8 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
                                 // Must re-issue EHLO after STARTTLS
                                 postTls.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                                     @Override
-                                    public void handleEhlo(boolean st, long sz, List<String> auth,
-                                                          boolean pipe, ClientSession session) {
+                                    public void handleEhlo(ClientSession session, boolean st, long sz,
+                                                          List<String> auth, boolean pipe) {
                                         session.mailFrom(email("sender@example.com"), 
                                             new TestMailFromHandler(completeLatch, error) {
                                                 @Override
@@ -582,9 +624,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("STARTTLS should succeed", starttlsSucceeded.get());
 
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
-        assertTrue("Server should see TLS active after STARTTLS", messages.get(0).isTlsActive());
+        assertTrue("Server should see TLS active after STARTTLS",
+                ((AcceptAllService.ReceivedMessage) messages.get(0)).isTlsActive());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -593,10 +636,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testMultipleMessagesPerSession() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTP_PORT);
+        SMTPClientHelper client = createClient(SMTP_PORT);
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -604,11 +647,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         sendMessage(session, 1);
                     }
 
@@ -660,33 +703,33 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertEquals("Should have sent 3 messages", Integer.valueOf(3), messagesSent.get());
 
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have 3 messages", 3, messages.size());
         
         for (int i = 0; i < 3; i++) {
             assertEquals("Sender " + (i+1) + " should match", 
                         "sender" + (i+1) + "@example.com", 
-                        messages.get(i).getSender().getAddress());
+                        ((AcceptAllService.ReceivedMessage) messages.get(i)).getSender().getAddress());
         }
     }
 
     @Test
     public void testNullSender() throws Exception {
-        AcceptAllHandlerFactory factory = getHandlerFactory();
-        factory.clearMessages();
+        AcceptAllService service = getService();
+        service.clearMessages();
 
-        SMTPClient client = createClient(SMTP_PORT);
+        SMTPClientHelper client = createClient(SMTP_PORT);
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
 
         client.connect(new TestHandler(completeLatch, error) {
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("test.client.com", new TestEhloHandler(completeLatch, error) {
                     @Override
-                    public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                          boolean pipelining, ClientSession session) {
+                    public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                          List<String> authMethods, boolean pipelining) {
                         // Null sender for bounce message
                         session.mailFrom(null, new TestMailFromHandler(completeLatch, error) {
                             @Override
@@ -726,9 +769,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         pause(200);
-        List<AcceptAllHandlerFactory.ReceivedMessage> messages = factory.getReceivedMessages();
+        List messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
-        assertNull("Sender should be null for bounce", messages.get(0).getSender());
+        assertNull("Sender should be null for bounce",
+                ((AcceptAllService.ReceivedMessage) messages.get(0)).getSender());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -754,7 +798,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         @Override
-        public void onConnected(ConnectionInfo info) {}
+        public void onConnected(Endpoint endpoint) {}
 
         @Override
         public void onDisconnected() {}
@@ -766,7 +810,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         @Override
-        public void onTLSStarted(TLSInfo info) {}
+        public void onSecurityEstablished(SecurityInfo info) {}
     }
 
     private abstract static class TestEhloHandler implements ServerEhloReplyHandler {

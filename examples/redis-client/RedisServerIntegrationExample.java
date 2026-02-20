@@ -19,12 +19,12 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.redis.client.ArrayResultHandler;
 import org.bluezoo.gumdrop.redis.client.BooleanResultHandler;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
@@ -34,15 +34,12 @@ import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
 import org.bluezoo.gumdrop.redis.codec.RESPValue;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import javax.net.ssl.SSLEngine;
 
 /**
  * Example demonstrating Redis client integration within a Gumdrop server.
@@ -102,7 +99,7 @@ public class RedisServerIntegrationExample {
         Gumdrop gumdrop = Gumdrop.getInstance();
 
         // Add our example server
-        gumdrop.addServer(new ExampleServer(serverPort));
+        gumdrop.addListener(new ExampleServer(serverPort));
 
         // Start Gumdrop
         gumdrop.start();
@@ -114,7 +111,7 @@ public class RedisServerIntegrationExample {
     /**
      * Simple TCP server for the example.
      */
-    static class ExampleServer extends Server {
+    static class ExampleServer extends TCPListener {
         private final int port;
 
         ExampleServer(int port) {
@@ -122,51 +119,45 @@ public class RedisServerIntegrationExample {
         }
 
         @Override
-        public int getPort() {
+        protected int getPort() {
             return port;
         }
 
         @Override
-        public String getDescription() {
+        protected String getDescription() {
             return "RedisExample-" + port;
         }
 
         @Override
-        protected Connection newConnection(SocketChannel channel, SSLEngine engine) {
-            return new ExampleConnection(this, engine, channel);
+        protected ProtocolHandler createHandler() {
+            return new ExampleHandler();
         }
     }
 
     /**
-     * Connection handler that uses Redis for rate limiting and sessions.
+     * Endpoint handler that uses Redis for rate limiting and sessions.
      */
-    static class ExampleConnection extends Connection {
-        private final ExampleServer server;
-        private final SocketChannel socketChannel;
+    static class ExampleHandler implements ProtocolHandler {
+        private Endpoint endpoint;
         private RedisSession redis;
         private String clientIP;
         private int requestCount = 0;
 
-        ExampleConnection(ExampleServer server, SSLEngine engine, SocketChannel channel) {
-            super(engine, false);
-            this.server = server;
-            this.socketChannel = channel;
+        @Override
+        public void connected(Endpoint ep) {
+            this.endpoint = ep;
             
             // Get client IP for rate limiting
-            try {
-                InetSocketAddress addr = (InetSocketAddress) channel.getRemoteAddress();
-                this.clientIP = addr.getAddress().getHostAddress();
-            } catch (Exception e) {
+            Object addr = ep.getRemoteAddress();
+            if (addr instanceof InetSocketAddress) {
+                this.clientIP = ((InetSocketAddress) addr).getAddress().getHostAddress();
+            } else {
                 this.clientIP = "unknown";
             }
-        }
 
-        @Override
-        public void connected() {
             System.out.println("[" + clientIP + "] Connected");
             
             // Get or create Redis connection for this SelectorLoop
-            // Using SelectorLoop affinity ensures Redis I/O happens on same thread
             getRedisSession(new RedisSessionCallback() {
                 @Override
                 public void onSession(RedisSession session) {
@@ -206,6 +197,21 @@ public class RedisServerIntegrationExample {
 
             // Check rate limit in Redis
             checkRateLimit(input);
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+            // TLS established
+        }
+
+        @Override
+        public void error(Exception cause) {
+            System.err.println("[" + clientIP + "] Error: " + cause.getMessage());
+        }
+
+        @Override
+        public void disconnected() {
+            System.out.println("[" + clientIP + "] Disconnected");
         }
 
         /**
@@ -291,7 +297,7 @@ public class RedisServerIntegrationExample {
             // Handle special commands
             if ("quit".equalsIgnoreCase(input)) {
                 sendMessage("Goodbye!\r\n");
-                close();
+                endpoint.close();
                 return;
             }
             
@@ -399,12 +405,7 @@ public class RedisServerIntegrationExample {
          */
         private void sendMessage(String message) {
             ByteBuffer buffer = ByteBuffer.wrap(message.getBytes(StandardCharsets.UTF_8));
-            send(buffer);
-        }
-
-        @Override
-        public void disconnected() {
-            System.out.println("[" + clientIP + "] Disconnected");
+            endpoint.send(buffer);
         }
 
         /**
@@ -415,7 +416,7 @@ public class RedisServerIntegrationExample {
          * thread context switches.
          */
         private void getRedisSession(final RedisSessionCallback callback) {
-            SelectorLoop loop = getSelectorLoop();
+            SelectorLoop loop = endpoint.getSelectorLoop();
             RedisSession existing = redisPool.get(loop);
             if (existing != null) {
                 callback.onSession(existing);
@@ -429,24 +430,24 @@ public class RedisServerIntegrationExample {
                 client.connect(new RedisConnectionReady() {
                     @Override
                     public void handleReady(RedisSession session) {
-                        redisPool.put(getSelectorLoop(), session);
+                        redisPool.put(endpoint.getSelectorLoop(), session);
                         System.out.println("[Redis] Connected for SelectorLoop");
                         callback.onSession(session);
                     }
 
                     @Override
-                    public void onConnected(ConnectionInfo info) {
+                    public void onConnected(Endpoint ep) {
                         // TCP connected
                     }
 
                     @Override
                     public void onDisconnected() {
-                        redisPool.remove(getSelectorLoop());
+                        redisPool.remove(endpoint.getSelectorLoop());
                         System.out.println("[Redis] Disconnected for SelectorLoop");
                     }
 
                     @Override
-                    public void onTLSStarted(TLSInfo info) {
+                    public void onSecurityEstablished(SecurityInfo info) {
                         // TLS established
                     }
 

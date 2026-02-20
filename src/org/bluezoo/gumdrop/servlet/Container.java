@@ -150,7 +150,7 @@ public class Container implements ManagerContainerService, ClusterContainer {
 
     /**
      * Initialize all contexts.
-     * This is called by ServletServer.start() after the server is configured.
+     * This is called by ServletService.initService() after the service is configured.
      */
     synchronized void initContexts() {
         if (!started) {

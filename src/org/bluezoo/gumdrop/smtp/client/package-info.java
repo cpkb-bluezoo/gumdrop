@@ -29,9 +29,7 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.SMTPClient} - Creates client
- *       connections to remote SMTP servers</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.SMTPClientConnection} -
+ *   <li>{@link org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler} -
  *       Handles SMTP protocol exchanges with automatic dot-stuffing or BDAT</li>
  *   <li>{@link org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting} -
  *       Entry point callback interface for receiving the initial greeting</li>
@@ -64,13 +62,12 @@
  * <h2>Usage Example</h2>
  *
  * <pre>{@code
- * // Create client for target server
- * SMTPClient client = new SMTPClient(selectorLoop, "mail.example.com", 25);
+ * // Create transport and connect
+ * TCPTransportFactory factory = new TCPTransportFactory();
+ * factory.start();
+ * ServerGreeting handler = new ServerGreeting() {
  *
- * // Connect with handler
- * client.connect(new ServerGreeting() {
- *
- *     public void onConnected(ConnectionInfo info) {
+ *     public void onConnected(Endpoint endpoint) {
  *         // TCP connected, waiting for greeting
  *     }
  *
@@ -102,10 +99,13 @@
  *         // Handle error
  *     }
  *
- *     public void onTLSStarted(TLSInfo info) {
+ *     public void onSecurityEstablished(SecurityInfo info) {
  *         // TLS handshake complete
  *     }
- * });
+ * };
+ * SMTPClientProtocolHandler endpointHandler = new SMTPClientProtocolHandler(handler);
+ * ClientEndpoint endpoint = new ClientEndpoint(factory, selectorLoop, "mail.example.com", 25);
+ * endpoint.connect(endpointHandler);
  * }</pre>
  *
  * <h2>STARTTLS</h2>
@@ -122,7 +122,7 @@
  * handler - the same {@code ClientMessageData} interface is used in both cases.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.client.SMTPClient
+ * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
  * @see org.bluezoo.gumdrop.smtp
  */
 package org.bluezoo.gumdrop.smtp.client;

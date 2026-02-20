@@ -1,0 +1,361 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>File Server &amp; WebDAV - Gumdrop</title>
+</head>
+<body>
+
+<table summary='(layout)'>
+<tr>
+<td>
+<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
+</td>
+<td valign='bottom'>
+<h1 class='offset'>Gumdrop File Server &amp; WebDAV</h1>
+</td>
+</table>
+
+<p><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+The <code>WebDAVService</code> is a complete, production-ready HTTP file
+service built on the Gumdrop framework. It serves static files from a
+filesystem directory with high performance, and optionally provides full
+WebDAV (RFC 2518) distributed authoring support. Because it is an
+<a href="http.html">HTTP service</a>, it can be configured with any
+combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#file-server">File Server</a></li>
+<li><a href="#webdav">WebDAV Support</a></li>
+<li><a href="#webdav-methods">WebDAV Methods</a></li>
+<li><a href="#live-properties">Live Properties</a></li>
+<li><a href="#locking">Locking</a></li>
+<li><a href="#examples">Protocol Examples</a></li>
+</ul>
+
+<h3 id="file-server">File Server</h3>
+
+<h4>Features</h4>
+
+<ul>
+<li><b>NIO-based transfers</b> - uses Java NIO for efficient file-to-socket
+data transfer</li>
+<li><b>Content type detection</b> - automatic MIME type detection based on
+file extension</li>
+<li><b>Directory listings</b> - configurable welcome file for directory requests</li>
+<li><b>HTTP methods</b> - GET, HEAD, and optionally PUT/DELETE for writes</li>
+<li><b>Range requests</b> - partial content delivery for large files</li>
+<li><b>Conditional requests</b> - ETag and Last-Modified support</li>
+<li><b>Path security</b> - prevents directory traversal attacks</li>
+</ul>
+
+<h4>Configuration</h4>
+
+<pre>
+&lt;service id="files" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
+  &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
+  &lt;property name="welcome-file"&gt;index.html&lt;/property&gt;
+  &lt;property name="allow-write"&gt;false&lt;/property&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+Properties:
+</p>
+<ul>
+<li><code>rootPath</code> - filesystem directory to serve (required)</li>
+<li><code>welcomeFile</code> - default file for directory requests (default:
+<code>index.html</code>)</li>
+<li><code>allowWrite</code> - enable PUT and DELETE methods (default:
+<code>false</code>)</li>
+</ul>
+
+<h4>Security</h4>
+
+<p>
+The file server validates all paths to ensure they remain within the
+configured root directory. Symbolic links are resolved to their real
+paths before access checks. The root path must be a readable directory;
+if write operations are enabled, the server logs a warning if the directory
+is not writable.
+</p>
+
+<h4>Performance</h4>
+
+<p>
+File transfers use Java NIO's <code>FileChannel.transferTo()</code> where
+possible, enabling zero-copy transfers directly from the filesystem to the
+socket. This minimises memory allocation and CPU usage for large file
+transfers.
+</p>
+
+<p>
+For HTTP/3 and HTTP/2 connections, the file server benefits from stream
+multiplexing when serving mixed content (HTML, CSS, JavaScript, images).
+</p>
+
+<h4>HTTP/3 Support</h4>
+
+<p>
+To serve files over HTTP/3 as well as HTTP/2 and HTTP/1.1, add both an
+<code>HTTPListener</code> and an <code>HTTP3Listener</code>:
+</p>
+
+<pre>
+&lt;service id="files" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
+  &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+  &lt;/listener&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
+    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+The service automatically advertises HTTP/3 availability via the
+<code>Alt-Svc</code> response header on TCP connections.
+</p>
+
+<h3 id="webdav">WebDAV Support</h3>
+
+<p>
+The file server supports WebDAV (RFC 2518) distributed authoring when
+enabled via the <code>webdavEnabled</code> property. This allows WebDAV
+clients such as Windows Explorer, macOS Finder, or dedicated clients like
+Cyberduck to access the file server as a network drive.
+</p>
+
+<h4>Enabling WebDAV</h4>
+
+<pre>
+&lt;service id="webdav" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
+  &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
+  &lt;property name="allow-write"&gt;true&lt;/property&gt;
+  &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+When WebDAV is enabled, the server advertises <code>DAV: 1,2</code> in
+OPTIONS responses and supports the following additional HTTP methods:
+</p>
+
+<h3 id="webdav-methods">WebDAV Methods</h3>
+
+<ul>
+<li><b>PROPFIND</b> - Query properties of resources. Supports
+<code>allprop</code>, <code>propname</code>, or specific property requests.
+The <code>Depth</code> header controls recursion (0, 1, or infinity).</li>
+
+<li><b>PROPPATCH</b> - Set or remove dead properties on resources.
+Live properties (those computed from the filesystem) cannot be modified.</li>
+
+<li><b>MKCOL</b> - Create a new collection (directory). The request must
+not have a body. The parent directory must exist.</li>
+
+<li><b>COPY</b> - Copy a resource or collection to a new location. Uses
+the <code>Destination</code> header for the target URL. The
+<code>Overwrite</code> header controls whether existing resources are
+replaced (default: true). For collections, <code>Depth</code> controls
+whether children are copied.</li>
+
+<li><b>MOVE</b> - Move a resource or collection. Semantically equivalent
+to COPY followed by DELETE. Requires valid lock tokens if resources are
+locked.</li>
+
+<li><b>LOCK</b> - Lock a resource to prevent concurrent modifications.
+Supports exclusive and shared write locks. Returns an opaque lock token
+that must be included in subsequent modifying requests.</li>
+
+<li><b>UNLOCK</b> - Release a lock using its token. The token is passed
+in the <code>Lock-Token</code> header.</li>
+</ul>
+
+<h3 id="live-properties">Live Properties</h3>
+
+<p>
+The following live properties are computed from the filesystem and returned
+by PROPFIND requests:
+</p>
+
+<ul>
+<li><code>creationdate</code> - file creation time (ISO 8601 format)</li>
+<li><code>displayname</code> - filename</li>
+<li><code>getcontentlength</code> - file size in bytes (files only)</li>
+<li><code>getcontenttype</code> - MIME type</li>
+<li><code>getetag</code> - entity tag for conditional requests</li>
+<li><code>getlastmodified</code> - last modification time (HTTP date format)</li>
+<li><code>lockdiscovery</code> - active locks on the resource</li>
+<li><code>resourcetype</code> - empty for files, <code>&lt;collection/&gt;</code>
+for directories</li>
+<li><code>supportedlock</code> - supported lock types (exclusive and shared
+write locks)</li>
+</ul>
+
+<h3 id="locking">Locking</h3>
+
+<p>
+WebDAV locks prevent conflicting modifications when multiple clients access
+the same resource. Locks are:
+</p>
+
+<ul>
+<li><b>In-memory</b> - locks are not persisted and are lost on server restart</li>
+<li><b>Thread-safe</b> - lock management is safe for concurrent access</li>
+<li><b>Time-limited</b> - locks have a configurable timeout (default: 1 hour,
+maximum: 1 week)</li>
+<li><b>Depth-aware</b> - locks can cover a resource only (depth 0), a
+collection and its immediate children (depth 1), or an entire subtree
+(depth infinity)</li>
+</ul>
+
+<p>
+When a resource is locked, modifying operations (PUT, DELETE, MOVE, PROPPATCH)
+require a valid lock token in the <code>If</code> or <code>Lock-Token</code>
+header.
+</p>
+
+<h3 id="examples">Protocol Examples</h3>
+
+<h4>PROPFIND Request</h4>
+
+<pre>
+PROPFIND /documents/ HTTP/1.1
+Host: example.com
+Depth: 1
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;propfind xmlns="DAV:"&gt;
+  &lt;prop&gt;
+    &lt;displayname/&gt;
+    &lt;getcontentlength/&gt;
+    &lt;getlastmodified/&gt;
+  &lt;/prop&gt;
+&lt;/propfind&gt;
+</pre>
+
+<p>
+Response (207 Multi-Status):
+</p>
+
+<pre>
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;D:multistatus xmlns:D="DAV:"&gt;
+  &lt;D:response&gt;
+    &lt;D:href&gt;/documents/&lt;/D:href&gt;
+    &lt;D:propstat&gt;
+      &lt;D:prop&gt;
+        &lt;D:displayname&gt;documents&lt;/D:displayname&gt;
+      &lt;/D:prop&gt;
+      &lt;D:status&gt;HTTP/1.1 200 OK&lt;/D:status&gt;
+    &lt;/D:propstat&gt;
+  &lt;/D:response&gt;
+  &lt;D:response&gt;
+    &lt;D:href&gt;/documents/report.pdf&lt;/D:href&gt;
+    &lt;D:propstat&gt;
+      &lt;D:prop&gt;
+        &lt;D:displayname&gt;report.pdf&lt;/D:displayname&gt;
+        &lt;D:getcontentlength&gt;245678&lt;/D:getcontentlength&gt;
+        &lt;D:getlastmodified&gt;Tue, 06 Jan 2026 12:00:00 GMT&lt;/D:getlastmodified&gt;
+      &lt;/D:prop&gt;
+      &lt;D:status&gt;HTTP/1.1 200 OK&lt;/D:status&gt;
+    &lt;/D:propstat&gt;
+  &lt;/D:response&gt;
+&lt;/D:multistatus&gt;
+</pre>
+
+<h4>LOCK Request</h4>
+
+<pre>
+LOCK /documents/report.pdf HTTP/1.1
+Host: example.com
+Timeout: Second-3600
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;lockinfo xmlns="DAV:"&gt;
+  &lt;lockscope&gt;&lt;exclusive/&gt;&lt;/lockscope&gt;
+  &lt;locktype&gt;&lt;write/&gt;&lt;/locktype&gt;
+  &lt;owner&gt;user@example.com&lt;/owner&gt;
+&lt;/lockinfo&gt;
+</pre>
+
+<p>
+Response includes the lock token:
+</p>
+
+<pre>
+HTTP/1.1 200 OK
+Lock-Token: &lt;opaquelocktoken:a1b2c3d4-e5f6-7890-abcd-ef1234567890&gt;
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;D:prop xmlns:D="DAV:"&gt;
+  &lt;D:lockdiscovery&gt;
+    &lt;D:activelock&gt;
+      &lt;D:locktype&gt;&lt;D:write/&gt;&lt;/D:locktype&gt;
+      &lt;D:lockscope&gt;&lt;D:exclusive/&gt;&lt;/D:lockscope&gt;
+      &lt;D:depth&gt;infinity&lt;/D:depth&gt;
+      &lt;D:owner&gt;user@example.com&lt;/D:owner&gt;
+      &lt;D:timeout&gt;Second-3600&lt;/D:timeout&gt;
+      &lt;D:locktoken&gt;
+        &lt;D:href&gt;opaquelocktoken:a1b2c3d4-e5f6-7890-abcd-ef1234567890&lt;/D:href&gt;
+      &lt;/D:locktoken&gt;
+    &lt;/D:activelock&gt;
+  &lt;/D:lockdiscovery&gt;
+&lt;/D:prop&gt;
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="servlet.html">Servlet Container</a> |
+<a href="websocket.html">WebSocket Service &amp; Client</a> |
+<a href="ftp.html">FTP Server</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop File Server &amp; WebDAV</p>
+
+</body>
+</html>

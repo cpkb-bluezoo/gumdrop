@@ -33,8 +33,9 @@
  *       These are implemented by your handler class to make policy decisions
  *       about connection acceptance, authentication, and mailbox operations.</li>
  *   <li><strong>State interfaces</strong> - Provide response operations.
- *       These are implemented by POP3Connection and passed to your handler,
- *       constraining which responses are valid at each protocol stage.</li>
+ *       These are implemented by POP3ProtocolHandler and passed to
+ *       your handler, constraining which responses are valid at each
+ *       protocol stage.</li>
  * </ul>
  *
  * <h2>Protocol Flow</h2>
@@ -71,12 +72,13 @@
  * </ul>
  *
  * <p>Note: Authentication protocol mechanics (USER/PASS, APOP, SASL) are
- * handled internally by POP3Connection using the configured Realm. The handler
- * only receives an authenticate event with the verified Principal, allowing it
- * to make policy decisions without dealing with authentication details.
+ * handled internally by POP3ProtocolHandler using the configured Realm.
+ * The handler only receives an authenticate event with the verified Principal,
+ * allowing it to make policy decisions without dealing with authentication
+ * details.
  *
- * <p>Similarly, CAPA, STLS, NOOP, and QUIT (in AUTHORIZATION state) are handled
- * automatically by POP3Connection as they have standard responses.
+ * <p>Similarly, CAPA, STLS, NOOP, and QUIT (in AUTHORIZATION state) are
+ * handled automatically as they have standard responses.
  *
  * <h2>Default Implementation</h2>
  *
@@ -85,10 +87,11 @@
  *
  * <ul>
  *   <li>{@link DefaultPOP3Handler} - Accepts all operations using the Mailbox API</li>
- *   <li>{@link DefaultPOP3HandlerFactory} - Factory for creating default handlers</li>
+ *   <li>{@link org.bluezoo.gumdrop.pop3.DefaultPOP3Service} - Default service
+ *       that creates {@code DefaultPOP3Handler} instances</li>
  * </ul>
  *
- * <p>For many deployments, the default handler with appropriate Realm and
+ * <p>For many deployments, the default service with appropriate Realm and
  * MailboxFactory configuration is sufficient. Custom handlers can override
  * specific methods to add policy logic.
  *
@@ -99,12 +102,12 @@
  *                                           AuthorizationHandler,
  *                                           TransactionHandler {
  *     
- *     public void connected(ConnectionInfo info, ConnectedState state) {
+ *     public void connected(ConnectedState state, Endpoint endpoint) {
  *         state.acceptConnection("POP3 server ready", this);
  *     }
  *     
- *     public void authenticate(Principal principal, MailboxFactory factory,
- *                              AuthenticateState state) {
+ *     public void authenticate(AuthenticateState state, Principal principal,
+ *                              MailboxFactory factory) {
  *         // Policy check - is this user allowed?
  *         if (isAccountEnabled(principal)) {
  *             Mailbox mailbox = factory.openMailbox(principal.getName());
@@ -114,13 +117,13 @@
  *         }
  *     }
  *     
- *     public void retrieveMessage(Mailbox mailbox, int messageNumber, 
- *                                 RetrieveState state) {
+ *     public void retrieveMessage(RetrieveState state, Mailbox mailbox,
+ *                                 int messageNumber) {
  *         // ... retrieve and send message
  *     }
  *     
- *     public void markDeleted(Mailbox mailbox, int messageNumber,
- *                             MarkDeletedState state) {
+ *     public void markDeleted(MarkDeletedState state, Mailbox mailbox,
+ *                             int messageNumber) {
  *         // ... mark message for deletion
  *     }
  *     
@@ -129,7 +132,7 @@
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.POP3Connection
- * @see org.bluezoo.gumdrop.pop3.POP3Server
+ * @see org.bluezoo.gumdrop.pop3.POP3ProtocolHandler
+ * @see org.bluezoo.gumdrop.pop3.POP3Listener
  */
 package org.bluezoo.gumdrop.pop3.handler;

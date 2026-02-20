@@ -39,41 +39,54 @@
 <p><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop provides a comprehensive HTTP implementation supporting modern
-protocol versions and features. The HTTP layer serves as the foundation
-for higher-level services including the <a href="servlet.html">servlet
-container</a> and static file server.
+Gumdrop provides a comprehensive HTTP implementation supporting HTTP/3,
+HTTP/2, and HTTP/1.x. The HTTP layer serves as the foundation for
+higher-level services including the <a href="servlet.html">servlet
+container</a> and <a href="webdav.html">file server</a>.
 </p>
 
 <h3>Contents</h3>
 <ul>
 <li><a href="#versions">HTTP Versions</a></li>
+<li><a href="#http3">HTTP/3 and QUIC</a></li>
 <li><a href="#http2">HTTP/2 Support</a></li>
 <li><a href="#server-handler">Server Handler API</a></li>
-<li><a href="#websocket">WebSocket Support</a></li>
+<li><a href="websocket.html">WebSocket Service &amp; Client</a> (separate page)</li>
 <li><a href="#upgrades">Protocol Upgrades</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#client">HTTP Client</a></li>
-<li><a href="#file-server">File HTTP Server</a></li>
-<li><a href="#webdav">WebDAV Support</a></li>
+<li><a href="webdav.html">File Server &amp; WebDAV</a> (separate page)</li>
 </ul>
 
 <h3 id="versions">HTTP Versions</h3>
 
 <p>
-Gumdrop supports HTTP/1.0, HTTP/1.1, and HTTP/2 protocols, with automatic
+Gumdrop supports HTTP/3, HTTP/2, HTTP/1.1, and HTTP/1.0, with automatic
 version detection and negotiation. Originally built to support HTTP/1.1
 as a native protocol, Gumdrop was first adapted to use the SPDY protocol
 developed by Google, and then, as that was deprecated and consensus
 established on the newer HTTP/2 protocol, Gumdrop embraced the efficiency
-and extensibility of the latter and promotes its usage.
+and extensibility of the latter. With the standardisation of HTTP/3 over
+QUIC, Gumdrop now supports the full spectrum of modern HTTP.
 </p>
 
-<h4>HTTP/1.0</h4>
+<h4>HTTP/3</h4>
 
 <p>
-Basic HTTP support for legacy clients. Connections are closed after each
-request/response unless explicitly kept alive.
+HTTP/3 (RFC 9114) runs over QUIC instead of TCP. QUIC provides built-in
+TLS 1.3 encryption, multiplexed streams without head-of-line blocking,
+and faster connection establishment (often 0-RTT). HTTP/3 is configured
+via a separate <code>HTTP3Listener</code> that listens on a UDP port.
+See <a href="#http3">HTTP/3 and QUIC</a> below for details.
+</p>
+
+<h4>HTTP/2</h4>
+
+<p>
+Complete HTTP/2 implementation (RFC 7540) with multiplexing and header
+compression. HTTP/2 can be negotiated via ALPN during TLS handshake or
+via cleartext upgrade (h2c). See <a href="#http2">HTTP/2 Support</a>
+below for details.
 </p>
 
 <h4>HTTP/1.1</h4>
@@ -91,13 +104,135 @@ bodies without a priori content length</li>
 responses (though this is rarely used in practice)</li>
 </ul>
 
-<h4>HTTP/2</h4>
+<h4>HTTP/1.0</h4>
 
 <p>
-Complete HTTP/2 implementation (RFC 7540) with multiplexing and header
-compression. HTTP/2 can be negotiated via ALPN during TLS handshake or
-via cleartext upgrade (h2c).
+Basic HTTP support for legacy clients. Connections are closed after each
+request/response unless explicitly kept alive.
 </p>
+
+<h3 id="http3">HTTP/3 and QUIC</h3>
+
+<p>
+HTTP/3 is the latest major version of the Hypertext Transfer Protocol. Unlike
+HTTP/1.1 and HTTP/2, which run over TCP, HTTP/3 uses QUIC (RFC 9000) as its
+transport layer. QUIC provides:
+</p>
+
+<ul>
+<li><b>Built-in encryption</b> &ndash; TLS 1.3 is mandatory and integral to the
+protocol, with no cleartext mode</li>
+<li><b>Multiplexed streams</b> &ndash; like HTTP/2, but without TCP head-of-line
+blocking; a lost packet on one stream does not stall others</li>
+<li><b>Faster connection establishment</b> &ndash; the TLS handshake is combined
+with the transport handshake, often completing in a single round trip
+(1-RTT) or zero round trips (0-RTT) for resumed connections</li>
+<li><b>Connection migration</b> &ndash; connections survive changes in the
+client&rsquo;s IP address (e.g. switching from Wi-Fi to cellular)</li>
+</ul>
+
+<h4>Architecture</h4>
+
+<p>
+Gumdrop&rsquo;s HTTP/3 support is built on the
+<a href="https://github.com/cloudflare/quiche">quiche</a> library via JNI.
+The QUIC layer handles connection management, stream multiplexing, and
+congestion control natively, while the HTTP/3 framing (HEADERS, DATA,
+QPACK) is processed by Gumdrop&rsquo;s <code>HTTP3ServerHandler</code>
+and <code>H3Stream</code> classes.
+</p>
+
+<p>
+From the application&rsquo;s perspective, HTTP/3 is transparent. The same
+<code>HTTPRequestHandlerFactory</code> and <code>HTTPRequestHandler</code>
+interfaces are used regardless of whether the request arrived over HTTP/3,
+HTTP/2, or HTTP/1.1. The only visible difference is the HTTP version
+reported by <code>HTTPResponseState.getVersion()</code>.
+</p>
+
+<h4>Configuration</h4>
+
+<p>
+HTTP/3 is configured by adding an <code>HTTP3Listener</code> to an
+HTTP service. Because QUIC uses UDP, the HTTP/3 listener is independent
+of the TCP-based <code>HTTPListener</code> and can coexist with it:
+</p>
+
+<pre>
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+  &lt;!-- HTTP/1.1 and HTTP/2 over TCP --&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+  &lt;/listener&gt;
+  &lt;!-- HTTP/3 over QUIC --&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="cert-file"&gt;/etc/gumdrop/cert.pem&lt;/property&gt;
+    &lt;property name="key-file"&gt;/etc/gumdrop/key.pem&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+Note that the TCP and QUIC listeners can share the same port number (443 is
+conventional) because they use different transport protocols (TCP vs UDP).
+</p>
+
+<h4>PEM vs Keystore</h4>
+
+<p>
+QUIC uses BoringSSL (via the quiche native library) rather than the JDK&rsquo;s
+JSSE, so HTTP/3 listeners require PEM-encoded certificates and keys rather
+than a Java keystore:
+</p>
+
+<ul>
+<li><code>cert-file</code> &ndash; path to the PEM certificate chain</li>
+<li><code>key-file</code> &ndash; path to the PEM private key</li>
+</ul>
+
+<p>
+The TCP-based <code>HTTPListener</code> continues to use the standard Java
+keystore properties (<code>keystore-file</code>, <code>keystore-pass</code>,
+<code>keystore-format</code>). If you have a PKCS#12 keystore, you can
+extract PEM files with OpenSSL:
+</p>
+
+<pre>
+openssl pkcs12 -in keystore.p12 -nokeys -out cert.pem
+openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
+</pre>
+
+<h4>Alt-Svc Discovery</h4>
+
+<p>
+When an <code>HTTPService</code> has both TCP and QUIC listeners, it
+automatically computes an <code>Alt-Svc</code> response header and injects it
+into HTTP/1.1 and HTTP/2 responses served by the TCP listener. This tells
+clients that HTTP/3 is available:
+</p>
+
+<pre>
+alt-svc: h3=":443"
+</pre>
+
+<p>
+Clients that support HTTP/3 (all major browsers, curl, etc.) will attempt to
+use QUIC on subsequent requests. If the QUIC connection fails or is not
+supported by the network, clients fall back to HTTP/2 or HTTP/1.1
+transparently.
+</p>
+
+<h4>HTTP3Listener Properties</h4>
+
+<ul>
+<li><code>port</code> &ndash; UDP listening port (default: 443)</li>
+<li><code>cert-file</code> &ndash; path to PEM certificate chain (required)</li>
+<li><code>key-file</code> &ndash; path to PEM private key (required)</li>
+</ul>
 
 <h3 id="http2">HTTP/2 Support</h3>
 
@@ -154,11 +289,13 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
 </p>
 
 <pre>
-&lt;server class="org.bluezoo.gumdrop.http.HTTPServer"&gt;
-  &lt;property name="port"&gt;443&lt;/property&gt;
-  &lt;property name="secure"&gt;true&lt;/property&gt;
-  &lt;property name="frame-padding"&gt;64&lt;/property&gt;
-&lt;/server&gt;
+&lt;service class="org.bluezoo.gumdrop.http.HTTPService"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="frame-padding"&gt;64&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Priority-Aware Server</h4>
@@ -202,9 +339,9 @@ single-resource APIs, the standard <code>HTTPServer</code> is sufficient.
 
 <p>
 Gumdrop provides an event-driven, non-blocking API for building HTTP servers.
-The API abstracts away HTTP version details (HTTP/1.1 vs HTTP/2), allowing
-handlers to focus on application logic while the framework handles framing,
-header compression, flow control, and connection management.
+The API abstracts away HTTP version details (HTTP/3, HTTP/2, and HTTP/1.1),
+allowing handlers to focus on application logic while the framework handles
+framing, header compression, flow control, and connection management.
 </p>
 
 <h4>Core Interfaces</h4>
@@ -267,7 +404,7 @@ complete()             // finish the response
 public class HelloHandler extends DefaultHTTPRequestHandler {
     
     @Override
-    public void headers(Headers headers, HTTPResponseState state) {
+    public void headers(HTTPResponseState state, Headers headers) {
         if ("GET".equals(headers.getMethod())) {
             Headers response = new Headers();
             response.status(HTTPStatus.OK);
@@ -293,8 +430,8 @@ routing decisions based on path, method, or other criteria:
 <pre>
 public class MyFactory implements HTTPRequestHandlerFactory {
     
-    public HTTPRequestHandler createHandler(Headers headers, 
-                                            HTTPResponseState state) {
+    public HTTPRequestHandler createHandler(HTTPResponseState state,
+                                            Headers headers) {
         String path = headers.getPath();
         
         if (path.startsWith("/api/")) {
@@ -308,23 +445,26 @@ public class MyFactory implements HTTPRequestHandlerFactory {
 }
 </pre>
 
-<h4>Server Configuration</h4>
+<h4>Programmatic Setup</h4>
 
 <p>
-Set the handler factory on the server:
+Set the handler factory on the service:
 </p>
 
 <pre>
-HTTPServer server = new HTTPServer();
-server.setPort(8080);
-server.setHandlerFactory(new MyFactory());
-server.start();
+HTTPService service = new HTTPService();
+service.setHandlerFactory(new MyFactory());
+
+HTTPListener listener = new HTTPListener();
+listener.setPort(8080);
+service.addListener(listener);
+service.start();
 </pre>
 
 <h4>Authentication</h4>
 
 <p>
-If a <code>Realm</code> is configured on the server, authentication is
+If a <code>Realm</code> is configured on the service, authentication is
 performed automatically before the factory is called. The authenticated
 principal is available via <code>HTTPResponseState.getPrincipal()</code>.
 </p>
@@ -334,8 +474,8 @@ Alternatively, the factory can perform authentication manually:
 </p>
 
 <pre>
-public HTTPRequestHandler createHandler(Headers headers, 
-                                        HTTPResponseState state) {
+public HTTPRequestHandler createHandler(HTTPResponseState state,
+                                        Headers headers) {
     String auth = headers.getValue("authorization");
     if (!isValidAuth(auth)) {
         Headers response = new Headers();
@@ -358,7 +498,7 @@ send resources to the client:
 
 <pre>
 @Override
-public void headers(Headers headers, HTTPResponseState state) {
+public void headers(HTTPResponseState state, Headers headers) {
     // Push a stylesheet that we know the client will need
     Headers pushHeaders = new Headers();
     pushHeaders.add(":method", "GET");
@@ -380,16 +520,16 @@ Server push returns <code>false</code> for HTTP/1.x connections or if
 the client has disabled push via settings.
 </p>
 
-<h4>Connection Information</h4>
+<h4>Endpoint Information</h4>
 
 <p>
-The <code>HTTPResponseState</code> provides access to connection details:
+The <code>HTTPResponseState</code> provides access to endpoint details:
 </p>
 
 <ul>
-<li><code>getConnectionInfo()</code> - remote/local addresses, connection ID</li>
-<li><code>getTLSInfo()</code> - TLS session details (null if not secure)</li>
-<li><code>getVersion()</code> - HTTP version (HTTP_1_0, HTTP_1_1, HTTP_2)</li>
+<li><code>getEndpoint()</code> - the underlying endpoint (remote/local addresses)</li>
+<li><code>getSecurityInfo()</code> - TLS session details (null if not secure)</li>
+<li><code>getVersion()</code> - HTTP version (HTTP_3, HTTP_2, HTTP_1_1, HTTP_1_0)</li>
 <li><code>getScheme()</code> - URL scheme ("http" or "https")</li>
 <li><code>getPrincipal()</code> - authenticated user (if Realm configured)</li>
 </ul>
@@ -404,7 +544,7 @@ For server-sent events or other streaming scenarios:
 public class StreamHandler extends DefaultHTTPRequestHandler {
     
     @Override
-    public void headers(Headers headers, HTTPResponseState state) {
+    public void headers(HTTPResponseState state, Headers headers) {
         Headers response = new Headers();
         response.status(HTTPStatus.OK);
         response.add("content-type", "text/event-stream");
@@ -428,7 +568,7 @@ Use <code>cancel()</code> to abort a stream on error:
 
 <pre>
 @Override
-public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
+public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
     if (data.remaining() > MAX_BODY_SIZE) {
         Headers response = new Headers();
         response.status(HTTPStatus.REQUEST_ENTITY_TOO_LARGE);
@@ -437,140 +577,6 @@ public void requestBodyContent(ByteBuffer data, HTTPResponseState state) {
         state.cancel();  // abort the stream
     }
 }
-</pre>
-
-<h3 id="websocket">WebSocket Support</h3>
-
-<p>
-Gumdrop supports WebSocket protocol upgrades per RFC 6455, integrated with
-the HTTP server handler API.
-</p>
-
-<h4>WebSocket Handshake</h4>
-
-<p>
-A WebSocket upgrade request looks like:
-</p>
-
-<pre>
-GET /websocket HTTP/1.1
-Host: example.com
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-Sec-WebSocket-Version: 13
-</pre>
-
-<p>
-The server validates the request and computes the accept value by
-concatenating the client's key with the WebSocket GUID and hashing
-with SHA-1:
-</p>
-
-<pre>
-HTTP/1.1 101 Switching Protocols
-Upgrade: websocket
-Connection: Upgrade
-Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=
-</pre>
-
-<h4>WebSocket Handler API</h4>
-
-<p>
-The WebSocket API uses event handlers similar to the HTTP API:
-</p>
-
-<ul>
-<li><b>WebSocketEventHandler</b> - receives connection events (opened, closed,
-error) and messages (text, binary)</li>
-<li><b>WebSocketSession</b> - provided to the handler for sending messages</li>
-</ul>
-
-<h4>Upgrading from HTTP</h4>
-
-<p>
-Use <code>HTTPResponseState.upgradeToWebSocket()</code> in your HTTP handler:
-</p>
-
-<pre>
-public class MyHandler extends DefaultHTTPRequestHandler {
-    
-    @Override
-    public void headers(Headers headers, HTTPResponseState state) {
-        if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-            String protocol = headers.getValue("Sec-WebSocket-Protocol");
-            state.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
-        } else {
-            // Handle as regular HTTP request
-        }
-    }
-}
-</pre>
-
-<h4>WebSocket Event Handler Example</h4>
-
-<pre>
-public class EchoWebSocketHandler extends DefaultWebSocketEventHandler {
-    private WebSocketSession session;
-    
-    @Override
-    public void opened(WebSocketSession session) {
-        this.session = session;
-    }
-    
-    @Override
-    public void textMessageReceived(String message) {
-        try {
-            session.sendText("Echo: " + message);
-        } catch (IOException e) {
-            // Handle error
-        }
-    }
-    
-    @Override
-    public void binaryMessageReceived(ByteBuffer data) {
-        try {
-            session.sendBinary(data);
-        } catch (IOException e) {
-            // Handle error
-        }
-    }
-    
-    @Override
-    public void closed(int code, String reason) {
-        // Clean up resources
-    }
-    
-    @Override
-    public void error(Throwable cause) {
-        cause.printStackTrace();
-    }
-}
-</pre>
-
-<h4>WebSocket Session Methods</h4>
-
-<ul>
-<li><code>sendText(String message)</code> - send a text message</li>
-<li><code>sendBinary(ByteBuffer data)</code> - send binary data</li>
-<li><code>sendPing(ByteBuffer payload)</code> - send a ping frame</li>
-<li><code>close()</code> - close with normal status (1000)</li>
-<li><code>close(int code, String reason)</code> - close with specific status</li>
-<li><code>isOpen()</code> - check if session is still active</li>
-</ul>
-
-<h4>Subprotocol Negotiation</h4>
-
-<p>
-The client may request specific subprotocols via
-<code>Sec-WebSocket-Protocol</code>. Pass the selected subprotocol to
-<code>upgradeToWebSocket()</code>:
-</p>
-
-<pre>
-String requested = headers.getValue("Sec-WebSocket-Protocol");
-String selected = negotiateProtocol(requested);  // your logic
-state.upgradeToWebSocket(selected, handler);
 </pre>
 
 <h3 id="upgrades">Protocol Upgrades</h3>
@@ -609,23 +615,63 @@ the upgrade completes.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>HTTPServer Properties</h4>
+<h4>HTTPListener Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.http.HTTPServer</code> is the base class for HTTP
-servers. All subclasses inherit these properties:
+<code>HTTPListener</code> is the TCP listener for HTTP/1.1 and HTTP/2. It
+inherits standard listener properties and adds HTTP-specific options:
 </p>
 
 <ul>
-<li><code>port</code> - listening port (default: 80 or 443 for secure)</li>
-<li><code>secure</code> - enable implicit TLS</li>
-<li><code>keystoreFile</code> - path to keystore for TLS</li>
-<li><code>keystorePass</code> - keystore password</li>
-<li><code>keystoreFormat</code> - keystore format (default: PKCS12)</li>
-<li><code>needClientAuth</code> - require client certificates</li>
-<li><code>framePadding</code> - HTTP/2 frame padding (0-255 bytes)</li>
-<li><code>authenticationProvider</code> - HTTP authentication configuration</li>
+<li><code>port</code> &ndash; listening port (default: 80, or 443 for secure)</li>
+<li><code>secure</code> &ndash; enable implicit TLS</li>
+<li><code>keystore-file</code> &ndash; path to keystore for TLS</li>
+<li><code>keystore-pass</code> &ndash; keystore password</li>
+<li><code>keystore-format</code> &ndash; keystore format (default: PKCS12)</li>
+<li><code>need-client-auth</code> &ndash; require client certificates</li>
+<li><code>frame-padding</code> &ndash; HTTP/2 frame padding (0&ndash;255 bytes)</li>
+<li><code>authentication-provider</code> &ndash; HTTP authentication configuration</li>
 </ul>
+
+<h4>HTTP3Listener Properties</h4>
+
+<p>
+<code>HTTP3Listener</code> is the QUIC listener for HTTP/3. Because QUIC
+uses BoringSSL rather than the JDK TLS stack, certificate configuration
+uses PEM files instead of a keystore:
+</p>
+
+<ul>
+<li><code>port</code> &ndash; UDP listening port (default: 443)</li>
+<li><code>cert-file</code> &ndash; path to PEM certificate chain (required)</li>
+<li><code>key-file</code> &ndash; path to PEM private key (required)</li>
+</ul>
+
+<h4>Combined HTTP/3 + HTTP/2 + HTTP/1.1</h4>
+
+<p>
+A typical production configuration exposes both TCP (HTTP/1.1, HTTP/2) and
+QUIC (HTTP/3) on the same port number. The TCP listener handles traditional
+connections while the QUIC listener handles HTTP/3 connections on UDP. The
+service automatically sets the <code>Alt-Svc</code> header on TCP responses
+so that clients can discover and migrate to HTTP/3:
+</p>
+
+<pre>
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+  &lt;/listener&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
+    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
 
 <h4>Authentication</h4>
 
@@ -641,18 +687,18 @@ Gumdrop supports HTTP authentication methods:
 
 <p>
 Authentication is configured via an <code>HTTPAuthenticationProvider</code>
-which can be shared across multiple servers or customised per server. It is
+which can be shared across multiple services or customised per service. It is
 integrated into the centralised <code>org.bluezoo.gumdrop.auth.Realm</code>-based
-facility for managing authentication and authorisation across all servers
-and servlet containers running in the framework.
+facility for managing authentication and authorisation across all services
+running in the framework.
 </p>
 
 <h3 id="client">HTTP Client</h3>
 
 <p>
 Gumdrop includes a non-blocking HTTP client that shares the same event-driven
-architecture as the server. The client supports HTTP/1.1 and HTTP/2 with
-automatic protocol negotiation.
+architecture as the server. The client supports HTTP/3, HTTP/2, and HTTP/1.1
+with automatic protocol negotiation.
 </p>
 
 <h4>SelectorLoop Affinity</h4>
@@ -692,309 +738,90 @@ non-blocking connections to them via this feature.
 <h4>Features</h4>
 
 <ul>
-<li><b>Asynchronous operation</b> - integrates with Gumdrop's SelectorLoop</li>
-<li><b>HTTP/2 support</b> - ALPN negotiation for TLS, h2c upgrade for plaintext</li>
-<li><b>Stream multiplexing</b> - concurrent requests over a single HTTP/2 connection</li>
-<li><b>Authentication</b> - Basic, Digest, Bearer, and OAuth support</li>
-<li><b>Automatic retry</b> - authentication challenges handled transparently</li>
+<li><b>Asynchronous operation</b> &ndash; integrates with Gumdrop&rsquo;s SelectorLoop</li>
+<li><b>HTTP/3 support</b> &ndash; QUIC transport with ALPN &ldquo;h3&rdquo;</li>
+<li><b>HTTP/2 support</b> &ndash; ALPN negotiation for TLS, h2c upgrade for
+plaintext</li>
+<li><b>Stream multiplexing</b> &ndash; concurrent requests over a single HTTP/2
+or HTTP/3 connection</li>
+<li><b>Authentication</b> &ndash; Basic, Digest, Bearer, and OAuth support</li>
+<li><b>Automatic retry</b> &ndash; authentication challenges handled
+transparently</li>
 </ul>
 
-<h4>Usage</h4>
+<h4>Usage (HTTP/2 and HTTP/1.1)</h4>
 
 <pre>
-// Simple usage - connection established automatically
 HTTPClient client = new HTTPClient("example.com", 443);
 client.setSecure(true);
 
-HTTPRequest request = client.get("/api/data");
-request.header("Accept", "application/json");
-request.send(new DefaultHTTPResponseHandler() {
-    public void ok(HTTPResponse response) {
-        System.out.println("Status: " + response.getStatus());
+client.connect(new HTTPClientHandler() {
+    public void onConnected(Endpoint endpoint) {
+        HTTPRequest request = client.get("/api/data");
+        request.header("Accept", "application/json");
+        request.send(new DefaultHTTPResponseHandler() {
+            public void ok(HTTPResponse response) {
+                System.out.println("Status: " + response.getStatus());
+            }
+            public void responseBodyContent(ByteBuffer data) {
+                // Process response body
+            }
+            public void close() {
+                System.out.println("Response complete");
+                client.close();
+            }
+            public void failed(Exception ex) {
+                ex.printStackTrace();
+            }
+        });
     }
-    public void responseBodyContent(ByteBuffer data) {
-        // Process response body
+    public void onSecurityEstablished(SecurityInfo info) { }
+    public void onError(Exception cause) { cause.printStackTrace(); }
+    public void onDisconnected() { }
+});
+</pre>
+
+<h4>Usage (HTTP/3)</h4>
+
+<p>
+To use HTTP/3, enable it on the client before connecting. The client uses
+QUIC with ALPN &ldquo;h3&rdquo; instead of TCP:
+</p>
+
+<pre>
+HTTPClient client = new HTTPClient("example.com", 443);
+client.setH3Enabled(true);
+
+client.connect(new HTTPClientHandler() {
+    public void onConnected(Endpoint endpoint) {
+        HTTPRequest request = client.get("/api/data");
+        request.header("Accept", "application/json");
+        request.send(responseHandler);
     }
-    public void close() {
-        System.out.println("Response complete");
-        client.close();
-    }
-    public void failed(Exception ex) {
-        // Connection or request error
-        ex.printStackTrace();
-    }
+    public void onSecurityEstablished(SecurityInfo info) { }
+    public void onError(Exception cause) { cause.printStackTrace(); }
+    public void onDisconnected() { }
 });
 </pre>
 
 <p>
-All handler callbacks are invoked on the client connection's assigned worker
-thread. Long-running operations within handlers should be offloaded to avoid
-blocking the SelectorLoop.
-</p>
-
-<h3 id="file-server">File HTTP Server</h3>
-
-<p>
-The <code>FileHTTPServer</code> demonstrates a complete, production-ready
-HTTP server built on the Gumdrop framework. It serves static files from
-a filesystem directory with high performance.
-</p>
-
-<h4>Features</h4>
-
-<ul>
-<li><b>NIO-based transfers</b> - uses Java NIO for efficient file-to-socket
-data transfer</li>
-<li><b>Content type detection</b> - automatic MIME type detection based on
-file extension</li>
-<li><b>Directory listings</b> - configurable welcome file for directory requests</li>
-<li><b>HTTP methods</b> - GET, HEAD, and optionally PUT/DELETE for writes</li>
-<li><b>Range requests</b> - partial content delivery for large files</li>
-<li><b>Conditional requests</b> - ETag and Last-Modified support</li>
-<li><b>Path security</b> - prevents directory traversal attacks</li>
-</ul>
-
-<h4>Configuration</h4>
-
-<pre>
-&lt;server id="files" class="org.bluezoo.gumdrop.http.file.FileHTTPServer"&gt;
-  &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
-  &lt;property name="welcome-file"&gt;index.html&lt;/property&gt;
-  &lt;property name="allow-write"&gt;false&lt;/property&gt;
-&lt;/server&gt;
-</pre>
-
-<p>
-Properties:
-</p>
-<ul>
-<li><code>rootPath</code> - filesystem directory to serve (required)</li>
-<li><code>welcomeFile</code> - default file for directory requests (default:
-<code>index.html</code>)</li>
-<li><code>allowWrite</code> - enable PUT and DELETE methods (default:
-<code>false</code>)</li>
-</ul>
-
-<h4>Security</h4>
-
-<p>
-The file server validates all paths to ensure they remain within the
-configured root directory. Symbolic links are resolved to their real
-paths before access checks. The root path must be a readable directory;
-if write operations are enabled, the server logs a warning if the directory
-is not writable.
-</p>
-
-<h4>Performance</h4>
-
-<p>
-File transfers use Java NIO's <code>FileChannel.transferTo()</code> where
-possible, enabling zero-copy transfers directly from the filesystem to the
-socket. This minimises memory allocation and CPU usage for large file
-transfers.
+The request and response APIs are identical regardless of the underlying
+protocol version. The only difference is how the client is configured
+before connecting.
 </p>
 
 <p>
-For HTTP/2 connections, the file server can benefit from the priority-aware
-server when serving mixed content (HTML, CSS, JavaScript, images) by
-prioritising critical resources.
+All handler callbacks are invoked on the client connection&rsquo;s assigned
+worker thread. Long-running operations within handlers should be offloaded
+to avoid blocking the SelectorLoop.
 </p>
-
-<h3 id="webdav">WebDAV Support</h3>
-
-<p>
-The file HTTP server supports WebDAV (RFC 2518) distributed authoring when
-enabled via the <code>webdavEnabled</code> property. This allows WebDAV
-clients such as Windows Explorer, macOS Finder, or dedicated clients like
-Cyberduck to access the file server as a network drive.
-</p>
-
-<h4>Enabling WebDAV</h4>
-
-<pre>
-&lt;server id="webdav" class="org.bluezoo.gumdrop.http.file.FileHTTPServer"&gt;
-  &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
-  &lt;property name="allow-write"&gt;true&lt;/property&gt;
-  &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
-&lt;/server&gt;
-</pre>
-
-<p>
-When WebDAV is enabled, the server advertises <code>DAV: 1,2</code> in
-OPTIONS responses and supports the following additional HTTP methods:
-</p>
-
-<h4>WebDAV Methods</h4>
-
-<ul>
-<li><b>PROPFIND</b> - Query properties of resources. Supports
-<code>allprop</code>, <code>propname</code>, or specific property requests.
-The <code>Depth</code> header controls recursion (0, 1, or infinity).</li>
-
-<li><b>PROPPATCH</b> - Set or remove dead properties on resources.
-Live properties (those computed from the filesystem) cannot be modified.</li>
-
-<li><b>MKCOL</b> - Create a new collection (directory). The request must
-not have a body. The parent directory must exist.</li>
-
-<li><b>COPY</b> - Copy a resource or collection to a new location. Uses
-the <code>Destination</code> header for the target URL. The
-<code>Overwrite</code> header controls whether existing resources are
-replaced (default: true). For collections, <code>Depth</code> controls
-whether children are copied.</li>
-
-<li><b>MOVE</b> - Move a resource or collection. Semantically equivalent
-to COPY followed by DELETE. Requires valid lock tokens if resources are
-locked.</li>
-
-<li><b>LOCK</b> - Lock a resource to prevent concurrent modifications.
-Supports exclusive and shared write locks. Returns an opaque lock token
-that must be included in subsequent modifying requests.</li>
-
-<li><b>UNLOCK</b> - Release a lock using its token. The token is passed
-in the <code>Lock-Token</code> header.</li>
-</ul>
-
-<h4>Live Properties</h4>
-
-<p>
-The following live properties are computed from the filesystem and returned
-by PROPFIND requests:
-</p>
-
-<ul>
-<li><code>creationdate</code> - file creation time (ISO 8601 format)</li>
-<li><code>displayname</code> - filename</li>
-<li><code>getcontentlength</code> - file size in bytes (files only)</li>
-<li><code>getcontenttype</code> - MIME type</li>
-<li><code>getetag</code> - entity tag for conditional requests</li>
-<li><code>getlastmodified</code> - last modification time (HTTP date format)</li>
-<li><code>lockdiscovery</code> - active locks on the resource</li>
-<li><code>resourcetype</code> - empty for files, <code>&lt;collection/&gt;</code>
-for directories</li>
-<li><code>supportedlock</code> - supported lock types (exclusive and shared
-write locks)</li>
-</ul>
-
-<h4>Locking</h4>
-
-<p>
-WebDAV locks prevent conflicting modifications when multiple clients access
-the same resource. Locks are:
-</p>
-
-<ul>
-<li><b>In-memory</b> - locks are not persisted and are lost on server restart</li>
-<li><b>Thread-safe</b> - lock management is safe for concurrent access</li>
-<li><b>Time-limited</b> - locks have a configurable timeout (default: 1 hour,
-maximum: 1 week)</li>
-<li><b>Depth-aware</b> - locks can cover a resource only (depth 0), a
-collection and its immediate children (depth 1), or an entire subtree
-(depth infinity)</li>
-</ul>
-
-<p>
-When a resource is locked, modifying operations (PUT, DELETE, MOVE, PROPPATCH)
-require a valid lock token in the <code>If</code> or <code>Lock-Token</code>
-header.
-</p>
-
-<h4>Example: PROPFIND Request</h4>
-
-<pre>
-PROPFIND /documents/ HTTP/1.1
-Host: example.com
-Depth: 1
-Content-Type: application/xml
-
-&lt;?xml version="1.0" encoding="utf-8"?&gt;
-&lt;propfind xmlns="DAV:"&gt;
-  &lt;prop&gt;
-    &lt;displayname/&gt;
-    &lt;getcontentlength/&gt;
-    &lt;getlastmodified/&gt;
-  &lt;/prop&gt;
-&lt;/propfind&gt;
-</pre>
-
-<p>
-Response (207 Multi-Status):
-</p>
-
-<pre>
-&lt;?xml version="1.0" encoding="utf-8"?&gt;
-&lt;D:multistatus xmlns:D="DAV:"&gt;
-  &lt;D:response&gt;
-    &lt;D:href&gt;/documents/&lt;/D:href&gt;
-    &lt;D:propstat&gt;
-      &lt;D:prop&gt;
-        &lt;D:displayname&gt;documents&lt;/D:displayname&gt;
-      &lt;/D:prop&gt;
-      &lt;D:status&gt;HTTP/1.1 200 OK&lt;/D:status&gt;
-    &lt;/D:propstat&gt;
-  &lt;/D:response&gt;
-  &lt;D:response&gt;
-    &lt;D:href&gt;/documents/report.pdf&lt;/D:href&gt;
-    &lt;D:propstat&gt;
-      &lt;D:prop&gt;
-        &lt;D:displayname&gt;report.pdf&lt;/D:displayname&gt;
-        &lt;D:getcontentlength&gt;245678&lt;/D:getcontentlength&gt;
-        &lt;D:getlastmodified&gt;Tue, 06 Jan 2026 12:00:00 GMT&lt;/D:getlastmodified&gt;
-      &lt;/D:prop&gt;
-      &lt;D:status&gt;HTTP/1.1 200 OK&lt;/D:status&gt;
-    &lt;/D:propstat&gt;
-  &lt;/D:response&gt;
-&lt;/D:multistatus&gt;
-</pre>
-
-<h4>Example: LOCK Request</h4>
-
-<pre>
-LOCK /documents/report.pdf HTTP/1.1
-Host: example.com
-Timeout: Second-3600
-Content-Type: application/xml
-
-&lt;?xml version="1.0" encoding="utf-8"?&gt;
-&lt;lockinfo xmlns="DAV:"&gt;
-  &lt;lockscope&gt;&lt;exclusive/&gt;&lt;/lockscope&gt;
-  &lt;locktype&gt;&lt;write/&gt;&lt;/locktype&gt;
-  &lt;owner&gt;user@example.com&lt;/owner&gt;
-&lt;/lockinfo&gt;
-</pre>
-
-<p>
-Response includes the lock token:
-</p>
-
-<pre>
-HTTP/1.1 200 OK
-Lock-Token: &lt;opaquelocktoken:a1b2c3d4-e5f6-7890-abcd-ef1234567890&gt;
-Content-Type: application/xml
-
-&lt;?xml version="1.0" encoding="utf-8"?&gt;
-&lt;D:prop xmlns:D="DAV:"&gt;
-  &lt;D:lockdiscovery&gt;
-    &lt;D:activelock&gt;
-      &lt;D:locktype&gt;&lt;D:write/&gt;&lt;/D:locktype&gt;
-      &lt;D:lockscope&gt;&lt;D:exclusive/&gt;&lt;/D:lockscope&gt;
-      &lt;D:depth&gt;infinity&lt;/D:depth&gt;
-      &lt;D:owner&gt;user@example.com&lt;/D:owner&gt;
-      &lt;D:timeout&gt;Second-3600&lt;/D:timeout&gt;
-      &lt;D:locktoken&gt;
-        &lt;D:href&gt;opaquelocktoken:a1b2c3d4-e5f6-7890-abcd-ef1234567890&lt;/D:href&gt;
-      &lt;/D:locktoken&gt;
-    &lt;/D:activelock&gt;
-  &lt;/D:lockdiscovery&gt;
-&lt;/D:prop&gt;
-</pre>
 
 <hr/>
 
 <p>
 <a href="index.html">&larr; Back to Main Page</a> |
+<a href="webdav.html">File Server &amp; WebDAV</a> |
+<a href="websocket.html">WebSocket Service &amp; Client</a> |
 <a href="smtp.html">SMTP Server &amp; Client</a> |
 <a href="imap.html">IMAP Server</a> |
 <a href="pop3.html">POP3 Server</a> |

@@ -38,7 +38,7 @@
  *
  * <p>{@link org.bluezoo.gumdrop.smtp.auth.AuthPipeline} implements
  * {@link org.bluezoo.gumdrop.smtp.SMTPPipeline}, integrating seamlessly
- * with SMTPConnection. When associated with a connection:
+ * with the SMTP endpoint handler. When associated with a session:
  *
  * <ul>
  *   <li>SPF check runs automatically on MAIL FROM</li>

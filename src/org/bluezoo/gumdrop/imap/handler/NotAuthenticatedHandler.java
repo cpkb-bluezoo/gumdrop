@@ -64,11 +64,11 @@ public interface NotAuthenticatedHandler {
      * {@link AuthenticateState#accept}. To reject, call one of the reject
      * methods on the state.
      * 
+     * @param state operations for accepting or rejecting
      * @param principal the authenticated principal from the Realm
      * @param mailboxFactory factory for opening the user's mailbox store
-     * @param state operations for accepting or rejecting
      */
-    void authenticate(Principal principal, MailboxFactory mailboxFactory, 
-                      AuthenticateState state);
+    void authenticate(AuthenticateState state, Principal principal,
+                      MailboxFactory mailboxFactory);
 
 }

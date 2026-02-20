@@ -21,23 +21,19 @@
 
 package org.bluezoo.gumdrop.ftp;
 
-import org.bluezoo.gumdrop.Connection;
-
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLEngine;
-
 /**
- * Connection handler for FTP data connections.
- * This manages one TCP data connection used for file transfers and listings.
+ * Represents an FTP data connection for file transfers and listings.
+ * This is a lightweight wrapper around a SocketChannel used for
+ * blocking I/O during data transfers.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FTPDataConnection extends Connection {
+class FTPDataConnection {
 
     private static final Logger LOGGER = Logger.getLogger(FTPDataConnection.class.getName());
 
@@ -45,9 +41,7 @@ public class FTPDataConnection extends Connection {
     private final FTPDataConnectionCoordinator coordinator;
     private boolean transferActive = false;
 
-    protected FTPDataConnection(SocketChannel channel, SSLEngine engine, boolean secure, 
-                               FTPDataConnectionCoordinator coordinator) {
-        super(engine, secure);
+    FTPDataConnection(SocketChannel channel, FTPDataConnectionCoordinator coordinator) {
         this.channel = channel;
         this.coordinator = coordinator;
     }
@@ -73,23 +67,18 @@ public class FTPDataConnection extends Connection {
         return transferActive;
     }
 
-    public void receive(ByteBuffer buf) {
-        // Data connections typically don't receive commands - they transfer data
-        // This will be handled by the coordinator during transfers
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Received " + buf.remaining() + " bytes on data connection");
+    /**
+     * Closes the data connection.
+     */
+    public void close() {
+        try {
+            if (channel.isOpen()) {
+                channel.close();
+            }
+        } catch (IOException e) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "Error closing data connection", e);
+            }
         }
     }
-
-    protected void disconnected() throws IOException {
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Data connection closed");
-        }
-        
-        // Notify coordinator of disconnection if needed
-        if (transferActive && coordinator != null) {
-            // This will be expanded in Phase 2 for transfer completion handling
-        }
-    }
-
 }

@@ -1,6 +1,6 @@
 /*
  * ClientHandler.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -23,102 +23,87 @@ package org.bluezoo.gumdrop;
 
 /**
  * Base interface for handling client-side connection lifecycle events.
- * This interface defines the fundamental TCP connection events that all
- * client protocol implementations must handle.
- * 
- * <p>Client handlers are event-driven and asynchronous, responding to
- * network events delivered by the underlying Connection. Protocol-specific
- * subinterfaces extend this base interface to add protocol-specific events
- * and behaviours.
- * 
- * <p>All handler methods are called from the Connection's executor thread
- * and should not perform blocking operations. Long-running or blocking
- * operations should be delegated to separate threads.
- * 
+ *
+ * <p>Provides transport-agnostic callbacks for connection, disconnection,
+ * security establishment, and errors, expressed in terms of
+ * {@link Endpoint} and {@link SecurityInfo}.
+ *
+ * <p>Protocol-specific subinterfaces extend this base interface to add
+ * protocol-specific events and behaviours (e.g., SMTP greeting handling,
+ * HTTP session readiness).
+ *
+ * <p>All handler methods are called from the Endpoint's selector thread
+ * and should not perform blocking operations.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Client#connect(ClientHandler)
- * @see ConnectionInfo
- * @see TLSInfo
+ * @see ClientEndpoint
+ * @see Endpoint
+ * @see SecurityInfo
  */
 public interface ClientHandler {
 
     /**
-     * Called when the TCP connection has been successfully established.
-     * 
-     * <p>This method is invoked after the socket connection completes and
-     * any SSL handshake (if applicable) has finished successfully. The
-     * connection is ready for protocol-specific communication.
-     * 
-     * <p>The {@link ConnectionInfo} parameter provides details about the
-     * connection including:
+     * Called when the transport connection has been successfully established.
+     *
+     * <p>This method is invoked after the connection completes and any
+     * initial security handshake (if applicable) has finished. The endpoint
+     * is ready for protocol-specific communication.
+     *
+     * <p>The {@link Endpoint} provides access to:
      * <ul>
-     * <li>Local and remote socket addresses</li>
-     * <li>Whether the connection is secure (TLS)</li>
-     * <li>TLS details if secure (protocol, cipher, certificates)</li>
+     *   <li>Local and remote socket addresses</li>
+     *   <li>Whether the connection is secure</li>
+     *   <li>Security details via {@link Endpoint#getSecurityInfo()}</li>
      * </ul>
-     * 
-     * <p>Protocol implementations typically use this event to initiate
-     * the protocol handshake or send initial commands.
-     * 
-     * @param info details about the established connection
+     *
+     * @param endpoint the connected endpoint
      */
-    void onConnected(ConnectionInfo info);
+    void onConnected(Endpoint endpoint);
 
     /**
      * Called when a connection or protocol error occurs.
-     * 
+     *
      * <p>This method is invoked for various error conditions including:
      * <ul>
-     * <li>TCP connection failures (host unreachable, connection refused)</li>
-     * <li>SSL handshake failures</li>
-     * <li>Network I/O errors during operation</li>
-     * <li>Protocol-specific error conditions</li>
+     *   <li>Connection failures (host unreachable, connection refused)</li>
+     *   <li>TLS/QUIC handshake failures</li>
+     *   <li>Network I/O errors during operation</li>
      * </ul>
-     * 
+     *
      * <p>After this method is called, the connection should be considered
-     * unusable and will be cleaned up automatically.
-     * 
-     * @param cause the exception that caused the error condition
+     * unusable.
+     *
+     * @param cause the exception that caused the error
      */
     void onError(Exception cause);
 
     /**
      * Called when the remote peer has closed the connection.
-     * 
-     * <p>This method is invoked when the remote end closes the TCP connection
-     * gracefully. It provides an opportunity for cleanup and final processing
-     * before the connection resources are released.
-     * 
-     * <p>Protocol implementations can use this event to update statistics,
-     * log completion status, or trigger reconnection logic if appropriate.
+     *
+     * <p>This provides an opportunity for cleanup before connection
+     * resources are released.
      */
     void onDisconnected();
 
     /**
-     * Called when a TLS upgrade has been successfully completed.
-     * 
-     * <p>This method is invoked after a successful STARTTLS command response
-     * and the completion of the TLS handshake. The connection is now secure
-     * and all subsequent communication will be encrypted.
-     * 
-     * <p>The {@link TLSInfo} parameter provides details about the TLS session:
+     * Called when a TLS or QUIC security upgrade has completed.
+     *
+     * <p>For STARTTLS-style upgrades (SMTP, LDAP), this is called after
+     * the in-band TLS handshake completes. For connections that are
+     * secure from the start (implicit TLS, QUIC), this may be called
+     * before or combined with {@link #onConnected}.
+     *
+     * <p>The {@link SecurityInfo} provides:
      * <ul>
-     * <li>Protocol version (TLSv1.2, TLSv1.3)</li>
-     * <li>Cipher suite</li>
-     * <li>Peer and local certificates</li>
-     * <li>Whether session resumption was used</li>
-     * <li>ALPN negotiated protocol</li>
+     *   <li>Protocol version (TLSv1.2, TLSv1.3, QUICv1)</li>
+     *   <li>Cipher suite</li>
+     *   <li>Peer and local certificates</li>
+     *   <li>ALPN negotiated protocol</li>
+     *   <li>Session resumption status</li>
      * </ul>
-     * 
-     * <p>Protocol implementations can use this event to:
-     * <ul>
-     * <li>Reset protocol state (as required by some protocols like SMTP)</li>
-     * <li>Re-issue capabilities or handshake commands</li>
-     * <li>Update security-related state or configuration</li>
-     * <li>Log security upgrade events</li>
-     * </ul>
-     * 
-     * @param info details about the TLS session
+     *
+     * @param info the security session details
      */
-    void onTLSStarted(TLSInfo info);
+    void onSecurityEstablished(SecurityInfo info);
+
 }

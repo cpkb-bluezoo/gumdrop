@@ -28,10 +28,13 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPServer} - The main FTP server
- *       that accepts control connections</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPConnection} - Handles the FTP
- *       control connection and command processing</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FTPService} - Abstract base for
+ *       FTP application services; owns configuration, creates per-connection
+ *       handlers, and manages dynamic data-connection listeners</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FTPListener} - TCP transport
+ *       listener for FTP control connections</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FTPProtocolHandler} - Handles
+ *       the FTP control session and command processing</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.FTPConnectionHandler} - Interface for
  *       handling FTP commands and filesystem operations</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.FTPConnectionHandlerFactory} - Factory
@@ -64,7 +67,7 @@
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  *
- * <server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer">
+ * <server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPListener">
  *   <property name="port">21</property>
  *   <property name="handler-factory">
  *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.SimpleFTPHandlerFactory">
@@ -89,7 +92,7 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.ftp.FTPServer
+ * @see org.bluezoo.gumdrop.ftp.FTPListener
  * @see org.bluezoo.gumdrop.ftp.FTPConnectionHandler
  * @see org.bluezoo.gumdrop.ftp.file
  */

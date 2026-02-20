@@ -323,21 +323,6 @@ public class ConfigurationParserTest {
     }
 
     @Test
-    public void testSmtpHandlerComponent() throws Exception {
-        String config = "<?xml version=\"1.0\"?>\n" +
-            "<gumdrop>\n" +
-            "  <smtp-handler-factory id=\"smtp\">\n" +
-            "  </smtp-handler-factory>\n" +
-            "</gumdrop>";
-        File file = createConfigFile(config);
-
-        ConfigurationParser parser = new ConfigurationParser();
-        ParseResult result = parser.parse(file);
-
-        assertTrue(result.getRegistry().hasComponent("smtp"));
-    }
-
-    @Test
     public void testFtpHandlerComponent() throws Exception {
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +

@@ -48,7 +48,7 @@ import java.util.logging.Logger;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for IMAPServer with mbox mailbox store.
+ * Integration test for IMAPListener with mbox mailbox store.
  * 
  * <p>Tests IMAP server functionality including connection handling,
  * authentication, mailbox operations, and message access.
@@ -72,7 +72,7 @@ public class IMAPServerIntegrationTest {
         .build();
     
     private Gumdrop gumdrop;
-    private IMAPServer imapServer;
+    private IMAPListener imapServer;
     
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -91,7 +91,7 @@ public class IMAPServerIntegrationTest {
         TestRealm realm = new TestRealm();
         
         // Create IMAP server
-        imapServer = new IMAPServer();
+        imapServer = new IMAPListener();
         imapServer.setPort(IMAP_PORT);
         imapServer.setAddresses("127.0.0.1");
         imapServer.setRealm(realm);
@@ -101,7 +101,7 @@ public class IMAPServerIntegrationTest {
         // Start server using singleton with lifecycle management
         System.setProperty("gumdrop.workers", "1");
         gumdrop = Gumdrop.getInstance();
-        gumdrop.addServer(imapServer);
+        gumdrop.addListener(imapServer);
         gumdrop.start();
         
         // Wait for server to be ready

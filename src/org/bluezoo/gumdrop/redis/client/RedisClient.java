@@ -1,6 +1,6 @@
 /*
  * RedisClient.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -21,218 +21,209 @@
 
 package org.bluezoo.gumdrop.redis.client;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.channels.SocketChannel;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
-import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLContext;
 
-import org.bluezoo.gumdrop.Client;
-import org.bluezoo.gumdrop.ClientHandler;
-import org.bluezoo.gumdrop.Connection;
+import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 
 /**
- * Redis client implementation that creates and manages Redis connections.
+ * High-level Redis client facade.
  *
- * <p>This class extends {@link Client} to provide Redis-specific client
- * functionality for connecting to Redis servers and creating connection
- * instances.
+ * <p>This class provides a simple, concrete API for connecting to Redis servers.
+ * It internally creates a {@link TCPTransportFactory},
+ * {@link ClientEndpoint}, and {@link RedisClientProtocolHandler}, wiring
+ * them together and forwarding lifecycle events to the caller's
+ * {@link RedisConnectionReady} handler.
  *
- * <h4>Standalone Usage (recommended for simple scripts)</h4>
+ * <h4>Basic Usage</h4>
  * <pre>{@code
- * // Simple - no Gumdrop setup needed
- * RedisClient client = new RedisClient("localhost", 6379);
+ * RedisClient client = new RedisClient(selectorLoop, "localhost", 6379);
  * client.connect(new RedisConnectionReady() {
  *     public void handleReady(RedisSession session) {
- *         session.ping(new StringResultHandler() {
- *             public void handleResult(String result, RedisSession s) {
- *                 System.out.println("Redis says: " + result);
- *                 s.quit();
- *             }
- *             public void handleError(String error, RedisSession s) {
- *                 System.err.println("Error: " + error);
- *                 s.close();
- *             }
- *         });
+ *         session.set("key", "value", handler);
  *     }
- *     public void onConnected(ConnectionInfo info) { }
+ *     public void onConnected(Endpoint endpoint) { }
+ *     public void onSecurityEstablished(SecurityInfo info) { }
+ *     public void onError(Exception cause) { cause.printStackTrace(); }
  *     public void onDisconnected() { }
- *     public void onTLSStarted(TLSInfo info) { }
- *     public void onError(Exception e) { e.printStackTrace(); }
- * });
- * // Infrastructure auto-starts and auto-stops
- * }</pre>
- *
- * <h4>Server Integration (with SelectorLoop affinity)</h4>
- * <pre>{@code
- * // Use the same SelectorLoop as your server connection
- * RedisClient client = new RedisClient(connection.getSelectorLoop(), "localhost", 6379);
- * client.connect(handler);
- * }</pre>
- *
- * <h4>TLS Connection</h4>
- * <pre>{@code
- * RedisClient client = new RedisClient("redis.example.com", 6379);
- * client.setSecure(true);
- * client.setKeystoreFile("/path/to/truststore.p12");
- * client.setKeystorePass("password");
- * client.connect(handler);
- * }</pre>
- *
- * <h4>With Authentication</h4>
- * <pre>{@code
- * client.connect(new RedisConnectionReady() {
- *     public void handleReady(RedisSession session) {
- *         // Redis 6+ ACL authentication
- *         session.auth("username", "password", new StringResultHandler() {
- *             public void handleResult(String result, RedisSession s) {
- *                 // Authenticated, now use Redis
- *                 s.set("key", "value", myHandler);
- *             }
- *             public void handleError(String error, RedisSession s) {
- *                 System.err.println("Auth failed: " + error);
- *                 s.close();
- *             }
- *         });
- *     }
- *     // ... other callbacks
  * });
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see RedisConnectionReady
+ * @see RedisClientProtocolHandler
  */
-public class RedisClient extends Client {
+public class RedisClient {
 
-    /** The default Redis port. */
-    public static final int DEFAULT_PORT = 6379;
+    private static final Logger LOGGER =
+            Logger.getLogger(RedisClient.class.getName());
 
-    /** The default Redis TLS port. */
-    public static final int DEFAULT_TLS_PORT = 6380;
+    private final InetAddress hostAddress;
+    private final int port;
+    private final SelectorLoop selectorLoop;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constructors without SelectorLoop (standalone usage)
-    // ─────────────────────────────────────────────────────────────────────────
+    // Configuration (set before connect)
+    private boolean secure;
+    private SSLContext sslContext;
+    private String keystoreFile;
+    private String keystorePass;
+    private String keystoreFormat;
+
+    // Internal transport components (created at connect time)
+    private TCPTransportFactory transportFactory;
+    private RedisClientProtocolHandler endpointHandler;
+    private boolean connected;
 
     /**
-     * Creates a Redis client that will connect to the specified host and port.
+     * Creates a Redis client for the given host and port.
      *
-     * <p>The Gumdrop infrastructure is managed automatically - it starts
-     * when {@link #connect} is called and stops when all connections close.
+     * <p>Uses the next available worker loop from the global
+     * {@link Gumdrop} instance.
      *
-     * @param host the Redis server host as a String
-     * @param port the Redis server port number (typically 6379)
-     * @throws UnknownHostException if the host cannot be resolved
+     * @param host the remote hostname or IP address
+     * @param port the remote port
+     * @throws UnknownHostException if the hostname cannot be resolved
      */
     public RedisClient(String host, int port) throws UnknownHostException {
-        super(host, port);
+        this(null, host, port);
     }
 
     /**
-     * Creates a Redis client that will connect to the default port (6379).
+     * Creates a Redis client with an explicit selector loop.
      *
-     * @param host the Redis server host as a String
-     * @throws UnknownHostException if the host cannot be resolved
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote hostname or IP address
+     * @param port the remote port
+     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public RedisClient(String host) throws UnknownHostException {
-        super(host, DEFAULT_PORT);
+    public RedisClient(SelectorLoop selectorLoop, String host, int port)
+            throws UnknownHostException {
+        this.selectorLoop = selectorLoop;
+        this.hostAddress = InetAddress.getByName(host);
+        this.port = port;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Configuration (before connect)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Sets whether this client uses TLS.
+     *
+     * @param secure true for TLS
+     */
+    public void setSecure(boolean secure) {
+        this.secure = secure;
     }
 
     /**
-     * Creates a Redis client that will connect to the specified host and port.
+     * Sets an externally-configured SSL context.
      *
-     * @param host the Redis server host as an InetAddress
-     * @param port the Redis server port number (typically 6379)
+     * @param context the SSL context
      */
-    public RedisClient(InetAddress host, int port) {
-        super(host, port);
+    public void setSSLContext(SSLContext context) {
+        this.sslContext = context;
     }
 
     /**
-     * Creates a Redis client that will connect to the default port (6379).
+     * Sets the keystore file for client certificate authentication.
      *
-     * @param host the Redis server host as an InetAddress
+     * @param path the keystore file path
      */
-    public RedisClient(InetAddress host) {
-        super(host, DEFAULT_PORT);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Constructors with SelectorLoop (server integration)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Creates a Redis client that will connect to the specified host and port,
-     * using the provided SelectorLoop for I/O.
-     *
-     * <p>Use this constructor for server integration where you want the
-     * client to share a SelectorLoop with server connections for efficiency.
-     *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the Redis server host as a String
-     * @param port the Redis server port number (typically 6379)
-     * @throws UnknownHostException if the host cannot be resolved
-     */
-    public RedisClient(SelectorLoop selectorLoop, String host, int port) throws UnknownHostException {
-        super(selectorLoop, host, port);
+    public void setKeystoreFile(String path) {
+        this.keystoreFile = path;
     }
 
     /**
-     * Creates a Redis client that will connect to the default port (6379),
-     * using the provided SelectorLoop for I/O.
+     * Sets the keystore password.
      *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the Redis server host as a String
-     * @throws UnknownHostException if the host cannot be resolved
+     * @param password the keystore password
      */
-    public RedisClient(SelectorLoop selectorLoop, String host) throws UnknownHostException {
-        super(selectorLoop, host, DEFAULT_PORT);
+    public void setKeystorePass(String password) {
+        this.keystorePass = password;
     }
 
     /**
-     * Creates a Redis client that will connect to the specified host and port,
-     * using the provided SelectorLoop for I/O.
+     * Sets the keystore format (e.g. JKS, PKCS12).
      *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the Redis server host as an InetAddress
-     * @param port the Redis server port number (typically 6379)
+     * @param format the keystore format
      */
-    public RedisClient(SelectorLoop selectorLoop, InetAddress host, int port) {
-        super(selectorLoop, host, port);
+    public void setKeystoreFormat(String format) {
+        this.keystoreFormat = format;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Lifecycle
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Connects to the remote Redis server.
+     *
+     * <p>Creates the transport factory, endpoint handler, and client
+     * endpoint, then initiates the connection. Lifecycle events are
+     * forwarded to the given handler.
+     *
+     * @param handler the handler to receive connection lifecycle events
+     */
+    public void connect(RedisConnectionReady handler) {
+        transportFactory = new TCPTransportFactory();
+        transportFactory.setSecure(secure);
+        if (sslContext != null) {
+            transportFactory.setSSLContext(sslContext);
+        }
+        if (keystoreFile != null) {
+            transportFactory.setKeystoreFile(keystoreFile);
+        }
+        if (keystorePass != null) {
+            transportFactory.setKeystorePass(keystorePass);
+        }
+        if (keystoreFormat != null) {
+            transportFactory.setKeystoreFormat(keystoreFormat);
+        }
+        transportFactory.start();
+
+        endpointHandler = new RedisClientProtocolHandler(handler);
+
+        try {
+            ClientEndpoint clientEndpoint;
+            if (selectorLoop != null) {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, selectorLoop,
+                        hostAddress, port);
+            } else {
+                clientEndpoint = new ClientEndpoint(
+                        transportFactory, hostAddress, port);
+            }
+            clientEndpoint.connect(endpointHandler);
+            connected = true;
+        } catch (IOException e) {
+            handler.onError(e);
+        }
     }
 
     /**
-     * Creates a Redis client that will connect to the default port (6379),
-     * using the provided SelectorLoop for I/O.
+     * Returns whether the connection is open.
      *
-     * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the Redis server host as an InetAddress
+     * @return true if connected and open
      */
-    public RedisClient(SelectorLoop selectorLoop, InetAddress host) {
-        super(selectorLoop, host, DEFAULT_PORT);
+    public boolean isOpen() {
+        return connected && endpointHandler != null;
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Connection factory
-    // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Creates a new Redis client connection with a handler.
-     *
-     * @param channel the socket channel for the connection
-     * @param engine optional SSL engine for secure connections
-     * @param handler the client handler to receive Redis events (must be {@link RedisConnectionReady})
-     * @return a new RedisClientConnection instance
-     * @throws ClassCastException if handler is not a RedisConnectionReady
+     * Closes the connection.
      */
-    @Override
-    protected Connection newConnection(SocketChannel channel, SSLEngine engine, ClientHandler handler) {
-        return new RedisClientConnection(this, engine, secure, (RedisConnectionReady) handler);
+    public void close() {
+        if (endpointHandler != null) {
+            endpointHandler.close();
+        }
     }
-
-    @Override
-    public String getDescription() {
-        return "Redis Client (" + host.getHostAddress() + ":" + port + ")";
-    }
-
 }

@@ -12,18 +12,13 @@
     <property name="baseDirectory">test/integration/mailbox/local-delivery</property>
   </mailbox-factory>
 
-  <!-- Local delivery handler factory -->
-  <smtp-handler-factory id="localDeliveryHandler" class="org.bluezoo.gumdrop.smtp.LocalDeliveryHandlerFactory">
+  <!-- SMTP local delivery service -->
+  <service id="smtpService" class="org.bluezoo.gumdrop.smtp.LocalDeliveryService">
     <property name="mailboxFactory" ref="mailboxFactory"/>
     <property name="localDomain">testlocal.example</property>
     <property name="hostname">localhost</property>
-  </smtp-handler-factory>
-
-  <!-- SMTP server with local delivery handler -->
-  <server id="smtpServer" class="org.bluezoo.gumdrop.smtp.SMTPServer">
-    <property name="port">12698</property>
-    <property name="addresses">127.0.0.1</property>
-    <property name="handlerFactory" ref="localDeliveryHandler"/>
-  </server>
+    <listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+              port="12698" addresses="127.0.0.1"/>
+  </service>
 
 </gumdrop>

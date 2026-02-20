@@ -21,45 +21,36 @@
 
 package org.bluezoo.gumdrop.ftp;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.AcceptSelectorLoop;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 
-import javax.net.ssl.SSLEngine;
-
 /**
- * Connection factory for FTP data connections on a given port.
- * This is created by the FTPConnection on demand, it cannot be instantiated
- * by the server configuration.
+ * Accepts FTP data connections on a given port for passive mode.
+ * This is created by the FTP control connection on demand for PASV/EPSV.
+ * It cannot be instantiated by the server configuration.
+ *
+ * <p>Unlike protocol servers, FTP data connections use blocking I/O
+ * for file transfers, so this class uses a {@link AcceptSelectorLoop.RawAcceptHandler}
+ * instead of the endpoint infrastructure.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class FTPDataServer extends Server {
+class FTPDataServer implements AcceptSelectorLoop.RawAcceptHandler {
 
-    final FTPConnection controlConnection;
+    final FTPControlConnection controlConnection;
     final int requestedPort;
     final FTPDataConnectionCoordinator coordinator;
     private int actualPort = -1;
+    private ServerSocketChannel serverChannel;
 
-    FTPDataServer(FTPConnection controlConnection, int port, FTPDataConnectionCoordinator coordinator) {
+    FTPDataServer(FTPControlConnection controlConnection, int port, FTPDataConnectionCoordinator coordinator) {
         this.controlConnection = controlConnection;
         this.requestedPort = port;
         this.coordinator = coordinator;
-    }
-
-    public String getDescription() {
-        return "FTP";
-    }
-
-    public int getPort() {
-        return requestedPort;
-    }
-
-    public void setPort(int port) {
-        throw new UnsupportedOperationException();
     }
 
     /**
@@ -70,58 +61,38 @@ class FTPDataServer extends Server {
     }
 
     /**
-     * Sets the actual port after binding (called by Server).
-     */
-    public void setActualPort(int actualPort) {
-        this.actualPort = actualPort;
-    }
-
-    public void start() {
-        // NOOP
-    }
-
-    public void stop() {
-        // NOOP - cleanup handled by coordinator
-    }
-
-    /**
-     * Called by Server after binding to capture the actual port.
-     * This is a custom method for FTPDataServer since we can't override
-     * the package-private addServerChannel method from another package.
+     * Called after binding to capture the actual port.
      */
     public void notifyBound(ServerSocketChannel channel) {
-        // Capture the actual bound port
+        this.serverChannel = channel;
         try {
             InetSocketAddress localAddress = (InetSocketAddress) channel.getLocalAddress();
             actualPort = localAddress.getPort();
         } catch (Exception e) {
-            // Fallback - use requested port if we can't get actual port  
             actualPort = requestedPort;
         }
     }
 
-    public Connection newConnection(SocketChannel sc, SSLEngine engine) {
-        // Check if data protection (PROT P) is enabled
-        SSLEngine dataEngine = engine;
-        boolean secure = isSecure();
-        
-        if (coordinator.isDataProtectionEnabled() && !secure) {
-            // PROT P is active but we're not in implicit TLS mode
-            // Create SSL engine for data connection
-            FTPServer ftpServer = controlConnection.getServer();
-            if (ftpServer != null) {
-                dataEngine = ftpServer.createDataSSLEngine();
-                secure = (dataEngine != null);
-            }
-        }
-        
-        // Create data connection and coordinate with parent control connection
-        FTPDataConnection dataConnection = new FTPDataConnection(sc, dataEngine, secure, coordinator);
-        
-        // Notify coordinator of new data connection
+    /**
+     * Called by AcceptSelectorLoop when a client connects to the passive data port.
+     */
+    @Override
+    public void accepted(SocketChannel sc) throws IOException {
+        FTPDataConnection dataConnection = new FTPDataConnection(sc, coordinator);
         coordinator.acceptDataConnection(dataConnection);
-        
-        return dataConnection;
     }
 
+    /**
+     * Stops the data server and closes its channel.
+     */
+    public void stop() {
+        if (serverChannel != null) {
+            try {
+                serverChannel.close();
+            } catch (IOException e) {
+                // Ignore close errors
+            }
+            serverChannel = null;
+        }
+    }
 }

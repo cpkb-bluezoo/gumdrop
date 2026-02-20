@@ -26,10 +26,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HTTPServer;
-import org.bluezoo.gumdrop.smtp.SMTPServer;
+import org.bluezoo.gumdrop.http.HTTPListener;
+import org.bluezoo.gumdrop.smtp.SMTPListener;
 
 import java.io.File;
 import java.io.BufferedReader;
@@ -71,8 +70,8 @@ public class TelemetryIntegrationTest {
     private TelemetryConfig telemetryConfig;
     private OTLPExporter exporter;
     private Gumdrop gumdrop;
-    private HTTPServer httpServer;
-    private SMTPServer smtpServer;
+    private HTTPListener httpServer;
+    private SMTPListener smtpServer;
 
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -114,13 +113,13 @@ public class TelemetryIntegrationTest {
         exporter = (OTLPExporter) telemetryConfig.getExporter();
 
         // Create HTTP server with telemetry enabled
-        httpServer = new HTTPServer();
+        httpServer = new HTTPListener();
         httpServer.setPort(HTTP_PORT);
         httpServer.setAddresses("127.0.0.1");
         httpServer.setTelemetryConfig(telemetryConfig);
 
         // Create SMTP server with telemetry enabled
-        smtpServer = new SMTPServer();
+        smtpServer = new SMTPListener();
         smtpServer.setPort(SMTP_PORT);
         smtpServer.setAddresses("127.0.0.1");
         smtpServer.setTelemetryConfig(telemetryConfig);
@@ -128,8 +127,8 @@ public class TelemetryIntegrationTest {
         // Start both servers using singleton with lifecycle management
         System.setProperty("gumdrop.workers", "2");
         gumdrop = Gumdrop.getInstance();
-        gumdrop.addServer(httpServer);
-        gumdrop.addServer(smtpServer);
+        gumdrop.addListener(httpServer);
+        gumdrop.addListener(smtpServer);
         gumdrop.start();
 
         // Wait for servers to be ready

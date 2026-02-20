@@ -116,7 +116,7 @@ public class FTPDataConnectionCoordinator {
         public FTPConnectionMetadata getMetadata() { return metadata; }
     }
     
-    private final FTPConnection controlConnection;
+    private final FTPControlConnection controlConnection;
     private DataConnectionMode mode = DataConnectionMode.NONE;
     
     // Passive mode state
@@ -137,7 +137,7 @@ public class FTPDataConnectionCoordinator {
     // TLS protection state (RFC 4217)
     private boolean dataProtection = false;
     
-    public FTPDataConnectionCoordinator(FTPConnection controlConnection) {
+    public FTPDataConnectionCoordinator(FTPControlConnection controlConnection) {
         this.controlConnection = controlConnection;
         this.incomingDataConnections = new LinkedBlockingQueue<>();
     }
@@ -189,7 +189,7 @@ public class FTPDataConnectionCoordinator {
         passiveConnector.notifyBound(ssc);
         
         // Register the already-bound channel with AcceptSelectorLoop
-        org.bluezoo.gumdrop.Gumdrop.getInstance().getAcceptLoop().registerChannel(passiveConnector, ssc);
+        org.bluezoo.gumdrop.Gumdrop.getInstance().getAcceptLoop().registerRawAcceptor(ssc, passiveConnector);
         
         mode = DataConnectionMode.PASSIVE;
         
@@ -299,23 +299,11 @@ public class FTPDataConnectionCoordinator {
         try {
             SocketChannel channel = SocketChannel.open();
             channel.connect(new InetSocketAddress(activeHost, activePort));
-            
-            // Create data connection wrapper, with TLS if PROT P is active
-            javax.net.ssl.SSLEngine engine = null;
-            boolean secure = false;
-            if (dataProtection) {
-                FTPServer server = controlConnection.getServer();
-                if (server != null) {
-                    engine = server.createDataSSLEngine();
-                    secure = (engine != null);
-                }
-            }
-            
-            activeDataConnection = new FTPDataConnection(channel, engine, secure, this);
-            
+
+            activeDataConnection = new FTPDataConnection(channel, this);
+
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Connected to client data port " + activeHost + ":" + activePort + 
-                           (secure ? " (TLS)" : ""));
+                LOGGER.fine("Connected to client data port " + activeHost + ":" + activePort);
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to connect to client data port", e);

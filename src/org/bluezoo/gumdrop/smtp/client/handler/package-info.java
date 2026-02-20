@@ -58,7 +58,7 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp.client
- * @see org.bluezoo.gumdrop.smtp.client.SMTPClientConnection
+ * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
  */
 package org.bluezoo.gumdrop.smtp.client.handler;
 

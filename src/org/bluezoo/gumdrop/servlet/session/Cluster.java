@@ -21,6 +21,14 @@
 
 package org.bluezoo.gumdrop.servlet.session;
 
+import org.bluezoo.gumdrop.UDPEndpoint;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
@@ -51,10 +59,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.DatagramServer;
-import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-
 /**
  * Cluster component for distributed session replication.
  *
@@ -74,7 +78,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Cluster extends DatagramServer {
+public class Cluster {
 
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.session.L10N");
     private static final Logger LOGGER = Logger.getLogger(Cluster.class.getName());
@@ -134,6 +138,10 @@ public class Cluster extends DatagramServer {
     // Telemetry metrics (null if not configured)
     private ClusterMetrics metrics;
 
+    private UDPEndpoint endpoint;
+    private UDPTransportFactory transportFactory;
+    private TelemetryConfig telemetryConfig;
+
     /**
      * Creates a new cluster instance for a container.
      *
@@ -141,7 +149,6 @@ public class Cluster extends DatagramServer {
      * @throws IOException if the cluster cannot be initialized
      */
     public Cluster(ClusterContainer container) throws IOException {
-        super();
         this.container = container;
 
         byte[] clusterKey = container.getClusterKey();
@@ -154,10 +161,10 @@ public class Cluster extends DatagramServer {
         this.port = container.getClusterPort();
         this.group = InetAddress.getByName(container.getClusterGroupAddress());
         this.sequenceNumber = new AtomicLong(0);
-        this.nodeSequenceStates = new ConcurrentHashMap<>();
-        this.pendingFragments = new ConcurrentHashMap<>();
-        this.sessionManagers = new ConcurrentHashMap<>();
-        this.nodeContexts = new ConcurrentHashMap<>();
+        this.nodeSequenceStates = new ConcurrentHashMap<UUID, NodeSequenceState>();
+        this.pendingFragments = new ConcurrentHashMap<Long, FragmentSet>();
+        this.sessionManagers = new ConcurrentHashMap<UUID, SessionManager>();
+        this.nodeContexts = new ConcurrentHashMap<UUID, Map<UUID, Long>>();
 
         if (group instanceof Inet6Address) {
             protocolFamily = StandardProtocolFamily.INET6;
@@ -170,6 +177,15 @@ public class Cluster extends DatagramServer {
         loopbackSocketAddress = new InetSocketAddress(loopback, port);
         // Ping buffer includes both node and context UUIDs (context UUID is all zeros for ping)
         pingBuffer = ByteBuffer.allocate(HEADER_SIZE);
+    }
+
+    /**
+     * Sets the telemetry configuration for cluster metrics.
+     *
+     * @param config the telemetry configuration
+     */
+    public void setTelemetryConfig(TelemetryConfig config) {
+        this.telemetryConfig = config;
     }
 
     /**
@@ -234,18 +250,20 @@ public class Cluster extends DatagramServer {
         return null;
     }
 
-    @Override
-    protected int getPort() {
+    public int getPort() {
         return port;
     }
 
-    @Override
-    protected String getDescription() {
+    public String getDescription() {
         return "cluster";
     }
 
-    @Override
-    protected void configureChannel(DatagramChannel channel) throws IOException {
+    public void open() throws IOException {
+        transportFactory = new UDPTransportFactory();
+        transportFactory.start();
+
+        DatagramChannel channel = DatagramChannel.open(protocolFamily);
+        channel.configureBlocking(false);
         channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
         channel.bind(new InetSocketAddress(port));
 
@@ -263,12 +281,8 @@ public class Cluster extends DatagramServer {
         }
         channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, networkInterface);
         channel.join(group, networkInterface);
-    }
 
-    @Override
-    public void open() throws IOException {
-        super.open();
-        // Channel registration is handled by DatagramServer.open()
+        endpoint = transportFactory.createServerEndpoint(channel, new ClusterProtocolHandler());
 
         // Initialize metrics if telemetry is configured
         initializeMetrics();
@@ -285,24 +299,24 @@ public class Cluster extends DatagramServer {
      * Initializes metrics for this cluster if telemetry is configured.
      */
     private void initializeMetrics() {
-        TelemetryConfig config = getTelemetryConfig();
-        if (config != null && config.isMetricsEnabled()) {
-            metrics = new ClusterMetrics(config);
+        if (telemetryConfig != null && telemetryConfig.isMetricsEnabled()) {
+            metrics = new ClusterMetrics(telemetryConfig);
         }
     }
 
-    @Override
     public void close() {
         if (pingTimerHandle != null) {
             pingTimerHandle.cancel();
             pingTimerHandle = null;
         }
-        super.close();
+        if (endpoint != null) {
+            endpoint.close();
+            endpoint = null;
+        }
     }
 
     private void schedulePing() {
-        // Use inherited ChannelHandler.scheduleTimer() method
-        pingTimerHandle = scheduleTimer(PING_FREQUENCY, new PingTimerCallback());
+        pingTimerHandle = endpoint.scheduleTimer(PING_FREQUENCY, new PingTimerCallback());
     }
 
     private void onPingTimer() {
@@ -335,8 +349,7 @@ public class Cluster extends DatagramServer {
         schedulePing();
     }
 
-    @Override
-    protected void receive(ByteBuffer data, InetSocketAddress source) {
+    private void handleReceive(ByteBuffer data, InetSocketAddress source) {
         try {
             ByteBuffer buf = decrypt(data);
             long hi = buf.getLong();
@@ -401,7 +414,7 @@ public class Cluster extends DatagramServer {
                 boolean newNode = !nodeContexts.containsKey(remoteNodeUuid);
                 Map<UUID, Long> contexts = nodeContexts.get(remoteNodeUuid);
                 if (contexts == null) {
-                    contexts = new ConcurrentHashMap<>();
+                    contexts = new ConcurrentHashMap<UUID, Long>();
                     nodeContexts.put(remoteNodeUuid, contexts);
                 }
 
@@ -874,14 +887,14 @@ public class Cluster extends DatagramServer {
             int len = ciphertext.remaining();
 
             ByteBuffer loopbackBuffer = ciphertext.duplicate();
-            send(loopbackBuffer, loopbackSocketAddress);
+            endpoint.sendTo(loopbackBuffer, loopbackSocketAddress);
             if (log && LOGGER.isLoggable(Level.FINEST)) {
                 String message = L10N.getString("info.cluster_send_unicast");
                 message = MessageFormat.format(message, len, loopbackSocketAddress);
                 LOGGER.finest(message);
             }
 
-            send(ciphertext, groupSocketAddress);
+            endpoint.sendTo(ciphertext, groupSocketAddress);
             if (log && LOGGER.isLoggable(Level.FINEST)) {
                 String message = L10N.getString("info.cluster_send");
                 message = MessageFormat.format(message, len, groupSocketAddress);
@@ -945,6 +958,34 @@ public class Cluster extends DatagramServer {
             }
         }
         return state.validateAndRecord(seq);
+    }
+
+    private class ClusterProtocolHandler implements ProtocolHandler {
+        @Override
+        public void connected(Endpoint ep) {
+            // endpoint already set via factory
+        }
+
+        @Override
+        public void receive(ByteBuffer data) {
+            InetSocketAddress source = (InetSocketAddress) endpoint.getRemoteAddress();
+            handleReceive(data, source);
+        }
+
+        @Override
+        public void disconnected() {
+            // Cluster endpoint closed
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+            // Cluster does not use TLS
+        }
+
+        @Override
+        public void error(Exception cause) {
+            LOGGER.log(Level.WARNING, "Cluster endpoint error", cause);
+        }
     }
 
     private class PingTimerCallback implements Runnable {
@@ -1080,4 +1121,3 @@ public class Cluster extends DatagramServer {
     }
 
 }
-

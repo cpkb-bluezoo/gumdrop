@@ -30,7 +30,7 @@ import java.io.File;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for HTTPS (SSL/TLS) support in HTTPServer.
+ * Integration test for HTTPS (SSL/TLS) support in HTTPListener.
  * 
  * <p>Tests HTTPS functionality with real SSL/TLS connections.
  *

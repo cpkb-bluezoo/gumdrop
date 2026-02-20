@@ -56,13 +56,22 @@ public class ParseResult {
     }
     
     /**
-     * Returns all server components.
-     * This is a convenience method for retrieving all servers to pass to SelectorLoop.
-     * 
-     * @return collection of all Server instances
+     * Returns all service components.
+     *
+     * @return collection of all Service instances
      */
-    public Collection<Server> getServers() {
-        return registry.getComponentsOfType(Server.class);
+    public Collection<Service> getServices() {
+        return registry.getComponentsOfType(Service.class);
+    }
+
+    /**
+     * Returns all standalone endpoint server components (not owned by
+     * a service).
+     *
+     * @return collection of all TCPListener instances
+     */
+    public Collection<TCPListener> getListeners() {
+        return registry.getComponentsOfType(TCPListener.class);
     }
     
     /**

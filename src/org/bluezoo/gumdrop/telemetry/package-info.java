@@ -92,7 +92,7 @@
  * meter.gaugeBuilder("http.connections.active")
  *     .buildWithCallback(new ObservableCallback() {
  *         public void observe(ObservableMeasurement m) {
- *             m.record(server.getConnectionCount());
+ *             m.record(server.getActiveEndpointCount());
  *         }
  *     });
  * </pre>

@@ -35,17 +35,17 @@ import java.util.Set;
  */
 class ServletHandlerFactory implements HTTPRequestHandlerFactory {
 
-    private final ServletServer server;
+    private final ServletService service;
     private final Container container;
 
-    ServletHandlerFactory(ServletServer server, Container container) {
-        this.server = server;
+    ServletHandlerFactory(ServletService service, Container container) {
+        this.service = service;
         this.container = container;
     }
 
     @Override
-    public HTTPRequestHandler createHandler(Headers headers, HTTPResponseState state) {
-        return new ServletHandler(server, container, server.getBufferSize());
+    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+        return new ServletHandler(service, container, service.getBufferSize());
     }
 
 }

@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.TCPListener;
 import org.junit.Test;
 
 import java.io.File;
@@ -64,7 +64,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      * Returns the BufferTestServer instance from the running servers.
      */
     private BufferTestServer getBufferTestServer() {
-        for (Server server : servers) {
+        for (TCPListener server : servers) {
             if (server instanceof BufferTestServer) {
                 return (BufferTestServer) server;
             }

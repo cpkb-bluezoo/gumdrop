@@ -78,7 +78,7 @@ public final class EmailAddressParser {
 	 * (Internationalized Email).
 	 *
 	 * @param value the header field value (e.g., To, Cc, Bcc field content)
-	 * @param smtputf8 if true, allow UTF-8 characters per RFC 6531/6532
+	 * @param decoder the charset decoder for byte-to-character conversion
 	 * @return list of EmailAddress objects, or null if parsing fails
 	 */
 	public static List<EmailAddress> parseEmailAddressList(ByteBuffer value, CharsetDecoder decoder) {

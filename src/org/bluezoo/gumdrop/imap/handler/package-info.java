@@ -58,7 +58,7 @@
  * Connection established
  *       |
  *       v
- * ClientConnected.connected(info, ConnectedState)
+ * ClientConnected.connected(ConnectedState, info)
  *       |
  *       +---> ConnectedState.acceptConnection() --> NotAuthenticatedHandler
  *       |
@@ -68,7 +68,7 @@
  *       
  * NotAuthenticatedHandler:
  *       |
- *       +---> authenticate(principal, factory) --> AuthenticateState.accept() --> AuthenticatedHandler
+ *       +---> authenticate(state, principal, factory) --> AuthenticateState.accept() --> AuthenticatedHandler
  *       
  * AuthenticatedHandler:
  *       |
@@ -86,9 +86,10 @@
  * }</pre>
  * 
  * <p>Note: Authentication mechanics (LOGIN command, AUTHENTICATE SASL) are
- * handled internally by IMAPConnection using the configured Realm. The handler
- * only receives an authenticate event with the verified Principal, allowing it
- * to make policy decisions without dealing with authentication protocol details.
+ * handled internally by IMAPProtocolHandler using the configured Realm.
+ * The handler only receives an authenticate event with the verified Principal,
+ * allowing it to make policy decisions without dealing with authentication
+ * protocol details.
  * 
  * <h2>Example Implementation</h2>
  * 
@@ -96,13 +97,13 @@
  * public class SimpleIMAPHandler implements ClientConnected, NotAuthenticatedHandler,
  *                                           AuthenticatedHandler, SelectedHandler {
  *     
- *     public void connected(ConnectionInfo info, ConnectedState state) {
+ *     public void connected(ConnectedState state, Endpoint endpoint) {
  *         // Policy: accept or reject based on IP, rate limiting, etc.
  *         state.acceptConnection("IMAP4rev2 server ready", this);
  *     }
  *     
- *     public void authenticate(Principal principal, MailboxFactory factory,
- *                              AuthenticateState state) {
+ *     public void authenticate(AuthenticateState state, Principal principal,
+ *                              MailboxFactory factory) {
  *         // Policy: does this principal have a mailbox store?
  *         try {
  *             MailboxStore store = factory.createStore();
@@ -114,7 +115,7 @@
  *     }
  *     
  *     // The MailboxStore is passed to handler methods that need it
- *     public void select(MailboxStore store, String mailboxName, SelectState state) {
+ *     public void select(SelectState state, MailboxStore store, String mailboxName) {
  *         // Policy: access control for the mailbox
  *         Mailbox mailbox = store.getMailbox(mailboxName);
  *         if (mailbox == null) {
@@ -125,7 +126,7 @@
  *     }
  *     
  *     // Selected state methods receive the current Mailbox
- *     public void expunge(Mailbox mailbox, ExpungeState state) {
+ *     public void expunge(ExpungeState state, Mailbox mailbox) {
  *         mailbox.expunge();
  *         state.expungeComplete(this);
  *     }
@@ -138,6 +139,5 @@
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientConnected
- * @see ClientConnectedFactory
  */
 package org.bluezoo.gumdrop.imap.handler;

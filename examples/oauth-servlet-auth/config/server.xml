@@ -14,18 +14,9 @@
            configFile="config/oauth.properties"/>
     
     <!-- HTTPS servlet container with OAuth authentication -->
-    <server id="api" class="org.bluezoo.gumdrop.servlet.ServletServer">
-        <property name="port">8443</property>
-        <property name="addresses">0.0.0.0</property>
-        <property name="secure">true</property>
-        
+    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
         <!-- Reference the OAuth realm -->
         <property name="realm" ref="#oauth"/>
-        
-        <!-- TLS configuration -->
-        <property name="keystore">config/keystore.p12</property>
-        <property name="keystorePassword">changeit</property>
-        <property name="keystoreType">PKCS12</property>
         
         <!-- Servlet container -->
         <container class="org.bluezoo.gumdrop.servlet.Container">
@@ -35,20 +26,33 @@
                 <property name="docBase">webapps/api</property>
             </context>
         </container>
-    </server>
+
+        <!-- HTTPS listener -->
+        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+            <property name="port">8443</property>
+            <property name="addresses">0.0.0.0</property>
+            <property name="secure">true</property>
+            <property name="keystore">config/keystore.p12</property>
+            <property name="keystorePassword">changeit</property>
+            <property name="keystoreType">PKCS12</property>
+        </listener>
+    </service>
     
-    <!-- Optional: HTTP redirect server (redirects to HTTPS) -->
-    <server id="redirect" class="org.bluezoo.gumdrop.servlet.ServletServer">
-        <property name="port">8080</property>
-        <property name="addresses">0.0.0.0</property>
-        
+    <!-- Optional: HTTP redirect service (redirects to HTTPS) -->
+    <service id="redirect" class="org.bluezoo.gumdrop.servlet.ServletService">
         <container class="org.bluezoo.gumdrop.servlet.Container">
             <context>
                 <property name="contextPath">/</property>
                 <property name="docBase">webapps/redirect</property>
             </context>
         </container>
-    </server>
+
+        <!-- HTTP listener -->
+        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+            <property name="port">8080</property>
+            <property name="addresses">0.0.0.0</property>
+        </listener>
+    </service>
     
 </gumdrop>
 

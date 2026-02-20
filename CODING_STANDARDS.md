@@ -4,26 +4,18 @@ This document defines the coding standards and conventions for the Gumdrop proje
 
 ## Java Version Compatibility
 
-**Gumdrop requires Java 8 (1.8) and must not use language features from later versions.**
+**Gumdrop v2 requires Java 17 (LTS) as the minimum baseline.**
 
-This requirement exists to ensure broad compatibility with:
-- Legacy enterprise Java runtimes still in production use
-- Embedded systems and appliances with older JVMs
-- Organizations with strict upgrade policies requiring long validation cycles
-- Environments where upgrading the JVM is impractical or impossible
+This is enforced at compile time via the `--release` flag in `build.xml`.
 
-This is enforced at compile time via `source` and `target` settings in `build.xml`.
-
-**Prohibited features include (but are not limited to):**
-- `var` keyword (Java 10+)
-- Switch expressions (Java 12+)
-- Text blocks (Java 15+)
-- Records (Java 16+)
-- Pattern matching (Java 16+)
-- Sealed classes (Java 17+)
+**The following language features are prohibited by project style policy,** even though they are available in Java 17. Gumdrop uses a traditional procedural style for clarity and maintainability:
+- `var` keyword
+- Switch expressions
+- Text blocks
+- Records
+- Pattern matching
+- Sealed classes
 - Virtual threads (Java 21+)
-
-**Additionally, the following Java 8 features are prohibited by project policy** (see sections below):
 - Lambda expressions
 - Method references
 - Streams API (`java.util.stream`)
@@ -476,7 +468,7 @@ The goal of these standards is to produce code that is:
 - **Predictable**: Follows consistent patterns throughout
 - **Maintainable**: Easy to modify without introducing bugs
 - **Traditional**: Uses well-understood Java idioms
-- **Compatible**: Runs on Java 8 and later without modification
+- **Compatible**: Runs on Java 17 and later without modification
 
 When in doubt, prefer clarity over cleverness.
 

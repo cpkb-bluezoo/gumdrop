@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * </ul>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SMTPConnectionHandler
+ * @see org.bluezoo.gumdrop.smtp.handler.ClientConnected
  */
 public interface SMTPConnectionMetadata {
 

@@ -35,9 +35,8 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.ClientHandler;
-import org.bluezoo.gumdrop.ConnectionInfo;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.handler.*;
@@ -47,7 +46,9 @@ import org.bluezoo.gumdrop.dns.DNSResolver;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.SMTPClient;
+import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
 
 /**
@@ -73,14 +74,13 @@ import org.bluezoo.gumdrop.smtp.client.handler.*;
  *
  * <h4>Configuration</h4>
  * <pre>{@code
- * <server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer">
- *     <property name="port">25</property>
- *     <property name="client-connected-factory">org.bluezoo.gumdrop.smtp.SimpleRelayHandlerFactory</property>
- * </server>
+ * <service class="org.bluezoo.gumdrop.smtp.SimpleRelayService">
+ *   <listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/>
+ * </service>
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SimpleRelayHandlerFactory
+ * @see SimpleRelayService
  */
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         MailFromHandler, RecipientHandler, MessageDataHandler {
@@ -113,9 +113,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void connected(ConnectionInfo info, ConnectedState state) {
+    public void connected(ConnectedState state, Endpoint endpoint) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Client connected from " + info.getRemoteAddress());
+            LOGGER.fine("Client connected from " + endpoint.getRemoteAddress());
         }
         state.acceptConnection(localHostname + " ESMTP SimpleRelay", this);
     }
@@ -133,7 +133,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void hello(boolean extended, String hostname, HelloState state) {
+    public void hello(HelloState state, boolean extended, String hostname) {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Client HELO/EHLO: " + hostname);
         }
@@ -141,14 +141,14 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     }
 
     @Override
-    public void tlsEstablished(TLSInfo tlsInfo) {
+    public void tlsEstablished(SecurityInfo securityInfo) {
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("TLS established: " + tlsInfo.getProtocol() + " " + tlsInfo.getCipherSuite());
+            LOGGER.fine("TLS established: " + securityInfo.getProtocol() + " " + securityInfo.getCipherSuite());
         }
     }
 
     @Override
-    public void authenticated(Principal principal, AuthenticateState state) {
+    public void authenticated(AuthenticateState state, Principal principal) {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Authenticated: " + principal.getName());
         }
@@ -166,9 +166,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     }
 
     @Override
-    public void mailFrom(EmailAddress sender, boolean smtputf8,
-                         DeliveryRequirements deliveryRequirements,
-                         MailFromState state) {
+    public void mailFrom(MailFromState state, EmailAddress sender, boolean smtputf8,
+                         DeliveryRequirements deliveryRequirements) {
         this.sender = sender;
         this.deliveryRequirements = deliveryRequirements;
         this.recipients.clear();
@@ -255,7 +254,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void rcptTo(EmailAddress recipient, MailboxFactory factory, RecipientState state) {
+    public void rcptTo(RecipientState state, EmailAddress recipient, MailboxFactory factory) {
         recipients.add(recipient);
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("RCPT TO: " + recipient);
@@ -532,9 +531,14 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
         void deliverToDomain(String host, List<EmailAddress> domainRecipients) {
             try {
-                SMTPClient client = new SMTPClient(host, SMTPClient.DEFAULT_PORT);
+                TCPTransportFactory factory = new TCPTransportFactory();
+                factory.start();
                 DeliveryHandler handler = new DeliveryHandler(domainRecipients);
-                client.connect(handler);
+                SMTPClientProtocolHandler endpointHandler =
+                        new SMTPClientProtocolHandler(handler);
+                ClientEndpoint endpoint = new ClientEndpoint(
+                        factory, host, 25);
+                endpoint.connect(endpointHandler);
             } catch (UnknownHostException e) {
                 LOGGER.warning("Cannot resolve host " + host + ": " + e.getMessage());
                 failCount += domainRecipients.size();
@@ -571,7 +575,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             // ClientHandler methods
 
             @Override
-            public void onConnected(ConnectionInfo info) {
+            public void onConnected(Endpoint endpoint) {
                 // Handled by handleGreeting
             }
 
@@ -592,8 +596,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             }
 
             @Override
-            public void onTLSStarted(TLSInfo info) {
-                // TLS upgrade completed
+            public void onSecurityEstablished(SecurityInfo info) {
+                // Security upgrade completed
             }
 
             // ServerReplyHandler
@@ -612,7 +616,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             // ServerGreeting
 
             @Override
-            public void handleGreeting(String message, boolean esmtp, ClientHelloState hello) {
+            public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo(localHostname, this);
             }
 
@@ -630,8 +634,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             // ServerEhloReplyHandler
 
             @Override
-            public void handleEhlo(boolean starttls, long maxSize, List<String> authMethods,
-                                   boolean pipelining, ClientSession session) {
+            public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
+                                   List<String> authMethods, boolean pipelining) {
                 // Check REQUIRETLS constraint
                 if (requiresTls() && !tlsEstablished) {
                     if (starttls) {

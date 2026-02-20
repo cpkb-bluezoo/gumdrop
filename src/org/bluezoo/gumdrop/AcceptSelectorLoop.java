@@ -25,12 +25,16 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.SocketAddress;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
 import java.nio.channels.CancelledKeyException;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Iterator;
 import java.util.Set;
@@ -48,6 +52,15 @@ import java.util.logging.Logger;
 public class AcceptSelectorLoop implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(AcceptSelectorLoop.class.getName());
+
+    /**
+     * Handler for raw socket channel accepts.
+     * Used by subsystems like FTP data that need the raw channel
+     * without the endpoint/connection infrastructure.
+     */
+    public interface RawAcceptHandler {
+        void accepted(SocketChannel sc) throws IOException;
+    }
 
     private final Gumdrop gumdrop;
     private Thread thread;
@@ -87,10 +100,8 @@ public class AcceptSelectorLoop implements Runnable {
         try {
             selector = Selector.open();
 
-            // Register all servers' ServerSocketChannels
-            for (Server server : gumdrop.getServers()) {
-                doRegisterServer(server);
-            }
+            // Process any listeners queued before the selector was open
+            processPendingRegistrations();
 
             // Main accept loop
             while (active) {
@@ -138,33 +149,33 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     /**
-     * Pending registration containing either a Server (needs binding) or
-     * a pre-bound ServerSocketChannel.
+     * Pending registration containing either a TCPListener (needs binding),
+     * or a raw accept handler with a pre-bound ServerSocketChannel.
      */
     private static class PendingRegistration {
-        final Server server;
-        final ServerSocketChannel channel; // null if server needs binding
+        final TCPListener listener;
+        final RawAcceptHandler rawHandler;
+        final ServerSocketChannel channel; // null if listener needs binding
 
-        PendingRegistration(Server server) {
-            this.server = server;
+        PendingRegistration(TCPListener listener) {
+            this.listener = listener;
+            this.rawHandler = null;
             this.channel = null;
         }
 
-        PendingRegistration(Server server, ServerSocketChannel channel) {
-            this.server = server;
+        PendingRegistration(RawAcceptHandler handler, ServerSocketChannel channel) {
+            this.listener = null;
+            this.rawHandler = handler;
             this.channel = channel;
         }
     }
 
     /**
-     * Registers a server for accepting connections.
-     * This method is thread-safe and can be called from any thread.
-     * The actual registration will be performed on the selector thread.
-     * The server socket channels will be created and bound by the selector thread.
+     * Registers an endpoint server for accepting connections.
      *
-     * @param server the server to register
+     * @param server the endpoint server to register
      */
-    public void registerServer(Server server) {
+    public void registerListener(TCPListener server) {
         pendingRegistrations.add(new PendingRegistration(server));
         if (selector != null) {
             selector.wakeup();
@@ -172,18 +183,15 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     /**
-     * Registers an already-bound ServerSocketChannel for a server.
-     * This method is thread-safe and can be called from any thread.
-     * The actual registration will be performed on the selector thread.
-     * 
-     * Use this method when you need to know the bound port synchronously,
-     * for example for FTP passive mode.
+     * Registers a raw accept handler for an already-bound ServerSocketChannel.
+     * The handler receives raw SocketChannels without endpoint/connection
+     * infrastructure. Used by subsystems like FTP data that use blocking I/O.
      *
-     * @param server the server that owns the channel
      * @param channel an already-bound ServerSocketChannel
+     * @param handler the handler to receive accepted connections
      */
-    public void registerChannel(Server server, ServerSocketChannel channel) {
-        pendingRegistrations.add(new PendingRegistration(server, channel));
+    public void registerRawAcceptor(ServerSocketChannel channel, RawAcceptHandler handler) {
+        pendingRegistrations.add(new PendingRegistration(handler, channel));
         if (selector != null) {
             selector.wakeup();
         }
@@ -196,57 +204,101 @@ public class AcceptSelectorLoop implements Runnable {
         PendingRegistration pending;
         while ((pending = pendingRegistrations.poll()) != null) {
             try {
-                if (pending.channel != null) {
-                    // Pre-bound channel - just register with selector
-                    doRegisterChannel(pending.server, pending.channel);
-                } else {
-                    // Server needs binding
-                    doRegisterServer(pending.server);
+                if (pending.rawHandler != null) {
+                    doRegisterRawAcceptor(pending.rawHandler, pending.channel);
+                } else if (pending.listener != null) {
+                    doRegisterListener(pending.listener);
                 }
             } catch (IOException e) {
-                LOGGER.log(Level.SEVERE, "Failed to register server: " + pending.server.getDescription(), e);
+                String desc;
+                if (pending.rawHandler != null) {
+                    desc = "raw acceptor";
+                } else {
+                    desc = pending.listener.getDescription();
+                }
+                LOGGER.log(Level.SEVERE,
+                        "Failed to register server: " + desc, e);
             }
         }
     }
 
     /**
-     * Registers a pre-bound ServerSocketChannel with the selector.
+     * Registers a raw accept handler with the selector.
      */
-    private void doRegisterChannel(Server server, ServerSocketChannel ssc) throws IOException {
+    private void doRegisterRawAcceptor(RawAcceptHandler handler, ServerSocketChannel ssc)
+            throws IOException {
         SelectionKey key = ssc.register(selector, SelectionKey.OP_ACCEPT);
-        key.attach(server);
-        server.addServerChannel(ssc);
-
+        key.attach(handler);
         if (LOGGER.isLoggable(Level.FINE)) {
             InetSocketAddress addr = (InetSocketAddress) ssc.getLocalAddress();
-            String message = Gumdrop.L10N.getString("info.bound_server");
-            message = MessageFormat.format(message, server.getDescription(), addr.getPort(), addr.getAddress(), 0L);
-            LOGGER.fine(message);
+            LOGGER.fine("Registered raw accept handler on port " + addr.getPort());
         }
     }
 
-    private void doRegisterServer(Server server) throws IOException {
-        Set<InetAddress> addresses = server.getAddresses();
+    private void doRegisterListener(TCPListener server)
+            throws IOException {
+        String socketPath = server.getPath();
+        if (socketPath != null) {
+            doRegisterUnixListener(server, socketPath);
+        } else {
+            doRegisterTcpListener(server);
+        }
+    }
+
+    private void doRegisterUnixListener(TCPListener server, String socketPath)
+            throws IOException {
+        Path path = Path.of(socketPath);
+        Files.deleteIfExists(path);
+
+        ServerSocketChannel ssc =
+                ServerSocketChannel.open(StandardProtocolFamily.UNIX);
+        ssc.configureBlocking(false);
+
+        long t1 = System.currentTimeMillis();
+        ssc.bind(UnixDomainSocketAddress.of(path));
+        long t2 = System.currentTimeMillis();
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+            String message = Gumdrop.L10N.getString("info.bound_unix_server");
+            if (message != null) {
+                message = MessageFormat.format(message,
+                        server.getDescription(), socketPath, (t2 - t1));
+            } else {
+                message = server.getDescription() + " bound to " + socketPath
+                        + " (" + (t2 - t1) + " ms)";
+            }
+            LOGGER.fine(message);
+        }
+
+        SelectionKey key = ssc.register(selector, SelectionKey.OP_ACCEPT);
+        key.attach(server);
+
+        server.addServerChannel(ssc);
+    }
+
+    private void doRegisterTcpListener(TCPListener server)
+            throws IOException {
+        Set<InetAddress> addrs = server.getAddresses();
         int port = server.getPort();
 
-        for (InetAddress address : addresses) {
+        for (InetAddress address : addrs) {
             ServerSocketChannel ssc = ServerSocketChannel.open();
             ssc.configureBlocking(false);
             ServerSocket ss = ssc.socket();
 
-            // Bind server socket to port
-            InetSocketAddress socketAddress = new InetSocketAddress(address, port);
+            InetSocketAddress socketAddress =
+                    new InetSocketAddress(address, port);
             long t1 = System.currentTimeMillis();
             ss.bind(socketAddress);
             long t2 = System.currentTimeMillis();
 
             if (LOGGER.isLoggable(Level.FINE)) {
                 String message = Gumdrop.L10N.getString("info.bound_server");
-                message = MessageFormat.format(message, server.getDescription(), port, address, (t2 - t1));
+                message = MessageFormat.format(message,
+                        server.getDescription(), port, address, (t2 - t1));
                 LOGGER.fine(message);
             }
 
-            // Register selector for accept
             SelectionKey key = ssc.register(selector, SelectionKey.OP_ACCEPT);
             key.attach(server);
 
@@ -256,48 +308,25 @@ public class AcceptSelectorLoop implements Runnable {
 
     private void accept(SelectionKey key) {
         ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
-        Server server = (Server) key.attachment();
+        Object attachment = key.attachment();
 
-        // Process all pending connections to avoid selector thrashing
         SocketChannel sc;
         try {
             while ((sc = ssc.accept()) != null) {
                 try {
-                    // Check if server accepts this connection
-                    InetSocketAddress remoteAddress = (InetSocketAddress) sc.getRemoteAddress();
-                    if (!server.acceptConnection(remoteAddress)) {
-                        if (LOGGER.isLoggable(Level.FINE)) {
-                            String message = Gumdrop.L10N.getString("info.connection_rejected");
-                            if (message == null) {
-                                message = "Connection rejected from {0}";
-                            }
-                            message = MessageFormat.format(message, remoteAddress.toString());
-                            LOGGER.fine(message);
-                        }
-                        sc.close();
-                        continue;
-                    }
+                    SocketAddress remoteAddress = sc.getRemoteAddress();
 
-                    // Configure the channel
-                    sc.configureBlocking(false);
-
-                    // Assign to next worker loop (round-robin)
-                    SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
-
-                    // Create connection (key will be assigned by worker loop)
-                    Connection connection = server.newConnection(sc, (SelectionKey) null);
-
-                    // Hand off to worker loop for registration
-                    workerLoop.register(sc, connection);
-
-                    if (LOGGER.isLoggable(Level.FINEST)) {
-                        String message = Gumdrop.L10N.getString("info.accepted");
-                        message = MessageFormat.format(message, remoteAddress.toString());
-                        LOGGER.finest(message);
+                    if (attachment instanceof TCPListener) {
+                        acceptListener(
+                                (TCPListener) attachment, sc, remoteAddress);
+                    } else if (attachment instanceof RawAcceptHandler) {
+                        sc.configureBlocking(true);
+                        ((RawAcceptHandler) attachment).accepted(sc);
                     }
                 } catch (IOException e) {
                     if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING, "Error processing accepted connection", e);
+                        LOGGER.log(Level.WARNING,
+                                "Error processing accepted connection", e);
                     }
                     try {
                         sc.close();
@@ -308,6 +337,40 @@ public class AcceptSelectorLoop implements Runnable {
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error accepting connection", e);
+        }
+    }
+
+    private void acceptListener(TCPListener server, SocketChannel sc,
+            SocketAddress remoteAddress) throws IOException {
+        if (!server.acceptConnection(remoteAddress)) {
+            logRejection(remoteAddress);
+            sc.close();
+            return;
+        }
+
+        sc.configureBlocking(false);
+        SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
+        TCPEndpoint endpoint = server.newEndpoint(sc, workerLoop);
+        endpoint.connected();
+        workerLoop.register(sc, endpoint);
+
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            String message = Gumdrop.L10N.getString("info.accepted");
+            message = MessageFormat.format(message,
+                    String.valueOf(remoteAddress));
+            LOGGER.finest(message);
+        }
+    }
+
+    private void logRejection(SocketAddress remoteAddress) {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            String message = Gumdrop.L10N.getString("info.connection_rejected");
+            if (message == null) {
+                message = "Connection rejected from {0}";
+            }
+            message = MessageFormat.format(message,
+                    String.valueOf(remoteAddress));
+            LOGGER.fine(message);
         }
     }
 

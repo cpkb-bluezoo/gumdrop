@@ -61,7 +61,7 @@ import org.bluezoo.gumdrop.quota.QuotaSource;
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  * 
- * <server class="org.bluezoo.gumdrop.ftp.FTPServer">
+ * <server class="org.bluezoo.gumdrop.ftp.FTPListener">
  *   <property name="handler-factory">
  *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
  *       <property name="realm" ref="#ftpRealm"/>

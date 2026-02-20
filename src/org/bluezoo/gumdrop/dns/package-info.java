@@ -1,6 +1,6 @@
 /*
  * package-info.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -20,34 +20,48 @@
  */
 
 /**
- * DNS server implementation for Gumdrop.
+ * DNS service implementation for Gumdrop.
  *
- * <p>This package provides a full DNS server that can:
+ * <p>This package provides a DNS service that can:
  * <ul>
  * <li>Resolve queries locally via custom implementation</li>
  * <li>Proxy queries to upstream DNS servers</li>
  * <li>Cache responses respecting TTL</li>
- * <li>Support DTLS for secure DNS</li>
+ * </ul>
+ *
+ * <h2>Architecture</h2>
+ *
+ * <ul>
+ *   <li>{@link org.bluezoo.gumdrop.dns.DNSService} - Application service
+ *       owning configuration, caching, and query resolution logic</li>
+ *   <li>{@link org.bluezoo.gumdrop.dns.DNSListener} - UDP transport
+ *       listener for standard DNS queries</li>
+ *   <li>{@link org.bluezoo.gumdrop.dns.DoTListener} - TCP/TLS
+ *       transport listener for DNS-over-TLS (RFC 7858)</li>
+ *   <li>{@link org.bluezoo.gumdrop.dns.DoQListener} - QUIC
+ *       transport listener for DNS-over-QUIC (RFC 9250)</li>
  * </ul>
  *
  * <h2>Usage</h2>
  *
- * <p>The simplest way to run a DNS proxy server is to configure it in gumdroprc:
- * <pre>
- * dns = org.bluezoo.gumdrop.dns.DNSServer {
- *     port = 5353
- *     upstreamServers = "8.8.8.8 1.1.1.1"
- * }
- * </pre>
+ * <p>The simplest way to run a DNS proxy service:
+ * <pre>{@code
+ * <service class="org.bluezoo.gumdrop.dns.DNSService">
+ *   <property name="upstream-servers">8.8.8.8 1.1.1.1</property>
+ *   <listener class="org.bluezoo.gumdrop.dns.DNSListener"
+ *           port="5353"/>
+ * </service>
+ * }</pre>
  *
  * <h2>Custom Resolution</h2>
  *
- * <p>To implement custom name resolution, subclass {@link org.bluezoo.gumdrop.dns.DNSServer}
- * and override the {@code resolve()} method:
+ * <p>To implement custom name resolution, subclass
+ * {@link org.bluezoo.gumdrop.dns.DNSService} and override the
+ * {@code resolve()} method:
  *
- * <pre>
- * public class InternalDNSServer extends DNSServer {
- *     &#64;Override
+ * <pre>{@code
+ * public class InternalDNSService extends DNSService {
+ *     @Override
  *     protected DNSMessage resolve(DNSMessage query) {
  *         DNSQuestion q = query.getQuestions().get(0);
  *
@@ -66,7 +80,7 @@
  *         return null;
  *     }
  * }
- * </pre>
+ * }</pre>
  *
  * <h2>Record Types</h2>
  *
@@ -85,22 +99,9 @@
  * <p>See {@link org.bluezoo.gumdrop.dns.DNSResourceRecord} for convenience
  * factory methods to create these record types.
  *
- * <h2>DTLS Support</h2>
- *
- * <p>To enable DNS over DTLS, configure SSL properties on the server:
- * <pre>
- * dns = org.bluezoo.gumdrop.dns.DNSServer {
- *     port = 853
- *     secure = true
- *     keyStore = /path/to/keystore.p12
- *     keyStorePassword = secret
- * }
- * </pre>
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.dns.DNSServer
+ * @see org.bluezoo.gumdrop.dns.DNSService
  * @see org.bluezoo.gumdrop.dns.DNSMessage
  * @see org.bluezoo.gumdrop.dns.DNSResourceRecord
  */
 package org.bluezoo.gumdrop.dns;
-

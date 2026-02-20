@@ -8,7 +8,7 @@
   Ant-built artifacts from dist/.
   
   Artifacts deployed:
-    - gumdrop (jar) - Core library with zero external dependencies
+    - gumdrop (jar) - Core library
     - gumdrop-container (jar) - Self-contained servlet container
     - gumdrop-manager (war) - Manager web application
   
@@ -23,11 +23,11 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop</artifactId>
-    <version>1.1</version>
+    <version>2.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop</name>
-    <description>Zero-dependency multipurpose Java server with HTTP, SMTP, POP3, IMAP, FTP, DNS and Servlet container</description>
+    <description>Multipurpose Java server framework with HTTP, SMTP, POP3, IMAP, FTP, DNS and servlet container</description>
 
     <licenses>
         <license>
@@ -44,6 +44,26 @@
         <ant.container.jar>${basedir}/dist/gumdrop-container-${project.version}.jar</ant.container.jar>
         <ant.manager.war>${basedir}/dist/gumdrop-manager-${project.version}.war</ant.manager.war>
     </properties>
+
+    <repositories>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.github.cpkb-bluezoo</groupId>
+            <artifactId>jsonparser</artifactId>
+            <version>1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.cpkb-bluezoo</groupId>
+            <artifactId>gonzalez</artifactId>
+            <version>1.0</version>
+        </dependency>
+    </dependencies>
 
     <build>
         <plugins>

@@ -21,67 +21,76 @@
 
 package org.bluezoo.gumdrop.buffer;
 
-import org.bluezoo.gumdrop.Connection;
-import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.SecurityInfo;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
-
-import javax.net.ssl.SSLEngine;
 
 /**
  * Simple echo server for TLS testing.
  * Echoes back whatever data it receives.
  */
-public class TLSEchoServer extends Server {
-    
+public class TLSEchoServer extends TCPListener {
+
     private int port = 19445;
-    
+
     @Override
-    protected int getPort() {
+    public int getPort() {
         return port;
     }
-    
+
     public void setPort(int port) {
         this.port = port;
     }
-    
+
     @Override
-    protected Connection newConnection(SocketChannel channel, SSLEngine engine) {
-        return new TLSEchoConnection(channel, engine, isSecure());
+    protected ProtocolHandler createHandler() {
+        return new TLSEchoConnection();
     }
-    
+
     @Override
-    protected String getDescription() {
+    public String getDescription() {
         return "TLSEcho";
     }
-    
+
     /**
      * Connection that echoes all received data back to the client.
      */
-    static class TLSEchoConnection extends Connection {
-        
-        TLSEchoConnection(SocketChannel channel, SSLEngine engine, boolean secure) {
-            super(engine, secure);
+    static class TLSEchoConnection implements ProtocolHandler {
+
+        private Endpoint endpoint;
+
+        @Override
+        public void connected(Endpoint endpoint) {
+            this.endpoint = endpoint;
         }
-        
+
         @Override
         public void receive(ByteBuffer data) {
-            // Echo everything back - create a copy to send
-            if (data.hasRemaining()) {
+            if (data.hasRemaining() && endpoint != null) {
                 int size = data.remaining();
                 ByteBuffer echo = ByteBuffer.allocate(size);
                 echo.put(data);
                 echo.flip();
-                send(echo);
+                endpoint.send(echo);
             }
         }
-        
+
         @Override
-        protected void disconnected() throws IOException {
-            // Nothing to clean up
+        public void disconnected() {
+            endpoint = null;
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+            // No-op
+        }
+
+        @Override
+        public void error(Exception cause) {
+            endpoint = null;
         }
     }
 }
-

@@ -27,12 +27,12 @@ import org.bluezoo.gumdrop.ClientHandler;
  * Handler interface for receiving the initial LDAP connection ready event.
  * 
  * <p>This is the entry point for LDAP client handlers. When connecting to an
- * LDAP server, the handler passed to {@code LDAPClient.connect()} must implement
- * this interface to receive notification that the connection is ready.
+ * LDAP server, the handler passed to {@link LDAPClient#connect(LDAPConnectionReady)}
+ * must implement this interface to receive notification that the connection is ready.
  * 
  * <p>Unlike SMTP which has a server greeting, LDAP clients initiate the
  * conversation. The handler receives an {@link LDAPConnected} interface
- * immediately upon connection (and TLS handshake for LDAPS).
+ * immediately upon connection (and TLS/QUIC handshake for LDAPS).
  * 
  * <p><strong>Example usage:</strong>
  * <pre>{@code

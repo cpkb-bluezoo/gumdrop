@@ -22,10 +22,12 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TLSInfo;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -131,50 +133,37 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      *
      * @param host the target host
      * @param port the target port
-     * @return connected HTTPClient
+     * @return connected HTTPClientProtocolHandler
      * @throws Exception if connection fails
      */
-    private HTTPClient createConnectedClient(String host, int port) throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
+    private HTTPClientProtocolHandler createConnectedClient(String host, int port) throws Exception {
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
+                new HTTPClientHandler() {
+                    @Override
+                    public void onConnected(Endpoint endpoint) {}
+                    @Override
+                    public void onSecurityEstablished(SecurityInfo info) {}
+                    @Override
+                    public void onError(Exception cause) {}
+                    @Override
+                    public void onDisconnected() {}
+                },
+                host, port, false);
 
-        HTTPClient client = new HTTPClient(selectorLoop, host, port);
+        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
+        client.connect(endpointHandler);
 
-        CountDownLatch connectLatch = new CountDownLatch(1);
-        AtomicReference<Exception> connectError = new AtomicReference<>();
-
-        client.connect(new HTTPClientHandler() {
-            @Override
-            public void onConnected(ConnectionInfo info) {
-                connectLatch.countDown();
-            }
-
-            @Override
-            public void onTLSStarted(TLSInfo info) {
-                // TLS ready
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                connectError.set(cause);
-                connectLatch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                // Connection closed
-            }
-        });
-
-        boolean connected = connectLatch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        if (!connected) {
+        long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
+        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        if (!endpointHandler.isOpen()) {
             throw new Exception("Connection timed out");
         }
-        if (connectError.get() != null) {
-            throw connectError.get();
-        }
 
-        return client;
+        return endpointHandler;
     }
 
     /**
@@ -184,51 +173,38 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      *
      * @param host the target host
      * @param port the target port
-     * @return connected HTTPClient configured for HTTP/2 prior knowledge
+     * @return connected HTTPClientProtocolHandler configured for HTTP/2 prior knowledge
      * @throws Exception if connection fails
      */
-    private HTTPClient createH2PriorKnowledgeClient(String host, int port) throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
+    private HTTPClientProtocolHandler createH2PriorKnowledgeClient(String host, int port) throws Exception {
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.start();
+        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
+                new HTTPClientHandler() {
+                    @Override
+                    public void onConnected(Endpoint endpoint) {}
+                    @Override
+                    public void onSecurityEstablished(SecurityInfo info) {}
+                    @Override
+                    public void onError(Exception cause) {}
+                    @Override
+                    public void onDisconnected() {}
+                },
+                host, port, false);
+        endpointHandler.setH2WithPriorKnowledge(true);
 
-        HTTPClient client = new HTTPClient(selectorLoop, host, port);
-        client.setH2WithPriorKnowledge(true); // Set BEFORE connecting
+        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
+        client.connect(endpointHandler);
 
-        CountDownLatch connectLatch = new CountDownLatch(1);
-        AtomicReference<Exception> connectError = new AtomicReference<>();
-
-        client.connect(new HTTPClientHandler() {
-            @Override
-            public void onConnected(ConnectionInfo info) {
-                connectLatch.countDown();
-            }
-
-            @Override
-            public void onTLSStarted(TLSInfo info) {
-                // Not used for plaintext
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                connectError.set(cause);
-                connectLatch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                // Connection closed
-            }
-        });
-
-        boolean connected = connectLatch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        if (!connected) {
+        long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
+        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        if (!endpointHandler.isOpen()) {
             throw new Exception("Connection timed out");
         }
-        if (connectError.get() != null) {
-            throw connectError.get();
-        }
 
-        return client;
+        return endpointHandler;
     }
 
     /**
@@ -236,62 +212,42 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      *
      * @param host the target host
      * @param port the target port
-     * @return connected HTTPClient
+     * @return connected HTTPClientProtocolHandler
      * @throws Exception if connection fails
      */
-    private HTTPClient createSecureConnectedClient(String host, int port) throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
+    private HTTPClientProtocolHandler createSecureConnectedClient(String host, int port) throws Exception {
+        TCPTransportFactory factory = new TCPTransportFactory();
+        factory.setSecure(true);
+        factory.setSSLContext(certManager.createClientSSLContext());
+        factory.start();
 
-        HTTPClient client = new HTTPClient(selectorLoop, host, port);
-        client.setSecure(true);
+        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
+                new HTTPClientHandler() {
+                    @Override
+                    public void onConnected(Endpoint endpoint) {}
+                    @Override
+                    public void onSecurityEstablished(SecurityInfo info) {}
+                    @Override
+                    public void onError(Exception cause) {
+                        cause.printStackTrace();
+                    }
+                    @Override
+                    public void onDisconnected() {}
+                },
+                host, port, true);
 
-        // Use SSL context that trusts the test CA
-        javax.net.ssl.SSLContext sslContext = certManager.createClientSSLContext();
-        client.setSSLContext(sslContext);
+        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
+        client.connect(endpointHandler);
 
-        CountDownLatch connectLatch = new CountDownLatch(1);
-        AtomicReference<Exception> connectError = new AtomicReference<>();
-
-        client.connect(new HTTPClientHandler() {
-            @Override
-            public void onConnected(ConnectionInfo info) {
-                // For secure connections with implicit TLS, the TLS handshake
-                // starts automatically after TCP connect
-            }
-
-            @Override
-            public void onTLSStarted(TLSInfo info) {
-                // TLS complete, now ready for requests
-                connectLatch.countDown();
-            }
-
-            @Override
-            public void onError(Exception cause) {
-                cause.printStackTrace();
-                connectError.set(cause);
-                connectLatch.countDown();
-            }
-
-            @Override
-            public void onDisconnected() {
-                // Connection closed - signal if still waiting
-                if (connectLatch.getCount() > 0) {
-                    connectError.set(new Exception("Connection closed before ready"));
-                    connectLatch.countDown();
-                }
-            }
-        });
-
-        boolean connected = connectLatch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        if (!connected) {
+        long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
+        while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        if (!endpointHandler.isOpen()) {
             throw new Exception("Connection timed out - check if TLS handshake is completing");
         }
-        if (connectError.get() != null) {
-            throw connectError.get();
-        }
 
-        return client;
+        return endpointHandler;
     }
 
 
@@ -322,7 +278,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11SimpleGET() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -371,7 +327,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11HEAD() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -417,7 +373,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11DELETE() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -464,7 +420,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11OPTIONS() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -507,7 +463,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTP11POSTWithContentLength() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         
         // Disable h2c upgrade - this test is specifically for HTTP/1.1
         client.setH2cUpgradeEnabled(false);
@@ -578,7 +534,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTP11ChunkedPOST() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         
         // Disable h2c upgrade - this test is specifically for HTTP/1.1
         client.setH2cUpgradeEnabled(false);
@@ -655,7 +611,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     @Ignore("Focusing on h2c test only")
     public void testHTTP11LargeChunkedUpload() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // Create large content (64KB)
         byte[] largeContent = new byte[65536];
@@ -746,7 +702,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testH2cUpgradeWithOptions() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // h2c upgrade is automatic on plaintext connections
         System.out.println("Testing h2c upgrade with OPTIONS request...");
@@ -816,7 +772,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testH2cPOSTWithContentLength() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // h2c upgrade is automatic on plaintext connections
         // Send POST - connection will include upgrade headers and handle the transition
@@ -898,7 +854,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testH2cChunkedPOST() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // h2c upgrade is automatic - just send the chunked POST
         String chunk1 = "First chunk of data. ";
@@ -980,7 +936,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testH2PriorKnowledge() throws Exception {
         // Must set prior knowledge BEFORE connecting
-        HTTPClient client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<HTTPStatus> status = new AtomicReference<>();
@@ -1029,7 +985,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testH2PriorKnowledgePOST() throws Exception {
         // Must set prior knowledge BEFORE connecting
-        HTTPClient client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
 
         String testContent = "Hello from HTTP/2 with prior knowledge!";
         byte[] contentBytes = testContent.getBytes(StandardCharsets.UTF_8);
@@ -1104,7 +1060,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTPSSimpleGET() throws Exception {
-        HTTPClient client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
+        HTTPClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<HTTPStatus> status = new AtomicReference<>();
@@ -1145,7 +1101,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTPSPOSTWithContentVerification() throws Exception {
-        HTTPClient client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
+        HTTPClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
 
         String testContent = "Secure content for HTTPS POST verification test!";
         byte[] contentBytes = testContent.getBytes(StandardCharsets.UTF_8);
@@ -1213,7 +1169,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTPSChunkedUpload() throws Exception {
-        HTTPClient client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
+        HTTPClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
 
         String chunk1 = "HTTPS chunk one. ";
         String chunk2 = "HTTPS chunk two. ";
@@ -1293,7 +1249,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testContentIntegrity() throws Exception {
-        HTTPClient client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // Create content with a specific pattern for verification
         StringBuilder contentBuilder = new StringBuilder();

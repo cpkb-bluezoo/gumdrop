@@ -52,8 +52,12 @@ HTTP, SMTP, IMAP, POP3, FTP, and DNS protocols.
 <ul>
 <li><a href="servlet.html"><strong>Servlet Container</strong></a> - features,
 architecture, configuration, clustering, and deployment</li>
-<li><a href="http.html"><strong>HTTP Server &amp; Client</strong></a> - HTTP/1.x,
-HTTP/2, HPACK, WebSockets, and the file server</li>
+<li><a href="http.html"><strong>HTTP Server &amp; Client</strong></a> - HTTP/3,
+HTTP/2, HTTP/1.x, HPACK, and QPACK</li>
+<li><a href="webdav.html"><strong>File Server &amp; WebDAV</strong></a> - static
+file serving, WebDAV distributed authoring, and locking</li>
+<li><a href="websocket.html"><strong>WebSocket Service &amp; Client</strong></a> -
+standalone WebSocket services, client connections, and servlet integration</li>
 <li><a href="smtp.html"><strong>SMTP Server &amp; Client</strong></a> - mail
 submission, relay, security policies, and authentication</li>
 <li><a href="imap.html"><strong>IMAP Server</strong></a> - IMAP4rev2 with IDLE,
@@ -85,7 +89,7 @@ that directly tied the number of incoming connections to JVM threads,
 preventing scalability.
 </p>
 
-<p>
+<p style="text-align:center">
 <img src="architecture.svg" alt="Gumdrop Architecture Diagram" style="max-width:100%"/>
 </p>
 
@@ -136,23 +140,26 @@ waiting—when one connection is idle, the worker immediately serves another.
 
 <p>
 A single <code>AcceptSelectorLoop</code> thread handles accepting new
-connections on all server ports. When a connection is accepted, it is assigned
-to one of a pool of worker <code>SelectorLoop</code> threads using round-robin
-distribution. Each connection is bound to a single worker for its entire
-lifetime, eliminating race conditions and simplifying state management.
+connections on all server ports. When a connection is accepted, the resulting
+endpoint is assigned to one of a pool of worker <code>SelectorLoop</code>
+threads using round-robin distribution. Each endpoint is bound to a single
+worker for its entire lifetime, eliminating race conditions and simplifying
+state management.
 </p>
 
-<p>
+<p style="text-align:center">
 <img src="classes.svg" alt="Gumdrop Class Hierarchy" style="max-width:100%"/>
 </p>
 
 <h3>Servers</h3>
 
 <p>
-The <code>Server</code> abstract class represents a TCP server listening on a
-port. When the <code>AcceptSelectorLoop</code> accepts a connection on a
-server's port, it delegates to the server to create a protocol-specific
-<code>Connection</code> instance.
+The <code>Listener</code> abstract class represents a protocol server
+listening on a port. It is transport-agnostic: the <code>createTransportFactory()</code>
+hook selects the transport (TCP by default, but UDP or QUIC can be substituted).
+When the <code>AcceptSelectorLoop</code> accepts an incoming connection, it
+delegates to the server's <code>createHandler()</code> factory method to obtain
+a protocol-specific <code>ProtocolHandler</code>.
 </p>
 
 <p>
@@ -161,60 +168,78 @@ Server implementations define:
 
 <ul>
 <li><code>getPort()</code> - the port to listen on</li>
-<li><code>newConnection()</code> - factory method for protocol connections</li>
-<li><code>acceptConnection()</code> - optional connection filtering (IP blocking,
-rate limiting)</li>
+<li><code>createHandler()</code> - factory method returning an
+<code>ProtocolHandler</code> for the accepted endpoint</li>
+<li><code>createTransportFactory()</code> - selects the transport layer
+(defaults to <code>TCPTransportFactory</code>)</li>
 </ul>
 
 <p>
-All servers share common TLS configuration inherited from <code>Connector</code>:
-keystore file, password, format, client authentication requirements, and ALPN
-protocol negotiation.
+TLS configuration (keystore, password, format, client authentication, ALPN) is
+set as properties on <code>Listener</code> and delegated to the
+<code>TransportFactory</code>. CIDR filtering and rate limiting are also
+configured via server properties.
 </p>
 
 <h3>Clients</h3>
 
 <p>
-The <code>Client</code> abstract class represents an outbound TCP connection.
-Clients share the same event-driven infrastructure as servers—outbound
-connections are assigned to worker <code>SelectorLoop</code> threads and
-benefit from the same non-blocking I/O model.
+<code>ClientEndpoint</code> launches outbound connections using the same
+event-driven infrastructure as servers. A <code>ClientHandler</code>
+receives lifecycle callbacks (connected, received data, security established,
+disconnected). <code>ClientEndpointPool</code> manages pooled outbound
+endpoints with <code>SelectorLoop</code> affinity.
 </p>
 
 <p>
-When a client is created within a server context (e.g., an SMTP relay
+When a client endpoint is created within a server context (e.g., an SMTP relay
 forwarding mail), it can be assigned to the same <code>SelectorLoop</code> as
-the originating server connection. This <i>SelectorLoop affinity</i> provides:
+the originating server endpoint. This <i>SelectorLoop affinity</i> provides:
 </p>
 
 <ul>
 <li><b>Unified I/O</b> - server and client I/O multiplexed on the same thread</li>
 <li><b>No context switching</b> - data flows without thread handoffs</li>
-<li><b>Simplified state</b> - no synchronisation needed between connections</li>
+<li><b>Simplified state</b> - no synchronisation needed between endpoints</li>
 <li><b>Efficient relay</b> - proxies and gateways operate entirely within
 their worker thread</li>
 </ul>
 
-<h3>Connections</h3>
+<h3>Endpoints and Handlers</h3>
 
 <p>
-The <code>Connection</code> abstract class represents a TCP protocol handler.
-All I/O and TLS processing for a connection occurs on its assigned
-<code>SelectorLoop</code> thread. Subclasses implement protocol-specific logic:
+The architecture decouples transport I/O from protocol logic.
+<code>Endpoint</code> is the transport-agnostic I/O interface, providing:
 </p>
 
 <ul>
-<li><code>receive(ByteBuffer)</code> - called when data arrives</li>
 <li><code>send(ByteBuffer)</code> - queues data for transmission</li>
 <li><code>startTLS()</code> - initiates STARTTLS upgrade</li>
-<li><code>close()</code> - closes the connection</li>
+<li><code>close()</code> - closes the endpoint</li>
+<li><code>isOpen()</code> - tests whether the endpoint is active</li>
+<li><code>getRemoteAddress()</code>, <code>getLocalAddress()</code> - peer
+addresses</li>
 </ul>
 
 <p>
-Protocol implementations (HTTP, SMTP, IMAP, etc.) extend <code>Connection</code>
-and implement protocol parsing, state machines, and business logic. The
+<code>ProtocolHandler</code> is the callback interface for protocol logic:
+</p>
+
+<ul>
+<li><code>connected(Endpoint)</code> - called when the endpoint is ready</li>
+<li><code>receive(Endpoint, ByteBuffer)</code> - called when data arrives</li>
+<li><code>securityEstablished(SecurityInfo)</code> - called after TLS
+handshake</li>
+<li><code>disconnected(Endpoint)</code> - called on close</li>
+</ul>
+
+<p>
+Protocol implementations (HTTP, SMTP, IMAP, etc.) implement
+<code>ProtocolHandler</code> rather than extending a base class.
+<code>LineParser</code> replaces the former <code>LineBasedConnection</code>
+for line-oriented protocols, using composition instead of inheritance. The
 framework handles read/write buffering, TLS encryption/decryption, and
-connection lifecycle.
+endpoint lifecycle.
 </p>
 
 <h3>Staged Handler Pattern</h3>
@@ -253,48 +278,51 @@ ClientConnected → HelloHandler → MailFromHandler → RecipientHandler → Me
 <p>
 At each stage, the handler receives protocol events (EHLO, MAIL FROM, RCPT TO)
 and uses the provided state interface to accept, reject, or make policy
-decisions. The connection handles all protocol mechanics — SASL authentication
-challenges, TLS negotiation, command parsing — leaving the handler to focus on
-business logic.
+decisions. The protocol handler manages all protocol mechanics &mdash; SASL
+authentication challenges, TLS negotiation, command parsing &mdash; leaving
+the service to focus on business logic. Services need not be aware of the
+underlying transport.
 </p>
 
-<h4>Servers and Clients</h4>
+<h4>Services and Clients</h4>
 
 <p>
-The same pattern works for both servers and clients. An SMTP client handler
-receives events from the server (greeting, EHLO response, authentication
-challenges) and uses state interfaces to drive the conversation forward.
-This symmetry simplifies relay implementations where a server connection
-drives a client connection.
+The same pattern works for both services (server side) and clients. An SMTP
+client handler receives events from the server (greeting, EHLO response,
+authentication challenges) and uses state interfaces to drive the conversation
+forward. This symmetry simplifies relay implementations where a server
+connection drives a client connection.
 </p>
 
-<h4>Default Implementations</h4>
+<h4>Default Services</h4>
 
 <p>
-Each protocol includes default handler implementations for common use cases:
+Each protocol includes default service implementations for common use cases:
 </p>
 
 <ul>
-<li><b>SMTP</b> - <code>LocalDeliveryHandler</code> for mailbox delivery,
-<code>SimpleRelayHandler</code> for MX forwarding</li>
-<li><b>IMAP</b> - <code>DefaultIMAPHandler</code> accepts all operations using
-the configured Realm and MailboxFactory</li>
-<li><b>POP3</b> - <code>DefaultPOP3Handler</code> accepts all operations using
-the configured Realm and MailboxFactory</li>
+<li><b>SMTP</b> &ndash; <code>LocalDeliveryService</code> for mailbox delivery,
+<code>SimpleRelayService</code> for MX forwarding</li>
+<li><b>IMAP</b> &ndash; <code>DefaultIMAPService</code> accepts all operations
+using the configured Realm and MailboxFactory</li>
+<li><b>POP3</b> &ndash; <code>DefaultPOP3Service</code> accepts all operations
+using the configured Realm and MailboxFactory</li>
 </ul>
 
 <p>
-These implementations handle the common case while serving as examples for
-custom handlers. In many deployments, the default handlers with appropriate
+These services handle the common case while serving as examples for custom
+implementations. In many deployments, the default services with appropriate
 configuration are sufficient.
 </p>
 
 <h3>Datagram Facilities</h3>
 
 <p>
-For UDP-based protocols, <code>DatagramServer</code> provides the same
-event-driven model. Unlike TCP, there are no per-client connection objects—the
-server receives datagrams directly and sends responses to the source address.
+For UDP-based protocols, <code>UDPEndpoint</code> (via
+<code>UDPTransportFactory</code>) provides the same event-driven model. The
+<code>ProtocolHandler</code> interface is reused: <code>receive()</code>
+delivers individual datagrams and <code>sendTo()</code> addresses responses to
+the source.
 </p>
 
 <p>
@@ -307,39 +335,80 @@ automatically.
 <h3>Transparent TLS</h3>
 
 <p>
-All connections support transparent TLS encryption. The framework handles:
+All endpoints support transparent TLS encryption. The framework handles:
 </p>
 
 <ul>
-<li><b>Implicit TLS</b> - connection starts encrypted (HTTPS, IMAPS, POP3S)</li>
-<li><b>STARTTLS</b> - upgrade from cleartext to TLS mid-connection</li>
+<li><b>Implicit TLS</b> - endpoint starts encrypted (HTTPS, IMAPS, POP3S)</li>
+<li><b>STARTTLS</b> - upgrade from cleartext to TLS mid-session</li>
 <li><b>Client authentication</b> - optional or required client certificates</li>
 <li><b>SNI</b> - Server Name Indication for virtual hosting</li>
-<li><b>ALPN</b> - Application Layer Protocol Negotiation (HTTP/2)</li>
+<li><b>ALPN</b> - Application Layer Protocol Negotiation (HTTP/3, HTTP/2)</li>
 <li><b>DTLS</b> - TLS for UDP protocols</li>
+<li><b>QUIC</b> - always TLS 1.3 via BoringSSL</li>
 </ul>
 
 <p>
-To enable TLS, configure the keystore on any server:
+To enable TLS, configure the keystore on any listener:
 </p>
 
 <pre>
-&lt;server class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;465&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-&lt;/server&gt;
+&lt;service class="org.bluezoo.gumdrop.smtp.SMTPService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+        &lt;property name="port"&gt;465&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
-<h4>Connection Lifecycle</h4>
+<h4>UNIX Domain Sockets</h4>
 
 <p>
-Servers provide configurable connection lifecycle management:
+Any TCP-based listener can also bind to a UNIX domain socket by specifying a
+<code>path</code> instead of a <code>port</code>. This uses the standard NIO
+UNIX domain socket support available since Java 16 (JEP 380). Once accepted,
+UNIX domain socket connections behave identically to TCP connections &mdash; the
+same <code>SocketChannel</code>, <code>TCPEndpoint</code>, and
+<code>ProtocolHandler</code> infrastructure is used unchanged.
+</p>
+
+<p>
+UNIX domain sockets are useful for local inter-process communication where
+network overhead is unnecessary and filesystem permissions provide the security
+boundary. A common pattern is to expose a service on both TCP (for remote
+clients) and a UNIX socket (for local tools or reverse proxies):
+</p>
+
+<pre>
+&lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryService"&gt;
+    &lt;property name="mailbox-factory" ref="#mbox"/&gt;
+    &lt;property name="local-domain"&gt;example.com&lt;/property&gt;
+    &lt;!-- TCP listener for remote clients --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+              name="tcp" port="25"/&gt;
+    &lt;!-- UNIX domain socket for local delivery --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+              name="unix" path="/var/run/smtp.sock"/&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+The <code>path</code> and <code>port</code> attributes are mutually exclusive on
+a single listener element. Specifying both is a configuration error. Stale
+socket files from previous runs are automatically removed on bind, and the
+socket file is deleted on shutdown.
+</p>
+
+<h4>Endpoint Lifecycle</h4>
+
+<p>
+Servers provide configurable endpoint lifecycle management:
 </p>
 
 <ul>
-<li><b>Idle timeout</b> - close connections with no activity (default: 5 minutes)</li>
+<li><b>Idle timeout</b> - close endpoints with no activity (default: 5 minutes)</li>
 <li><b>Read timeout</b> - maximum wait for data during active read (default: 30 seconds)</li>
 <li><b>Connection timeout</b> - time allowed for initial connection and TLS handshake
 (default: 60 seconds)</li>
@@ -351,16 +420,18 @@ Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</co
 </p>
 
 <pre>
-&lt;server class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="idle-timeout"&gt;30m&lt;/property&gt;
-    &lt;property name="read-timeout"&gt;60s&lt;/property&gt;
-    &lt;property name="connection-timeout"&gt;2m&lt;/property&gt;
-&lt;/server&gt;
+&lt;service class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
+        &lt;property name="idle-timeout"&gt;30m&lt;/property&gt;
+        &lt;property name="read-timeout"&gt;60s&lt;/property&gt;
+        &lt;property name="connection-timeout"&gt;2m&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <p>
-Connections track timestamps for creation, last activity, and connection establishment
-(after TLS handshake for secure connections). These are accessible via
+Endpoints track timestamps for creation, last activity, and connection establishment
+(after TLS handshake for secure endpoints). These are accessible via
 <code>getTimestampCreated()</code>, <code>getTimestampLastActivity()</code>, and
 <code>getTimestampConnected()</code>.
 </p>
@@ -408,16 +479,18 @@ elements configure collection properties</li>
         &lt;property name="endpoint"&gt;http://collector:4318&lt;/property&gt;
     &lt;/component&gt;
     
-    &lt;!-- IMAP server with TLS --&gt;
-    &lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-        &lt;property name="port"&gt;993&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;!-- IMAP service with TLS --&gt;
+    &lt;service id="imaps" class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
         &lt;property name="realm" ref="#myRealm"/&gt;
         &lt;property name="mailbox-factory" ref="#maildir"/&gt;
         &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;/server&gt;
+        &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
+            &lt;property name="port"&gt;993&lt;/property&gt;
+            &lt;property name="secure"&gt;true&lt;/property&gt;
+            &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+            &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+        &lt;/listener&gt;
+    &lt;/service&gt;
 &lt;/gumdrop&gt;
 </pre>
 

@@ -5,4 +5,14 @@ if [[ -n "$LOGGING_PROPERTIES" ]]; then
 	logging=-Djava.util.logging.config.file=$LOGGING_PROPERTIES
 fi
 GUMDROP_JAR=./dist/gumdrop-container.jar
-$java $logging -jar $GUMDROP_JAR $*
+
+# Native library path for JNI (libgumdrop_quic + libquiche)
+NATIVE_LIB_PATH=./dist
+QUICHE_DIR="${QUICHE_DIR:-../quiche}"
+if [[ -d "$QUICHE_DIR/target/release" ]]; then
+	NATIVE_LIB_PATH="$NATIVE_LIB_PATH:$QUICHE_DIR/target/release"
+fi
+
+export DYLD_LIBRARY_PATH="$NATIVE_LIB_PATH${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+
+$java $logging -Djava.library.path="$NATIVE_LIB_PATH" -jar $GUMDROP_JAR $*

@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.auth;
 
-import org.bluezoo.gumdrop.ConnectionInfo;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TLSInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
@@ -106,7 +106,7 @@ import java.util.logging.Logger;
  * <realm id="oauth" class="org.bluezoo.gumdrop.auth.OAuthRealm"
  *        configFile="oauth.properties"/>
  * 
- * <server class="org.bluezoo.gumdrop.imap.IMAPServer"
+ * <server class="org.bluezoo.gumdrop.imap.IMAPListener"
  *         port="993" secure="true"
  *         realm="#oauth"/>
  * }</pre>
@@ -439,7 +439,7 @@ public class OAuthRealm implements Realm {
         // Connect and make request
         client.connect(new HTTPClientHandler() {
             @Override
-            public void onConnected(ConnectionInfo info) {
+            public void onConnected(Endpoint endpoint) {
                 LOGGER.fine(L10N.getString("debug.oauth_connected"));
                 
                 // Create and send the POST request
@@ -467,7 +467,7 @@ public class OAuthRealm implements Realm {
             }
             
             @Override
-            public void onTLSStarted(TLSInfo info) {
+            public void onSecurityEstablished(SecurityInfo info) {
                 String msg = MessageFormat.format(L10N.getString("debug.oauth_tls_started"), info.getProtocol());
                 LOGGER.fine(msg);
             }
