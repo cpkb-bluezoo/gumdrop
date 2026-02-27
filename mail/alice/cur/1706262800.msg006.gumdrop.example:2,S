@@ -1,0 +1,51 @@
+From: Bob <bob@gumdrop.example>
+To: Alice <alice@gumdrop.example>
+Subject: Fwd: Vendor quote for cloud hosting
+Date: Fri, 26 Jan 2024 10:20:00 +0000
+Message-ID: <msg006@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary-006"
+
+--mixed-boundary-006
+Content-Type: text/plain; charset=utf-8
+
+Alice,
+
+Forwarding the hosting quote from Charlie at Acme.
+I'm leaning towards the Premium tier for production
+and Standard for staging. What do you think?
+
+We should factor this into the budget spreadsheet
+before the review on Monday.
+
+Bob
+
+--mixed-boundary-006
+Content-Type: message/rfc822
+Content-Disposition: inline
+
+From: Charlie <charlie@vendor.example>
+To: Bob <bob@gumdrop.example>
+Subject: Vendor quote for cloud hosting
+Date: Fri, 26 Jan 2024 08:00:00 +0000
+Message-ID: <vendor001@vendor.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Bob,
+
+Thanks for your enquiry. Here's our quote for the hosting package:
+
+  Standard tier:  $450/month  (4 vCPU, 16 GB RAM, 500 GB SSD)
+  Premium tier:   $890/month  (8 vCPU, 32 GB RAM, 1 TB SSD)
+  Enterprise:     $1,650/month (16 vCPU, 64 GB RAM, 2 TB NVMe)
+
+All tiers include 99.9% uptime SLA, daily backups, and 24/7 support.
+Volume discounts available for annual commitments.
+
+Let me know if you'd like to set up a call to discuss further.
+
+Best regards,
+Charlie
+Acme Cloud Services
+--mixed-boundary-006--

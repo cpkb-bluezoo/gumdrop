@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.GumdropNative;
+
 import java.io.ByteArrayInputStream;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
@@ -52,9 +54,9 @@ final class QuicSecurityInfo implements SecurityInfo {
      * @param handshakeStartTime the time when the handshake started
      */
     QuicSecurityInfo(long connPtr, long sslPtr, long handshakeStartTime) {
-        this.cipherSuite = QuicheNative.ssl_get_cipher_name(sslPtr);
+        this.cipherSuite = GumdropNative.ssl_get_cipher_name(sslPtr);
         this.applicationProtocol =
-                QuicheNative.quiche_conn_application_proto(connPtr);
+                GumdropNative.quiche_conn_application_proto(connPtr);
         this.peerCertificates = parsePeerCerts(connPtr);
         this.handshakeDurationMs =
                 System.currentTimeMillis() - handshakeStartTime;
@@ -112,7 +114,7 @@ final class QuicSecurityInfo implements SecurityInfo {
     }
 
     private static Certificate[] parsePeerCerts(long connPtr) {
-        byte[] derBytes = QuicheNative.quiche_conn_peer_cert(connPtr);
+        byte[] derBytes = GumdropNative.quiche_conn_peer_cert(connPtr);
         if (derBytes == null || derBytes.length == 0) {
             return null;
         }

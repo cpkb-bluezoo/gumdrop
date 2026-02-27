@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.dns;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -72,8 +73,8 @@ public class DoQListener extends TCPListener
     private int port = DEFAULT_PORT;
     private DNSService service;
 
-    private String certFile;
-    private String keyFile;
+    private Path certFile;
+    private Path keyFile;
 
     private SelectorLoop selectorLoop;
     private final List engines = new ArrayList();
@@ -120,8 +121,12 @@ public class DoQListener extends TCPListener
      *
      * @param path the PEM file path
      */
-    public void setCertFile(String path) {
+    public void setCertFile(Path path) {
         this.certFile = path;
+    }
+
+    public void setCertFile(String path) {
+        this.certFile = Path.of(path);
     }
 
     /**
@@ -129,8 +134,12 @@ public class DoQListener extends TCPListener
      *
      * @param path the PEM file path
      */
-    public void setKeyFile(String path) {
+    public void setKeyFile(Path path) {
         this.keyFile = path;
+    }
+
+    public void setKeyFile(String path) {
+        this.keyFile = Path.of(path);
     }
 
     /**

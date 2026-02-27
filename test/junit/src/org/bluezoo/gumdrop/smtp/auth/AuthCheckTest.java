@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.auth;
 
-import org.bluezoo.gumdrop.dns.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.junit.Before;
 import org.junit.Test;

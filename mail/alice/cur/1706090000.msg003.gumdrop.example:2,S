@@ -1,0 +1,37 @@
+From: Bob <bob@gumdrop.example>
+To: Alice <alice@gumdrop.example>
+Subject: Meeting agenda
+Date: Wed, 24 Jan 2024 09:00:00 +0000
+Message-ID: <msg003@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary-003"
+
+--mixed-boundary-003
+Content-Type: text/plain; charset=utf-8
+
+Hi Alice,
+
+Attached is the agenda for tomorrow's kickoff meeting. I've
+incorporated your suggestions about testing and CI/CD.
+
+Please review and let me know if anything is missing.
+
+Bob
+
+--mixed-boundary-003
+Content-Type: application/pdf; name="kickoff-agenda.pdf"
+Content-Disposition: attachment; filename="kickoff-agenda.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjAKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCjIgMCBv
+Ymo8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PmVuZG9iagozIDAgb2JqPDwvVHlw
+ZS9QYWdlL1BhcmVudCAyIDAgUi9NZWRpYUJveFswIDAgNjEyIDc5Ml0vQ29udGVudHMgNCAwIFIv
+UmVzb3VyY2VzPDwvRm9udDw8L0YxIDUgMCBSPj4+Pj4+ZW5kb2JqCjQgMCBvYmo8PC9MZW5ndGgg
+NDQ+PgpzdHJlYW0KQlQgL0YxIDE4IFRmIDcyIDcwMCBUZCAoTWVldGluZyBBZ2VuZGEpIFRqIEVU
+CmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iajw8L1R5cGUvRm9udC9TdWJ0eXBlL1R5cGUxL0Jhc2VG
+b250L0hlbHZldGljYT4+ZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAw
+MDAwOSAwMDAwMCBuIAowMDAwMDAwMDUyIDAwMDAwIG4gCjAwMDAwMDAxMDEgMDAwMDAgbiAKMDAw
+MDAwMDIzMCAwMDAwMCBuIAowMDAwMDAwMzI0IDAwMDAwIG4gCnRyYWlsZXI8PC9TaXplIDYvUm9v
+dCAxIDAgUj4+CnN0YXJ0eHJlZgozOTIKJSVFT0Y=
+
+--mixed-boundary-003--

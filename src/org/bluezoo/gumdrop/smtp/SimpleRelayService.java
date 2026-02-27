@@ -29,7 +29,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
-import org.bluezoo.gumdrop.dns.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**

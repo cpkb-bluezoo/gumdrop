@@ -98,6 +98,18 @@ public class MboxMailboxFactory implements MailboxFactory {
     }
 
     /**
+     * Sets the base directory for all mailboxes.
+     * 
+     * @param baseDirectory the base directory path
+     */
+    public void setBaseDirectory(Path baseDirectory) {
+        if (baseDirectory == null) {
+            throw new IllegalArgumentException("Base directory cannot be null");
+        }
+        this.basedir = baseDirectory.toAbsolutePath().normalize();
+    }
+
+    /**
      * Returns the base directory for all mailboxes.
      * 
      * @return the base directory path

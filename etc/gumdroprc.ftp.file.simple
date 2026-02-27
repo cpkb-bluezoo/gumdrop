@@ -1,0 +1,13 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Simple file-based FTP service serving the web directory.
+	     Accepts any username with any non-empty password. -->
+	<service id="ftp" class="org.bluezoo.gumdrop.ftp.file.SimpleFTPService">
+		<property name="root-directory" path="../web"/>
+		<property name="read-only" value="false"/>
+
+		<!-- FTP listener on port 2121 -->
+		<listener class="org.bluezoo.gumdrop.ftp.FTPListener"
+		        port="2121"/>
+	</service>
+</gumdrop>

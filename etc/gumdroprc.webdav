@@ -1,0 +1,30 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- WebDAV file service serving the web directory -->
+	<service id="webdav" class="org.bluezoo.gumdrop.webdav.WebDAVService">
+		<property name="root-path" path="../web"/>
+		<property name="allow-write" value="false"/>
+		<property name="welcome-file" value="index.html"/>
+		<property name="webdav-enabled" value="false"/>
+
+		<!-- HTTP listener on port 8080 -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port" value="8080"/>
+		</listener>
+
+		<!-- HTTPS listener on port 8443 -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port" value="8443"/>
+			<property name="secure" value="true"/>
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+
+		<!-- HTTP/3 (QUIC) listener on UDP port 8443 -->
+		<listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener">
+			<property name="port" value="8443"/>
+			<property name="cert-file" path="localhost+2.pem"/>
+			<property name="key-file" path="localhost+2-key.pem"/>
+		</listener>
+	</service>
+</gumdrop>

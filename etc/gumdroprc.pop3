@@ -1,0 +1,33 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Mail realm for authentication -->
+	<realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-mail.xml"/>
+	</realm>
+
+	<!-- Maildir-format mailbox storage -->
+	<mailbox-factory id="maildir"
+	        class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory">
+		<property name="base-directory" path="../mail"/>
+	</mailbox-factory>
+
+	<!-- POP3 service.
+	     Provides POP3 access to Maildir mailboxes.
+	     Users: bob/bob, alice/alice. -->
+	<service id="pop3" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service">
+		<property name="realm" ref="#mailRealm"/>
+		<property name="mailbox-factory" ref="#maildir"/>
+
+		<!-- POP3 listener on port 1110 (STARTTLS available) -->
+		<listener class="org.bluezoo.gumdrop.pop3.POP3Listener" port="1110">
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+
+		<!-- POP3S listener on port 1995 (implicit TLS) -->
+		<listener class="org.bluezoo.gumdrop.pop3.POP3Listener" port="1995" secure="true">
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+	</service>
+</gumdrop>

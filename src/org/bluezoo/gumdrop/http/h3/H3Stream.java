@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.quic.QuicheNative;
+import org.bluezoo.gumdrop.GumdropNative;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
@@ -480,7 +480,7 @@ class H3Stream implements HTTPResponseState {
 
         long h3Conn = connection.getH3Conn();
         long quicheConn = connection.getQuicheConn();
-        int result = QuicheNative.quiche_h3_send_response(
+        int result = GumdropNative.quiche_h3_send_response(
                 h3Conn, quicheConn, streamId, headerArray, fin);
         if (result < 0) {
             LOGGER.log(Level.WARNING,
@@ -516,13 +516,13 @@ class H3Stream implements HTTPResponseState {
                 && !pendingWriteQueue.isEmpty()) {
             ByteBuffer data = pendingWriteQueue.get(0);
             while (data.hasRemaining()) {
-                int result = QuicheNative.quiche_h3_send_body(
+                int result = GumdropNative.quiche_h3_send_body(
                         h3Conn, quicheConn, streamId,
                         data, data.remaining(), false);
                 if (result > 0) {
                     data.position(data.position() + result);
                     connection.flushQuic();
-                } else if (result == QuicheNative.QUICHE_ERR_DONE) {
+                } else if (result == GumdropNative.QUICHE_ERR_DONE) {
                     connection.flushQuic();
                     return false;
                 } else {
@@ -537,10 +537,10 @@ class H3Stream implements HTTPResponseState {
         }
 
         if (pendingFin) {
-            int result = QuicheNative.quiche_h3_send_body(
+            int result = GumdropNative.quiche_h3_send_body(
                     h3Conn, quicheConn, streamId,
                     EMPTY_BUFFER.duplicate(), 0, true);
-            if (result < 0 && result != QuicheNative.QUICHE_ERR_DONE) {
+            if (result < 0 && result != GumdropNative.QUICHE_ERR_DONE) {
                 LOGGER.warning("h3 send_body FIN error: " + result
                         + " stream=" + streamId);
             }
@@ -566,13 +566,13 @@ class H3Stream implements HTTPResponseState {
         long quicheConn = connection.getQuicheConn();
 
         while (data.hasRemaining()) {
-            int result = QuicheNative.quiche_h3_send_body(
+            int result = GumdropNative.quiche_h3_send_body(
                     h3Conn, quicheConn, streamId,
                     data, data.remaining(), false);
             if (result > 0) {
                 data.position(data.position() + result);
                 connection.flushQuic();
-            } else if (result == QuicheNative.QUICHE_ERR_DONE) {
+            } else if (result == GumdropNative.QUICHE_ERR_DONE) {
                 connection.flushQuic();
                 enqueue(data, fin);
                 return;
@@ -584,9 +584,9 @@ class H3Stream implements HTTPResponseState {
         }
 
         if (fin) {
-            int result = QuicheNative.quiche_h3_send_body(
+            int result = GumdropNative.quiche_h3_send_body(
                     h3Conn, quicheConn, streamId, data, 0, true);
-            if (result < 0 && result != QuicheNative.QUICHE_ERR_DONE) {
+            if (result < 0 && result != GumdropNative.QUICHE_ERR_DONE) {
                 LOGGER.warning("h3 send_body FIN error: " + result
                         + " stream=" + streamId);
             }

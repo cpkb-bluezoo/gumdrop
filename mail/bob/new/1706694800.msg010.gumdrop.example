@@ -1,0 +1,63 @@
+From: Alice <alice@gumdrop.example>
+To: Bob <bob@gumdrop.example>
+Subject: Sprint 1 summary and deliverables
+Date: Wed, 31 Jan 2024 17:00:00 +0000
+Message-ID: <msg010@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary-010"
+
+--mixed-boundary-010
+Content-Type: multipart/alternative; boundary="alt-boundary-010"
+
+--alt-boundary-010
+Content-Type: text/plain; charset=utf-8
+
+Hi Bob,
+
+Sprint 1 is officially wrapped up! All 20 story points delivered.
+
+Attached is the summary report. Key numbers:
+- Velocity: 20 pts/sprint
+- Test coverage: 87%
+- Defects: 3 found, all resolved
+
+I think we're in great shape for the beta. Let's sync tomorrow
+morning to plan Sprint 2.
+
+Alice
+
+--alt-boundary-010
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body>
+<p>Hi Bob,</p>
+<p>Sprint 1 is officially wrapped up! All <strong>20 story points</strong> delivered.</p>
+<p>Attached is the summary report. Key numbers:</p>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse: collapse;">
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Velocity</td><td>20 pts/sprint</td></tr>
+  <tr><td>Test coverage</td><td>87%</td></tr>
+  <tr><td>Defects</td><td>3 found, all resolved</td></tr>
+</table>
+<p>I think we're in great shape for the beta. Let's sync tomorrow
+morning to plan Sprint 2.</p>
+<p>Alice</p>
+</body>
+</html>
+
+--alt-boundary-010--
+
+--mixed-boundary-010
+Content-Type: text/plain; name="sprint1-summary.txt"
+Content-Disposition: attachment; filename="sprint1-summary.txt"
+Content-Transfer-Encoding: base64
+
+R3VtZHJvcCBQcm9qZWN0IC0gU3ByaW50IDEgU3VtbWFyeQo9PT09PT09PT09PT09PT09PT09PT09
+PT09PT09PT09PT09PQoKQ29tcGxldGVkOiAyMC8yMCBzdG9yeSBwb2ludHMKVmVsb2NpdHk6IDIw
+IHB0cy9zcHJpbnQKRGVmZWN0cyBmb3VuZDogMyAoYWxsIHJlc29sdmVkKQpUZXN0IGNvdmVyYWdl
+OiA4NyUKCkhpZ2hsaWdodHM6Ci0gQXV0aGVudGljYXRpb24gbW9kdWxlIHNoaXBwZWQKLSBSRVNU
+IEFQSSBlbmRwb2ludHMgY29tcGxldGUKLSBEYXRhYmFzZSBtaWdyYXRpb24gc2NyaXB0cyB0ZXN0
+ZWQKLSBDSS9DRCBwaXBlbGluZSBmdWxseSBvcGVyYXRpb25hbAo=
+
+--mixed-boundary-010--

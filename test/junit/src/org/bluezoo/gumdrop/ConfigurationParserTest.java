@@ -244,19 +244,19 @@ public class ConfigurationParserTest {
     }
 
     @Test
-    public void testServerComponent() throws Exception {
-        // Server is a known element type
+    public void testServiceComponent() throws Exception {
+        // Service is a known element type that requires a class attribute
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <server id=\"httpServer\" port=\"8080\">\n" +
-            "  </server>\n" +
+            "  <service id=\"dnsService\" class=\"org.bluezoo.gumdrop.dns.DNSService\">\n" +
+            "  </service>\n" +
             "</gumdrop>";
         File file = createConfigFile(config);
 
         ConfigurationParser parser = new ConfigurationParser();
         ParseResult result = parser.parse(file);
 
-        assertTrue(result.getRegistry().hasComponent("httpServer"));
+        assertTrue(result.getRegistry().hasComponent("dnsService"));
     }
 
     @Test

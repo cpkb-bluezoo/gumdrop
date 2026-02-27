@@ -1,0 +1,23 @@
+From: Bob <bob@gumdrop.example>
+To: Alice <alice@gumdrop.example>
+Subject: Project kickoff meeting
+Date: Tue, 23 Jan 2024 10:00:00 +0000
+Message-ID: <msg001@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Alice,
+
+I'd like to schedule a kickoff meeting for the Gumdrop project.
+How does Thursday at 2pm work for you?
+
+We need to cover:
+- Project scope and deliverables
+- Timeline and milestones
+- Resource allocation
+- Risk assessment
+
+Let me know if that time works or suggest an alternative.
+
+Cheers,
+Bob

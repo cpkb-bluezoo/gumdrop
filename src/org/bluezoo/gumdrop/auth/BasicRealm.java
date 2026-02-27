@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -127,7 +128,12 @@ public class BasicRealm extends DefaultHandler implements Realm {
     @Override
     public boolean passwordMatch(String username, String password) {
         String storedPassword = passwords.get(username);
-        return storedPassword != null && storedPassword.equals(password);
+        if (storedPassword == null || password == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                storedPassword.getBytes(StandardCharsets.UTF_8),
+                password.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
@@ -248,6 +254,22 @@ public class BasicRealm extends DefaultHandler implements Realm {
             
         } catch (IOException | SAXException e) {
             RuntimeException e2 = new RuntimeException("Failed to parse realm configuration: " + href);
+            e2.initCause(e);
+            throw e2;
+        } finally {
+            currentGroupName = null;
+            pendingGroupRefs = null;
+        }
+    }
+
+    public void setHref(Path path) {
+        pendingGroupRefs = new LinkedHashMap<String, String>();
+        try {
+            URL url = path.toUri().toURL();
+            XMLParseUtils.parseURL(url, this, null);
+            resolvePendingGroupReferences();
+        } catch (IOException | SAXException e) {
+            RuntimeException e2 = new RuntimeException("Failed to parse realm configuration: " + path);
             e2.initCause(e);
             throw e2;
         } finally {

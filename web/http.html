@@ -26,17 +26,12 @@
 </head>
 <body>
 
-<table summary='(layout)'>
-<tr>
-<td>
-<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
-</td>
-<td valign='bottom'>
-<h1 class='offset'>Gumdrop HTTP Server &amp; Client</h1>
-</td>
-</table>
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop HTTP Server &amp; Client</h1>
+</header>
 
-<p><a href="index.html">&larr; Back to Main Page</a></p>
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
 Gumdrop provides a comprehensive HTTP implementation supporting HTTP/3,
@@ -297,43 +292,6 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
   &lt;/listener&gt;
 &lt;/service&gt;
 </pre>
-
-<h4>Priority-Aware Server</h4>
-
-<p>
-The <code>PriorityAwareHTTPServer</code> extends the base HTTP server with
-sophisticated HTTP/2 stream priority handling. This is beneficial for
-complex web applications serving multiple resource types (HTML, CSS, JS,
-images, API responses).
-</p>
-
-<p>
-Features of the priority-aware server:
-</p>
-<ul>
-<li><b>Priority-based scheduling</b> - processes high-priority streams first</li>
-<li><b>Bandwidth allocation</b> - distributes resources based on stream weights</li>
-<li><b>Starvation prevention</b> - ensures low-priority streams receive fair
-access through configurable time slices</li>
-<li><b>Dependency tree</b> - respects HTTP/2 priority dependency relationships</li>
-</ul>
-
-<p>
-Configuration properties:
-</p>
-<ul>
-<li><code>min-low-priority-time-slice</code> - minimum milliseconds before starved
-streams are promoted (default: 100)</li>
-<li><code>max-high-priority-burst</code> - maximum consecutive operations for
-high-priority streams before yielding (default: 10)</li>
-<li><code>priority-logging</code> - enable detailed scheduling logs</li>
-</ul>
-
-<p>
-The priority-aware server adds approximately 6-10KB memory overhead per
-connection and 5-10% CPU overhead under load. For simple file servers or
-single-resource APIs, the standard <code>HTTPServer</code> is sufficient.
-</p>
 
 <h3 id="server-handler">Server Handler API</h3>
 

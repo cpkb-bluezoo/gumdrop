@@ -33,6 +33,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.security.KeyStore;
 import java.text.MessageFormat;
 import java.util.Map;
@@ -63,7 +64,7 @@ class OTLPEndpoint {
     private final Map<String, String> headers;
     
     // TLS configuration
-    private String truststoreFile;
+    private Path truststoreFile;
     private String truststorePass;
     private String truststoreFormat = "PKCS12";
     private SSLContext sslContext;
@@ -198,7 +199,7 @@ class OTLPEndpoint {
         if (truststoreFile != null && truststorePass != null) {
             try {
                 KeyStore trustStore = KeyStore.getInstance(truststoreFormat);
-                try (FileInputStream fis = new FileInputStream(truststoreFile)) {
+                try (FileInputStream fis = new FileInputStream(truststoreFile.toFile())) {
                     trustStore.load(fis, truststorePass.toCharArray());
                 }
                 

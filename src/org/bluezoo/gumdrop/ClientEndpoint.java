@@ -24,8 +24,13 @@ package org.bluezoo.gumdrop;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 
 /**
  * Transport-agnostic convenience class for creating client connections.
@@ -72,9 +77,11 @@ public class ClientEndpoint {
             Logger.getLogger(ClientEndpoint.class.getName());
 
     private final TransportFactory factory;
-    private final InetAddress host;
+    private final String hostname;
     private final int port;
+    private InetAddress host;
     private SelectorLoop selectorLoop;
+    private Gumdrop gumdrop;
 
     // ── Constructors with explicit SelectorLoop (server integration) ──
 
@@ -83,18 +90,29 @@ public class ClientEndpoint {
      *
      * <p>Use this constructor for server integration where the client
      * should share a SelectorLoop with existing server connections.
+     * DNS resolution is deferred until {@link #connect} is called.
      *
      * @param factory the transport factory (must already be started)
      * @param selectorLoop the SelectorLoop for connection I/O
-     * @param host the target host
+     * @param host the target hostname or IP address
      * @param port the target port
-     * @throws UnknownHostException if the host cannot be resolved
      */
     public ClientEndpoint(TransportFactory factory,
                           SelectorLoop selectorLoop,
-                          String host, int port)
-            throws UnknownHostException {
-        this(factory, selectorLoop, InetAddress.getByName(host), port);
+                          String host, int port) {
+        if (factory == null) {
+            throw new NullPointerException("factory");
+        }
+        if (selectorLoop == null) {
+            throw new NullPointerException("selectorLoop");
+        }
+        if (host == null) {
+            throw new NullPointerException("host");
+        }
+        this.factory = factory;
+        this.selectorLoop = selectorLoop;
+        this.hostname = host;
+        this.port = port;
     }
 
     /**
@@ -119,6 +137,7 @@ public class ClientEndpoint {
         }
         this.factory = factory;
         this.selectorLoop = selectorLoop;
+        this.hostname = null;
         this.host = host;
         this.port = port;
     }
@@ -129,17 +148,25 @@ public class ClientEndpoint {
      * Creates a client without a SelectorLoop.
      *
      * <p>A SelectorLoop will be obtained automatically from the Gumdrop
-     * infrastructure when {@link #connect} is called.
+     * infrastructure when {@link #connect} is called. DNS resolution is
+     * deferred until {@link #connect} is called.
      *
      * @param factory the transport factory (must already be started)
-     * @param host the target host
+     * @param host the target hostname or IP address
      * @param port the target port
-     * @throws UnknownHostException if the host cannot be resolved
      */
     public ClientEndpoint(TransportFactory factory,
-                          String host, int port)
-            throws UnknownHostException {
-        this(factory, InetAddress.getByName(host), port);
+                          String host, int port) {
+        if (factory == null) {
+            throw new NullPointerException("factory");
+        }
+        if (host == null) {
+            throw new NullPointerException("host");
+        }
+        this.factory = factory;
+        this.selectorLoop = null;
+        this.hostname = host;
+        this.port = port;
     }
 
     /**
@@ -159,6 +186,7 @@ public class ClientEndpoint {
         }
         this.factory = factory;
         this.selectorLoop = null;
+        this.hostname = null;
         this.host = host;
         this.port = port;
     }
@@ -215,11 +243,19 @@ public class ClientEndpoint {
      * connection fails.
      *
      * <p>If no SelectorLoop was provided at construction time, one is
-     * obtained from the Gumdrop infrastructure automatically.
+     * obtained from the Gumdrop infrastructure automatically (starting
+     * Gumdrop if needed).
+     *
+     * <p>This method registers the client with Gumdrop for lifecycle
+     * tracking. The client is automatically deregistered when the
+     * connection terminates (disconnect or error), or when
+     * {@link #close()} is called. When no clients, services, or
+     * listeners remain, Gumdrop shuts down automatically.
      *
      * <p>The transport used depends on the factory:
      * <ul>
-     * <li>{@link TCPTransportFactory} -- TCP connection (with optional TLS)</li>
+     * <li>{@link TCPTransportFactory} -- TCP connection (with optional
+     *     TLS)</li>
      * <li>{@link org.bluezoo.gumdrop.quic.QuicTransportFactory} --
      *     QUIC connection with auto-opened initial stream</li>
      * </ul>
@@ -227,13 +263,59 @@ public class ClientEndpoint {
      * @param handler the protocol handler
      * @throws IOException if the connection cannot be initiated
      */
-    public void connect(ProtocolHandler handler) throws IOException {
+    public void connect(final ProtocolHandler handler) throws IOException {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
 
         ensureSelectorLoop();
+        gumdrop = Gumdrop.getInstance();
+        gumdrop.addClient(this);
 
+        final ProtocolHandler wrapped = wrapHandler(handler);
+
+        if (hostname != null && host == null) {
+            DNSResolver resolver = DNSResolver.forLoop(selectorLoop);
+            resolver.resolve(hostname, new ResolveCallback() {
+                @Override
+                public void onResolved(List<InetAddress> addresses) {
+                    host = addresses.get(0);
+                    try {
+                        doConnect(wrapped);
+                    } catch (IOException e) {
+                        wrapped.error(e);
+                    }
+                }
+
+                @Override
+                public void onError(String error) {
+                    wrapped.error(new UnknownHostException(
+                            hostname + ": " + error));
+                }
+            });
+        } else {
+            try {
+                doConnect(wrapped);
+            } catch (IOException e) {
+                deregister();
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Closes this client endpoint, deregistering it from Gumdrop's
+     * lifecycle tracking.
+     *
+     * <p>This method is idempotent. It does not close the underlying
+     * transport connection; use the protocol handler or client facade's
+     * {@code close()} method for that.
+     */
+    public void close() {
+        deregister();
+    }
+
+    private void doConnect(ProtocolHandler handler) throws IOException {
         if (factory instanceof TCPTransportFactory) {
             ((TCPTransportFactory) factory).connect(
                     host, port, handler, selectorLoop);
@@ -249,6 +331,49 @@ public class ClientEndpoint {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Connecting to " + host.getHostAddress()
                     + ":" + port + " via " + factory.getDescription());
+        }
+    }
+
+    /**
+     * Wraps a protocol handler to intercept terminal events
+     * ({@code disconnected} and {@code error}) and automatically
+     * deregister this client from Gumdrop's lifecycle tracking.
+     */
+    private ProtocolHandler wrapHandler(final ProtocolHandler handler) {
+        return new ProtocolHandler() {
+            @Override
+            public void receive(ByteBuffer data) {
+                handler.receive(data);
+            }
+
+            @Override
+            public void connected(Endpoint endpoint) {
+                handler.connected(endpoint);
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+                handler.securityEstablished(info);
+            }
+
+            @Override
+            public void disconnected() {
+                handler.disconnected();
+                deregister();
+            }
+
+            @Override
+            public void error(Exception cause) {
+                handler.error(cause);
+                deregister();
+            }
+        };
+    }
+
+    private void deregister() {
+        if (gumdrop != null) {
+            gumdrop.removeClient(this);
+            gumdrop = null;
         }
     }
 

@@ -85,10 +85,20 @@ public class BasicFTPFileSystem implements FTPFileSystem {
      * @throws IllegalArgumentException if rootDirectory doesn't exist or isn't a directory
      */
     public BasicFTPFileSystem(String rootDirectory, boolean readOnly) {
+        this(Paths.get(rootDirectory), readOnly);
+    }
+
+    /**
+     * Creates a new BasicFTPFileSystem with the specified root directory.
+     *
+     * @param rootDirectory the root directory path for this file system
+     * @param readOnly true to make this file system read-only
+     * @throws IllegalArgumentException if rootDirectory doesn't exist or isn't a directory
+     */
+    public BasicFTPFileSystem(Path rootDirectory, boolean readOnly) {
         this.readOnly = readOnly;
         
-        // Validate and normalize root path
-        Path root = Paths.get(rootDirectory).toAbsolutePath().normalize();
+        Path root = rootDirectory.toAbsolutePath().normalize();
         if (!Files.exists(root)) {
             throw new IllegalArgumentException("Root directory does not exist: " + rootDirectory);
         }

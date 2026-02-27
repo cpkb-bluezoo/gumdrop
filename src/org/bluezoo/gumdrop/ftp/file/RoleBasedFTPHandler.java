@@ -61,14 +61,11 @@ import org.bluezoo.gumdrop.quota.QuotaSource;
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  * 
- * <server class="org.bluezoo.gumdrop.ftp.FTPListener">
- *   <property name="handler-factory">
- *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
- *       <property name="realm" ref="#ftpRealm"/>
- *       <property name="file-system" ref="#ftpFileSystem"/>
- *     </ftp-handler-factory>
- *   </property>
- * </server>
+ * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService">
+ *   <property name="realm" ref="#ftpRealm"/>
+ *   <property name="root-directory">/var/ftp</property>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
+ * </service>
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

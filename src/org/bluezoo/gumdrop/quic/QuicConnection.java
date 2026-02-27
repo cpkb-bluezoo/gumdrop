@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.GumdropNative;
+
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -192,7 +194,7 @@ public final class QuicConnection {
     void checkEstablished() {
         if (!established) {
             boolean nowEstablished =
-                    QuicheNative.quiche_conn_is_established(connPtr);
+                    GumdropNative.quiche_conn_is_established(connPtr);
             if (nowEstablished) {
                 established = true;
                 if (LOGGER.isLoggable(Level.FINE)) {
@@ -212,7 +214,7 @@ public final class QuicConnection {
     void processReadableStreams(ByteBuffer streamBuf) {
         if (!established) {
             boolean nowEstablished =
-                    QuicheNative.quiche_conn_is_established(connPtr);
+                    GumdropNative.quiche_conn_is_established(connPtr);
             if (nowEstablished) {
                 established = true;
                 scheduleTimeout();
@@ -228,7 +230,7 @@ public final class QuicConnection {
             return;
         }
 
-        long[] readableIds = QuicheNative.quiche_conn_readable(connPtr);
+        long[] readableIds = GumdropNative.quiche_conn_readable(connPtr);
         for (int i = 0; i < readableIds.length; i++) {
             long streamId = readableIds[i];
             QuicStreamEndpoint stream = streams.get(Long.valueOf(streamId));
@@ -242,7 +244,7 @@ public final class QuicConnection {
 
             boolean[] fin = new boolean[1];
             streamBuf.clear();
-            int len = QuicheNative.quiche_conn_stream_recv(
+            int len = GumdropNative.quiche_conn_stream_recv(
                     connPtr, streamId, streamBuf,
                     streamBuf.capacity(), fin);
 
@@ -341,7 +343,7 @@ public final class QuicConnection {
      * Sends data on a stream.
      */
     void streamSend(long streamId, ByteBuffer data, boolean fin) {
-        QuicheNative.quiche_conn_stream_send(connPtr, streamId,
+        GumdropNative.quiche_conn_stream_send(connPtr, streamId,
                 data, data.remaining(), fin);
         engine.requestFlush();
     }
@@ -351,7 +353,7 @@ public final class QuicConnection {
      */
     void streamClose(long streamId) {
         ByteBuffer empty = ByteBuffer.allocate(0);
-        QuicheNative.quiche_conn_stream_send(connPtr, streamId,
+        GumdropNative.quiche_conn_stream_send(connPtr, streamId,
                 empty, 0, true);
         streams.remove(Long.valueOf(streamId));
         engine.requestFlush();
@@ -365,7 +367,7 @@ public final class QuicConnection {
             timerHandle.cancel();
         }
         long timeoutMs =
-                QuicheNative.quiche_conn_timeout_as_millis(connPtr);
+                GumdropNative.quiche_conn_timeout_as_millis(connPtr);
         if (timeoutMs > 0) {
             timerHandle = engine.scheduleTimer(timeoutMs,
                     new Runnable() {
@@ -381,9 +383,9 @@ public final class QuicConnection {
         if (closed) {
             return;
         }
-        QuicheNative.quiche_conn_on_timeout(connPtr);
+        GumdropNative.quiche_conn_on_timeout(connPtr);
         engine.requestFlush();
-        if (QuicheNative.quiche_conn_is_closed(connPtr)) {
+        if (GumdropNative.quiche_conn_is_closed(connPtr)) {
             close();
         } else {
             scheduleTimeout();
@@ -409,7 +411,7 @@ public final class QuicConnection {
         }
         streams.clear();
 
-        QuicheNative.quiche_conn_free(connPtr);
+        GumdropNative.quiche_conn_free(connPtr);
     }
 
     boolean isClosed() {

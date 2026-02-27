@@ -29,7 +29,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;

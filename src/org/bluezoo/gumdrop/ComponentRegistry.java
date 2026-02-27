@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop;
 
 import java.lang.reflect.Method;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -416,13 +418,24 @@ public class ComponentRegistry {
             }
             
             // Path conversion
-            if (targetType == java.nio.file.Path.class) {
-                return java.nio.file.Paths.get(str);
+            if (targetType == Path.class) {
+                return Paths.get(str);
             }
             
             // File conversion
             if (targetType == java.io.File.class) {
                 return new java.io.File(str);
+            }
+        }
+        
+        // Path conversions
+        if (value instanceof Path) {
+            Path path = (Path) value;
+            if (targetType == String.class) {
+                return path.toString();
+            }
+            if (targetType == java.io.File.class) {
+                return path.toFile();
             }
         }
         
@@ -454,7 +467,11 @@ public class ComponentRegistry {
                    targetType == boolean.class || targetType == Boolean.class ||
                    targetType == double.class || targetType == Double.class ||
                    targetType == float.class || targetType == Float.class ||
-                   targetType == java.nio.file.Path.class ||
+                   targetType == Path.class ||
+                   targetType == java.io.File.class;
+        }
+        if (value instanceof Path) {
+            return targetType == String.class ||
                    targetType == java.io.File.class;
         }
         if (value instanceof Number) {

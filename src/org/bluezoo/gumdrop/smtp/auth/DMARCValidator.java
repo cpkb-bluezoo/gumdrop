@@ -31,7 +31,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.DNSMessage;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 import org.bluezoo.gumdrop.dns.DNSType;
 

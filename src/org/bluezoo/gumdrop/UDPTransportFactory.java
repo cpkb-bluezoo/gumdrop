@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop;
 
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,6 +37,7 @@ import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 
 /**
  * UDP transport factory.
@@ -76,7 +75,7 @@ public class UDPTransportFactory extends TransportFactory {
         if (keystoreFile != null && keystorePass != null) {
             try {
                 KeyStore ks = KeyStore.getInstance(keystoreFormat);
-                InputStream in = new FileInputStream(keystoreFile);
+                InputStream in = new FileInputStream(keystoreFile.toFile());
                 char[] pass = keystorePass.toCharArray();
                 ks.load(in, pass);
                 in.close();
@@ -85,8 +84,7 @@ public class UDPTransportFactory extends TransportFactory {
                 f.init(ks, pass);
                 dtlsContext = SSLContext.getInstance("DTLSv1.2");
                 KeyManager[] km = f.getKeyManagers();
-                TrustManager[] tm = new TrustManager[1];
-                tm[0] = new EmptyX509TrustManager();
+                TrustManager[] tm = loadTrustManagers();
                 SecureRandom random = new SecureRandom();
                 dtlsContext.init(km, tm, random);
             } catch (Exception e) {
@@ -96,6 +94,25 @@ public class UDPTransportFactory extends TransportFactory {
                 throw e2;
             }
         }
+    }
+
+    /**
+     * Loads TrustManagers from the configured truststore.
+     * If no truststore is configured, returns null (JVM default truststore).
+     */
+    private TrustManager[] loadTrustManagers() throws Exception {
+        if (truststoreFile != null && truststorePass != null) {
+            KeyStore ts = KeyStore.getInstance(truststoreFormat);
+            try (InputStream in = new FileInputStream(
+                    truststoreFile.toFile())) {
+                ts.load(in, truststorePass.toCharArray());
+            }
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                    TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init(ts);
+            return tmf.getTrustManagers();
+        }
+        return null;
     }
 
     /**

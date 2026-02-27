@@ -307,6 +307,14 @@ public class POP3ProtocolHandler
                 len -= 2;
             }
 
+            // SASL continuation data must preserve original case
+            if (state == POP3State.AUTHORIZATION
+                    && authState != AuthState.NONE) {
+                String rawLine = charBuffer.toString();
+                handleAuthContinuation(rawLine);
+                return;
+            }
+
             int spaceIndex = -1;
             for (int i = 0; i < len; i++) {
                 if (charBuffer.get(i) == ' ') {
@@ -2311,11 +2319,7 @@ public class POP3ProtocolHandler
             while (buffer.hasRemaining()) {
                 byte b = buffer.get();
                 if (b == '\n') {
-                    String line = lineBuilder.toString();
-                    if (line.endsWith("\r")) {
-                        line = line.substring(
-                                0, line.length() - 1);
-                    }
+                    String line = stripCR(lineBuilder);
                     if (line.startsWith(".")) {
                         sendLine("." + line);
                     } else {
@@ -2330,16 +2334,23 @@ public class POP3ProtocolHandler
         }
 
         if (lineBuilder.length() > 0) {
-            String line = lineBuilder.toString();
-            if (line.endsWith("\r")) {
-                line = line.substring(0, line.length() - 1);
-            }
+            String line = stripCR(lineBuilder);
             if (line.startsWith(".")) {
                 sendLine("." + line);
             } else {
                 sendLine(line);
             }
         }
+    }
+
+    /** Strips all CR characters from a line builder to prevent response smuggling. */
+    private static String stripCR(StringBuilder sb) {
+        for (int i = sb.length() - 1; i >= 0; i--) {
+            if (sb.charAt(i) == '\r') {
+                sb.deleteCharAt(i);
+            }
+        }
+        return sb.toString();
     }
 
     // ── Telemetry ──

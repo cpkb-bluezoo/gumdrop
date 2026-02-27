@@ -361,27 +361,29 @@ certificates trusted by your browser:
 # One-time: install the local CA into your system trust store
 mkcert -install
 
-# Generate certificate and key for localhost
-mkcert localhost 127.0.0.1 ::1
+# Generate certificate and key for localhost into etc/
+mkcert -cert-file etc/localhost+2.pem -key-file etc/localhost+2-key.pem \
+    localhost 127.0.0.1 ::1
 ```
 
-This produces `localhost+2.pem` and `localhost+2-key.pem`. Then generate
-a PKCS#12 keystore from the same certificate for the HTTPS listener:
+This produces `etc/localhost+2.pem` and `etc/localhost+2-key.pem`. Then
+generate a PKCS#12 keystore from the same certificate for the HTTPS
+listener:
 
 ```bash
-openssl pkcs12 -export -in localhost+2.pem -inkey localhost+2-key.pem \
-    -out localhost+2.p12 -name localhost -passout pass:changeit
+openssl pkcs12 -export -in etc/localhost+2.pem -inkey etc/localhost+2-key.pem \
+    -out etc/localhost+2.p12 -name localhost -passout pass:changeit
 ```
 
-Both `gumdroprc` and `gumdroprc.http3` expect these three files in the
-project root directory.
+The configuration files in `etc/` reference these by filename (e.g.
+`localhost+2.p12`); they are not checked in to the repository.
 
 ### Running
 
-Start the server:
+Start the server with one of the example configurations in `etc/`:
 
 ```bash
-./start gumdroprc
+./start etc/gumdroprc.servlet
 ```
 
 You should then be able to point a browser at
@@ -389,13 +391,22 @@ You should then be able to point a browser at
 [https://localhost:8443/](https://localhost:8443/) to see the example web
 application included, which includes full documentation of the framework.
 
-To run with HTTP/3 support (requires the native library, see below):
+Other example configurations are available:
 
-```bash
-./start gumdroprc.http3
-```
+| Configuration | Description |
+|---|---|
+| `etc/gumdroprc.servlet` | Servlet container (HTTP, HTTPS, HTTP/3) |
+| `etc/gumdroprc.webdav` | WebDAV file server |
+| `etc/gumdroprc.ftp.file.simple` | Simple FTP file server |
+| `etc/gumdroprc.ftp.file.anonymous` | Anonymous FTP file server |
+| `etc/gumdroprc.ftp.file.rolebased` | Role-based FTP file server |
+| `etc/gumdroprc.imap` | IMAP mailbox access |
+| `etc/gumdroprc.pop3` | POP3 mailbox access |
+| `etc/gumdroprc.smtp.localdelivery` | SMTP local delivery |
+| `etc/gumdroprc.smtp.simplerelay` | SMTP relay (authenticated) |
+| `etc/gumdroprc.dns` | DNS caching proxy (UDP, DoT, DoQ) |
 
-You can configure `gumdroprc` to serve your own web application and run it
+You can configure any of these to serve your own application and run it
 immediately.
 
 ### QUIC support (native library)
@@ -479,8 +490,8 @@ ant dist
 
 The build automatically detects the platform (macOS/Linux), locates the
 JDK headers, and compiles the JNI source files in
-`src/org/bluezoo/gumdrop/quic/jni/` into `dist/libgumdrop_quic.dylib`
-(macOS) or `dist/libgumdrop_quic.so` (Linux). If `QUICHE_DIR` is not set
+`src/org/bluezoo/gumdrop/jni/` into `dist/libgumdrop.dylib`
+(macOS) or `dist/libgumdrop.so` (Linux). If `QUICHE_DIR` is not set
 or the quiche headers are not found, the native build is skipped and only
 the Java artifacts are produced.
 
@@ -502,28 +513,30 @@ export QUICHE_DIR=/path/to/quiche
 export JAVA_HOME=$(/usr/libexec/java_home 2>/dev/null || echo $JAVA_HOME)
 
 # macOS (Apple Silicon / x86_64)
-cc -shared -fPIC -o libgumdrop_quic.dylib \
+cc -shared -fPIC -o libgumdrop.dylib \
   -I"$JAVA_HOME/include" \
   -I"$JAVA_HOME/include/darwin" \
   -I"$QUICHE_DIR/quiche/include" \
   -I"$QUICHE_DIR/quiche/deps/boringssl/src/include" \
   -L"$QUICHE_DIR/target/release" \
-  -lquiche \
-  src/org/bluezoo/gumdrop/quic/jni/quiche_jni.c \
-  src/org/bluezoo/gumdrop/quic/jni/ssl_ctx_jni.c \
-  src/org/bluezoo/gumdrop/quic/jni/h3_jni.c
+  -lquiche -lresolv \
+  src/org/bluezoo/gumdrop/jni/quiche_jni.c \
+  src/org/bluezoo/gumdrop/jni/ssl_ctx_jni.c \
+  src/org/bluezoo/gumdrop/jni/h3_jni.c \
+  src/org/bluezoo/gumdrop/jni/dns_jni.c
 
 # Linux
-cc -shared -fPIC -o libgumdrop_quic.so \
+cc -shared -fPIC -o libgumdrop.so \
   -I"$JAVA_HOME/include" \
   -I"$JAVA_HOME/include/linux" \
   -I"$QUICHE_DIR/quiche/include" \
   -I"$QUICHE_DIR/quiche/deps/boringssl/src/include" \
   -L"$QUICHE_DIR/target/release" \
-  -lquiche \
-  src/org/bluezoo/gumdrop/quic/jni/quiche_jni.c \
-  src/org/bluezoo/gumdrop/quic/jni/ssl_ctx_jni.c \
-  src/org/bluezoo/gumdrop/quic/jni/h3_jni.c
+  -lquiche -lresolv \
+  src/org/bluezoo/gumdrop/jni/quiche_jni.c \
+  src/org/bluezoo/gumdrop/jni/ssl_ctx_jni.c \
+  src/org/bluezoo/gumdrop/jni/h3_jni.c \
+  src/org/bluezoo/gumdrop/jni/dns_jni.c
 ```
 
 </details>
@@ -542,7 +555,7 @@ cc -shared -fPIC -o libgumdrop_quic.so \
 
 #### Step 3: Runtime library path
 
-Both `libgumdrop_quic` and `libquiche` must be findable by the dynamic
+Both `libgumdrop` and `libquiche` must be findable by the dynamic
 linker at runtime. There are several options:
 
 **Option A: Set the library path (quick, good for development)**
@@ -571,8 +584,8 @@ sudo cp "$QUICHE_DIR/target/release/libquiche.dylib" /usr/local/lib/   # macOS
 sudo cp "$QUICHE_DIR/target/release/libquiche.so" /usr/local/lib/      # Linux
 
 # Copy the JNI library you built in Step 2
-sudo cp libgumdrop_quic.dylib /usr/local/lib/   # macOS
-sudo cp libgumdrop_quic.so /usr/local/lib/      # Linux
+sudo cp libgumdrop.dylib /usr/local/lib/   # macOS
+sudo cp libgumdrop.so /usr/local/lib/      # Linux
 
 # Linux only: refresh the linker cache
 sudo ldconfig
@@ -587,7 +600,7 @@ A quick smoke test that the native library loads:
 ```bash
 java -Djava.library.path="." -cp build/classes \
   -Dorg.bluezoo.gumdrop.quic.test=true \
-  org.bluezoo.gumdrop.quic.QuicheNative
+  org.bluezoo.gumdrop.GumdropNative
 ```
 
 If it exits without `UnsatisfiedLinkError`, the JNI bindings are

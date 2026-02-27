@@ -1830,6 +1830,11 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             return;
         }
 
+        if (literalSize < 0 || literalSize > server.getMaxLiteralSize()) {
+            sendTaggedNo(tag, L10N.getString("imap.err.literal_too_large"));
+            return;
+        }
+
         QuotaManager quotaManager = server.getQuotaManager();
         if (quotaManager != null) {
             if (!quotaManager.canStore(authenticatedUser, literalSize)) {
@@ -2291,11 +2296,30 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     }
 
     private String quoteMailboxName(String name) {
+        name = stripControlChars(name);
         if (name.contains(" ") || name.contains("\"") || name.contains("\\")) {
             return "\"" + name.replace("\\", "\\\\").replace("\"", "\\\"")
                     + "\"";
         }
         return name;
+    }
+
+    private static String stripControlChars(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 0x20 || c == 0x7f) {
+                StringBuilder sb = new StringBuilder(s.length());
+                sb.append(s, 0, i);
+                for (int j = i + 1; j < s.length(); j++) {
+                    c = s.charAt(j);
+                    if (c >= 0x20 && c != 0x7f) {
+                        sb.append(c);
+                    }
+                }
+                return sb.toString();
+            }
+        }
+        return s;
     }
 
     private String formatFlags(Set<Flag> flags) {

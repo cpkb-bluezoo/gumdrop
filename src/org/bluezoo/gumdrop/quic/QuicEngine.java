@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.GumdropNative;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -192,7 +194,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
 
         // Parse QUIC header to extract version, DCID, SCID, and token
-        byte[] headerInfo = QuicheNative.quiche_header_info(recvBuf, len);
+        byte[] headerInfo = GumdropNative.quiche_header_info(recvBuf, len);
         if (headerInfo == null) {
             LOGGER.severe("Failed to parse QUIC header from " + source
                     + " (" + len + " bytes, "
@@ -275,19 +277,19 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         byte[] toAddr = encodeAddress(local);
 
         recvBuf.rewind();
-        int rc = QuicheNative.quiche_conn_recv(
+        int rc = GumdropNative.quiche_conn_recv(
                 conn.getConnPtr(), recvBuf, len, fromAddr, toAddr);
 
         if (rc < 0) {
-            if (rc != QuicheNative.QUICHE_ERR_DONE) {
+            if (rc != GumdropNative.QUICHE_ERR_DONE) {
                 LOGGER.severe("QUIC recv error: "
-                        + QuicheNative.errorString(rc));
+                        + GumdropNative.errorString(rc));
             }
             return;
         }
 
         boolean estAfterRecv =
-                QuicheNative.quiche_conn_is_established(conn.getConnPtr());
+                GumdropNative.quiche_conn_is_established(conn.getConnPtr());
         if (LOGGER.isLoggable(Level.FINEST)) {
             LOGGER.finest("quiche_conn_recv consumed " + rc
                     + " bytes, established=" + estAfterRecv
@@ -310,7 +312,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         conn.scheduleTimeout();
 
         // Check if connection is closed
-        if (QuicheNative.quiche_conn_is_closed(conn.getConnPtr())) {
+        if (GumdropNative.quiche_conn_is_closed(conn.getConnPtr())) {
             removeConnection(conn, connKey);
         }
     }
@@ -322,7 +324,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private void sendVersionNegotiation(byte[] peerScid, byte[] dcid,
                                         InetSocketAddress dest) {
         sendBuf.clear();
-        int written = QuicheNative.quiche_negotiate_version(
+        int written = GumdropNative.quiche_negotiate_version(
                 peerScid, dcid, sendBuf, sendBuf.capacity());
         if (written < 0) {
             LOGGER.warning("Failed to write Version Negotiation packet: "
@@ -354,13 +356,13 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         byte[] localAddr = encodeAddress(local);
         byte[] peerAddr = encodeAddress(source);
 
-        long ssl = QuicheNative.ssl_new(factory.getSslCtx());
+        long ssl = GumdropNative.ssl_new(factory.getSslCtx());
         if (ssl == 0) {
             LOGGER.warning("Failed to create SSL for new QUIC connection");
             return null;
         }
 
-        long connPtr = QuicheNative.quiche_conn_new_with_tls(
+        long connPtr = GumdropNative.quiche_conn_new_with_tls(
                 scid, null, localAddr, peerAddr,
                 factory.getQuicheConfig(version), ssl, true);
 
@@ -406,16 +408,16 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         int totalBytes = 0;
         while (true) {
             sendBuf.clear();
-            int written = QuicheNative.quiche_conn_send(
+            int written = GumdropNative.quiche_conn_send(
                     conn.getConnPtr(), sendBuf, sendBuf.capacity());
 
-            if (written == QuicheNative.QUICHE_ERR_DONE) {
+            if (written == GumdropNative.QUICHE_ERR_DONE) {
                 break;
             }
 
             if (written < 0) {
                 LOGGER.warning("quiche_conn_send error: "
-                        + QuicheNative.errorString(written));
+                        + GumdropNative.errorString(written));
                 break;
             }
 
@@ -697,7 +699,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         byte[] localAddr = encodeAddress(local);
         byte[] peerAddr = encodeAddress(remote);
 
-        long ssl = QuicheNative.ssl_new(factory.getSslCtx());
+        long ssl = GumdropNative.ssl_new(factory.getSslCtx());
         if (ssl == 0) {
             handler.error(new IOException(
                     "Failed to create SSL for QUIC connection"));
@@ -705,10 +707,10 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
 
         if (serverName != null) {
-            QuicheNative.ssl_set_hostname(ssl, serverName);
+            GumdropNative.ssl_set_hostname(ssl, serverName);
         }
 
-        long connPtr = QuicheNative.quiche_conn_new_with_tls(
+        long connPtr = GumdropNative.quiche_conn_new_with_tls(
                 scid, null, localAddr, peerAddr,
                 factory.getQuicheConfig(), ssl, false);
 

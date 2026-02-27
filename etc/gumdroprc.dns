@@ -1,0 +1,31 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- DNS caching proxy service.
+	     Forwards queries to upstream DNS servers (Google and Cloudflare)
+	     with local caching. Queries can be sent via plain UDP, DNS-over-TLS,
+	     or DNS-over-QUIC. -->
+	<service id="dns" class="org.bluezoo.gumdrop.dns.DNSService">
+		<property name="upstream-servers" value="8.8.8.8 1.1.1.1"/>
+		<property name="use-system-resolvers" value="false"/>
+		<property name="cache-enabled" value="true"/>
+
+		<!-- DNS listener on UDP port 5353 -->
+		<listener class="org.bluezoo.gumdrop.dns.DNSListener">
+			<property name="port" value="5353"/>
+		</listener>
+
+		<!-- DNS-over-TLS (DoT) listener on port 8853 -->
+		<listener class="org.bluezoo.gumdrop.dns.DoTListener">
+			<property name="port" value="8853"/>
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+
+		<!-- DNS-over-QUIC (DoQ) listener on port 8853 -->
+		<listener class="org.bluezoo.gumdrop.dns.DoQListener">
+			<property name="port" value="8853"/>
+			<property name="cert-file" path="localhost+2.pem"/>
+			<property name="key-file" path="localhost+2-key.pem"/>
+		</listener>
+	</service>
+</gumdrop>

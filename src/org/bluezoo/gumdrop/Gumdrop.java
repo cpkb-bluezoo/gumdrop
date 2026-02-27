@@ -35,6 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
+
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
  *
@@ -97,8 +99,11 @@ public class Gumdrop {
     // Server listeners (controls AcceptSelectorLoop lifecycle)
     private final List<TCPListener> serverListeners;
 
-    // Active channel handlers (controls worker/timer lifecycle)
+    // Active channel handlers (internal bookkeeping for selector dispatch)
     private final Set<ChannelHandler> activeHandlers;
+
+    // Active client connections (gates auto-shutdown)
+    private final Set<ClientEndpoint> activeClients;
 
     // Infrastructure
     private AcceptSelectorLoop acceptLoop;
@@ -211,6 +216,7 @@ public class Gumdrop {
         this.serverListeners =
                 Collections.synchronizedList(new ArrayList<TCPListener>());
         this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
+        this.activeClients = Collections.newSetFromMap(new ConcurrentHashMap<ClientEndpoint, Boolean>());
         this.workerCount = workerCount;
         this.nextWorker = new AtomicInteger(0);
 
@@ -407,14 +413,12 @@ public class Gumdrop {
     /**
      * Deregisters an active channel handler.
      *
-     * <p>Called when a connection closes or fails. If no server listeners and no
-     * handlers remain, triggers automatic shutdown.
+     * <p>Called when a connection closes or fails.
      *
      * @param handler the handler to deregister
      */
     public void removeChannelHandler(ChannelHandler handler) {
         activeHandlers.remove(handler);
-        checkAutoShutdown();
     }
 
     /**
@@ -429,6 +433,50 @@ public class Gumdrop {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Active client tracking
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Registers an active client connection.
+     *
+     * <p>Called by {@link ClientEndpoint#connect} when a client-initiated
+     * connection begins. The client remains registered until
+     * {@link #removeClient} is called (on disconnect, error, or explicit
+     * close). Active clients gate automatic shutdown.
+     *
+     * @param client the client endpoint to register
+     */
+    public void addClient(ClientEndpoint client) {
+        activeClients.add(client);
+    }
+
+    /**
+     * Deregisters an active client connection.
+     *
+     * <p>Called when a client connection closes, fails, or is explicitly
+     * closed. If no services, listeners, or clients remain, triggers
+     * automatic shutdown.
+     *
+     * @param client the client endpoint to deregister
+     */
+    public void removeClient(ClientEndpoint client) {
+        activeClients.remove(client);
+        checkAutoShutdown();
+    }
+
+    /**
+     * Returns the set of active client connections.
+     *
+     * <p>Useful for debugging to see what clients are still connected.
+     *
+     * @return unmodifiable copy of active clients
+     */
+    public Set<ClientEndpoint> getActiveClients() {
+        return Collections.unmodifiableSet(
+                new HashSet<ClientEndpoint>(activeClients));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -436,14 +484,16 @@ public class Gumdrop {
      * Starts the Gumdrop infrastructure.
      *
      * <p>This starts all worker SelectorLoops and the scheduled timer.
-     * If server listeners are registered, the AcceptSelectorLoop is also started.
+     * If server listeners are registered, the AcceptSelectorLoop is also
+     * started.
      *
      * <p>If already started, this method is a no-op.
      *
-     * <p>If no server listeners and no active handlers exist when start() completes,
-     * the infrastructure will shut down automatically.
-     *
      * <p>Can be called after shutdown() to restart the infrastructure.
+     *
+     * <p>Automatic shutdown is triggered by removal events (client
+     * disconnect, listener removal, service removal), not proactively
+     * at start time.
      */
     public void start() {
         if (started) {
@@ -497,15 +547,6 @@ public class Gumdrop {
             message = MessageFormat.format(message, (t2 - t1));
             LOGGER.info(message);
         }
-
-        // Schedule check for empty infrastructure
-        // (deferred to allow caller to register clients/servers)
-        workerLoops[0].invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                checkAutoShutdown();
-            }
-        });
     }
 
     /**
@@ -520,19 +561,25 @@ public class Gumdrop {
     /**
      * Checks if automatic shutdown should occur.
      *
-     * <p>Shutdown occurs when:
- * <ul>
- *   <li>No server listeners are registered</li>
-     *   <li>No active channel handlers exist</li>
-     *   <li>Gumdrop has been started (not during initial setup)</li>
+     * <p>Shutdown occurs when Gumdrop has been started and no first-class
+     * lifecycle participants remain:
+     * <ul>
+     *   <li>No services are registered</li>
+     *   <li>No server listeners are registered</li>
+     *   <li>No active client connections exist</li>
      * </ul>
+     *
+     * <p>Internal bookkeeping ({@code activeHandlers}) is not checked.
+     * Dependent infrastructure such as DNS resolver sockets does not
+     * independently prevent auto-shutdown; it is cleaned up during
+     * {@link #shutdown()}.
      */
     private void checkAutoShutdown() {
         if (!started) {
             return;
         }
         if (services.isEmpty() && serverListeners.isEmpty()
-                && activeHandlers.isEmpty()) {
+                && activeClients.isEmpty()) {
             shutdown();
         }
     }
@@ -571,6 +618,15 @@ public class Gumdrop {
             server.closeServerChannels();
         }
         serverListeners.clear();
+
+        // Clear active clients and handlers
+        activeClients.clear();
+        activeHandlers.clear();
+
+        // Close DNS resolvers bound to worker loops
+        for (SelectorLoop loop : workerLoops) {
+            DNSResolver.removeForLoop(loop);
+        }
 
         // Stop worker loops
         for (SelectorLoop loop : workerLoops) {

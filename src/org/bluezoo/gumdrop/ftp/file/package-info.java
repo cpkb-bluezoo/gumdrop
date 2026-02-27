@@ -28,21 +28,26 @@
  *
  * <h2>Key Components</h2>
  *
+ * <h3>Services (v2)</h3>
+ * <ul>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.SimpleFTPService} - Simple
+ *       file-based FTP service with optional realm authentication</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService} - FTP
+ *       service with role-based access control and quota support</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.AnonymousFTPService} - FTP
+ *       service for anonymous public file distribution</li>
+ * </ul>
+ *
+ * <h3>Handlers and Supporting Classes</h3>
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler} - Basic
- *       filesystem handler</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.SimpleFTPHandlerFactory} - Factory
- *       for creating simple file-based handlers</li>
+ *       filesystem connection handler</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandler} - Handler
- *       with per-user directory isolation</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory} -
- *       Factory for role-based handlers</li>
+ *       with role-based access control</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.file.AnonymousFTPHandler} - Handler
  *       for anonymous FTP access</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.AnonymousFTPHandlerFactory} -
- *       Factory for anonymous handlers</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem} - Basic
- *       filesystem implementation</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem} - Local
+ *       filesystem implementation with chroot</li>
  * </ul>
  *
  * <h2>Features</h2>
@@ -62,16 +67,12 @@
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  *
- * <ftp-handler-factory id="ftpHandler"
- *     class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandlerFactory">
+ * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService">
  *   <property name="realm" ref="#ftpRealm"/>
- *   <property name="file-system">
- *     <component class="org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem">
- *       <property name="root">/var/ftp/users</property>
- *     </component>
- *   </property>
+ *   <property name="root-directory">/var/ftp/users</property>
  *   <property name="welcome-message">Welcome to Gumdrop FTP</property>
- * </ftp-handler-factory>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
+ * </service>
  * }</pre>
  *
  * <h2>Security</h2>

@@ -1,0 +1,39 @@
+From: Bob <bob@gumdrop.example>
+To: Alice <alice@gumdrop.example>
+Subject: Re: Quick question about timeline
+Date: Mon, 29 Jan 2024 10:30:00 +0000
+Message-ID: <msg009@gumdrop.example>
+In-Reply-To: <msg008@gumdrop.example>
+References: <msg008@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary-009"
+
+--mixed-boundary-009
+Content-Type: text/plain; charset=utf-8
+
+Hi Alice,
+
+Yes, March 15th is still the target. Attached is the updated
+timeline spreadsheet with all the milestones.
+
+Re: security review -- I chased David this morning and he said
+the report will be in our hands by Wednesday. No blockers found
+so far, just a couple of minor recommendations.
+
+Go ahead and book the QA regression window for March 4-8.
+
+Bob
+
+--mixed-boundary-009
+Content-Type: text/csv; name="project-timeline.csv"
+Content-Disposition: attachment; filename="project-timeline.csv"
+Content-Transfer-Encoding: base64
+
+UGhhc2UsU3RhcnQgRGF0ZSxFbmQgRGF0ZSxTdGF0dXMKQWxwaGEgRGV2ZWxvcG1lbnQsMjAyNC0w
+MS0yNSwyMDI0LTAyLTE2LEluIFByb2dyZXNzCkludGVncmF0aW9uIFRlc3RpbmcsMjAyNC0wMi0x
+OSwyMDI0LTAzLTAxLFBsYW5uZWQKU2VjdXJpdHkgUmV2aWV3LDIwMjQtMDMtMDQsMjAyNC0wMy0w
+OCxQbGFubmVkCkJldGEgUmVsZWFzZSwyMDI0LTAzLTE1LDIwMjQtMDMtMTUsUGxhbm5lZApVQVQs
+MjAyNC0wMy0xOCwyMDI0LTAzLTI5LFBsYW5uZWQKUHJvZHVjdGlvbiBSZWxlYXNlLDIwMjQtMDQt
+MDUsMjAyNC0wNC0wNSxQbGFubmVk
+
+--mixed-boundary-009--

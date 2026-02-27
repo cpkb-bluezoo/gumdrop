@@ -23,12 +23,15 @@ package org.bluezoo.gumdrop.util;
 
 import org.bluezoo.gonzalez.Parser;
 import org.xml.sax.ContentHandler;
+import org.xml.sax.EntityResolver;
 import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringReader;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
@@ -83,6 +86,15 @@ public final class XMLParseUtils {
         }
     };
 
+    /**
+     * EntityResolver that blocks all external entity resolution to
+     * prevent XXE attacks. Returns an empty InputSource for any
+     * external entity request.
+     */
+    private static final EntityResolver DENY_EXTERNAL_ENTITIES =
+            (String publicId, String systemId) ->
+                    new InputSource(new StringReader(""));
+
     private XMLParseUtils() {
         // Utility class
     }
@@ -98,6 +110,7 @@ public final class XMLParseUtils {
     private static Parser getParser() throws SAXException {
         Parser parser = PARSER_CACHE.get();
         parser.reset();
+        parser.setEntityResolver(DENY_EXTERNAL_ENTITIES);
         return parser;
     }
 
@@ -128,6 +141,7 @@ public final class XMLParseUtils {
                                   String publicId) 
             throws IOException, SAXException {
         Parser parser = getParser();
+        boolean success = false;
         try {
             // Set handlers
             parser.setContentHandler(contentHandler);
@@ -144,8 +158,13 @@ public final class XMLParseUtils {
             try (FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
                 parseChannel(parser, channel);
             }
+            success = true;
         } finally {
-            clearParser(parser);
+            if (success) {
+                clearParser(parser);
+            } else {
+                PARSER_CACHE.remove();
+            }
         }
     }
 
@@ -185,6 +204,7 @@ public final class XMLParseUtils {
                                     String publicId)
             throws IOException, SAXException {
         Parser parser = getParser();
+        boolean success = false;
         try {
             // Set handlers
             parser.setContentHandler(contentHandler);
@@ -202,8 +222,13 @@ public final class XMLParseUtils {
 
             ReadableByteChannel channel = Channels.newChannel(in);
             parseChannel(parser, channel);
+            success = true;
         } finally {
-            clearParser(parser);
+            if (success) {
+                clearParser(parser);
+            } else {
+                PARSER_CACHE.remove();
+            }
         }
     }
 

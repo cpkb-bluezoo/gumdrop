@@ -521,7 +521,7 @@ class Request implements HttpServletRequest {
         } else {
             if (!context.passwordMatch(realm, username, password)) {
                 String message = Context.L10N.getString("err.auth_fail");
-                message = MessageFormat.format(message, username, password);
+                message = MessageFormat.format(message, username);
                 Context.LOGGER.warning(message);
                 response.sendRedirect(context.getFormErrorPage());
                 return false;
@@ -565,7 +565,7 @@ class Request implements HttpServletRequest {
         String realm = context.getRealmName();
         if (userPrincipal != null || !context.passwordMatch(realm, username, password)) {
             String message = Context.L10N.getString("err.auth_fail");
-            message = MessageFormat.format(message, username, password);
+            message = MessageFormat.format(message, username);
             throw new ServletException(message);
         }
         userPrincipal = new ServletPrincipal(context, realm, username);

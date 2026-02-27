@@ -1,0 +1,466 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Configuration - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop Configuration</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop uses a lightweight dependency injection (DI) framework to wire together
+its components. A <code>gumdroprc</code> XML configuration file defines
+components with properties, references, and listeners, and the framework
+instantiates, configures, and starts them.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#components">Components</a></li>
+<li><a href="#properties">Properties</a>
+  <ul>
+  <li><a href="#value">String Values</a></li>
+  <li><a href="#path">File Path Values</a></li>
+  <li><a href="#ref">Component References</a></li>
+  <li><a href="#text">Text Content (Legacy)</a></li>
+  </ul>
+</li>
+<li><a href="#collections">Collections</a></li>
+<li><a href="#services">Services and Listeners</a></li>
+<li><a href="#type-conversion">Type Conversion</a></li>
+<li><a href="#system-properties">System Properties</a></li>
+<li><a href="#examples">Example Configurations</a></li>
+</ul>
+
+<h3 id="overview">Overview</h3>
+
+<p>
+The configuration file is an XML document with <code>&lt;gumdrop&gt;</code> as
+the root element. Inside it, top-level elements declare components: objects that
+are instantiated, configured via property injection, and registered in a
+component registry. Components can reference each other by ID, forming the
+object graph that constitutes a running server.
+</p>
+
+<p>
+A minimal configuration declares at least one <code>&lt;service&gt;</code> with
+a <code>&lt;listener&gt;</code>:
+</p>
+
+<pre>
+&lt;gumdrop&gt;
+    &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+        &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+            &lt;property name="port" value="8080"/&gt;
+        &lt;/listener&gt;
+    &lt;/service&gt;
+&lt;/gumdrop&gt;
+</pre>
+
+<h3 id="components">Components</h3>
+
+<p>
+Components are declared as XML elements with <code>id</code> and
+<code>class</code> attributes. The <code>id</code> is a unique name used to
+reference the component elsewhere. The <code>class</code> is the
+fully-qualified Java class name to instantiate (the class must have a public
+no-argument constructor).
+</p>
+
+<p>
+Several element names are recognised as shortcuts for common component types:
+</p>
+
+<table border="1" cellpadding="4" cellspacing="0">
+<tr><th>Element</th><th>Default Class</th></tr>
+<tr><td><code>realm</code></td><td><code>org.bluezoo.gumdrop.auth.BasicRealm</code></td></tr>
+<tr><td><code>container</code></td><td><code>org.bluezoo.gumdrop.servlet.Container</code></td></tr>
+<tr><td><code>mailbox-factory</code></td><td><code>org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory</code></td></tr>
+<tr><td><code>component</code></td><td>(must specify <code>class</code>)</td></tr>
+</table>
+
+<p>
+When using a shortcut element name, the <code>class</code> attribute can be
+omitted to use the default, or overridden to use a different implementation:
+</p>
+
+<pre>
+&lt;!-- Uses default BasicRealm --&gt;
+&lt;realm id="myRealm"&gt;
+    &lt;property name="href" path="users.xml"/&gt;
+&lt;/realm&gt;
+
+&lt;!-- Overrides default to use MaildirMailboxFactory --&gt;
+&lt;mailbox-factory id="maildir"
+        class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+    &lt;property name="base-directory" path="mail"/&gt;
+&lt;/mailbox-factory&gt;
+</pre>
+
+<h3 id="properties">Properties</h3>
+
+<p>
+<code>&lt;property&gt;</code> elements set bean properties on the enclosing
+component. The <code>name</code> attribute identifies the property (using
+hyphenated naming, e.g. <code>keystore-file</code> maps to the setter
+<code>setKeystoreFile</code>). Values can be specified in three ways: as a
+plain string, as a file path resolved relative to the configuration file, or as
+a reference to another component.
+</p>
+
+<h4 id="value">String Values &mdash; <code>value</code></h4>
+
+<p>
+The <code>value</code> attribute provides a plain string value. The framework
+performs automatic type conversion to match the setter's parameter type (see
+<a href="#type-conversion">Type Conversion</a>).
+</p>
+
+<pre>
+&lt;property name="port" value="8080"/&gt;
+&lt;property name="secure" value="true"/&gt;
+&lt;property name="hostname" value="mail.example.com"/&gt;
+&lt;property name="idle-timeout" value="30m"/&gt;
+</pre>
+
+<p>
+Use <code>value</code> for all non-path scalar properties: ports, flags,
+hostnames, timeouts, passwords, display strings, and any other configuration
+that is not a filesystem path.
+</p>
+
+<h4 id="path">File Path Values &mdash; <code>path</code></h4>
+
+<p>
+The <code>path</code> attribute provides a filesystem path that is
+<b>resolved relative to the configuration file's directory</b>. The parser
+converts the attribute value into an absolute <code>java.nio.file.Path</code>
+object before injecting it.
+</p>
+
+<pre>
+&lt;property name="href" path="realm.xml"/&gt;
+&lt;property name="root-directory" path="web"/&gt;
+&lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
+&lt;property name="base-directory" path="/var/mail"/&gt;
+</pre>
+
+<p>
+Resolution works as follows:
+</p>
+
+<ul>
+<li><b>Relative paths</b> are resolved against the directory containing the
+<code>gumdroprc</code> file. If the configuration file is
+<code>/opt/gumdrop/etc/gumdroprc</code>, then <code>path="realm.xml"</code>
+resolves to <code>/opt/gumdrop/etc/realm.xml</code>.</li>
+<li><b>Absolute paths</b> (starting with <code>/</code>) are used as-is. This
+allows referencing files outside the configuration directory when needed.</li>
+<li>The resulting path is <b>normalised</b>, so <code>path="../data/web"</code>
+resolves correctly.</li>
+</ul>
+
+<p>
+Use <code>path</code> for any property that refers to a file or directory:
+realm configuration files, TLS keystores, certificates, private keys, root
+directories for file-based services, and mailbox base directories.
+</p>
+
+<p>
+Because <code>path</code> values are resolved relative to the configuration
+file, configurations are portable&mdash;moving the entire configuration
+directory preserves all relative references without modification.
+</p>
+
+<h4 id="ref">Component References &mdash; <code>ref</code></h4>
+
+<p>
+The <code>ref</code> attribute injects a reference to another component by its
+ID (prefixed with <code>#</code>):
+</p>
+
+<pre>
+&lt;property name="realm" ref="#myRealm"/&gt;
+&lt;property name="mailbox-factory" ref="#maildir"/&gt;
+&lt;property name="telemetry-config" ref="#telemetry"/&gt;
+</pre>
+
+<p>
+The referenced component must be declared before it is referenced (earlier in
+the configuration file). The framework resolves the reference and injects the
+component instance directly.
+</p>
+
+<h4 id="text">Text Content (Legacy)</h4>
+
+<p>
+For backward compatibility, property values can also be specified as text
+content of the <code>&lt;property&gt;</code> element:
+</p>
+
+<pre>
+&lt;property name="port"&gt;8080&lt;/property&gt;
+</pre>
+
+<p>
+This form is supported but not recommended for new configurations. Attribute
+syntax (<code>value</code> or <code>path</code>) is preferred because it
+reserves element content for structured children such as
+<code>&lt;list&gt;</code> and <code>&lt;map&gt;</code>, and provides a clear
+distinction between plain strings and filesystem paths.
+</p>
+
+<h3 id="collections">Collections</h3>
+
+<p>
+Properties that accept <code>java.util.List</code> or
+<code>java.util.Map</code> types use structured child elements:
+</p>
+
+<pre>
+&lt;property name="realms"&gt;
+    &lt;map&gt;
+        &lt;entry key="myRealm" ref="#myRealm"/&gt;
+        &lt;entry key="Manager" ref="#managerRealm"/&gt;
+    &lt;/map&gt;
+&lt;/property&gt;
+
+&lt;property name="contexts"&gt;
+    &lt;list&gt;
+        &lt;context path="" root="web"/&gt;
+        &lt;context path="/api" root="api.war"/&gt;
+    &lt;/list&gt;
+&lt;/property&gt;
+</pre>
+
+<h3 id="services">Services and Listeners</h3>
+
+<p>
+A <code>&lt;service&gt;</code> element declares a service component that
+manages one or more listeners. Listeners are declared as
+<code>&lt;listener&gt;</code> child elements of the service, each specifying
+the protocol listener class.
+</p>
+
+<p>
+Non-path scalar attributes (<code>port</code>, <code>secure</code>,
+<code>name</code>) can appear as inline XML attributes on the
+<code>&lt;listener&gt;</code> element. Path-typed properties and the keystore
+password should be specified as <code>&lt;property&gt;</code> child elements:
+</p>
+
+<pre>
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+    &lt;property name="realm" ref="#ftpRealm"/&gt;
+    &lt;property name="root-directory" path="data"/&gt;
+
+    &lt;!-- Plaintext listener with STARTTLS --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"&gt;
+        &lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
+    &lt;/listener&gt;
+
+    &lt;!-- Implicit TLS listener --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="990" secure="true"&gt;
+        &lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+This convention keeps the <code>&lt;listener&gt;</code> element readable:
+simple scalars are visible at a glance as attributes, while paths benefit from
+the <code>path</code> attribute's relative resolution.
+</p>
+
+<h4>HTTP/3 Listeners</h4>
+
+<p>
+HTTP/3 uses QUIC over UDP and requires PEM certificate and key files rather
+than a Java keystore:
+</p>
+
+<pre>
+&lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;property name="port" value="443"/&gt;
+    &lt;property name="cert-file" path="certs/cert.pem"/&gt;
+    &lt;property name="key-file" path="certs/key.pem"/&gt;
+&lt;/listener&gt;
+</pre>
+
+<h4>Multiple Listeners</h4>
+
+<p>
+A service can have any number of listeners, enabling a single service to accept
+connections on multiple ports and protocols simultaneously:
+</p>
+
+<pre>
+&lt;service id="web" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
+    &lt;property name="root-path" path="web"/&gt;
+
+    &lt;!-- HTTP --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;property name="port" value="8080"/&gt;
+    &lt;/listener&gt;
+
+    &lt;!-- HTTPS --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;property name="port" value="8443"/&gt;
+        &lt;property name="secure" value="true"/&gt;
+        &lt;property name="keystore-file" path="localhost+2.p12"/&gt;
+        &lt;property name="keystore-pass" value="changeit"/&gt;
+    &lt;/listener&gt;
+
+    &lt;!-- HTTP/3 --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+        &lt;property name="port" value="8443"/&gt;
+        &lt;property name="cert-file" path="localhost+2.pem"/&gt;
+        &lt;property name="key-file" path="localhost+2-key.pem"/&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h3 id="type-conversion">Type Conversion</h3>
+
+<p>
+The framework automatically converts property values to match setter parameter
+types. The following conversions are supported:
+</p>
+
+<table border="1" cellpadding="4" cellspacing="0">
+<tr><th>Source</th><th>Target Type</th><th>Conversion</th></tr>
+<tr><td><code>value</code> (String)</td><td><code>int</code> / <code>Integer</code></td><td><code>Integer.parseInt</code></td></tr>
+<tr><td><code>value</code> (String)</td><td><code>long</code> / <code>Long</code></td><td><code>Long.parseLong</code></td></tr>
+<tr><td><code>value</code> (String)</td><td><code>boolean</code> / <code>Boolean</code></td><td><code>Boolean.parseBoolean</code></td></tr>
+<tr><td><code>value</code> (String)</td><td><code>double</code> / <code>Double</code></td><td><code>Double.parseDouble</code></td></tr>
+<tr><td><code>value</code> (String)</td><td><code>float</code> / <code>Float</code></td><td><code>Float.parseFloat</code></td></tr>
+<tr><td><code>value</code> (String)</td><td><code>Path</code></td><td><code>Paths.get</code> (relative to CWD)</td></tr>
+<tr><td><code>value</code> (String)</td><td><code>File</code></td><td><code>new File</code></td></tr>
+<tr><td><code>path</code> (Path)</td><td><code>Path</code></td><td>injected directly</td></tr>
+<tr><td><code>path</code> (Path)</td><td><code>String</code></td><td><code>path.toString()</code></td></tr>
+<tr><td><code>path</code> (Path)</td><td><code>File</code></td><td><code>path.toFile()</code></td></tr>
+<tr><td><code>ref</code> (Object)</td><td>any assignable type</td><td>injected directly</td></tr>
+</table>
+
+<p>
+When a setter has overloads accepting different types (e.g. both
+<code>Path</code> and <code>String</code>), the <code>path</code> attribute
+prefers the <code>Path</code> overload, and the <code>value</code> attribute
+prefers the <code>String</code> overload. This distinction is important:
+<code>path</code> values are resolved against the configuration file location,
+while <code>value</code> strings that happen to be converted to
+<code>Path</code> or <code>File</code> are resolved against the current
+working directory.
+</p>
+
+<h3 id="system-properties">System Properties</h3>
+
+<ul>
+<li><code>gumdrop.workers</code> &mdash; number of worker SelectorLoop threads
+(default: 2&times; CPU cores)</li>
+<li><code>java.util.logging.config.file</code> &mdash; logging configuration
+file</li>
+</ul>
+
+<h3 id="examples">Example Configurations</h3>
+
+<p>
+Complete example configuration files are provided in the <code>etc/</code>
+directory:
+</p>
+
+<table border="1" cellpadding="4" cellspacing="0">
+<tr><th>File</th><th>Description</th></tr>
+<tr><td><code>gumdroprc.servlet</code></td><td>Servlet container with HTTP, HTTPS, and HTTP/3</td></tr>
+<tr><td><code>gumdroprc.webdav</code></td><td>WebDAV file server with HTTP, HTTPS, and HTTP/3</td></tr>
+<tr><td><code>gumdroprc.ftp.file.simple</code></td><td>Simple FTP file server</td></tr>
+<tr><td><code>gumdroprc.ftp.file.anonymous</code></td><td>Anonymous FTP (read-only)</td></tr>
+<tr><td><code>gumdroprc.ftp.file.rolebased</code></td><td>Role-based FTP with STARTTLS and implicit FTPS</td></tr>
+<tr><td><code>gumdroprc.imap</code></td><td>IMAP mailbox access with STARTTLS and IMAPS</td></tr>
+<tr><td><code>gumdroprc.pop3</code></td><td>POP3 mailbox access with STARTTLS and POP3S</td></tr>
+<tr><td><code>gumdroprc.smtp.localdelivery</code></td><td>SMTP local delivery to Maildir mailboxes</td></tr>
+<tr><td><code>gumdroprc.smtp.simplerelay</code></td><td>Authenticated SMTP relay with STARTTLS</td></tr>
+<tr><td><code>gumdroprc.dns</code></td><td>DNS caching proxy with UDP, DoT, and DoQ</td></tr>
+</table>
+
+<p>
+Run any example with:
+</p>
+
+<pre>
+java -jar gumdrop.jar etc/gumdroprc.servlet
+</pre>
+
+<h4>Full Example</h4>
+
+<p>
+The following example shows a mail server configuration using most of the
+features described above:
+</p>
+
+<pre>
+&lt;gumdrop&gt;
+    &lt;!-- Authentication realm --&gt;
+    &lt;realm id="myRealm"&gt;
+        &lt;property name="href" path="realm.xml"/&gt;
+    &lt;/realm&gt;
+
+    &lt;!-- Mailbox storage --&gt;
+    &lt;mailbox-factory id="maildir"
+            class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+        &lt;property name="base-directory" path="/var/mail"/&gt;
+    &lt;/mailbox-factory&gt;
+
+    &lt;!-- Telemetry --&gt;
+    &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
+        &lt;property name="enabled" value="true"/&gt;
+        &lt;property name="service-name" value="mail-server"/&gt;
+        &lt;property name="endpoint" value="http://collector:4318"/&gt;
+    &lt;/component&gt;
+
+    &lt;!-- IMAP service with implicit TLS --&gt;
+    &lt;service id="imaps" class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
+        &lt;property name="realm" ref="#myRealm"/&gt;
+        &lt;property name="mailbox-factory" ref="#maildir"/&gt;
+        &lt;property name="telemetry-config" ref="#telemetry"/&gt;
+        &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="993" secure="true"&gt;
+            &lt;property name="keystore-file" path="keystore.p12"/&gt;
+            &lt;property name="keystore-pass" value="secret"/&gt;
+        &lt;/listener&gt;
+    &lt;/service&gt;
+&lt;/gumdrop&gt;
+</pre>
+
+<p class='server-info'>Gumdrop</p>
+
+</body>
+</html>

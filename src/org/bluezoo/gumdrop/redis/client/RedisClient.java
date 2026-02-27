@@ -22,8 +22,7 @@
 package org.bluezoo.gumdrop.redis.client;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -66,19 +65,20 @@ public class RedisClient {
     private static final Logger LOGGER =
             Logger.getLogger(RedisClient.class.getName());
 
-    private final InetAddress hostAddress;
+    private final String host;
     private final int port;
     private final SelectorLoop selectorLoop;
 
     // Configuration (set before connect)
     private boolean secure;
     private SSLContext sslContext;
-    private String keystoreFile;
+    private Path keystoreFile;
     private String keystorePass;
     private String keystoreFormat;
 
     // Internal transport components (created at connect time)
     private TCPTransportFactory transportFactory;
+    private ClientEndpoint clientEndpoint;
     private RedisClientProtocolHandler endpointHandler;
     private boolean connected;
 
@@ -86,28 +86,28 @@ public class RedisClient {
      * Creates a Redis client for the given host and port.
      *
      * <p>Uses the next available worker loop from the global
-     * {@link Gumdrop} instance.
+     * {@link Gumdrop} instance. DNS resolution is deferred until
+     * {@link #connect} is called.
      *
      * @param host the remote hostname or IP address
      * @param port the remote port
-     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public RedisClient(String host, int port) throws UnknownHostException {
+    public RedisClient(String host, int port) {
         this(null, host, port);
     }
 
     /**
      * Creates a Redis client with an explicit selector loop.
      *
+     * <p>DNS resolution is deferred until {@link #connect} is called.
+     *
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param host the remote hostname or IP address
      * @param port the remote port
-     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public RedisClient(SelectorLoop selectorLoop, String host, int port)
-            throws UnknownHostException {
+    public RedisClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
-        this.hostAddress = InetAddress.getByName(host);
+        this.host = host;
         this.port = port;
     }
 
@@ -138,8 +138,12 @@ public class RedisClient {
      *
      * @param path the keystore file path
      */
-    public void setKeystoreFile(String path) {
+    public void setKeystoreFile(Path path) {
         this.keystoreFile = path;
+    }
+
+    public void setKeystoreFile(String path) {
+        this.keystoreFile = Path.of(path);
     }
 
     /**
@@ -193,14 +197,13 @@ public class RedisClient {
         endpointHandler = new RedisClientProtocolHandler(handler);
 
         try {
-            ClientEndpoint clientEndpoint;
             if (selectorLoop != null) {
                 clientEndpoint = new ClientEndpoint(
                         transportFactory, selectorLoop,
-                        hostAddress, port);
+                        host, port);
             } else {
                 clientEndpoint = new ClientEndpoint(
-                        transportFactory, hostAddress, port);
+                        transportFactory, host, port);
             }
             clientEndpoint.connect(endpointHandler);
             connected = true;
@@ -219,11 +222,15 @@ public class RedisClient {
     }
 
     /**
-     * Closes the connection.
+     * Closes the connection and deregisters from Gumdrop's lifecycle
+     * tracking.
      */
     public void close() {
         if (endpointHandler != null) {
             endpointHandler.close();
+        }
+        if (clientEndpoint != null) {
+            clientEndpoint.close();
         }
     }
 }

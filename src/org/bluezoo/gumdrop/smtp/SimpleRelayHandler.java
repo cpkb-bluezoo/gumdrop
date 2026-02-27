@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.smtp;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
+
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.security.Principal;
@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.handler.*;
 import org.bluezoo.gumdrop.dns.DNSMessage;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
@@ -539,11 +539,6 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 ClientEndpoint endpoint = new ClientEndpoint(
                         factory, host, 25);
                 endpoint.connect(endpointHandler);
-            } catch (UnknownHostException e) {
-                LOGGER.warning("Cannot resolve host " + host + ": " + e.getMessage());
-                failCount += domainRecipients.size();
-                currentDomainIndex++;
-                deliverNext();
             } catch (IOException e) {
                 LOGGER.warning("Cannot connect to " + host + ": " + e.getMessage());
                 failCount += domainRecipients.size();

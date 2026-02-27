@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop;
 
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.util.SNIKeyManager;
 
 import java.io.FileInputStream;
@@ -47,6 +46,7 @@ import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIMatcher;
 import javax.net.ssl.StandardConstants;
 import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509KeyManager;
 
 /**
@@ -169,7 +169,7 @@ public class TCPTransportFactory extends TransportFactory {
                 keystorePass != null) {
             try {
                 KeyStore ks = KeyStore.getInstance(keystoreFormat);
-                InputStream in = new FileInputStream(keystoreFile);
+                InputStream in = new FileInputStream(keystoreFile.toFile());
                 char[] pass = keystorePass.toCharArray();
                 ks.load(in, pass);
                 in.close();
@@ -188,8 +188,7 @@ public class TCPTransportFactory extends TransportFactory {
                     }
                 }
 
-                TrustManager[] tm = new TrustManager[1];
-                tm[0] = new EmptyX509TrustManager();
+                TrustManager[] tm = loadTrustManagers();
                 SecureRandom random = new SecureRandom();
                 sslContext.init(km, tm, random);
             } catch (Exception e) {
@@ -199,6 +198,26 @@ public class TCPTransportFactory extends TransportFactory {
                 throw e2;
             }
         }
+    }
+
+    /**
+     * Loads TrustManagers from the configured truststore.
+     * If no truststore is configured, returns null (JVM default truststore).
+     */
+    private TrustManager[] loadTrustManagers() throws Exception {
+        if (truststoreFile != null && truststorePass != null) {
+            KeyStore ts = KeyStore.getInstance(truststoreFormat);
+            try (InputStream in = new FileInputStream(
+                    truststoreFile.toFile())) {
+                ts.load(in, truststorePass.toCharArray());
+            }
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                    TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init(ts);
+            return tmf.getTrustManagers();
+        }
+        // null = JVM default truststore
+        return null;
     }
 
     // -- Endpoint creation --
@@ -293,14 +312,17 @@ public class TCPTransportFactory extends TransportFactory {
     /**
      * Configures an SSL engine for server mode.
      */
+    private static final String[] SECURE_PROTOCOLS =
+            { "TLSv1.2", "TLSv1.3" };
+
     protected void configureServerSSLEngine(SSLEngine engine) {
         engine.setUseClientMode(false);
         if (needClientAuth) {
             engine.setNeedClientAuth(true);
         }
-        // Don't request client certificates unless explicitly configured
 
         SSLParameters params = engine.getSSLParameters();
+        params.setProtocols(SECURE_PROTOCOLS);
 
         if (isSNIEnabled()) {
             params.setSNIMatchers(java.util.Collections.singleton(
@@ -337,6 +359,9 @@ public class TCPTransportFactory extends TransportFactory {
      */
     protected void configureClientSSLEngine(SSLEngine engine) {
         engine.setUseClientMode(true);
+        SSLParameters params = engine.getSSLParameters();
+        params.setProtocols(SECURE_PROTOCOLS);
+        engine.setSSLParameters(params);
         applyCipherConfig(engine);
     }
 

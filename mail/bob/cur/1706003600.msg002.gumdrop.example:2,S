@@ -1,0 +1,45 @@
+From: Alice <alice@gumdrop.example>
+To: Bob <bob@gumdrop.example>
+Subject: Re: Project kickoff meeting
+Date: Tue, 23 Jan 2024 11:15:00 +0000
+Message-ID: <msg002@gumdrop.example>
+In-Reply-To: <msg001@gumdrop.example>
+References: <msg001@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-boundary-002"
+
+--alt-boundary-002
+Content-Type: text/plain; charset=utf-8
+
+Hi Bob,
+
+Thursday at 2pm works perfectly. I've blocked it in my calendar.
+
+A few things I'd like to add to the agenda:
+* Integration testing strategy
+* CI/CD pipeline setup
+* Documentation standards
+
+Looking forward to it!
+
+Alice
+
+--alt-boundary-002
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body>
+<p>Hi Bob,</p>
+<p>Thursday at 2pm works <strong>perfectly</strong>. I've blocked it in my calendar.</p>
+<p>A few things I'd like to add to the agenda:</p>
+<ul>
+  <li>Integration testing strategy</li>
+  <li>CI/CD pipeline setup</li>
+  <li>Documentation standards</li>
+</ul>
+<p>Looking forward to it!</p>
+<p>Alice</p>
+</body>
+</html>
+
+--alt-boundary-002--

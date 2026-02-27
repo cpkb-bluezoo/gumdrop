@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
+import java.nio.file.Path;
 import java.util.logging.Logger;
 
 /**
@@ -60,7 +61,7 @@ public abstract class TransportFactory {
     // -- Security configuration --
 
     protected boolean secure;
-    protected String keystoreFile;
+    protected Path keystoreFile;
     protected String keystorePass;
     protected String keystoreFormat = "PKCS12";
 
@@ -68,13 +69,29 @@ public abstract class TransportFactory {
      * PEM certificate chain file path (used by QUIC; also accepted for TCP
      * as an alternative to keystore).
      */
-    protected String certFile;
+    protected Path certFile;
 
     /**
      * PEM private key file path (used by QUIC; also accepted for TCP
      * as an alternative to keystore).
      */
-    protected String keyFile;
+    protected Path keyFile;
+
+    /**
+     * Truststore file for validating peer certificates (e.g. client certs
+     * in mutual TLS). When null, the JVM default truststore is used.
+     */
+    protected Path truststoreFile;
+
+    /**
+     * Truststore password.
+     */
+    protected String truststorePass;
+
+    /**
+     * Truststore format (default PKCS12).
+     */
+    protected String truststoreFormat = "PKCS12";
 
     /**
      * TLS 1.3 cipher suites (colon-separated IANA names).
@@ -130,8 +147,17 @@ public abstract class TransportFactory {
      *
      * @param file the keystore file path
      */
-    public void setKeystoreFile(String file) {
+    public void setKeystoreFile(Path file) {
         this.keystoreFile = file;
+    }
+
+    /**
+     * Sets the Java keystore file path from a string.
+     *
+     * @param file the keystore file path
+     */
+    public void setKeystoreFile(String file) {
+        this.keystoreFile = Path.of(file);
     }
 
     /**
@@ -154,6 +180,47 @@ public abstract class TransportFactory {
     }
 
     /**
+     * Sets the truststore file path for validating peer certificates.
+     *
+     * <p>For server mode this is used to validate client certificates
+     * when mutual TLS is enabled ({@code needClientAuth}).
+     * When not set, the JVM default truststore is used.
+     *
+     * @param file the truststore file path
+     */
+    public void setTruststoreFile(Path file) {
+        this.truststoreFile = file;
+    }
+
+    /**
+     * Sets the truststore file path from a string.
+     *
+     * @param file the truststore file path
+     */
+    public void setTruststoreFile(String file) {
+        this.truststoreFile = Path.of(file);
+    }
+
+    /**
+     * Sets the truststore password.
+     *
+     * @param pass the truststore password
+     */
+    public void setTruststorePass(String pass) {
+        this.truststorePass = pass;
+    }
+
+    /**
+     * Sets the truststore format.
+     * Defaults to "PKCS12".
+     *
+     * @param format the truststore format (e.g., "PKCS12", "JKS")
+     */
+    public void setTruststoreFormat(String format) {
+        this.truststoreFormat = format;
+    }
+
+    /**
      * Sets the PEM certificate chain file path.
      *
      * <p>Required for QUIC (BoringSSL loads PEM directly).
@@ -162,8 +229,17 @@ public abstract class TransportFactory {
      *
      * @param path the certificate chain PEM file path
      */
-    public void setCertFile(String path) {
+    public void setCertFile(Path path) {
         this.certFile = path;
+    }
+
+    /**
+     * Sets the PEM certificate chain file path from a string.
+     *
+     * @param path the certificate chain PEM file path
+     */
+    public void setCertFile(String path) {
+        this.certFile = Path.of(path);
     }
 
     /**
@@ -175,8 +251,17 @@ public abstract class TransportFactory {
      *
      * @param path the private key PEM file path
      */
-    public void setKeyFile(String path) {
+    public void setKeyFile(Path path) {
         this.keyFile = path;
+    }
+
+    /**
+     * Sets the PEM private key file path from a string.
+     *
+     * @param path the private key PEM file path
+     */
+    public void setKeyFile(String path) {
+        this.keyFile = Path.of(path);
     }
 
     /**

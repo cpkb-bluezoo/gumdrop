@@ -1,0 +1,43 @@
+From: Alice <alice@gumdrop.example>
+To: Bob <bob@gumdrop.example>
+Subject: Re: Meeting agenda
+Date: Wed, 24 Jan 2024 14:30:00 +0000
+Message-ID: <msg004@gumdrop.example>
+In-Reply-To: <msg003@gumdrop.example>
+References: <msg003@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-boundary-004"
+
+--alt-boundary-004
+Content-Type: text/plain; charset=utf-8
+
+Bob,
+
+The agenda looks great. Just one small addition: could we
+allocate 10 minutes at the end for an open Q&A session?
+
+Also, I've been thinking about the deployment strategy. We
+should probably discuss whether we want blue-green or canary
+deployments. I'll prepare a brief comparison.
+
+See you tomorrow!
+
+Alice
+
+--alt-boundary-004
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body>
+<p>Bob,</p>
+<p>The agenda looks <em>great</em>. Just one small addition: could we
+allocate 10 minutes at the end for an open Q&amp;A session?</p>
+<p>Also, I've been thinking about the deployment strategy. We should
+probably discuss whether we want <strong>blue-green</strong> or
+<strong>canary</strong> deployments. I'll prepare a brief comparison.</p>
+<p>See you tomorrow!</p>
+<p>Alice</p>
+</body>
+</html>
+
+--alt-boundary-004--

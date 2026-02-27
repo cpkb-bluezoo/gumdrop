@@ -1,0 +1,23 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Mail realm for SMTP AUTH -->
+	<realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-mail.xml"/>
+	</realm>
+
+	<!-- Simple relay SMTP service.
+	     Accepts mail for any domain and relays via MX lookup.
+	     Requires authentication to prevent open relay.
+	     Users: bob/bob, alice/alice. -->
+	<service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService">
+		<property name="hostname" value="localhost"/>
+		<property name="realm" ref="#mailRealm"/>
+		<property name="auth-required" value="true"/>
+
+		<!-- Submission listener on port 2587 (STARTTLS available) -->
+		<listener class="org.bluezoo.gumdrop.smtp.SMTPListener" name="submission" port="2587">
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+	</service>
+</gumdrop>

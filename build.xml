@@ -184,10 +184,10 @@
         <not><os family='mac'/></not>
       </and>
     </condition>
-    <condition property='native.lib.name' value='libgumdrop_quic.dylib'>
+    <condition property='native.lib.name' value='libgumdrop.dylib'>
       <os family='mac'/>
     </condition>
-    <condition property='native.lib.name' value='libgumdrop_quic.so'>
+    <condition property='native.lib.name' value='libgumdrop.so'>
       <and>
         <os family='unix'/>
         <not><os family='mac'/></not>
@@ -196,7 +196,7 @@
   </target>
 
   <target name='native' depends='native-check,jar' if='quiche.available'
-          description='Compile JNI native library for QUIC support'>
+          description='Compile JNI native library'>
     <mkdir dir='${dist}'/>
     <!-- Locate the BoringSSL static libraries built by cargo/boring-sys -->
     <first id='boringssl.libssl.ref'>
@@ -229,9 +229,11 @@
       <arg value='-Wl,-rpath,@loader_path'/>
       <arg value='${boringssl.libssl}'/>
       <arg value='${boringssl.libcrypto}'/>
-      <arg value='${src}/org/bluezoo/gumdrop/quic/jni/quiche_jni.c'/>
-      <arg value='${src}/org/bluezoo/gumdrop/quic/jni/ssl_ctx_jni.c'/>
-      <arg value='${src}/org/bluezoo/gumdrop/quic/jni/h3_jni.c'/>
+      <arg value='-lresolv'/>
+      <arg value='${src}/org/bluezoo/gumdrop/jni/quiche_jni.c'/>
+      <arg value='${src}/org/bluezoo/gumdrop/jni/ssl_ctx_jni.c'/>
+      <arg value='${src}/org/bluezoo/gumdrop/jni/h3_jni.c'/>
+      <arg value='${src}/org/bluezoo/gumdrop/jni/dns_jni.c'/>
     </exec>
     <!-- Fix quiche install name so the dynamic linker finds it next to our dylib -->
     <exec executable='install_name_tool' failonerror='true'>

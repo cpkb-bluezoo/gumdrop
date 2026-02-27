@@ -1,0 +1,57 @@
+From: Bob <bob@gumdrop.example>
+To: Alice <alice@gumdrop.example>
+Subject: Dashboard mockup
+Date: Sun, 28 Jan 2024 11:00:00 +0000
+Message-ID: <msg007@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related-boundary-007"; type="multipart/alternative"
+
+--related-boundary-007
+Content-Type: multipart/alternative; boundary="alt-boundary-007"
+
+--alt-boundary-007
+Content-Type: text/plain; charset=utf-8
+
+Hi Alice,
+
+I've put together a rough mockup of the admin dashboard.
+The layout uses a sidebar navigation with the main content
+area showing summary cards at the top and a data table below.
+
+Colour scheme follows the brand guidelines (the green palette
+we agreed on). Let me know your thoughts. Happy to iterate.
+
+Bob
+
+--alt-boundary-007
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body style="font-family: sans-serif;">
+<p>Hi Alice,</p>
+<p>I've put together a rough mockup of the admin dashboard:</p>
+<div style="text-align: center; margin: 1em 0;">
+  <img src="cid:dashboard-mockup@gumdrop.example" alt="Dashboard mockup"
+       style="max-width: 100%; border: 1px solid #ccc; border-radius: 4px;"
+       width="600" height="380" />
+</div>
+<p>The layout uses a <strong>sidebar navigation</strong> with the main content area
+showing summary cards at the top and a data table below.</p>
+<p>Colour scheme follows the brand guidelines (the green palette we agreed on).
+Let me know your thoughts. Happy to iterate.</p>
+<p>Bob</p>
+</body>
+</html>
+
+--alt-boundary-007--
+
+--related-boundary-007
+Content-Type: image/png; name="dashboard-mockup.png"
+Content-Disposition: inline; filename="dashboard-mockup.png"
+Content-ID: <dashboard-mockup@gumdrop.example>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPQCrEAAAFiALckCIoE
+AAAAAElFTkSuQmCC
+
+--related-boundary-007--

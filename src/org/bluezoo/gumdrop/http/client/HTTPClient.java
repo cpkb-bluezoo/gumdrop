@@ -27,8 +27,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
@@ -52,6 +52,8 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
@@ -113,9 +115,9 @@ public class HTTPClient implements AltSvcListener {
             Logger.getLogger(HTTPClient.class.getName());
 
     private final String host;
-    private final InetAddress hostAddress;
     private final int port;
     private final SelectorLoop selectorLoop;
+    private InetAddress hostAddress;
 
     // Configuration (set before connect)
     private boolean secure;
@@ -127,8 +129,8 @@ public class HTTPClient implements AltSvcListener {
     private boolean h2WithPriorKnowledge;
     private boolean h3Enabled;
     private boolean altSvcEnabled = true;
-    private String certFile;
-    private String keyFile;
+    private Path certFile;
+    private Path keyFile;
     private boolean verifyPeer = true;
 
     // Internal transport components (created at connect time)
@@ -149,13 +151,13 @@ public class HTTPClient implements AltSvcListener {
      * Creates an HTTP client for the given host and port.
      *
      * <p>Uses the next available worker loop from the global
-     * {@link Gumdrop} instance.
+     * {@link Gumdrop} instance. DNS resolution is deferred until
+     * {@link #connect} is called.
      *
      * @param host the remote hostname or IP address
      * @param port the remote port
-     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public HTTPClient(String host, int port) throws UnknownHostException {
+    public HTTPClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -163,18 +165,16 @@ public class HTTPClient implements AltSvcListener {
      * Creates an HTTP client with an explicit selector loop.
      *
      * <p>Use this constructor when integrating with server-side code
-     * that has its own selector loop management.
+     * that has its own selector loop management. DNS resolution is
+     * deferred until {@link #connect} is called.
      *
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param host the remote hostname or IP address
      * @param port the remote port
-     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public HTTPClient(SelectorLoop selectorLoop, String host, int port)
-            throws UnknownHostException {
+    public HTTPClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
-        this.hostAddress = InetAddress.getByName(host);
         this.port = port;
     }
 
@@ -274,8 +274,12 @@ public class HTTPClient implements AltSvcListener {
      *
      * @param path the PEM file path
      */
-    public void setCertFile(String path) {
+    public void setCertFile(Path path) {
         this.certFile = path;
+    }
+
+    public void setCertFile(String path) {
+        this.certFile = Path.of(path);
     }
 
     /**
@@ -283,8 +287,12 @@ public class HTTPClient implements AltSvcListener {
      *
      * @param path the PEM file path
      */
-    public void setKeyFile(String path) {
+    public void setKeyFile(Path path) {
         this.keyFile = path;
+    }
+
+    public void setKeyFile(String path) {
+        this.keyFile = Path.of(path);
     }
 
     /**
@@ -317,7 +325,11 @@ public class HTTPClient implements AltSvcListener {
         this.connectHandler = handler;
 
         if (h3Enabled) {
-            connectH3(hostAddress, port, host, handler);
+            if (hostAddress != null) {
+                connectH3(hostAddress, port, host, handler);
+            } else {
+                resolveAndConnectH3(host, port, handler);
+            }
             return;
         }
 
@@ -346,10 +358,10 @@ public class HTTPClient implements AltSvcListener {
             if (selectorLoop != null) {
                 clientEndpoint = new ClientEndpoint(
                         transportFactory, selectorLoop,
-                        hostAddress, port);
+                        host, port);
             } else {
                 clientEndpoint = new ClientEndpoint(
-                        transportFactory, hostAddress, port);
+                        transportFactory, host, port);
             }
             clientEndpoint.connect(endpointHandler);
         } catch (IOException e) {
@@ -416,6 +428,37 @@ public class HTTPClient implements AltSvcListener {
         }
     }
 
+    private void resolveAndConnectH3(final String targetHost,
+                                     final int targetPort,
+                                     final HTTPClientHandler handler) {
+        SelectorLoop loop = selectorLoop;
+        if (loop == null) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            gumdrop.start();
+            loop = gumdrop.nextWorkerLoop();
+        }
+        if (loop == null) {
+            handler.onError(new IOException(
+                    "No SelectorLoop available for DNS resolution"));
+            return;
+        }
+        DNSResolver resolver = DNSResolver.forLoop(loop);
+        resolver.resolve(targetHost, new ResolveCallback() {
+            @Override
+            public void onResolved(List<InetAddress> addresses) {
+                hostAddress = addresses.get(0);
+                connectH3(hostAddress, targetPort, targetHost, handler);
+            }
+
+            @Override
+            public void onError(String error) {
+                handler.onError(new IOException(
+                        "DNS resolution failed for " + targetHost
+                        + ": " + error));
+            }
+        });
+    }
+
     /**
      * Returns whether the connection is open and ready for requests.
      *
@@ -429,7 +472,8 @@ public class HTTPClient implements AltSvcListener {
     }
 
     /**
-     * Closes the connection.
+     * Closes the connection and deregisters from Gumdrop's lifecycle
+     * tracking.
      */
     public void close() {
         if (h3Handler != null) {
@@ -440,6 +484,9 @@ public class HTTPClient implements AltSvcListener {
         }
         if (endpointHandler != null) {
             endpointHandler.close();
+        }
+        if (clientEndpoint != null) {
+            clientEndpoint.close();
         }
     }
 
@@ -579,21 +626,14 @@ public class HTTPClient implements AltSvcListener {
                     + (altHost != null ? altHost : host) + ":" + altPort);
         }
 
-        InetAddress targetAddress;
-        if (altHost != null) {
-            try {
-                targetAddress = InetAddress.getByName(altHost);
-            } catch (UnknownHostException e) {
-                LOGGER.log(Level.WARNING,
-                        "Cannot resolve Alt-Svc host: " + altHost, e);
-                return;
-            }
-        } else {
-            targetAddress = hostAddress;
-        }
-
         h3UpgradeInProgress = true;
-        connectH3(targetAddress, altPort, host, connectHandler);
+        if (altHost != null) {
+            resolveAndConnectH3(altHost, altPort, connectHandler);
+        } else if (hostAddress != null) {
+            connectH3(hostAddress, altPort, host, connectHandler);
+        } else {
+            resolveAndConnectH3(host, altPort, connectHandler);
+        }
     }
 
     /**
@@ -1022,6 +1062,9 @@ public class HTTPClient implements AltSvcListener {
             throws Exception {
         TrustManager[] tm = null;
         if (skipVerify) {
+            LOGGER.warning("TLS certificate verification disabled " +
+                    "(skipVerify=true). " +
+                    "This is insecure and should not be used in production.");
             tm = new TrustManager[] {
                 new X509TrustManager() {
                     @Override

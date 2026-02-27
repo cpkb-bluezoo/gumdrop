@@ -67,19 +67,11 @@
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  *
- * <server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPListener">
- *   <property name="port">21</property>
- *   <property name="handler-factory">
- *     <ftp-handler-factory class="org.bluezoo.gumdrop.ftp.file.SimpleFTPHandlerFactory">
- *       <property name="realm" ref="#ftpRealm"/>
- *       <property name="file-system">
- *         <component class="org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem">
- *           <property name="root">/var/ftp</property>
- *         </component>
- *       </property>
- *     </ftp-handler-factory>
- *   </property>
- * </server>
+ * <service class="org.bluezoo.gumdrop.ftp.file.SimpleFTPService">
+ *   <property name="realm" ref="#ftpRealm"/>
+ *   <property name="root-directory">/var/ftp</property>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
+ * </service>
  * }</pre>
  *
  * <h2>Security</h2>

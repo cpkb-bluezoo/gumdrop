@@ -1,0 +1,14 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Anonymous FTP service serving the web directory (read-only).
+	     Login with username "anonymous" or "ftp" and any email address
+	     as password. -->
+	<service id="ftp" class="org.bluezoo.gumdrop.ftp.file.AnonymousFTPService">
+		<property name="root-directory" path="../web"/>
+		<property name="welcome-message" value="Welcome to Anonymous FTP - login as anonymous"/>
+
+		<!-- FTP listener on port 2121 -->
+		<listener class="org.bluezoo.gumdrop.ftp.FTPListener"
+		        port="2121"/>
+	</service>
+</gumdrop>

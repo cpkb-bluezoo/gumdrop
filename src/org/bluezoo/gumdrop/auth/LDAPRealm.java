@@ -21,7 +21,8 @@
 
 package org.bluezoo.gumdrop.auth;
 
-import java.net.UnknownHostException;
+
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -98,7 +99,7 @@ public class LDAPRealm implements Realm {
     private int port = LDAPConstants.DEFAULT_PORT;
     private boolean secure = false;
     private boolean startTLS = false;
-    private String keystoreFile;
+    private Path keystoreFile;
     private String keystorePass;
     private String keystoreFormat = "PKCS12";
     private String baseDN = "";
@@ -168,8 +169,12 @@ public class LDAPRealm implements Realm {
         this.startTLS = startTLS;
     }
 
-    public void setKeystoreFile(String keystoreFile) {
+    public void setKeystoreFile(Path keystoreFile) {
         this.keystoreFile = keystoreFile;
+    }
+
+    public void setKeystoreFile(String keystoreFile) {
+        this.keystoreFile = Path.of(keystoreFile);
     }
 
     public void setKeystorePass(String keystorePass) {
@@ -550,7 +555,7 @@ public class LDAPRealm implements Realm {
     /**
      * Creates a new LDAP client with current configuration.
      */
-    private LDAPClient createClient() throws UnknownHostException {
+    private LDAPClient createClient() {
         if (selectorLoop == null) {
             throw new IllegalStateException(L10N.getString("err.ldap_no_selectorloop"));
         }

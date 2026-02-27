@@ -1,0 +1,11 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Mail realm for local delivery and mailbox access.
+  Users can authenticate via SMTP AUTH, IMAP, and POP3.
+-->
+<realm>
+  <group id="mailGroup" name="mail"/>
+
+  <user name="bob" password="bob" groups="mailGroup"/>
+  <user name="alice" password="alice" groups="mailGroup"/>
+</realm>

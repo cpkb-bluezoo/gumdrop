@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.telemetry;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,7 +74,7 @@ public class TelemetryConfig {
     private int timeoutMs = 10000;
 
     // TLS configuration for HTTPS endpoints
-    private String truststoreFile;
+    private Path truststoreFile;
     private String truststorePass;
     private String truststoreFormat = "PKCS12";
 
@@ -470,7 +471,7 @@ public class TelemetryConfig {
      * to verify the server's certificate. If not set, the JVM's default
      * truststore is used.
      */
-    public String getTruststoreFile() {
+    public Path getTruststoreFile() {
         return truststoreFile;
     }
 
@@ -479,8 +480,12 @@ public class TelemetryConfig {
      *
      * @param truststoreFile the path to the truststore file
      */
-    public void setTruststoreFile(String truststoreFile) {
+    public void setTruststoreFile(Path truststoreFile) {
         this.truststoreFile = truststoreFile;
+    }
+
+    public void setTruststoreFile(String truststoreFile) {
+        this.truststoreFile = Path.of(truststoreFile);
     }
 
     /**

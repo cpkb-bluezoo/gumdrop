@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.dns;
  * is called when the query completes, times out, or encounters an error.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSResolver
+ * @see org.bluezoo.gumdrop.dns.client.DNSResolver
  */
 public interface DNSQueryCallback {
 

@@ -30,6 +30,7 @@ import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashMap;
@@ -86,6 +87,9 @@ public class ConfigurationParser extends DefaultHandler {
     private Object currentPropertyValue;
     private StringBuilder textContent = new StringBuilder();
     
+    // Base directory of the configuration file, for resolving path attributes
+    private Path baseDir;
+    
     // Track singleton components (only one allowed per configuration)
     private boolean containerDeclared = false;
     
@@ -100,6 +104,7 @@ public class ConfigurationParser extends DefaultHandler {
      */
     public ParseResult parse(File file) throws SAXException, IOException {
         registry = new ComponentRegistry();
+        baseDir = file.toPath().toAbsolutePath().getParent();
         
         XMLParseUtils.parseFile(file, this, null, null, null);
         
@@ -416,7 +421,7 @@ public class ConfigurationParser extends DefaultHandler {
         
         try {
             // Store context creation info for later
-            InlineContextInfo contextInfo = new InlineContextInfo(path, new java.io.File(root));
+            InlineContextInfo contextInfo = new InlineContextInfo(path, baseDir.resolve(root).normalize().toFile());
             
             // Process other attributes (like distributable)
             for (int i = 0; i < atts.getLength(); i++) {
@@ -478,12 +483,16 @@ public class ConfigurationParser extends DefaultHandler {
     private void startProperty(Attributes atts) {
         currentPropertyName = atts.getValue("name");
         String refAttr = atts.getValue("ref");
+        String valueAttr = atts.getValue("value");
+        String pathAttr = atts.getValue("path");
         
         if (refAttr != null) {
-            // Property value is a reference
             currentPropertyValue = parseReference(refAttr);
+        } else if (pathAttr != null) {
+            currentPropertyValue = baseDir.resolve(pathAttr).normalize();
+        } else if (valueAttr != null) {
+            currentPropertyValue = valueAttr;
         } else {
-            // Property value will come from text content or child elements
             currentPropertyValue = null;
         }
         

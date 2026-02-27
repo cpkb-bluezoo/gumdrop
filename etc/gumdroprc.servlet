@@ -1,0 +1,55 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Authentication realm -->
+	<realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-servlet.xml"/>
+	</realm>
+	
+	<!-- Servlet container with contexts and realms -->
+	<container id="mainContainer">
+		<property name="hot-deploy" value="true"/>
+		
+		<!-- Map of named realms available to contexts -->
+		<property name="realms">
+			<map>
+				<entry key="myRealm" ref="#myRealm"/>
+				<entry key="Gumdrop Manager" ref="#myRealm"/>
+			</map>
+		</property>
+		
+		<!-- List of web application contexts -->
+		<property name="contexts">
+			<list>
+				<!-- Main web application -->
+				<context path="" root="../web" distributable="true"/>
+				<!-- Manager web application -->
+				<context path="/manager" root="../dist/manager.war"/>
+			</list>
+		</property>
+	</container>
+	
+	<!-- Servlet container service with HTTP, HTTPS, and HTTP/3 listeners -->
+	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+		<property name="container" ref="#mainContainer"/>
+
+		<!-- HTTP listener on port 8080 -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port" value="8080"/>
+		</listener>
+
+		<!-- HTTPS listener on port 8443 -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port" value="8443"/>
+			<property name="secure" value="true"/>
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+
+		<!-- HTTP/3 (QUIC) listener on UDP port 8443 -->
+		<listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener">
+			<property name="port" value="8443"/>
+			<property name="cert-file" path="localhost+2.pem"/>
+			<property name="key-file" path="localhost+2-key.pem"/>
+		</listener>
+	</service>
+</gumdrop>

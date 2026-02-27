@@ -22,8 +22,6 @@
 package org.bluezoo.gumdrop.websocket.client;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -92,7 +90,6 @@ public class WebSocketClient {
             Logger.getLogger(WebSocketClient.class.getName());
 
     private final String host;
-    private final InetAddress hostAddress;
     private final int port;
     private final SelectorLoop selectorLoop;
 
@@ -109,11 +106,12 @@ public class WebSocketClient {
     /**
      * Creates a WebSocket client for the given host and port.
      *
+     * <p>DNS resolution is deferred until {@link #connect} is called.
+     *
      * @param host the remote hostname or IP address
      * @param port the remote port
-     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public WebSocketClient(String host, int port) throws UnknownHostException {
+    public WebSocketClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -121,18 +119,16 @@ public class WebSocketClient {
      * Creates a WebSocket client with an explicit selector loop.
      *
      * <p>Use this constructor when integrating with server-side code
-     * that has its own selector loop management.
+     * that has its own selector loop management. DNS resolution is
+     * deferred until {@link #connect} is called.
      *
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param host the remote hostname or IP address
      * @param port the remote port
-     * @throws UnknownHostException if the hostname cannot be resolved
      */
-    public WebSocketClient(SelectorLoop selectorLoop, String host, int port)
-            throws UnknownHostException {
+    public WebSocketClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
-        this.hostAddress = InetAddress.getByName(host);
         this.port = port;
     }
 
@@ -235,10 +231,10 @@ public class WebSocketClient {
             if (selectorLoop != null) {
                 clientEndpoint = new ClientEndpoint(
                         transportFactory, selectorLoop,
-                        hostAddress, port);
+                        host, port);
             } else {
                 clientEndpoint = new ClientEndpoint(
-                        transportFactory, hostAddress, port);
+                        transportFactory, host, port);
             }
             clientEndpoint.connect(protocolHandler);
         } catch (IOException e) {
@@ -257,7 +253,8 @@ public class WebSocketClient {
     }
 
     /**
-     * Closes the WebSocket connection gracefully.
+     * Closes the WebSocket connection gracefully and deregisters from
+     * Gumdrop's lifecycle tracking.
      *
      * <p>Sends a close frame with code 1000 (normal closure), then
      * shuts down the underlying transport.
@@ -273,6 +270,9 @@ public class WebSocketClient {
         }
         if (protocolHandler != null) {
             protocolHandler.close();
+        }
+        if (clientEndpoint != null) {
+            clientEndpoint.close();
         }
     }
 

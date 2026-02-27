@@ -26,15 +26,10 @@
 </head>
 <body>
 
-<table summary='(layout)'>
-<tr>
-<td>
-<img align="left" border="0" src="gumdrop.png" alt="(gumdrop)" />
-</td>
-<td valign='bottom'>
-<h1 class='offset'>gumdrop</h1>
-</td>
-</table>
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>gumdrop</h1>
+</header>
 
 <p>
 Congratulations, you've installed Gumdrop!
@@ -76,6 +71,8 @@ distributed tracing and metrics with OTLP export</li>
 TLS, and authentication across all protocols</li>
 <li><a href="redis.html"><strong>Redis Client</strong></a> - asynchronous Redis
 client with SelectorLoop affinity for server integration</li>
+<li><a href="configuration.html"><strong>Configuration</strong></a> -
+dependency injection framework, property syntax, and example configurations</li>
 </ul>
 
 <h3>Architecture</h3>
@@ -354,11 +351,9 @@ To enable TLS, configure the keystore on any listener:
 
 <pre>
 &lt;service class="org.bluezoo.gumdrop.smtp.SMTPService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
-        &lt;property name="port"&gt;465&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="465" secure="true"&gt;
+        &lt;property name="keystore-file" path="keystore.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
     &lt;/listener&gt;
 &lt;/service&gt;
 </pre>
@@ -384,7 +379,7 @@ clients) and a UNIX socket (for local tools or reverse proxies):
 <pre>
 &lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryService"&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
-    &lt;property name="local-domain"&gt;example.com&lt;/property&gt;
+    &lt;property name="local-domain" value="example.com"/&gt;
     &lt;!-- TCP listener for remote clients --&gt;
     &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
               name="tcp" port="25"/&gt;
@@ -422,9 +417,9 @@ Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</co
 <pre>
 &lt;service class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
     &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
-        &lt;property name="idle-timeout"&gt;30m&lt;/property&gt;
-        &lt;property name="read-timeout"&gt;60s&lt;/property&gt;
-        &lt;property name="connection-timeout"&gt;2m&lt;/property&gt;
+        &lt;property name="idle-timeout" value="30m"/&gt;
+        &lt;property name="read-timeout" value="60s"/&gt;
+        &lt;property name="connection-timeout" value="2m"/&gt;
     &lt;/listener&gt;
 &lt;/service&gt;
 </pre>
@@ -439,68 +434,13 @@ Endpoints track timestamps for creation, last activity, and connection establish
 <h3>Configuration</h3>
 
 <p>
-Gumdrop uses a lightweight dependency injection (DI) framework to wire together
-its components. The <code>gumdroprc</code> XML file defines components with
-properties and references.
+Gumdrop uses a lightweight dependency injection framework to wire together its
+components from an XML configuration file. See the
+<a href="configuration.html">Configuration</a> documentation for full details
+on component declarations, property syntax (<code>value</code>,
+<code>path</code>, and <code>ref</code> attributes), type conversion,
+collections, services and listeners, and example configurations.
 </p>
-
-<h4>Key DI Concepts</h4>
-
-<ul>
-<li><b>Components</b> - XML elements with <code>id</code> and <code>class</code>
-attributes define objects registered in the component registry</li>
-<li><b>Properties</b> - <code>&lt;property name="..."&gt;</code> child elements
-set bean properties with automatic type conversion</li>
-<li><b>References</b> - <code>ref="#componentId"</code> injects references to
-other components</li>
-<li><b>Collections</b> - <code>&lt;list&gt;</code> and <code>&lt;map&gt;</code>
-elements configure collection properties</li>
-</ul>
-
-<h4>Example Configuration</h4>
-
-<pre>
-&lt;gumdrop&gt;
-    &lt;!-- Authentication realm --&gt;
-    &lt;realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-        &lt;property name="href"&gt;users.xml&lt;/property&gt;
-    &lt;/realm&gt;
-    
-    &lt;!-- Mailbox storage --&gt;
-    &lt;mailbox-factory id="maildir"
-                    class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
-        &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
-    &lt;/mailbox-factory&gt;
-    
-    &lt;!-- Telemetry --&gt;
-    &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-        &lt;property name="enabled"&gt;true&lt;/property&gt;
-        &lt;property name="service-name"&gt;mail-server&lt;/property&gt;
-        &lt;property name="endpoint"&gt;http://collector:4318&lt;/property&gt;
-    &lt;/component&gt;
-    
-    &lt;!-- IMAP service with TLS --&gt;
-    &lt;service id="imaps" class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
-        &lt;property name="realm" ref="#myRealm"/&gt;
-        &lt;property name="mailbox-factory" ref="#maildir"/&gt;
-        &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-        &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
-            &lt;property name="port"&gt;993&lt;/property&gt;
-            &lt;property name="secure"&gt;true&lt;/property&gt;
-            &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-            &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-        &lt;/listener&gt;
-    &lt;/service&gt;
-&lt;/gumdrop&gt;
-</pre>
-
-<h4>System Properties</h4>
-
-<ul>
-<li><code>gumdrop.workers</code> - number of worker SelectorLoop threads
-(default: 2× CPU cores)</li>
-<li><code>java.util.logging.config.file</code> - logging configuration</li>
-</ul>
 
 <h3>About the Logo</h3>
 

@@ -1,0 +1,28 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- FTP realm for role-based access control -->
+	<realm id="ftpRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-ftp.xml"/>
+	</realm>
+
+	<!-- Role-based FTP service serving the web directory.
+	     Users: admin/admin (full access), uploader/upload (read-write),
+	     guest/guest (read-only). -->
+	<service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService">
+		<property name="realm" ref="#ftpRealm"/>
+		<property name="root-directory" path="../web"/>
+		<property name="welcome-message" value="Welcome to Gumdrop FTP"/>
+
+		<!-- FTP listener on port 2121 (STARTTLS available) -->
+		<listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="2121">
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+
+		<!-- Implicit FTPS listener on port 2990 -->
+		<listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="2990" secure="true">
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+	</service>
+</gumdrop>

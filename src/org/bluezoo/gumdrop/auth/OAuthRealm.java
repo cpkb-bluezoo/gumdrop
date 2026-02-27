@@ -35,7 +35,7 @@ import org.bluezoo.json.JSONException;
 
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.UnknownHostException;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
@@ -344,16 +344,10 @@ public class OAuthRealm implements Realm {
         byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
         // Create HTTP client
         HTTPClient client;
-        try {
-            if (selectorLoop != null) {
-                client = new HTTPClient(selectorLoop, serverHost, serverPort);
-            } else {
-                client = new HTTPClient(serverHost, serverPort);
-            }
-        } catch (UnknownHostException e) {
-            String msg = MessageFormat.format(L10N.getString("err.unknown_host"), serverHost);
-            LOGGER.warning(msg);
-            return TokenValidationResult.failure();
+        if (selectorLoop != null) {
+            client = new HTTPClient(selectorLoop, serverHost, serverPort);
+        } else {
+            client = new HTTPClient(serverHost, serverPort);
         }
         client.setSecure(useHttps);
         // Use credentials for automatic authentication

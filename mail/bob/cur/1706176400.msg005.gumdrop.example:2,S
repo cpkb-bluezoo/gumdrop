@@ -1,0 +1,65 @@
+From: Alice <alice@gumdrop.example>
+To: Bob <bob@gumdrop.example>
+Subject: Status update with chart
+Date: Thu, 25 Jan 2024 16:00:00 +0000
+Message-ID: <msg005@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related-boundary-005"; type="multipart/alternative"
+
+--related-boundary-005
+Content-Type: multipart/alternative; boundary="alt-boundary-005"
+
+--alt-boundary-005
+Content-Type: text/plain; charset=utf-8
+
+Hi Bob,
+
+Great kickoff meeting today! Here's a quick status update.
+
+Sprint progress: 12 of 20 story points complete (60%).
+We're on track for the milestone. See the attached chart
+for the burndown.
+
+Key accomplishments:
+- Auth module complete
+- Database schema finalised
+- CI pipeline running
+
+Next up: API integration layer.
+
+Alice
+
+--alt-boundary-005
+Content-Type: text/html; charset=utf-8
+
+<html>
+<body>
+<p>Hi Bob,</p>
+<p>Great kickoff meeting today! Here's a quick status update.</p>
+<p><strong>Sprint progress:</strong> 12 of 20 story points complete (60%).</p>
+<p>We're on track for the milestone. See the chart below:</p>
+<p><img src="cid:burndown-chart@gumdrop.example" alt="Burndown chart"
+   width="400" height="250" /></p>
+<h3>Key accomplishments:</h3>
+<ul>
+  <li>Auth module complete</li>
+  <li>Database schema finalised</li>
+  <li>CI pipeline running</li>
+</ul>
+<p>Next up: API integration layer.</p>
+<p>Alice</p>
+</body>
+</html>
+
+--alt-boundary-005--
+
+--related-boundary-005
+Content-Type: image/png; name="burndown.png"
+Content-Disposition: inline; filename="burndown.png"
+Content-ID: <burndown-chart@gumdrop.example>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPwWR8AAAKWAUz5yDqG
+AAAAAElFTkSuQmCC
+
+--related-boundary-005--

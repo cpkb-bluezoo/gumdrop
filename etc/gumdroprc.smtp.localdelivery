@@ -1,0 +1,27 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Mail realm for authentication -->
+	<realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-mail.xml"/>
+	</realm>
+
+	<!-- Maildir-format mailbox storage -->
+	<mailbox-factory id="maildir"
+	        class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory">
+		<property name="base-directory" path="../mail"/>
+	</mailbox-factory>
+
+	<!-- Local delivery SMTP service.
+	     Accepts mail for localhost and delivers to Maildir mailboxes.
+	     Users: bob/bob, alice/alice. -->
+	<service id="smtp" class="org.bluezoo.gumdrop.smtp.LocalDeliveryService">
+		<property name="local-domain" value="localhost"/>
+		<property name="hostname" value="localhost"/>
+		<property name="realm" ref="#mailRealm"/>
+		<property name="mailbox-factory" ref="#maildir"/>
+
+		<!-- SMTP listener on port 2525 -->
+		<listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+		        name="mx" port="2525"/>
+	</service>
+</gumdrop>

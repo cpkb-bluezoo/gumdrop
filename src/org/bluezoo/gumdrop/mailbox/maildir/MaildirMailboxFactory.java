@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxStore;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * Factory for creating Maildir-format mail store instances.
@@ -43,7 +44,15 @@ import java.nio.file.Path;
  */
 public class MaildirMailboxFactory implements MailboxFactory {
 
-    private final Path basedir;
+    private Path basedir;
+
+    /**
+     * Creates a new Maildir mailbox factory.
+     * The base directory must be set via {@link #setBaseDirectory(String)}
+     * before use.
+     */
+    public MaildirMailboxFactory() {
+    }
 
     /**
      * Creates a new Maildir mailbox factory.
@@ -67,6 +76,30 @@ public class MaildirMailboxFactory implements MailboxFactory {
     }
 
     /**
+     * Sets the base directory for all mailboxes.
+     * 
+     * @param baseDirectory the base directory path as a string
+     */
+    public void setBaseDirectory(String baseDirectory) {
+        if (baseDirectory == null) {
+            throw new IllegalArgumentException("Base directory cannot be null");
+        }
+        this.basedir = Paths.get(baseDirectory).toAbsolutePath().normalize();
+    }
+
+    /**
+     * Sets the base directory for all mailboxes.
+     * 
+     * @param baseDirectory the base directory path
+     */
+    public void setBaseDirectory(Path baseDirectory) {
+        if (baseDirectory == null) {
+            throw new IllegalArgumentException("Base directory cannot be null");
+        }
+        this.basedir = baseDirectory.toAbsolutePath().normalize();
+    }
+
+    /**
      * Returns the base directory for all mailboxes.
      * 
      * @return the base directory path
@@ -77,6 +110,9 @@ public class MaildirMailboxFactory implements MailboxFactory {
 
     @Override
     public MailboxStore createStore() {
+        if (basedir == null) {
+            throw new IllegalStateException("Base directory not configured");
+        }
         return new MaildirMailboxStore(basedir);
     }
 

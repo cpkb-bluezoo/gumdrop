@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -87,7 +88,7 @@ public abstract class Listener {
 
     protected boolean secure = false;
     protected SSLContext context;
-    protected String keystoreFile;
+    protected Path keystoreFile;
     protected String keystorePass;
     protected String keystoreFormat = "PKCS12";
     private String cipherSuites;
@@ -172,8 +173,12 @@ public abstract class Listener {
         secure = flag;
     }
 
-    public void setKeystoreFile(String file) {
+    public void setKeystoreFile(Path file) {
         keystoreFile = file;
+    }
+
+    public void setKeystoreFile(String file) {
+        keystoreFile = Path.of(file);
     }
 
     public void setKeystorePass(String pass) {

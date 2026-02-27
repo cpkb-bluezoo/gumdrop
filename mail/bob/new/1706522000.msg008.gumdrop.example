@@ -1,0 +1,19 @@
+From: Alice <alice@gumdrop.example>
+To: Bob <bob@gumdrop.example>
+Subject: Quick question about timeline
+Date: Mon, 29 Jan 2024 09:45:00 +0000
+Message-ID: <msg008@gumdrop.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hi Bob,
+
+Quick one -- are we still targeting March 15th for the beta
+release? I need to coordinate with the QA team for the
+regression test window and they need at least two weeks' notice.
+
+Also, do we have sign-off from the security review yet?
+That was supposed to come through last Friday.
+
+Thanks,
+Alice

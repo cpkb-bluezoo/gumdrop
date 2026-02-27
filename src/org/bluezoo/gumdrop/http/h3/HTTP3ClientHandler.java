@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
-import org.bluezoo.gumdrop.quic.QuicheNative;
+import org.bluezoo.gumdrop.GumdropNative;
 
 /**
  * Client-side HTTP/3 handler built on top of quiche's h3 module.
@@ -115,12 +115,12 @@ public class HTTP3ClientHandler
      * Initialises the quiche h3 config and creates the h3 connection.
      */
     private void initH3() {
-        h3Config = QuicheNative.quiche_h3_config_new();
-        QuicheNative.quiche_h3_config_set_max_dynamic_table_capacity(
+        h3Config = GumdropNative.quiche_h3_config_new();
+        GumdropNative.quiche_h3_config_set_max_dynamic_table_capacity(
                 h3Config, DEFAULT_QPACK_MAX_TABLE_CAPACITY);
 
         long quicheConn = quicConnection.getConnPtr();
-        h3Conn = QuicheNative.quiche_h3_conn_new_with_transport(
+        h3Conn = GumdropNative.quiche_h3_conn_new_with_transport(
                 quicheConn, h3Config);
 
         if (h3Conn == 0) {
@@ -171,7 +171,7 @@ public class HTTP3ClientHandler
         }
 
         long quicheConn = quicConnection.getConnPtr();
-        long streamId = QuicheNative.quiche_h3_send_request(
+        long streamId = GumdropNative.quiche_h3_send_request(
                 h3Conn, quicheConn, headerArray, fin);
 
         if (streamId < 0) {
@@ -199,7 +199,7 @@ public class HTTP3ClientHandler
     public void sendRequestBody(long streamId, ByteBuffer data,
                                 boolean fin) {
         long quicheConn = quicConnection.getConnPtr();
-        int result = QuicheNative.quiche_h3_send_body(
+        int result = GumdropNative.quiche_h3_send_body(
                 h3Conn, quicheConn, streamId,
                 data, data.remaining(), fin);
         if (result < 0) {
@@ -232,7 +232,7 @@ public class HTTP3ClientHandler
         long quicheConn = quicConnection.getConnPtr();
 
         while (true) {
-            long[] event = QuicheNative.quiche_h3_conn_poll(
+            long[] event = GumdropNative.quiche_h3_conn_poll(
                     h3Conn, quicheConn);
             if (event == null) {
                 break;
@@ -269,7 +269,7 @@ public class HTTP3ClientHandler
 
     private void onHeaders(long streamId) {
         String[] headerPairs =
-                QuicheNative.quiche_h3_event_headers(h3Conn);
+                GumdropNative.quiche_h3_event_headers(h3Conn);
         if (headerPairs == null) {
             return;
         }
@@ -290,7 +290,7 @@ public class HTTP3ClientHandler
 
         while (true) {
             bodyBuffer.clear();
-            int len = QuicheNative.quiche_h3_recv_body(
+            int len = GumdropNative.quiche_h3_recv_body(
                     h3Conn, quicheConn, streamId,
                     bodyBuffer, bodyBuffer.capacity());
             if (len <= 0) {
@@ -357,11 +357,11 @@ public class HTTP3ClientHandler
         streams.clear();
 
         if (h3Conn != 0) {
-            QuicheNative.quiche_h3_conn_free(h3Conn);
+            GumdropNative.quiche_h3_conn_free(h3Conn);
             h3Conn = 0;
         }
         if (h3Config != 0) {
-            QuicheNative.quiche_h3_config_free(h3Config);
+            GumdropNative.quiche_h3_config_free(h3Config);
             h3Config = 0;
         }
     }

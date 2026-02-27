@@ -21,12 +21,15 @@
 
 package org.bluezoo.gumdrop.quic;
 
+import org.bluezoo.gumdrop.GumdropNative;
+
 import java.io.IOException;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.nio.channels.DatagramChannel;
+import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -102,7 +105,7 @@ public class QuicTransportFactory extends TransportFactory {
 
     // QUIC-specific configuration
     private String applicationProtocols;
-    private String caFile;
+    private Path caFile;
     private boolean verifyPeer = true;
     private long maxIdleTimeout = DEFAULT_MAX_IDLE_TIMEOUT;
     private long maxData = DEFAULT_MAX_DATA;
@@ -137,8 +140,12 @@ public class QuicTransportFactory extends TransportFactory {
      *
      * @param path the PEM file containing trusted CA certificates
      */
-    public void setCaFile(String path) {
+    public void setCaFile(Path path) {
         this.caFile = path;
+    }
+
+    public void setCaFile(String path) {
+        this.caFile = Path.of(path);
     }
 
     /**
@@ -276,7 +283,7 @@ public class QuicTransportFactory extends TransportFactory {
     public void start() {
         super.start();
 
-        QuicheNative.quiche_enable_debug_logging();
+        GumdropNative.quiche_enable_debug_logging();
 
         initSslCtx();
         initQuicheConfig();
@@ -287,7 +294,7 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private void initSslCtx() {
-        sslCtx = QuicheNative.ssl_ctx_new(true);
+        sslCtx = GumdropNative.ssl_ctx_new(true);
         if (sslCtx == 0) {
             throw new RuntimeException("Failed to create BoringSSL SSL_CTX");
         }
@@ -295,7 +302,8 @@ public class QuicTransportFactory extends TransportFactory {
         int rc;
 
         if (certFile != null) {
-            rc = QuicheNative.ssl_ctx_load_cert_chain(sslCtx, certFile);
+            rc = GumdropNative.ssl_ctx_load_cert_chain(sslCtx,
+                    certFile.toString());
             if (rc != 0) {
                 throw new RuntimeException(
                         "Failed to load certificate chain: " + certFile);
@@ -303,7 +311,8 @@ public class QuicTransportFactory extends TransportFactory {
         }
 
         if (keyFile != null) {
-            rc = QuicheNative.ssl_ctx_load_priv_key(sslCtx, keyFile);
+            rc = GumdropNative.ssl_ctx_load_priv_key(sslCtx,
+                    keyFile.toString());
             if (rc != 0) {
                 throw new RuntimeException(
                         "Failed to load private key: " + keyFile);
@@ -311,7 +320,8 @@ public class QuicTransportFactory extends TransportFactory {
         }
 
         if (caFile != null) {
-            rc = QuicheNative.ssl_ctx_load_verify_locations(sslCtx, caFile);
+            rc = GumdropNative.ssl_ctx_load_verify_locations(sslCtx,
+                    caFile.toString());
             if (rc != 0) {
                 throw new RuntimeException(
                         "Failed to load CA certificates: " + caFile);
@@ -319,7 +329,7 @@ public class QuicTransportFactory extends TransportFactory {
         }
 
         if (cipherSuites != null) {
-            rc = QuicheNative.ssl_ctx_set_ciphersuites(
+            rc = GumdropNative.ssl_ctx_set_ciphersuites(
                     sslCtx, cipherSuites);
             if (rc != 0) {
                 throw new RuntimeException(
@@ -328,7 +338,7 @@ public class QuicTransportFactory extends TransportFactory {
         }
 
         if (namedGroups != null) {
-            rc = QuicheNative.ssl_ctx_set_groups(sslCtx, namedGroups);
+            rc = GumdropNative.ssl_ctx_set_groups(sslCtx, namedGroups);
             if (rc != 0) {
                 throw new RuntimeException(
                         "Failed to set named groups: " + namedGroups);
@@ -337,7 +347,7 @@ public class QuicTransportFactory extends TransportFactory {
 
         if (applicationProtocols != null) {
             byte[] alpn = encodeAlpnProtocols(applicationProtocols);
-            rc = QuicheNative.ssl_ctx_set_alpn_protos(sslCtx, alpn);
+            rc = GumdropNative.ssl_ctx_set_alpn_protos(sslCtx, alpn);
             if (rc != 0) {
                 throw new RuntimeException(
                         "Failed to set ALPN protocols: "
@@ -345,7 +355,7 @@ public class QuicTransportFactory extends TransportFactory {
             }
         }
 
-        QuicheNative.ssl_ctx_set_verify_peer(sslCtx, verifyPeer);
+        GumdropNative.ssl_ctx_set_verify_peer(sslCtx, verifyPeer);
     }
 
     private void initQuicheConfig() {
@@ -362,35 +372,35 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private long createQuicheConfig(int version) {
-        long config = QuicheNative.quiche_config_new(version);
+        long config = GumdropNative.quiche_config_new(version);
         if (config == 0) {
             return 0;
         }
 
         if (applicationProtocols != null) {
             byte[] alpn = encodeAlpnProtocols(applicationProtocols);
-            QuicheNative.quiche_config_set_application_protos(config, alpn);
+            GumdropNative.quiche_config_set_application_protos(config, alpn);
         }
 
-        QuicheNative.quiche_config_set_max_idle_timeout(
+        GumdropNative.quiche_config_set_max_idle_timeout(
                 config, maxIdleTimeout);
-        QuicheNative.quiche_config_set_initial_max_data(
+        GumdropNative.quiche_config_set_initial_max_data(
                 config, maxData);
-        QuicheNative.quiche_config_set_initial_max_stream_data_bidi_local(
+        GumdropNative.quiche_config_set_initial_max_stream_data_bidi_local(
                 config, maxStreamDataBidiLocal);
-        QuicheNative.quiche_config_set_initial_max_stream_data_bidi_remote(
+        GumdropNative.quiche_config_set_initial_max_stream_data_bidi_remote(
                 config, maxStreamDataBidiRemote);
-        QuicheNative.quiche_config_set_initial_max_stream_data_uni(
+        GumdropNative.quiche_config_set_initial_max_stream_data_uni(
                 config, maxStreamDataUni);
-        QuicheNative.quiche_config_set_initial_max_streams_bidi(
+        GumdropNative.quiche_config_set_initial_max_streams_bidi(
                 config, maxStreamsBidi);
-        QuicheNative.quiche_config_set_initial_max_streams_uni(
+        GumdropNative.quiche_config_set_initial_max_streams_uni(
                 config, maxStreamsUni);
-        QuicheNative.quiche_config_set_cc_algorithm(
+        GumdropNative.quiche_config_set_cc_algorithm(
                 config, ccAlgorithm);
-        QuicheNative.quiche_config_set_max_recv_udp_payload_size(
+        GumdropNative.quiche_config_set_max_recv_udp_payload_size(
                 config, DEFAULT_MAX_RECV_PAYLOAD);
-        QuicheNative.quiche_config_set_max_send_udp_payload_size(
+        GumdropNative.quiche_config_set_max_send_udp_payload_size(
                 config, DEFAULT_MAX_SEND_PAYLOAD);
 
         return config;
@@ -399,15 +409,15 @@ public class QuicTransportFactory extends TransportFactory {
     @Override
     protected void stop() {
         if (quicheConfigV1 != 0) {
-            QuicheNative.quiche_config_free(quicheConfigV1);
+            GumdropNative.quiche_config_free(quicheConfigV1);
             quicheConfigV1 = 0;
         }
         if (quicheConfigV2 != 0) {
-            QuicheNative.quiche_config_free(quicheConfigV2);
+            GumdropNative.quiche_config_free(quicheConfigV2);
             quicheConfigV2 = 0;
         }
         if (sslCtx != 0) {
-            QuicheNative.ssl_ctx_free(sslCtx);
+            GumdropNative.ssl_ctx_free(sslCtx);
             sslCtx = 0;
         }
         super.stop();
