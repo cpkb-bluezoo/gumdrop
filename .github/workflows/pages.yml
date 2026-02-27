@@ -1,0 +1,70 @@
+# Build Javadoc, bundle web docs, and publish to GitHub Pages.
+# Enable in repo Settings > Pages: Source = "GitHub Actions".
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Resolve dependencies
+        run: ant resolve-deps
+
+      - name: Generate Javadoc
+        run: ant javadoc-force
+
+      - name: Stage site
+        run: |
+          mkdir -p _site/doc _site/web
+          cp -r doc/. _site/doc/
+          cp -r web/. _site/web/
+          cat > _site/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html><head><meta charset="utf-8"><title>Gumdrop</title></head>
+          <body>
+            <h1>Gumdrop</h1>
+            <ul>
+              <li><a href="doc/">API Documentation (Javadoc)</a></li>
+              <li><a href="web/">Web Documentation</a></li>
+            </ul>
+          </body></html>
+          HTML
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
