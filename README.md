@@ -39,12 +39,12 @@ non-blocking, event-driven I/O. It supports:
         - Spanish
         - German
     - centralized and secure realm interface for authentication and
-      authorization
+      authorization, usable by multiple services
     - CIDR connection filtering, rate limiting, quota features
-    - centralized authentication and authorization realm interface
-      usable by multiple servers
+    - lightweight, simple dependency injection framework
     - client framework for creating clients to communicate with other servers
         - uses same event-driven asynchronous architecture for peers
+        - can use I/O worker thread affinity to avoid context switching
 - HTTP
     - HTTP/3 over QUIC
         - full HTTP/3 client and server via quiche/BoringSSL
@@ -56,7 +56,6 @@ non-blocking, event-driven I/O. It supports:
         - HPACK header compression
     - HTTP/1.0 and 1.1
         - Chunked encoding and persistent connections
-    - WebSockets
     - HTTPS with client certificate authentication, custom SSL parameters,
       cipher suites, and PQC supported groups
     - authentication framework supporting various methods
@@ -64,10 +63,11 @@ non-blocking, event-driven I/O. It supports:
         - HTTP Digest
         - Bearer
         - OAuth
-    - simple file-based HTTP service
+    - fast async event driven callback API for microservices with examples
+    - WebDAV file service
         - supports fast NIO based data transfer
         - PUT and DELETE
-        - WebDAV (RFC 2518) distributed authoring
+        - RFC 2518 distributed authoring
             - PROPFIND, PROPPATCH for property management
             - MKCOL, COPY, MOVE for resource operations
             - LOCK, UNLOCK for write locking
@@ -153,6 +153,7 @@ non-blocking, event-driven I/O. It supports:
         - boolean operators (AND, OR, NOT)
         - sequence sets and UID sets
     - pluggable mailbox backend via standardized API
+    - IMAP client with IMAPS and STARTTLS support
 - POP3
     - complete POP3 implementation (RFC 1939)
     - POP3S (implicit TLS on port 995)
@@ -167,6 +168,7 @@ non-blocking, event-driven I/O. It supports:
         - UTF8 (RFC 6856) - internationalized mailboxes
     - pluggable mailbox backend via standardized API
     - exclusive mailbox locking for session isolation
+    - POP3 client with POP3S and STLS support
 - mailbox API
     - mbox backend
     - Maildir++ backend
@@ -199,6 +201,10 @@ non-blocking, event-driven I/O. It supports:
     - passive and active transfer modes
     - resume and append support
     - allows abort to cancel in-progress transfers
+    - fully functional FTP file service implementation
+- WebSockets
+    - server and client built on top of HTTP transports
+    - unified socket handler interface
 - DNS
     - full DNS server implementation
     - DNS over DTLS for secure queries
@@ -284,7 +290,7 @@ and QUIC (BoringSSL with TLS 1.3).
 - event-driven design
     - native event-driven architecture, not bolted on
     - callback-based handlers for protocol implementations
-    - no blocking operations in I/O path
+    - no blocking operations in I/O path, even async DNS lookups
     - natural fit for distributed, microservices architectures
 - small and efficient
     - minimal memory footprint
