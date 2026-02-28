@@ -34,7 +34,6 @@ package org.bluezoo.gumdrop.auth;
  *   <li><b>OAUTHBEARER</b> - OAuth 2.0 token-based</li>
  *   <li><b>GSSAPI</b> - Kerberos-based enterprise SSO</li>
  *   <li><b>EXTERNAL</b> - TLS client certificate</li>
- *   <li><b>NTLM</b> - Windows domain authentication</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -64,10 +63,7 @@ public enum SASLMechanism {
     GSSAPI("GSSAPI", true, false),
     
     /** External authentication via TLS client certificate (RFC 4422) */
-    EXTERNAL("EXTERNAL", false, true),
-    
-    /** Windows NT LAN Manager authentication */
-    NTLM("NTLM", true, false);
+    EXTERNAL("EXTERNAL", false, true);
 
     private final String mechanismName;
     private final boolean challengeResponse;

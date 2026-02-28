@@ -132,9 +132,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         DIGEST_MD5_RESPONSE,
         SCRAM_INITIAL,
         SCRAM_FINAL,
-        OAUTH_RESPONSE,
-        NTLM_TYPE1,
-        NTLM_TYPE3
+        OAUTH_RESPONSE
     }
 
     // Transport reference (set in connected())
@@ -978,9 +976,6 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             case EXTERNAL:
                 handleAuthEXTERNAL(initialResponse);
                 break;
-            case NTLM:
-                handleAuthNTLM(initialResponse);
-                break;
             default:
                 sendTaggedNo(tag, L10N.getString("imap.err.unsupported_mechanism"));
         }
@@ -1105,15 +1100,6 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 L10N.getString("imap.err.external_unavailable"));
     }
 
-    private void handleAuthNTLM(String initialResponse) throws IOException {
-        if (initialResponse != null && !initialResponse.isEmpty()) {
-            processNtlmType1(initialResponse);
-        } else {
-            authState = AuthState.NTLM_TYPE1;
-            sendContinuation("");
-        }
-    }
-
     // ── SASL response processing ──
 
     private void processSASLResponse(String line) throws IOException {
@@ -1147,12 +1133,6 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 break;
             case OAUTH_RESPONSE:
                 processOAuthBearerCredentials(line);
-                break;
-            case NTLM_TYPE1:
-                processNtlmType1(line);
-                break;
-            case NTLM_TYPE3:
-                processNtlmType3(line);
                 break;
             default:
                 authFailed();
@@ -1352,48 +1332,6 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             Realm.TokenValidationResult result = realm.validateBearerToken(token);
             if (result != null && result.valid) {
                 openMailStore(user, "OAUTHBEARER");
-                authSucceeded();
-            } else {
-                authFailed();
-            }
-        } catch (Exception e) {
-            authFailed();
-        }
-    }
-
-    private void processNtlmType1(String line) throws IOException {
-        try {
-            byte[] type1 = SASLUtils.decodeBase64(line);
-            if (type1.length < 8 || type1[0] != 'N' || type1[1] != 'T') {
-                authFailed();
-                return;
-            }
-
-            byte[] type2 = new byte[56];
-            System.arraycopy("NTLMSSP\0".getBytes(US_ASCII), 0, type2, 0, 8);
-            type2[8] = 0x02;
-
-            authState = AuthState.NTLM_TYPE3;
-            sendContinuation(SASLUtils.encodeBase64(type2));
-        } catch (Exception e) {
-            authFailed();
-        }
-    }
-
-    private void processNtlmType3(String line) throws IOException {
-        try {
-            byte[] type3 = SASLUtils.decodeBase64(line);
-            if (type3.length < 8 || type3[0] != 'N' || type3[8] != 0x03) {
-                authFailed();
-                return;
-            }
-
-            String username = pendingAuthUsername != null
-                    ? pendingAuthUsername : "user";
-
-            Realm realm = getRealm();
-            if (realm.userExists(username)) {
-                openMailStore(username, "NTLM");
                 authSucceeded();
             } else {
                 authFailed();

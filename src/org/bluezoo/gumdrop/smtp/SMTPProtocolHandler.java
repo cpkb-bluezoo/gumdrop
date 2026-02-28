@@ -135,7 +135,7 @@ public class SMTPProtocolHandler
     enum AuthState {
         NONE, PLAIN_RESPONSE, LOGIN_USERNAME, LOGIN_PASSWORD,
         CRAM_MD5_RESPONSE, DIGEST_MD5_RESPONSE, SCRAM_INITIAL, SCRAM_FINAL,
-        OAUTH_RESPONSE, GSSAPI_EXCHANGE, EXTERNAL_CERT, NTLM_TYPE1, NTLM_TYPE3
+        OAUTH_RESPONSE, GSSAPI_EXCHANGE, EXTERNAL_CERT
     }
 
     enum DataState {
@@ -184,9 +184,6 @@ public class SMTPProtocolHandler
 
     private SaslServer saslServer;
     private X509Certificate clientCertificate;
-    private byte[] ntlmChallenge;
-    private String ntlmTargetName;
-
     private InetSocketAddress xclientAddr;
     private InetSocketAddress xclientDestAddr;
     private String xclientName;
@@ -1261,8 +1258,6 @@ public class SMTPProtocolHandler
             saslServer = null;
         }
         clientCertificate = null;
-        ntlmChallenge = null;
-        ntlmTargetName = null;
     }
 
     private void notifyAuthenticationSuccess(String username, String mechanism) throws IOException {

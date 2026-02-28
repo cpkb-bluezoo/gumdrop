@@ -69,7 +69,6 @@
  *   <tr><td>OAUTHBEARER</td><td>RFC 7628</td><td>OAuth 2.0 Bearer tokens</td><td>{@code validateBearerToken()}</td></tr>
  *   <tr><td>GSSAPI</td><td>RFC 4752</td><td>Kerberos/GSS-API</td><td>(external)</td></tr>
  *   <tr><td>EXTERNAL</td><td>RFC 4422</td><td>TLS client certificate</td><td>{@code userExists()}</td></tr>
- *   <tr><td>NTLM</td><td>(MS)</td><td>Windows domain authentication</td><td>(external)</td></tr>
  * </table>
  *
  * <h2>Realm Capability Discovery</h2>

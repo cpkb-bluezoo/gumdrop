@@ -246,7 +246,6 @@ non-blocking, event-driven I/O. It supports:
         - OAUTHBEARER (requires TLS)
         - GSSAPI/Kerberos
         - EXTERNAL for TLS client certificates
-        - NTLM (Microsoft domains)
 - Redis client
     - Redis 6+ ACL auth
     - full message subscription with pattern matching

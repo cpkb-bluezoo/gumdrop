@@ -135,9 +135,7 @@ public class POP3ProtocolHandler
         SCRAM_FINAL,
         OAUTH_RESPONSE,
         GSSAPI_EXCHANGE,
-        EXTERNAL_CERT,
-        NTLM_TYPE1,
-        NTLM_TYPE3
+        EXTERNAL_CERT
     }
 
     // Transport reference (set in connected())
@@ -173,8 +171,6 @@ public class POP3ProtocolHandler
     private String authClientNonce;
     private byte[] authSalt;
     private int authIterations = 4096;
-    private byte[] ntlmChallenge;
-
     private CharBuffer charBuffer;
 
     // Telemetry
@@ -763,9 +759,6 @@ public class POP3ProtocolHandler
             case "EXTERNAL":
                 handleAuthEXTERNAL(initialResponse);
                 break;
-            case "NTLM":
-                handleAuthNTLM(initialResponse);
-                break;
             default:
                 sendERR(L10N.getString(
                         "pop3.err.unsupported_mechanism"));
@@ -941,34 +934,6 @@ public class POP3ProtocolHandler
         }
     }
 
-    private void handleAuthNTLM(String initialResponse)
-            throws IOException {
-        if (initialResponse != null && !initialResponse.isEmpty()) {
-            try {
-                byte[] type1Msg = Base64.getDecoder()
-                        .decode(initialResponse);
-                if (type1Msg.length < 8
-                        || !new String(type1Msg, 0, 8, US_ASCII)
-                                .equals("NTLMSSP\0")) {
-                    sendERR(L10N.getString(
-                            "pop3.err.invalid_ntlm_message"));
-                    return;
-                }
-                byte[] type2Msg = generateNTLMType2Challenge();
-                authState = AuthState.NTLM_TYPE3;
-                sendContinuation(Base64.getEncoder()
-                        .encodeToString(type2Msg));
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        "NTLM Type 2 generation error", e);
-                sendERR(L10N.getString("pop3.err.ntlm_failed"));
-            }
-        } else {
-            authState = AuthState.NTLM_TYPE1;
-            sendContinuation("");
-        }
-    }
-
     // ── SASL continuation ──
 
     private void handleAuthContinuation(String data) throws IOException {
@@ -1002,12 +967,6 @@ public class POP3ProtocolHandler
                 break;
             case OAUTH_RESPONSE:
                 processOAuthBearerCredentials(data);
-                break;
-            case NTLM_TYPE1:
-                processNTLMType1(data);
-                break;
-            case NTLM_TYPE3:
-                processNTLMType3(data);
                 break;
             default:
                 sendERR(L10N.getString(
@@ -1322,62 +1281,6 @@ public class POP3ProtocolHandler
         }
     }
 
-    private void processNTLMType1(String data) throws IOException {
-        try {
-            byte[] type1Msg = Base64.getDecoder().decode(data);
-            if (type1Msg.length < 8
-                    || !new String(type1Msg, 0, 8, US_ASCII)
-                            .equals("NTLMSSP\0")) {
-                sendERR(L10N.getString(
-                        "pop3.err.invalid_ntlm_message"));
-                resetAuthState();
-                return;
-            }
-            byte[] type2Msg = generateNTLMType2Challenge();
-            authState = AuthState.NTLM_TYPE3;
-            sendContinuation(Base64.getEncoder()
-                    .encodeToString(type2Msg));
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    "NTLM Type 2 generation error", e);
-            sendERR(L10N.getString("pop3.err.ntlm_failed"));
-            resetAuthState();
-        }
-    }
-
-    private void processNTLMType3(String data) throws IOException {
-        try {
-            byte[] type3Msg = Base64.getDecoder().decode(data);
-            String ntlmUsername = parseNTLMType3Username(type3Msg);
-
-            if (ntlmUsername != null) {
-                Realm realm = getRealm();
-                if (realm != null && realm.userExists(ntlmUsername)) {
-                    if (openMailbox(ntlmUsername)) {
-                        username = ntlmUsername;
-                        state = POP3State.TRANSACTION;
-                        recordAuthenticationSuccess("AUTH NTLM");
-                        sendOK(L10N.getString(
-                                "pop3.mailbox_opened"));
-                        resetAuthState();
-                        return;
-                    }
-                }
-            }
-
-            failedAuthAttempts++;
-            lastFailedAuthTime = System.currentTimeMillis();
-            recordAuthenticationFailure("AUTH NTLM", ntlmUsername);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    "NTLM Type 3 parsing error", e);
-            sendERR(L10N.getString("pop3.err.ntlm_failed"));
-        } finally {
-            resetAuthState();
-        }
-    }
-
     // ── SASL helpers ──
 
     private boolean authenticateAndOpenMailbox(
@@ -1429,7 +1332,6 @@ public class POP3ProtocolHandler
         authNonce = null;
         authClientNonce = null;
         authSalt = null;
-        ntlmChallenge = null;
     }
 
     private void sendContinuation(String data) throws IOException {
@@ -1450,51 +1352,6 @@ public class POP3ProtocolHandler
                 return trimmed.substring(3);
             }
             partStart = partEnd + 1;
-        }
-        return null;
-    }
-
-    private byte[] generateNTLMType2Challenge() throws Exception {
-        SecureRandom random = new SecureRandom();
-        ntlmChallenge = new byte[8];
-        random.nextBytes(ntlmChallenge);
-
-        ByteBuffer buffer = ByteBuffer.allocate(56);
-        buffer.order(ByteOrder.LITTLE_ENDIAN);
-        buffer.put("NTLMSSP\0".getBytes(US_ASCII));
-        buffer.putInt(2);
-        buffer.putShort((short) 0);
-        buffer.putShort((short) 0);
-        buffer.putInt(56);
-        buffer.putInt(0x00008205);
-        buffer.put(ntlmChallenge);
-        buffer.putLong(0);
-        buffer.putShort((short) 0);
-        buffer.putShort((short) 0);
-        buffer.putInt(56);
-        return buffer.array();
-    }
-
-    private String parseNTLMType3Username(byte[] type3Message) {
-        try {
-            if (type3Message.length < 64
-                    || !new String(type3Message, 0, 8, US_ASCII)
-                            .equals("NTLMSSP\0")) {
-                return null;
-            }
-            ByteBuffer buf = ByteBuffer.wrap(type3Message);
-            buf.order(ByteOrder.LITTLE_ENDIAN);
-            buf.position(36);
-            short userLen = buf.getShort();
-            buf.getShort();
-            int userOffset = buf.getInt();
-            if (userOffset + userLen <= type3Message.length) {
-                return new String(type3Message, userOffset,
-                        userLen, "UTF-16LE");
-            }
-        } catch (Exception e) {
-            LOGGER.log(Level.FINE,
-                    "Failed to parse NTLM Type 3 username", e);
         }
         return null;
     }

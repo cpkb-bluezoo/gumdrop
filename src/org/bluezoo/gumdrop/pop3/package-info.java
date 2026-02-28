@@ -92,7 +92,7 @@
  * <h3>Extension Commands (RFC 2449, RFC 2595, RFC 5034, RFC 6816)</h3>
  * <ul>
  *   <li>{@code AUTH} - SASL authentication (PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5,
- *       SCRAM-SHA-256, OAUTHBEARER, GSSAPI, EXTERNAL, NTLM)</li>
+ *       SCRAM-SHA-256, OAUTHBEARER, GSSAPI, EXTERNAL)</li>
  *   <li>{@code CAPA} - List server capabilities</li>
  *   <li>{@code STLS} - Upgrade connection to TLS</li>
  *   <li>{@code UTF8} - Enable UTF-8 mode</li>
@@ -150,7 +150,6 @@
  *   <tr><td>AUTH OAUTHBEARER</td><td>{@code validateBearerToken()}</td><td>RFC 7628</td><td>OAuth 2.0 Bearer tokens</td></tr>
  *   <tr><td>AUTH GSSAPI</td><td>SASL/Kerberos</td><td>RFC 4752</td><td>Enterprise SSO</td></tr>
  *   <tr><td>AUTH EXTERNAL</td><td>Certificate</td><td>RFC 4422</td><td>TLS client certificate</td></tr>
- *   <tr><td>AUTH NTLM</td><td>{@code getPassword()}</td><td>-</td><td>Windows domain auth</td></tr>
  * </table>
  *
  * <h3>Attack Mitigation</h3>
