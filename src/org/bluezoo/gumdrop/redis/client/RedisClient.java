@@ -22,11 +22,13 @@
 package org.bluezoo.gumdrop.redis.client;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -66,12 +68,14 @@ public class RedisClient {
             Logger.getLogger(RedisClient.class.getName());
 
     private final String host;
+    private final InetAddress hostAddress;
     private final int port;
     private final SelectorLoop selectorLoop;
 
     // Configuration (set before connect)
     private boolean secure;
     private SSLContext sslContext;
+    private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
     private String keystoreFormat;
@@ -108,6 +112,32 @@ public class RedisClient {
     public RedisClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
+        this.hostAddress = null;
+        this.port = port;
+    }
+
+    /**
+     * Creates a Redis client for the given address and port.
+     *
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public RedisClient(InetAddress host, int port) {
+        this(null, host, port);
+    }
+
+    /**
+     * Creates a Redis client with an explicit selector loop and address.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public RedisClient(SelectorLoop selectorLoop, InetAddress host,
+                       int port) {
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = host;
         this.port = port;
     }
 
@@ -131,6 +161,17 @@ public class RedisClient {
      */
     public void setSSLContext(SSLContext context) {
         this.sslContext = context;
+    }
+
+    /**
+     * Sets a custom trust manager for TLS certificate verification.
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
+     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
     }
 
     /**
@@ -192,18 +233,32 @@ public class RedisClient {
         if (keystoreFormat != null) {
             transportFactory.setKeystoreFormat(keystoreFormat);
         }
+        if (trustManager != null) {
+            transportFactory.setTrustManager(trustManager);
+        }
         transportFactory.start();
 
         endpointHandler = new RedisClientProtocolHandler(handler);
 
         try {
-            if (selectorLoop != null) {
-                clientEndpoint = new ClientEndpoint(
-                        transportFactory, selectorLoop,
-                        host, port);
+            if (host != null) {
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            host, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, host, port);
+                }
             } else {
-                clientEndpoint = new ClientEndpoint(
-                        transportFactory, host, port);
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            hostAddress, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, hostAddress, port);
+                }
             }
             clientEndpoint.connect(endpointHandler);
             connected = true;

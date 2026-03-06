@@ -23,9 +23,11 @@ package org.bluezoo.gumdrop.imap.client;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
@@ -81,6 +83,10 @@ public class IMAPClient {
 
     private boolean secure;
     private SSLContext sslContext;
+    private X509TrustManager trustManager;
+    private Path keystoreFile;
+    private String keystorePass;
+    private String keystoreFormat;
     private MailboxEventListener mailboxEventListener;
 
     private TCPTransportFactory transportFactory;
@@ -177,6 +183,52 @@ public class IMAPClient {
     }
 
     /**
+     * Sets a custom trust manager for TLS certificate verification.
+     *
+     * <p>When set, the trust manager is injected into the transport
+     * factory's SSL context. Useful for certificate pinning
+     * ({@link org.bluezoo.gumdrop.util.PinnedCertTrustManager}) or
+     * disabling verification in dev/test
+     * ({@link org.bluezoo.gumdrop.util.EmptyX509TrustManager}).
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
+    }
+
+    /**
+     * Sets the keystore file for client certificate authentication.
+     *
+     * @param path the keystore file path
+     */
+    public void setKeystoreFile(Path path) {
+        this.keystoreFile = path;
+    }
+
+    public void setKeystoreFile(String path) {
+        this.keystoreFile = Path.of(path);
+    }
+
+    /**
+     * Sets the keystore password.
+     *
+     * @param password the keystore password
+     */
+    public void setKeystorePass(String password) {
+        this.keystorePass = password;
+    }
+
+    /**
+     * Sets the keystore format (e.g. JKS, PKCS12).
+     *
+     * @param format the keystore format
+     */
+    public void setKeystoreFormat(String format) {
+        this.keystoreFormat = format;
+    }
+
+    /**
      * Sets the listener for unsolicited mailbox events.
      *
      * <p>Can be called before or after {@link #connect}. If called after,
@@ -210,6 +262,18 @@ public class IMAPClient {
         transportFactory.setSecure(secure);
         if (sslContext != null) {
             transportFactory.setSSLContext(sslContext);
+        }
+        if (trustManager != null) {
+            transportFactory.setTrustManager(trustManager);
+        }
+        if (keystoreFile != null) {
+            transportFactory.setKeystoreFile(keystoreFile);
+        }
+        if (keystorePass != null) {
+            transportFactory.setKeystorePass(keystorePass);
+        }
+        if (keystoreFormat != null) {
+            transportFactory.setKeystoreFormat(keystoreFormat);
         }
         transportFactory.start();
 

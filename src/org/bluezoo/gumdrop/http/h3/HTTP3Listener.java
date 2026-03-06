@@ -31,10 +31,12 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.quic.QuicConnection;
@@ -66,6 +68,7 @@ public class HTTP3Listener extends TCPListener
     private int port = -1;
 
     private HTTPRequestHandlerFactory handlerFactory;
+    private HTTPAuthenticationProvider authenticationProvider;
     private HTTPServerMetrics metrics;
     private SelectorLoop selectorLoop;
 
@@ -139,6 +142,25 @@ public class HTTP3Listener extends TCPListener
     }
 
     /**
+     * Sets the authentication provider for this endpoint.
+     *
+     * @param provider the authentication provider, or null to disable
+     */
+    public void setAuthenticationProvider(
+            HTTPAuthenticationProvider provider) {
+        this.authenticationProvider = provider;
+    }
+
+    /**
+     * Returns the authentication provider for this endpoint.
+     *
+     * @return the authentication provider, or null if not configured
+     */
+    public HTTPAuthenticationProvider getAuthenticationProvider() {
+        return authenticationProvider;
+    }
+
+    /**
      * Returns the metrics for this endpoint, or null if telemetry is
      * not enabled.
      *
@@ -196,6 +218,12 @@ public class HTTP3Listener extends TCPListener
             metrics = new HTTPServerMetrics(getTelemetryConfig());
         }
         if (selectorLoop == null) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            if (gumdrop != null) {
+                selectorLoop = gumdrop.nextWorkerLoop();
+            }
+        }
+        if (selectorLoop == null) {
             throw new IllegalStateException(
                     "SelectorLoop must be set before starting "
                             + "HTTP3Listener");
@@ -243,7 +271,8 @@ public class HTTP3Listener extends TCPListener
 
     @Override
     public void connectionAccepted(QuicConnection connection) {
-        new HTTP3ServerHandler(connection, handlerFactory, metrics,
+        new HTTP3ServerHandler(connection, handlerFactory,
+                authenticationProvider, metrics,
                 getTelemetryConfig());
     }
 

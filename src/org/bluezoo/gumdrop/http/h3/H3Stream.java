@@ -34,6 +34,8 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HTTPPrincipal;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
@@ -100,6 +102,7 @@ class H3Stream implements HTTPResponseState {
     private Headers requestHeaders;
     private String method;
     private String requestTarget;
+    private Principal authenticatedPrincipal;
     private boolean bodyStarted;
     private boolean responseStarted;
     private boolean responseBodyStarted;
@@ -143,6 +146,22 @@ class H3Stream implements HTTPResponseState {
             requestHeaders = headers;
             method = headers.getValue(":method");
             requestTarget = headers.getValue(":path");
+
+            HTTPAuthenticationProvider authProvider =
+                    connection.getAuthenticationProvider();
+            if (authProvider != null) {
+                String authHeader =
+                        headers.getValue("authorization");
+                if (authHeader != null) {
+                    HTTPAuthenticationProvider.AuthenticationResult
+                            result = authProvider.authenticate(
+                                    authHeader);
+                    if (result.success) {
+                        authenticatedPrincipal =
+                                new HTTPPrincipal(result.username);
+                    }
+                }
+            }
 
             handler = connection.createHandler(this, headers);
             if (handler == null) {
@@ -244,7 +263,7 @@ class H3Stream implements HTTPResponseState {
 
     @Override
     public Principal getPrincipal() {
-        return null;
+        return authenticatedPrincipal;
     }
 
     @Override

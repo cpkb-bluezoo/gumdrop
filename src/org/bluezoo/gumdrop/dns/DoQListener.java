@@ -32,6 +32,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
@@ -77,7 +78,7 @@ public class DoQListener extends TCPListener
     private Path keyFile;
 
     private SelectorLoop selectorLoop;
-    private final List engines = new ArrayList();
+    private final List<QuicEngine> engines = new ArrayList<>();
 
     @Override
     public int getPort() {
@@ -184,6 +185,12 @@ public class DoQListener extends TCPListener
     public void start() {
         super.start();
         if (selectorLoop == null) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            if (gumdrop != null) {
+                selectorLoop = gumdrop.nextWorkerLoop();
+            }
+        }
+        if (selectorLoop == null) {
             throw new IllegalStateException(
                     "SelectorLoop must be set before starting "
                             + "DoQListener");
@@ -194,7 +201,7 @@ public class DoQListener extends TCPListener
     @Override
     public void stop() {
         for (int i = 0; i < engines.size(); i++) {
-            ((QuicEngine) engines.get(i)).close();
+            engines.get(i).close();
         }
         engines.clear();
     }
@@ -206,9 +213,10 @@ public class DoQListener extends TCPListener
         QuicTransportFactory factory =
                 (QuicTransportFactory) getTransportFactory();
 
-        Set addresses = getAddresses();
-        for (Iterator it = addresses.iterator(); it.hasNext(); ) {
-            InetAddress addr = (InetAddress) it.next();
+        Set<InetAddress> addresses = getAddresses();
+        for (Iterator<InetAddress> it = addresses.iterator();
+             it.hasNext(); ) {
+            InetAddress addr = it.next();
             try {
                 QuicEngine engine = factory.createServerEngine(
                         addr, port, this, selectorLoop);

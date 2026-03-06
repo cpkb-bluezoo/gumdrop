@@ -248,8 +248,24 @@ public class DNSService implements Service {
 
     // ── Lifecycle ──
 
+    /**
+     * Called during {@link #start()} before listeners are wired and
+     * started. Subclasses can override to perform custom initialisation.
+     */
+    protected void initService() {
+    }
+
+    /**
+     * Called during {@link #stop()} after listeners are stopped.
+     * Subclasses can override to release resources.
+     */
+    protected void destroyService() {
+    }
+
     @Override
     public void start() {
+        initService();
+
         if (cacheEnabled) {
             cache = new DNSCache();
         }
@@ -281,6 +297,7 @@ public class DNSService implements Service {
         if (cache != null) {
             cache.clear();
         }
+        destroyService();
     }
 
     // ── Query handling ──

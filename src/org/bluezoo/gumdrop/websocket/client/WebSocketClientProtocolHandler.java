@@ -292,5 +292,10 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
         public boolean isOpen() {
             return connection.isOpen();
         }
+
+        @Override
+        public java.security.Principal getPrincipal() {
+            return null;
+        }
     }
 }

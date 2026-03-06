@@ -1,5 +1,5 @@
 /*
- * POP3Client.java
+ * SMTPClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,13 +19,11 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.pop3.client;
+package org.bluezoo.gumdrop.smtp.client;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
@@ -34,49 +32,33 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
 
 /**
- * High-level POP3 client facade.
+ * High-level SMTP client facade.
  *
- * <p>This class provides a simple, concrete API for connecting to POP3
+ * <p>This class provides a simple, concrete API for connecting to SMTP
  * servers. It internally creates a {@link TCPTransportFactory},
- * {@link ClientEndpoint}, and {@link POP3ClientProtocolHandler}, wiring
+ * {@link ClientEndpoint}, and {@link SMTPClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link ServerGreeting} handler.
  *
- * <h4>Plaintext with STLS</h4>
+ * <h4>Plaintext with STARTTLS (submission)</h4>
  * <pre>{@code
- * POP3Client client = new POP3Client(selectorLoop, "pop.example.com", 110);
- * client.setSSLContext(sslContext); // Makes SSLEngine available for STLS
+ * SMTPClient client = new SMTPClient(selectorLoop, "smtp.example.com", 587);
+ * client.setSSLContext(sslContext);
  * client.connect(new ServerGreeting() {
- *     public void handleGreeting(ClientAuthorizationState auth,
- *                                String message, String apopTimestamp) {
- *         auth.capa(new ServerCapaReplyHandler() {
- *             public void handleCapabilities(ClientAuthorizationState auth,
- *                     boolean stls, List&lt;String&gt; saslMechanisms,
- *                     boolean top, boolean uidl, boolean user,
- *                     boolean pipelining, String implementation) {
- *                 if (stls) {
- *                     auth.stls(stlsHandler);
- *                 } else {
- *                     auth.user("alice", userHandler);
- *                 }
- *             }
- *             // ...
- *         });
+ *     public void handleGreeting(ClientHelloState hello,
+ *                                String message, boolean esmtp) {
+ *         hello.ehlo("myhostname", ehloHandler);
  *     }
- *     public void handleServiceUnavailable(String message) { }
- *     public void onConnected(Endpoint endpoint) { }
- *     public void onSecurityEstablished(SecurityInfo info) { }
- *     public void onError(Exception cause) { cause.printStackTrace(); }
- *     public void onDisconnected() { }
+ *     // ...
  * });
  * }</pre>
  *
- * <h4>Implicit TLS (POP3S)</h4>
+ * <h4>Implicit TLS (SMTPS)</h4>
  * <pre>{@code
- * POP3Client client = new POP3Client("pop.example.com", 995);
+ * SMTPClient client = new SMTPClient("smtp.example.com", 465);
  * client.setSecure(true);
  * client.setSSLContext(sslContext);
  * client.connect(greetingHandler);
@@ -84,12 +66,9 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerGreeting
- * @see POP3ClientProtocolHandler
+ * @see SMTPClientProtocolHandler
  */
-public class POP3Client {
-
-    private static final Logger LOGGER =
-            Logger.getLogger(POP3Client.class.getName());
+public class SMTPClient {
 
     private final String host;
     private final InetAddress hostAddress;
@@ -105,10 +84,10 @@ public class POP3Client {
 
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private POP3ClientProtocolHandler endpointHandler;
+    private SMTPClientProtocolHandler endpointHandler;
 
     /**
-     * Creates a POP3 client for the given hostname and port.
+     * Creates an SMTP client for the given hostname and port.
      *
      * <p>Uses the next available worker loop from the global
      * {@link Gumdrop} instance. DNS resolution is deferred until
@@ -117,12 +96,12 @@ public class POP3Client {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public POP3Client(String host, int port) {
+    public SMTPClient(String host, int port) {
         this(null, host, port);
     }
 
     /**
-     * Creates a POP3 client with an explicit selector loop.
+     * Creates an SMTP client with an explicit selector loop.
      *
      * <p>DNS resolution is deferred until {@link #connect} is called.
      *
@@ -131,7 +110,8 @@ public class POP3Client {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public POP3Client(SelectorLoop selectorLoop, String host, int port) {
+    public SMTPClient(SelectorLoop selectorLoop, String host,
+                      int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.hostAddress = null;
@@ -139,24 +119,24 @@ public class POP3Client {
     }
 
     /**
-     * Creates a POP3 client for the given address and port.
+     * Creates an SMTP client for the given address and port.
      *
      * @param host the remote host address
      * @param port the remote port
      */
-    public POP3Client(InetAddress host, int port) {
+    public SMTPClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
     /**
-     * Creates a POP3 client with an explicit selector loop and address.
+     * Creates an SMTP client with an explicit selector loop and address.
      *
      * @param selectorLoop the selector loop, or null to use a Gumdrop
      *                     worker
      * @param host the remote host address
      * @param port the remote port
      */
-    public POP3Client(SelectorLoop selectorLoop, InetAddress host,
+    public SMTPClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
@@ -169,11 +149,11 @@ public class POP3Client {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Sets whether this client uses implicit TLS (POP3S).
+     * Sets whether this client uses implicit TLS (SMTPS).
      *
-     * <p>When true, the connection starts with TLS immediately (port 995).
-     * When false, the connection starts plaintext and STLS can be used
-     * to upgrade if an SSLContext is configured.
+     * <p>When true, the connection starts with TLS immediately (port 465).
+     * When false, the connection starts plaintext and STARTTLS can be
+     * used to upgrade if an SSLContext is configured.
      *
      * @param secure true for implicit TLS
      */
@@ -185,7 +165,7 @@ public class POP3Client {
      * Sets the SSL context for TLS connections.
      *
      * <p>Required for both implicit TLS ({@code setSecure(true)}) and
-     * explicit TLS via STLS. When set without {@code setSecure(true)},
+     * explicit TLS via STARTTLS. When set without {@code setSecure(true)},
      * an SSLEngine is created but not activated until the protocol
      * handler calls {@code endpoint.startTLS()}.
      *
@@ -242,7 +222,7 @@ public class POP3Client {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Connects to the remote POP3 server.
+     * Connects to the remote SMTP server.
      *
      * <p>Creates the transport factory, endpoint handler, and client
      * endpoint, then initiates the connection. Lifecycle events are
@@ -271,7 +251,7 @@ public class POP3Client {
         }
         transportFactory.start();
 
-        endpointHandler = new POP3ClientProtocolHandler(handler);
+        endpointHandler = new SMTPClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
 
         try {
@@ -310,8 +290,7 @@ public class POP3Client {
     }
 
     /**
-     * Closes the connection and deregisters from Gumdrop's lifecycle
-     * tracking.
+     * Closes the connection.
      */
     public void close() {
         if (endpointHandler != null) {

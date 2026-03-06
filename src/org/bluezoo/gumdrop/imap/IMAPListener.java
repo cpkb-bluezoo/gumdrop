@@ -209,7 +209,7 @@ public class IMAPListener extends TCPListener {
      * @param timeout the timeout string (e.g., "60s", "1m")
      */
     public void setLoginTimeout(String timeout) {
-        this.loginTimeoutMs = parseTimeoutString(timeout);
+        this.loginTimeoutMs = parseDuration(timeout);
     }
 
     /**
@@ -237,44 +237,7 @@ public class IMAPListener extends TCPListener {
      * @param timeout the timeout string (e.g., "5m", "300s")
      */
     public void setCommandTimeout(String timeout) {
-        this.commandTimeoutMs = parseTimeoutString(timeout);
-    }
-
-    /**
-     * Parses a timeout string with optional time unit suffix.
-     *
-     * @param timeout the timeout string (e.g., "30s", "5m", "1h", "5000ms")
-     * @return the timeout in milliseconds
-     */
-    private long parseTimeoutString(String timeout) {
-        if (timeout == null || timeout.isEmpty()) {
-            return 0;
-        }
-        timeout = timeout.trim().toLowerCase();
-
-        long multiplier = 1;
-        String numPart = timeout;
-
-        if (timeout.endsWith("ms")) {
-            numPart = timeout.substring(0, timeout.length() - 2);
-            multiplier = 1;
-        } else if (timeout.endsWith("s")) {
-            numPart = timeout.substring(0, timeout.length() - 1);
-            multiplier = 1000;
-        } else if (timeout.endsWith("m")) {
-            numPart = timeout.substring(0, timeout.length() - 1);
-            multiplier = 60 * 1000;
-        } else if (timeout.endsWith("h")) {
-            numPart = timeout.substring(0, timeout.length() - 1);
-            multiplier = 60 * 60 * 1000;
-        }
-
-        try {
-            return Long.parseLong(numPart.trim()) * multiplier;
-        } catch (NumberFormatException e) {
-            LOGGER.warning("Invalid timeout format: " + timeout);
-            return 0;
-        }
+        this.commandTimeoutMs = parseDuration(timeout);
     }
 
     /**

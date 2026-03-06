@@ -26,8 +26,8 @@ import org.bluezoo.gumdrop.GumdropNative;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.MultiplexedEndpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 
 /**
  * Represents a single QUIC connection containing multiple streams.
@@ -309,19 +310,10 @@ public final class QuicConnection {
             return false;
         }
         try {
-            X509Certificate leaf = (X509Certificate) certs[0];
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(leaf.getEncoded());
-            StringBuilder sb =
-                    new StringBuilder(digest.length * 3 - 1);
-            for (int i = 0; i < digest.length; i++) {
-                if (i > 0) {
-                    sb.append(':');
-                }
-                sb.append(String.format("%02x", digest[i] & 0xff));
-            }
-            return expected.equals(sb.toString());
-        } catch (Exception e) {
+            String actual = PinnedCertTrustManager.computeFingerprint(
+                    (X509Certificate) certs[0]);
+            return expected.equals(actual);
+        } catch (CertificateException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to compute server cert fingerprint", e);
             return false;

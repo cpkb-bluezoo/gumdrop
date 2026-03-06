@@ -22,10 +22,13 @@
 package org.bluezoo.gumdrop.websocket.client;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
@@ -90,12 +93,17 @@ public class WebSocketClient {
             Logger.getLogger(WebSocketClient.class.getName());
 
     private final String host;
+    private final InetAddress hostAddress;
     private final int port;
     private final SelectorLoop selectorLoop;
 
     // Configuration (set before connect)
     private boolean secure;
     private SSLContext sslContext;
+    private X509TrustManager trustManager;
+    private Path keystoreFile;
+    private String keystorePass;
+    private String keystoreFormat;
     private String subprotocol;
 
     // Internal transport components (created at connect time)
@@ -129,6 +137,32 @@ public class WebSocketClient {
     public WebSocketClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
+        this.hostAddress = null;
+        this.port = port;
+    }
+
+    /**
+     * Creates a WebSocket client for the given address and port.
+     *
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public WebSocketClient(InetAddress host, int port) {
+        this(null, host, port);
+    }
+
+    /**
+     * Creates a WebSocket client with an explicit selector loop and address.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public WebSocketClient(SelectorLoop selectorLoop, InetAddress host,
+                           int port) {
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = host;
         this.port = port;
     }
 
@@ -152,6 +186,48 @@ public class WebSocketClient {
      */
     public void setSSLContext(SSLContext context) {
         this.sslContext = context;
+    }
+
+    /**
+     * Sets a custom trust manager for TLS certificate verification.
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
+     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
+    }
+
+    /**
+     * Sets the keystore file for client certificate authentication.
+     *
+     * @param path the keystore file path
+     */
+    public void setKeystoreFile(Path path) {
+        this.keystoreFile = path;
+    }
+
+    public void setKeystoreFile(String path) {
+        this.keystoreFile = Path.of(path);
+    }
+
+    /**
+     * Sets the keystore password.
+     *
+     * @param password the keystore password
+     */
+    public void setKeystorePass(String password) {
+        this.keystorePass = password;
+    }
+
+    /**
+     * Sets the keystore format (e.g. JKS, PKCS12).
+     *
+     * @param format the keystore format
+     */
+    public void setKeystoreFormat(String format) {
+        this.keystoreFormat = format;
     }
 
     /**
@@ -188,6 +264,18 @@ public class WebSocketClient {
         transportFactory.setSecure(secure);
         if (sslContext != null) {
             transportFactory.setSSLContext(sslContext);
+        }
+        if (trustManager != null) {
+            transportFactory.setTrustManager(trustManager);
+        }
+        if (keystoreFile != null) {
+            transportFactory.setKeystoreFile(keystoreFile);
+        }
+        if (keystorePass != null) {
+            transportFactory.setKeystorePass(keystorePass);
+        }
+        if (keystoreFormat != null) {
+            transportFactory.setKeystoreFormat(keystoreFormat);
         }
         transportFactory.start();
 
@@ -228,13 +316,24 @@ public class WebSocketClient {
         protocolHandler.setH2cUpgradeEnabled(false);
 
         try {
-            if (selectorLoop != null) {
-                clientEndpoint = new ClientEndpoint(
-                        transportFactory, selectorLoop,
-                        host, port);
+            if (host != null) {
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            host, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, host, port);
+                }
             } else {
-                clientEndpoint = new ClientEndpoint(
-                        transportFactory, host, port);
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            hostAddress, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, hostAddress, port);
+                }
             }
             clientEndpoint.connect(protocolHandler);
         } catch (IOException e) {

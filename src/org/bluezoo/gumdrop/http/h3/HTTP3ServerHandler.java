@@ -31,6 +31,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
@@ -98,6 +99,7 @@ public class HTTP3ServerHandler
 
     private final QuicConnection quicConnection;
     private final HTTPRequestHandlerFactory handlerFactory;
+    private final HTTPAuthenticationProvider authenticationProvider;
     private final HTTPServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
 
@@ -119,15 +121,18 @@ public class HTTP3ServerHandler
      *
      * @param quicConnection the underlying QUIC connection
      * @param handlerFactory factory for creating request handlers
+     * @param authProvider authentication provider (may be null)
      * @param metrics server metrics (may be null)
      * @param telemetryConfig telemetry configuration (may be null)
      */
     public HTTP3ServerHandler(QuicConnection quicConnection,
                               HTTPRequestHandlerFactory handlerFactory,
+                              HTTPAuthenticationProvider authProvider,
                               HTTPServerMetrics metrics,
                               TelemetryConfig telemetryConfig) {
         this.quicConnection = quicConnection;
         this.handlerFactory = handlerFactory;
+        this.authenticationProvider = authProvider;
         this.metrics = metrics;
         this.telemetryConfig = telemetryConfig;
         this.bodyBuffer = ByteBuffer.allocateDirect(BODY_BUFFER_SIZE);
@@ -384,6 +389,14 @@ public class HTTP3ServerHandler
     }
 
     // ── Telemetry ──
+
+    /**
+     * Returns the authentication provider, or null if authentication
+     * is not configured.
+     */
+    HTTPAuthenticationProvider getAuthenticationProvider() {
+        return authenticationProvider;
+    }
 
     /**
      * Returns the telemetry configuration, or null if telemetry is

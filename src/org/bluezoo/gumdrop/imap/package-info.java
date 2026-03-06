@@ -62,6 +62,17 @@
  *   <li><b>LOGOUT</b> - Connection closing</li>
  * </ul>
  *
+ * <h2>State Pattern</h2>
+ *
+ * <p>IMAP uses separate state objects for each protocol state
+ * (NOT_AUTHENTICATED, AUTHENTICATED, SELECTED, LOGOUT) rather than
+ * having the protocol handler implement all states as a single class.
+ * This differs from SMTP and POP3, which have simpler, strictly
+ * sequential state machines that fit naturally in the protocol handler.
+ * IMAP's concurrent state complexity (e.g. IDLE, multiple selected
+ * mailboxes, unsolicited updates) benefits from dedicated state objects
+ * that encapsulate per-state command dispatch and transitions.
+ *
  * <h2>Security Features</h2>
  * <ul>
  *   <li>IMAPS (implicit TLS on port 993)</li>

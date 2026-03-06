@@ -853,6 +853,11 @@ class Stream implements HTTPResponseState {
         // ─────────── WebSocketSession interface (delegates to parent) ───────────
         // Note: sendText, sendBinary, sendPing, close, isOpen are already 
         // implemented in WebSocketConnection - we just expose them via the interface
+        
+        @Override
+        public Principal getPrincipal() {
+            return authenticatedPrincipal;
+        }
     }
     
     /**

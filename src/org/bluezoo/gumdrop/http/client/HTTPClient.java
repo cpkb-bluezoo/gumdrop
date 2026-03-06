@@ -47,6 +47,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.ClientEndpointPool;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -122,6 +123,10 @@ public class HTTPClient implements AltSvcListener {
     // Configuration (set before connect)
     private boolean secure;
     private SSLContext sslContext;
+    private X509TrustManager trustManager;
+    private Path keystoreFile;
+    private String keystorePass;
+    private String keystoreFormat;
     private String username;
     private String password;
     private boolean h2Enabled = true;
@@ -132,6 +137,7 @@ public class HTTPClient implements AltSvcListener {
     private Path certFile;
     private Path keyFile;
     private boolean verifyPeer = true;
+    private ClientEndpointPool connectionPool;
 
     // Internal transport components (created at connect time)
     private TCPTransportFactory transportFactory;
@@ -178,6 +184,31 @@ public class HTTPClient implements AltSvcListener {
         this.port = port;
     }
 
+    /**
+     * Creates an HTTP client for the given address and port.
+     *
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public HTTPClient(InetAddress host, int port) {
+        this(null, host, port);
+    }
+
+    /**
+     * Creates an HTTP client with an explicit selector loop and address.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public HTTPClient(SelectorLoop selectorLoop, InetAddress host,
+                      int port) {
+        this.selectorLoop = selectorLoop;
+        this.host = host.getHostAddress();
+        this.hostAddress = host;
+        this.port = port;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Configuration (before connect)
     // ═══════════════════════════════════════════════════════════════════
@@ -198,6 +229,48 @@ public class HTTPClient implements AltSvcListener {
      */
     public void setSSLContext(SSLContext context) {
         this.sslContext = context;
+    }
+
+    /**
+     * Sets a custom trust manager for TLS certificate verification.
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
+     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
+    }
+
+    /**
+     * Sets the keystore file for client certificate authentication.
+     *
+     * @param path the keystore file path
+     */
+    public void setKeystoreFile(Path path) {
+        this.keystoreFile = path;
+    }
+
+    public void setKeystoreFile(String path) {
+        this.keystoreFile = Path.of(path);
+    }
+
+    /**
+     * Sets the keystore password.
+     *
+     * @param password the keystore password
+     */
+    public void setKeystorePass(String password) {
+        this.keystorePass = password;
+    }
+
+    /**
+     * Sets the keystore format (e.g. JKS, PKCS12).
+     *
+     * @param format the keystore format
+     */
+    public void setKeystoreFormat(String format) {
+        this.keystoreFormat = format;
     }
 
     /**
@@ -305,6 +378,23 @@ public class HTTPClient implements AltSvcListener {
         this.verifyPeer = verify;
     }
 
+    /**
+     * Sets an optional connection pool for endpoint reuse.
+     *
+     * <p>When set, the client checks the pool for an idle endpoint
+     * before creating a new connection. On request completion with
+     * keep-alive, the endpoint is released back to the pool.
+     *
+     * <p>Pool targets include {@link SelectorLoop} affinity, so
+     * each I/O thread gets its own bucket of pooled connections.
+     *
+     * @param pool the connection pool, or null to disable pooling
+     * @see ClientEndpointPool
+     */
+    public void setConnectionPool(ClientEndpointPool pool) {
+        this.connectionPool = pool;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -337,6 +427,18 @@ public class HTTPClient implements AltSvcListener {
         transportFactory.setSecure(secure);
         if (sslContext != null) {
             transportFactory.setSSLContext(sslContext);
+        }
+        if (trustManager != null) {
+            transportFactory.setTrustManager(trustManager);
+        }
+        if (keystoreFile != null) {
+            transportFactory.setKeystoreFile(keystoreFile);
+        }
+        if (keystorePass != null) {
+            transportFactory.setKeystorePass(keystorePass);
+        }
+        if (keystoreFormat != null) {
+            transportFactory.setKeystoreFormat(keystoreFormat);
         }
         transportFactory.start();
 

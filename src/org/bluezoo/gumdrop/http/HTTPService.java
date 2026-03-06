@@ -30,6 +30,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.h3.HTTP3Listener;
 
 /**
@@ -82,6 +83,33 @@ public abstract class HTTPService implements Service {
             Logger.getLogger(HTTPService.class.getName());
 
     private final List listeners = new ArrayList();
+    private Realm realm;
+
+    // ── Realm ──
+
+    /**
+     * Returns the authentication realm for this service.
+     *
+     * @return the realm, or null if no realm is configured
+     */
+    public Realm getRealm() {
+        return realm;
+    }
+
+    /**
+     * Sets the authentication realm for this service.
+     *
+     * <p>When a realm is configured and no explicit
+     * {@link HTTPAuthenticationProvider} is returned by
+     * {@link #getAuthenticationProvider()}, a
+     * {@link DefaultHTTPAuthenticationProvider} will be created
+     * automatically to bridge the realm to HTTP authentication.
+     *
+     * @param realm the realm
+     */
+    public void setRealm(Realm realm) {
+        this.realm = realm;
+    }
 
     // ── Listener management ──
 
@@ -197,6 +225,9 @@ public abstract class HTTPService implements Service {
         HTTPRequestHandlerFactory factory = getHandlerFactory();
         HTTPAuthenticationProvider authProvider =
                 getAuthenticationProvider();
+        if (authProvider == null && realm != null) {
+            authProvider = new DefaultHTTPAuthenticationProvider(realm);
+        }
         String altSvc = computeAltSvc();
 
         for (int i = 0; i < listeners.size(); i++) {
@@ -238,6 +269,7 @@ public abstract class HTTPService implements Service {
         } else if (listener instanceof HTTP3Listener) {
             HTTP3Listener quic = (HTTP3Listener) listener;
             quic.setHandlerFactory(factory);
+            quic.setAuthenticationProvider(authProvider);
         }
     }
 

@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.websocket;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.security.Principal;
 
 /**
  * A WebSocket session for sending messages to the peer.
@@ -89,5 +90,19 @@ public interface WebSocketSession {
      * @return true if the session is open
      */
     boolean isOpen();
+
+    /**
+     * Returns the authenticated principal for this session, or
+     * {@code null} if the connection was not authenticated.
+     *
+     * <p>When the WebSocket upgrade request included a valid
+     * {@code Authorization} header that was verified by the
+     * configured {@link org.bluezoo.gumdrop.http.HTTPAuthenticationProvider},
+     * this method returns the resulting principal. Otherwise it
+     * returns {@code null}.
+     *
+     * @return the authenticated principal, or null
+     */
+    Principal getPrincipal();
 
 }

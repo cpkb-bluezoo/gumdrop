@@ -42,20 +42,29 @@ import java.util.logging.Logger;
 /**
  * A connection pool for {@link Endpoint} objects.
  *
- * <p>Maintains idle endpoints keyed by target (host, port, secure)
- * and supports automatic idle-timeout cleanup.
+ * <p>Maintains idle endpoints keyed by target (host, port, secure,
+ * SelectorLoop) and supports automatic idle-timeout cleanup.
  *
  * <p>Because {@link Endpoint} is transport-agnostic, this pool works
  * equally well with {@link TCPEndpoint}s and
  * {@link org.bluezoo.gumdrop.quic.QuicStreamEndpoint}s.
  *
- * <h4>Usage</h4>
+ * <h4>SelectorLoop Affinity</h4>
+ *
+ * <p>{@link PoolTarget} includes an optional {@link SelectorLoop} so
+ * that each I/O thread gets its own bucket of pooled connections. This
+ * avoids cross-thread migration of NIO channels. When a server-side
+ * handler on loop X makes an outbound call, it creates a
+ * {@code PoolTarget} that includes loop X, and only endpoints created
+ * on that same loop will be returned.
+ *
+ * <h4>Basic Usage</h4>
  * <pre>{@code
  * ClientEndpointPool pool = new ClientEndpointPool();
  * pool.setMaxEndpointsPerTarget(10);
  * pool.setIdleTimeoutMs(60000);
  *
- * PoolTarget target = new PoolTarget(host, 587, true);
+ * PoolTarget target = new PoolTarget(host, 587, true, selectorLoop);
  * PoolEntry entry = pool.tryAcquire(target);
  * if (entry != null) {
  *     // Reuse the existing endpoint
@@ -68,9 +77,18 @@ import java.util.logging.Logger;
  * pool.release(entry);
  * }</pre>
  *
+ * <h4>HTTPClient Integration</h4>
+ *
+ * <p>{@link org.bluezoo.gumdrop.http.client.HTTPClient} accepts a
+ * pool via {@code setConnectionPool(ClientEndpointPool)}. For other
+ * clients (SMTP, LDAP, Redis), pooling can be managed at the
+ * application layer by acquiring/releasing endpoints around client
+ * operations.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
  * @see ClientEndpoint
+ * @see org.bluezoo.gumdrop.http.client.HTTPClient#setConnectionPool
  */
 public class ClientEndpointPool {
 
@@ -381,18 +399,38 @@ public class ClientEndpointPool {
         private final InetAddress host;
         private final int port;
         private final boolean secure;
+        private final SelectorLoop selectorLoop;
 
         /**
-         * Creates a new pool target.
+         * Creates a new pool target without SelectorLoop affinity.
          *
          * @param host the target host
          * @param port the target port
          * @param secure whether the connection uses TLS
          */
         public PoolTarget(InetAddress host, int port, boolean secure) {
+            this(host, port, secure, null);
+        }
+
+        /**
+         * Creates a new pool target with SelectorLoop affinity.
+         *
+         * <p>When a SelectorLoop is specified, pooled endpoints are
+         * bucketed per-loop so that callers only receive endpoints
+         * running on their own I/O thread. This avoids cross-thread
+         * migration of NIO channels.
+         *
+         * @param host the target host
+         * @param port the target port
+         * @param secure whether the connection uses TLS
+         * @param selectorLoop the I/O loop, or null for no affinity
+         */
+        public PoolTarget(InetAddress host, int port, boolean secure,
+                          SelectorLoop selectorLoop) {
             this.host = host;
             this.port = port;
             this.secure = secure;
+            this.selectorLoop = selectorLoop;
         }
 
         /**
@@ -422,6 +460,15 @@ public class ClientEndpointPool {
             return secure;
         }
 
+        /**
+         * Returns the SelectorLoop affinity, or null if none.
+         *
+         * @return the selector loop
+         */
+        public SelectorLoop getSelectorLoop() {
+            return selectorLoop;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -433,18 +480,23 @@ public class ClientEndpointPool {
             PoolTarget that = (PoolTarget) o;
             return port == that.port
                     && secure == that.secure
-                    && Objects.equals(host, that.host);
+                    && Objects.equals(host, that.host)
+                    && Objects.equals(selectorLoop, that.selectorLoop);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(host, port, secure);
+            return Objects.hash(host, port, secure, selectorLoop);
         }
 
         @Override
         public String toString() {
             String scheme = secure ? "tls://" : "tcp://";
-            return scheme + host.getHostAddress() + ":" + port;
+            String base = scheme + host.getHostAddress() + ":" + port;
+            if (selectorLoop != null) {
+                return base + "@loop-" + selectorLoop.hashCode();
+            }
+            return base;
         }
     }
 
