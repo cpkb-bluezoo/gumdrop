@@ -422,9 +422,28 @@ public class TCPTransportFactory extends TransportFactory {
             }
             if (namedGroups != null) {
                 String[] groups = splitOnColon(namedGroups);
-                params.setNamedGroups(groups);
+                applyNamedGroups(params, groups);
             }
             engine.setSSLParameters(params);
+        }
+    }
+
+    /**
+     * Applies named groups via reflection (available since Java 20).
+     * Silently ignored on older runtimes.
+     */
+    private static void applyNamedGroups(SSLParameters params,
+                                         String[] groups) {
+        try {
+            java.lang.reflect.Method m = SSLParameters.class
+                    .getMethod("setNamedGroups", String[].class);
+            m.invoke(params, (Object) groups);
+        } catch (NoSuchMethodException e) {
+            LOGGER.fine("SSLParameters.setNamedGroups() not available"
+                    + " on this JDK; namedGroups setting ignored");
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to set named groups", e);
         }
     }
 
