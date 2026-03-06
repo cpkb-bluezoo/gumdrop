@@ -205,6 +205,7 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             LOGGER.fine("HTTP/1.1 connection established to " + host + ":" + port);
         }
         if (handler != null) {
+            handler.onConnected(endpoint);
             handler.onSecurityEstablished(info);
         }
     }

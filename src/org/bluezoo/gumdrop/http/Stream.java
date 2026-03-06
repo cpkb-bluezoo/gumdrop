@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketListener;
 import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
@@ -787,9 +788,20 @@ class Stream implements HTTPResponseState {
             Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(key, subprotocol);
             sendResponseHeaders(101, responseHeaders, false);
             
+            // Resolve WebSocket metrics from the listener (if available)
+            WebSocketServerMetrics wsMetrics = null;
+            if (connection instanceof HTTPProtocolHandler) {
+                HTTPListener listener =
+                        ((HTTPProtocolHandler) connection).getListener();
+                if (listener instanceof WebSocketListener) {
+                    wsMetrics = ((WebSocketListener) listener)
+                            .getWebSocketMetrics();
+                }
+            }
+
             // Create adapter that bridges handler to WebSocketConnection
             webSocketAdapter = new WebSocketConnectionAdapter(
-                    handler, connection.getWebSocketMetrics());
+                    handler, wsMetrics);
             webSocketAdapter.setTransport(new StreamWebSocketTransport());
             
             // Configure telemetry if enabled
@@ -827,6 +839,7 @@ class Stream implements HTTPResponseState {
                                    WebSocketServerMetrics wsMetrics) {
             this.handler = handler;
             this.wsMetrics = wsMetrics;
+            setServerMetrics(wsMetrics);
         }
         
         // ─────────── WebSocketConnection abstract methods ───────────

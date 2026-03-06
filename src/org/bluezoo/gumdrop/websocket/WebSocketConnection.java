@@ -120,6 +120,9 @@ public abstract class WebSocketConnection {
     private final AtomicLong bytesReceived = new AtomicLong(0);
     private final AtomicLong bytesSent = new AtomicLong(0);
 
+    // Optional server-level metrics (set by the adapter layer)
+    private WebSocketServerMetrics serverMetrics;
+
     /**
      * Sets the transport mechanism for this WebSocket connection.
      * This is called by the HTTP connection after a successful upgrade.
@@ -140,6 +143,15 @@ public abstract class WebSocketConnection {
      */
     public void setClientMode(boolean clientMode) {
         this.clientMode = clientMode;
+    }
+
+    /**
+     * Sets optional server-level metrics for frame and message tracking.
+     *
+     * @param metrics the metrics instance (may be null)
+     */
+    void setServerMetrics(WebSocketServerMetrics metrics) {
+        this.serverMetrics = metrics;
     }
     
     /**
@@ -439,6 +451,9 @@ public abstract class WebSocketConnection {
      * @throws IOException if an I/O error occurs
      */
     private void processFrame(WebSocketFrame frame) throws IOException {
+        if (serverMetrics != null) {
+            serverMetrics.frameReceived(opcodeToString(frame.getOpcode()));
+        }
         switch (frame.getOpcode()) {
             case WebSocketFrame.OPCODE_TEXT:
             case WebSocketFrame.OPCODE_BINARY:
@@ -630,6 +645,15 @@ public abstract class WebSocketConnection {
             bytesSent.addAndGet(frame.getPayloadBytes().length);
         }
         
+        if (serverMetrics != null) {
+            serverMetrics.frameSent(opcodeToString(frame.getOpcode()));
+            if (frame.getOpcode() == WebSocketFrame.OPCODE_TEXT) {
+                serverMetrics.textMessageSent();
+            } else if (frame.getOpcode() == WebSocketFrame.OPCODE_BINARY) {
+                serverMetrics.binaryMessageSent();
+            }
+        }
+        
         transport.sendFrame(encoded);
     }
 
@@ -639,6 +663,18 @@ public abstract class WebSocketConnection {
     private void checkConnectionOpen() {
         if (state != State.OPEN) {
             throw new IllegalStateException("WebSocket connection is not open: " + state);
+        }
+    }
+
+    private static String opcodeToString(int opcode) {
+        switch (opcode) {
+            case WebSocketFrame.OPCODE_CONTINUATION: return "continuation";
+            case WebSocketFrame.OPCODE_TEXT:          return "text";
+            case WebSocketFrame.OPCODE_BINARY:        return "binary";
+            case WebSocketFrame.OPCODE_CLOSE:         return "close";
+            case WebSocketFrame.OPCODE_PING:          return "ping";
+            case WebSocketFrame.OPCODE_PONG:          return "pong";
+            default:                                  return String.valueOf(opcode);
         }
     }
 

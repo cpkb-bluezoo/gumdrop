@@ -350,7 +350,7 @@ public class DNSService implements Service {
 
             if (metrics != null && !query.getQuestions().isEmpty()) {
                 DNSQuestion q = (DNSQuestion) query.getQuestions().get(0);
-                metrics.queryReceived(q.getType().name());
+                metrics.queryReceived(q.getType().name(), "udp");
             }
 
             if (!query.isQuery()
@@ -374,7 +374,8 @@ public class DNSService implements Service {
                 double durationMs =
                         (System.nanoTime() - startNanos) / 1_000_000.0;
                 metrics.responseSent(
-                        rcodeToString(response.getRcode()), durationMs);
+                        rcodeToString(response.getRcode()), durationMs,
+                        "udp");
             }
             sendResponse(origin, response, source);
 
@@ -568,7 +569,7 @@ public class DNSService implements Service {
 
     // ── Internal helpers ──
 
-    private static String rcodeToString(int rcode) {
+    static String rcodeToString(int rcode) {
         switch (rcode) {
             case DNSMessage.RCODE_NOERROR:  return "NOERROR";
             case DNSMessage.RCODE_FORMERR:  return "FORMERR";

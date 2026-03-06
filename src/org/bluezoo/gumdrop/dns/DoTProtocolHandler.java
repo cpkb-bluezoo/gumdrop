@@ -151,6 +151,13 @@ final class DoTProtocolHandler implements ProtocolHandler {
                         query, endpoint.getRemoteAddress()));
             }
 
+            DNSServerMetrics metrics = service.getMetrics();
+            if (metrics != null && !query.getQuestions().isEmpty()) {
+                DNSQuestion q =
+                        (DNSQuestion) query.getQuestions().get(0);
+                metrics.queryReceived(q.getType().name(), "dot");
+            }
+
             if (!query.isQuery()
                     || query.getOpcode() != DNSMessage.OPCODE_QUERY) {
                 sendResponse(query.createErrorResponse(
@@ -164,7 +171,15 @@ final class DoTProtocolHandler implements ProtocolHandler {
                 return;
             }
 
+            long startNanos = System.nanoTime();
             DNSMessage response = service.processQuery(query);
+            if (metrics != null) {
+                double durationMs =
+                        (System.nanoTime() - startNanos) / 1_000_000.0;
+                metrics.responseSent(
+                        DNSService.rcodeToString(response.getRcode()),
+                        durationMs, "dot");
+            }
             sendResponse(response);
 
         } catch (DNSFormatException e) {

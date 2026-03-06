@@ -48,6 +48,10 @@
  *       for anonymous FTP access</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem} - Local
  *       filesystem implementation with chroot</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem} -
+ *       Decorator that enforces role-based access at the filesystem
+ *       operation level; activated via
+ *       {@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService#setFilesystemEnforcement(boolean)}</li>
  * </ul>
  *
  * <h2>Features</h2>

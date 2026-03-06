@@ -36,6 +36,7 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -477,10 +478,13 @@ public class HTTPClient implements AltSvcListener {
 
     private HTTPClientHandler wrapHandlerForPool(
             final HTTPClientHandler delegate) {
+        final AtomicBoolean registered = new AtomicBoolean(false);
         return new HTTPClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
-                registerWithPool(endpoint);
+                if (registered.compareAndSet(false, true)) {
+                    registerWithPool(endpoint);
+                }
                 delegate.onConnected(endpoint);
             }
 
@@ -641,13 +645,15 @@ public class HTTPClient implements AltSvcListener {
         if (quicEngine != null) {
             quicEngine.close();
         }
-        if (endpointHandler != null) {
-            endpointHandler.close();
-        }
         if (poolEntry != null) {
             releaseToPool();
-        } else if (clientEndpoint != null) {
-            clientEndpoint.close();
+        } else {
+            if (endpointHandler != null) {
+                endpointHandler.close();
+            }
+            if (clientEndpoint != null) {
+                clientEndpoint.close();
+            }
         }
     }
 

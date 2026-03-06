@@ -117,9 +117,12 @@ public class DNSServerMetrics {
      * Records a DNS query received.
      *
      * @param queryType the query type name (e.g. "A", "AAAA", "MX")
+     * @param transport the transport protocol (e.g. "udp", "dot", "doq")
      */
-    public void queryReceived(String queryType) {
-        queryCounter.add(1, Attributes.of("dns.question.type", queryType));
+    public void queryReceived(String queryType, String transport) {
+        queryCounter.add(1, Attributes.of(
+                "dns.question.type", queryType,
+                "dns.transport", transport));
     }
 
     /**
@@ -127,10 +130,15 @@ public class DNSServerMetrics {
      *
      * @param rcode the response code name (e.g. "NOERROR", "NXDOMAIN", "SERVFAIL")
      * @param durationMs the query processing duration in milliseconds
+     * @param transport the transport protocol (e.g. "udp", "dot", "doq")
      */
-    public void responseSent(String rcode, double durationMs) {
-        responseCounter.add(1, Attributes.of("dns.response.code", rcode));
-        queryDuration.record(durationMs, Attributes.of("dns.response.code", rcode));
+    public void responseSent(String rcode, double durationMs,
+                             String transport) {
+        Attributes attrs = Attributes.of(
+                "dns.response.code", rcode,
+                "dns.transport", transport);
+        responseCounter.add(1, attrs);
+        queryDuration.record(durationMs, attrs);
     }
 
     /**

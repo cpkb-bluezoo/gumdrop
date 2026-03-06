@@ -96,10 +96,11 @@ public class WebSocketListener extends HTTPListener {
     }
 
     /**
-     * Starts this listener. Wires the internal WebSocket upgrade handler
-     * factory before starting the underlying HTTP listener.
+     * Returns the WebSocket server metrics, or null if metrics are
+     * not enabled.
+     *
+     * @return the metrics instance, or null
      */
-    @Override
     public WebSocketServerMetrics getWebSocketMetrics() {
         return wsMetrics;
     }

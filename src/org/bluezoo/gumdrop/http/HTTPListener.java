@@ -25,7 +25,6 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.TransportFactory;
-import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 
 /**
  * TCP transport listener for HTTP/1.1 and HTTP/2 connections.
@@ -104,17 +103,6 @@ public class HTTPListener extends TCPListener {
      */
     public HTTPServerMetrics getMetrics() {
         return metrics;
-    }
-
-    /**
-     * Returns the WebSocket server metrics, or null if not a WebSocket
-     * listener or telemetry is not enabled. Overridden in
-     * {@link org.bluezoo.gumdrop.websocket.WebSocketListener}.
-     *
-     * @return the WebSocket server metrics, or null
-     */
-    public WebSocketServerMetrics getWebSocketMetrics() {
-        return null;
     }
 
     /**

@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FTPFileSystem;
 import org.bluezoo.gumdrop.ftp.FTPService;
@@ -52,9 +53,15 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  *   <property name="root-directory">/var/ftp</property>
  *   <property name="welcome-message">Welcome to Secure FTP</property>
  *   <property name="quota-manager" ref="#quotaManager"/>
+ *   <property name="filesystem-enforcement">true</property>
  *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
  * </service>
  * }</pre>
+ *
+ * <p>When {@code filesystem-enforcement} is {@code true}, each handler's
+ * file system is wrapped in a {@link RoleAwareFTPFileSystem} decorator
+ * that enforces role checks at the filesystem operation level, in
+ * addition to the command-level checks in {@link RoleBasedFTPHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see FTPService
@@ -69,6 +76,7 @@ public class RoleBasedFTPService extends FTPService {
     private FTPFileSystem fileSystem;
     private Path rootDirectory;
     private boolean readOnly = false;
+    private boolean filesystemEnforcement = false;
     private QuotaManager quotaManager;
     private String welcomeMessage;
 
@@ -106,6 +114,24 @@ public class RoleBasedFTPService extends FTPService {
 
     public void setReadOnly(boolean readOnly) {
         this.readOnly = readOnly;
+    }
+
+    /**
+     * Enables filesystem-level role enforcement via
+     * {@link RoleAwareFTPFileSystem}. When enabled, the file system
+     * returned by each handler is wrapped in a decorator that checks
+     * the authenticated user's roles before every operation. This
+     * provides defense-in-depth alongside the command-level checks
+     * in {@link RoleBasedFTPHandler}.
+     *
+     * @param enabled true to enable filesystem enforcement
+     */
+    public void setFilesystemEnforcement(boolean enabled) {
+        this.filesystemEnforcement = enabled;
+    }
+
+    public boolean isFilesystemEnforcement() {
+        return filesystemEnforcement;
     }
 
     public QuotaManager getQuotaManager() {
@@ -146,8 +172,13 @@ public class RoleBasedFTPService extends FTPService {
 
     @Override
     protected FTPConnectionHandler createHandler(TCPListener endpoint) {
+        FTPFileSystem fs = fileSystem;
+        if (filesystemEnforcement) {
+            Realm realm = getRealm();
+            fs = new RoleAwareFTPFileSystem(fs, realm);
+        }
         RoleBasedFTPHandler handler =
-                new RoleBasedFTPHandler(getRealm(), fileSystem);
+                new RoleBasedFTPHandler(getRealm(), fs);
         if (welcomeMessage != null) {
             handler.setWelcomeMessage(welcomeMessage);
         }
