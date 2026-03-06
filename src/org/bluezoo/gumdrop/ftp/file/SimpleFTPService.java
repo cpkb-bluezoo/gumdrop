@@ -25,7 +25,6 @@ import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
-import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FTPService;
 
@@ -58,7 +57,6 @@ public class SimpleFTPService extends FTPService {
 
     private Path rootDirectory;
     private boolean readOnly = false;
-    private Realm realm;
 
     private BasicFTPFileSystem fileSystem;
 
@@ -84,14 +82,6 @@ public class SimpleFTPService extends FTPService {
         this.readOnly = readOnly;
     }
 
-    public Realm getRealm() {
-        return realm;
-    }
-
-    public void setRealm(Realm realm) {
-        this.realm = realm;
-    }
-
     // ── FTPService hooks ──
 
     @Override
@@ -103,12 +93,12 @@ public class SimpleFTPService extends FTPService {
         fileSystem = new BasicFTPFileSystem(rootDirectory, readOnly);
         LOGGER.info("SimpleFTPService initialised: root=" + rootDirectory
                 + ", readOnly=" + readOnly
-                + ", realm=" + (realm != null));
+                + ", realm=" + (getRealm() != null));
     }
 
     @Override
     protected FTPConnectionHandler createHandler(TCPListener endpoint) {
-        return new SimpleFTPHandler(fileSystem, realm);
+        return new SimpleFTPHandler(fileSystem, getRealm());
     }
 
 }

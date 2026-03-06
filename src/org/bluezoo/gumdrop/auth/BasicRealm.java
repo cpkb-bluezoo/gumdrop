@@ -29,6 +29,8 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.cert.CertificateEncodingException;
+import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -98,6 +100,13 @@ public class BasicRealm extends DefaultHandler implements Realm {
     Map<String, String> passwords;
 
     /**
+     * Certificate SHA-256 fingerprints mapped to usernames.
+     * Keys are colon-separated hex fingerprints (e.g. "ab:cd:ef:..."),
+     * values are the corresponding usernames.
+     */
+    Map<String, String> certFingerprints;
+
+    /**
      * Users to set of role names (the 'name' attribute from groups).
      */
     Map<String, Set<String>> userRoles;
@@ -121,6 +130,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
 
     public BasicRealm() {
         passwords = new LinkedHashMap<String, String>();
+        certFingerprints = new LinkedHashMap<String, String>();
         userRoles = new LinkedHashMap<String, Set<String>>();
         groupIdToName = new LinkedHashMap<String, String>();
     }
@@ -174,7 +184,10 @@ public class BasicRealm extends DefaultHandler implements Realm {
 
     @Override
     public boolean userExists(String username) {
-        return passwords.containsKey(username);
+        if (passwords.containsKey(username)) {
+            return true;
+        }
+        return certFingerprints.containsValue(username);
     }
 
     /**
@@ -242,6 +255,42 @@ public class BasicRealm extends DefaultHandler implements Realm {
         return ScramCredentials.derive(password, salt, 4096, "SHA-256");
     }
 
+    @Override
+    public CertificateAuthenticationResult authenticateCertificate(
+            X509Certificate certificate) {
+        if (certFingerprints.isEmpty()) {
+            return null;
+        }
+        String fingerprint = computeSHA256Fingerprint(certificate);
+        if (fingerprint == null) {
+            return CertificateAuthenticationResult.failure();
+        }
+        String username = certFingerprints.get(fingerprint);
+        if (username != null) {
+            return CertificateAuthenticationResult.success(username);
+        }
+        return CertificateAuthenticationResult.failure();
+    }
+
+    static String computeSHA256Fingerprint(X509Certificate certificate) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(certificate.getEncoded());
+            StringBuilder sb = new StringBuilder(digest.length * 3 - 1);
+            for (int i = 0; i < digest.length; i++) {
+                if (i > 0) {
+                    sb.append(':');
+                }
+                sb.append(String.format("%02x", digest[i] & 0xff));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
+            LOGGER.warning("Failed to compute certificate fingerprint: "
+                    + e.getMessage());
+            return null;
+        }
+    }
+
     public void setHref(String href) {
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
@@ -284,8 +333,20 @@ public class BasicRealm extends DefaultHandler implements Realm {
             String username = atts.getValue("name");
             String password = atts.getValue("password");
             String groups = atts.getValue("groups");
+            String certFp = atts.getValue("cert-fingerprint");
             
-            passwords.put(username, password);
+            if (password != null) {
+                passwords.put(username, password);
+            }
+            
+            if (certFp != null && !certFp.isEmpty()) {
+                // Strip optional "SHA-256:" prefix, normalize to lowercase
+                String fp = certFp;
+                if (fp.startsWith("SHA-256:")) {
+                    fp = fp.substring(8);
+                }
+                certFingerprints.put(fp.toLowerCase(), username);
+            }
             
             // If user is nested in a group, add to that group's role
             if (currentGroupName != null) {

@@ -30,7 +30,10 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -48,6 +51,7 @@ import javax.net.ssl.StandardConstants;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509KeyManager;
+import javax.net.ssl.X509TrustManager;
 
 /**
  * TCP transport factory.
@@ -203,8 +207,11 @@ public class TCPTransportFactory extends TransportFactory {
     /**
      * Loads TrustManagers from the configured truststore.
      * If no truststore is configured, returns null (JVM default truststore).
+     * When a pinned certificate fingerprint is configured, wraps the
+     * trust managers to additionally verify the server's leaf certificate.
      */
     private TrustManager[] loadTrustManagers() throws Exception {
+        TrustManager[] base = null;
         if (truststoreFile != null && truststorePass != null) {
             KeyStore ts = KeyStore.getInstance(truststoreFormat);
             try (InputStream in = new FileInputStream(
@@ -214,10 +221,29 @@ public class TCPTransportFactory extends TransportFactory {
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(
                     TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(ts);
-            return tmf.getTrustManagers();
+            base = tmf.getTrustManagers();
         }
-        // null = JVM default truststore
-        return null;
+
+        if (pinnedCertFingerprint != null) {
+            if (base == null) {
+                TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                        TrustManagerFactory.getDefaultAlgorithm());
+                tmf.init((KeyStore) null);
+                base = tmf.getTrustManagers();
+            }
+            TrustManager[] pinned = new TrustManager[base.length];
+            for (int i = 0; i < base.length; i++) {
+                if (base[i] instanceof X509TrustManager) {
+                    pinned[i] = new PinnedCertTrustManager(
+                            (X509TrustManager) base[i],
+                            pinnedCertFingerprint);
+                } else {
+                    pinned[i] = base[i];
+                }
+            }
+            return pinned;
+        }
+        return base;
     }
 
     // -- Endpoint creation --
@@ -441,5 +467,77 @@ public class TCPTransportFactory extends TransportFactory {
     @Override
     protected String getDescription() {
         return "TCP";
+    }
+
+    /**
+     * X509TrustManager wrapper that delegates normal chain validation
+     * to a base trust manager, then additionally checks the server's
+     * leaf certificate against a pinned SHA-256 fingerprint.
+     */
+    private static class PinnedCertTrustManager
+            implements X509TrustManager {
+
+        private final X509TrustManager delegate;
+        private final String expectedFingerprint;
+
+        PinnedCertTrustManager(X509TrustManager delegate,
+                               String expectedFingerprint) {
+            this.delegate = delegate;
+            this.expectedFingerprint = expectedFingerprint;
+        }
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain,
+                                       String authType)
+                throws CertificateException {
+            delegate.checkClientTrusted(chain, authType);
+        }
+
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain,
+                                       String authType)
+                throws CertificateException {
+            delegate.checkServerTrusted(chain, authType);
+            if (chain.length == 0) {
+                throw new CertificateException(
+                        "Empty certificate chain");
+            }
+            String actual = computeFingerprint(chain[0]);
+            if (!expectedFingerprint.equals(actual)) {
+                throw new CertificateException(
+                        "Server certificate fingerprint mismatch: "
+                                + "expected " + expectedFingerprint
+                                + ", got " + actual);
+            }
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return delegate.getAcceptedIssuers();
+        }
+
+        private static String computeFingerprint(
+                X509Certificate cert)
+                throws CertificateException {
+            try {
+                MessageDigest md =
+                        MessageDigest.getInstance("SHA-256");
+                byte[] digest = md.digest(cert.getEncoded());
+                StringBuilder sb =
+                        new StringBuilder(digest.length * 3 - 1);
+                for (int i = 0; i < digest.length; i++) {
+                    if (i > 0) {
+                        sb.append(':');
+                    }
+                    sb.append(String.format("%02x",
+                            digest[i] & 0xff));
+                }
+                return sb.toString();
+            } catch (Exception e) {
+                throw new CertificateException(
+                        "Failed to compute certificate fingerprint",
+                        e);
+            }
+        }
     }
 }

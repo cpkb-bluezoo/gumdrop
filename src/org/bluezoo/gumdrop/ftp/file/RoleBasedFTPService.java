@@ -25,7 +25,6 @@ import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
-import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FTPFileSystem;
 import org.bluezoo.gumdrop.ftp.FTPService;
@@ -67,7 +66,6 @@ public class RoleBasedFTPService extends FTPService {
     private static final Logger LOGGER =
             Logger.getLogger(RoleBasedFTPService.class.getName());
 
-    private Realm realm;
     private FTPFileSystem fileSystem;
     private Path rootDirectory;
     private boolean readOnly = false;
@@ -75,14 +73,6 @@ public class RoleBasedFTPService extends FTPService {
     private String welcomeMessage;
 
     // ── Configuration ──
-
-    public Realm getRealm() {
-        return realm;
-    }
-
-    public void setRealm(Realm realm) {
-        this.realm = realm;
-    }
 
     public FTPFileSystem getFileSystem() {
         return fileSystem;
@@ -138,7 +128,7 @@ public class RoleBasedFTPService extends FTPService {
 
     @Override
     protected void initService() {
-        if (realm == null) {
+        if (getRealm() == null) {
             throw new IllegalStateException("realm must be configured");
         }
         if (fileSystem == null) {
@@ -150,14 +140,14 @@ public class RoleBasedFTPService extends FTPService {
             fileSystem = new BasicFTPFileSystem(rootDirectory, readOnly);
         }
         LOGGER.info("RoleBasedFTPService initialised: realm="
-                + realm.getClass().getSimpleName()
+                + getRealm().getClass().getSimpleName()
                 + ", quota=" + (quotaManager != null));
     }
 
     @Override
     protected FTPConnectionHandler createHandler(TCPListener endpoint) {
         RoleBasedFTPHandler handler =
-                new RoleBasedFTPHandler(realm, fileSystem);
+                new RoleBasedFTPHandler(getRealm(), fileSystem);
         if (welcomeMessage != null) {
             handler.setWelcomeMessage(welcomeMessage);
         }

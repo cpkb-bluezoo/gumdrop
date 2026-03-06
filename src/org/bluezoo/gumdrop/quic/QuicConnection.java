@@ -26,6 +26,9 @@ import org.bluezoo.gumdrop.GumdropNative;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
@@ -270,6 +273,14 @@ public final class QuicConnection {
      * and the waiting {@code clientHandler} is notified.
      */
     private void notifyClientHandshakeComplete() {
+        String pinned = engine.getFactory().getPinnedCertFingerprint();
+        if (pinned != null && !verifyCertFingerprint(pinned)) {
+            LOGGER.severe("QUIC server certificate fingerprint mismatch"
+                    + " for " + remoteAddress);
+            close();
+            return;
+        }
+
         if (clientConnectionAcceptedHandler != null) {
             QuicEngine.ConnectionAcceptedHandler ch =
                     clientConnectionAcceptedHandler;
@@ -283,6 +294,38 @@ public final class QuicConnection {
         ProtocolHandler handler = clientHandler;
         clientHandler = null;
         openStream(handler);
+    }
+
+    private boolean verifyCertFingerprint(String expected) {
+        SecurityInfo si = getSecurityInfo();
+        if (si == null) {
+            return false;
+        }
+        Certificate[] certs = si.getPeerCertificates();
+        if (certs == null || certs.length == 0) {
+            return false;
+        }
+        if (!(certs[0] instanceof X509Certificate)) {
+            return false;
+        }
+        try {
+            X509Certificate leaf = (X509Certificate) certs[0];
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(leaf.getEncoded());
+            StringBuilder sb =
+                    new StringBuilder(digest.length * 3 - 1);
+            for (int i = 0; i < digest.length; i++) {
+                if (i > 0) {
+                    sb.append(':');
+                }
+                sb.append(String.format("%02x", digest[i] & 0xff));
+            }
+            return expected.equals(sb.toString());
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to compute server cert fingerprint", e);
+            return false;
+        }
     }
 
     /**

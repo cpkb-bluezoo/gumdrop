@@ -30,6 +30,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.auth.Realm;
 
 /**
  * Abstract base for FTP application services.
@@ -72,6 +73,7 @@ public abstract class FTPService implements Service {
 
     // ── Service-level configuration ──
 
+    private Realm realm;
     private boolean requireTLSForData = false;
 
     // ── Listener management ──
@@ -159,6 +161,26 @@ public abstract class FTPService implements Service {
         this.requireTLSForData = require;
     }
 
+    /**
+     * Returns the authentication realm for this service, or null
+     * if authentication is handled by the connection handler directly
+     * (or not required, as in anonymous FTP).
+     *
+     * @return the realm
+     */
+    public Realm getRealm() {
+        return realm;
+    }
+
+    /**
+     * Sets the authentication realm for this service.
+     *
+     * @param realm the realm
+     */
+    public void setRealm(Realm realm) {
+        this.realm = realm;
+    }
+
     // ── Handler creation ──
 
     /**
@@ -227,6 +249,9 @@ public abstract class FTPService implements Service {
      */
     private void wireEndpoint(FTPListener ep) {
         ep.setRequireTLSForData(requireTLSForData);
+        if (realm != null) {
+            ep.setRealm(realm);
+        }
     }
 
     private void startListener(Object listener) {

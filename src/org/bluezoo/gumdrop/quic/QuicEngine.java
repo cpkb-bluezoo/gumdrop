@@ -117,6 +117,10 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         this.serverMode = serverMode;
     }
 
+    QuicTransportFactory getFactory() {
+        return factory;
+    }
+
     /**
      * Initialises the engine with its DatagramChannel and buffers.
      * Called by QuicTransportFactory after channel setup.
@@ -631,6 +635,21 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             return clientConnection.getSecurityInfo();
         }
         return NullSecurityInfo.INSTANCE;
+    }
+
+    @Override
+    public void pauseRead() {
+        // Read flow control is per-stream in QUIC, not per-engine.
+    }
+
+    @Override
+    public void resumeRead() {
+        // Read flow control is per-stream in QUIC, not per-engine.
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        // Write-readiness is per-stream in QUIC, not per-engine.
     }
 
     @Override

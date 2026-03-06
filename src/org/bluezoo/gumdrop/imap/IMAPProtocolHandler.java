@@ -1158,13 +1158,32 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     }
 
     private void handleAuthEXTERNAL(String initialResponse) throws IOException {
-        if (!endpoint.isSecure()) {
-            sendTaggedNo(pendingAuthTag,
-                    L10N.getString("imap.err.external_requires_tls"));
+        String authzid = null;
+        if (initialResponse != null && !initialResponse.isEmpty()) {
+            try {
+                byte[] decoded = Base64.getDecoder()
+                        .decode(initialResponse);
+                String authzidParam = new String(decoded,
+                        StandardCharsets.US_ASCII);
+                if (!authzidParam.isEmpty()) {
+                    authzid = authzidParam;
+                }
+            } catch (IllegalArgumentException e) {
+                sendTaggedBad(pendingAuthTag,
+                        L10N.getString("imap.err.invalid_base64"));
+                return;
+            }
+        }
+
+        Realm.CertificateAuthenticationResult result =
+                SASLUtils.authenticateExternal(
+                        endpoint, getRealm(), authzid);
+        if (result == null || !result.valid) {
+            authFailed();
             return;
         }
-        sendTaggedNo(pendingAuthTag,
-                L10N.getString("imap.err.external_unavailable"));
+
+        openMailStore(result.username, "EXTERNAL");
     }
 
     // ── SASL response processing ──

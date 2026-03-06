@@ -44,6 +44,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
@@ -224,6 +226,30 @@ public class FTPProtocolHandler
             metadata.setClientCertificates(info.getPeerCertificates());
             metadata.setCipherSuite(info.getCipherSuite());
             metadata.setProtocolVersion(info.getProtocol());
+        }
+
+        if (!authenticated && endpoint != null) {
+            Realm realm = server.getRealm();
+            if (realm != null) {
+                Realm.CertificateAuthenticationResult result =
+                        SASLUtils.authenticateExternal(
+                                endpoint, realm, null);
+                if (result != null && result.valid) {
+                    user = result.username;
+                    authenticated = true;
+                    metadata.setAuthenticated(true);
+                    metadata.setAuthenticatedUser(user);
+                    recordAuthenticationSuccess("CERT");
+                    try {
+                        reply(232,
+                            L10N.getString("ftp.login_successful"));
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING,
+                                "Failed to send cert auto-login reply",
+                                e);
+                    }
+                }
+            }
         }
     }
 

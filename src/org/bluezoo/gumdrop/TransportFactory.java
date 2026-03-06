@@ -107,6 +107,15 @@ public abstract class TransportFactory {
      */
     protected String namedGroups;
 
+    /**
+     * Optional pinned server certificate fingerprint for client-side
+     * connections. When set, the client verifies that the server's
+     * leaf certificate matches this SHA-256 fingerprint after the
+     * normal chain validation. Format: colon-separated lowercase hex
+     * (e.g. "ab:cd:ef:01:23:...") with optional "SHA-256:" prefix.
+     */
+    protected String pinnedCertFingerprint;
+
     // -- Telemetry --
 
     protected TelemetryConfig telemetryConfig;
@@ -296,6 +305,34 @@ public abstract class TransportFactory {
      */
     public void setNamedGroups(String namedGroups) {
         this.namedGroups = namedGroups;
+    }
+
+    /**
+     * Sets an optional pinned server certificate fingerprint for
+     * client-side connections.
+     *
+     * <p>When set, the client verifies that the server's leaf
+     * certificate has this SHA-256 fingerprint after the normal chain
+     * validation. If it doesn't match, the handshake fails.
+     *
+     * @param fingerprint colon-separated hex with optional
+     *                    "SHA-256:" prefix
+     */
+    public void setPinnedCertFingerprint(String fingerprint) {
+        if (fingerprint != null && fingerprint.startsWith("SHA-256:")) {
+            fingerprint = fingerprint.substring(8);
+        }
+        this.pinnedCertFingerprint = fingerprint != null
+                ? fingerprint.toLowerCase() : null;
+    }
+
+    /**
+     * Returns the pinned server certificate fingerprint.
+     *
+     * @return the fingerprint, or null if not configured
+     */
+    public String getPinnedCertFingerprint() {
+        return pinnedCertFingerprint;
     }
 
     // -- Telemetry --

@@ -33,8 +33,6 @@ import java.nio.charset.CoderResult;
 import java.security.MessageDigest;
 import java.security.Principal;
 import java.security.SecureRandom;
-import java.security.cert.Certificate;
-import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -882,28 +880,7 @@ public class POP3ProtocolHandler
 
     private void handleAuthEXTERNAL(String initialResponse)
             throws IOException {
-        if (!endpoint.isSecure()) {
-            sendERR(L10N.getString(
-                    "pop3.err.external_requires_tls"));
-            return;
-        }
-
-        Certificate[] peerCerts =
-                endpoint.getSecurityInfo().getPeerCertificates();
-        if (peerCerts == null || peerCerts.length == 0) {
-            sendERR(L10N.getString("pop3.err.no_client_cert"));
-            return;
-        }
-
-        X509Certificate clientCert = (X509Certificate) peerCerts[0];
-        String certUsername = extractCertificateUsername(clientCert);
-
-        if (certUsername == null) {
-            sendERR(L10N.getString("pop3.err.cert_username_error"));
-            return;
-        }
-
-        String authzid = certUsername;
+        String authzid = null;
         if (initialResponse != null && !initialResponse.isEmpty()) {
             try {
                 byte[] decoded = Base64.getDecoder()
@@ -918,18 +895,23 @@ public class POP3ProtocolHandler
             }
         }
 
-        Realm realm = getRealm();
-        if (realm != null) {
-            realm.passwordMatch(certUsername, "");
+        Realm.CertificateAuthenticationResult result =
+                SASLUtils.authenticateExternal(
+                        endpoint, getRealm(), authzid);
+        if (result == null || !result.valid) {
+            recordAuthenticationFailure("AUTH EXTERNAL", authzid);
+            sendERR(L10N.getString("pop3.err.auth_failed"));
+            return;
         }
 
-        if (openMailbox(authzid)) {
-            username = authzid;
+        if (openMailbox(result.username)) {
+            username = result.username;
             state = POP3State.TRANSACTION;
             recordAuthenticationSuccess("AUTH EXTERNAL");
             sendOK(L10N.getString("pop3.mailbox_opened"));
         } else {
-            recordAuthenticationFailure("AUTH EXTERNAL", authzid);
+            recordAuthenticationFailure("AUTH EXTERNAL",
+                    result.username);
             sendERR(L10N.getString("pop3.err.auth_failed"));
         }
     }
@@ -1336,24 +1318,6 @@ public class POP3ProtocolHandler
 
     private void sendContinuation(String data) throws IOException {
         sendLine("+ " + data);
-    }
-
-    private String extractCertificateUsername(X509Certificate cert) {
-        String dn = cert.getSubjectX500Principal().getName();
-        int partStart = 0;
-        int dnLen = dn.length();
-        while (partStart <= dnLen) {
-            int partEnd = dn.indexOf(',', partStart);
-            if (partEnd < 0) {
-                partEnd = dnLen;
-            }
-            String trimmed = dn.substring(partStart, partEnd).trim();
-            if (trimmed.startsWith("CN=")) {
-                return trimmed.substring(3);
-            }
-            partStart = partEnd + 1;
-        }
-        return null;
     }
 
     // ── ConnectedState ──

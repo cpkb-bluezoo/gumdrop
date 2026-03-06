@@ -29,11 +29,16 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ResourceBundle;
+
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.auth.Realm.CertificateAuthenticationResult;
 
 /**
  * Utility methods for SASL authentication mechanisms.
@@ -440,6 +445,53 @@ public final class SASLUtils {
         }
         
         return result;
+    }
+
+    /**
+     * Performs SASL EXTERNAL authentication using the peer certificate
+     * from the TLS session.
+     *
+     * <p>This method extracts the client certificate from the endpoint's
+     * security info, delegates to the Realm for certificate-to-user
+     * mapping, and handles the optional authorization identity (authzid).
+     *
+     * @param endpoint the TLS endpoint with peer certificates
+     * @param realm the realm to authenticate against
+     * @param authzid the requested authorization identity, or null
+     * @return the authentication result
+     */
+    public static CertificateAuthenticationResult authenticateExternal(
+            Endpoint endpoint, Realm realm, String authzid) {
+        if (realm == null) {
+            return CertificateAuthenticationResult.failure();
+        }
+        if (!endpoint.isSecure()) {
+            return CertificateAuthenticationResult.failure();
+        }
+        Certificate[] certs =
+                endpoint.getSecurityInfo().getPeerCertificates();
+        if (certs == null || certs.length == 0) {
+            return CertificateAuthenticationResult.failure();
+        }
+        if (!(certs[0] instanceof X509Certificate)) {
+            return CertificateAuthenticationResult.failure();
+        }
+
+        X509Certificate clientCert = (X509Certificate) certs[0];
+        CertificateAuthenticationResult result =
+                realm.authenticateCertificate(clientCert);
+        if (result == null || !result.valid) {
+            return CertificateAuthenticationResult.failure();
+        }
+
+        String targetUser = result.username;
+        if (authzid != null && !authzid.isEmpty()) {
+            if (!realm.authorizeAs(result.username, authzid)) {
+                return CertificateAuthenticationResult.failure();
+            }
+            targetUser = authzid;
+        }
+        return CertificateAuthenticationResult.success(targetUser);
     }
 
 }

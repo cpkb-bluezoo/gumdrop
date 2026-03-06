@@ -1120,6 +1120,8 @@ public class SMTPProtocolHandler
             handleAuthPlain(initialResponse);
         } else if ("LOGIN".equals(mechanism)) {
             handleAuthLogin(initialResponse);
+        } else if ("EXTERNAL".equals(mechanism)) {
+            handleAuthExternal(initialResponse);
         } else {
             reply(504, "5.5.4 Authentication mechanism not supported");
         }
@@ -1166,6 +1168,34 @@ public class SMTPProtocolHandler
                 LOGGER.log(Level.WARNING, "AUTH PLAIN error", e);
             }
         }
+    }
+
+    private void handleAuthExternal(String initialResponse) throws IOException {
+        String authzid = null;
+        if (initialResponse != null && !initialResponse.isEmpty()
+                && !initialResponse.equals("=")) {
+            try {
+                byte[] decoded = Base64.getDecoder().decode(initialResponse);
+                String authzidParam = new String(decoded, US_ASCII);
+                if (!authzidParam.isEmpty()) {
+                    authzid = authzidParam;
+                }
+            } catch (IllegalArgumentException e) {
+                reply(501, "5.5.2 Invalid BASE64 encoding");
+                return;
+            }
+        }
+
+        Realm.CertificateAuthenticationResult result =
+                SASLUtils.authenticateExternal(
+                        endpoint, getRealm(), authzid);
+        if (result == null || !result.valid) {
+            notifyAuthenticationFailure(authzid, "EXTERNAL");
+            return;
+        }
+
+        notifyAuthenticationSuccess(result.username, "EXTERNAL");
+        resetAuthState();
     }
 
     private void handleAuthLogin(String initialResponse) throws IOException {

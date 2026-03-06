@@ -45,6 +45,8 @@ import java.security.Principal;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.text.DateFormat;
+
+import org.bluezoo.gumdrop.auth.Realm;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
@@ -536,27 +538,43 @@ class Request implements HttpServletRequest {
      * Handle CLIENT_CERT authentication (servlet-specific).
      */
     private boolean authenticateClientCert(HttpServletResponse response) throws IOException {
-        String username = null;
-        String realm = context.getRealmName();
+        String realmName = context.getRealmName();
 
         Certificate[] certificates = getPeerCertificates();
-        if (certificates != null) {
-            for (Certificate certificate : certificates) {
-                if (certificate instanceof X509Certificate) {
-                    X509Certificate x509 = (X509Certificate) certificate;
-                    username = x509.getSubjectX500Principal().getName();
-                    break;
-                }
-            }
-        }
-
-        if (username == null) {
-            response.setStatus(HttpServletResponse.SC_FORBIDDEN); // NB not 401 Unauthorized
+        if (certificates == null || certificates.length == 0) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.setContentLength(0);
             return false;
         }
 
-        userPrincipal = new ServletPrincipal(context, realm, username);
+        X509Certificate x509 = null;
+        for (Certificate certificate : certificates) {
+            if (certificate instanceof X509Certificate) {
+                x509 = (X509Certificate) certificate;
+                break;
+            }
+        }
+        if (x509 == null) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentLength(0);
+            return false;
+        }
+
+        Realm realm = context.getRealm(realmName);
+        if (realm != null) {
+            Realm.CertificateAuthenticationResult result =
+                    realm.authenticateCertificate(x509);
+            if (result != null && result.valid) {
+                userPrincipal = new ServletPrincipal(
+                        context, realmName, result.username);
+                return true;
+            }
+        }
+
+        // Fallback: use the X.500 Subject DN when no Realm is
+        // configured or when the Realm does not support certificates
+        String username = x509.getSubjectX500Principal().getName();
+        userPrincipal = new ServletPrincipal(context, realmName, username);
         return true;
     }
 

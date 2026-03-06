@@ -23,9 +23,11 @@ package org.bluezoo.gumdrop.auth;
 
 
 import java.nio.file.Path;
+import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
@@ -34,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.security.auth.x500.X500Principal;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -110,6 +114,10 @@ public class LDAPRealm implements Realm {
     private String rolePrefix = "";
     private int timeout = DEFAULT_TIMEOUT;
 
+    private String certLookupMode;
+    private String certUsernameAttribute = "uid";
+    private String certSubjectFilter;
+
     // Runtime state
     private SelectorLoop selectorLoop;
 
@@ -121,7 +129,8 @@ public class LDAPRealm implements Realm {
     private static final Set<SASLMechanism> SUPPORTED_MECHANISMS =
             Collections.unmodifiableSet(EnumSet.of(
                     SASLMechanism.PLAIN,
-                    SASLMechanism.LOGIN
+                    SASLMechanism.LOGIN,
+                    SASLMechanism.EXTERNAL
             ));
 
     /**
@@ -148,6 +157,9 @@ public class LDAPRealm implements Realm {
         this.roleAttribute = source.roleAttribute;
         this.rolePrefix = source.rolePrefix;
         this.timeout = source.timeout;
+        this.certLookupMode = source.certLookupMode;
+        this.certUsernameAttribute = source.certUsernameAttribute;
+        this.certSubjectFilter = source.certSubjectFilter;
         this.selectorLoop = loop;
     }
 
@@ -215,6 +227,38 @@ public class LDAPRealm implements Realm {
 
     public void setSelectorLoop(SelectorLoop selectorLoop) {
         this.selectorLoop = selectorLoop;
+    }
+
+    /**
+     * Sets the certificate lookup mode.
+     *
+     * @param mode "binary" to match by DER-encoded certificate,
+     *             or "subject" to extract CN from the certificate's
+     *             Subject DN
+     */
+    public void setCertLookupMode(String mode) {
+        this.certLookupMode = mode;
+    }
+
+    /**
+     * Sets the LDAP attribute to read as the username from a matched
+     * certificate entry.
+     *
+     * @param attribute the LDAP attribute name (default: "uid")
+     */
+    public void setCertUsernameAttribute(String attribute) {
+        this.certUsernameAttribute = attribute;
+    }
+
+    /**
+     * Sets the LDAP filter template for subject-mode certificate
+     * lookup. Placeholders like {CN}, {O}, {OU} are replaced with
+     * the corresponding RDN values from the certificate's Subject DN.
+     *
+     * @param filter the filter template, e.g. "(uid={CN})"
+     */
+    public void setCertSubjectFilter(String filter) {
+        this.certSubjectFilter = filter;
     }
 
     // Realm interface implementation
@@ -291,6 +335,36 @@ public class LDAPRealm implements Realm {
             String msg = MessageFormat.format(L10N.getString("warn.ldap_user_error"), username);
             LOGGER.log(Level.WARNING, msg, e);
             return false;
+        }
+    }
+
+    @Override
+    public CertificateAuthenticationResult authenticateCertificate(
+            X509Certificate certificate) {
+        if (certLookupMode == null) {
+            return null;
+        }
+
+        try {
+            String username;
+            if ("binary".equals(certLookupMode)) {
+                username = findUserByBinaryCert(certificate);
+            } else if ("subject".equals(certLookupMode)) {
+                username = findUserBySubjectDN(certificate);
+            } else {
+                LOGGER.warning("Unknown certLookupMode: "
+                        + certLookupMode);
+                return null;
+            }
+
+            if (username != null) {
+                return CertificateAuthenticationResult.success(username);
+            }
+            return CertificateAuthenticationResult.failure();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "Certificate authentication error", e);
+            return CertificateAuthenticationResult.failure();
         }
     }
 
@@ -550,6 +624,196 @@ public class LDAPRealm implements Realm {
         }
 
         return hasRole.get();
+    }
+
+    /**
+     * Finds a username by searching LDAP for an entry whose
+     * {@code userCertificate;binary} attribute matches the
+     * DER encoding of the presented certificate.
+     */
+    private String findUserByBinaryCert(X509Certificate certificate)
+            throws Exception {
+        byte[] der = certificate.getEncoded();
+        String derHex = toLDAPBinaryEscape(der);
+        String filter = "(&(userCertificate;binary=" + derHex
+                + ")(objectClass=person))";
+
+        return searchForUsername(filter);
+    }
+
+    /**
+     * Finds a username by extracting RDN components from the
+     * certificate's Subject DN and searching LDAP with a configured
+     * filter template.
+     */
+    private String findUserBySubjectDN(X509Certificate certificate)
+            throws Exception {
+        if (certSubjectFilter == null) {
+            LOGGER.warning("certSubjectFilter not configured for "
+                    + "subject lookup mode");
+            return null;
+        }
+
+        String dn = certificate.getSubjectX500Principal()
+                .getName(X500Principal.RFC2253);
+        String filter = certSubjectFilter;
+        // Replace {CN}, {O}, {OU} etc. with RDN values
+        filter = replaceRDNPlaceholders(filter, dn);
+
+        return searchForUsername(filter);
+    }
+
+    /**
+     * Searches LDAP with the given filter and returns the value of
+     * the certUsernameAttribute from the first matched entry.
+     */
+    private String searchForUsername(String filter) throws Exception {
+        final AtomicReference<String> foundUsername =
+                new AtomicReference<>();
+        final AtomicReference<Exception> error = new AtomicReference<>();
+        final CountDownLatch latch = new CountDownLatch(1);
+
+        LDAPClient client = createClient();
+        client.connect(new LDAPConnectionReady() {
+            @Override
+            public void handleReady(LDAPConnected connection) {
+                BindResultHandler bindHandler = new BindResultHandler() {
+                    @Override
+                    public void handleBindSuccess(LDAPSession session) {
+                        SearchRequest search = new SearchRequest();
+                        search.setBaseDN(baseDN);
+                        search.setScope(SearchScope.SUBTREE);
+                        search.setFilter(filter);
+                        search.setAttributes(certUsernameAttribute);
+                        search.setSizeLimit(1);
+                        session.search(search,
+                                new SearchResultHandler() {
+                            @Override
+                            public void handleEntry(
+                                    SearchResultEntry entry) {
+                                List<String> vals =
+                                        entry.getAttributeStringValues(
+                                                certUsernameAttribute);
+                                if (vals != null && !vals.isEmpty()) {
+                                    foundUsername.set(vals.get(0));
+                                }
+                            }
+
+                            @Override
+                            public void handleReference(
+                                    String[] referralUrls) {
+                            }
+
+                            @Override
+                            public void handleDone(LDAPResult result,
+                                                   LDAPSession sess) {
+                                sess.unbind();
+                                latch.countDown();
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void handleBindFailure(LDAPResult result,
+                                                  LDAPConnected conn) {
+                        String msg = MessageFormat.format(
+                                L10N.getString("err.ldap_bind"), result);
+                        error.set(new Exception(msg));
+                        conn.unbind();
+                        latch.countDown();
+                    }
+                };
+
+                if (bindDN != null && !bindDN.isEmpty()) {
+                    connection.bind(bindDN, bindPassword, bindHandler);
+                } else {
+                    connection.bindAnonymous(bindHandler);
+                }
+            }
+
+            @Override
+            public void onConnected(Endpoint endpoint) {
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                error.set(cause);
+                latch.countDown();
+            }
+
+            @Override
+            public void onDisconnected() {
+                latch.countDown();
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) {
+            }
+        });
+
+        if (!latch.await(timeout, TimeUnit.SECONDS)) {
+            throw new Exception(L10N.getString("err.ldap_timeout"));
+        }
+
+        if (error.get() != null) {
+            throw error.get();
+        }
+
+        return foundUsername.get();
+    }
+
+    /**
+     * Converts DER-encoded bytes to LDAP binary escape format
+     * for use in search filters (RFC 4515 section 3).
+     */
+    static String toLDAPBinaryEscape(byte[] data) {
+        StringBuilder sb = new StringBuilder(data.length * 3);
+        for (byte b : data) {
+            sb.append('\\');
+            sb.append(String.format("%02x", b & 0xff));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Replaces {CN}, {O}, {OU} etc. placeholders in a filter template
+     * with the corresponding RDN values from an RFC 2253 DN string.
+     */
+    private static String replaceRDNPlaceholders(String template,
+                                                  String dn) {
+        String result = template;
+        // Parse RDN components from the DN
+        int start = 0;
+        int len = dn.length();
+        while (start < len) {
+            int eq = dn.indexOf('=', start);
+            if (eq < 0) {
+                break;
+            }
+            String type = dn.substring(start, eq).trim().toUpperCase();
+            int valStart = eq + 1;
+            int comma = findUnescapedComma(dn, valStart);
+            String value = dn.substring(valStart, comma).trim();
+            result = result.replace("{" + type + "}",
+                    escapeLDAPFilter(value));
+            start = comma < len ? comma + 1 : len;
+        }
+        return result;
+    }
+
+    private static int findUnescapedComma(String s, int from) {
+        int i = from;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (c == '\\') {
+                i += 2;
+            } else if (c == ',') {
+                return i;
+            } else {
+                i++;
+            }
+        }
+        return s.length();
     }
 
     /**

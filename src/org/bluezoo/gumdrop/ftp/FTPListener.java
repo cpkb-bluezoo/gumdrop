@@ -28,6 +28,7 @@ import javax.net.ssl.SSLEngine;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.auth.Realm;
 
 /**
  * TCP transport listener for FTP control connections.
@@ -57,6 +58,7 @@ public class FTPListener extends TCPListener {
     protected int port = FTP_DEFAULT_PORT;
     protected FTPConnectionHandlerFactory handlerFactory;
     private boolean requireTLSForData = false;
+    private Realm realm;
 
     // Back-reference to the owning service (null when used standalone)
     private FTPService service;
@@ -101,6 +103,24 @@ public class FTPListener extends TCPListener {
      */
     public boolean isRequireTLSForData() {
         return requireTLSForData;
+    }
+
+    /**
+     * Returns the authentication realm for this listener.
+     *
+     * @return the realm, or null
+     */
+    public Realm getRealm() {
+        return realm;
+    }
+
+    /**
+     * Sets the authentication realm for this listener.
+     *
+     * @param realm the realm
+     */
+    public void setRealm(Realm realm) {
+        this.realm = realm;
     }
 
     /**

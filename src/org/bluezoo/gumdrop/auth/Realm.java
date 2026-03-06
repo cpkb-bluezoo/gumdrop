@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.auth;
 
+import java.security.cert.X509Certificate;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -95,7 +96,7 @@ public interface Realm {
      *   <li>{@link SASLMechanism#SCRAM_SHA_256} - 
      *       requires {@link #getScramCredentials}</li>
      *   <li>{@link SASLMechanism#EXTERNAL} - 
-     *       requires {@link #userExists}</li>
+     *       requires {@link #authenticateCertificate}</li>
      *   <li>{@link SASLMechanism#OAUTHBEARER} - 
      *       requires {@link #validateBearerToken}</li>
      * </ul>
@@ -304,6 +305,86 @@ public interface Realm {
      */
     default TokenValidationResult validateOAuthToken(String accessToken) {
         return null; // Default implementation returns null (not supported)
+    }
+
+    /**
+     * Authenticates a client certificate and returns the associated
+     * principal identity.
+     *
+     * <p>This method is used for SASL EXTERNAL authentication and
+     * servlet CLIENT-CERT authentication. The Realm implementation
+     * determines how to map a certificate to a username -- for example,
+     * {@link BasicRealm} matches by SHA-256 fingerprint, while an LDAP
+     * realm might search by the {@code userCertificate} attribute.
+     *
+     * <p>Certificate chain validation (trust) is handled by the TLS
+     * layer. This method performs <em>authorization</em>: determining
+     * whether a trusted certificate corresponds to a known user.
+     *
+     * @param certificate the client's X.509 certificate
+     * @return a result indicating success (with username) or failure,
+     *         or null if certificate authentication is not supported
+     */
+    default CertificateAuthenticationResult authenticateCertificate(
+            X509Certificate certificate) {
+        return null;
+    }
+
+    /**
+     * Checks whether an authenticated user is authorized to act as
+     * another identity.
+     *
+     * <p>This is used by SASL EXTERNAL when the client provides an
+     * authorization identity (authzid) that differs from the
+     * authentication identity derived from the certificate.
+     *
+     * <p>The default implementation only allows a user to act as
+     * themselves. Realm implementations may override this to support
+     * admin impersonation, aliasing, or delegation.
+     *
+     * @param authenticatedUser the identity established by authentication
+     * @param requestedUser the identity the client wants to act as
+     * @return true if the authenticated user may act as the requested user
+     */
+    default boolean authorizeAs(String authenticatedUser,
+                                String requestedUser) {
+        return authenticatedUser.equals(requestedUser);
+    }
+
+    /**
+     * Result of certificate-based authentication.
+     *
+     * @see #authenticateCertificate(X509Certificate)
+     */
+    public static class CertificateAuthenticationResult {
+        /** Whether the certificate was successfully authenticated. */
+        public final boolean valid;
+        /** The authenticated username, or null if authentication failed. */
+        public final String username;
+
+        public static CertificateAuthenticationResult success(
+                String username) {
+            return new CertificateAuthenticationResult(true, username);
+        }
+
+        public static CertificateAuthenticationResult failure() {
+            return new CertificateAuthenticationResult(false, null);
+        }
+
+        private CertificateAuthenticationResult(boolean valid,
+                                                 String username) {
+            this.valid = valid;
+            this.username = username;
+        }
+
+        @Override
+        public String toString() {
+            if (valid) {
+                return "CertificateAuthenticationResult{valid=true, "
+                        + "username='" + username + "'}";
+            }
+            return "CertificateAuthenticationResult{valid=false}";
+        }
     }
 
     /**
