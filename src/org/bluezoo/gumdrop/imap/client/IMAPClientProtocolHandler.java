@@ -274,8 +274,14 @@ public class IMAPClientProtocolHandler
     @Override
     public void literalContent(ByteBuffer data) {
         if (currentCallback instanceof ServerFetchReplyHandler) {
-            ((ServerFetchReplyHandler) currentCallback)
-                    .handleFetchLiteralContent(data);
+            ServerFetchReplyHandler fetchHandler =
+                    (ServerFetchReplyHandler) currentCallback;
+            fetchHandler.handleFetchLiteralContent(data);
+            if (fetchHandler.wantsPause()) {
+                fetchHandler.setResumeCallback(
+                        new FetchResumeTask());
+                endpoint.pauseRead();
+            }
         }
     }
 
@@ -650,6 +656,11 @@ public class IMAPClientProtocolHandler
         copy.put(data);
         copy.flip();
         endpoint.send(copy);
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        endpoint.onWriteReady(callback);
     }
 
     @Override
@@ -1843,5 +1854,16 @@ public class IMAPClientProtocolHandler
             }
         }
         return fields.toArray(new String[0]);
+    }
+
+    /**
+     * Task to resume reading after a FETCH literal handler signals
+     * readiness for more data.
+     */
+    private class FetchResumeTask implements Runnable {
+        @Override
+        public void run() {
+            endpoint.resumeRead();
+        }
     }
 }

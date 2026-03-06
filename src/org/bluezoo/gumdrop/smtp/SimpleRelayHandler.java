@@ -302,6 +302,16 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         resetTransaction();
     }
 
+    @Override
+    public boolean wantsPause() {
+        return false;
+    }
+
+    @Override
+    public void setResumeCallback(Runnable callback) {
+        // Relay handler never pauses
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helper methods
     // ─────────────────────────────────────────────────────────────────────────

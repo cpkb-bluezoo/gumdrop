@@ -1000,6 +1000,49 @@ class Stream implements HTTPResponseState {
         bufferedResponseHeaders = null;
     }
 
+    // ── Backpressure / flow control ──
+
+    private Runnable writableCallback;
+
+    /**
+     * Named callback that dispatches a one-shot write-readiness
+     * notification from the connection up to the handler.
+     */
+    private class WriteReadyDispatcher implements Runnable {
+        @Override
+        public void run() {
+            Runnable cb = writableCallback;
+            writableCallback = null;
+            connection.onWritable(streamId, null);
+            if (cb != null) {
+                cb.run();
+            }
+        }
+    }
+
+    private final WriteReadyDispatcher writeReadyDispatcher =
+            new WriteReadyDispatcher();
+
+    @Override
+    public void onWritable(Runnable callback) {
+        this.writableCallback = callback;
+        if (callback != null) {
+            connection.onWritable(streamId, writeReadyDispatcher);
+        } else {
+            connection.onWritable(streamId, null);
+        }
+    }
+
+    @Override
+    public void pauseRequestBody() {
+        connection.pauseRead(streamId);
+    }
+
+    @Override
+    public void resumeRequestBody() {
+        connection.resumeRead(streamId);
+    }
+
     @Override
     public void complete() {
         if (responseState == ResponseState.COMPLETE) {

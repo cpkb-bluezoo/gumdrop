@@ -326,6 +326,13 @@ public class SelectorLoop implements Runnable {
 
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
 
+            // Notify the write-complete callback (backpressure support).
+            // Runs on this SelectorLoop thread, safe for further I/O.
+            Runnable writeCallback = endpoint.getWriteCompleteCallback();
+            if (writeCallback != null) {
+                writeCallback.run();
+            }
+
         } catch (IOException e) {
             endpoint.handleWriteError(e);
         }
@@ -470,6 +477,17 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
+     * Registers a TCPEndpoint with this SelectorLoop for OP_READ.
+     * Thread-safe.  The endpoint must already have its channel set.
+     *
+     * @param channel the socket channel (must be non-blocking)
+     * @param endpoint the TCP endpoint
+     */
+    public void registerTCP(SocketChannel channel, TCPEndpoint endpoint) {
+        register(channel, endpoint);
+    }
+
+    /**
      * Registers a datagram channel with this SelectorLoop.
      * Thread-safe.
      *
@@ -510,6 +528,46 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
+     * Removes OP_READ interest for a TCPEndpoint (backpressure).
+     * May be called from any thread.
+     *
+     * @param endpoint the endpoint to pause reading
+     */
+    void cancelRead(TCPEndpoint endpoint) {
+        SelectionKey key = endpoint.getSelectionKey();
+        if (key != null && key.isValid()) {
+            if (Thread.currentThread() == thread) {
+                key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+            } else {
+                pendingTasks.offer(new CancelReadTask(key));
+                if (selector != null) {
+                    selector.wakeup();
+                }
+            }
+        }
+    }
+
+    /**
+     * Adds OP_READ interest for a TCPEndpoint (resume after pause).
+     * May be called from any thread.
+     *
+     * @param endpoint the endpoint to resume reading
+     */
+    void requestRead(TCPEndpoint endpoint) {
+        SelectionKey key = endpoint.getSelectionKey();
+        if (key != null && key.isValid()) {
+            if (Thread.currentThread() == thread) {
+                key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+            } else {
+                pendingTasks.offer(new RequestReadTask(key));
+                if (selector != null) {
+                    selector.wakeup();
+                }
+            }
+        }
+    }
+
+    /**
      * Requests OP_WRITE interest for a TCPEndpoint.
      * May be called from any thread.
      *
@@ -541,6 +599,25 @@ public class SelectorLoop implements Runnable {
                     selector.wakeup();
                 }
             }
+        }
+    }
+
+    /**
+     * Returns the thread that runs this SelectorLoop, or null if not started.
+     *
+     * @return the loop thread
+     */
+    public Thread getThread() {
+        return thread;
+    }
+
+    /**
+     * Wakes up the selector if it is currently blocked in a select call.
+     * Safe to call from any thread.
+     */
+    public void wakeup() {
+        if (selector != null) {
+            selector.wakeup();
         }
     }
 
@@ -577,6 +654,42 @@ public class SelectorLoop implements Runnable {
             this.channel = channel;
             this.handler = handler;
             this.connect = connect;
+        }
+    }
+
+    /**
+     * Task to remove OP_READ interest on the SelectorLoop thread.
+     */
+    private static class CancelReadTask implements Runnable {
+        private final SelectionKey key;
+
+        CancelReadTask(SelectionKey key) {
+            this.key = key;
+        }
+
+        @Override
+        public void run() {
+            if (key.isValid()) {
+                key.interestOps(key.interestOps() & ~SelectionKey.OP_READ);
+            }
+        }
+    }
+
+    /**
+     * Task to add OP_READ interest on the SelectorLoop thread.
+     */
+    private static class RequestReadTask implements Runnable {
+        private final SelectionKey key;
+
+        RequestReadTask(SelectionKey key) {
+            this.key = key;
+        }
+
+        @Override
+        public void run() {
+            if (key.isValid()) {
+                key.interestOps(key.interestOps() | SelectionKey.OP_READ);
+            }
         }
     }
 

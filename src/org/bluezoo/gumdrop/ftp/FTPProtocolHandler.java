@@ -982,18 +982,52 @@ public class FTPProtocolHandler
                     metadata
                 );
 
-            dataCoordinator.startTransfer(transfer);
+            RetrTransferCallback retrCallback =
+                    new RetrTransferCallback(filePath);
+            dataCoordinator.startAsyncDownload(
+                    endpoint, transfer, retrCallback);
 
             restartOffset = 0;
-
-            recordFileTransfer("RETR", filePath);
-
-            reply(226, L10N.getString("ftp.transfer_complete"));
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "RETR failed for " + filePath, e);
             recordSessionException(e);
             reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), filePath));
+        }
+    }
+
+    /**
+     * Completion callback for RETR async download.
+     */
+    private class RetrTransferCallback
+            implements FTPDataConnectionCoordinator.TransferCallback {
+        private final String filePath;
+
+        RetrTransferCallback(String filePath) {
+            this.filePath = filePath;
+        }
+
+        @Override
+        public void transferComplete(long bytesTransferred) {
+            recordFileTransfer("RETR", filePath);
+            try {
+                reply(226, L10N.getString("ftp.transfer_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send RETR completion", e);
+            }
+        }
+
+        @Override
+        public void transferFailed(IOException cause) {
+            try {
+                reply(550, MessageFormat.format(
+                        L10N.getString("ftp.err.file_not_found"),
+                        filePath));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send RETR error", e);
+            }
         }
     }
 
@@ -1031,16 +1065,48 @@ public class FTPProtocolHandler
                     metadata
                 );
 
-            dataCoordinator.startTransfer(transfer);
-
-            recordFileTransfer("STOR", filePath);
-
-            reply(226, L10N.getString("ftp.transfer_complete"));
+            StorTransferCallback storCallback =
+                    new StorTransferCallback(filePath);
+            dataCoordinator.startAsyncUpload(
+                    endpoint, transfer, storCallback);
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "STOR failed for " + filePath, e);
             recordSessionException(e);
             reply(550, L10N.getString("ftp.err.file_system_error"));
+        }
+    }
+
+    /**
+     * Completion callback for STOR async upload.
+     */
+    private class StorTransferCallback
+            implements FTPDataConnectionCoordinator.TransferCallback {
+        private final String filePath;
+
+        StorTransferCallback(String filePath) {
+            this.filePath = filePath;
+        }
+
+        @Override
+        public void transferComplete(long bytesTransferred) {
+            recordFileTransfer("STOR", filePath);
+            try {
+                reply(226, L10N.getString("ftp.transfer_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send STOR completion", e);
+            }
+        }
+
+        @Override
+        public void transferFailed(IOException cause) {
+            try {
+                reply(550, L10N.getString("ftp.err.file_system_error"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send STOR error", e);
+            }
         }
     }
 

@@ -947,6 +947,13 @@ public class POP3ClientProtocolHandlerTest {
         @Override public TelemetryConfig getTelemetryConfig() {
             return null;
         }
+        @Override public void pauseRead() {}
+        @Override public void resumeRead() {}
+        @Override public void onWriteReady(Runnable callback) {
+            if (callback != null) {
+                callback.run();
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1328,6 +1335,12 @@ public class POP3ClientProtocolHandlerTest {
 
         @Override
         public void handleServiceClosing(String message) {}
+
+        @Override
+        public boolean wantsPause() { return false; }
+
+        @Override
+        public void setResumeCallback(Runnable callback) {}
     }
 
     static class RecordingTopHandler
@@ -1368,6 +1381,12 @@ public class POP3ClientProtocolHandlerTest {
 
         @Override
         public void handleServiceClosing(String message) {}
+
+        @Override
+        public boolean wantsPause() { return false; }
+
+        @Override
+        public void setResumeCallback(Runnable callback) {}
     }
 
     static class RecordingDeleHandler

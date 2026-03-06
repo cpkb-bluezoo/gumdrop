@@ -267,6 +267,16 @@ public class LocalDeliveryHandler
         resetMessageState();
     }
 
+    @Override
+    public boolean wantsPause() {
+        return false;
+    }
+
+    @Override
+    public void setResumeCallback(Runnable callback) {
+        // Local delivery handler never pauses
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Delivery
     // ═══════════════════════════════════════════════════════════════════════

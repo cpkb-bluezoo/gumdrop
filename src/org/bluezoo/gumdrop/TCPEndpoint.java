@@ -82,6 +82,12 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     final Object netOutLock = new Object();
     boolean closeRequested;
 
+    // Write-completion callback for backpressure support.
+    // Invoked on the SelectorLoop thread after netOut has been fully drained.
+    private Runnable writeCompleteCallback;
+
+    private boolean readPaused;
+
     private int bufferSize;
 
     // -- SSL state --
@@ -146,8 +152,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     /**
      * Sets the underlying socket channel.
+     *
+     * @param channel the socket channel
      */
-    void setChannel(SocketChannel channel) {
+    public void setChannel(SocketChannel channel) {
         this.channel = channel;
     }
 
@@ -160,8 +168,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     /**
      * Initialises the endpoint after the channel has been set.
+     *
+     * @throws IOException if initialisation fails
      */
-    void init() throws IOException {
+    public void init() throws IOException {
         if (channel == null) {
             bufferSize = DEFAULT_BUFFER_SIZE;
             netIn = ByteBuffer.allocate(bufferSize);
@@ -318,6 +328,44 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         return factory != null ? factory.getTelemetryConfig() : null;
     }
 
+    // -- Flow control --
+
+    @Override
+    public void pauseRead() {
+        if (readPaused) {
+            return;
+        }
+        readPaused = true;
+        if (selectorLoop != null) {
+            selectorLoop.cancelRead(this);
+        }
+    }
+
+    @Override
+    public void resumeRead() {
+        if (!readPaused) {
+            return;
+        }
+        readPaused = false;
+        if (selectorLoop != null) {
+            selectorLoop.requestRead(this);
+        }
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        this.writeCompleteCallback = callback;
+    }
+
+    /**
+     * Returns whether reading is currently paused on this endpoint.
+     *
+     * @return true if pauseRead has been called without a matching resumeRead
+     */
+    public boolean isReadPaused() {
+        return readPaused;
+    }
+
     // -- ChannelHandler implementation --
 
     @Override
@@ -351,6 +399,28 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     boolean hasPendingWrite() {
         return (netOut != null && netOut.position() > 0) || closeRequested;
+    }
+
+    /**
+     * Sets the callback to be invoked when the write buffer has been
+     * fully drained by the SelectorLoop.
+     *
+     * <p>The callback runs on the SelectorLoop thread, so it is safe to
+     * perform further I/O operations from within it.  Only one callback
+     * may be registered at a time; setting a new one replaces the
+     * previous one.
+     *
+     * @param callback the callback, or null to clear
+     */
+    public void setWriteCompleteCallback(Runnable callback) {
+        this.writeCompleteCallback = callback;
+    }
+
+    /**
+     * Returns the current write-complete callback, or null if none is set.
+     */
+    public Runnable getWriteCompleteCallback() {
+        return writeCompleteCallback;
     }
 
     /**

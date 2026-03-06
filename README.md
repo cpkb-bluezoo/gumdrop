@@ -32,6 +32,8 @@ non-blocking, event-driven I/O. It supports:
         - SNI
     - configurable pool of worker threads shared across all servers,
       completely independent of the number of client connections
+    - transport-level flow control with backpressure for large
+      transfers over TCP and QUIC connections
     - internationalization and localization facilities, current translations
       include:
         - English
@@ -284,8 +286,9 @@ and QUIC (BoringSSL with TLS 1.3).
     - zero-copy file transfers where possible
 - scalable architecture
     - handles tens of thousands of concurrent connections per server
-    - horizontal scaling via cluster session replication
     - connection count limited only by OS file descriptors
+    - transport-level backpressure provides complete flow control
+    - horizontal scaling via cluster session replication
 - event-driven design
     - native event-driven architecture, not bolted on
     - callback-based handlers for protocol implementations

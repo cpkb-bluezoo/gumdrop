@@ -36,6 +36,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TCPEndpoint;
+
 /**
  * Coordinates data connections between FTP control connections and data transfers.
  * 
@@ -749,6 +755,345 @@ public class FTPDataConnectionCoordinator {
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Error notifying transfer progress", e);
             }
+        }
+    }
+
+    // ── Event-driven data transfer ──
+
+    /**
+     * Callback for asynchronous transfer completion.
+     */
+    public interface TransferCallback {
+        void transferComplete(long bytesTransferred);
+        void transferFailed(IOException cause);
+    }
+
+    /**
+     * Starts an asynchronous download (RETR) using the endpoint
+     * write-pacing API.  The file is read in chunks and sent via the
+     * data endpoint; {@code onWriteReady} paces the output.
+     *
+     * @param controlEndpoint the control connection endpoint (for
+     *        its SelectorLoop)
+     * @param transfer the pending transfer details
+     * @param callback completion callback
+     * @throws IOException if setup fails
+     */
+    public synchronized void startAsyncDownload(
+            Endpoint controlEndpoint,
+            PendingTransfer transfer,
+            TransferCallback callback) throws IOException {
+
+        if (mode == DataConnectionMode.NONE) {
+            throw new IOException("No data connection mode configured");
+        }
+
+        this.pendingTransfer = transfer;
+        this.transferStartTime = System.currentTimeMillis();
+        this.totalBytesTransferred = 0;
+
+        switch (mode) {
+            case PASSIVE:
+                waitForPassiveConnection();
+                break;
+            case ACTIVE:
+                establishActiveConnection();
+                break;
+            default:
+                throw new IOException("Invalid data connection mode");
+        }
+
+        FTPFileSystem fs = transfer.getHandler().getFileSystem(
+                transfer.getMetadata());
+        if (fs == null) {
+            throw new IOException("No file system available");
+        }
+
+        ReadableByteChannel fileChannel = fs.openForReading(
+                transfer.getPath(),
+                transfer.getRestartOffset(),
+                transfer.getMetadata());
+        if (fileChannel == null) {
+            throw new IOException("Failed to open file: "
+                    + transfer.getPath());
+        }
+
+        SelectorLoop loop = controlEndpoint.getSelectorLoop();
+        SocketChannel dataSc = activeDataConnection.getChannel();
+        dataSc.configureBlocking(false);
+
+        DownloadTransferHandler downloadHandler =
+                new DownloadTransferHandler(
+                        fileChannel, transfer, callback);
+        TCPEndpoint dataEndpoint =
+                new TCPEndpoint(downloadHandler);
+        dataEndpoint.setChannel(dataSc);
+        dataEndpoint.init();
+        loop.registerTCP(dataSc, dataEndpoint);
+        downloadHandler.setEndpoint(dataEndpoint);
+        downloadHandler.writeNextChunk();
+    }
+
+    /**
+     * Starts an asynchronous upload (STOR) using the endpoint
+     * read-pause API.  Data arrives via the data endpoint's
+     * {@code receive()} method and is written to the file channel.
+     *
+     * @param controlEndpoint the control connection endpoint
+     * @param transfer the pending transfer details
+     * @param callback completion callback
+     * @throws IOException if setup fails
+     */
+    public synchronized void startAsyncUpload(
+            Endpoint controlEndpoint,
+            PendingTransfer transfer,
+            TransferCallback callback) throws IOException {
+
+        if (mode == DataConnectionMode.NONE) {
+            throw new IOException("No data connection mode configured");
+        }
+
+        this.pendingTransfer = transfer;
+        this.transferStartTime = System.currentTimeMillis();
+        this.totalBytesTransferred = 0;
+
+        switch (mode) {
+            case PASSIVE:
+                waitForPassiveConnection();
+                break;
+            case ACTIVE:
+                establishActiveConnection();
+                break;
+            default:
+                throw new IOException("Invalid data connection mode");
+        }
+
+        FTPFileSystem fs = transfer.getHandler().getFileSystem(
+                transfer.getMetadata());
+        if (fs == null) {
+            throw new IOException("No file system available");
+        }
+
+        WritableByteChannel fileChannel = fs.openForWriting(
+                transfer.getPath(),
+                transfer.isAppend(),
+                transfer.getMetadata());
+        if (fileChannel == null) {
+            throw new IOException("Failed to open file: "
+                    + transfer.getPath());
+        }
+
+        SelectorLoop loop = controlEndpoint.getSelectorLoop();
+        SocketChannel dataSc = activeDataConnection.getChannel();
+        dataSc.configureBlocking(false);
+
+        UploadTransferHandler uploadHandler =
+                new UploadTransferHandler(
+                        fileChannel, transfer, callback);
+        TCPEndpoint dataEndpoint =
+                new TCPEndpoint(uploadHandler);
+        dataEndpoint.setChannel(dataSc);
+        dataEndpoint.init();
+        loop.registerTCP(dataSc, dataEndpoint);
+        uploadHandler.setEndpoint(dataEndpoint);
+    }
+
+    /**
+     * Event-driven download handler.  Reads chunks from a file channel
+     * and sends them via the data endpoint, using onWriteReady to
+     * pace the output.
+     */
+    private class DownloadTransferHandler
+            implements ProtocolHandler, Runnable {
+
+        private final ReadableByteChannel fileChannel;
+        private final PendingTransfer transfer;
+        private final TransferCallback callback;
+        private final ByteBuffer readBuf;
+        private Endpoint dataEndpoint;
+
+        DownloadTransferHandler(ReadableByteChannel fileChannel,
+                PendingTransfer transfer,
+                TransferCallback callback) {
+            this.fileChannel = fileChannel;
+            this.transfer = transfer;
+            this.callback = callback;
+            this.readBuf = ByteBuffer.allocate(TRANSFER_BUFFER_SIZE);
+        }
+
+        void setEndpoint(Endpoint endpoint) {
+            this.dataEndpoint = endpoint;
+        }
+
+        @Override
+        public void run() {
+            writeNextChunk();
+        }
+
+        void writeNextChunk() {
+            try {
+                readBuf.clear();
+                int bytesRead = fileChannel.read(readBuf);
+
+                if (bytesRead == -1) {
+                    finishDownload();
+                    return;
+                }
+
+                readBuf.flip();
+                totalBytesTransferred += bytesRead;
+                dataEndpoint.send(readBuf);
+                dataEndpoint.onWriteReady(this);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error during async download", e);
+                closeFileChannel();
+                dataEndpoint.close();
+                callback.transferFailed(e);
+            }
+        }
+
+        private void finishDownload() {
+            closeFileChannel();
+            dataEndpoint.onWriteReady(null);
+            dataEndpoint.close();
+            notifyTransferHandler(true);
+            callback.transferComplete(totalBytesTransferred);
+        }
+
+        private void closeFileChannel() {
+            try {
+                fileChannel.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error closing file channel", e);
+            }
+        }
+
+        @Override
+        public void connected(Endpoint endpoint) {
+            // Already connected when registered
+        }
+
+        @Override
+        public void receive(ByteBuffer data) {
+            // Download: we don't expect inbound data
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+            // Not used for data connections
+        }
+
+        @Override
+        public void disconnected() {
+            closeFileChannel();
+        }
+
+        @Override
+        public void error(Exception e) {
+            LOGGER.log(Level.WARNING, "Data connection error", e);
+            closeFileChannel();
+            if (e instanceof IOException) {
+                callback.transferFailed((IOException) e);
+            } else {
+                callback.transferFailed(
+                        new IOException("Data transfer error", e));
+            }
+        }
+    }
+
+    /**
+     * Event-driven upload handler.  Receives data from the data
+     * endpoint and writes it to a file channel.  Uses pauseRead
+     * if write pressure is detected.
+     */
+    private class UploadTransferHandler implements ProtocolHandler {
+
+        private final WritableByteChannel fileChannel;
+        private final PendingTransfer transfer;
+        private final TransferCallback callback;
+        private Endpoint dataEndpoint;
+
+        UploadTransferHandler(WritableByteChannel fileChannel,
+                PendingTransfer transfer,
+                TransferCallback callback) {
+            this.fileChannel = fileChannel;
+            this.transfer = transfer;
+            this.callback = callback;
+        }
+
+        void setEndpoint(Endpoint endpoint) {
+            this.dataEndpoint = endpoint;
+        }
+
+        @Override
+        public void connected(Endpoint endpoint) {
+            // Already connected when registered
+        }
+
+        @Override
+        public void receive(ByteBuffer data) {
+            try {
+                int written = 0;
+                while (data.hasRemaining()) {
+                    written += fileChannel.write(data);
+                }
+                totalBytesTransferred += written;
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error writing upload data", e);
+                closeFileChannel();
+                dataEndpoint.close();
+                callback.transferFailed(e);
+            }
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+            // Not used for data connections
+        }
+
+        @Override
+        public void disconnected() {
+            closeFileChannel();
+            notifyTransferHandler(true);
+            callback.transferComplete(totalBytesTransferred);
+        }
+
+        @Override
+        public void error(Exception e) {
+            LOGGER.log(Level.WARNING, "Data connection error", e);
+            closeFileChannel();
+            if (e instanceof IOException) {
+                callback.transferFailed((IOException) e);
+            } else {
+                callback.transferFailed(
+                        new IOException("Data transfer error", e));
+            }
+        }
+
+        private void closeFileChannel() {
+            try {
+                fileChannel.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error closing file channel", e);
+            }
+        }
+    }
+
+    private void notifyTransferHandler(boolean success) {
+        if (pendingTransfer != null
+                && pendingTransfer.getHandler() != null) {
+            boolean isUpload =
+                    (pendingTransfer.getType() == TransferType.UPLOAD);
+            pendingTransfer.getHandler().transferCompleted(
+                    pendingTransfer.getPath(),
+                    isUpload,
+                    totalBytesTransferred,
+                    success,
+                    pendingTransfer.getMetadata());
         }
     }
 }

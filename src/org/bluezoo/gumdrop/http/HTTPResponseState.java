@@ -245,6 +245,55 @@ public interface HTTPResponseState {
     void complete();
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Backpressure / Flow Control
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Registers a one-shot callback to be invoked when the transport is
+     * ready to accept more response body data (write buffer drained).
+     *
+     * <p>The callback runs on the SelectorLoop thread, so it is safe to
+     * perform further I/O operations (e.g. call
+     * {@link #responseBodyContent(ByteBuffer)} again) from within it.
+     *
+     * <p>Only one callback may be pending at a time.  Calling this method
+     * replaces any previously registered callback.  Pass {@code null} to
+     * clear an existing callback without registering a new one.
+     *
+     * <p>Typical use: send a chunk of response body data, then register a
+     * callback to send the next chunk when the transport has flushed.
+     *
+     * @param callback the callback, or null to clear
+     */
+    void onWritable(Runnable callback);
+
+    /**
+     * Pauses delivery of request body events
+     * ({@link HTTPRequestHandler#requestBodyContent}).
+     *
+     * <p>When paused, the transport stops reading data from the network
+     * for this stream.  TCP flow control will propagate the backpressure
+     * to the client, causing it to slow or stop sending.
+     *
+     * <p>For HTTP/2, this uses stream-level flow control (withholding
+     * WINDOW_UPDATE frames for this stream).  For HTTP/1.1, this removes
+     * {@code OP_READ} from the connection's {@code SelectionKey}.
+     *
+     * <p>Call {@link #resumeRequestBody()} to resume delivery.
+     */
+    void pauseRequestBody();
+
+    /**
+     * Resumes delivery of request body events after a previous call to
+     * {@link #pauseRequestBody()}.
+     *
+     * <p>The transport re-enables reading from the network for this
+     * stream.  Any data that has already arrived will be delivered
+     * promptly, followed by further data as it arrives.
+     */
+    void resumeRequestBody();
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Server Push
     // ─────────────────────────────────────────────────────────────────────────
 

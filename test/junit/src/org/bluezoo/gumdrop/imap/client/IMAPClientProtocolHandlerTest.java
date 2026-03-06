@@ -1280,6 +1280,13 @@ public class IMAPClientProtocolHandlerTest {
         @Override public TelemetryConfig getTelemetryConfig() {
             return null;
         }
+        @Override public void pauseRead() {}
+        @Override public void resumeRead() {}
+        @Override public void onWriteReady(Runnable callback) {
+            if (callback != null) {
+                callback.run();
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1748,6 +1755,12 @@ public class IMAPClientProtocolHandlerTest {
 
         @Override
         public void handleServiceClosing(String message) {}
+
+        @Override
+        public boolean wantsPause() { return false; }
+
+        @Override
+        public void setResumeCallback(Runnable callback) {}
     }
 
     static class StoreResponse {

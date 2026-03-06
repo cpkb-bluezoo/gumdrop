@@ -55,6 +55,8 @@ final class QuicStreamEndpoint implements Endpoint {
     private final ProtocolHandler handler;
     private volatile boolean open = true;
     private volatile boolean closing;
+    private boolean readPaused;
+    private Runnable writeReadyCallback;
     private Trace trace;
 
     QuicStreamEndpoint(QuicConnection connection, long streamId,
@@ -166,6 +168,37 @@ final class QuicStreamEndpoint implements Endpoint {
         return connection.getEngine().getTelemetryConfig();
     }
 
+    @Override
+    public void pauseRead() {
+        readPaused = true;
+    }
+
+    @Override
+    public void resumeRead() {
+        readPaused = false;
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        this.writeReadyCallback = callback;
+    }
+
+    /**
+     * Returns whether reading is currently paused on this stream.
+     */
+    boolean isReadPaused() {
+        return readPaused;
+    }
+
+    /**
+     * Returns and clears the write-ready callback.
+     */
+    Runnable consumeWriteReadyCallback() {
+        Runnable cb = writeReadyCallback;
+        writeReadyCallback = null;
+        return cb;
+    }
+
     /**
      * Marks this stream as closed (called by QuicConnection).
      */
@@ -176,8 +209,13 @@ final class QuicStreamEndpoint implements Endpoint {
 
     /**
      * Delivers received data to the handler.
+     * If reading is paused, data is silently dropped (QUIC flow
+     * control prevents excess data at the transport level).
      */
     void deliverData(ByteBuffer data) {
+        if (readPaused) {
+            return;
+        }
         handler.receive(data);
     }
 }

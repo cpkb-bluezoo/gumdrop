@@ -654,6 +654,36 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * Checks whether the message data handler needs a read pause.
+     * If so, pauses reading and provides the handler with a
+     * resume callback.
+     *
+     * @return true if reading was paused
+     */
+    private boolean checkMessageHandlerBackPressure() {
+        if (messageHandler == null) {
+            return false;
+        }
+        if (!messageHandler.wantsPause()) {
+            return false;
+        }
+        messageHandler.setResumeCallback(new DataResumeTask());
+        endpoint.pauseRead();
+        return true;
+    }
+
+    /**
+     * Task to resume reading after a message data handler signals
+     * readiness during DATA/BDAT transfer.
+     */
+    private class DataResumeTask implements Runnable {
+        @Override
+        public void run() {
+            endpoint.resumeRead();
+        }
+    }
+
     private void sendChunk(ByteBuffer source, int start, int end) throws IOException {
         if (end > start) {
             int savedPosition = source.position();
@@ -822,6 +852,7 @@ public class SMTPProtocolHandler
                 sendChunk(buf, chunkStart, buf.position());
             }
         }
+        checkMessageHandlerBackPressure();
     }
 
     private void handleBdatContent(ByteBuffer buf) throws IOException {
@@ -836,6 +867,11 @@ public class SMTPProtocolHandler
             bdatBytesRemaining -= toProcess;
             buf.limit(oldLimit);
             buf.position(startPos + toProcess);
+
+            if (bdatBytesRemaining > 0
+                    && checkMessageHandlerBackPressure()) {
+                return;
+            }
         }
         if (bdatBytesRemaining == 0) {
             handleBdatChunkComplete();

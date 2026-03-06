@@ -75,4 +75,21 @@ public interface ServerRetrReplyHandler extends ServerReplyHandler {
     void handleMessageDeleted(ClientTransactionState transaction,
                               String message);
 
+    /**
+     * Returns whether the handler needs a read pause after
+     * processing message content.  Called after each
+     * {@link #handleMessageContent} invocation.
+     *
+     * @return true if reading should be paused
+     */
+    boolean wantsPause();
+
+    /**
+     * Provides a callback to invoke when the handler is ready
+     * for more message content after a pause.
+     *
+     * @param callback the resume callback
+     */
+    void setResumeCallback(Runnable callback);
+
 }

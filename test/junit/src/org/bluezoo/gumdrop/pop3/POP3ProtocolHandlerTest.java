@@ -1356,6 +1356,13 @@ public class POP3ProtocolHandlerTest {
         @Override public TelemetryConfig getTelemetryConfig() {
             return null;
         }
+        @Override public void pauseRead() {}
+        @Override public void resumeRead() {}
+        @Override public void onWriteReady(Runnable callback) {
+            if (callback != null) {
+                callback.run();
+            }
+        }
     }
 
     static class StubSecurityInfo implements SecurityInfo {

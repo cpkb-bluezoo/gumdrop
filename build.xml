@@ -398,7 +398,7 @@
 
   <target name='junit-test' depends='junit-build'>
     <mkdir dir='${test}/junit/results'/>
-    <junit printsummary='yes' haltonfailure='no'>
+    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes'>
       <classpath>
         <pathelement location='${test}/junit/classes'/>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>

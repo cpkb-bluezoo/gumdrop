@@ -68,4 +68,20 @@ public interface ServerTopReplyHandler extends ServerReplyHandler {
     void handleMessageDeleted(ClientTransactionState transaction,
                               String message);
 
+    /**
+     * Returns whether the handler needs a read pause after
+     * processing TOP content.
+     *
+     * @return true if reading should be paused
+     */
+    boolean wantsPause();
+
+    /**
+     * Provides a callback to invoke when the handler is ready
+     * for more TOP content after a pause.
+     *
+     * @param callback the resume callback
+     */
+    void setResumeCallback(Runnable callback);
+
 }

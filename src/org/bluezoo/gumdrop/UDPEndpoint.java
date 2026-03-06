@@ -275,6 +275,26 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         return factory != null ? factory.getTelemetryConfig() : null;
     }
 
+    // -- Flow control (not supported for datagrams) --
+
+    @Override
+    public void pauseRead() {
+        throw new UnsupportedOperationException(
+                "Flow control not supported on datagram endpoints");
+    }
+
+    @Override
+    public void resumeRead() {
+        throw new UnsupportedOperationException(
+                "Flow control not supported on datagram endpoints");
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        throw new UnsupportedOperationException(
+                "Flow control not supported on datagram endpoints");
+    }
+
     // -- ChannelHandler implementation --
 
     @Override

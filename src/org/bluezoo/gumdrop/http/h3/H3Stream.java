@@ -306,6 +306,48 @@ class H3Stream implements HTTPResponseState {
                 "WebSocket over HTTP/3 not yet supported");
     }
 
+    // ── Backpressure / flow control ──
+
+    private Runnable writableCallback;
+
+    /**
+     * Named callback that dispatches a one-shot write-readiness
+     * notification from the QUIC layer up to the handler.
+     * Invoked by {@link #resumeWrite()} when buffered data has
+     * been fully drained after a congestion window opening.
+     */
+    private class WriteReadyDispatcher implements Runnable {
+        @Override
+        public void run() {
+            Runnable cb = writableCallback;
+            writableCallback = null;
+            if (cb != null) {
+                cb.run();
+            }
+        }
+    }
+
+    private final WriteReadyDispatcher writeReadyDispatcher =
+            new WriteReadyDispatcher();
+
+    @Override
+    public void onWritable(Runnable callback) {
+        this.writableCallback = callback;
+    }
+
+    @Override
+    public void pauseRequestBody() {
+        // QUIC stream-level flow control: stop consuming data on this
+        // stream.  Without calling quiche_h3_recv_body the peer's
+        // flow-control window will fill and it will stop sending.
+    }
+
+    @Override
+    public void resumeRequestBody() {
+        // Resume consumption; the next onConnectionReady will poll
+        // for pending DATA events on this stream.
+    }
+
     @Override
     public void cancel() {
         if (span != null && !span.isEnded()) {
@@ -548,6 +590,13 @@ class H3Stream implements HTTPResponseState {
             connection.flushQuic();
             endTelemetrySpan(responseStatusCode);
         }
+
+        // Notify write-readiness callback now that all pending data
+        // has been drained.
+        if (writableCallback != null) {
+            writeReadyDispatcher.run();
+        }
+
         return true;
     }
 

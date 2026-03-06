@@ -438,6 +438,11 @@ public class SMTPClientProtocolHandler
     }
 
     @Override
+    public void onWriteReady(Runnable callback) {
+        endpoint.onWriteReady(callback);
+    }
+
+    @Override
     public void endMessage(ServerMessageReplyHandler callback) {
         if (state != SMTPState.DATA_MODE) {
             throw new IllegalStateException(

@@ -33,4 +33,14 @@ public interface ClientAppendState {
     void writeContent(ByteBuffer data);
 
     void endAppend();
+
+    /**
+     * Registers a one-shot callback invoked when the transport
+     * is ready for more data.  Use this to pace large APPEND
+     * uploads: send a chunk, register a callback, and send the
+     * next chunk from the callback.
+     *
+     * @param callback the callback, or null to clear
+     */
+    void onWriteReady(Runnable callback);
 }

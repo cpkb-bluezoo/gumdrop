@@ -36,4 +36,21 @@ public interface ServerFetchReplyHandler extends ServerReplyHandler {
     void handleFetchLiteralEnd(int messageNumber);
     void handleFetchComplete(ClientSelectedState selected);
     void handleError(ClientSelectedState selected, String message);
+
+    /**
+     * Returns whether the handler needs a read pause after
+     * processing literal content.  Called after each
+     * {@link #handleFetchLiteralContent} invocation.
+     *
+     * @return true if reading should be paused
+     */
+    boolean wantsPause();
+
+    /**
+     * Provides a callback to invoke when the handler is ready
+     * for more literal content after a pause.
+     *
+     * @param callback the resume callback
+     */
+    void setResumeCallback(Runnable callback);
 }

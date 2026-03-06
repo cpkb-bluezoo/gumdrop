@@ -237,13 +237,23 @@ public class POP3ClientProtocolHandler
     @Override
     public void content(ByteBuffer data) {
         if (state == POP3State.RETR_DATA) {
-            ServerRetrReplyHandler callback =
+            ServerRetrReplyHandler retrCallback =
                     (ServerRetrReplyHandler) currentCallback;
-            callback.handleMessageContent(data);
+            retrCallback.handleMessageContent(data);
+            if (retrCallback.wantsPause()) {
+                retrCallback.setResumeCallback(
+                        new ContentResumeTask());
+                endpoint.pauseRead();
+            }
         } else if (state == POP3State.TOP_DATA) {
-            ServerTopReplyHandler callback =
+            ServerTopReplyHandler topCallback =
                     (ServerTopReplyHandler) currentCallback;
-            callback.handleTopContent(data);
+            topCallback.handleTopContent(data);
+            if (topCallback.wantsPause()) {
+                topCallback.setResumeCallback(
+                        new ContentResumeTask());
+                endpoint.pauseRead();
+            }
         }
     }
 
@@ -1065,5 +1075,16 @@ public class POP3ClientProtocolHandler
         currentCallback = null;
         state = POP3State.TRANSACTION;
         callback.handleOk(this);
+    }
+
+    /**
+     * Task to resume reading after a message content handler
+     * signals readiness for more data.
+     */
+    private class ContentResumeTask implements Runnable {
+        @Override
+        public void run() {
+            endpoint.resumeRead();
+        }
     }
 }

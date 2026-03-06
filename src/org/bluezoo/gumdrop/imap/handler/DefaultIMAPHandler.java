@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
 import java.io.IOException;
 import java.security.Principal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -322,13 +323,25 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
             for (MessageSet.Range range : ranges) {
                 long startVal = range.getStart();
                 long endVal = range.getEnd();
-                int start = (startVal == MessageSet.WILDCARD) ? msgCount : (int) startVal;
-                int end = (endVal == MessageSet.WILDCARD) ? msgCount : (int) endVal;
+                int start = (startVal == MessageSet.WILDCARD)
+                        ? msgCount : (int) startVal;
+                int end = (endVal == MessageSet.WILDCARD)
+                        ? msgCount : (int) endVal;
                 for (int msgNum = start; msgNum <= end; msgNum++) {
-                    boolean add = (action == StoreAction.ADD);
-                    mailbox.setFlags(msgNum, flags, add);
+                    switch (action) {
+                        case REPLACE:
+                            mailbox.replaceFlags(msgNum, flags);
+                            break;
+                        case ADD:
+                            mailbox.setFlags(msgNum, flags, true);
+                            break;
+                        case REMOVE:
+                            mailbox.setFlags(msgNum, flags, false);
+                            break;
+                    }
                     if (!silent) {
-                        state.flagsUpdated(msgNum, mailbox.getFlags(msgNum));
+                        state.flagsUpdated(msgNum,
+                                mailbox.getFlags(msgNum));
                     }
                 }
             }
@@ -342,36 +355,203 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
     @Override
     public void uidStore(StoreState state, Mailbox mailbox, MessageSet uidSet,
             StoreAction action, Set<Flag> flags, boolean silent) {
-        // TODO: Implement UID-based store
-        state.storeFailed("UID STORE not yet implemented", this);
+        try {
+            int msgCount = mailbox.getMessageCount();
+            long lastUid = mailbox.getUidNext() - 1;
+            for (int msgNum = 1; msgNum <= msgCount; msgNum++) {
+                long uid;
+                try {
+                    uid = Long.parseLong(mailbox.getUniqueId(msgNum));
+                } catch (NumberFormatException e) {
+                    uid = msgNum;
+                }
+                if (!uidSet.contains(uid, lastUid)) {
+                    continue;
+                }
+                switch (action) {
+                    case REPLACE:
+                        mailbox.replaceFlags(msgNum, flags);
+                        break;
+                    case ADD:
+                        mailbox.setFlags(msgNum, flags, true);
+                        break;
+                    case REMOVE:
+                        mailbox.setFlags(msgNum, flags, false);
+                        break;
+                }
+                if (!silent) {
+                    state.flagsUpdated(msgNum, mailbox.getFlags(msgNum));
+                }
+            }
+            state.storeComplete(this);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to UID STORE flags", e);
+            state.storeFailed("Cannot store flags", this);
+        }
     }
 
     @Override
     public void copy(CopyState state, MailboxStore store, Mailbox mailbox,
             MessageSet messages, String targetMailbox) {
-        // TODO: Implement COPY
-        state.copyFailed("COPY not yet implemented", this);
+        try {
+            List<Integer> msgNums = resolveSequenceSet(mailbox, messages, false);
+            Map<Integer, Long> uidMap = mailbox.copyMessages(msgNums, targetMailbox);
+            if (uidMap != null && !uidMap.isEmpty()) {
+                Mailbox target = store.openMailbox(targetMailbox, true);
+                long uidValidity = target.getUidValidity();
+                target.close(false);
+                String srcUids = formatUidList(mailbox, msgNums);
+                String destUids = formatDestUidList(uidMap, msgNums);
+                state.copiedWithUid(uidValidity, srcUids, destUids, this);
+            } else {
+                state.copied(this);
+            }
+        } catch (UnsupportedOperationException e) {
+            state.mailboxNotFound("Target mailbox not found", this);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "COPY failed", e);
+            state.copyFailed("Cannot copy messages", this);
+        }
     }
 
     @Override
     public void uidCopy(CopyState state, MailboxStore store, Mailbox mailbox,
             MessageSet uidSet, String targetMailbox) {
-        // TODO: Implement UID COPY
-        state.copyFailed("UID COPY not yet implemented", this);
+        try {
+            List<Integer> msgNums = resolveSequenceSet(mailbox, uidSet, true);
+            Map<Integer, Long> uidMap = mailbox.copyMessages(msgNums, targetMailbox);
+            if (uidMap != null && !uidMap.isEmpty()) {
+                Mailbox target = store.openMailbox(targetMailbox, true);
+                long uidValidity = target.getUidValidity();
+                target.close(false);
+                String srcUids = formatUidList(mailbox, msgNums);
+                String destUids = formatDestUidList(uidMap, msgNums);
+                state.copiedWithUid(uidValidity, srcUids, destUids, this);
+            } else {
+                state.copied(this);
+            }
+        } catch (UnsupportedOperationException e) {
+            state.mailboxNotFound("Target mailbox not found", this);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "UID COPY failed", e);
+            state.copyFailed("Cannot copy messages", this);
+        }
     }
 
     @Override
     public void move(MoveState state, MailboxStore store, Mailbox mailbox,
             MessageSet messages, String targetMailbox) {
-        // TODO: Implement MOVE
-        state.moveFailed("MOVE not yet implemented", this);
+        try {
+            List<Integer> msgNums = resolveSequenceSet(mailbox, messages, false);
+            Map<Integer, Long> uidMap = mailbox.moveMessages(msgNums, targetMailbox);
+            for (int i = msgNums.size() - 1; i >= 0; i--) {
+                state.messageExpunged(msgNums.get(i).intValue());
+            }
+            if (uidMap != null && !uidMap.isEmpty()) {
+                Mailbox target = store.openMailbox(targetMailbox, true);
+                long uidValidity = target.getUidValidity();
+                target.close(false);
+                String srcUids = formatUidList(mailbox, msgNums);
+                String destUids = formatDestUidList(uidMap, msgNums);
+                state.movedWithUid(uidValidity, srcUids, destUids, this);
+            } else {
+                state.moved(this);
+            }
+        } catch (UnsupportedOperationException e) {
+            state.mailboxNotFound("Target mailbox not found", this);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "MOVE failed", e);
+            state.moveFailed("Cannot move messages", this);
+        }
     }
 
     @Override
     public void uidMove(MoveState state, MailboxStore store, Mailbox mailbox,
             MessageSet uidSet, String targetMailbox) {
-        // TODO: Implement UID MOVE
-        state.moveFailed("UID MOVE not yet implemented", this);
+        try {
+            List<Integer> msgNums = resolveSequenceSet(mailbox, uidSet, true);
+            Map<Integer, Long> uidMap = mailbox.moveMessages(msgNums, targetMailbox);
+            for (int i = msgNums.size() - 1; i >= 0; i--) {
+                state.messageExpunged(msgNums.get(i).intValue());
+            }
+            if (uidMap != null && !uidMap.isEmpty()) {
+                Mailbox target = store.openMailbox(targetMailbox, true);
+                long uidValidity = target.getUidValidity();
+                target.close(false);
+                String srcUids = formatUidList(mailbox, msgNums);
+                String destUids = formatDestUidList(uidMap, msgNums);
+                state.movedWithUid(uidValidity, srcUids, destUids, this);
+            } else {
+                state.moved(this);
+            }
+        } catch (UnsupportedOperationException e) {
+            state.mailboxNotFound("Target mailbox not found", this);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "UID MOVE failed", e);
+            state.moveFailed("Cannot move messages", this);
+        }
+    }
+
+    private List<Integer> resolveSequenceSet(Mailbox mailbox, MessageSet seqSet,
+            boolean uid) throws IOException {
+        int msgCount = mailbox.getMessageCount();
+        List<Integer> result = new ArrayList<Integer>();
+        if (uid) {
+            long lastUid = mailbox.getUidNext() - 1;
+            for (int msgNum = 1; msgNum <= msgCount; msgNum++) {
+                long msgUid;
+                try {
+                    msgUid = Long.parseLong(mailbox.getUniqueId(msgNum));
+                } catch (NumberFormatException e) {
+                    msgUid = msgNum;
+                }
+                if (seqSet.contains(msgUid, lastUid)) {
+                    result.add(Integer.valueOf(msgNum));
+                }
+            }
+        } else {
+            for (int msgNum = 1; msgNum <= msgCount; msgNum++) {
+                if (seqSet.contains(msgNum, msgCount)) {
+                    result.add(Integer.valueOf(msgNum));
+                }
+            }
+        }
+        return result;
+    }
+
+    private String formatUidList(Mailbox mailbox, List<Integer> msgNums)
+            throws IOException {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < msgNums.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            long uid;
+            try {
+                uid = Long.parseLong(mailbox.getUniqueId(msgNums.get(i).intValue()));
+            } catch (NumberFormatException e) {
+                uid = msgNums.get(i).intValue();
+            }
+            sb.append(uid);
+        }
+        return sb.toString();
+    }
+
+    private String formatDestUidList(Map<Integer, Long> uidMap,
+            List<Integer> msgNums) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (int i = 0; i < msgNums.size(); i++) {
+            Long destUid = uidMap.get(msgNums.get(i));
+            if (destUid != null) {
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                sb.append(destUid.longValue());
+            }
+        }
+        return sb.toString();
     }
 
     @Override
@@ -416,6 +596,16 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
         @Override
         public void appendComplete(AppendCompleteState state, Mailbox mailbox) {
             state.appended(parent);
+        }
+
+        @Override
+        public boolean wantsPause() {
+            return false;
+        }
+
+        @Override
+        public void setResumeCallback(Runnable callback) {
+            // Default handler never pauses
         }
     }
 

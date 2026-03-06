@@ -68,6 +68,16 @@ public interface ClientMessageData {
     void writeContent(ByteBuffer content);
 
     /**
+     * Registers a one-shot callback invoked when the transport
+     * is ready for more data.  Use this to pace large message
+     * uploads: send a chunk, register a callback, and send the
+     * next chunk from the callback.
+     *
+     * @param callback the callback, or null to clear
+     */
+    void onWriteReady(Runnable callback);
+
+    /**
      * Completes the message and submits for delivery.
      * 
      * <p>Signals the end of message content and waits for the server's

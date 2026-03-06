@@ -47,6 +47,7 @@ import java.util.logging.Logger;
 
 import javax.mail.internet.MimeUtility;
 
+
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -628,6 +629,23 @@ public class HTTPProtocolHandler
             LOGGER.log(Level.WARNING, "Failed to create pushed stream " + streamId, e);
             return null;
         }
+    }
+
+    // ── Backpressure / flow control (HTTPConnectionLike) ──
+
+    @Override
+    public void onWritable(int streamId, Runnable callback) {
+        endpoint.onWriteReady(callback);
+    }
+
+    @Override
+    public void pauseRead(int streamId) {
+        endpoint.pauseRead();
+    }
+
+    @Override
+    public void resumeRead(int streamId) {
+        endpoint.resumeRead();
     }
 
     // ── Private helpers ──

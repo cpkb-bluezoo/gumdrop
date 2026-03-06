@@ -102,5 +102,29 @@ public interface MessageDataHandler {
      */
     void messageAborted();
 
+    /**
+     * Returns whether the handler needs reading to be paused.
+     *
+     * <p>Called after each {@link #messageContent} invocation. If this
+     * returns {@code true}, the transport will pause reading from the
+     * network until the handler calls the resume callback provided via
+     * {@link #setResumeCallback(Runnable)}.
+     *
+     * @return true if the handler needs a pause
+     */
+    boolean wantsPause();
+
+    /**
+     * Provides a callback that the handler should invoke when it is
+     * ready for more data after signalling a pause via
+     * {@link #wantsPause()}.
+     *
+     * <p>The callback resumes reading from the network. It may be
+     * called from any thread.
+     *
+     * @param callback the resume callback
+     */
+    void setResumeCallback(Runnable callback);
+
 }
 

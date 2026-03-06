@@ -216,6 +216,10 @@ The architecture decouples transport I/O from protocol logic.
 <li><code>isOpen()</code> - tests whether the endpoint is active</li>
 <li><code>getRemoteAddress()</code>, <code>getLocalAddress()</code> - peer
 addresses</li>
+<li><code>pauseRead()</code>, <code>resumeRead()</code> - flow control for
+incoming data</li>
+<li><code>onWriteReady(Runnable)</code> - callback when the write buffer has
+drained</li>
 </ul>
 
 <p>
@@ -237,6 +241,33 @@ Protocol implementations (HTTP, SMTP, IMAP, etc.) implement
 for line-oriented protocols, using composition instead of inheritance. The
 framework handles read/write buffering, TLS encryption/decryption, and
 endpoint lifecycle.
+</p>
+
+<h4>Flow Control</h4>
+
+<p>
+The <code>Endpoint</code> interface provides transport-level flow control that
+gives protocol handlers explicit control over the rate of data transfer. This
+is a simpler, more efficient alternative to the Reactive Streams specification:
+instead of introducing <code>Publisher</code>/<code>Subscriber</code>
+abstractions and demand-based signalling, Gumdrop exposes three primitives
+directly on the transport &mdash; <code>pauseRead()</code>,
+<code>resumeRead()</code>, and <code>onWriteReady(Runnable)</code> &mdash; that
+manipulate the underlying I/O interest set. This provides complete
+backpressure with zero object allocation overhead and no additional threading.
+</p>
+
+<p>
+On TCP endpoints, <code>pauseRead()</code> clears the <code>OP_READ</code>
+interest on the <code>SelectionKey</code>, causing the selector to stop
+delivering data from that connection. The kernel TCP receive buffer fills,
+the TCP window shrinks, and the remote peer naturally slows down. Calling
+<code>resumeRead()</code> reverses this. For writes,
+<code>onWriteReady(Runnable)</code> registers a one-shot callback that fires
+when the transport has drained its write buffer, allowing protocol handlers
+to feed data in chunks without unbounded memory growth. All TCP-based protocols
+(SMTP, IMAP, POP3, FTP) and their client counterparts use these primitives for
+large transfers such as message retrieval, uploads, and file downloads.
 </p>
 
 <h3>Staged Handler Pattern</h3>

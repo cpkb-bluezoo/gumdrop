@@ -1564,8 +1564,7 @@ public class POP3ProtocolHandler
         this.transactionHandler = handler;
         try {
             sendOK(size + " octets");
-            sendMessageContent(content);
-            sendLine(".");
+            startChunkedMessageWrite(content, null);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to send message", e);
@@ -1632,8 +1631,7 @@ public class POP3ProtocolHandler
         this.transactionHandler = handler;
         try {
             sendOK(L10N.getString("pop3.top_follows"));
-            sendMessageContent(content);
-            sendLine(".");
+            startChunkedMessageWrite(content, null);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to send TOP", e);
         }
@@ -1832,16 +1830,13 @@ public class POP3ProtocolHandler
                         "pop3.err.no_such_message"));
                 return;
             }
-            sendOK(msg.getSize() + " octets");
+            long messageSize = msg.getSize();
+            sendOK(messageSize + " octets");
             ReadableByteChannel channel =
                     mailbox.getMessageContent(msgNum);
-            try {
-                sendMessageContent(channel);
-            } finally {
-                channel.close();
-            }
-            sendLine(".");
-            recordMessageRetrieve(msgNum, msg.getSize());
+            RetrCompletion retrCompletion =
+                    new RetrCompletion(msgNum, messageSize);
+            startChunkedMessageWrite(channel, retrCompletion);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to retrieve message " + msgNum, e);
@@ -1951,12 +1946,7 @@ public class POP3ProtocolHandler
             sendOK(L10N.getString("pop3.top_follows"));
             ReadableByteChannel channel =
                     mailbox.getMessageTop(msgNum, lines);
-            try {
-                sendMessageContent(channel);
-            } finally {
-                channel.close();
-            }
-            sendLine(".");
+            startChunkedMessageWrite(channel, null);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to retrieve top of message " + msgNum, e);
@@ -2165,38 +2155,152 @@ public class POP3ProtocolHandler
         }
     }
 
-    private void sendMessageContent(ReadableByteChannel channel)
-            throws IOException {
-        ByteBuffer buffer = ByteBuffer.allocate(8192);
-        StringBuilder lineBuilder = new StringBuilder();
+    /**
+     * Begins a chunked message content write with backpressure.
+     * The writer reads data from the channel in chunks, sends each
+     * chunk via the endpoint, and waits for the write buffer to drain
+     * before sending the next chunk.  When finished, it sends the
+     * POP3 terminator line and runs the completion callback.
+     */
+    private void startChunkedMessageWrite(ReadableByteChannel channel,
+            Runnable completion) {
+        MessageContentWriter writer =
+                new MessageContentWriter(channel, completion);
+        writer.writeNextChunk();
+    }
 
-        while (channel.read(buffer) != -1
-                || buffer.position() > 0) {
-            buffer.flip();
-            while (buffer.hasRemaining()) {
-                byte b = buffer.get();
-                if (b == '\n') {
+    /**
+     * Chunked message content writer with write-pacing.
+     * Reads from a channel in batches and uses onWriteReady to pace
+     * output, preventing unbounded netOut buffer growth for large
+     * messages.
+     */
+    private class MessageContentWriter implements Runnable {
+
+        private static final int CHUNK_SIZE = 32768;
+        private static final int MAX_LINES_PER_CHUNK = 512;
+
+        private final ReadableByteChannel channel;
+        private final Runnable completion;
+        private final ByteBuffer readBuf;
+        private final StringBuilder lineBuilder;
+        private boolean channelExhausted;
+
+        MessageContentWriter(ReadableByteChannel channel,
+                Runnable completion) {
+            this.channel = channel;
+            this.completion = completion;
+            this.readBuf = ByteBuffer.allocate(CHUNK_SIZE);
+            this.lineBuilder = new StringBuilder();
+        }
+
+        @Override
+        public void run() {
+            writeNextChunk();
+        }
+
+        void writeNextChunk() {
+            try {
+                int linesWritten = 0;
+
+                while (linesWritten < MAX_LINES_PER_CHUNK) {
+                    if (!readBuf.hasRemaining() && !channelExhausted) {
+                        readBuf.clear();
+                        int bytesRead = channel.read(readBuf);
+                        if (bytesRead == -1) {
+                            channelExhausted = true;
+                        }
+                        readBuf.flip();
+                    }
+
+                    if (!readBuf.hasRemaining()) {
+                        break;
+                    }
+
+                    while (readBuf.hasRemaining()
+                            && linesWritten < MAX_LINES_PER_CHUNK) {
+                        byte b = readBuf.get();
+                        if (b == '\n') {
+                            String line = stripCR(lineBuilder);
+                            lineBuilder.setLength(0);
+                            if (line.startsWith(".")) {
+                                sendLine("." + line);
+                            } else {
+                                sendLine(line);
+                            }
+                            linesWritten++;
+                        } else {
+                            lineBuilder.append((char) (b & 0xFF));
+                        }
+                    }
+                }
+
+                boolean hasMore = readBuf.hasRemaining()
+                        || !channelExhausted;
+
+                if (hasMore) {
+                    endpoint.onWriteReady(this);
+                } else {
+                    finishTransfer();
+                }
+
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error during chunked message write", e);
+                closeChannel();
+                endpoint.onWriteReady(null);
+            }
+        }
+
+        private void finishTransfer() {
+            try {
+                if (lineBuilder.length() > 0) {
                     String line = stripCR(lineBuilder);
+                    lineBuilder.setLength(0);
                     if (line.startsWith(".")) {
                         sendLine("." + line);
                     } else {
                         sendLine(line);
                     }
-                    lineBuilder.setLength(0);
-                } else {
-                    lineBuilder.append((char) (b & 0xFF));
                 }
+                sendLine(".");
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error finishing chunked message write", e);
             }
-            buffer.clear();
+            closeChannel();
+            endpoint.onWriteReady(null);
+            if (completion != null) {
+                completion.run();
+            }
         }
 
-        if (lineBuilder.length() > 0) {
-            String line = stripCR(lineBuilder);
-            if (line.startsWith(".")) {
-                sendLine("." + line);
-            } else {
-                sendLine(line);
+        private void closeChannel() {
+            try {
+                channel.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error closing message channel", e);
             }
+        }
+    }
+
+    /**
+     * Completion callback for RETR that records the message retrieval
+     * in telemetry after the chunked write finishes.
+     */
+    private class RetrCompletion implements Runnable {
+        private final int messageNumber;
+        private final long messageSize;
+
+        RetrCompletion(int messageNumber, long messageSize) {
+            this.messageNumber = messageNumber;
+            this.messageSize = messageSize;
+        }
+
+        @Override
+        public void run() {
+            recordMessageRetrieve(messageNumber, messageSize);
         }
     }
 

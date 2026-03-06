@@ -144,6 +144,60 @@ public interface Endpoint {
      */
     void startTLS() throws IOException;
 
+    // -- Flow control --
+
+    /**
+     * Pauses reading from the network for this endpoint.
+     *
+     * <p>When paused, the transport stops delivering data via
+     * {@link ProtocolHandler#receive(ByteBuffer)}.  For TCP, this
+     * removes {@code OP_READ} from the selector interest ops, causing
+     * TCP flow control to propagate backpressure to the remote peer.
+     *
+     * <p>Call {@link #resumeRead()} to resume delivery.
+     *
+     * <p>May be called from any thread.
+     *
+     * @throws UnsupportedOperationException if the transport does not
+     *         support read flow control (e.g., UDP)
+     */
+    void pauseRead();
+
+    /**
+     * Resumes reading from the network after a previous
+     * {@link #pauseRead()}.
+     *
+     * <p>The transport re-enables reading from the network.  Any data
+     * that has already arrived at the OS level will be delivered
+     * promptly, followed by further data as it arrives.
+     *
+     * <p>May be called from any thread.
+     *
+     * @throws UnsupportedOperationException if the transport does not
+     *         support read flow control (e.g., UDP)
+     */
+    void resumeRead();
+
+    /**
+     * Registers a one-shot callback invoked when the write buffer has
+     * been fully drained by the transport.
+     *
+     * <p>Only one callback may be registered at a time; setting a new
+     * one replaces any previously registered callback.  Pass
+     * {@code null} to clear an existing callback.
+     *
+     * <p>The callback always runs on the endpoint's SelectorLoop
+     * thread, making it safe to perform further I/O operations.
+     *
+     * <p>Typical use: send a chunk of data, then register a callback
+     * to send the next chunk when the transport has flushed.
+     *
+     * @param callback the callback, or null to clear
+     * @throws UnsupportedOperationException if the transport does not
+     *         support write-ready notification (e.g., UDP)
+     */
+    void onWriteReady(Runnable callback);
+
     // -- Infrastructure --
 
     /**

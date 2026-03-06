@@ -66,4 +66,31 @@ interface HTTPConnectionLike {
     void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
     Stream createPushedStream(int streamId, String method, String uri, Headers headers);
     SelectorLoop getSelectorLoop();
+
+    /**
+     * Registers a one-shot callback invoked when the transport is ready
+     * for more data on the given stream (write buffer drained).
+     *
+     * @param streamId the stream requesting write-readiness notification
+     * @param callback the callback, or null to clear
+     */
+    void onWritable(int streamId, Runnable callback);
+
+    /**
+     * Pauses reading from the network for the given stream.
+     * For HTTP/1.1 this removes {@code OP_READ} from the
+     * connection's {@code SelectionKey}.  For HTTP/2 this withholds
+     * WINDOW_UPDATE frames for the stream.
+     *
+     * @param streamId the stream to pause
+     */
+    void pauseRead(int streamId);
+
+    /**
+     * Resumes reading from the network for the given stream after a
+     * previous {@link #pauseRead(int)}.
+     *
+     * @param streamId the stream to resume
+     */
+    void resumeRead(int streamId);
 }
