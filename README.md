@@ -23,7 +23,7 @@ non-blocking, event-driven I/O. It supports:
     - TCP servers with TLS support
     - UDP servers with DTLS support
     - QUIC support via quiche/BoringSSL (TLS 1.3 always-on)
-    - fully transparent SSL support
+    - fully transparent SSL support for all protocols
         - keystore/truststore configuration
         - client certificates
         - SSL protocols (TLS 1.2, 1.3)
@@ -41,7 +41,7 @@ non-blocking, event-driven I/O. It supports:
         - Spanish
         - German
     - centralized and secure realm interface for authentication and
-      authorization, usable by multiple services
+      authorization, usable by multiple services, with mTLS and SASL mechanisms
     - CIDR connection filtering, rate limiting, quota features
     - lightweight, simple dependency injection framework
     - client framework for creating clients to communicate with other servers
@@ -52,19 +52,17 @@ non-blocking, event-driven I/O. It supports:
         - full HTTP/3 client and server via quiche/BoringSSL
         - QPACK header compression (via quiche)
         - HTTP/3 framing/stream multiplexing (via quiche h3 module)
-        - TLS 1.3 always-on with post-quantum key exchange (X25519MLKEM768)
     - HTTP/2
         - all HTTP/2 frame types and stream multiplexing
         - HPACK header compression
     - HTTP/1.0 and 1.1
         - Chunked encoding and persistent connections
-    - HTTPS with client certificate authentication, custom SSL parameters,
-      cipher suites, and PQC supported groups
-    - authentication framework supporting various methods
+    - authentication framework supporting:
         - Basic
         - HTTP Digest
         - Bearer
         - OAuth
+        - mTLS
     - fast async event driven callback API for microservices with examples
     - WebDAV file service
         - supports fast NIO based data transfer
