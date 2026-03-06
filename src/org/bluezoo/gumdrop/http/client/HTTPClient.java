@@ -138,6 +138,7 @@ public class HTTPClient implements AltSvcListener {
     private Path keyFile;
     private boolean verifyPeer = true;
     private ClientEndpointPool connectionPool;
+    private ClientEndpointPool.PoolEntry poolEntry;
 
     // Internal transport components (created at connect time)
     private TCPTransportFactory transportFactory;
@@ -442,8 +443,11 @@ public class HTTPClient implements AltSvcListener {
         }
         transportFactory.start();
 
+        HTTPClientHandler poolAwareHandler = connectionPool != null
+                ? wrapHandlerForPool(handler) : handler;
+
         endpointHandler = new HTTPClientProtocolHandler(
-                handler, host, port, secure);
+                poolAwareHandler, host, port, secure);
         if (altSvcEnabled) {
             endpointHandler.setAltSvcListener(this);
         }
@@ -468,6 +472,59 @@ public class HTTPClient implements AltSvcListener {
             clientEndpoint.connect(endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
+        }
+    }
+
+    private HTTPClientHandler wrapHandlerForPool(
+            final HTTPClientHandler delegate) {
+        return new HTTPClientHandler() {
+            @Override
+            public void onConnected(Endpoint endpoint) {
+                registerWithPool(endpoint);
+                delegate.onConnected(endpoint);
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) {
+                delegate.onSecurityEstablished(info);
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                delegate.onError(cause);
+            }
+
+            @Override
+            public void onDisconnected() {
+                delegate.onDisconnected();
+            }
+        };
+    }
+
+    private void registerWithPool(Endpoint ep) {
+        if (connectionPool == null) {
+            return;
+        }
+        InetAddress resolved = hostAddress;
+        if (resolved == null && clientEndpoint != null) {
+            resolved = clientEndpoint.getHost();
+        }
+        if (resolved != null) {
+            SelectorLoop loop = selectorLoop;
+            if (loop == null && clientEndpoint != null) {
+                loop = clientEndpoint.getSelectorLoop();
+            }
+            ClientEndpointPool.PoolTarget target =
+                    new ClientEndpointPool.PoolTarget(
+                            resolved, port, secure, loop);
+            poolEntry = connectionPool.register(target, ep);
+        }
+    }
+
+    private void releaseToPool() {
+        if (poolEntry != null) {
+            connectionPool.release(poolEntry);
+            poolEntry = null;
         }
     }
 
@@ -587,7 +644,9 @@ public class HTTPClient implements AltSvcListener {
         if (endpointHandler != null) {
             endpointHandler.close();
         }
-        if (clientEndpoint != null) {
+        if (poolEntry != null) {
+            releaseToPool();
+        } else if (clientEndpoint != null) {
             clientEndpoint.close();
         }
     }

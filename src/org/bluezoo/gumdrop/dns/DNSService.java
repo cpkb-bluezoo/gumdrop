@@ -46,6 +46,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
  * A DNS application service that resolves queries locally or proxies to
@@ -120,6 +121,7 @@ public class DNSService implements Service {
     private boolean useSystemResolvers = true;
     private boolean cacheEnabled = true;
     private DNSCache cache;
+    private DNSServerMetrics metrics;
 
     private final AtomicInteger queryIdGenerator = new AtomicInteger(0);
 
@@ -246,6 +248,15 @@ public class DNSService implements Service {
         return cache;
     }
 
+    /**
+     * Returns the DNS server metrics, or null if metrics are disabled.
+     *
+     * @return the metrics instance
+     */
+    public DNSServerMetrics getMetrics() {
+        return metrics;
+    }
+
     // ── Lifecycle ──
 
     /**
@@ -287,6 +298,18 @@ public class DNSService implements Service {
             wireListener(listener);
             startListener(listener);
         }
+
+        for (int i = 0; i < listeners.size(); i++) {
+            Object listener = listeners.get(i);
+            if (listener instanceof Listener) {
+                Listener l = (Listener) listener;
+                TelemetryConfig tc = l.getTelemetryConfig();
+                if (tc != null && tc.isMetricsEnabled()) {
+                    metrics = new DNSServerMetrics(tc);
+                    break;
+                }
+            }
+        }
     }
 
     @Override
@@ -325,6 +348,11 @@ public class DNSService implements Service {
                 LOGGER.fine(message);
             }
 
+            if (metrics != null && !query.getQuestions().isEmpty()) {
+                DNSQuestion q = (DNSQuestion) query.getQuestions().get(0);
+                metrics.queryReceived(q.getType().name());
+            }
+
             if (!query.isQuery()
                     || query.getOpcode() != DNSMessage.OPCODE_QUERY) {
                 DNSMessage error = query.createErrorResponse(
@@ -340,7 +368,14 @@ public class DNSService implements Service {
                 return;
             }
 
+            long startNanos = System.nanoTime();
             DNSMessage response = processQuery(query);
+            if (metrics != null) {
+                double durationMs =
+                        (System.nanoTime() - startNanos) / 1_000_000.0;
+                metrics.responseSent(
+                        rcodeToString(response.getRcode()), durationMs);
+            }
             sendResponse(origin, response, source);
 
         } catch (DNSFormatException e) {
@@ -370,12 +405,14 @@ public class DNSService implements Service {
         // 1. Check cache
         if (cacheEnabled && cache != null) {
             if (cache.isNegativelyCached(question.getName())) {
+                if (metrics != null) { metrics.cacheHit(); }
                 return query.createErrorResponse(
                         DNSMessage.RCODE_NXDOMAIN);
             }
 
             List cached = cache.lookup(question);
             if (cached != null) {
+                if (metrics != null) { metrics.cacheHit(); }
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     String msg = MessageFormat.format(
                             L10N.getString("debug.cache_hit"), question);
@@ -383,6 +420,7 @@ public class DNSService implements Service {
                 }
                 return query.createResponse(cached);
             }
+            if (metrics != null) { metrics.cacheMiss(); }
         }
 
         // 2. Try custom resolution
@@ -450,6 +488,7 @@ public class DNSService implements Service {
         for (int i = 0; i < upstreamServers.size(); i++) {
             InetSocketAddress upstream =
                     (InetSocketAddress) upstreamServers.get(i);
+            long upstreamStart = System.nanoTime();
             try {
                 DatagramSocket socket = new DatagramSocket();
                 try {
@@ -485,6 +524,13 @@ public class DNSService implements Service {
                             response.getAdditionals()
                     );
 
+                    if (metrics != null) {
+                        double durationMs =
+                                (System.nanoTime() - upstreamStart)
+                                        / 1_000_000.0;
+                        metrics.upstreamQuery(durationMs);
+                    }
+
                     if (LOGGER.isLoggable(Level.FINE)) {
                         String message =
                                 L10N.getString("debug.upstream_response");
@@ -499,14 +545,17 @@ public class DNSService implements Service {
                 }
 
             } catch (SocketTimeoutException e) {
+                if (metrics != null) { metrics.upstreamFailure(); }
                 String msg = MessageFormat.format(
                         L10N.getString("err.timeout_upstream"), upstream);
                 LOGGER.log(Level.FINE, msg);
             } catch (IOException e) {
+                if (metrics != null) { metrics.upstreamFailure(); }
                 String msg = MessageFormat.format(
                         L10N.getString("err.upstream"), upstream);
                 LOGGER.log(Level.FINE, msg, e);
             } catch (DNSFormatException e) {
+                if (metrics != null) { metrics.upstreamFailure(); }
                 String msg = MessageFormat.format(
                         L10N.getString("err.upstream_malformed"),
                         upstream);
@@ -518,6 +567,18 @@ public class DNSService implements Service {
     }
 
     // ── Internal helpers ──
+
+    private static String rcodeToString(int rcode) {
+        switch (rcode) {
+            case DNSMessage.RCODE_NOERROR:  return "NOERROR";
+            case DNSMessage.RCODE_FORMERR:  return "FORMERR";
+            case DNSMessage.RCODE_SERVFAIL: return "SERVFAIL";
+            case DNSMessage.RCODE_NXDOMAIN: return "NXDOMAIN";
+            case DNSMessage.RCODE_NOTIMP:   return "NOTIMP";
+            case DNSMessage.RCODE_REFUSED:  return "REFUSED";
+            default:                        return String.valueOf(rcode);
+        }
+    }
 
     private void sendResponse(DNSListener origin,
                               DNSMessage response,

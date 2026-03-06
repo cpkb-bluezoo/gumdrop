@@ -319,8 +319,10 @@ class H3Stream implements HTTPResponseState {
     @Override
     public void upgradeToWebSocket(String subprotocol,
             WebSocketEventHandler handler) {
-        // WebSocket over HTTP/3 uses CONNECT method (RFC 9220)
-        // Not yet implemented
+        // TODO: Implement WebSocket over HTTP/3 per RFC 9220. Requires:
+        // (1) Extended CONNECT with :protocol "websocket"
+        // (2) SETTINGS_ENABLE_CONNECT_PROTOCOL advertisement in H3Connection
+        // (3) Stream-to-WebSocket adapter mirroring Stream.WebSocketConnectionAdapter
         throw new UnsupportedOperationException(
                 "WebSocket over HTTP/3 not yet supported");
     }

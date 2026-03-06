@@ -307,10 +307,12 @@ public class JSPCodeGenerator implements JSPElementVisitor {
                 }
                 break;
             case "extends":
-                // TODO: Handle custom base class
+                // TODO: Parse extends= directive and set generated servlet superclass
+                // instead of the default HttpServlet
                 break;
             case "implements":
-                // TODO: Handle additional interfaces
+                // TODO: Parse implements= directive and add interfaces to the
+                // generated servlet class declaration
                 break;
         }
     }
@@ -674,6 +676,8 @@ public class JSPCodeGenerator implements JSPElementVisitor {
                 break;
                 
             default:
+                // TODO: Implement remaining standard actions (jsp:forward,
+                // jsp:include, jsp:plugin, etc.) per JSP 2.3 spec ch. 5
                 serviceMethodBody.append("            // TODO: Implement ")
                                .append(actionName)
                                .append(" action\n");

@@ -61,6 +61,7 @@ import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 
 /**
  * HTTP/1.1 and HTTP/2 protocol handler using {@link ProtocolHandler} and
@@ -563,6 +564,11 @@ public class HTTPProtocolHandler
     @Override
     public HTTPServerMetrics getServerMetrics() {
         return server != null ? server.getMetrics() : null;
+    }
+
+    @Override
+    public WebSocketServerMetrics getWebSocketMetrics() {
+        return server != null ? server.getWebSocketMetrics() : null;
     }
 
     @Override

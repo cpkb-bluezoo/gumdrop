@@ -29,6 +29,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 
 /**
  * Interface for HTTP connection abstractions used by {@link Stream}.
@@ -59,6 +60,7 @@ interface HTTPConnectionLike {
     void setTrace(Trace trace);
     boolean isTelemetryEnabled();
     HTTPServerMetrics getServerMetrics();
+    WebSocketServerMetrics getWebSocketMetrics();
     boolean isEnablePush();
     Stream newStream(HTTPConnectionLike connection, int streamId);
     int getNextServerStreamId();

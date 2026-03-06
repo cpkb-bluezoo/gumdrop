@@ -145,6 +145,7 @@ public class OAuthRealm implements Realm {
     
     // Optional token cache
     private final Map<String, CachedTokenResult> tokenCache;
+    private final ConcurrentHashMap<String, TokenValidationResult> userResultCache;
     
     // SelectorLoop binding
     private final SelectorLoop selectorLoop;
@@ -193,6 +194,7 @@ public class OAuthRealm implements Realm {
         this.basicAuthHeader = "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
         // Initialize cache if enabled
         this.tokenCache = cacheEnabled ? new ConcurrentHashMap<String, CachedTokenResult>() : null;
+        this.userResultCache = new ConcurrentHashMap<String, TokenValidationResult>();
         // Configure logging level
         String logLevel = config.getProperty("oauth.log.level", "INFO");
         try {
@@ -238,13 +240,17 @@ public class OAuthRealm implements Realm {
         try {
             // Perform token introspection
             TokenValidationResult result = performTokenIntrospection(accessToken);
-            // Cache result if caching is enabled
-            if (cacheEnabled && tokenCache != null && result.valid) {
-                // Clean up cache if it's getting too large
-                if (tokenCache.size() >= maxCacheSize) {
-                    cleanupCache();
+            if (result.valid) {
+                if (result.username != null) {
+                    userResultCache.put(result.username, result);
                 }
-                tokenCache.put(accessToken, new CachedTokenResult(result, System.currentTimeMillis() + cacheTtl));
+                // Cache result if caching is enabled
+                if (cacheEnabled && tokenCache != null) {
+                    if (tokenCache.size() >= maxCacheSize) {
+                        cleanupCache();
+                    }
+                    tokenCache.put(accessToken, new CachedTokenResult(result, System.currentTimeMillis() + cacheTtl));
+                }
             }
             return result;
         } catch (Exception e) {
@@ -261,19 +267,22 @@ public class OAuthRealm implements Realm {
 
     @Override
     public boolean isUserInRole(String username, String role) {
-        // Get required scopes for this role
         String[] requiredScopes = roleScopeMapping.get(role);
         if (requiredScopes == null || requiredScopes.length == 0) {
             String msg = MessageFormat.format(L10N.getString("debug.no_scope_mapping"), role);
             LOGGER.fine(msg);
             return false;
         }
-        // FIXME
-        // Note: In practice, the caller should have the token validation result
-        // with scopes available. This method cannot re-validate without the token.
-        String msg = MessageFormat.format(L10N.getString("debug.need_token_scope"), username, role);
-        LOGGER.fine(msg);
-        return false;
+        TokenValidationResult cached = userResultCache.get(username);
+        if (cached == null) {
+            return false;
+        }
+        if (cached.expirationTime > 0
+                && System.currentTimeMillis() > cached.expirationTime * 1000) {
+            userResultCache.remove(username);
+            return false;
+        }
+        return hasRequiredScopes(cached.scopes, requiredScopes);
     }
     
     /**

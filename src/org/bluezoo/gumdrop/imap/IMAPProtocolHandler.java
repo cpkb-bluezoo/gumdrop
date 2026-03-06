@@ -185,6 +185,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private MailboxStore store = null;
     private Mailbox selectedMailbox = null;
     private boolean selectedReadOnly = false;
+    private int lastReportedExists = -1;
 
     // Command parsing
     private CharBuffer charBuffer;
@@ -1550,6 +1551,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             addSessionEvent(readOnly ? "EXAMINE" : "SELECT");
 
             int count = selectedMailbox.getMessageCount();
+            lastReportedExists = count;
             sendUntagged(count + " EXISTS");
             sendUntagged("0 RECENT");
             sendUntagged("FLAGS ("
@@ -2351,6 +2353,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             selectedMailbox = null;
         }
         selectedReadOnly = false;
+        lastReportedExists = -1;
         state = IMAPState.AUTHENTICATED;
         sendTaggedOk(tag, L10N.getString("imap.close_complete"));
     }
@@ -2367,6 +2370,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             selectedMailbox = null;
         }
         selectedReadOnly = false;
+        lastReportedExists = -1;
         state = IMAPState.AUTHENTICATED;
         sendTaggedOk(tag, L10N.getString("imap.unselect_complete"));
     }
@@ -3848,7 +3852,16 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     // ── Helpers ──
 
     private void sendMailboxUpdates() throws IOException {
-        // TODO: Send EXISTS/EXPUNGE/FETCH updates for mailbox changes
+        if (selectedMailbox == null) {
+            return;
+        }
+        int currentCount = selectedMailbox.getMessageCount();
+        if (currentCount != lastReportedExists) {
+            sendUntagged(currentCount + " EXISTS");
+            lastReportedExists = currentCount;
+        }
+        // TODO: EXPUNGE notifications require tracking which sequence
+        // numbers were removed, deferred to a follow-up
     }
 
     private String parseMailboxName(String arg) {

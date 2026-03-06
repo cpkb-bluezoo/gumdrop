@@ -889,7 +889,8 @@ class Request implements HttpServletRequest {
                     }
                     addParameter(parameters, body.substring(start));
                 } catch (IOException e) {
-                    // XXX log error?
+                    // TODO: Replace printStackTrace with LOGGER.log(Level.WARNING, ...)
+                    // for form parameter parse errors
                     e.printStackTrace(System.err);
                 }
             }

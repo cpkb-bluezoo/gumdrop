@@ -169,8 +169,10 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     boolean distributable;
     boolean initialized;
 
-    String moduleName; // TODO EAR
-    String defaultContextPath; // TODO EAR
+    // TODO: EAR deployment support -- moduleName and defaultContextPath should
+    // be populated from application.xml when deployed inside an EAR
+    String moduleName;
+    String defaultContextPath;
     String requestCharacterEncoding;
     String responseCharacterEncoding;
     List<String> absoluteOrdering = new ArrayList<>();
@@ -2252,7 +2254,9 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     }
 
     @Override public String getVirtualServerName() {
-        throw new UnsupportedOperationException(); // virtual hosts not supported
+        // TODO: Virtual host support -- requires host-to-context routing
+        // in the HTTP listener and a virtual server name registry
+        throw new UnsupportedOperationException();
     }
 
     /**

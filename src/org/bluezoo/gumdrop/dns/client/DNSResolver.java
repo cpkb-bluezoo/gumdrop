@@ -21,9 +21,12 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
@@ -675,10 +678,15 @@ public class DNSResolver {
             pending.timeoutHandle.cancel();
         }
         if (response.isTruncated()) {
-            // TODO: re-query over TCP/DoT for full response
-            LOGGER.warning(MessageFormat.format(
-                    "Truncated response for {0}, delivering partial result",
-                    pending.name));
+            InetSocketAddress server = servers.get(pending.serverIndex);
+            DNSMessage tcpResponse = retryOverTcp(pending, server);
+            if (tcpResponse != null) {
+                response = tcpResponse;
+            } else {
+                LOGGER.warning(MessageFormat.format(
+                        "Truncated response for {0}, TCP retry failed,"
+                        + " delivering partial result", pending.name));
+            }
         }
         cacheResponse(response);
         if (shouldChaseCname(pending, response)) {
@@ -725,6 +733,53 @@ public class DNSResolver {
                 LOGGER.fine(msg);
             }
             pending.callback.onError(msg);
+        }
+    }
+
+    private static final int TCP_TIMEOUT_MS = 5000;
+
+    private DNSMessage retryOverTcp(PendingQuery pending,
+                                    InetSocketAddress server) {
+        try {
+            Socket socket = new Socket();
+            try {
+                socket.setSoTimeout(TCP_TIMEOUT_MS);
+                socket.connect(server, TCP_TIMEOUT_MS);
+
+                DataOutputStream out =
+                        new DataOutputStream(socket.getOutputStream());
+                DataInputStream in =
+                        new DataInputStream(socket.getInputStream());
+
+                byte[] queryBytes = new byte[pending.queryData.remaining()];
+                pending.queryData.rewind();
+                pending.queryData.get(queryBytes);
+                pending.queryData.rewind();
+
+                out.writeShort(queryBytes.length);
+                out.write(queryBytes);
+                out.flush();
+
+                int responseLen = in.readUnsignedShort();
+                byte[] responseBytes = new byte[responseLen];
+                in.readFully(responseBytes);
+
+                DNSMessage tcpResponse = DNSMessage.parse(
+                        ByteBuffer.wrap(responseBytes));
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine(MessageFormat.format(
+                            "TCP retry for {0} succeeded ({1} answers)",
+                            pending.name,
+                            tcpResponse.getAnswers().size()));
+                }
+                return tcpResponse;
+            } finally {
+                socket.close();
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.FINE,
+                    "TCP retry failed for " + pending.name, e);
+            return null;
         }
     }
 

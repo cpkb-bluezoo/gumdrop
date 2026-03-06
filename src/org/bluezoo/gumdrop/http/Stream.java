@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
@@ -787,7 +788,8 @@ class Stream implements HTTPResponseState {
             sendResponseHeaders(101, responseHeaders, false);
             
             // Create adapter that bridges handler to WebSocketConnection
-            webSocketAdapter = new WebSocketConnectionAdapter(handler);
+            webSocketAdapter = new WebSocketConnectionAdapter(
+                    handler, connection.getWebSocketMetrics());
             webSocketAdapter.setTransport(new StreamWebSocketTransport());
             
             // Configure telemetry if enabled
@@ -818,35 +820,49 @@ class Stream implements HTTPResponseState {
             implements WebSocketSession {
         
         private final WebSocketEventHandler handler;
+        private final WebSocketServerMetrics wsMetrics;
+        private long openedAtNanos;
         
-        WebSocketConnectionAdapter(WebSocketEventHandler handler) {
+        WebSocketConnectionAdapter(WebSocketEventHandler handler,
+                                   WebSocketServerMetrics wsMetrics) {
             this.handler = handler;
+            this.wsMetrics = wsMetrics;
         }
         
         // ─────────── WebSocketConnection abstract methods ───────────
         
         @Override
         protected void opened() {
+            openedAtNanos = System.nanoTime();
+            if (wsMetrics != null) { wsMetrics.connectionOpened(); }
             handler.opened(this);
         }
         
         @Override
         protected void textMessageReceived(String message) {
+            if (wsMetrics != null) { wsMetrics.textMessageReceived(); }
             handler.textMessageReceived(this, message);
         }
         
         @Override
         protected void binaryMessageReceived(ByteBuffer data) {
+            if (wsMetrics != null) { wsMetrics.binaryMessageReceived(); }
             handler.binaryMessageReceived(this, data);
         }
         
         @Override
         protected void closed(int code, String reason) {
+            if (wsMetrics != null) {
+                double durationMs =
+                        (System.nanoTime() - openedAtNanos) / 1_000_000.0;
+                wsMetrics.connectionClosed(durationMs, code);
+            }
             handler.closed(code, reason);
         }
         
         @Override
         protected void error(Throwable cause) {
+            if (wsMetrics != null) { wsMetrics.error(); }
             handler.error(cause);
         }
         

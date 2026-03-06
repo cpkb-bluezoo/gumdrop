@@ -163,7 +163,8 @@ class Response implements HttpServletResponse {
         if (request.sessionId != null) {
             url = encodeSessionId(url, request.sessionId);
         }
-        // XXX make URL absolute here?
+        // TODO: Per Servlet spec, sendRedirect should convert relative URLs
+        // to absolute using the request's scheme/host/port
         try {
             return URLEncoder.encode(url, "UTF-8");
         } catch (UnsupportedEncodingException e) {

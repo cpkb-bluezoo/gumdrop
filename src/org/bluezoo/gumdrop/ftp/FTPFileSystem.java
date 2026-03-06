@@ -49,12 +49,8 @@ import java.util.List;
  * <p><strong>Performance:</strong> All I/O operations use NIO channels for 
  * optimal performance with zero-copy transfers when possible.
  *
- * <p><strong>TODO:</strong> Add role-based access restrictions. File operations 
- * should check user roles/permissions from the connection metadata to enforce 
- * fine-grained access control (e.g., read-only users, directory restrictions, 
- * file type filtering, quota limits).
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem
  */
 public interface FTPFileSystem {
 

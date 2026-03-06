@@ -69,6 +69,7 @@ public class WebSocketListener extends HTTPListener {
             Logger.getLogger(WebSocketListener.class.getName());
 
     private WebSocketService service;
+    private WebSocketServerMetrics wsMetrics;
 
     /**
      * Sets the owning service. Called by {@link WebSocketService} during
@@ -99,9 +100,17 @@ public class WebSocketListener extends HTTPListener {
      * factory before starting the underlying HTTP listener.
      */
     @Override
+    public WebSocketServerMetrics getWebSocketMetrics() {
+        return wsMetrics;
+    }
+
+    @Override
     public void start() {
         setHandlerFactory(new UpgradeHandlerFactory());
         super.start();
+        if (isMetricsEnabled()) {
+            wsMetrics = new WebSocketServerMetrics(getTelemetryConfig());
+        }
     }
 
     // ── Internal HTTP upgrade machinery ──

@@ -420,8 +420,10 @@ public class TCPTransportFactory extends TransportFactory {
                 String[] suites = splitOnColon(cipherSuites);
                 params.setCipherSuites(suites);
             }
-            // TODO: SSLParameters.setNamedGroups() is available from Java 16+
-            // and could be used here to configure named groups for JSSE.
+            if (namedGroups != null) {
+                String[] groups = splitOnColon(namedGroups);
+                params.setNamedGroups(groups);
+            }
             engine.setSSLParameters(params);
         }
     }

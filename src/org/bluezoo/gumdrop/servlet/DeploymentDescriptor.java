@@ -205,7 +205,10 @@ abstract class DeploymentDescriptor implements Description {
         listenerDefs.addAll(other.listenerDefs);
         servletMappings.addAll(other.servletMappings);
         if (sessionConfig == null) {
-            sessionConfig = other.sessionConfig; // XXX check
+            // TODO: Verify merge semantics -- should sessionConfig from
+            // web-fragment.xml override or be ignored when the main web.xml
+            // already defines one?
+            sessionConfig = other.sessionConfig;
         }
         mimeMappings.addAll(other.mimeMappings);
         welcomeFiles.addAll(other.welcomeFiles);
@@ -217,7 +220,10 @@ abstract class DeploymentDescriptor implements Description {
         }
         securityConstraints.addAll(other.securityConstraints);
         if (loginConfig == null) {
-            loginConfig = other.loginConfig; // XXX check
+            // TODO: Verify merge semantics -- should loginConfig from
+            // web-fragment.xml override or be ignored when the main web.xml
+            // already defines one?
+            loginConfig = other.loginConfig;
         }
         securityRoles.addAll(other.securityRoles);
 

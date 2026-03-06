@@ -54,6 +54,13 @@
  *       <td>CONDSTORE/QRESYNC</td><td>TODO</td></tr>
  * </table>
  *
+ * <p><b>Extension implementation notes:</b>
+ * LITERAL+ (RFC 7888) requires non-synchronizing literal handling in the
+ * IMAP command parser -- the server must accept literal data without sending
+ * a continuation request. CONDSTORE/QRESYNC (RFC 7162) requires per-message
+ * MODSEQ tracking in the Mailbox interface and VANISHED response support
+ * in the protocol handler for efficient mailbox resynchronization.</p>
+ *
  * <h2>Protocol States</h2>
  * <ul>
  *   <li><b>NOT_AUTHENTICATED</b> - Initial state, must authenticate</li>
