@@ -707,6 +707,31 @@ or HTTP/3 connection</li>
 transparently</li>
 </ul>
 
+<h4>Connection Pooling</h4>
+
+<p>
+<code>setConnectionPool(ClientEndpointPool)</code> enables endpoint reuse with
+SelectorLoop affinity. Pool targets are keyed by (host, port, secure, loop).
+When a pooled connection is available, the client skips the connect/TLS
+handshake and reuses the existing endpoint.
+</p>
+
+<h4>Certificate Pinning</h4>
+
+<p>
+<code>setTrustManager(X509TrustManager)</code> configures a custom trust manager
+for outbound TLS. Use <code>PinnedCertTrustManager</code> for SHA-256
+fingerprint pinning.
+</p>
+
+<h4>Alt-Svc Discovery</h4>
+
+<p>
+<code>setAltSvcEnabled(true)</code> enables parsing of <code>Alt-Svc</code>
+response headers. The client can automatically upgrade to HTTP/3 when the server
+advertises QUIC availability.
+</p>
+
 <h4>Usage (HTTP/2 and HTTP/1.1)</h4>
 
 <pre>

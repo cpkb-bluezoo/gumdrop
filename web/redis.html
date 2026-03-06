@@ -685,16 +685,17 @@ client.connect(handler);
 </pre>
 
 <p>
-For mutual TLS (client certificates), configure the keystore containing your
-client certificate:
+For mutual TLS (client certificates), configure the keystore and a custom trust
+manager. <code>RedisClient</code> does not expose truststore properties directly;
+use <code>setTrustManager()</code> with a <code>PinnedCertTrustManager</code> or
+custom <code>X509TrustManager</code>:
 </p>
 
 <pre>
 client.setSecure(true);
 client.setKeystoreFile("/path/to/client-keystore.p12");
 client.setKeystorePass("password");
-client.setTruststoreFile("/path/to/truststore.p12");
-client.setTruststorePass("password");
+client.setTrustManager(new PinnedCertTrustManager(fingerprints));
 </pre>
 
 <h3 id="authentication">Authentication</h3>

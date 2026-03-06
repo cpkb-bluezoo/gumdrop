@@ -940,6 +940,9 @@ executes entirely within the I/O worker without blocking.
 <li><b>Asynchronous operation</b> - integrates with Gumdrop's SelectorLoop</li>
 <li><b>ESMTP support</b> - EHLO with extension discovery</li>
 <li><b>STARTTLS</b> - opportunistic TLS upgrade</li>
+<li><b>Certificate pinning</b> - <code>setTrustManager(X509TrustManager)</code>
+for outbound TLS; use <code>PinnedCertTrustManager</code> for SHA-256
+fingerprint pinning</li>
 <li><b>Streaming DATA</b> - dot-stuffing handled automatically without buffering</li>
 <li><b>Pipelining</b> - multiple commands in flight (when server supports)</li>
 </ul>

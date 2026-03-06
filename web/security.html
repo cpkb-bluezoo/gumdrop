@@ -82,30 +82,26 @@ mechanisms without exposing stored credentials:
 
 <pre>
 public interface Realm {
-    // Basic password verification
+    Realm forSelectorLoop(SelectorLoop loop);
+    Set&lt;SASLMechanism&gt; getSupportedSASLMechanisms();
     boolean passwordMatch(String username, String password);
-    
-    // Digest authentication support
-    byte[] getDigestHA1(String username, String realmName);
-    
-    // CRAM-MD5 challenge-response
-    String getCramMD5Response(String username, byte[] challenge);
-    
-    // SCRAM-SHA-256 derived keys
-    ScramCredentials getScramCredentials(String username);
-    
-    // OAuth/Bearer token validation
-    String validateBearerToken(String token);
-    
-    // Role-based access control
+    String getDigestHA1(String username, String realmName);
     boolean isUserInRole(String username, String role);
+    boolean userExists(String username);
+    String getCramMD5Response(String username, String challenge);
+    ScramCredentials getScramCredentials(String username);
+    TokenValidationResult validateBearerToken(String token);
+    TokenValidationResult validateOAuthToken(String accessToken);
+    CertificateAuthenticationResult authenticateCertificate(X509Certificate cert);
+    boolean authorizeAs(String authenticatedUser, String requestedUser);
 }
 </pre>
 
 <p>
-This design allows the realm to store passwords in any form (plaintext, hashed,
-or derived keys) without requiring the authentication layer to know the storage
-format.
+Most methods are <code>default</code> and throw <code>UnsupportedOperationException</code>
+&mdash; realms need only implement the mechanisms they support. This design allows
+the realm to store passwords in any form (plaintext, hashed, or derived keys)
+without requiring the authentication layer to know the storage format.
 </p>
 
 <h3 id="basicrealm">BasicRealm Implementation</h3>
@@ -152,6 +148,21 @@ containing space-separated role names. Users reference groups using the
 &lt;/realm&gt;
 </pre>
 
+<h3 id="oauthrealm">OAuthRealm</h3>
+
+<p>
+<code>OAuthRealm</code> validates OAuth 2.0 tokens via RFC 7662 (token
+introspection). Constructed with a <code>Properties</code> instance specifying
+the introspection endpoint, client credentials, and role-scope mappings. Not
+directly DI-instantiable; use a factory or programmatic setup.
+</p>
+
+<p>
+<code>isUserInRole()</code> checks cached token scopes against role-scope
+mappings. See the <a href="../examples/oauth-servlet-auth/">oauth-servlet-auth
+example</a> for a working configuration.
+</p>
+
 <h4>Custom Realm Implementations</h4>
 
 <p>
@@ -162,7 +173,7 @@ integrate with your identity provider:
 <ul>
 <li><b>LDAP/Active Directory</b> - query directory for authentication</li>
 <li><b>Database</b> - store credentials in SQL/NoSQL database</li>
-<li><b>OAuth 2.0/OIDC</b> - validate tokens against identity provider</li>
+<li><b>OAuth 2.0/OIDC</b> - validate tokens via <code>OAuthRealm</code> or custom implementation</li>
 <li><b>PAM</b> - integrate with system authentication</li>
 </ul>
 
@@ -317,9 +328,10 @@ preventing resource exhaustion from connection flooding.
 </p>
 
 <pre>
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
     &lt;property name="max-connections-per-ip"&gt;10&lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Connection Rate Limits</h4>
@@ -330,10 +342,10 @@ preventing rapid reconnection attacks.
 </p>
 
 <pre>
-&lt;server id="ftp" class="org.bluezoo.gumdrop.ftp.FTPServer"&gt;
-    &lt;!-- 100 connections per minute per IP --&gt;
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
     &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Rate Limit Format</h4>
@@ -365,13 +377,11 @@ offending clients.
 </p>
 
 <pre>
-&lt;server id="imap" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;!-- Lock out after 5 failures --&gt;
+&lt;service id="imap" class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
     &lt;property name="max-auth-failures"&gt;5&lt;/property&gt;
-    
-    &lt;!-- 5-minute lockout --&gt;
     &lt;property name="auth-lockout-time"&gt;5m&lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="143"/&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Exponential Backoff</h4>
@@ -406,17 +416,15 @@ SMTP servers support CIDR-based network filtering for allow/block lists:
 </p>
 
 <pre>
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;!-- Only accept from these networks --&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
     &lt;property name="allowed-networks"&gt;
         192.168.0.0/16,10.0.0.0/8,2001:db8::/32
     &lt;/property&gt;
-    
-    &lt;!-- Block these networks --&gt;
     &lt;property name="blocked-networks"&gt;
         192.168.100.0/24,2001:db8:bad::/48
     &lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+&lt;/service&gt;
 </pre>
 
 <p>
@@ -443,12 +451,14 @@ Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
 </p>
 
 <pre>
-&lt;server id="imaps" class="org.bluezoo.gumdrop.imap.IMAPServer"&gt;
-    &lt;property name="port"&gt;993&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-&lt;/server&gt;
+&lt;service id="imaps" class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
+        &lt;property name="port"&gt;993&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>STARTTLS</h4>
@@ -458,12 +468,14 @@ Connection starts unencrypted and upgrades to TLS on client request:
 </p>
 
 <pre>
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;25&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;!-- Advertises STARTTLS capability --&gt;
-&lt;/server&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+        &lt;property name="port"&gt;25&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+        &lt;!-- Advertises STARTTLS capability --&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Client Certificate Authentication</h4>
@@ -473,11 +485,13 @@ Servers can require or request client certificates:
 </p>
 
 <pre>
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="need-client-auth"&gt;true&lt;/property&gt;
-    &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
-    &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
-&lt;/server&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+        &lt;property name="need-client-auth"&gt;true&lt;/property&gt;
+        &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
+        &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <h4 id="sni">SNI (Server Name Indication)</h4>
@@ -489,7 +503,7 @@ secure domains on a single IP address and port.
 </p>
 
 <pre>
-&lt;server id="https" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="https" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
         &lt;property name="port"&gt;443&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -504,7 +518,7 @@ secure domains on a single IP address and port.
         &lt;/property&gt;
         &lt;property name="sni-default-alias"&gt;default-cert&lt;/property&gt;
     &lt;/listener&gt;
-&lt;/server&gt;
+&lt;/service&gt;
 </pre>
 
 <p>
@@ -663,6 +677,23 @@ QUIC listeners support BoringSSL cipher suite and named group configuration:
 <p>
 The default cipher suites are BoringSSL's defaults (AES-128-GCM and
 AES-256-GCM with SHA-256/384). The default named group is X25519.
+</p>
+
+<h3 id="cert-pinning">Certificate Pinning</h3>
+
+<p>
+<code>PinnedCertTrustManager</code> wraps an <code>X509TrustManager</code> and
+validates server certificates against a set of SHA-256 fingerprints. If the
+presented certificate does not match any pinned fingerprint, the TLS handshake
+is rejected.
+</p>
+
+<p>
+All client classes support certificate pinning via
+<code>setTrustManager(X509TrustManager)</code>:
+<code>HTTPClient</code>, <code>SMTPClient</code>, <code>IMAPClient</code>,
+<code>POP3Client</code>, <code>WebSocketClient</code>, <code>RedisClient</code>,
+<code>LDAPClient</code>.
 </p>
 
 <h2 id="telemetry-security">Security Telemetry</h2>

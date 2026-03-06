@@ -158,19 +158,17 @@ To enable telemetry for a server, reference the configuration:
 </p>
 
 <pre>
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;25&lt;/property&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;!-- other properties --&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+&lt;/service&gt;
 
-&lt;server id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
         &lt;property name="port"&gt;8080&lt;/property&gt;
     &lt;/listener&gt;
-    &lt;!-- other properties --&gt;
-&lt;/server&gt;
+&lt;/service&gt;
 </pre>
 
 <h3 id="builtin">Built-in Instrumentation</h3>
@@ -366,6 +364,46 @@ The FTP server creates traces for connections and file operations:
 <tr><td><code>ftp.server.directory.created</code></td><td>Counter</td><td>Directories created</td></tr>
 <tr><td><code>ftp.server.files.deleted</code></td><td>Counter</td><td>Files deleted</td></tr>
 <tr><td><code>ftp.server.auth_tls</code></td><td>Counter</td><td>AUTH TLS upgrades</td></tr>
+</table>
+
+<h4>DNS Server</h4>
+
+<p>
+The DNS server creates spans for incoming queries and upstream proxy operations.
+Metrics are tagged with <code>dns.transport</code> to distinguish UDP, DoT, and
+DoQ listeners.
+</p>
+
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th><th>Attributes</th></tr>
+<tr><td><code>dns.server.queries</code></td><td>Counter</td><td>Queries received</td><td><code>dns.question.type</code>, <code>dns.transport</code></td></tr>
+<tr><td><code>dns.server.responses</code></td><td>Counter</td><td>Responses sent</td><td><code>dns.response.code</code>, <code>dns.transport</code></td></tr>
+<tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>Query processing time (ms)</td><td><code>dns.transport</code></td></tr>
+<tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td>Cache hits</td><td></td></tr>
+<tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td>Cache misses</td><td></td></tr>
+<tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream</td><td></td></tr>
+<tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms)</td><td></td></tr>
+<tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures</td><td></td></tr>
+</table>
+
+<h4>WebSocket Server</h4>
+
+<p>
+When telemetry is configured on the parent HTTP listener,
+<code>WebSocketServerMetrics</code> records connection and frame-level metrics.
+</p>
+
+<p><b>Metrics:</b></p>
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th><th>Attributes</th></tr>
+<tr><td><code>websocket.server.connections</code></td><td>Counter</td><td>Total WebSocket connections</td><td></td></tr>
+<tr><td><code>websocket.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td><td></td></tr>
+<tr><td><code>websocket.server.messages.received</code></td><td>Counter</td><td>Messages received</td><td><code>type</code></td></tr>
+<tr><td><code>websocket.server.messages.sent</code></td><td>Counter</td><td>Messages sent</td><td><code>type</code></td></tr>
+<tr><td><code>websocket.server.frames.received</code></td><td>Counter</td><td>Frames received</td><td><code>opcode</code></td></tr>
+<tr><td><code>websocket.server.frames.sent</code></td><td>Counter</td><td>Frames sent</td><td><code>opcode</code></td></tr>
+<tr><td><code>websocket.server.errors</code></td><td>Counter</td><td>WebSocket errors</td><td></td></tr>
 </table>
 
 <h4>Session Cluster</h4>
@@ -837,21 +875,21 @@ For authenticated endpoints, use the <code>headers</code> property:
     &lt;property name="metrics-interval-ms"&gt;30000&lt;/property&gt;
 &lt;/component&gt;
 
-&lt;!-- SMTP server with telemetry --&gt;
-&lt;server id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPServer"&gt;
-    &lt;property name="port"&gt;25&lt;/property&gt;
+&lt;!-- SMTP service with telemetry --&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;property name="handler-factory" ref="#smtpHandler"/&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+&lt;/service&gt;
 
 &lt;!-- HTTP servlet service with telemetry --&gt;
-&lt;server id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;property name="web-app" ref="#webapp"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
         &lt;property name="port"&gt;8080&lt;/property&gt;
     &lt;/listener&gt;
-&lt;/server&gt;
+&lt;/service&gt;
 </pre>
 
 <h4>Shutdown Guarantees</h4>

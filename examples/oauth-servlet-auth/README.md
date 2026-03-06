@@ -47,12 +47,20 @@ oauth.scope.mapping.readonly=read
 ```xml
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
-    <!-- OAuth realm with configuration from properties file -->
-    <realm id="oauth" class="org.bluezoo.gumdrop.auth.OAuthRealm"
-           configFile="oauth.properties"/>
+    <!--
+        OAuthRealm requires a Properties instance in its constructor.
+        It is not directly DI-instantiable; use a factory bean or
+        programmatic setup. The example below assumes a factory that
+        loads oauth.properties and passes the Properties to OAuthRealm.
+    -->
+    <component id="oauthRealmFactory"
+               class="com.example.OAuthRealmFactory">
+        <property name="config-file">oauth.properties</property>
+    </component>
+    <realm id="oauth" factory="#oauthRealmFactory"/>
     
-    <!-- Servlet container with OAuth authentication -->
-    <server id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
+    <!-- Servlet service with OAuth authentication -->
+    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
         <property name="realm" ref="#oauth"/>
         
         <container class="org.bluezoo.gumdrop.servlet.Container">
@@ -61,7 +69,13 @@ oauth.scope.mapping.readonly=read
                 <property name="docBase">webapps/api</property>
             </context>
         </container>
-    </server>
+        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+            <property name="port">8443</property>
+            <property name="secure">true</property>
+            <property name="keystore-file">keystore.p12</property>
+            <property name="keystore-pass">changeit</property>
+        </listener>
+    </service>
 </gumdrop>
 ```
 

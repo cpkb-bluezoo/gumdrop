@@ -245,17 +245,17 @@ servers:
 
 <pre>
 &lt;!-- Mbox mailbox factory --&gt;
-&lt;mailboxFactory id="mboxFactory" 
-                class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
-    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;mailbox-factory id="mboxFactory" 
+                 class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
+    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
     &lt;property name="extension"&gt;.mbox&lt;/property&gt;
-&lt;/mailboxFactory&gt;
+&lt;/mailbox-factory&gt;
 
 &lt;!-- Maildir mailbox factory --&gt;
-&lt;mailboxFactory id="maildirFactory"
-                class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
-    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
-&lt;/mailboxFactory&gt;
+&lt;mailbox-factory id="maildirFactory"
+                 class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
+&lt;/mailbox-factory&gt;
 
 &lt;!-- IMAP service using Maildir --&gt;
 &lt;service class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
@@ -338,20 +338,20 @@ rewritten on expunge</li>
 <h4>Configuration</h4>
 
 <pre>
-&lt;mailboxFactory id="mbox" 
-                class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
-    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;mailbox-factory id="mbox" 
+                 class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
+    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
     &lt;property name="extension"&gt;.mbox&lt;/property&gt;
-&lt;/mailboxFactory&gt;
+&lt;/mailbox-factory&gt;
 </pre>
 
 <ul>
-<li><code>basedir</code> - directory containing user mailboxes</li>
+<li><code>base-directory</code> - directory containing user mailboxes</li>
 <li><code>extension</code> - file extension for mbox files (default: <code>.mbox</code>)</li>
 </ul>
 
 <p>
-User mailboxes are located at <code>{basedir}/{username}/INBOX{extension}</code>.
+User mailboxes are located at <code>{base-directory}/{username}/INBOX{extension}</code>.
 Subfolders follow the same pattern with folder names as subdirectories.
 </p>
 
@@ -448,18 +448,18 @@ when first seen by a client</li>
 <h4>Configuration</h4>
 
 <pre>
-&lt;mailboxFactory id="maildir"
-                class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
-    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
-&lt;/mailboxFactory&gt;
+&lt;mailbox-factory id="maildir"
+                 class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
+    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
+&lt;/mailbox-factory&gt;
 </pre>
 
 <ul>
-<li><code>basedir</code> - directory containing user Maildirs</li>
+<li><code>base-directory</code> - directory containing user Maildirs</li>
 </ul>
 
 <p>
-User mailboxes are located at <code>{basedir}/{username}/</code> with the
+User mailboxes are located at <code>{base-directory}/{username}/</code> with the
 standard <code>cur/</code>, <code>new/</code>, <code>tmp/</code> subdirectories.
 </p>
 

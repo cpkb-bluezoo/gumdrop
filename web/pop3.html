@@ -269,35 +269,34 @@ been downloaded.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>POP3Server Properties</h4>
+<h4>POP3Listener Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.pop3.POP3Server</code> supports:
+<code>org.bluezoo.gumdrop.pop3.POP3Listener</code> (transport configuration):
 </p>
 
 <ul>
 <li><code>port</code> - listening port (default: 110, or 995 for secure)</li>
 <li><code>secure</code> - enable implicit TLS (POP3S)</li>
-<li><code>keystoreFile</code> - keystore for TLS/STLS</li>
-<li><code>keystorePass</code> - keystore password</li>
+<li><code>keystore-file</code> - keystore for TLS/STLS</li>
+<li><code>keystore-pass</code> - keystore password</li>
+</ul>
+
+<h4>DefaultPOP3Service Properties</h4>
+
+<p>
+<code>org.bluezoo.gumdrop.pop3.DefaultPOP3Service</code> (service logic):
+</p>
+
+<ul>
 <li><code>realm</code> - reference to a Realm for authentication</li>
-<li><code>mailboxFactory</code> - reference to a MailboxFactory</li>
-</ul>
-
-<h4>Feature Toggles</h4>
-
-<ul>
-<li><code>enableAPOP</code> - enable APOP authentication (default: true)</li>
-<li><code>enableUTF8</code> - enable UTF-8 support (default: true)</li>
-<li><code>enablePipelining</code> - enable command pipelining (default: false)</li>
-</ul>
-
-<h4>Security Settings</h4>
-
-<ul>
-<li><code>loginDelay</code> - delay after failed authentication in milliseconds
+<li><code>mailbox-factory</code> - reference to a MailboxFactory</li>
+<li><code>enable-apop</code> - enable APOP authentication (default: true)</li>
+<li><code>enable-utf8</code> - enable UTF-8 support (default: true)</li>
+<li><code>enable-pipelining</code> - enable command pipelining (default: false)</li>
+<li><code>login-delay</code> - delay after failed authentication in milliseconds
 (default: 0); helps mitigate brute-force attacks</li>
-<li><code>transactionTimeout</code> - session timeout in milliseconds
+<li><code>transaction-timeout</code> - session timeout in milliseconds
 (default: 600000 / 10 minutes); RFC 1939 recommends at least 10 minutes</li>
 </ul>
 
@@ -310,31 +309,35 @@ been downloaded.
 &lt;/realm&gt;
 
 &lt;!-- Mbox storage --&gt;
-&lt;mailboxFactory id="mbox"
-                class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
-    &lt;property name="basedir"&gt;/var/mail&lt;/property&gt;
+&lt;mailbox-factory id="mbox"
+                 class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
+    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
 &lt;/mailbox-factory&gt;
 
-&lt;!-- POP3 server (port 110 with STLS) --&gt;
-&lt;server id="pop3" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
-    &lt;property name="port"&gt;110&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+&lt;!-- POP3 service (port 110 with STLS) --&gt;
+&lt;service id="pop3" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
     &lt;property name="enable-apop"&gt;true&lt;/property&gt;
     &lt;property name="login-delay"&gt;3000&lt;/property&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener"&gt;
+        &lt;property name="port"&gt;110&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 
-&lt;!-- POP3S server (port 995 with implicit TLS) --&gt;
-&lt;server id="pop3s" class="org.bluezoo.gumdrop.pop3.POP3Server"&gt;
-    &lt;property name="port"&gt;995&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+&lt;!-- POP3S service (port 995 with implicit TLS) --&gt;
+&lt;service id="pop3s" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
-&lt;/server&gt;
+    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener"&gt;
+        &lt;property name="port"&gt;995&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <h3 id="security">Security</h3>

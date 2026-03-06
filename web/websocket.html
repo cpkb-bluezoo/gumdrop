@@ -518,6 +518,25 @@ all of its properties:
 <li><code>name</code> &ndash; optional listener name for identification</li>
 </ul>
 
+<h3 id="metrics">Metrics</h3>
+
+<p>
+When telemetry is configured on the parent HTTP listener,
+<code>WebSocketServerMetrics</code> records the following OpenTelemetry metrics.
+Access via <code>WebSocketListener.getWebSocketMetrics()</code>.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>websocket.server.connections</code></td><td>Counter</td><td>Total WebSocket connections</td></tr>
+<tr><td><code>websocket.server.session.duration</code></td><td>Histogram</td><td>Session duration (ms)</td></tr>
+<tr><td><code>websocket.server.messages.received</code></td><td>Counter</td><td>Messages received (by type)</td></tr>
+<tr><td><code>websocket.server.messages.sent</code></td><td>Counter</td><td>Messages sent (by type)</td></tr>
+<tr><td><code>websocket.server.frames.received</code></td><td>Counter</td><td>Frames received (by opcode)</td></tr>
+<tr><td><code>websocket.server.frames.sent</code></td><td>Counter</td><td>Frames sent (by opcode)</td></tr>
+<tr><td><code>websocket.server.errors</code></td><td>Counter</td><td>WebSocket errors</td></tr>
+</table>
+
 <h3 id="http-upgrade">Manual HTTP Upgrade</h3>
 
 <p>

@@ -82,7 +82,9 @@ All standard IMAP4rev2 commands are implemented:
 </p>
 
 <ul>
-<li><b>Any state:</b> CAPABILITY, NOOP, LOGOUT</li>
+<li><b>Any state:</b> CAPABILITY, NOOP, LOGOUT. When a mailbox is selected,
+NOOP returns untagged <code>* N EXISTS</code> responses if the message count
+has changed since the last check.</li>
 <li><b>NOT_AUTHENTICATED:</b> STARTTLS, AUTHENTICATE, LOGIN</li>
 <li><b>AUTHENTICATED:</b> SELECT, EXAMINE, CREATE, DELETE, RENAME, SUBSCRIBE,
 UNSUBSCRIBE, LIST, LSUB, STATUS, APPEND</li>

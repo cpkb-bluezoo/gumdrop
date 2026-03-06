@@ -275,6 +275,27 @@ record types:
 <td>Service location</td></tr>
 </table>
 
+<h3 id="metrics">Metrics</h3>
+
+<p>
+When a <code>TelemetryConfig</code> is set on the service, <code>DNSServerMetrics</code>
+records the following OpenTelemetry metrics. Each metric includes a
+<code>dns.transport</code> attribute (<code>udp</code>, <code>dot</code>, or
+<code>doq</code>) identifying the listener that handled the query.
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>dns.server.queries</code></td><td>Counter</td><td>Queries received (by <code>dns.question.type</code>, <code>dns.transport</code>)</td></tr>
+<tr><td><code>dns.server.responses</code></td><td>Counter</td><td>Responses sent (by <code>dns.response.code</code>, <code>dns.transport</code>)</td></tr>
+<tr><td><code>dns.server.query.duration</code></td><td>Histogram</td><td>Query processing time (ms)</td></tr>
+<tr><td><code>dns.server.cache.hits</code></td><td>Counter</td><td>Cache hits</td></tr>
+<tr><td><code>dns.server.cache.misses</code></td><td>Counter</td><td>Cache misses</td></tr>
+<tr><td><code>dns.server.upstream.queries</code></td><td>Counter</td><td>Queries forwarded upstream</td></tr>
+<tr><td><code>dns.server.upstream.duration</code></td><td>Histogram</td><td>Upstream query duration (ms)</td></tr>
+<tr><td><code>dns.server.upstream.failures</code></td><td>Counter</td><td>Upstream query failures</td></tr>
+</table>
+
 <h3 id="configuration">Configuration</h3>
 
 <h4 id="listeners">Listeners</h4>
@@ -475,6 +496,14 @@ the registry), the service's <code>init()</code> or the code that wires the
 resolver to the handler should set the SelectorLoop from the handler's
 endpoint when the first request arrives, or use a shared loop if your design
 assigns one loop per service.
+</p>
+
+<h4>Truncated Response Retry</h4>
+
+<p>
+When a UDP response has the TC (truncated) flag set, <code>DNSResolver</code>
+automatically retries over TCP using standard DNS-over-TCP framing (2-byte
+length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
 </p>
 
 <h3 id="udp">UDP Protocol Support</h3>
