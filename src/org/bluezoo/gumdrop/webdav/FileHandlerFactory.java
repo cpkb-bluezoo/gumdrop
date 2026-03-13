@@ -33,10 +33,11 @@ import java.util.Map;
 /**
  * Factory for creating file request handlers.
  *
- * <p>When WebDAV is enabled, the factory provides RFC 2518 distributed authoring
+ * <p>When WebDAV is enabled, the factory provides RFC 4918 distributed authoring
  * support including PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, and UNLOCK methods.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 class FileHandlerFactory implements HTTPRequestHandlerFactory {
 
@@ -46,15 +47,23 @@ class FileHandlerFactory implements HTTPRequestHandlerFactory {
     private final String allowedOptions;
     private final String[] welcomeFiles;
     private final Map<String, String> contentTypes;
-    
-    // Shared lock manager for WebDAV (shared across all handlers)
-    private final WebDAVLockManager lockManager;
 
-    FileHandlerFactory(Path rootPath, boolean allowWrite, String welcomeFile) {
-        this(rootPath, allowWrite, welcomeFile, false);
+    private final WebDAVLockManager lockManager;
+    private final DeadPropertyStore deadPropertyStore;
+
+    FileHandlerFactory(Path rootPath, boolean allowWrite,
+                       String welcomeFile) {
+        this(rootPath, allowWrite, welcomeFile, false, null);
     }
 
-    FileHandlerFactory(Path rootPath, boolean allowWrite, String welcomeFile, boolean webdavEnabled) {
+    FileHandlerFactory(Path rootPath, boolean allowWrite,
+                       String welcomeFile, boolean webdavEnabled) {
+        this(rootPath, allowWrite, welcomeFile, webdavEnabled, null);
+    }
+
+    FileHandlerFactory(Path rootPath, boolean allowWrite,
+                       String welcomeFile, boolean webdavEnabled,
+                       DeadPropertyStore deadPropertyStore) {
         this.rootPath = rootPath;
         this.allowWrite = allowWrite;
         this.webdavEnabled = webdavEnabled;
@@ -116,14 +125,17 @@ class FileHandlerFactory implements HTTPRequestHandlerFactory {
         contentTypes.put("mp4", "video/mp4");
         contentTypes.put("webm", "video/webm");
         
-        // Create lock manager if WebDAV enabled
-        this.lockManager = webdavEnabled ? new WebDAVLockManager() : null;
+        this.lockManager = webdavEnabled
+                ? new WebDAVLockManager() : null;
+        this.deadPropertyStore = deadPropertyStore;
     }
 
     @Override
-    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-        return new FileHandler(rootPath, allowWrite, webdavEnabled, allowedOptions, 
-                               welcomeFiles, contentTypes, lockManager);
+    public HTTPRequestHandler createHandler(
+            HTTPResponseState state, Headers headers) {
+        return new FileHandler(rootPath, allowWrite, webdavEnabled,
+                allowedOptions, welcomeFiles, contentTypes,
+                lockManager, deadPropertyStore);
     }
 
 }

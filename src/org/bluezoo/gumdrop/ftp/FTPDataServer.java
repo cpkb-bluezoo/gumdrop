@@ -29,13 +29,11 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 
 /**
- * Accepts FTP data connections on a given port for passive mode.
- * This is created by the FTP control connection on demand for PASV/EPSV.
- * It cannot be instantiated by the server configuration.
+ * Accepts FTP data connections on a given port for passive mode
+ * (RFC 959 section 4.1.2 PASV / RFC 2428 section 3 EPSV).
  *
- * <p>Unlike protocol servers, FTP data connections use blocking I/O
- * for file transfers, so this class uses a {@link AcceptSelectorLoop.RawAcceptHandler}
- * instead of the endpoint infrastructure.
+ * <p>Created by the FTP control connection on demand when the client
+ * issues PASV or EPSV.  Not configurable as a standalone server.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

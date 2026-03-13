@@ -132,6 +132,14 @@ Java_org_bluezoo_gumdrop_GumdropNative_quiche_1config_1set_1max_1send_1udp_1payl
     quiche_config_set_max_send_udp_payload_size(config, (size_t)size);
 }
 
+/* RFC 9250 section 4.5: enable 0-RTT early data */
+JNIEXPORT void JNICALL
+Java_org_bluezoo_gumdrop_GumdropNative_quiche_1config_1enable_1early_1data(
+        JNIEnv *env, jclass cls, jlong config_ptr) {
+    quiche_config *config = (quiche_config *)(intptr_t)config_ptr;
+    quiche_config_enable_early_data(config);
+}
+
 JNIEXPORT void JNICALL
 Java_org_bluezoo_gumdrop_GumdropNative_quiche_1config_1free(
         JNIEnv *env, jclass cls, jlong config_ptr) {
@@ -301,6 +309,20 @@ Java_org_bluezoo_gumdrop_GumdropNative_quiche_1conn_1stream_1send(
                                             fin == JNI_TRUE,
                                             &error_code);
     return (jint)sent;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_bluezoo_gumdrop_GumdropNative_quiche_1conn_1stream_1shutdown(
+        JNIEnv *env, jclass cls, jlong conn_ptr, jlong stream_id,
+        jint direction, jlong error_code) {
+    quiche_conn *conn = (quiche_conn *)(intptr_t)conn_ptr;
+    /* direction 0 = QUICHE_SHUTDOWN_WRITE (RESET_STREAM),
+       direction 1 = QUICHE_SHUTDOWN_READ (STOP_SENDING) */
+    enum quiche_shutdown dir = (direction == 0) ?
+            QUICHE_SHUTDOWN_WRITE : QUICHE_SHUTDOWN_READ;
+    int rc = quiche_conn_stream_shutdown(conn, (uint64_t)stream_id,
+                                         dir, (uint64_t)error_code);
+    return (jint)rc;
 }
 
 /* ── Polling and timers ── */
@@ -551,6 +573,28 @@ JNIEXPORT void JNICALL
 Java_org_bluezoo_gumdrop_GumdropNative_quiche_1enable_1debug_1logging(
         JNIEnv *env, jclass cls) {
     quiche_enable_debug_logging(quiche_log_callback, NULL);
+}
+
+/* ── Connection Close (RFC 9000 section 10.2) ── */
+
+JNIEXPORT jint JNICALL
+Java_org_bluezoo_gumdrop_GumdropNative_quiche_1conn_1close(
+        JNIEnv *env, jclass cls, jlong conn_ptr, jboolean app,
+        jlong err, jstring reason) {
+    quiche_conn *conn = (quiche_conn *)(intptr_t)conn_ptr;
+    const char *reason_str = "";
+    size_t reason_len = 0;
+    if (reason != NULL) {
+        reason_str = (*env)->GetStringUTFChars(env, reason, NULL);
+        reason_len = strlen(reason_str);
+    }
+    int rc = quiche_conn_close(conn, app == JNI_TRUE,
+                               (uint64_t)err,
+                               (const uint8_t *)reason_str, reason_len);
+    if (reason != NULL) {
+        (*env)->ReleaseStringUTFChars(env, reason, reason_str);
+    }
+    return (jint)rc;
 }
 
 /* ── Cleanup ── */

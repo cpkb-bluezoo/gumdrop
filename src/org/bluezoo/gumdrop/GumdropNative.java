@@ -241,6 +241,13 @@ public final class GumdropNative {
 
     public static native void quiche_config_free(long config);
 
+    /**
+     * Enables early data (0-RTT) on a QUIC config.
+     * RFC 9250 section 4.5: DoQ MAY use 0-RTT for QUERY and NOTIFY.
+     */
+    public static native void quiche_config_enable_early_data(
+            long config);
+
     // ── Connection lifecycle (using pre-configured SSL) ──
 
     /**
@@ -274,6 +281,22 @@ public final class GumdropNative {
                                                       ByteBuffer buf,
                                                       int len,
                                                       boolean fin);
+
+    /**
+     * Shuts down a QUIC stream with the given error code.
+     * RFC 9000 section 4.6: RESET_STREAM terminates a stream abruptly.
+     * The direction parameter: 0 = send (RESET_STREAM), 1 = recv (STOP_SENDING).
+     *
+     * @param conn connection pointer
+     * @param streamId stream identifier
+     * @param direction 0 for RESET_STREAM, 1 for STOP_SENDING
+     * @param errorCode application error code
+     * @return 0 on success, negative on error
+     */
+    public static native int quiche_conn_stream_shutdown(long conn,
+                                                          long streamId,
+                                                          int direction,
+                                                          long errorCode);
 
     // ── Polling and timers ──
 
@@ -333,6 +356,21 @@ public final class GumdropNative {
     /** Returns the negotiated ALPN protocol. */
     public static native String quiche_conn_application_proto(long conn);
 
+    // ── Connection close ──
+
+    /**
+     * Closes a QUIC connection with the given error code, sending a
+     * CONNECTION_CLOSE frame (RFC 9000 section 10.2).
+     *
+     * @param conn the quiche connection handle
+     * @param app true if this is an application error code
+     * @param err the error code (e.g. 0x100 = H3_NO_ERROR)
+     * @param reason UTF-8 reason phrase (may be empty)
+     * @return 0 on success, negative error code on failure
+     */
+    public static native int quiche_conn_close(long conn, boolean app,
+                                               long err, String reason);
+
     // ── Cleanup ──
 
     public static native void quiche_conn_free(long conn);
@@ -348,6 +386,10 @@ public final class GumdropNative {
     /** Sets the QPACK maximum dynamic table capacity. */
     public static native void quiche_h3_config_set_max_dynamic_table_capacity(
             long h3Config, long capacity);
+
+    /** RFC 9220 — enables or disables Extended CONNECT (SETTINGS_ENABLE_CONNECT_PROTOCOL). */
+    public static native void quiche_h3_config_enable_extended_connect(
+            long h3Config, boolean enabled);
 
     // ── HTTP/3 Connection ──
 
@@ -413,6 +455,23 @@ public final class GumdropNative {
                                                       boolean fin);
 
     /**
+     * Sends additional HEADERS frames on a stream that has already had
+     * its initial HEADERS sent via {@link #quiche_h3_send_response}.
+     *
+     * <p>Used for sending informational (1xx) responses after the first
+     * HEADERS frame, or for sending the final response after a 1xx, or
+     * for trailer headers after the body.
+     *
+     * @param headers flat array of alternating name/value pairs
+     * @param isTrailerSection true if these are trailer headers
+     * @param fin true to include FIN
+     * @return 0 on success, negative error code on failure
+     */
+    public static native int quiche_h3_send_additional_headers(
+            long h3Conn, long quicheConn, long streamId,
+            String[] headers, boolean isTrailerSection, boolean fin);
+
+    /**
      * Sends HTTP/3 response body data on the specified stream.
      *
      * @param fin true if this is the last body data
@@ -438,6 +497,18 @@ public final class GumdropNative {
                                                       long quicheConn,
                                                       String[] headers,
                                                       boolean fin);
+
+    /**
+     * Sends a GOAWAY frame on the HTTP/3 connection (RFC 9114 section 5.2).
+     *
+     * @param h3Conn the h3 connection handle
+     * @param quicheConn the underlying quiche connection handle
+     * @param streamId the last stream ID the server is willing to accept
+     * @return 0 on success, negative error code on failure
+     */
+    public static native int quiche_h3_send_goaway(long h3Conn,
+                                                    long quicheConn,
+                                                    long streamId);
 
     /** Frees an HTTP/3 connection. */
     public static native void quiche_h3_conn_free(long h3Conn);

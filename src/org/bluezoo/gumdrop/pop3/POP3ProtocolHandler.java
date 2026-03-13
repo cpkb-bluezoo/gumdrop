@@ -24,6 +24,10 @@ package org.bluezoo.gumdrop.pop3;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.CompletionHandler;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.ByteOrder;
 import java.nio.CharBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -50,9 +54,11 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -75,11 +81,11 @@ import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.util.ByteArrays;
 
 /**
- * POP3 protocol handler using {@link ProtocolHandler} and
- * {@link LineParser}.
+ * POP3 server protocol handler (RFC 1939).
  *
  * <p>Implements the POP3 protocol with the transport layer fully decoupled:
  * <ul>
@@ -90,14 +96,29 @@ import org.bluezoo.util.ByteArrays;
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
  *
- * <p>This handler works with any transport: TCP via TCPEndpoint, or
- * potentially QUIC streams via QuicStreamEndpoint (for POP3-over-QUIC,
- * if ever standardised).
+ * <p>POP3 Protocol States (RFC 1939 section 3):
+ * <ul>
+ *   <li>AUTHORIZATION — initial state, authentication required</li>
+ *   <li>TRANSACTION — authenticated, mailbox access</li>
+ *   <li>UPDATE — after QUIT, commit deletions</li>
+ * </ul>
+ *
+ * <p>Supported extensions:
+ * <ul>
+ *   <li>CAPA — RFC 2449 (extension mechanism)</li>
+ *   <li>STLS — RFC 2595 section 4 (STARTTLS for POP3)</li>
+ *   <li>AUTH — RFC 5034 (SASL authentication), mechanisms:
+ *       PLAIN (RFC 4616), LOGIN, CRAM-MD5 (RFC 2195),
+ *       DIGEST-MD5 (RFC 2831), SCRAM (RFC 5802),
+ *       OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422 Appendix A)</li>
+ *   <li>UTF8 — RFC 6816 (UTF-8 support)</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see LineParser
  * @see POP3Listener
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
 public class POP3ProtocolHandler
         implements ProtocolHandler, LineParser.Callback,
@@ -116,6 +137,7 @@ public class POP3ProtocolHandler
     private static final int MAX_LINE_LENGTH = 512;
     private static final String CRLF = "\r\n";
 
+    // RFC 1939 section 3 — POP3 session states
     enum POP3State {
         AUTHORIZATION,
         TRANSACTION,
@@ -169,6 +191,7 @@ public class POP3ProtocolHandler
     private String authClientNonce;
     private byte[] authSalt;
     private int authIterations = 4096;
+    private GSSAPIServer.GSSAPIExchange gssapiExchange;
     private CharBuffer charBuffer;
 
     // Telemetry
@@ -366,15 +389,21 @@ public class POP3ProtocolHandler
         if (LOGGER.isLoggable(Level.FINEST)) {
             LOGGER.finest("POP3 response: " + line);
         }
-        byte[] data = (line + CRLF).getBytes(US_ASCII);
-        ByteBuffer buf = ByteBuffer.wrap(data);
+        ByteBuffer lineBuf = US_ASCII.encode(line);
+        ByteBuffer buf = ByteBuffer.allocate(lineBuf.remaining() + 2);
+        buf.put(lineBuf);
+        buf.put((byte) '\r');
+        buf.put((byte) '\n');
+        buf.flip();
         endpoint.send(buf);
     }
 
+    // RFC 1939 section 3 — +OK positive status indicator
     private void sendOK(String message) throws IOException {
         sendLine("+OK " + message);
     }
 
+    // RFC 1939 section 3 — -ERR negative status indicator
     private void sendERR(String message) throws IOException {
         sendLine("-ERR " + message);
     }
@@ -390,7 +419,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── Greeting ──
+    // ── Greeting (RFC 1939 section 4) ──
 
     private void sendGreetingWithHandler() {
         POP3Service service = server.getService();
@@ -404,6 +433,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 4 — server greeting with optional APOP timestamp
     private void sendGreeting() {
         try {
             if (apopTimestamp != null) {
@@ -436,8 +466,9 @@ public class POP3ProtocolHandler
         return realm;
     }
 
-    // ── APOP timestamp ──
+    // ── APOP timestamp (RFC 1939 section 7 — APOP command) ──
 
+    // RFC 1939 section 7 — APOP timestamp in angle brackets
     private String generateAPOPTimestamp() {
         long pid = getProcessId();
         long timestamp = System.currentTimeMillis();
@@ -445,22 +476,12 @@ public class POP3ProtocolHandler
     }
 
     private static long getProcessId() {
-        String runtimeName = java.lang.management.ManagementFactory
-                .getRuntimeMXBean().getName();
-        int atIndex = runtimeName.indexOf('@');
-        if (atIndex > 0) {
-            try {
-                return Long.parseLong(
-                        runtimeName.substring(0, atIndex));
-            } catch (NumberFormatException e) {
-                // Fall through
-            }
-        }
-        return System.nanoTime() & 0x7FFFFFFFFFFFFFFFL;
+        return ProcessHandle.current().pid();
     }
 
-    // ── Command dispatch ──
+    // ── Command dispatch (RFC 1939 section 3 — state-based) ──
 
+    // RFC 1939 section 3 — dispatch by protocol state
     private void handleCommand(String command, String args)
             throws IOException {
         switch (command) {
@@ -554,8 +575,9 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── AUTHORIZATION commands ──
+    // ── AUTHORIZATION commands (RFC 1939 section 4, 7) ──
 
+    // RFC 1939 section 7 — USER command (AUTHORIZATION state)
     private void handleUSER(String args) throws IOException {
         if (args.isEmpty()) {
             sendERR(L10N.getString("pop3.err.username_required"));
@@ -565,44 +587,57 @@ public class POP3ProtocolHandler
         sendOK(L10N.getString("pop3.user_accepted"));
     }
 
+    // RFC 1939 section 7 — PASS command (must follow USER)
     private void handlePASS(String args) throws IOException {
         if (username == null) {
             sendERR(L10N.getString("pop3.err.user_command_required"));
             return;
         }
 
-        enforceLoginDelay();
-
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendERR(L10N.getString("pop3.err.auth_not_configured"));
-            closeEndpoint();
-            return;
-        }
-
-        if (realm.passwordMatch(username, args)) {
-            if (openMailbox(username)) {
-                state = POP3State.TRANSACTION;
-                if (LOGGER.isLoggable(Level.INFO)) {
-                    LOGGER.info("POP3 USER/PASS auth successful: "
-                            + username);
+        final String passUsername = username;
+        enforceLoginDelay(() -> {
+            try {
+                Realm realm = getRealm();
+                if (realm == null) {
+                    sendERR(L10N.getString(
+                            "pop3.err.auth_not_configured"));
+                    closeEndpoint();
+                    return;
                 }
-                recordAuthenticationSuccess("USER/PASS");
-                sendOK(L10N.getString("pop3.mailbox_opened"));
+
+                if (realm.passwordMatch(passUsername, args)) {
+                    if (openMailbox(passUsername)) {
+                        state = POP3State.TRANSACTION;
+                        if (LOGGER.isLoggable(Level.INFO)) {
+                            LOGGER.info(
+                                    "POP3 USER/PASS auth successful: "
+                                            + passUsername);
+                        }
+                        recordAuthenticationSuccess("USER/PASS");
+                        sendOK(L10N.getString("pop3.mailbox_opened"));
+                    }
+                } else {
+                    failedAuthAttempts++;
+                    lastFailedAuthTime = System.currentTimeMillis();
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.warning(
+                                "POP3 USER/PASS auth failed: "
+                                        + passUsername);
+                    }
+                    recordAuthenticationFailure("USER/PASS",
+                            passUsername);
+                    username = null;
+                    sendERR(L10N.getString("pop3.err.auth_failed"));
+                }
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE,
+                        "Error during PASS authentication", e);
+                closeEndpoint();
             }
-        } else {
-            failedAuthAttempts++;
-            lastFailedAuthTime = System.currentTimeMillis();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("POP3 USER/PASS auth failed: "
-                        + username);
-            }
-            recordAuthenticationFailure("USER/PASS", username);
-            username = null;
-            sendERR(L10N.getString("pop3.err.auth_failed"));
-        }
+        });
     }
 
+    // RFC 1939 section 7 — APOP command (MD5-based challenge-response)
     private void handleAPOP(String args) throws IOException {
         if (apopTimestamp == null) {
             sendERR(L10N.getString("pop3.err.apop_not_supported"));
@@ -615,52 +650,69 @@ public class POP3ProtocolHandler
             return;
         }
 
-        String user = args.substring(0, spaceIndex);
-        String clientDigest = args.substring(spaceIndex + 1);
+        final String user = args.substring(0, spaceIndex);
+        final String clientDigest = args.substring(spaceIndex + 1);
 
-        enforceLoginDelay();
-
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendERR(L10N.getString("pop3.err.auth_not_configured"));
-            closeEndpoint();
-            return;
-        }
-
-        try {
-            String expected =
-                    realm.getApopResponse(user, apopTimestamp);
-            if (expected != null
-                    && expected.equalsIgnoreCase(clientDigest)) {
-                username = user;
-                if (openMailbox(username)) {
-                    state = POP3State.TRANSACTION;
-                    if (LOGGER.isLoggable(Level.INFO)) {
-                        LOGGER.info("POP3 APOP auth successful: "
-                                + user);
-                    }
-                    recordAuthenticationSuccess("APOP");
-                    sendOK(L10N.getString("pop3.mailbox_opened"));
+        enforceLoginDelay(() -> {
+            try {
+                Realm realm = getRealm();
+                if (realm == null) {
+                    sendERR(L10N.getString(
+                            "pop3.err.auth_not_configured"));
+                    closeEndpoint();
+                    return;
                 }
-                return;
-            }
 
-            failedAuthAttempts++;
-            lastFailedAuthTime = System.currentTimeMillis();
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("POP3 APOP auth failed: " + user);
-            }
-            recordAuthenticationFailure("APOP", user);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
+                try {
+                    String expected =
+                            realm.getApopResponse(user,
+                                    apopTimestamp);
+                    if (expected != null
+                            && expected.equalsIgnoreCase(
+                                    clientDigest)) {
+                        username = user;
+                        if (openMailbox(username)) {
+                            state = POP3State.TRANSACTION;
+                            if (LOGGER.isLoggable(Level.INFO)) {
+                                LOGGER.info(
+                                        "POP3 APOP auth successful: "
+                                                + user);
+                            }
+                            recordAuthenticationSuccess("APOP");
+                            sendOK(L10N.getString(
+                                    "pop3.mailbox_opened"));
+                        }
+                        return;
+                    }
 
-        } catch (UnsupportedOperationException e) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning(L10N.getString("log.apop_not_supported"));
+                    failedAuthAttempts++;
+                    lastFailedAuthTime =
+                            System.currentTimeMillis();
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.warning(
+                                "POP3 APOP auth failed: " + user);
+                    }
+                    recordAuthenticationFailure("APOP", user);
+                    sendERR(L10N.getString(
+                            "pop3.err.auth_failed"));
+
+                } catch (UnsupportedOperationException e) {
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.warning(L10N.getString(
+                                "log.apop_not_supported"));
+                    }
+                    sendERR(L10N.getString(
+                            "pop3.err.apop_not_available"));
+                }
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE,
+                        "Error during APOP authentication", e);
+                closeEndpoint();
             }
-            sendERR(L10N.getString("pop3.err.apop_not_available"));
-        }
+        });
     }
 
+    // RFC 2595 section 4 — STLS command (STARTTLS for POP3)
     private void handleSTLS(String args) throws IOException {
         if (endpoint.isSecure()) {
             sendERR(L10N.getString("pop3.err.already_tls"));
@@ -685,6 +737,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 6816 section 2 — UTF8 command (AUTHORIZATION state only)
     private void handleUTF8(String args) throws IOException {
         if (!server.isEnableUTF8()) {
             sendERR(L10N.getString("pop3.err.utf8_not_supported"));
@@ -694,8 +747,9 @@ public class POP3ProtocolHandler
         sendOK(L10N.getString("pop3.utf8_enabled"));
     }
 
-    // ── SASL AUTH ──
+    // ── SASL AUTH (RFC 5034 — POP3 SASL Authentication Mechanism) ──
 
+    // RFC 5034 section 4 — AUTH command with optional initial response
     private void handleAUTH(String args) throws IOException {
         if (args.isEmpty()) {
             Realm realm = getRealm();
@@ -712,6 +766,10 @@ public class POP3ProtocolHandler
                         continue;
                     }
                     sendLine(mech.getMechanismName());
+                }
+                // RFC 4752 — advertise GSSAPI when configured
+                if (server.getGSSAPIServer() != null) {
+                    sendLine("GSSAPI");
                 }
                 sendLine(".");
             } else {
@@ -763,6 +821,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 4616 — SASL PLAIN mechanism
     private void handleAuthPLAIN(String initialResponse)
             throws IOException {
         if (initialResponse == null || initialResponse.isEmpty()) {
@@ -773,6 +832,7 @@ public class POP3ProtocolHandler
         processPlainCredentials(initialResponse);
     }
 
+    // SASL LOGIN mechanism (draft-murchison-sasl-login)
     private void handleAuthLOGIN(String initialResponse)
             throws IOException {
         if (initialResponse != null && !initialResponse.isEmpty()) {
@@ -794,6 +854,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 2195 — SASL CRAM-MD5 mechanism
     private void handleAuthCRAMMD5(String initialResponse)
             throws IOException {
         Realm realm = getRealm();
@@ -817,6 +878,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 2831 — SASL DIGEST-MD5 mechanism
     private void handleAuthDIGESTMD5(String initialResponse)
             throws IOException {
         if (initialResponse != null && !initialResponse.isEmpty()) {
@@ -847,6 +909,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 5802 / RFC 7677 — SASL SCRAM-SHA-256 mechanism
     private void handleAuthSCRAM(String initialResponse)
             throws IOException {
         Realm realm = getRealm();
@@ -863,6 +926,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 7628 — SASL OAUTHBEARER mechanism
     private void handleAuthOAUTHBEARER(String initialResponse)
             throws IOException {
         if (initialResponse == null || initialResponse.isEmpty()) {
@@ -873,11 +937,97 @@ public class POP3ProtocolHandler
         processOAuthBearerCredentials(initialResponse);
     }
 
+    // RFC 4752 — SASL GSSAPI mechanism (Kerberos V5)
     private void handleAuthGSSAPI(String initialResponse)
             throws IOException {
-        sendERR(L10N.getString("pop3.err.gssapi_not_available"));
+        GSSAPIServer gssapiServer = server.getGSSAPIServer();
+        if (gssapiServer == null) {
+            sendERR(L10N.getString("pop3.err.gssapi_not_available"));
+            return;
+        }
+        try {
+            gssapiExchange = gssapiServer.createExchange();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "GSSAPI exchange creation failed", e);
+            sendERR(L10N.getString("pop3.err.gssapi_not_available"));
+            return;
+        }
+        authState = AuthState.GSSAPI_EXCHANGE;
+        if (initialResponse != null && !initialResponse.isEmpty()) {
+            processGSSAPIToken(initialResponse);
+        } else {
+            sendContinuation("");
+        }
     }
 
+    // RFC 4752 §3.1 — processes a GSSAPI token exchange step
+    private void processGSSAPIToken(String line) throws IOException {
+        try {
+            byte[] clientToken = SASLUtils.decodeBase64(line);
+            byte[] responseToken = gssapiExchange.acceptToken(clientToken);
+
+            if (gssapiExchange.isContextEstablished()) {
+                byte[] challenge =
+                        gssapiExchange.generateSecurityLayerChallenge();
+                String encoded = SASLUtils.encodeBase64(challenge);
+                sendContinuation(encoded);
+                return;
+            }
+
+            if (responseToken != null && responseToken.length > 0) {
+                String encoded = SASLUtils.encodeBase64(responseToken);
+                sendContinuation(encoded);
+            } else {
+                sendContinuation("");
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "GSSAPI token rejected", e);
+            sendERR(L10N.getString("pop3.err.auth_failed"));
+            resetAuthState();
+        } catch (IllegalArgumentException e) {
+            sendERR(L10N.getString("pop3.err.invalid_base64"));
+            resetAuthState();
+        }
+    }
+
+    // RFC 4752 §3.1 para 7-8 — processes the security layer response
+    private void processGSSAPISecurityLayer(String line) throws IOException {
+        try {
+            byte[] wrapped = SASLUtils.decodeBase64(line);
+            String gssName =
+                    gssapiExchange.validateSecurityLayerResponse(wrapped);
+            Realm realm = getRealm();
+            String localUser = null;
+            if (realm != null) {
+                localUser = realm.mapKerberosPrincipal(gssName);
+            }
+            if (localUser == null) {
+                localUser = gssName;
+                int atIndex = localUser.indexOf('@');
+                if (atIndex > 0) {
+                    localUser = localUser.substring(0, atIndex);
+                }
+            }
+            if (openMailbox(localUser)) {
+                username = localUser;
+                state = POP3State.TRANSACTION;
+                recordAuthenticationSuccess("AUTH GSSAPI");
+                sendOK(L10N.getString("pop3.mailbox_opened"));
+            } else {
+                recordAuthenticationFailure("AUTH GSSAPI", localUser);
+                sendERR(L10N.getString("pop3.err.auth_failed"));
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "GSSAPI security layer failed", e);
+            sendERR(L10N.getString("pop3.err.auth_failed"));
+        } catch (IllegalArgumentException e) {
+            sendERR(L10N.getString("pop3.err.invalid_base64"));
+        } finally {
+            resetAuthState();
+        }
+    }
+
+    // RFC 4422 Appendix A — SASL EXTERNAL mechanism (TLS client cert)
     private void handleAuthEXTERNAL(String initialResponse)
             throws IOException {
         String authzid = null;
@@ -916,8 +1066,9 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── SASL continuation ──
+    // ── SASL continuation (RFC 5034 section 4 — "+" continuation) ──
 
+    // RFC 5034 section 4 — client cancellation with "*"
     private void handleAuthContinuation(String data) throws IOException {
         if ("*".equals(data.trim())) {
             sendERR(L10N.getString("pop3.err.auth_aborted"));
@@ -950,6 +1101,14 @@ public class POP3ProtocolHandler
             case OAUTH_RESPONSE:
                 processOAuthBearerCredentials(data);
                 break;
+            case GSSAPI_EXCHANGE:
+                if (gssapiExchange != null
+                        && gssapiExchange.isContextEstablished()) {
+                    processGSSAPISecurityLayer(data);
+                } else {
+                    processGSSAPIToken(data);
+                }
+                break;
             default:
                 sendERR(L10N.getString(
                         "pop3.err.unexpected_auth_data"));
@@ -967,13 +1126,21 @@ public class POP3ProtocolHandler
             String password = parts[2];
             String user = authzid.isEmpty() ? authcid : authzid;
 
-            if (authenticateAndOpenMailbox(user, password, "PLAIN")) {
-                return;
-            }
-            sendERR(L10N.getString("pop3.err.auth_failed"));
+            authenticateAndOpenMailbox(user, password, "PLAIN",
+                    () -> {
+                        try {
+                            sendERR(L10N.getString(
+                                    "pop3.err.auth_failed"));
+                        } catch (IOException e) {
+                            LOGGER.log(Level.SEVERE,
+                                    "Error sending auth failure", e);
+                            closeEndpoint();
+                        } finally {
+                            resetAuthState();
+                        }
+                    });
         } catch (IllegalArgumentException e) {
             sendERR(L10N.getString("pop3.err.invalid_base64"));
-        } finally {
             resetAuthState();
         }
     }
@@ -995,14 +1162,22 @@ public class POP3ProtocolHandler
         try {
             byte[] decoded = Base64.getDecoder().decode(data);
             String password = new String(decoded, US_ASCII);
-            if (authenticateAndOpenMailbox(
-                    pendingAuthUsername, password, "LOGIN")) {
-                return;
-            }
-            sendERR(L10N.getString("pop3.err.auth_failed"));
+            authenticateAndOpenMailbox(
+                    pendingAuthUsername, password, "LOGIN",
+                    () -> {
+                        try {
+                            sendERR(L10N.getString(
+                                    "pop3.err.auth_failed"));
+                        } catch (IOException e) {
+                            LOGGER.log(Level.SEVERE,
+                                    "Error sending auth failure", e);
+                            closeEndpoint();
+                        } finally {
+                            resetAuthState();
+                        }
+                    });
         } catch (IllegalArgumentException e) {
             sendERR(L10N.getString("pop3.err.invalid_base64"));
-        } finally {
             resetAuthState();
         }
     }
@@ -1265,46 +1440,54 @@ public class POP3ProtocolHandler
 
     // ── SASL helpers ──
 
-    private boolean authenticateAndOpenMailbox(
-            String user, String password, String mechanism)
-            throws IOException {
-        enforceLoginDelay();
+    private void authenticateAndOpenMailbox(
+            String user, String password, String mechanism,
+            Runnable onFailure) {
+        enforceLoginDelay(() -> {
+            try {
+                Realm realm = getRealm();
+                if (realm == null) {
+                    sendERR(L10N.getString(
+                            "pop3.err.auth_not_configured"));
+                    return;
+                }
 
-        Realm realm = getRealm();
-        if (realm == null) {
-            sendERR(L10N.getString("pop3.err.auth_not_configured"));
-            return false;
-        }
+                if (realm.passwordMatch(user, password)) {
+                    if (openMailbox(user)) {
+                        username = user;
+                        state = POP3State.TRANSACTION;
+                        recordAuthenticationSuccess(
+                                "AUTH " + mechanism);
+                        sendOK(L10N.getString(
+                                "pop3.mailbox_opened"));
+                        return;
+                    }
+                }
 
-        if (realm.passwordMatch(user, password)) {
-            if (openMailbox(user)) {
-                username = user;
-                state = POP3State.TRANSACTION;
-                recordAuthenticationSuccess("AUTH " + mechanism);
-                sendOK(L10N.getString("pop3.mailbox_opened"));
-                return true;
+                failedAuthAttempts++;
+                lastFailedAuthTime = System.currentTimeMillis();
+                recordAuthenticationFailure(
+                        "AUTH " + mechanism, user);
+                onFailure.run();
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE,
+                        "Error during authentication", e);
+                closeEndpoint();
             }
-        }
-
-        failedAuthAttempts++;
-        lastFailedAuthTime = System.currentTimeMillis();
-        recordAuthenticationFailure("AUTH " + mechanism, user);
-        return false;
+        });
     }
 
-    private void enforceLoginDelay() {
+    private void enforceLoginDelay(Runnable continuation) {
         if (failedAuthAttempts > 0) {
             long delay = server.getLoginDelayMs();
             long elapsed =
                     System.currentTimeMillis() - lastFailedAuthTime;
             if (elapsed < delay) {
-                try {
-                    Thread.sleep(delay - elapsed);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                endpoint.scheduleTimer(delay - elapsed, continuation);
+                return;
             }
         }
+        continuation.run();
     }
 
     private void resetAuthState() {
@@ -1314,13 +1497,18 @@ public class POP3ProtocolHandler
         authNonce = null;
         authClientNonce = null;
         authSalt = null;
+        if (gssapiExchange != null) {
+            gssapiExchange.dispose();
+            gssapiExchange = null;
+        }
     }
 
+    // RFC 5034 section 4 — "+" continuation for SASL exchanges
     private void sendContinuation(String data) throws IOException {
         sendLine("+ " + data);
     }
 
-    // ── ConnectedState ──
+    // ── ConnectedState (RFC 1939 section 4 — server greeting) ──
 
     @Override
     public void acceptConnection(String greeting,
@@ -1383,7 +1571,7 @@ public class POP3ProtocolHandler
         closeEndpoint();
     }
 
-    // ── AuthenticateState ──
+    // ── AuthenticateState (RFC 1939 section 4 — AUTHORIZATION→TRANSACTION) ──
 
     @Override
     public void accept(Mailbox mailbox,
@@ -1425,7 +1613,7 @@ public class POP3ProtocolHandler
         closeEndpoint();
     }
 
-    // ── MailboxStatusState ──
+    // ── MailboxStatusState (RFC 1939 section 5 — STAT response) ──
 
     @Override
     public void sendStatus(int messageCount, long totalSize,
@@ -1439,7 +1627,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── ListState ──
+    // ── ListState (RFC 1939 section 5 — LIST response) ──
 
     @Override
     public void sendListing(int messageNumber, long size,
@@ -1519,7 +1707,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── RetrieveState ──
+    // ── RetrieveState (RFC 1939 section 5 — RETR response) ──
 
     @Override
     public void sendMessage(long size,
@@ -1535,7 +1723,21 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── MarkDeletedState ──
+    @Override
+    public void sendMessage(long size,
+                             AsyncMessageContent content,
+                             TransactionHandler handler) {
+        this.transactionHandler = handler;
+        try {
+            sendOK(size + " octets");
+            startChunkedMessageWrite(content, null);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to send async message", e);
+        }
+    }
+
+    // ── MarkDeletedState (RFC 1939 section 5 — DELE response) ──
 
     @Override
     public void markedDeleted(TransactionHandler handler) {
@@ -1571,7 +1773,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── ResetState ──
+    // ── ResetState (RFC 1939 section 5 — RSET response) ──
 
     @Override
     public void resetComplete(int messageCount, long totalSize,
@@ -1587,7 +1789,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── TopState ──
+    // ── TopState (RFC 1939 section 7 — TOP response) ──
 
     @Override
     public void sendTop(ReadableByteChannel content,
@@ -1601,7 +1803,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── UidlState ──
+    // ── UidlState (RFC 1939 section 7 — UIDL response) ──
 
     @Override
     public void sendUid(int messageNumber, String uid,
@@ -1649,7 +1851,7 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── UpdateState ──
+    // ── UpdateState (RFC 1939 section 6 — commit deletions, close) ──
 
     @Override
     public void commitAndClose() {
@@ -1697,6 +1899,7 @@ public class POP3ProtocolHandler
 
     // ── TRANSACTION commands ──
 
+    // RFC 1939 section 5 — STAT command (TRANSACTION state)
     private void handleSTAT(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1718,6 +1921,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 5 — LIST command (optional msg number argument)
     private void handleLIST(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1766,6 +1970,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 5 — RETR command (retrieve message)
     private void handleRETR(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1796,11 +2001,21 @@ public class POP3ProtocolHandler
             }
             long messageSize = msg.getSize();
             sendOK(messageSize + " octets");
-            ReadableByteChannel channel =
-                    mailbox.getMessageContent(msgNum);
             RetrCompletion retrCompletion =
                     new RetrCompletion(msgNum, messageSize);
-            startChunkedMessageWrite(channel, retrCompletion);
+            AsyncMessageContent asyncContent = null;
+            try {
+                asyncContent = mailbox.openAsyncContent(msgNum);
+            } catch (IOException ignored) {
+                /* Fall back to sync channel when async unavailable */
+            }
+            if (asyncContent != null) {
+                startChunkedMessageWrite(asyncContent, retrCompletion);
+            } else {
+                ReadableByteChannel channel =
+                        mailbox.getMessageContent(msgNum);
+                startChunkedMessageWrite(channel, retrCompletion);
+            }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to retrieve message " + msgNum, e);
@@ -1809,6 +2024,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 5 — DELE command (mark message for deletion)
     private void handleDELE(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1847,6 +2063,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 5 — RSET command (unmark all deleted messages)
     private void handleRSET(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1870,6 +2087,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 7 — TOP command (optional, headers + n lines)
     private void handleTOP(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1908,9 +2126,35 @@ public class POP3ProtocolHandler
                 return;
             }
             sendOK(L10N.getString("pop3.top_follows"));
-            ReadableByteChannel channel =
-                    mailbox.getMessageTop(msgNum, lines);
-            startChunkedMessageWrite(channel, null);
+            AsyncMessageContent asyncContent = null;
+            try {
+                asyncContent = mailbox.openAsyncContent(msgNum);
+            } catch (IOException ignored) {
+                /* Fall back to sync channel when async unavailable */
+            }
+            if (asyncContent != null) {
+                long bodyOff = asyncContent.bodyOffset();
+                if (bodyOff >= 0 && lines >= 0) {
+                    long topEnd;
+                    try {
+                        topEnd = mailbox.getMessageTopEndOffset(
+                                msgNum, lines);
+                    } catch (UnsupportedOperationException e2) {
+                        topEnd = asyncContent.size();
+                    }
+                    startChunkedMessageWrite(asyncContent, topEnd,
+                            null);
+                } else {
+                    asyncContent.close();
+                    ReadableByteChannel channel =
+                            mailbox.getMessageTop(msgNum, lines);
+                    startChunkedMessageWrite(channel, null);
+                }
+            } else {
+                ReadableByteChannel channel =
+                        mailbox.getMessageTop(msgNum, lines);
+                startChunkedMessageWrite(channel, null);
+            }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to retrieve top of message " + msgNum, e);
@@ -1918,6 +2162,7 @@ public class POP3ProtocolHandler
         }
     }
 
+    // RFC 1939 section 7 — UIDL command (optional, unique-id listing)
     private void handleUIDL(String args) throws IOException {
         if (mailbox == null) {
             sendERR(L10N.getString("pop3.err.no_mailbox_open"));
@@ -1968,8 +2213,9 @@ public class POP3ProtocolHandler
         }
     }
 
-    // ── Commands valid in all states ──
+    // ── Commands valid in all states (RFC 1939 section 5, RFC 2449) ──
 
+    // RFC 2449 section 5 — CAPA command (capability listing)
     private void handleCAPA(String args) throws IOException {
         sendOK(L10N.getString("pop3.capa_follows"));
         sendLine("USER");
@@ -2011,14 +2257,41 @@ public class POP3ProtocolHandler
         if (server.isEnablePipelining()) {
             sendLine("PIPELINING");
         }
+
+        // RFC 2449 section 8 — extended response codes
+        sendLine("RESP-CODES");
+
+        // RFC 3206 — authentication-specific response codes
+        sendLine("AUTH-RESP-CODE");
+
+        // RFC 2449 section 6.5 — message retention policy
+        int expireDays = server.getExpireDays();
+        if (expireDays >= 0) {
+            if (expireDays == Integer.MAX_VALUE) {
+                sendLine("EXPIRE NEVER");
+            } else {
+                sendLine("EXPIRE " + expireDays);
+            }
+        }
+
+        // RFC 2449 section 6.6 — minimum login delay
+        long loginDelayMs = server.getLoginDelayMs();
+        if (loginDelayMs > 0) {
+            long delaySec = Math.max(1, loginDelayMs / 1000);
+            sendLine("LOGIN-DELAY " + delaySec);
+        }
+
         sendLine("IMPLEMENTATION gumdrop");
         sendLine(".");
     }
 
+    // RFC 1939 section 5 — NOOP command
     private void handleNOOP(String args) throws IOException {
         sendOK(L10N.getString("pop3.noop"));
     }
 
+    // RFC 1939 section 6 — QUIT in TRANSACTION state enters UPDATE state;
+    // RFC 1939 section 5 — QUIT in AUTHORIZATION state closes connection
     private void handleQUIT(String args) throws IOException {
         addSessionEvent("QUIT");
 
@@ -2120,6 +2393,26 @@ public class POP3ProtocolHandler
     }
 
     /**
+     * Begins a chunked message write from an {@link AsyncMessageContent},
+     * reading the full content.
+     */
+    private void startChunkedMessageWrite(AsyncMessageContent content,
+            Runnable completion) {
+        startChunkedMessageWrite(content, content.size(), completion);
+    }
+
+    /**
+     * Begins a chunked message write from an {@link AsyncMessageContent},
+     * reading up to {@code endOffset} bytes.
+     */
+    private void startChunkedMessageWrite(AsyncMessageContent content,
+            long endOffset, Runnable completion) {
+        MessageContentWriter writer =
+                new MessageContentWriter(content, endOffset, completion);
+        writer.writeNextChunk();
+    }
+
+    /**
      * Begins a chunked message content write with backpressure.
      * The writer reads data from the channel in chunks, sends each
      * chunk via the endpoint, and waits for the write buffer to drain
@@ -2129,33 +2422,57 @@ public class POP3ProtocolHandler
     private void startChunkedMessageWrite(ReadableByteChannel channel,
             Runnable completion) {
         MessageContentWriter writer =
-                new MessageContentWriter(channel, completion);
+                new MessageContentWriter(null, channel, completion);
         writer.writeNextChunk();
     }
 
     /**
      * Chunked message content writer with write-pacing.
-     * Reads from a channel in batches and uses onWriteReady to pace
-     * output, preventing unbounded netOut buffer growth for large
-     * messages.
+     * Reads from AsynchronousFileChannel or ReadableByteChannel in batches,
+     * uses onWriteReady to pace output. Dot-stuffing and line-counting
+     * run on the SelectorLoop thread.
+     *
+     * <p>RFC 1939 section 3 — multi-line responses use byte-stuffing
+     * (lines beginning with "." are prefixed with an extra ".") and are
+     * terminated by a line containing only ".".
      */
     private class MessageContentWriter implements Runnable {
 
         private static final int CHUNK_SIZE = 32768;
         private static final int MAX_LINES_PER_CHUNK = 512;
 
+        private final AsynchronousFileChannel asyncChannel;
+        private final AsyncMessageContent asyncContent;
         private final ReadableByteChannel channel;
         private final Runnable completion;
         private final ByteBuffer readBuf;
         private final StringBuilder lineBuilder;
+        private long filePosition;
+        private long readLimit;
         private boolean channelExhausted;
+        private ByteBuffer pendingAsyncBuf;
 
-        MessageContentWriter(ReadableByteChannel channel,
+        MessageContentWriter(AsynchronousFileChannel asyncChannel,
+                ReadableByteChannel channel,
                 Runnable completion) {
+            this.asyncChannel = asyncChannel;
+            this.asyncContent = null;
             this.channel = channel;
             this.completion = completion;
             this.readBuf = ByteBuffer.allocate(CHUNK_SIZE);
             this.lineBuilder = new StringBuilder();
+            this.readLimit = Long.MAX_VALUE;
+        }
+
+        MessageContentWriter(AsyncMessageContent asyncContent,
+                long readLimit, Runnable completion) {
+            this.asyncChannel = null;
+            this.asyncContent = asyncContent;
+            this.channel = null;
+            this.completion = completion;
+            this.readBuf = ByteBuffer.allocate(CHUNK_SIZE);
+            this.lineBuilder = new StringBuilder();
+            this.readLimit = readLimit;
         }
 
         @Override
@@ -2164,6 +2481,166 @@ public class POP3ProtocolHandler
         }
 
         void writeNextChunk() {
+            if (asyncContent != null) {
+                writeNextChunkAsyncContent();
+            } else if (asyncChannel != null) {
+                writeNextChunkAsync();
+            } else {
+                writeNextChunkSync();
+            }
+        }
+
+        private void writeNextChunkAsyncContent() {
+            if (pendingAsyncBuf != null) {
+                processBufferAndContinue(null);
+                return;
+            }
+            if (filePosition >= readLimit) {
+                channelExhausted = true;
+                processBufferAndContinue(null);
+                return;
+            }
+            int toRead = (int) Math.min(CHUNK_SIZE,
+                    readLimit - filePosition);
+            ByteBuffer buf = ByteBufferPool.acquire(toRead);
+            buf.limit(toRead);
+            asyncContent.read(buf, filePosition,
+                    new CompletionHandler<Integer, ByteBuffer>() {
+                @Override
+                public void completed(Integer result,
+                        ByteBuffer attachment) {
+                    if (result == null || result <= 0) {
+                        ByteBufferPool.release(attachment);
+                        endpoint.execute(() -> {
+                            channelExhausted = true;
+                            processBufferAndContinue(null);
+                        });
+                        return;
+                    }
+                    filePosition += result;
+                    attachment.flip();
+                    endpoint.execute(() -> {
+                        processBufferAndContinue(attachment);
+                    });
+                }
+
+                @Override
+                public void failed(Throwable exc,
+                        ByteBuffer attachment) {
+                    ByteBufferPool.release(attachment);
+                    LOGGER.log(Level.WARNING,
+                            "Async content read failed", exc);
+                    endpoint.execute(() -> {
+                        closeChannels();
+                        endpoint.onWriteReady(null);
+                    });
+                }
+            });
+        }
+
+        private void writeNextChunkAsync() {
+            if (pendingAsyncBuf != null) {
+                processBufferAndContinue(null);
+                return;
+            }
+            ByteBuffer buf = ByteBufferPool.acquire(CHUNK_SIZE);
+            asyncChannel.read(buf, filePosition, null,
+                    new CompletionHandler<Integer, Void>() {
+                        @Override
+                        public void completed(Integer result, Void attachment) {
+                            if (result == null || result <= 0) {
+                                ByteBufferPool.release(buf);
+                                endpoint.execute(() -> {
+                                    channelExhausted = true;
+                                    processBufferAndContinue(null);
+                                });
+                                return;
+                            }
+                            final int bytesRead = result;
+                            filePosition += bytesRead;
+                            buf.flip();
+                            endpoint.execute(() -> {
+                                processBufferAndContinue(buf);
+                            });
+                        }
+
+                        @Override
+                        public void failed(Throwable exc, Void attachment) {
+                            ByteBufferPool.release(buf);
+                            LOGGER.log(Level.WARNING,
+                                    "Async file read failed during message write", exc);
+                            endpoint.execute(() -> {
+                                closeChannels();
+                                endpoint.onWriteReady(null);
+                            });
+                        }
+                    });
+        }
+
+        private void processBufferAndContinue(ByteBuffer buf) {
+            if (buf != null) {
+                if (pendingAsyncBuf != null) {
+                    ByteBufferPool.release(pendingAsyncBuf);
+                }
+                pendingAsyncBuf = buf;
+            }
+            try {
+                int linesWritten = 0;
+                ByteBuffer toProcess = pendingAsyncBuf;
+
+                while (linesWritten < MAX_LINES_PER_CHUNK) {
+                    if (toProcess == null || !toProcess.hasRemaining()) {
+                        if (pendingAsyncBuf != null && !pendingAsyncBuf.hasRemaining()) {
+                            ByteBufferPool.release(pendingAsyncBuf);
+                            pendingAsyncBuf = null;
+                        }
+                        break;
+                    }
+
+                    while (toProcess.hasRemaining()
+                            && linesWritten < MAX_LINES_PER_CHUNK) {
+                        byte b = toProcess.get();
+                        if (b == '\n') {
+                            String line = stripCR(lineBuilder);
+                            lineBuilder.setLength(0);
+                            if (line.startsWith(".")) {
+                                sendLine("." + line);
+                            } else {
+                                sendLine(line);
+                            }
+                            linesWritten++;
+                        } else {
+                            lineBuilder.append((char) (b & 0xFF));
+                        }
+                    }
+                }
+
+                boolean hasMore = (pendingAsyncBuf != null
+                                && pendingAsyncBuf.hasRemaining())
+                        || !channelExhausted;
+
+                if (hasMore) {
+                    endpoint.onWriteReady(this);
+                } else {
+                    if (pendingAsyncBuf != null) {
+                        ByteBufferPool.release(pendingAsyncBuf);
+                        pendingAsyncBuf = null;
+                    }
+                    finishTransfer();
+                }
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error during chunked message write", e);
+                if (pendingAsyncBuf != null) {
+                    ByteBufferPool.release(pendingAsyncBuf);
+                    pendingAsyncBuf = null;
+                }
+                closeChannels();
+                endpoint.onWriteReady(null);
+            }
+        }
+
+        private void writeNextChunkSync() {
             try {
                 int linesWritten = 0;
 
@@ -2211,7 +2688,7 @@ public class POP3ProtocolHandler
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Error during chunked message write", e);
-                closeChannel();
+                closeChannels();
                 endpoint.onWriteReady(null);
             }
         }
@@ -2232,19 +2709,37 @@ public class POP3ProtocolHandler
                 LOGGER.log(Level.WARNING,
                         "Error finishing chunked message write", e);
             }
-            closeChannel();
+            closeChannels();
             endpoint.onWriteReady(null);
             if (completion != null) {
                 completion.run();
             }
         }
 
-        private void closeChannel() {
-            try {
-                channel.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error closing message channel", e);
+        private void closeChannels() {
+            if (asyncContent != null) {
+                try {
+                    asyncContent.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Error closing async content", e);
+                }
+            }
+            if (asyncChannel != null) {
+                try {
+                    asyncChannel.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Error closing async message channel", e);
+                }
+            }
+            if (channel != null) {
+                try {
+                    channel.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Error closing message channel", e);
+                }
             }
         }
     }
@@ -2270,12 +2765,14 @@ public class POP3ProtocolHandler
 
     /** Strips all CR characters from a line builder to prevent response smuggling. */
     private static String stripCR(StringBuilder sb) {
-        for (int i = sb.length() - 1; i >= 0; i--) {
-            if (sb.charAt(i) == '\r') {
-                sb.deleteCharAt(i);
+        StringBuilder result = new StringBuilder(sb.length());
+        for (int i = 0; i < sb.length(); i++) {
+            char c = sb.charAt(i);
+            if (c != '\r') {
+                result.append(c);
             }
         }
-        return sb.toString();
+        return result.toString();
     }
 
     // ── Telemetry ──

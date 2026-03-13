@@ -26,6 +26,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPSession#modifyDN
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.9">RFC 4511 §4.9 — ModifyDN</a>
  */
 public interface ModifyDNResultHandler {
 

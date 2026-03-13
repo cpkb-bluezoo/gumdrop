@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Base interface for all server reply handlers.
- * 
+ * RFC 5321 §4.2.1 (421 service closing).
+ *
  * <p>This interface provides universal error handling for the 421 "service closing"
  * response, which can occur at any point during an SMTP session. When the server
  * sends a 421 response, the connection will be closed automatically after this
@@ -34,6 +35,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerReplyHandler {
 
@@ -55,6 +57,18 @@ public interface ServerReplyHandler {
      * @param message the server's closing message
      */
     void handleServiceClosing(String message);
+
+    /**
+     * RFC 5321 §4.2 — generic reply callback for commands like VRFY and EXPN.
+     *
+     * <p>The default implementation does nothing; override to process the reply.
+     *
+     * @param code the SMTP reply code
+     * @param message the reply text
+     * @param session the active session for further commands
+     */
+    default void handleReply(int code, String message, ClientSession session) {
+    }
 
 }
 

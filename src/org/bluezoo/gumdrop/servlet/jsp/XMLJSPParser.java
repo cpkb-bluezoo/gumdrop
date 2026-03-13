@@ -197,6 +197,8 @@ public class XMLJSPParser implements JSPParser {
         private final Stack<String> elementStack = new Stack<String>();
         private final StringBuilder textBuffer = new StringBuilder();
         private final JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties;
+        private final Stack<StandardActionElement> actionStack =
+                new Stack<StandardActionElement>();
 
         private Locator locator;
 
@@ -285,7 +287,6 @@ public class XMLJSPParser implements JSPParser {
                         jspPage.addElement(new DeclarationElement(content, line, column));
                     }
                 } else if ("text".equals(jspElement)) {
-                    // jsp:text element - content is literal output
                     String content = textBuffer.toString();
                     textBuffer.setLength(0);
                     
@@ -294,6 +295,9 @@ public class XMLJSPParser implements JSPParser {
                         int column = locator != null ? locator.getColumnNumber() : -1;
                         jspPage.addElement(new TextElement(content, line, column));
                     }
+                } else if (!actionStack.isEmpty()
+                        && jspElement.equals(actionStack.peek().getActionName())) {
+                    actionStack.pop();
                 }
             } else {
                 // Regular XML/HTML end element
@@ -349,7 +353,6 @@ public class XMLJSPParser implements JSPParser {
 
             // Handle other JSP elements
             if ("root".equals(elementName)) {
-                // JSP root element - process attributes for page settings
                 handleRootElement(attrMap);
             } else if ("include".equals(elementName) || "forward".equals(elementName) ||
                        "useBean".equals(elementName) || "setProperty".equals(elementName) ||
@@ -359,13 +362,22 @@ public class XMLJSPParser implements JSPParser {
                        "body".equals(elementName) || "invoke".equals(elementName) ||
                        "doBody".equals(elementName) || "element".equals(elementName) ||
                        "output".equals(elementName)) {
-                jspPage.addElement(new StandardActionElement(elementName, attrMap, line, column));
+                StandardActionElement action =
+                        new StandardActionElement(elementName, attrMap, line, column);
+                if (!actionStack.isEmpty()) {
+                    actionStack.peek().addChild(action);
+                } else {
+                    jspPage.addElement(action);
+                }
+                // Push actions that can contain children (include, forward, plugin, useBean)
+                if ("include".equals(elementName) || "forward".equals(elementName) ||
+                    "plugin".equals(elementName) || "useBean".equals(elementName)) {
+                    actionStack.push(action);
+                }
             } else if (!"scriptlet".equals(elementName) && !"expression".equals(elementName) &&
                        !"declaration".equals(elementName) && !"text".equals(elementName)) {
-                // Custom tag or unknown JSP element
                 jspPage.addElement(new CustomTagElement("jsp", elementName, attrMap, line, column));
             }
-            // Note: scriptlet, expression, declaration, and text are handled in endElement
         }
 
         private void processDirective(DirectiveElement directive) {

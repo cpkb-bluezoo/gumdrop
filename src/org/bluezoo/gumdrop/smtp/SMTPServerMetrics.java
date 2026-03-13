@@ -47,6 +47,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  */
 public class SMTPServerMetrics {
 

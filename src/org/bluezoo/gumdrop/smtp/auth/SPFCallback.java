@@ -31,6 +31,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SPFValidator
  * @see SPFResult
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  */
 public interface SPFCallback {
 

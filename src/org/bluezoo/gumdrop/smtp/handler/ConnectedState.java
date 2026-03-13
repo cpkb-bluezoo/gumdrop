@@ -31,9 +31,13 @@ package org.bluezoo.gumdrop.smtp.handler;
  * transitions to the hello state where HELO/EHLO commands are expected.
  * Rejecting the connection sends a 554 error and closes the connection.
  * 
+ * <p>Methods map to reply codes: {@code acceptConnection} → 220,
+ * {@code rejectConnection} → 554.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientConnected#connected
  * @see HelloHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.2">RFC 5321 §4.2</a> (initial greeting)
  */
 public interface ConnectedState {
 

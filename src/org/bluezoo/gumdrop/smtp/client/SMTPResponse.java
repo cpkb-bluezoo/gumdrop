@@ -38,8 +38,9 @@ import java.util.List;
  * <li>4xx - Temporary failure (retry later)</li>
  * <li>5xx - Permanent failure (don't retry)</li>
  * </ul>
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.2">RFC 5321 §4.2</a> (reply code format)
  */
 class SMTPResponse {
     

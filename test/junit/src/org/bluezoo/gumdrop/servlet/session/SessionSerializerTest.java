@@ -21,12 +21,12 @@
 
 package org.bluezoo.gumdrop.servlet.session;
 
+import org.bluezoo.util.ByteArrays;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.HashSet;
 import java.util.Set;
@@ -59,12 +59,9 @@ public class SessionSerializerTest {
     // ===== Hex Utility Method Tests =====
     
     @Test
-    public void testHexToBytes() throws Exception {
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        hexToBytes.setAccessible(true);
-        
-        byte[] result = (byte[]) hexToBytes.invoke(null, "0123456789abcdef");
-        
+    public void testHexToBytes() {
+        byte[] result = ByteArrays.toByteArray("0123456789abcdef");
+
         assertEquals(8, result.length);
         assertEquals((byte) 0x01, result[0]);
         assertEquals((byte) 0x23, result[1]);
@@ -77,12 +74,9 @@ public class SessionSerializerTest {
     }
 
     @Test
-    public void testHexToBytesUpperCase() throws Exception {
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        hexToBytes.setAccessible(true);
-        
-        byte[] result = (byte[]) hexToBytes.invoke(null, "ABCDEF");
-        
+    public void testHexToBytesUpperCase() {
+        byte[] result = ByteArrays.toByteArray("ABCDEF");
+
         assertEquals(3, result.length);
         assertEquals((byte) 0xAB, result[0]);
         assertEquals((byte) 0xCD, result[1]);
@@ -90,98 +84,53 @@ public class SessionSerializerTest {
     }
 
     @Test
-    public void testHexToBytesEmpty() throws Exception {
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        hexToBytes.setAccessible(true);
-        
-        byte[] result = (byte[]) hexToBytes.invoke(null, "");
-        
+    public void testHexToBytesEmpty() {
+        byte[] result = ByteArrays.toByteArray("");
         assertEquals(0, result.length);
     }
 
     @Test
-    public void testHexToBytesSessionId() throws Exception {
-        // Typical 32-char session ID -> 16 bytes
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        hexToBytes.setAccessible(true);
-        
+    public void testHexToBytesSessionId() {
         String sessionId = "0123456789abcdef0123456789abcdef";
-        byte[] result = (byte[]) hexToBytes.invoke(null, sessionId);
-        
+        byte[] result = ByteArrays.toByteArray(sessionId);
         assertEquals(16, result.length);
     }
 
     @Test
-    public void testBytesToHex() throws Exception {
-        Method bytesToHex = SessionSerializer.class.getDeclaredMethod("bytesToHex", byte[].class);
-        bytesToHex.setAccessible(true);
-        
+    public void testBytesToHex() {
         byte[] input = new byte[] { 0x01, 0x23, 0x45, 0x67, (byte) 0x89, (byte) 0xab, (byte) 0xcd, (byte) 0xef };
-        String result = (String) bytesToHex.invoke(null, (Object) input);
-        
-        assertEquals("0123456789abcdef", result);
+        assertEquals("0123456789abcdef", ByteArrays.toHexString(input));
     }
 
     @Test
-    public void testBytesToHexEmpty() throws Exception {
-        Method bytesToHex = SessionSerializer.class.getDeclaredMethod("bytesToHex", byte[].class);
-        bytesToHex.setAccessible(true);
-        
-        byte[] input = new byte[0];
-        String result = (String) bytesToHex.invoke(null, (Object) input);
-        
-        assertEquals("", result);
+    public void testBytesToHexEmpty() {
+        assertEquals("", ByteArrays.toHexString(new byte[0]));
     }
 
     @Test
-    public void testBytesToHexSingleByte() throws Exception {
-        Method bytesToHex = SessionSerializer.class.getDeclaredMethod("bytesToHex", byte[].class);
-        bytesToHex.setAccessible(true);
-        
+    public void testBytesToHexSingleByte() {
         byte[] input = new byte[] { (byte) 0xff };
-        String result = (String) bytesToHex.invoke(null, (Object) input);
-        
-        assertEquals("ff", result);
+        assertEquals("ff", ByteArrays.toHexString(input));
     }
 
     @Test
-    public void testBytesToHexLeadingZero() throws Exception {
-        Method bytesToHex = SessionSerializer.class.getDeclaredMethod("bytesToHex", byte[].class);
-        bytesToHex.setAccessible(true);
-        
+    public void testBytesToHexLeadingZero() {
         byte[] input = new byte[] { 0x00, 0x01, 0x0f };
-        String result = (String) bytesToHex.invoke(null, (Object) input);
-        
-        assertEquals("00010f", result);
+        assertEquals("00010f", ByteArrays.toHexString(input));
     }
 
     @Test
-    public void testHexRoundTrip() throws Exception {
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        Method bytesToHex = SessionSerializer.class.getDeclaredMethod("bytesToHex", byte[].class);
-        hexToBytes.setAccessible(true);
-        bytesToHex.setAccessible(true);
-        
+    public void testHexRoundTrip() {
         String original = "deadbeefcafebabe";
-        byte[] bytes = (byte[]) hexToBytes.invoke(null, original);
-        String result = (String) bytesToHex.invoke(null, (Object) bytes);
-        
-        assertEquals(original, result);
+        byte[] bytes = ByteArrays.toByteArray(original);
+        assertEquals(original, ByteArrays.toHexString(bytes));
     }
 
     @Test
-    public void testHexRoundTripSessionId() throws Exception {
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        Method bytesToHex = SessionSerializer.class.getDeclaredMethod("bytesToHex", byte[].class);
-        hexToBytes.setAccessible(true);
-        bytesToHex.setAccessible(true);
-        
-        // Test with typical session ID format
+    public void testHexRoundTripSessionId() {
         String original = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
-        byte[] bytes = (byte[]) hexToBytes.invoke(null, original);
-        String result = (String) bytesToHex.invoke(null, (Object) bytes);
-        
-        assertEquals(original, result);
+        byte[] bytes = ByteArrays.toByteArray(original);
+        assertEquals(original, ByteArrays.toHexString(bytes));
     }
 
     // ===== Session ID Serialization Tests =====
@@ -193,12 +142,8 @@ public class SessionSerializerTest {
         
         String sessionId = "0123456789abcdef0123456789abcdef";
         ByteBuffer buf = ByteBuffer.allocate(16);
-        
-        // Test the static deserializeId method
-        Method hexToBytes = SessionSerializer.class.getDeclaredMethod("hexToBytes", String.class);
-        hexToBytes.setAccessible(true);
-        byte[] bytes = (byte[]) hexToBytes.invoke(null, sessionId);
-        buf.put(bytes);
+
+        buf.put(ByteArrays.toByteArray(sessionId));
         buf.flip();
         
         String result = Session.deserializeId(buf);

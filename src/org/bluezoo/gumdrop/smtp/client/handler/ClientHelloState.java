@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Operations available after receiving the server greeting.
- * 
+ * RFC 5321 §4.1.1.1 (EHLO/HELO).
+ *
  * <p>This interface is provided to the handler in
  * {@link ServerGreeting#handleGreeting} and allows the handler to initiate
  * the SMTP session with either EHLO or HELO.
@@ -35,6 +36,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerGreeting#handleGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ClientHelloState {
 

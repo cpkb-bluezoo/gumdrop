@@ -23,6 +23,12 @@ package org.bluezoo.gumdrop.dns;
 
 /**
  * DNS resource record types.
+ * RFC 1035 section 3.2.2 defines the base TYPE values.
+ * RFC 1035 section 3.2.3 defines QTYPE values (superset of TYPE).
+ * AAAA is defined in RFC 3596.
+ * OPT is defined in RFC 6891 (EDNS).
+ * DNSSEC types (DS, RRSIG, NSEC, DNSKEY) are defined in RFC 4034.
+ * NSEC3 and NSEC3PARAM are defined in RFC 5155.
  *
  * <p>Common types are fully implemented. Additional types that may be
  * added in future versions:
@@ -33,7 +39,6 @@ package org.bluezoo.gumdrop.dns;
  * <li>SIG (24) - Signature (obsolete, see RRSIG)</li>
  * <li>KEY (25) - Key (obsolete, see DNSKEY)</li>
  * <li>LOC (29) - Location</li>
- * <li>SRV (33) - Service locator</li>
  * <li>NAPTR (35) - Naming authority pointer</li>
  * <li>KX (36) - Key exchanger</li>
  * <li>CERT (37) - Certificate</li>
@@ -66,54 +71,55 @@ package org.bluezoo.gumdrop.dns;
  */
 public enum DNSType {
 
-    /**
-     * IPv4 address record.
-     */
+    /** IPv4 address record. RFC 1035 section 3.4.1. */
     A(1),
 
-    /**
-     * Authoritative name server.
-     */
+    /** Authoritative name server. RFC 1035 section 3.3.11. */
     NS(2),
 
-    /**
-     * Canonical name (alias).
-     */
+    /** Canonical name (alias). RFC 1035 section 3.3.1. */
     CNAME(5),
 
-    /**
-     * Start of authority.
-     */
+    /** Start of authority. RFC 1035 section 3.3.13. */
     SOA(6),
 
-    /**
-     * Domain name pointer (reverse DNS).
-     */
+    /** Domain name pointer (reverse DNS). RFC 1035 section 3.3.12. */
     PTR(12),
 
-    /**
-     * Mail exchange.
-     */
+    /** Mail exchange. RFC 1035 section 3.3.9. */
     MX(15),
 
-    /**
-     * Text record.
-     */
+    /** Text record. RFC 1035 section 3.3.14. */
     TXT(16),
 
-    /**
-     * IPv6 address record.
-     */
+    /** IPv6 address record. RFC 3596 section 2.1. */
     AAAA(28),
 
-    /**
-     * Option (EDNS).
-     */
+    /** Service locator. RFC 2782. */
+    SRV(33),
+
+    /** Option pseudo-record for EDNS. RFC 6891 section 6.1.1. */
     OPT(41),
 
-    /**
-     * All records (query only, not stored).
-     */
+    /** Delegation signer. RFC 4034 section 5. */
+    DS(43),
+
+    /** DNSSEC signature. RFC 4034 section 3. */
+    RRSIG(46),
+
+    /** Next secure record. RFC 4034 section 4. */
+    NSEC(47),
+
+    /** DNS public key. RFC 4034 section 2. */
+    DNSKEY(48),
+
+    /** NSEC hashed. RFC 5155 section 3. */
+    NSEC3(50),
+
+    /** NSEC3 parameters. RFC 5155 section 4. */
+    NSEC3PARAM(51),
+
+    /** All records (QTYPE only, not stored). RFC 1035 section 3.2.3. */
     ANY(255);
 
     private final int value;

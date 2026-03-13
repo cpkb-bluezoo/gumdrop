@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.ftp.file;
 
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -184,6 +185,15 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
         return delegate.openForReading(path, restartOffset, metadata);
     }
 
+    @Override
+    public Path resolvePathForAsyncRead(String path, long restartOffset,
+            FTPConnectionMetadata metadata) {
+        if (!checkRole(metadata, readRole) || !checkConfinement(path, metadata)) {
+            return null;
+        }
+        return delegate.resolvePathForAsyncRead(path, restartOffset, metadata);
+    }
+
     // ── Write operations ──
 
     @Override
@@ -194,6 +204,15 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
             return null;
         }
         return delegate.openForWriting(path, append, metadata);
+    }
+
+    @Override
+    public Path resolvePathForAsyncWrite(String path, boolean append,
+            FTPConnectionMetadata metadata) {
+        if (!checkRole(metadata, writeRole) || !checkConfinement(path, metadata)) {
+            return null;
+        }
+        return delegate.resolvePathForAsyncWrite(path, append, metadata);
     }
 
     @Override

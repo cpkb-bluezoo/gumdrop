@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for RCPT TO command response.
- * 
+ * RFC 5321 §4.1.1.3 (250/251/252/4xx/5xx).
+ *
  * <p>This handler receives the server's response to a RCPT TO command. The
  * interface returned depends on whether the recipient was accepted:
  * 
@@ -39,6 +40,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * @see ClientEnvelope#rcptTo
  * @see ClientEnvelopeReady
  * @see ClientEnvelopeState
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerRcptToReplyHandler extends ServerReplyHandler {
 

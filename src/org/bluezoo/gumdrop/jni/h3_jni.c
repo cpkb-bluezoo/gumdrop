@@ -68,6 +68,13 @@ Java_org_bluezoo_gumdrop_GumdropNative_quiche_1h3_1config_1set_1max_1dynamic_1ta
                                                  (uint64_t)capacity);
 }
 
+JNIEXPORT void JNICALL
+Java_org_bluezoo_gumdrop_GumdropNative_quiche_1h3_1config_1enable_1extended_1connect(
+        JNIEnv *env, jclass cls, jlong config_ptr, jboolean enabled) {
+    quiche_h3_config *config = (quiche_h3_config *)(intptr_t)config_ptr;
+    quiche_h3_config_enable_extended_connect(config, enabled);
+}
+
 /* ── HTTP/3 Connection ── */
 
 JNIEXPORT jlong JNICALL
@@ -79,6 +86,17 @@ Java_org_bluezoo_gumdrop_GumdropNative_quiche_1h3_1conn_1new_1with_1transport(
             (quiche_h3_config *)(intptr_t)h3_config_ptr;
     quiche_h3_conn *h3 = quiche_h3_conn_new_with_transport(conn, config);
     return (jlong)(intptr_t)h3;
+}
+
+/* ── GOAWAY (RFC 9114 section 5.2) ── */
+
+JNIEXPORT jint JNICALL
+Java_org_bluezoo_gumdrop_GumdropNative_quiche_1h3_1send_1goaway(
+        JNIEnv *env, jclass cls, jlong h3_conn_ptr,
+        jlong quiche_conn_ptr, jlong stream_id) {
+    quiche_h3_conn *h3 = (quiche_h3_conn *)(intptr_t)h3_conn_ptr;
+    quiche_conn *conn = (quiche_conn *)(intptr_t)quiche_conn_ptr;
+    return (jint)quiche_h3_send_goaway(h3, conn, (uint64_t)stream_id);
 }
 
 JNIEXPORT void JNICALL
@@ -331,6 +349,63 @@ Java_org_bluezoo_gumdrop_GumdropNative_quiche_1h3_1send_1response(
                                       fin == JNI_TRUE);
 
     /* Release all string references */
+    for (i = 0; i < num_headers; i++) {
+        jstring jname = (jstring)(*env)->GetObjectArrayElement(
+                env, headers, i * 2);
+        jstring jvalue = (jstring)(*env)->GetObjectArrayElement(
+                env, headers, i * 2 + 1);
+
+        (*env)->ReleaseStringUTFChars(
+                env, jname, (const char *)h3_headers[i].name);
+        (*env)->ReleaseStringUTFChars(
+                env, jvalue, (const char *)h3_headers[i].value);
+        (*env)->DeleteLocalRef(env, jname);
+        (*env)->DeleteLocalRef(env, jvalue);
+    }
+
+    free(h3_headers);
+    return (jint)rc;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_bluezoo_gumdrop_GumdropNative_quiche_1h3_1send_1additional_1headers(
+        JNIEnv *env, jclass cls, jlong h3_conn_ptr,
+        jlong quiche_conn_ptr, jlong stream_id,
+        jobjectArray headers, jboolean is_trailer_section, jboolean fin) {
+    quiche_h3_conn *h3 = (quiche_h3_conn *)(intptr_t)h3_conn_ptr;
+    quiche_conn *conn = (quiche_conn *)(intptr_t)quiche_conn_ptr;
+
+    jsize header_count = (*env)->GetArrayLength(env, headers);
+    jsize num_headers = header_count / 2;
+
+    quiche_h3_header *h3_headers =
+            malloc(num_headers * sizeof(quiche_h3_header));
+    if (h3_headers == NULL) {
+        return -1;
+    }
+
+    jsize i;
+    for (i = 0; i < num_headers; i++) {
+        jstring jname = (jstring)(*env)->GetObjectArrayElement(
+                env, headers, i * 2);
+        jstring jvalue = (jstring)(*env)->GetObjectArrayElement(
+                env, headers, i * 2 + 1);
+
+        const char *name = (*env)->GetStringUTFChars(env, jname, NULL);
+        const char *value = (*env)->GetStringUTFChars(env, jvalue, NULL);
+
+        h3_headers[i].name = (const uint8_t *)name;
+        h3_headers[i].name_len = strlen(name);
+        h3_headers[i].value = (const uint8_t *)value;
+        h3_headers[i].value_len = strlen(value);
+    }
+
+    int rc = quiche_h3_send_additional_headers(h3, conn,
+                                                (uint64_t)stream_id,
+                                                h3_headers, num_headers,
+                                                is_trailer_section == JNI_TRUE,
+                                                fin == JNI_TRUE);
+
     for (i = 0; i < num_headers; i++) {
         jstring jname = (jstring)(*env)->GetObjectArrayElement(
                 env, headers, i * 2);

@@ -37,7 +37,11 @@ import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
 
 /**
- * High-level POP3 client facade.
+ * High-level POP3 client facade (RFC 1939).
+ *
+ * <p>Supports both plaintext POP3 (port 110, RFC 1939) with optional
+ * STLS upgrade (RFC 2595 section 4) and implicit TLS (POP3S, port 995,
+ * RFC 8314 section 3.3).
  *
  * <p>This class provides a simple, concrete API for connecting to POP3
  * servers. It internally creates a {@link TCPTransportFactory},
@@ -85,6 +89,8 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerGreeting
  * @see POP3ClientProtocolHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 — Implicit TLS</a>
  */
 public class POP3Client {
 

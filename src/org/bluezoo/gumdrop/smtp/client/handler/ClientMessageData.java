@@ -25,7 +25,8 @@ import java.nio.ByteBuffer;
 
 /**
  * Operations for writing message content.
- * 
+ * RFC 5321 §4.1.1.4 (DATA content). RFC 3030 (BDAT).
+ *
  * <p>This interface is provided to the handler in
  * {@link ServerDataReplyHandler#handleReadyForData} when the connection
  * is ready to accept message content.
@@ -49,6 +50,8 @@ import java.nio.ByteBuffer;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerDataReplyHandler#handleReadyForData
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a>
  */
 public interface ClientMessageData {
 

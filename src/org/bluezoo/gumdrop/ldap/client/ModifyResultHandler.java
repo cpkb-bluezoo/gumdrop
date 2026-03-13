@@ -26,6 +26,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPSession#modify
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.6">RFC 4511 §4.6 — Modify</a>
  */
 public interface ModifyResultHandler {
 

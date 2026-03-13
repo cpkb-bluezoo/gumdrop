@@ -26,19 +26,20 @@ import java.nio.ByteBuffer;
 import java.security.Principal;
 
 /**
- * A WebSocket session for sending messages to the peer.
+ * A WebSocket session for sending messages to the peer (RFC 6455).
  *
  * <p>This interface is provided to {@link WebSocketEventHandler#opened}
  * when a WebSocket connection is established. Use it to send messages
  * and control the connection lifecycle.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketEventHandler
  */
 public interface WebSocketSession {
 
     /**
-     * Sends a text message to the peer.
+     * RFC 6455 §5.6 — sends a text message (opcode 0x1) to the peer.
      *
      * @param message the text message to send
      * @throws IOException if an I/O error occurs
@@ -47,7 +48,7 @@ public interface WebSocketSession {
     void sendText(String message) throws IOException;
 
     /**
-     * Sends a binary message to the peer.
+     * RFC 6455 §5.6 — sends a binary message (opcode 0x2) to the peer.
      *
      * @param data the binary data to send
      * @throws IOException if an I/O error occurs
@@ -56,12 +57,9 @@ public interface WebSocketSession {
     void sendBinary(ByteBuffer data) throws IOException;
 
     /**
-     * Sends a ping frame to the peer.
+     * RFC 6455 §5.5.2 — sends a ping frame to the peer.
      *
-     * <p>The peer should respond with a pong frame containing the same payload.
-     * This can be used for keep-alive or latency measurement.
-     *
-     * @param payload optional payload data (may be null, max 125 bytes)
+     * @param payload optional payload data (may be null, max 125 bytes per §5.5)
      * @throws IOException if an I/O error occurs
      * @throws IllegalArgumentException if payload exceeds 125 bytes
      * @throws IllegalStateException if the session is not open
@@ -69,16 +67,16 @@ public interface WebSocketSession {
     void sendPing(ByteBuffer payload) throws IOException;
 
     /**
-     * Closes the WebSocket connection with a normal closure code (1000).
+     * RFC 6455 §7.1 — initiates closing handshake with normal closure (1000).
      *
      * @throws IOException if an I/O error occurs
      */
     void close() throws IOException;
 
     /**
-     * Closes the WebSocket connection with the specified code and reason.
+     * RFC 6455 §7.1 — initiates closing handshake with specified code and reason.
      *
-     * @param code the close code (1000-4999)
+     * @param code the close code (RFC 6455 §7.4, 1000-4999)
      * @param reason optional close reason (may be null)
      * @throws IOException if an I/O error occurs
      */

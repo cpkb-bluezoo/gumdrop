@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
 
 /**
  * A tee MessageHandler that intercepts the From header for DMARC validation.
+ * RFC 7489 — extracts RFC 5322.From domain for alignment.
  *
  * <p>This handler:
  * <ul>
@@ -59,6 +60,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DMARCValidator
  * @see AuthPipeline
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
 public class DMARCMessageHandler implements MessageHandler {
 

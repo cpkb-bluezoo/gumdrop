@@ -52,6 +52,9 @@ either role or both.
 <li><a href="#service">WebSocket Service</a></li>
 <li><a href="#handler">Event Handler API</a></li>
 <li><a href="#subprotocols">Subprotocol Negotiation</a></li>
+<li><a href="#extensions">Extensions &amp; permessage-deflate</a></li>
+<li><a href="#max-message-size">Maximum Message Size</a></li>
+<li><a href="#close-codes">Close Code Validation</a></li>
 <li><a href="#client">WebSocket Client</a></li>
 <li><a href="#use-cases">Use Cases</a></li>
 <li><a href="#configuration">Configuration</a></li>
@@ -225,6 +228,119 @@ protected String selectSubprotocol(Headers upgradeHeaders) {
     return null;  // no subprotocol
 }
 </pre>
+
+<h3 id="extensions">Extensions &amp; permessage-deflate</h3>
+
+<p>
+RFC 6455 &sect;9 defines an extension negotiation mechanism via the
+<code>Sec-WebSocket-Extensions</code> header. Extensions can augment the
+protocol &mdash; for example by compressing message payloads.
+</p>
+
+<p>
+Gumdrop implements a general-purpose extension framework through the
+<code>WebSocketExtension</code> interface. Each extension declares which RSV
+bits it uses, participates in the opening handshake negotiation, and provides
+encode/decode transforms applied to message payloads.
+</p>
+
+<h4>permessage-deflate (RFC 7692)</h4>
+
+<p>
+The built-in <code>PerMessageDeflateExtension</code> implements
+<a href="https://tools.ietf.org/html/rfc7692">RFC 7692</a>, compressing
+WebSocket messages with DEFLATE. It is enabled by default on both
+<code>WebSocketListener</code> (server) and <code>WebSocketClient</code> (client).
+When a client offers <code>permessage-deflate</code> and the server accepts,
+all data messages are transparently compressed.
+</p>
+
+<p>
+The RSV1 bit is set on the first frame of each compressed message. The
+trailing empty DEFLATE block marker (<code>0x00 0x00 0xFF 0xFF</code>) is
+stripped from compressed output and re-appended before decompression, per
+RFC 7692 &sect;7.2.1.
+</p>
+
+<p>
+Supported negotiation parameters:
+</p>
+
+<ul>
+<li><code>server_no_context_takeover</code> &ndash; server resets LZ77 window per message</li>
+<li><code>client_no_context_takeover</code> &ndash; client resets LZ77 window per message</li>
+<li><code>server_max_window_bits</code> &ndash; max server LZ77 window size (8&ndash;15)</li>
+<li><code>client_max_window_bits</code> &ndash; max client LZ77 window size (8&ndash;15)</li>
+</ul>
+
+<p>
+To disable permessage-deflate on the server:
+</p>
+
+<pre>
+WebSocketListener listener = new WebSocketListener();
+listener.setDeflateEnabled(false);
+</pre>
+
+<p>
+To disable it on the client:
+</p>
+
+<pre>
+WebSocketClient client = new WebSocketClient("example.com", 443);
+client.setDeflateEnabled(false);
+</pre>
+
+<h4>Custom Extensions</h4>
+
+<p>
+Implement the <code>WebSocketExtension</code> interface to create a custom
+extension. Key methods:
+</p>
+
+<ul>
+<li><code>getName()</code> &ndash; the extension token (e.g. <code>"permessage-deflate"</code>)</li>
+<li><code>usesRsv1()</code>, <code>usesRsv2()</code>, <code>usesRsv3()</code> &ndash; RSV bit claims</li>
+<li><code>acceptOffer(params)</code> &ndash; server-side negotiation</li>
+<li><code>generateOffer()</code> &ndash; client-side offer parameters</li>
+<li><code>acceptResponse(params)</code> &ndash; client-side acceptance of server response</li>
+<li><code>encode(payload)</code> / <code>decode(payload)</code> &ndash; payload transforms</li>
+</ul>
+
+<h3 id="max-message-size">Maximum Message Size</h3>
+
+<p>
+RFC 6455 &sect;7.4.1 defines close code 1009 (Message Too Big) for when a
+received message exceeds the endpoint&rsquo;s capacity. Gumdrop enforces a
+configurable maximum message size on each <code>WebSocketConnection</code>:
+</p>
+
+<pre>
+// Set on the connection (e.g. from an event handler)
+// 0 = unlimited (default)
+connection.setMaxMessageSize(1024 * 1024);  // 1 MB limit
+</pre>
+
+<p>
+When a single-frame message or a fragmented message assembly exceeds this
+limit, the connection is proactively closed with code 1009. This prevents
+memory exhaustion from malicious or misbehaving peers.
+</p>
+
+<h3 id="close-codes">Close Code Validation</h3>
+
+<p>
+RFC 6455 &sect;7.4 defines rules for close codes that appear on the wire.
+Codes 1004, 1005, 1006, and 1015 are reserved and <strong>MUST NOT</strong>
+appear in close frames; codes outside the 1000&ndash;4999 range are also
+invalid. Gumdrop now validates received close codes and rejects invalid ones
+with a protocol error (close code 1002):
+</p>
+
+<ul>
+<li><strong>Valid:</strong> 1000&ndash;1003, 1007&ndash;1014, 3000&ndash;4999</li>
+<li><strong>Invalid:</strong> 1004, 1005, 1006, 1015, and anything outside 1000&ndash;4999</li>
+</ul>
 
 <h3 id="client">WebSocket Client</h3>
 

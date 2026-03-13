@@ -34,15 +34,17 @@ import org.bluezoo.gumdrop.SecurityInfo;
 
 /**
  * Protocol handler for DNS-over-TLS (DoT) connections.
- *
- * <p>DoT (RFC 7858) transports DNS messages over a TLS-encrypted TCP
- * connection. Each DNS message is prefixed with a two-byte length field
- * (the standard DNS-over-TCP framing from RFC 1035 section 4.2.2).
+ * RFC 7858 section 3.3: all messages MUST use the 2-octet length field
+ * from RFC 1035 section 4.2.2. Pipelining of multiple queries over a
+ * single TLS connection is supported (RFC 7858 section 3.3).
  *
  * <p>A single DoT connection may carry multiple sequential
  * query-response pairs. The handler accumulates incoming bytes until
  * a complete length-prefixed message is available, then delegates to
  * {@link DNSService#processQuery(DNSMessage)}.
+ *
+ * <p>RFC 7858 section 3.4: connections SHOULD be reused for multiple
+ * queries. Idle connections may be closed by either party.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTListener
@@ -54,7 +56,9 @@ final class DoTProtocolHandler implements ProtocolHandler {
     private static final Logger LOGGER =
             Logger.getLogger(DoTProtocolHandler.class.getName());
 
+    // RFC 1035 section 4.2.2: 2-byte big-endian length prefix
     private static final int LENGTH_PREFIX_SIZE = 2;
+    // RFC 1035 section 4.2.2: max DNS message size is 65535 octets
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
     private final DNSService service;
@@ -193,6 +197,8 @@ final class DoTProtocolHandler implements ProtocolHandler {
         }
     }
 
+    // RFC 7858 section 3.3 / RFC 1035 section 4.2.2: response is
+    // framed with a 2-byte big-endian length prefix before the DNS message.
     private void sendResponse(DNSMessage response) {
         ByteBuffer payload = response.serialize();
         int length = payload.remaining();

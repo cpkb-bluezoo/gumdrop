@@ -27,7 +27,10 @@ package org.bluezoo.gumdrop.smtp.handler;
  * <p>RSET resets the mail transaction state, clearing sender and
  * recipients. The connection returns to the ready state.
  * 
+ * <p>Methods map to reply codes: {@code acceptReset} → 250.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.5">RFC 5321 §4.1.1.5</a> (RSET)
  */
 public interface ResetState {
 

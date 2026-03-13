@@ -23,11 +23,8 @@ package org.bluezoo.gumdrop.ftp;
 
 /**
  * Defines the possible outcomes for FTP file and directory operations.
- * Each result corresponds to specific FTP response codes and indicates how the
- * server should respond to file system commands like RETR, STOR, DELE, etc.
- * <p>
- * This abstraction allows handler implementations to focus on file system
- * logic without needing to know FTP protocol response codes.
+ * Each result maps to the RFC 959 section 4.2 reply codes used by
+ * {@link FTPProtocolHandler#handleFileOperationResult}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

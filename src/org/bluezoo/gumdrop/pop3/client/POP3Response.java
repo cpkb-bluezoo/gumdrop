@@ -24,11 +24,13 @@ package org.bluezoo.gumdrop.pop3.client;
 /**
  * Represents a parsed POP3 server response.
  *
- * <p>POP3 responses consist of a status indicator ({@code +OK} or
- * {@code -ERR}) followed by optional text. SASL continuation responses
- * use {@code + } followed by challenge data.
+ * <p>RFC 1939 section 3 — POP3 responses consist of a status indicator
+ * ({@code +OK} or {@code -ERR}) followed by optional text. RFC 5034
+ * section 4 — SASL continuation responses use {@code +} followed by
+ * optional challenge data.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-3">RFC 1939 section 3</a>
  */
 class POP3Response {
 

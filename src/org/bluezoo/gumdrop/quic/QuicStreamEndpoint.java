@@ -42,13 +42,13 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * is handled transparently by quiche.
  *
  * <p>A QuicStreamEndpoint is always secure ({@link #isSecure()} returns
- * true) because QUIC mandates TLS 1.3.
+ * true) because QUIC mandates TLS 1.3 (RFC 9001 section 4.1).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
  * @see QuicConnection
  */
-final class QuicStreamEndpoint implements Endpoint {
+public final class QuicStreamEndpoint implements Endpoint {
 
     private final QuicConnection connection;
     private final long streamId;
@@ -112,6 +112,22 @@ final class QuicStreamEndpoint implements Endpoint {
         connection.streamClose(streamId);
     }
 
+    /**
+     * RFC 9000 section 4.6: abruptly terminates this stream with a
+     * RESET_STREAM frame carrying the given application error code.
+     * Used by DoQ (RFC 9250 section 4.3) to signal protocol-level errors.
+     *
+     * @param errorCode the application error code (e.g. DoQ error codes)
+     */
+    public void resetStream(long errorCode) {
+        if (closing) {
+            return;
+        }
+        closing = true;
+        open = false;
+        connection.streamShutdown(streamId, errorCode);
+    }
+
     @Override
     public SocketAddress getLocalAddress() {
         return connection.getLocalAddress();
@@ -141,6 +157,11 @@ final class QuicStreamEndpoint implements Endpoint {
     @Override
     public SelectorLoop getSelectorLoop() {
         return connection.getEngine().getSelectorLoop();
+    }
+
+    @Override
+    public void execute(Runnable task) {
+        getSelectorLoop().invokeLater(task);
     }
 
     @Override

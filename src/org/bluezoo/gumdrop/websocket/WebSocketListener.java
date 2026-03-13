@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.websocket;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -60,6 +63,7 @@ import org.bluezoo.gumdrop.http.Headers;
  * (port, secure, keystore-file, keystore-pass, etc.).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketService
  * @see HTTPListener
  */
@@ -70,6 +74,10 @@ public class WebSocketListener extends HTTPListener {
 
     private WebSocketService service;
     private WebSocketServerMetrics wsMetrics;
+
+    // RFC 6455 §9 — supported extensions (default includes permessage-deflate)
+    private List<WebSocketExtension> supportedExtensions = new ArrayList<>();
+    private boolean deflateEnabled = true;
 
     /**
      * Sets the owning service. Called by {@link WebSocketService} during
@@ -105,8 +113,21 @@ public class WebSocketListener extends HTTPListener {
         return wsMetrics;
     }
 
+    /**
+     * RFC 7692 — enables or disables permessage-deflate compression.
+     * Enabled by default.
+     *
+     * @param enabled true to enable permessage-deflate
+     */
+    public void setDeflateEnabled(boolean enabled) {
+        this.deflateEnabled = enabled;
+    }
+
     @Override
     public void start() {
+        if (deflateEnabled) {
+            supportedExtensions.add(new PerMessageDeflateExtension());
+        }
         setHandlerFactory(new UpgradeHandlerFactory());
         super.start();
         if (isMetricsEnabled()) {
@@ -132,8 +153,9 @@ public class WebSocketListener extends HTTPListener {
     }
 
     /**
-     * HTTP request handler that validates the WebSocket upgrade and
-     * delegates to the owning service's connection handler factory.
+     * RFC 6455 §4.2 — HTTP request handler that validates the WebSocket
+     * upgrade, negotiates extensions (§9), and delegates to the owning
+     * service's connection handler factory.
      */
     private class UpgradeHandler extends DefaultHTTPRequestHandler {
 
@@ -154,8 +176,14 @@ public class WebSocketListener extends HTTPListener {
 
             String subprotocol = service.selectSubprotocol(headers);
 
+            // RFC 6455 §9.1 — negotiate extensions
+            String offeredExtensions = headers.getValue("Sec-WebSocket-Extensions");
+            List<WebSocketExtension> negotiated =
+                    WebSocketHandshake.negotiateExtensions(
+                            offeredExtensions, supportedExtensions);
+
             try {
-                state.upgradeToWebSocket(subprotocol, handler);
+                state.upgradeToWebSocket(subprotocol, negotiated, handler);
             } catch (IllegalStateException e) {
                 LOGGER.log(Level.WARNING,
                         "WebSocket upgrade failed", e);

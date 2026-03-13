@@ -42,15 +42,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Basic file system implementation that maps FTP operations to the local file system.
- * 
- * <p>This implementation provides a secure, chrooted file system view where:
- * <ul>
- * <li>All FTP paths are relative to a configured root directory</li>
- * <li>Path traversal attacks are prevented (no escaping the root)</li>
- * <li>Unix-style paths (/) are mapped to platform-specific paths</li>
- * <li>File operations use standard Java I/O and NIO APIs</li>
- * </ul>
+ * Concrete {@link FTPFileSystem} backed by the local OS file system.
+ * Implements the NVFS (RFC 959 section 2.2) and TVFS (RFC 3659 section 6)
+ * semantics with a chrooted root directory.
  *
  * <p><strong>Security Features:</strong>
  * <ul>

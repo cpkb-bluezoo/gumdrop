@@ -24,18 +24,22 @@ package org.bluezoo.gumdrop.redis.codec;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Represents a decoded RESP value.
+ * Represents a decoded RESP value (RESP spec — "RESP protocol description").
  *
- * <p>A RESP value can be one of several types: simple string, error, integer,
- * bulk string, or array. This class provides type-safe access to the value
- * based on its type.
+ * <p>A RESP value can be one of the RESP2 types: Simple String (+),
+ * Error (-), Integer (:), Bulk String ($), or Array (*), or one of
+ * the RESP3 types: Map (%), Set (~), Double (,), Boolean (#), Null (_),
+ * Push (&gt;), Verbatim String (=), Big Number ((), Blob Error (!).
  *
- * <p>Bulk strings and arrays can also be null, represented by the special
- * null instance returned by {@link #nullValue()}.
+ * <p>Bulk strings and arrays can also be null ({@code $-1\r\n} and
+ * {@code *-1\r\n} respectively), represented by the special null
+ * instance returned by {@link #nullValue()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public final class RESPValue {
 
@@ -121,6 +125,98 @@ public final class RESPValue {
         return new RESPValue(RESPType.ARRAY, elements);
     }
 
+    // RESP3 factory methods
+
+    /**
+     * Creates a RESP3 map value.
+     *
+     * @param entries the map entries (key-value pairs of RESPValues)
+     * @return the RESP value
+     */
+    public static RESPValue map(Map<RESPValue, RESPValue> entries) {
+        return new RESPValue(RESPType.MAP, entries);
+    }
+
+    /**
+     * Creates a RESP3 set value.
+     *
+     * @param elements the set elements
+     * @return the RESP value
+     */
+    public static RESPValue set(List<RESPValue> elements) {
+        return new RESPValue(RESPType.SET, elements);
+    }
+
+    /**
+     * Creates a RESP3 double value.
+     *
+     * @param value the double value
+     * @return the RESP value
+     */
+    public static RESPValue doubleValue(double value) {
+        return new RESPValue(RESPType.DOUBLE, Double.valueOf(value));
+    }
+
+    /**
+     * Creates a RESP3 boolean value.
+     *
+     * @param value the boolean value
+     * @return the RESP value
+     */
+    public static RESPValue booleanValue(boolean value) {
+        return new RESPValue(RESPType.BOOLEAN, Boolean.valueOf(value));
+    }
+
+    /**
+     * Creates a RESP3 explicit null value.
+     *
+     * @return the RESP3 null value
+     */
+    public static RESPValue resp3Null() {
+        return new RESPValue(RESPType.NULL, null);
+    }
+
+    /**
+     * Creates a RESP3 push value (server-initiated out-of-band data).
+     *
+     * @param elements the push data elements
+     * @return the RESP value
+     */
+    public static RESPValue push(List<RESPValue> elements) {
+        return new RESPValue(RESPType.PUSH, elements);
+    }
+
+    /**
+     * Creates a RESP3 verbatim string value.
+     *
+     * @param encoding the 3-character encoding hint (e.g. "txt", "mkd")
+     * @param data the string data
+     * @return the RESP value
+     */
+    public static RESPValue verbatimString(String encoding, byte[] data) {
+        return new RESPValue(RESPType.VERBATIM_STRING, new Object[] { encoding, data });
+    }
+
+    /**
+     * Creates a RESP3 big number value.
+     *
+     * @param value the big number as a string
+     * @return the RESP value
+     */
+    public static RESPValue bigNumber(String value) {
+        return new RESPValue(RESPType.BIG_NUMBER, value);
+    }
+
+    /**
+     * Creates a RESP3 blob error value.
+     *
+     * @param data the error data
+     * @return the RESP value
+     */
+    public static RESPValue blobError(byte[] data) {
+        return new RESPValue(RESPType.BLOB_ERROR, data);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Type checking
     // ─────────────────────────────────────────────────────────────────────────
@@ -135,12 +231,12 @@ public final class RESPValue {
     }
 
     /**
-     * Returns whether this is a null value.
+     * Returns whether this is a null value (RESP2 null or RESP3 Null type).
      *
      * @return true if null
      */
     public boolean isNull() {
-        return type == null;
+        return type == null || type == RESPType.NULL;
     }
 
     /**
@@ -153,12 +249,12 @@ public final class RESPValue {
     }
 
     /**
-     * Returns whether this is an error.
+     * Returns whether this is an error (simple Error or RESP3 Blob Error).
      *
      * @return true if error
      */
     public boolean isError() {
-        return type == RESPType.ERROR;
+        return type == RESPType.ERROR || type == RESPType.BLOB_ERROR;
     }
 
     /**
@@ -188,6 +284,32 @@ public final class RESPValue {
         return type == RESPType.ARRAY;
     }
 
+    // RESP3 type checks
+
+    /** Returns whether this is a RESP3 map. */
+    public boolean isMap() { return type == RESPType.MAP; }
+
+    /** Returns whether this is a RESP3 set. */
+    public boolean isSet() { return type == RESPType.SET; }
+
+    /** Returns whether this is a RESP3 double. */
+    public boolean isDouble() { return type == RESPType.DOUBLE; }
+
+    /** Returns whether this is a RESP3 boolean. */
+    public boolean isBoolean() { return type == RESPType.BOOLEAN; }
+
+    /** Returns whether this is a RESP3 push message. */
+    public boolean isPush() { return type == RESPType.PUSH; }
+
+    /** Returns whether this is a RESP3 verbatim string. */
+    public boolean isVerbatimString() { return type == RESPType.VERBATIM_STRING; }
+
+    /** Returns whether this is a RESP3 big number. */
+    public boolean isBigNumber() { return type == RESPType.BIG_NUMBER; }
+
+    /** Returns whether this is a RESP3 blob error. */
+    public boolean isBlobError() { return type == RESPType.BLOB_ERROR; }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Value access
     // ─────────────────────────────────────────────────────────────────────────
@@ -209,12 +331,21 @@ public final class RESPValue {
         switch (type) {
             case SIMPLE_STRING:
             case ERROR:
+            case BIG_NUMBER:
                 return (String) value;
             case BULK_STRING:
-                byte[] bytes = (byte[]) value;
-                return new String(bytes, UTF_8);
+                return new String((byte[]) value, UTF_8);
+            case BLOB_ERROR:
+                return new String((byte[]) value, UTF_8);
             case INTEGER:
+            case DOUBLE:
+            case BOOLEAN:
                 return value.toString();
+            case VERBATIM_STRING:
+                Object[] vs = (Object[]) value;
+                return new String((byte[]) vs[1], UTF_8);
+            case NULL:
+                return null;
             default:
                 return null;
         }
@@ -267,28 +398,32 @@ public final class RESPValue {
     }
 
     /**
-     * Returns this value as an array of RESP values.
+     * Returns this value as a list of RESP values.
+     * Works for Array (*), Set (~), and Push (&gt;) types.
      *
-     * @return the array elements, or null if not an array
+     * @return the elements, or null if not an array-like type
      */
     @SuppressWarnings("unchecked")
     public List<RESPValue> asArray() {
-        if (type != RESPType.ARRAY) {
-            return null;
+        if (type == RESPType.ARRAY || type == RESPType.SET || type == RESPType.PUSH) {
+            return (List<RESPValue>) value;
         }
-        return (List<RESPValue>) value;
+        return null;
     }
 
     /**
-     * Returns the error message if this is an error value.
+     * Returns the error message if this is an error value (Error or Blob Error).
      *
      * @return the error message, or null if not an error
      */
     public String getErrorMessage() {
-        if (type != RESPType.ERROR) {
-            return null;
+        if (type == RESPType.ERROR) {
+            return (String) value;
         }
-        return (String) value;
+        if (type == RESPType.BLOB_ERROR) {
+            return new String((byte[]) value, UTF_8);
+        }
+        return null;
     }
 
     /**
@@ -300,15 +435,90 @@ public final class RESPValue {
      * @return the error type prefix, or null if not an error
      */
     public String getErrorType() {
-        if (type != RESPType.ERROR) {
+        if (type != RESPType.ERROR && type != RESPType.BLOB_ERROR) {
             return null;
         }
-        String message = (String) value;
+        String message = asString();
+        if (message == null) {
+            return null;
+        }
         int space = message.indexOf(' ');
         if (space > 0) {
             return message.substring(0, space);
         }
         return message;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RESP3 value access
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Returns this value as a RESP3 map.
+     *
+     * @return the map entries, or null if not a map
+     */
+    @SuppressWarnings("unchecked")
+    public Map<RESPValue, RESPValue> asMap() {
+        if (type != RESPType.MAP) {
+            return null;
+        }
+        return (Map<RESPValue, RESPValue>) value;
+    }
+
+    /**
+     * Returns this value as a double.
+     *
+     * @return the double value
+     * @throws IllegalStateException if this is not a double type
+     */
+    public double asDouble() {
+        if (type == RESPType.DOUBLE) {
+            return ((Double) value).doubleValue();
+        }
+        if (type == RESPType.INTEGER) {
+            return ((Long) value).doubleValue();
+        }
+        throw new IllegalStateException("Not a double value");
+    }
+
+    /**
+     * Returns this value as a boolean.
+     *
+     * @return the boolean value
+     * @throws IllegalStateException if this is not a boolean type
+     */
+    public boolean asBoolean() {
+        if (type != RESPType.BOOLEAN) {
+            throw new IllegalStateException("Not a boolean value");
+        }
+        return ((Boolean) value).booleanValue();
+    }
+
+    /**
+     * Returns this value as a RESP3 push data array.
+     *
+     * @return the push elements, or null if not a push type
+     */
+    @SuppressWarnings("unchecked")
+    public List<RESPValue> asPush() {
+        if (type != RESPType.PUSH) {
+            return null;
+        }
+        return (List<RESPValue>) value;
+    }
+
+    /**
+     * Returns the encoding hint of a verbatim string (e.g. "txt", "mkd").
+     *
+     * @return the 3-character encoding hint, or null if not a verbatim string
+     */
+    public String getVerbatimEncoding() {
+        if (type != RESPType.VERBATIM_STRING) {
+            return null;
+        }
+        Object[] vs = (Object[]) value;
+        return (String) vs[0];
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -332,8 +542,35 @@ public final class RESPValue {
                 return "$" + bytes.length + ":" + new String(bytes, UTF_8);
             case ARRAY:
                 @SuppressWarnings("unchecked")
-                List<RESPValue> elements = (List<RESPValue>) value;
-                return "*" + elements.size();
+                List<RESPValue> aElems = (List<RESPValue>) value;
+                return "*" + aElems.size();
+            case MAP:
+                @SuppressWarnings("unchecked")
+                Map<RESPValue, RESPValue> map = (Map<RESPValue, RESPValue>) value;
+                return "%" + map.size();
+            case SET:
+                @SuppressWarnings("unchecked")
+                List<RESPValue> sElems = (List<RESPValue>) value;
+                return "~" + sElems.size();
+            case DOUBLE:
+                return "," + value;
+            case BOOLEAN:
+                return "#" + (((Boolean) value).booleanValue() ? "t" : "f");
+            case NULL:
+                return "_";
+            case PUSH:
+                @SuppressWarnings("unchecked")
+                List<RESPValue> pElems = (List<RESPValue>) value;
+                return ">" + pElems.size();
+            case VERBATIM_STRING:
+                Object[] vs = (Object[]) value;
+                byte[] vsData = (byte[]) vs[1];
+                return "=" + vs[0] + ":" + new String(vsData, UTF_8);
+            case BIG_NUMBER:
+                return "(" + value;
+            case BLOB_ERROR:
+                byte[] errData = (byte[]) value;
+                return "!" + new String(errData, UTF_8);
             default:
                 return "unknown";
         }

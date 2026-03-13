@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.nio.channels.CompletionHandler;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
@@ -35,9 +36,14 @@ import java.security.Principal;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.SignStyle;
+import java.time.temporal.ChronoField;
 import java.text.ParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumSet;
 import java.util.Iterator;
@@ -57,6 +63,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
@@ -84,6 +92,7 @@ import org.bluezoo.gumdrop.imap.handler.SelectedStatusState;
 import org.bluezoo.gumdrop.imap.handler.SelectState;
 import org.bluezoo.gumdrop.imap.handler.StoreState;
 import org.bluezoo.gumdrop.imap.handler.SubscribeState;
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
@@ -97,6 +106,7 @@ import org.bluezoo.gumdrop.mailbox.StoreAction;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
@@ -104,8 +114,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
- * IMAP protocol handler using {@link ProtocolHandler} and
- * {@link LineParser}.
+ * IMAP4rev2 server protocol handler (RFC 9051).
  *
  * <p>Implements the IMAP protocol with the transport layer fully decoupled:
  * <ul>
@@ -116,19 +125,31 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
  *
- * <p>IMAP Protocol States (RFC 9051 Section 3):
+ * <p>IMAP Protocol States (RFC 9051 section 3):
  * <ul>
- *   <li>NOT_AUTHENTICATED - initial state, authentication required</li>
- *   <li>AUTHENTICATED - logged in, can list/select mailboxes</li>
- *   <li>SELECTED - mailbox selected, can access messages</li>
- *   <li>LOGOUT - connection closing</li>
+ *   <li>NOT_AUTHENTICATED — initial state, authentication required</li>
+ *   <li>AUTHENTICATED — logged in, can list/select mailboxes</li>
+ *   <li>SELECTED — mailbox selected, can access messages</li>
+ *   <li>LOGOUT — connection closing</li>
+ * </ul>
+ *
+ * <p>Supported extensions:
+ * <ul>
+ *   <li>IDLE — RFC 2177 (push notifications)</li>
+ *   <li>NAMESPACE — RFC 2342</li>
+ *   <li>MOVE — RFC 6851</li>
+ *   <li>QUOTA — RFC 9208</li>
+ *   <li>SASL — RFC 4422, RFC 4959 (initial response), mechanisms:
+ *       PLAIN (RFC 4616), LOGIN, CRAM-MD5 (RFC 2195),
+ *       DIGEST-MD5 (RFC 2831), SCRAM (RFC 5802),
+ *       OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422 Appendix A)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see LineParser
  * @see IMAPListener
- * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 - IMAP4rev2</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
 public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback {
 
@@ -160,7 +181,8 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         DIGEST_MD5_RESPONSE,
         SCRAM_INITIAL,
         SCRAM_FINAL,
-        OAUTH_RESPONSE
+        OAUTH_RESPONSE,
+        GSSAPI_EXCHANGE
     }
 
     // Transport reference (set in connected())
@@ -200,13 +222,23 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private String scramStoredKey = null;
     private String scramServerKey = null;
     private int scramIterations = 4096;
+    private GSSAPIServer.GSSAPIExchange gssapiExchange = null;
 
     // IDLE state
     private boolean idling = false;
     private String idleTag = null;
+    private TimerHandle idleTimerHandle;
+    private static final long IDLE_POLL_INTERVAL_MS = 1000L;
+
+    // Mailbox update tracking for EXPUNGE detection
+    private List<String> lastReportedUIDs;
 
     // STARTTLS state
     private boolean starttlsUsed = false;
+
+    // CONDSTORE/QRESYNC per-connection state
+    private boolean condstoreEnabled = false;
+    private boolean qresyncEnabled = false;
 
     // APPEND literal state
     private String appendTag = null;
@@ -214,6 +246,11 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private long appendLiteralRemaining = 0;
     private String appendMailboxName = null;
     private long appendMessageSize = 0;
+
+    // General-purpose command literal state (RFC 7888 LITERAL-)
+    private StringBuilder pendingCommand;
+    private long commandLiteralRemaining = 0;
+    private java.io.ByteArrayOutputStream commandLiteralBuffer;
 
     // Telemetry
     private Span sessionSpan;
@@ -262,11 +299,32 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             return;
         }
 
+        if (commandLiteralRemaining > 0) {
+            try {
+                receiveCommandLiteralData(buffer);
+            } catch (IOException e) {
+                String msg = L10N.getString("log.error_processing_data");
+                LOGGER.log(Level.WARNING, msg, e);
+            }
+            if (!buffer.hasRemaining()) {
+                return;
+            }
+        }
+
         LineParser.parse(buffer, this);
 
         if (appendLiteralRemaining > 0 && buffer.hasRemaining()) {
             try {
                 receiveLiteralData(buffer);
+            } catch (IOException e) {
+                String msg = L10N.getString("log.error_processing_data");
+                LOGGER.log(Level.WARNING, msg, e);
+            }
+        }
+
+        if (commandLiteralRemaining > 0 && buffer.hasRemaining()) {
+            try {
+                receiveCommandLiteralData(buffer);
             } catch (IOException e) {
                 String msg = L10N.getString("log.error_processing_data");
                 LOGGER.log(Level.WARNING, msg, e);
@@ -287,6 +345,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 endSessionSpan("Connection closed");
             }
         } finally {
+            cancelIdleTimer();
             try {
                 if (selectedMailbox != null) {
                     try {
@@ -379,7 +438,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     @Override
     public boolean continueLineProcessing() {
-        return appendLiteralRemaining <= 0;
+        return appendLiteralRemaining <= 0 && commandLiteralRemaining <= 0;
     }
 
     // ── Transport helpers ──
@@ -435,8 +494,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         return realm;
     }
 
-    // ── Greeting ──
+    // ── Greeting (RFC 9051 section 7.1) ──
 
+    // RFC 9051 section 7.1 — server greeting (OK, PREAUTH, or BYE)
     private void sendGreeting() throws IOException {
         IMAPService service = server.getService();
         if (service != null) {
@@ -642,10 +702,55 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
-    // ── Line processing ──
+    /**
+     * Consumes bytes from the buffer for a general-purpose command literal.
+     * When all literal bytes are consumed, appends them to {@code pendingCommand}
+     * and resumes line parsing for the command continuation.
+     */
+    private void receiveCommandLiteralData(ByteBuffer buffer)
+            throws IOException {
+        int available = buffer.remaining();
+        int toConsume = (int) Math.min(available, commandLiteralRemaining);
+
+        if (toConsume > 0) {
+            byte[] chunk = new byte[toConsume];
+            buffer.get(chunk);
+            commandLiteralBuffer.write(chunk);
+            commandLiteralRemaining -= toConsume;
+        }
+
+        if (commandLiteralRemaining == 0) {
+            String literalStr = commandLiteralBuffer.toString(
+                    java.nio.charset.StandardCharsets.UTF_8.name());
+            commandLiteralBuffer = null;
+            pendingCommand.append(literalStr);
+            // Resume line parsing for the continuation of the command
+            if (buffer.hasRemaining()) {
+                LineParser.parse(buffer, this);
+            }
+        }
+    }
+
+    // ── Line processing (RFC 9051 section 4 — command syntax) ──
 
     private void processLine(String line) throws IOException {
         if (line.isEmpty()) {
+            return;
+        }
+
+        // Continuation after a general-purpose literal has been consumed
+        if (pendingCommand != null) {
+            long[] literalSpec = parseLiteralSpec(line);
+            if (literalSpec != null) {
+                pendingCommand.append(line, 0,
+                        line.lastIndexOf('{'));
+                startCommandLiteral(literalSpec[0], literalSpec[1] != 0);
+                return;
+            }
+            pendingCommand.append(line);
+            String assembled = pendingCommand.toString();
+            pendingCommand = null;
+            processLine(assembled);
             return;
         }
 
@@ -656,6 +761,16 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
         if (authState != AuthState.NONE) {
             processSASLResponse(line);
+            return;
+        }
+
+        // RFC 7888: detect literal at end of command line.
+        // APPEND handles its own literal (binary message body), so skip it.
+        long[] literalSpec = parseLiteralSpec(line);
+        if (literalSpec != null && !isAppendCommand(line)) {
+            pendingCommand = new StringBuilder();
+            pendingCommand.append(line, 0, line.lastIndexOf('{'));
+            startCommandLiteral(literalSpec[0], literalSpec[1] != 0);
             return;
         }
 
@@ -696,6 +811,73 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    /**
+     * Parses a literal specifier at the end of a line.
+     * Returns {@code [size, nonSync]} where nonSync is 1 for {N+} and 0
+     * for {N}, or null if no literal specifier is present.
+     */
+    private long[] parseLiteralSpec(String line) {
+        if (!line.endsWith("}")) {
+            return null;
+        }
+        int braceStart = line.lastIndexOf('{');
+        if (braceStart < 0) {
+            return null;
+        }
+        String spec = line.substring(braceStart + 1, line.length() - 1);
+        boolean nonSync = spec.endsWith("+");
+        if (nonSync) {
+            spec = spec.substring(0, spec.length() - 1);
+        }
+        try {
+            long size = Long.parseLong(spec);
+            if (size < 0) {
+                return null;
+            }
+            // RFC 7888: LITERAL- only allows non-sync for <= 4096 bytes
+            if (nonSync && size > 4096) {
+                return null;
+            }
+            return new long[]{size, nonSync ? 1 : 0};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Tests whether a command line is an APPEND command (which handles
+     * its own literal via the specialized binary data path).
+     */
+    private boolean isAppendCommand(String line) {
+        int sp1 = line.indexOf(' ');
+        if (sp1 <= 0) {
+            return false;
+        }
+        int sp2 = line.indexOf(' ', sp1 + 1);
+        String command;
+        if (sp2 > 0) {
+            command = line.substring(sp1 + 1, sp2);
+        } else {
+            command = line.substring(sp1 + 1);
+        }
+        return "APPEND".equalsIgnoreCase(command);
+    }
+
+    /**
+     * Begins consuming a general-purpose literal for command assembly.
+     * Sends a continuation request for synchronizing literals.
+     */
+    private void startCommandLiteral(long size, boolean nonSync)
+            throws IOException {
+        commandLiteralRemaining = size;
+        commandLiteralBuffer = new java.io.ByteArrayOutputStream(
+                (int) Math.min(size, 8192));
+        if (!nonSync) {
+            sendContinuation(L10N.getString("imap.ready_for_literal"));
+        }
+    }
+
+    // RFC 9051 section 2.2.1 — tag validation (1*<any ASTRING-CHAR except "+">)
     private boolean isValidTag(String tag) {
         if (tag.isEmpty() || tag.equals("*") || tag.equals("+")) {
             return false;
@@ -711,11 +893,15 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         return true;
     }
 
+    // RFC 9051 section 3 — state-based command dispatch
     private void dispatchCommand(String tag, String command, String args)
             throws IOException {
         switch (command) {
             case "CAPABILITY":
                 handleCapability(tag);
+                return;
+            case "ID":
+                handleId(tag, args);
                 return;
             case "NOOP":
                 handleNoop(tag);
@@ -743,6 +929,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.2 — NOT_AUTHENTICATED state commands
     private void dispatchNotAuthenticatedCommand(String tag, String command,
             String args) throws IOException {
         switch (command) {
@@ -761,6 +948,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3 — AUTHENTICATED state commands
     private void dispatchAuthenticatedCommand(String tag, String command,
             String args) throws IOException {
         switch (command) {
@@ -803,6 +991,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             case "IDLE":
                 handleIdle(tag);
                 break;
+            case "ENABLE":
+                handleEnable(tag, args);
+                break;
             case "GETQUOTA":
                 handleGetQuota(tag, args);
                 break;
@@ -818,6 +1009,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.4 — SELECTED state commands
     private void dispatchSelectedCommand(String tag, String command, String args)
             throws IOException {
         switch (command) {
@@ -859,6 +1051,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 break;
             case "IDLE":
                 handleIdle(tag);
+                break;
+            case "ENABLE":
+                handleEnable(tag, args);
                 break;
             case "GETQUOTA":
                 handleGetQuota(tag, args);
@@ -902,8 +1097,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
-    // ── Any-state commands ──
+    // ── Any-state commands (RFC 9051 section 6.1) ──
 
+    // RFC 9051 section 6.1.1 — CAPABILITY command
     private void handleCapability(String tag) throws IOException {
         String caps = server.getCapabilities(
                 state != IMAPState.NOT_AUTHENTICATED, endpoint.isSecure());
@@ -911,6 +1107,46 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         sendTaggedOk(tag, L10N.getString("imap.capability_complete"));
     }
 
+    // RFC 2971 — ID command
+    private void handleId(String tag, String args) throws IOException {
+        if (args != null && LOGGER.isLoggable(java.util.logging.Level.FINE)) {
+            LOGGER.fine("Client ID: " + args);
+        }
+        java.util.Map<String, String> fields = server.getServerIdFields();
+        StringBuilder sb = new StringBuilder("ID (");
+        if (fields == null || fields.isEmpty()) {
+            sb.append("\"name\" \"gumdrop\" \"version\" \"")
+              .append(getServerVersion()).append('"');
+        } else {
+            boolean first = true;
+            for (java.util.Map.Entry<String, String> entry
+                    : fields.entrySet()) {
+                if (!first) {
+                    sb.append(' ');
+                }
+                sb.append('"').append(entry.getKey()).append("\" ");
+                if (entry.getValue() == null) {
+                    sb.append("NIL");
+                } else {
+                    sb.append('"').append(entry.getValue()).append('"');
+                }
+                first = false;
+            }
+        }
+        sb.append(')');
+        sendUntagged(sb.toString());
+        sendTaggedOk(tag, L10N.getString("imap.id_complete"));
+    }
+
+    private String getServerVersion() {
+        Package pkg = getClass().getPackage();
+        if (pkg != null && pkg.getImplementationVersion() != null) {
+            return pkg.getImplementationVersion();
+        }
+        return "1.0";
+    }
+
+    // RFC 9051 section 6.1.2 — NOOP command
     private void handleNoop(String tag) throws IOException {
         if (selectedMailbox != null) {
             sendMailboxUpdates();
@@ -918,6 +1154,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         sendTaggedOk(tag, L10N.getString("imap.noop_complete"));
     }
 
+    // RFC 9051 section 6.1.3 — LOGOUT command
     private void handleLogout(String tag) throws IOException {
         state = IMAPState.LOGOUT;
         addSessionEvent("LOGOUT");
@@ -927,8 +1164,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         closeEndpoint();
     }
 
-    // ── NOT_AUTHENTICATED commands ──
+    // ── NOT_AUTHENTICATED commands (RFC 9051 section 6.2) ──
 
+    // RFC 9051 section 6.2.1 — STARTTLS command
     private void handleStartTLS(String tag) throws IOException {
         if (endpoint.isSecure()) {
             sendTaggedBad(tag, L10N.getString("imap.err.already_tls"));
@@ -953,6 +1191,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.2.3 — LOGIN command
     private void handleLogin(String tag, String args) throws IOException {
         if (!endpoint.isSecure() && !server.isAllowPlaintextLogin()) {
             sendTaggedNo(tag, "[PRIVACYREQUIRED] "
@@ -990,6 +1229,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 + L10N.getString("imap.login_complete"));
     }
 
+    // RFC 9051 section 6.2.2 — AUTHENTICATE command (SASL, RFC 4422)
     private void handleAuthenticate(String tag, String args) throws IOException {
         String mechanism;
         String initialResponse = null;
@@ -1049,8 +1289,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
-    // ── SASL handlers ──
+    // ── SASL handlers (RFC 4422, RFC 4959 initial response) ──
 
+    // RFC 4616 — SASL PLAIN mechanism
     private void handleAuthPLAIN(String initialResponse) throws IOException {
         if (initialResponse == null) {
             authState = AuthState.PLAIN_RESPONSE;
@@ -1060,6 +1301,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // SASL LOGIN mechanism (draft-murchison-sasl-login)
     private void handleAuthLOGIN(String initialResponse) throws IOException {
         if (initialResponse != null && !initialResponse.isEmpty()) {
             try {
@@ -1076,6 +1318,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 2195 — SASL CRAM-MD5 mechanism
     private void handleAuthCRAMMD5(String initialResponse) throws IOException {
         Realm realm = getRealm();
         if (realm == null) {
@@ -1098,6 +1341,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 2831 — SASL DIGEST-MD5 mechanism (historic, RFC 6331)
     private void handleAuthDIGESTMD5(String initialResponse) throws IOException {
         if (initialResponse != null && !initialResponse.isEmpty()) {
             sendTaggedNo(pendingAuthTag,
@@ -1127,6 +1371,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 5802 — SASL SCRAM-SHA-* mechanism
     private void handleAuthSCRAM(String initialResponse) throws IOException {
         Realm realm = getRealm();
         if (realm == null) {
@@ -1143,6 +1388,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 7628 — SASL OAUTHBEARER mechanism
     private void handleAuthOAUTHBEARER(String initialResponse)
             throws IOException {
         if (initialResponse == null || initialResponse.isEmpty()) {
@@ -1153,11 +1399,87 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 4752 — SASL GSSAPI mechanism (Kerberos V5)
     private void handleAuthGSSAPI(String initialResponse) throws IOException {
-        sendTaggedNo(pendingAuthTag,
-                L10N.getString("imap.err.gssapi_unavailable"));
+        GSSAPIServer gssapiServer = server.getGSSAPIServer();
+        if (gssapiServer == null) {
+            sendTaggedNo(pendingAuthTag,
+                    L10N.getString("imap.err.gssapi_unavailable"));
+            return;
+        }
+        try {
+            gssapiExchange = gssapiServer.createExchange();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "GSSAPI exchange creation failed", e);
+            sendTaggedNo(pendingAuthTag,
+                    L10N.getString("imap.err.gssapi_unavailable"));
+            return;
+        }
+        authState = AuthState.GSSAPI_EXCHANGE;
+        if (initialResponse != null && !initialResponse.isEmpty()) {
+            processGSSAPIToken(initialResponse);
+        } else {
+            sendContinuation("");
+        }
     }
 
+    // RFC 4752 §3.1 — processes a GSSAPI token exchange step
+    private void processGSSAPIToken(String line) throws IOException {
+        try {
+            byte[] clientToken = SASLUtils.decodeBase64(line);
+            byte[] responseToken = gssapiExchange.acceptToken(clientToken);
+
+            if (gssapiExchange.isContextEstablished()) {
+                byte[] challenge =
+                        gssapiExchange.generateSecurityLayerChallenge();
+                String encoded = SASLUtils.encodeBase64(challenge);
+                sendContinuation(encoded);
+                return;
+            }
+
+            if (responseToken != null && responseToken.length > 0) {
+                String encoded = SASLUtils.encodeBase64(responseToken);
+                sendContinuation(encoded);
+            } else {
+                sendContinuation("");
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "GSSAPI token rejected", e);
+            authFailed();
+        } catch (IllegalArgumentException e) {
+            authFailed();
+        }
+    }
+
+    // RFC 4752 §3.1 para 7-8 — processes the security layer response
+    private void processGSSAPISecurityLayer(String line) throws IOException {
+        try {
+            byte[] wrapped = SASLUtils.decodeBase64(line);
+            String gssName =
+                    gssapiExchange.validateSecurityLayerResponse(wrapped);
+            Realm realm = getRealm();
+            String localUser = null;
+            if (realm != null) {
+                localUser = realm.mapKerberosPrincipal(gssName);
+            }
+            if (localUser == null) {
+                localUser = gssName;
+                int atIndex = localUser.indexOf('@');
+                if (atIndex > 0) {
+                    localUser = localUser.substring(0, atIndex);
+                }
+            }
+            openMailStore(localUser, "GSSAPI");
+            authSucceeded();
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "GSSAPI security layer failed", e);
+            authFailed();
+        } catch (IllegalArgumentException e) {
+            authFailed();
+        }
+    }
+
+    // RFC 4422 Appendix A — SASL EXTERNAL mechanism (TLS client cert)
     private void handleAuthEXTERNAL(String initialResponse) throws IOException {
         String authzid = null;
         if (initialResponse != null && !initialResponse.isEmpty()) {
@@ -1220,6 +1542,14 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 break;
             case OAUTH_RESPONSE:
                 processOAuthBearerCredentials(line);
+                break;
+            case GSSAPI_EXCHANGE:
+                if (gssapiExchange != null
+                        && gssapiExchange.isContextEstablished()) {
+                    processGSSAPISecurityLayer(line);
+                } else {
+                    processGSSAPIToken(line);
+                }
                 break;
             default:
                 authFailed();
@@ -1448,6 +1778,10 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         pendingAuthUsername = null;
         authChallenge = null;
         authNonce = null;
+        if (gssapiExchange != null) {
+            gssapiExchange.dispose();
+            gssapiExchange = null;
+        }
     }
 
     private boolean authenticateUser(String username, String password) {
@@ -1504,14 +1838,93 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         };
     }
 
-    // ── AUTHENTICATED state commands ──
+    // ── AUTHENTICATED state commands (RFC 9051 section 6.3) ──
 
+    // RFC 9051 section 6.3.1 (SELECT) / section 6.3.2 (EXAMINE)
     private void handleSelect(String tag, String args, boolean readOnly)
             throws IOException {
-        String mailboxName = parseMailboxName(args);
-        if (mailboxName == null) {
-            sendTaggedBad(tag, L10N.getString("imap.err.select_syntax"));
+        // Parse mailbox name, then optional (CONDSTORE) / (QRESYNC ...)
+        String trimmed = args != null ? args.trim() : "";
+        String mailboxName;
+        String modifiers = null;
+
+        if (trimmed.startsWith("\"")) {
+            int closeQuote = trimmed.indexOf('"', 1);
+            if (closeQuote < 0) {
+                sendTaggedBad(tag,
+                        L10N.getString("imap.err.select_syntax"));
+                return;
+            }
+            mailboxName = trimmed.substring(1, closeQuote);
+            String tail = trimmed.substring(closeQuote + 1).trim();
+            if (!tail.isEmpty()) {
+                modifiers = tail;
+            }
+        } else {
+            int sp = trimmed.indexOf(' ');
+            if (sp > 0) {
+                String tail = trimmed.substring(sp + 1).trim();
+                if (tail.startsWith("(")) {
+                    mailboxName = trimmed.substring(0, sp);
+                    modifiers = tail;
+                } else {
+                    mailboxName = trimmed;
+                }
+            } else {
+                mailboxName = trimmed;
+            }
+        }
+
+        if (mailboxName.isEmpty()) {
+            sendTaggedBad(tag,
+                    L10N.getString("imap.err.select_syntax"));
             return;
+        }
+
+        // Parse CONDSTORE / QRESYNC modifiers
+        long qresyncUidValidity = -1;
+        long qresyncModSeq = -1;
+        String qresyncKnownUids = null;
+
+        if (modifiers != null) {
+            String upper = modifiers.toUpperCase(Locale.ENGLISH);
+            if (upper.startsWith("(CONDSTORE")) {
+                condstoreEnabled = true;
+            } else if (upper.startsWith("(QRESYNC")) {
+                if (!qresyncEnabled) {
+                    sendTaggedBad(tag, L10N.getString(
+                            "imap.err.qresync_not_enabled"));
+                    return;
+                }
+                condstoreEnabled = true;
+                // Parse (QRESYNC (uidvalidity modseq [known-uids]))
+                int innerStart = modifiers.indexOf('(', 1);
+                int innerEnd = modifiers.lastIndexOf(')');
+                if (innerStart > 0 && innerEnd > innerStart) {
+                    innerEnd = modifiers.lastIndexOf(')', innerEnd - 1);
+                    if (innerEnd < innerStart) {
+                        innerEnd = modifiers.length() - 1;
+                    }
+                    String inner = modifiers.substring(
+                            innerStart + 1, innerEnd).trim();
+                    String[] parts = inner.split("\\s+");
+                    if (parts.length >= 2) {
+                        try {
+                            qresyncUidValidity =
+                                    Long.parseLong(parts[0]);
+                            qresyncModSeq =
+                                    Long.parseLong(parts[1]);
+                        } catch (NumberFormatException e) {
+                            sendTaggedBad(tag, L10N.getString(
+                                    "imap.err.invalid_arguments"));
+                            return;
+                        }
+                    }
+                    if (parts.length >= 3) {
+                        qresyncKnownUids = parts[2];
+                    }
+                }
+            }
         }
 
         if (state == IMAPState.SELECTED && selectedHandler != null) {
@@ -1552,6 +1965,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
             int count = selectedMailbox.getMessageCount();
             lastReportedExists = count;
+            lastReportedUIDs = snapshotUIDs(selectedMailbox, count);
             sendUntagged(count + " EXISTS");
             sendUntagged("0 RECENT");
             sendUntagged("FLAGS ("
@@ -1562,6 +1976,23 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             sendUntagged("OK [UIDVALIDITY "
                     + selectedMailbox.getUidValidity() + "]");
             sendUntagged("OK [UIDNEXT " + selectedMailbox.getUidNext() + "]");
+
+            // CONDSTORE: HIGHESTMODSEQ in SELECT/EXAMINE response
+            if (condstoreEnabled) {
+                long highestModSeq =
+                        selectedMailbox.getHighestModSeq();
+                if (highestModSeq > 0) {
+                    sendUntagged("OK [HIGHESTMODSEQ "
+                            + highestModSeq + "]");
+                }
+            }
+
+            // QRESYNC: VANISHED (EARLIER) and unsolicited FETCH
+            if (qresyncUidValidity >= 0 && qresyncModSeq >= 0
+                    && selectedMailbox.getUidValidity()
+                            == qresyncUidValidity) {
+                sendQresyncData(qresyncModSeq, qresyncKnownUids);
+            }
 
             String accessMode = readOnly ? "[READ-ONLY]" : "[READ-WRITE]";
             sendTaggedOk(tag, accessMode + " "
@@ -1575,6 +2006,64 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    /**
+     * Sends QRESYNC resynchronization data after SELECT:
+     * VANISHED (EARLIER) for expunged UIDs and FETCH for modified
+     * messages since the given modSeq.
+     */
+    private void sendQresyncData(long sinceModSeq,
+            String knownUids) throws IOException {
+        // Send VANISHED (EARLIER) for expunged UIDs
+        List<Long> expunged =
+                selectedMailbox.getExpungedSince(sinceModSeq);
+        // Filter to known UID range if the client provided one
+        if (knownUids != null && !knownUids.isEmpty()
+                && !expunged.isEmpty()) {
+            try {
+                MessageSet uidSet = MessageSet.parse(knownUids);
+                long max = selectedMailbox.getUidNext() - 1;
+                expunged = expunged.stream()
+                        .filter(u -> uidSet.contains(u, max))
+                        .collect(java.util.stream.Collectors
+                                .toList());
+            } catch (IllegalArgumentException ignored) {
+                // Malformed UID set; report all expunged
+            }
+        }
+        if (!expunged.isEmpty()) {
+            StringBuilder sb = new StringBuilder("VANISHED (EARLIER) ");
+            for (int i = 0; i < expunged.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(expunged.get(i));
+            }
+            sendUntagged(sb.toString());
+        }
+
+        // Send FETCH for messages changed since modSeq
+        List<Long> changed =
+                selectedMailbox.getChangedSince(sinceModSeq);
+        if (!changed.isEmpty()) {
+            java.util.Set<Long> changedSet =
+                    new java.util.HashSet<>(changed);
+            int count = selectedMailbox.getMessageCount();
+            for (int msgNum = 1; msgNum <= count; msgNum++) {
+                long uid = resolveUid(selectedMailbox, msgNum);
+                if (changedSet.contains(uid)) {
+                    Set<Flag> flags =
+                            selectedMailbox.getFlags(msgNum);
+                    long modSeq =
+                            selectedMailbox.getModSeq(msgNum);
+                    sendUntagged(msgNum + " FETCH (UID " + uid
+                            + " FLAGS (" + formatFlags(flags)
+                            + ") MODSEQ (" + modSeq + "))");
+                }
+            }
+        }
+    }
+
+    // RFC 9051 section 6.3.3 — CREATE command
     private void handleCreate(String tag, String args) throws IOException {
         String mailboxName = parseMailboxName(args);
         if (mailboxName == null) {
@@ -1601,6 +2090,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.4 — DELETE command
     private void handleDelete(String tag, String args) throws IOException {
         String mailboxName = parseMailboxName(args);
         if (mailboxName == null) {
@@ -1627,6 +2117,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.5 — RENAME command
     private void handleRename(String tag, String args) throws IOException {
         String[] parts = parseQuotedStrings(args, 2);
         if (parts == null || parts.length < 2) {
@@ -1653,6 +2144,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.6 — SUBSCRIBE command
     private void handleSubscribe(String tag, String args) throws IOException {
         String mailboxName = parseMailboxName(args);
         if (mailboxName == null) {
@@ -1679,6 +2171,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.7 — UNSUBSCRIBE command
     private void handleUnsubscribe(String tag, String args) throws IOException {
         String mailboxName = parseMailboxName(args);
         if (mailboxName == null) {
@@ -1705,6 +2198,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.8 — LIST command
     private void handleList(String tag, String args) throws IOException {
         String[] parts = parseQuotedStrings(args, 2);
         if (parts == null || parts.length < 2) {
@@ -1748,6 +2242,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.9 — LSUB command (deprecated, backward compat)
     private void handleLsub(String tag, String args) throws IOException {
         String[] parts = parseQuotedStrings(args, 2);
         if (parts == null || parts.length < 2) {
@@ -1778,18 +2273,43 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 2342 — NAMESPACE command
     private void handleNamespace(String tag) throws IOException {
         if (!server.isEnableNAMESPACE()) {
             sendTaggedBad(tag, L10N.getString("imap.err.unknown_command"));
             return;
         }
 
-        String personal = "((\"" + store.getPersonalNamespace() + "\" \""
-                + store.getHierarchyDelimiter() + "\"))";
-        sendUntagged("NAMESPACE " + personal + " NIL NIL");
+        char delim = store.getHierarchyDelimiter();
+
+        // RFC 2342: personal namespace (always present)
+        String personal = "((\"" + store.getPersonalNamespace()
+                + "\" \"" + delim + "\"))";
+
+        // RFC 2342: other users' namespace (second element)
+        String otherUsers;
+        String otherUsersNs = store.getOtherUsersNamespace();
+        if (otherUsersNs != null) {
+            otherUsers = "((\"" + otherUsersNs + "\" \"" + delim + "\"))";
+        } else {
+            otherUsers = "NIL";
+        }
+
+        // RFC 2342: shared namespace (third element)
+        String shared;
+        String sharedNs = store.getSharedNamespace();
+        if (sharedNs != null) {
+            shared = "((\"" + sharedNs + "\" \"" + delim + "\"))";
+        } else {
+            shared = "NIL";
+        }
+
+        sendUntagged("NAMESPACE " + personal + " " + otherUsers
+                + " " + shared);
         sendTaggedOk(tag, L10N.getString("imap.namespace_complete"));
     }
 
+    // RFC 9051 section 6.3.11 — STATUS command
     private void handleStatus(String tag, String args) throws IOException {
         int parenStart = args.indexOf('(');
         if (parenStart < 0) {
@@ -1882,6 +2402,11 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                         response.append("SIZE ");
                         response.append(size);
                         break;
+                    case "HIGHESTMODSEQ":
+                        long hms = mailbox.getHighestModSeq();
+                        response.append("HIGHESTMODSEQ ");
+                        response.append(hms);
+                        break;
                     default:
                         break;
                 }
@@ -1898,6 +2423,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.12 — APPEND command
     private void handleAppend(String tag, String args) throws IOException {
         if (store == null) {
             sendTaggedNo(tag, L10N.getString("imap.err.no_mailbox_selected"));
@@ -2049,10 +2575,74 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.3.12: IMAP date-time format
+    // "dd-Mon-yyyy HH:mm:ss ±hhmm" e.g. "14-Jul-2023 02:44:18 +0200"
+    private static final DateTimeFormatter IMAP_DATE_TIME =
+            new DateTimeFormatterBuilder()
+                    .parseCaseInsensitive()
+                    .optionalStart().appendLiteral(' ').optionalEnd()
+                    .appendValue(ChronoField.DAY_OF_MONTH, 1, 2,
+                            SignStyle.NOT_NEGATIVE)
+                    .appendLiteral('-')
+                    .appendText(ChronoField.MONTH_OF_YEAR,
+                            java.time.format.TextStyle.SHORT)
+                    .appendLiteral('-')
+                    .appendValue(ChronoField.YEAR, 4)
+                    .appendLiteral(' ')
+                    .appendValue(ChronoField.HOUR_OF_DAY, 2)
+                    .appendLiteral(':')
+                    .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+                    .appendLiteral(':')
+                    .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+                    .appendLiteral(' ')
+                    .appendOffset("+HHmm", "+0000")
+                    .toFormatter(Locale.US);
+
     private OffsetDateTime parseInternalDate(String dateStr) {
-        return OffsetDateTime.now();
+        if (dateStr == null) {
+            return OffsetDateTime.now();
+        }
+        return OffsetDateTime.parse(dateStr.trim(), IMAP_DATE_TIME);
     }
 
+    // RFC 5161 / RFC 7162 — ENABLE command
+    private void handleEnable(String tag, String args)
+            throws IOException {
+        if (args == null || args.trim().isEmpty()) {
+            sendTaggedBad(tag,
+                    L10N.getString("imap.err.invalid_arguments"));
+            return;
+        }
+        StringBuilder enabled = new StringBuilder();
+        StringTokenizer st = new StringTokenizer(args);
+        while (st.hasMoreTokens()) {
+            String ext = st.nextToken().toUpperCase(Locale.ENGLISH);
+            if (ext.equals("CONDSTORE")
+                    && server.isEnableCONDSTORE()
+                    && !condstoreEnabled) {
+                condstoreEnabled = true;
+                if (enabled.length() > 0) {
+                    enabled.append(' ');
+                }
+                enabled.append("CONDSTORE");
+            } else if (ext.equals("QRESYNC")
+                    && server.isEnableQRESYNC()
+                    && !qresyncEnabled) {
+                qresyncEnabled = true;
+                condstoreEnabled = true; // QRESYNC implies CONDSTORE
+                if (enabled.length() > 0) {
+                    enabled.append(' ');
+                }
+                enabled.append("QRESYNC");
+            }
+        }
+        if (enabled.length() > 0) {
+            sendUntagged("ENABLED " + enabled);
+        }
+        sendTaggedOk(tag, L10N.getString("imap.enable_complete"));
+    }
+
+    // RFC 2177 — IDLE command (push notifications)
     private void handleIdle(String tag) throws IOException {
         if (!server.isEnableIDLE()) {
             sendTaggedBad(tag, L10N.getString("imap.err.unknown_command"));
@@ -2062,16 +2652,50 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         idling = true;
         idleTag = tag;
         sendContinuation(L10N.getString("imap.idle_waiting"));
+        startIdleTimer();
     }
 
     private void handleIdleDone() throws IOException {
+        cancelIdleTimer();
         idling = false;
         sendTaggedOk(idleTag, L10N.getString("imap.idle_complete"));
         idleTag = null;
     }
 
-    // ── QUOTA commands ──
+    // RFC 2177 section 3: while IDLE, poll the mailbox for changes
+    // and push untagged notifications to the client in real time.
+    private void startIdleTimer() {
+        if (endpoint == null || selectedMailbox == null) {
+            return;
+        }
+        idleTimerHandle = endpoint.scheduleTimer(
+                IDLE_POLL_INTERVAL_MS, new Runnable() {
+            @Override
+            public void run() {
+                if (!idling || selectedMailbox == null) {
+                    return;
+                }
+                try {
+                    sendMailboxUpdates();
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE,
+                            "Error sending IDLE updates", e);
+                }
+                startIdleTimer();
+            }
+        });
+    }
 
+    private void cancelIdleTimer() {
+        if (idleTimerHandle != null) {
+            idleTimerHandle.cancel();
+            idleTimerHandle = null;
+        }
+    }
+
+    // ── QUOTA commands (RFC 9208) ──
+
+    // RFC 9208 section 3.1 — GETQUOTA command
     private void handleGetQuota(String tag, String args) throws IOException {
         if (!server.isEnableQUOTA()) {
             sendTaggedBad(tag, L10N.getString("imap.err.quota_not_supported"));
@@ -2117,6 +2741,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         sendTaggedOk(tag, L10N.getString("imap.quota_complete"));
     }
 
+    // RFC 9208 section 3.2 — GETQUOTAROOT command
     private void handleGetQuotaRoot(String tag, String args) throws IOException {
         if (!server.isEnableQUOTA()) {
             sendTaggedBad(tag, L10N.getString("imap.err.quota_not_supported"));
@@ -2163,6 +2788,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         sendTaggedOk(tag, L10N.getString("imap.quotaroot_complete"));
     }
 
+    // RFC 9208 section 3.3 — SETQUOTA command
     private void handleSetQuota(String tag, String args) throws IOException {
         if (!server.isEnableQUOTA()) {
             sendTaggedBad(tag, L10N.getString("imap.err.quota_not_supported"));
@@ -2339,8 +2965,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         return sb.toString();
     }
 
-    // ── SELECTED state commands ──
+    // ── SELECTED state commands (RFC 9051 section 6.4) ──
 
+    // RFC 9051 section 6.4.1 — CLOSE command
     private void handleClose(String tag) throws IOException {
         if (selectedHandler != null) {
             selectedHandler.close(new CloseStateImpl(tag, true),
@@ -2354,10 +2981,12 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
         selectedReadOnly = false;
         lastReportedExists = -1;
+        lastReportedUIDs = null;
         state = IMAPState.AUTHENTICATED;
         sendTaggedOk(tag, L10N.getString("imap.close_complete"));
     }
 
+    // RFC 9051 section 6.4.2 — UNSELECT command
     private void handleUnselect(String tag) throws IOException {
         if (selectedHandler != null) {
             selectedHandler.unselect(new CloseStateImpl(tag, false),
@@ -2371,10 +3000,12 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
         selectedReadOnly = false;
         lastReportedExists = -1;
+        lastReportedUIDs = null;
         state = IMAPState.AUTHENTICATED;
         sendTaggedOk(tag, L10N.getString("imap.unselect_complete"));
     }
 
+    // RFC 9051 section 6.4.3 — EXPUNGE command
     private void handleExpunge(String tag) throws IOException {
         if (selectedReadOnly) {
             sendTaggedNo(tag, L10N.getString("imap.err.read_only"));
@@ -2388,9 +3019,32 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
 
         try {
-            List<Integer> expunged = selectedMailbox.expunge();
-            for (int msgNum : expunged) {
-                sendUntagged(msgNum + " EXPUNGE");
+            if (qresyncEnabled) {
+                // Collect UIDs before expunging (sequence numbers shift)
+                List<Long> expungedUids = new ArrayList<>();
+                int count = selectedMailbox.getMessageCount();
+                for (int msgNum = 1; msgNum <= count; msgNum++) {
+                    if (selectedMailbox.isDeleted(msgNum)) {
+                        expungedUids.add(
+                                resolveUid(selectedMailbox, msgNum));
+                    }
+                }
+                selectedMailbox.expunge();
+                if (!expungedUids.isEmpty()) {
+                    StringBuilder sb = new StringBuilder("VANISHED ");
+                    for (int i = 0; i < expungedUids.size(); i++) {
+                        if (i > 0) {
+                            sb.append(',');
+                        }
+                        sb.append(expungedUids.get(i));
+                    }
+                    sendUntagged(sb.toString());
+                }
+            } else {
+                List<Integer> expunged = selectedMailbox.expunge();
+                for (int msgNum : expunged) {
+                    sendUntagged(msgNum + " EXPUNGE");
+                }
             }
             sendTaggedOk(tag, L10N.getString("imap.expunge_complete"));
         } catch (IOException e) {
@@ -2398,6 +3052,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.4.4 — SEARCH command
     private void handleSearch(String tag, String args, boolean uid)
             throws IOException {
         if (selectedMailbox == null) {
@@ -2450,6 +3105,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             List<Integer> results = selectedMailbox.search(criteria);
 
             StringBuilder response = new StringBuilder("SEARCH");
+            long highestModSeq = 0;
             for (Integer msgNum : results) {
                 if (uid) {
                     String uidStr = selectedMailbox.getUniqueId(msgNum);
@@ -2459,6 +3115,20 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                     response.append(' ');
                     response.append(msgNum);
                 }
+                if (condstoreEnabled) {
+                    long ms = selectedMailbox.getModSeq(msgNum);
+                    if (ms > highestModSeq) {
+                        highestModSeq = ms;
+                    }
+                }
+            }
+
+            // RFC 7162: include MODSEQ in SEARCH response
+            if (condstoreEnabled && highestModSeq > 0
+                    && !results.isEmpty()) {
+                response.append(" (MODSEQ ");
+                response.append(highestModSeq);
+                response.append(')');
             }
 
             String searchResponse = response.toString();
@@ -2470,6 +3140,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.4.9 — UID command prefix
     private void handleUid(String tag, String args) throws IOException {
         int spaceIndex = args.indexOf(' ');
         if (spaceIndex <= 0) {
@@ -2506,6 +3177,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    // RFC 9051 section 6.4.5 — FETCH command
     private void handleFetch(String tag, String args, boolean uid)
             throws IOException {
         if (selectedMailbox == null) {
@@ -2540,6 +3212,11 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             return;
         }
 
+        // RFC 7162: requesting MODSEQ implicitly enables CONDSTORE
+        if (containsFetchItem(fetchItems, "MODSEQ")) {
+            condstoreEnabled = true;
+        }
+
         if (selectedHandler != null) {
             FetchStateImpl state =
                     new FetchStateImpl(tag, seqSet, fetchItems, uid);
@@ -2556,6 +3233,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         executeFetch(tag, selectedMailbox, seqSet, fetchItems, uid);
     }
 
+    // RFC 9051 section 6.4.6 — STORE command
     private void handleStore(String tag, String args, boolean uid)
             throws IOException {
         if (selectedMailbox == null) {
@@ -2586,6 +3264,29 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             sendTaggedBad(tag,
                     L10N.getString("imap.err.invalid_arguments"));
             return;
+        }
+
+        // CONDSTORE: parse optional (UNCHANGEDSINCE modseq)
+        long unchangedSince = -1;
+        if (rest.startsWith("(")) {
+            int closeParen = rest.indexOf(')');
+            if (closeParen > 0) {
+                String modifier = rest.substring(1, closeParen)
+                        .trim().toUpperCase(Locale.ENGLISH);
+                if (modifier.startsWith("UNCHANGEDSINCE ")) {
+                    try {
+                        unchangedSince = Long.parseLong(
+                                modifier.substring(15).trim());
+                    } catch (NumberFormatException e) {
+                        sendTaggedBad(tag, L10N.getString(
+                                "imap.err.invalid_arguments"));
+                        return;
+                    }
+                    // Implicitly enable CONDSTORE per RFC 7162
+                    condstoreEnabled = true;
+                }
+                rest = rest.substring(closeParen + 1).trim();
+            }
         }
 
         spaceIdx = rest.indexOf(' ');
@@ -2628,9 +3329,10 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
 
         executeStore(tag, selectedMailbox, seqSet, action, flags,
-                silent, uid);
+                silent, uid, unchangedSince);
     }
 
+    // RFC 9051 section 6.4.7 — COPY command
     private void handleCopy(String tag, String args, boolean uid)
             throws IOException {
         if (selectedMailbox == null) {
@@ -2680,6 +3382,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         executeCopy(tag, selectedMailbox, seqSet, mailboxName, uid);
     }
 
+    // RFC 6851 — MOVE command
     private void handleMove(String tag, String args, boolean uid)
             throws IOException {
         if (!server.isEnableMOVE()) {
@@ -2790,23 +3493,31 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 if (index < matching.size()) {
                     int msgNum = matching.get(index).intValue();
                     long msgUid = resolveUid(mailbox, msgNum);
-                    sendFetchResponse(mailbox, msgNum, msgUid,
-                            fetchItems, uid);
-                    if (needsSeen && !selectedReadOnly) {
+
+                    String asyncItem =
+                            findStreamableLiteralItem(fetchItems);
+                    AsyncMessageContent asyncContent = null;
+                    if (asyncItem != null) {
                         try {
-                            mailbox.setFlags(msgNum,
-                                    EnumSet.of(Flag.SEEN), true);
-                        } catch (UnsupportedOperationException ignored) {
-                            // Flags not supported by this mailbox
+                            asyncContent =
+                                    mailbox.openAsyncContent(msgNum);
+                        } catch (IOException e) {
+                            LOGGER.log(Level.FINE,
+                                    "Async content unavailable", e);
                         }
                     }
-                    index++;
 
-                    if (index < matching.size()) {
-                        endpoint.onWriteReady(this);
-                    } else {
-                        finishFetch();
+                    if (asyncContent != null) {
+                        sendFetchResponseAsync(mailbox, msgNum,
+                                msgUid, fetchItems, uid, asyncItem,
+                                asyncContent, () -> advanceAfterFetch(
+                                        msgNum));
+                        return;
                     }
+
+                    sendFetchResponse(mailbox, msgNum, msgUid,
+                            fetchItems, uid);
+                    advanceAfterFetch(msgNum);
                 } else {
                     finishFetch();
                 }
@@ -2824,6 +3535,23 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             }
         }
 
+        private void advanceAfterFetch(int msgNum) {
+            if (needsSeen && !selectedReadOnly) {
+                try {
+                    mailbox.setFlags(msgNum,
+                            EnumSet.of(Flag.SEEN), true);
+                } catch (Exception ignored) {
+                    // Flags not supported by this mailbox
+                }
+            }
+            index++;
+            if (index < matching.size()) {
+                endpoint.onWriteReady(this);
+            } else {
+                finishFetch();
+            }
+        }
+
         private void finishFetch() {
             endpoint.onWriteReady(null);
             try {
@@ -2833,6 +3561,89 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 LOGGER.log(Level.WARNING,
                         "Failed to send FETCH completion", e);
             }
+        }
+    }
+
+    /**
+     * Streams an IMAP literal from an {@link AsyncMessageContent} source.
+     * Reads chunks asynchronously and feeds them to the endpoint, using
+     * {@code onWriteReady} for back-pressure.
+     */
+    private class AsyncLiteralWriter implements Runnable {
+
+        private static final int CHUNK_SIZE = 32768;
+
+        private final AsyncMessageContent content;
+        private final long startOffset;
+        private final long length;
+        private final Runnable completion;
+        private long bytesWritten;
+
+        AsyncLiteralWriter(AsyncMessageContent content,
+                long startOffset, long length, Runnable completion) {
+            this.content = content;
+            this.startOffset = startOffset;
+            this.length = length;
+            this.completion = completion;
+        }
+
+        @Override
+        public void run() {
+            writeNextChunk();
+        }
+
+        private void writeNextChunk() {
+            long remaining = length - bytesWritten;
+            if (remaining <= 0) {
+                closeAndComplete();
+                return;
+            }
+            int toRead = (int) Math.min(remaining, CHUNK_SIZE);
+            ByteBuffer buf = ByteBufferPool.acquire(toRead);
+            buf.limit(toRead);
+            content.read(buf, startOffset + bytesWritten,
+                    new CompletionHandler<Integer, ByteBuffer>() {
+                @Override
+                public void completed(Integer result,
+                        ByteBuffer attachment) {
+                    if (result == null || result <= 0) {
+                        ByteBufferPool.release(attachment);
+                        endpoint.execute(() -> closeAndComplete());
+                        return;
+                    }
+                    bytesWritten += result;
+                    attachment.flip();
+                    endpoint.execute(() -> {
+                        endpoint.send(attachment);
+                        ByteBufferPool.release(attachment);
+                        if (bytesWritten >= length) {
+                            closeAndComplete();
+                        } else {
+                            endpoint.onWriteReady(
+                                    AsyncLiteralWriter.this);
+                        }
+                    });
+                }
+
+                @Override
+                public void failed(Throwable exc,
+                        ByteBuffer attachment) {
+                    ByteBufferPool.release(attachment);
+                    LOGGER.log(Level.WARNING,
+                            "Async literal read failed", exc);
+                    endpoint.execute(() -> closeAndComplete());
+                }
+            });
+        }
+
+        private void closeAndComplete() {
+            try {
+                content.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Error closing async content", e);
+            }
+            completion.run();
         }
     }
 
@@ -2894,11 +3705,278 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             if (!first) {
                 out.write(' ');
             }
+            first = false;
             out.write(("UID " + msgUid).getBytes(US_ASCII));
+        }
+
+        // CONDSTORE: include MODSEQ in FETCH responses
+        if (condstoreEnabled) {
+            long modSeq = mailbox.getModSeq(msgNum);
+            if (modSeq > 0) {
+                if (!first) {
+                    out.write(' ');
+                }
+                out.write(("MODSEQ (" + modSeq + ")")
+                        .getBytes(US_ASCII));
+            }
         }
 
         out.write(")\r\n".getBytes(US_ASCII));
         endpoint.send(ByteBuffer.wrap(out.toByteArray()));
+    }
+
+    /**
+     * Resolves the async literal range for a body section specifier.
+     * Returns a two-element array {@code [startOffset, length]} or
+     * {@code null} when the section cannot be served via async streaming
+     * (e.g. HEADER.FIELDS filtering that requires parsing).
+     */
+    private long[] resolveAsyncLiteralRange(AsyncMessageContent content,
+            String sectionUpper, long partialOffset, long partialLength) {
+        long start;
+        long len;
+        if (sectionUpper.isEmpty()) {
+            start = 0;
+            len = content.size();
+        } else if (sectionUpper.equals("HEADER")) {
+            long bodyOff = content.bodyOffset();
+            if (bodyOff < 0) {
+                return null;
+            }
+            start = 0;
+            len = bodyOff;
+        } else if (sectionUpper.equals("TEXT")) {
+            long bodyOff = content.bodyOffset();
+            if (bodyOff < 0) {
+                return null;
+            }
+            start = bodyOff;
+            len = content.size() - bodyOff;
+        } else {
+            return null;
+        }
+
+        if (partialOffset >= 0 && partialLength >= 0) {
+            long adjOffset = Math.min(partialOffset, len);
+            long adjLength = Math.min(partialLength, len - adjOffset);
+            start += adjOffset;
+            len = adjLength;
+        }
+        return new long[] { start, len };
+    }
+
+    /**
+     * Identifies the first streamable literal item in a FETCH item set
+     * and returns its section specifier string (upper-cased), or null
+     * if no item qualifies for async streaming.
+     */
+    private String findStreamableLiteralItem(Set<String> fetchItems) {
+        for (String item : fetchItems) {
+            String upper = item.toUpperCase(Locale.ENGLISH);
+            if (upper.equals("RFC822")
+                    || upper.equals("RFC822.TEXT")) {
+                return item;
+            }
+            if (upper.startsWith("BODY[")
+                    || upper.startsWith("BODY.PEEK[")) {
+                int bo = upper.indexOf('[');
+                int bc = upper.indexOf(']', bo);
+                if (bo >= 0 && bc >= 0) {
+                    String sec = upper.substring(bo + 1, bc);
+                    if (sec.isEmpty()
+                            || sec.equals("HEADER")
+                            || sec.equals("TEXT")) {
+                        return item;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sends a FETCH response using async content streaming for the body
+     * literal. The prefix (metadata + literal header) is sent
+     * synchronously, then the literal body is streamed via
+     * {@link AsyncLiteralWriter}, and on completion the suffix is sent.
+     */
+    private void sendFetchResponseAsync(Mailbox mailbox, int msgNum,
+            long msgUid, Set<String> fetchItems, boolean uid,
+            String asyncItem, AsyncMessageContent asyncContent,
+            Runnable onComplete) throws IOException {
+        ByteArrayOutputStream prefix = new ByteArrayOutputStream();
+        ByteArrayOutputStream suffix = new ByteArrayOutputStream();
+        boolean first = true;
+        boolean asyncDone = false;
+        long[] asyncRange = null;
+        String asyncItemHeader = null;
+
+        prefix.write(("* " + msgNum + " FETCH (").getBytes(US_ASCII));
+
+        for (String item : fetchItems) {
+            ByteArrayOutputStream target =
+                    asyncDone ? suffix : prefix;
+            if (!first) {
+                target.write(' ');
+            }
+            first = false;
+
+            String upper = item.toUpperCase(Locale.ENGLISH);
+
+            if (item.equals(asyncItem) && !asyncDone) {
+                FetchSection section;
+                long partialOffset = -1;
+                long partialLength = -1;
+
+                if (upper.equals("RFC822")) {
+                    asyncItemHeader = "RFC822";
+                    section = FetchSection.FULL;
+                } else if (upper.equals("RFC822.TEXT")) {
+                    asyncItemHeader = "RFC822.TEXT";
+                    section = FetchSection.TEXT;
+                } else {
+                    int bo = item.indexOf('[');
+                    int bc = item.indexOf(']', bo);
+                    String sec = item.substring(bo + 1, bc);
+                    asyncItemHeader = item.substring(0, bc + 1);
+                    if (bc + 1 < item.length()
+                            && item.charAt(bc + 1) == '<') {
+                        int ac = item.indexOf('>', bc + 1);
+                        if (ac > 0) {
+                            String p = item.substring(bc + 2, ac);
+                            int di = p.indexOf('.');
+                            if (di > 0) {
+                                partialOffset = Long.parseLong(
+                                        p.substring(0, di));
+                                partialLength = Long.parseLong(
+                                        p.substring(di + 1));
+                            }
+                        }
+                    }
+                    section = FetchSection.FULL;
+                    String secUp = sec.toUpperCase(Locale.ENGLISH);
+                    if (secUp.equals("HEADER")) {
+                        section = FetchSection.HEADER;
+                    } else if (secUp.equals("TEXT")) {
+                        section = FetchSection.TEXT;
+                    }
+                }
+
+                String sectionKey;
+                switch (section) {
+                    case HEADER:
+                        sectionKey = "HEADER";
+                        break;
+                    case TEXT:
+                        sectionKey = "TEXT";
+                        break;
+                    default:
+                        sectionKey = "";
+                        break;
+                }
+                asyncRange = resolveAsyncLiteralRange(asyncContent,
+                        sectionKey, partialOffset, partialLength);
+
+                if (asyncRange != null) {
+                    if (partialOffset >= 0 && partialLength >= 0) {
+                        long adjOff = Math.min(partialOffset,
+                                asyncRange[1]);
+                        prefix.write((asyncItemHeader + "<"
+                                + adjOff + "> {"
+                                + asyncRange[1] + "}\r\n")
+                                .getBytes(US_ASCII));
+                    } else {
+                        prefix.write((asyncItemHeader + " {"
+                                + asyncRange[1] + "}\r\n")
+                                .getBytes(US_ASCII));
+                    }
+                    asyncDone = true;
+                    first = false;
+                    continue;
+                }
+
+                writeFetchLiteral(prefix, asyncItemHeader, mailbox,
+                        msgNum, section);
+                continue;
+            }
+
+            if (upper.equals("FLAGS")) {
+                writeFetchFlags(target, mailbox, msgNum);
+            } else if (upper.equals("UID")) {
+                target.write(("UID " + msgUid).getBytes(US_ASCII));
+            } else if (upper.equals("RFC822.SIZE")) {
+                writeFetchSize(target, mailbox, msgNum);
+            } else if (upper.equals("INTERNALDATE")) {
+                writeFetchInternalDate(target, mailbox, msgNum);
+            } else if (upper.equals("ENVELOPE")) {
+                writeFetchEnvelope(target, mailbox, msgNum);
+            } else if (upper.equals("BODYSTRUCTURE")) {
+                writeFetchBodyStructure(target, mailbox, msgNum, true);
+            } else if (upper.equals("BODY") && !item.contains("[")) {
+                writeFetchBodyStructure(target, mailbox, msgNum, false);
+            } else if (upper.equals("RFC822")) {
+                writeFetchLiteral(target, "RFC822", mailbox, msgNum,
+                        FetchSection.FULL);
+            } else if (upper.equals("RFC822.HEADER")) {
+                writeFetchLiteral(target, "RFC822.HEADER", mailbox,
+                        msgNum, FetchSection.HEADER);
+            } else if (upper.equals("RFC822.TEXT")) {
+                writeFetchLiteral(target, "RFC822.TEXT", mailbox,
+                        msgNum, FetchSection.TEXT);
+            } else if (upper.startsWith("BODY[")
+                    || upper.startsWith("BODY.PEEK[")) {
+                writeFetchBodySection(target, item, mailbox, msgNum);
+            }
+        }
+
+        if (uid && !containsFetchItem(fetchItems, "UID")) {
+            ByteArrayOutputStream target =
+                    asyncDone ? suffix : prefix;
+            if (!first) {
+                target.write(' ');
+            }
+            first = false;
+            target.write(("UID " + msgUid).getBytes(US_ASCII));
+        }
+
+        // CONDSTORE: include MODSEQ in async FETCH responses
+        if (condstoreEnabled) {
+            long modSeq = mailbox.getModSeq(msgNum);
+            if (modSeq > 0) {
+                ByteArrayOutputStream target =
+                        asyncDone ? suffix : prefix;
+                if (!first) {
+                    target.write(' ');
+                }
+                target.write(("MODSEQ (" + modSeq + ")")
+                        .getBytes(US_ASCII));
+            }
+        }
+
+        if (asyncDone && asyncRange != null) {
+            suffix.write(")\r\n".getBytes(US_ASCII));
+            endpoint.send(ByteBuffer.wrap(prefix.toByteArray()));
+
+            byte[] suffixBytes = suffix.toByteArray();
+            AsyncLiteralWriter writer = new AsyncLiteralWriter(
+                    asyncContent, asyncRange[0], asyncRange[1],
+                    () -> {
+                        endpoint.send(ByteBuffer.wrap(suffixBytes));
+                        onComplete.run();
+                    });
+            endpoint.onWriteReady(writer);
+            return;
+        }
+
+        prefix.write(")\r\n".getBytes(US_ASCII));
+        endpoint.send(ByteBuffer.wrap(prefix.toByteArray()));
+        try {
+            asyncContent.close();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Error closing unused async content", e);
+        }
+        onComplete.run();
     }
 
     private void writeFetchFlags(ByteArrayOutputStream out,
@@ -2998,7 +4076,6 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private void writeFetchBodySection(ByteArrayOutputStream out,
             String item, Mailbox mailbox, int msgNum)
             throws IOException {
-        String upper = item.toUpperCase(Locale.ENGLISH);
         int bracketOpen = item.indexOf('[');
         int bracketClose = item.indexOf(']', bracketOpen);
         if (bracketOpen < 0 || bracketClose < 0) {
@@ -3071,13 +4148,30 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     private void executeStore(String tag, Mailbox mailbox,
             MessageSet seqSet, StoreAction action, Set<Flag> flags,
-            boolean silent, boolean uid) throws IOException {
+            boolean silent, boolean uid, long unchangedSince)
+            throws IOException {
         List<Integer> matching = resolveMatchingMessages(mailbox,
                 seqSet, uid);
+
+        List<Long> modifiedUids = null;
+        if (unchangedSince >= 0) {
+            modifiedUids = new ArrayList<>();
+        }
 
         for (int i = 0; i < matching.size(); i++) {
             int msgNum = matching.get(i).intValue();
             try {
+                // CONDSTORE: skip messages modified after
+                // the given UNCHANGEDSINCE value
+                if (unchangedSince >= 0) {
+                    long modSeq = mailbox.getModSeq(msgNum);
+                    if (modSeq > unchangedSince) {
+                        long msgUid = resolveUid(mailbox, msgNum);
+                        modifiedUids.add(msgUid);
+                        continue;
+                    }
+                }
+
                 switch (action) {
                     case REPLACE:
                         mailbox.replaceFlags(msgNum, flags);
@@ -3091,8 +4185,15 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 }
                 if (!silent) {
                     Set<Flag> newFlags = mailbox.getFlags(msgNum);
-                    sendUntagged(msgNum + " FETCH (FLAGS ("
-                            + formatFlags(newFlags) + "))");
+                    if (condstoreEnabled) {
+                        long modSeq = mailbox.getModSeq(msgNum);
+                        sendUntagged(msgNum + " FETCH (FLAGS ("
+                                + formatFlags(newFlags)
+                                + ") MODSEQ (" + modSeq + "))");
+                    } else {
+                        sendUntagged(msgNum + " FETCH (FLAGS ("
+                                + formatFlags(newFlags) + "))");
+                    }
                 }
             } catch (UnsupportedOperationException e) {
                 sendTaggedNo(tag,
@@ -3101,7 +4202,20 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             }
         }
 
-        sendTaggedOk(tag, L10N.getString("imap.store_complete"));
+        if (modifiedUids != null && !modifiedUids.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < modifiedUids.size(); i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(modifiedUids.get(i));
+            }
+            sendTaggedOk(tag, "[MODIFIED " + sb + "] "
+                    + L10N.getString("imap.store_complete"));
+        } else {
+            sendTaggedOk(tag,
+                    L10N.getString("imap.store_complete"));
+        }
     }
 
     // ── COPY execution ──
@@ -3164,12 +4278,34 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 seqSet, uid);
 
         try {
+            // Resolve UIDs before move (needed for QRESYNC VANISHED)
+            List<Long> movedUids = null;
+            if (qresyncEnabled) {
+                movedUids = new ArrayList<>();
+                for (int i = 0; i < matching.size(); i++) {
+                    movedUids.add(resolveUid(mailbox,
+                            matching.get(i).intValue()));
+                }
+            }
+
             Map<Integer, Long> uidMap = mailbox.moveMessages(matching,
                     targetMailboxName);
 
-            for (int i = matching.size() - 1; i >= 0; i--) {
-                int msgNum = matching.get(i).intValue();
-                sendUntagged(msgNum + " EXPUNGE");
+            if (qresyncEnabled && movedUids != null
+                    && !movedUids.isEmpty()) {
+                StringBuilder sb = new StringBuilder("VANISHED ");
+                for (int i = 0; i < movedUids.size(); i++) {
+                    if (i > 0) {
+                        sb.append(',');
+                    }
+                    sb.append(movedUids.get(i));
+                }
+                sendUntagged(sb.toString());
+            } else if (!qresyncEnabled) {
+                for (int i = matching.size() - 1; i >= 0; i--) {
+                    int msgNum = matching.get(i).intValue();
+                    sendUntagged(msgNum + " EXPUNGE");
+                }
             }
 
             if (uidMap != null && !uidMap.isEmpty()) {
@@ -3371,22 +4507,61 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         return false;
     }
 
+    /**
+     * Reads the full message content into a byte array.
+     * Uses a pre-sized array when message size is known to avoid
+     * ByteArrayOutputStream growth and extra copying.
+     *
+     * <p>This synchronous path is used for FETCH items that require the
+     * full message content for parsing (ENVELOPE, BODYSTRUCTURE, partial
+     * body sections with offset/count). Streamable items (RFC822, full
+     * BODY[] sections) use the async path in
+     * {@code sendFetchResponseAsync()} via {@link AsyncLiteralWriter}.
+     */
     private byte[] readMessageContent(Mailbox mailbox, int msgNum)
             throws IOException {
-        ReadableByteChannel channel = mailbox.getMessageContent(msgNum);
-        try {
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ByteBuffer buf = ByteBuffer.allocate(8192);
-            while (channel.read(buf) != -1) {
-                buf.flip();
-                byte[] data = new byte[buf.remaining()];
-                buf.get(data);
-                bos.write(data);
-                buf.clear();
+        MessageDescriptor desc = mailbox.getMessage(msgNum);
+        long size = (desc != null) ? desc.getSize() : -1;
+
+        try (ReadableByteChannel channel = mailbox.getMessageContent(msgNum)) {
+            if (size >= 0 && size <= Integer.MAX_VALUE) {
+                byte[] data = new byte[(int) size];
+                ByteBuffer buf = ByteBufferPool.acquire(8192);
+                try {
+                    int pos = 0;
+                    while (pos < data.length) {
+                        buf.clear();
+                        int n = channel.read(buf);
+                        if (n == -1) {
+                            break;
+                        }
+                        buf.flip();
+                        int toCopy = Math.min(buf.remaining(), data.length - pos);
+                        buf.get(data, pos, toCopy);
+                        pos += toCopy;
+                    }
+                    return data;
+                } finally {
+                    ByteBufferPool.release(buf);
+                }
             }
-            return bos.toByteArray();
-        } finally {
-            channel.close();
+
+            // Fallback when size unknown: use ByteArrayOutputStream
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(
+                    size > 0 ? (int) Math.min(size, 65536) : 8192);
+            ByteBuffer buf = ByteBufferPool.acquire(8192);
+            try {
+                while (channel.read(buf) != -1) {
+                    buf.flip();
+                    byte[] chunk = new byte[buf.remaining()];
+                    buf.get(chunk);
+                    bos.write(chunk);
+                    buf.clear();
+                }
+                return bos.toByteArray();
+            } finally {
+                ByteBufferPool.release(buf);
+            }
         }
     }
 
@@ -3851,17 +5026,75 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     // ── Helpers ──
 
+    // RFC 9051 section 7.5: send untagged EXPUNGE for removed messages,
+    // then update EXISTS if the count changed.
+    // RFC 7162: use VANISHED instead of EXPUNGE when QRESYNC active.
     private void sendMailboxUpdates() throws IOException {
         if (selectedMailbox == null) {
             return;
         }
         int currentCount = selectedMailbox.getMessageCount();
+        List<String> currentUIDs = snapshotUIDs(selectedMailbox,
+                currentCount);
+
+        if (lastReportedUIDs != null && currentCount < lastReportedExists) {
+            if (qresyncEnabled) {
+                // QRESYNC: send VANISHED with UIDs of removed messages
+                StringBuilder vanished = new StringBuilder();
+                int oldIdx = lastReportedUIDs.size() - 1;
+                int newIdx = currentUIDs.size() - 1;
+                while (oldIdx >= 0) {
+                    if (newIdx >= 0
+                            && lastReportedUIDs.get(oldIdx)
+                                    .equals(currentUIDs.get(newIdx))) {
+                        oldIdx--;
+                        newIdx--;
+                    } else {
+                        if (vanished.length() > 0) {
+                            vanished.append(',');
+                        }
+                        vanished.append(
+                                lastReportedUIDs.get(oldIdx));
+                        oldIdx--;
+                    }
+                }
+                if (vanished.length() > 0) {
+                    sendUntagged("VANISHED " + vanished);
+                }
+            } else {
+                int oldIdx = lastReportedUIDs.size() - 1;
+                int newIdx = currentUIDs.size() - 1;
+                while (oldIdx >= 0) {
+                    if (newIdx >= 0
+                            && lastReportedUIDs.get(oldIdx)
+                                    .equals(currentUIDs.get(newIdx))) {
+                        oldIdx--;
+                        newIdx--;
+                    } else {
+                        sendUntagged((oldIdx + 1) + " EXPUNGE");
+                        oldIdx--;
+                    }
+                }
+            }
+        }
+
         if (currentCount != lastReportedExists) {
             sendUntagged(currentCount + " EXISTS");
             lastReportedExists = currentCount;
         }
-        // TODO: EXPUNGE notifications require tracking which sequence
-        // numbers were removed, deferred to a follow-up
+        lastReportedUIDs = currentUIDs;
+    }
+
+    private List<String> snapshotUIDs(Mailbox mailbox, int count) {
+        List<String> uids = new ArrayList<String>(count);
+        try {
+            for (int i = 1; i <= count; i++) {
+                uids.add(mailbox.getUniqueId(i));
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "Error snapshotting UIDs", e);
+        }
+        return uids;
     }
 
     private String parseMailboxName(String arg) {
@@ -3958,8 +5191,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         return sb.toString();
     }
 
-    // ── Response methods ──
+    // ── Response methods (RFC 9051 section 7) ──
 
+    // RFC 9051 section 7.1 — untagged server data/status
     private void sendUntagged(String response) throws IOException {
         sendLine("* " + response);
     }
@@ -3976,6 +5210,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         sendLine(tag + " BAD " + message);
     }
 
+    // RFC 9051 section 7.5 — continuation request ("+ ...")
     private void sendContinuation(String text) throws IOException {
         sendLine("+ " + text);
     }
@@ -4127,6 +5362,18 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                         + formatFlags(permanentFlags) + " \\*)]");
                 sendUntagged("OK [UIDVALIDITY " + uidValidity + "]");
                 sendUntagged("OK [UIDNEXT " + uidNext + "]");
+                if (condstoreEnabled) {
+                    try {
+                        long highestModSeq =
+                                mailbox.getHighestModSeq();
+                        if (highestModSeq > 0) {
+                            sendUntagged("OK [HIGHESTMODSEQ "
+                                    + highestModSeq + "]");
+                        }
+                    } catch (IOException ignored) {
+                        // MODSEQ not available
+                    }
+                }
                 String accessMode = readOnly ? "[READ-ONLY]" : "[READ-WRITE]";
                 sendTaggedOk(tag, accessMode + " "
                         + L10N.getString("imap.select_complete"));

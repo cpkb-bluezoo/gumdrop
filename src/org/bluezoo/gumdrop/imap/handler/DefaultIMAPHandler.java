@@ -309,9 +309,37 @@ public class DefaultIMAPHandler implements ClientConnected, NotAuthenticatedHand
 
     @Override
     public void uidExpunge(ExpungeState state, Mailbox mailbox, MessageSet uidSet) {
-        // UID EXPUNGE only expunges messages in the specified UID set
-        // For now, just do a regular expunge (TODO: filter by UID set)
-        expunge(state, mailbox);
+        try {
+            int count = mailbox.getMessageCount();
+            long lastUid = 0;
+            if (count > 0) {
+                try {
+                    lastUid = Long.parseLong(mailbox.getUniqueId(count));
+                } catch (NumberFormatException e) {
+                    lastUid = count;
+                }
+            }
+            // RFC 4315 section 2.1: only expunge messages whose UID is in the set
+            for (int i = count; i >= 1; i--) {
+                Set<Flag> flags = mailbox.getFlags(i);
+                if (flags.contains(Flag.DELETED)) {
+                    long uid;
+                    try {
+                        uid = Long.parseLong(mailbox.getUniqueId(i));
+                    } catch (NumberFormatException e) {
+                        uid = i;
+                    }
+                    if (uidSet.contains(uid, lastUid)) {
+                        mailbox.deleteMessage(i);
+                        state.messageExpunged(i);
+                    }
+                }
+            }
+            state.expungeComplete(this);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to UID expunge mailbox", e);
+            state.expungeFailed("Cannot expunge mailbox", this);
+        }
     }
 
     @Override

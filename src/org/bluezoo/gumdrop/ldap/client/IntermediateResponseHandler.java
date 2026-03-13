@@ -1,0 +1,44 @@
+/*
+ * IntermediateResponseHandler.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.ldap.client;
+
+/**
+ * Handler for IntermediateResponse messages (RFC 4511 section 4.13).
+ *
+ * <p>IntermediateResponse allows a server to send information during
+ * multi-stage extended operations. If a callback for a pending
+ * operation implements this interface, intermediate responses for
+ * that messageID will be delivered here.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.13">RFC 4511 §4.13</a>
+ */
+public interface IntermediateResponseHandler {
+
+    /**
+     * Called when an IntermediateResponse is received for this operation.
+     *
+     * @param responseName the OID identifying the response type (may be null)
+     * @param responseValue the response payload (may be null)
+     */
+    void handleIntermediateResponse(String responseName, byte[] responseValue);
+}

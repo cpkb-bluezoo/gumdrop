@@ -411,6 +411,102 @@ Convenience methods: <code>result.passed()</code>, <code>result.shouldReject()</
 <code>result.shouldQuarantine()</code>.
 </p>
 
+<h4>DKIM Signing (RFC 6376 §5)</h4>
+
+<p>
+The <code>DKIMSigner</code> class generates DKIM-Signature headers for outbound
+messages. It supports both <b>rsa-sha256</b> (RFC 6376 §3.3) and
+<b>ed25519-sha256</b> (RFC 8463) algorithms, with configurable header and body
+canonicalization (simple or relaxed).
+</p>
+
+<pre><code>DKIMSigner signer = new DKIMSigner(privateKey, "example.com", "sel1");
+signer.setAlgorithm("rsa-sha256");
+signer.setHeaderCanonicalization("relaxed");
+signer.setBodyCanonicalization("relaxed");
+signer.setSignedHeaders(Arrays.asList("from", "to", "subject", "date"));
+
+// Feed body lines in wire format
+signer.bodyLine(bodyBytes, 0, bodyBytes.length);
+signer.endBody();
+
+// Sign headers and get the DKIM-Signature header
+String dkimHeader = signer.sign(rawHeaderLines);
+// Prepend dkimHeader to the message before sending</code></pre>
+
+<h4>Ed25519-SHA256 (RFC 8463)</h4>
+
+<p>
+Both the signer and verifier support Ed25519-SHA256 signatures. The verifier
+correctly handles raw 32-byte public keys in DNS TXT records as specified by
+RFC 8463 §4, converting them to Java <code>EdECPublicKeySpec</code> for
+verification. For signing, pass an <code>Ed25519</code> private key and set
+the algorithm to <code>"ed25519-sha256"</code>.
+</p>
+
+<h4>DMARC Aggregate Reporting (RFC 7489 §7.1)</h4>
+
+<p>
+The <code>DMARCAggregateReport</code> class generates XML aggregate reports
+conforming to the schema in RFC 7489 Appendix C. Reports can be sent to
+the domain owner's <code>rua=</code> address (now parsed from DMARC records).
+</p>
+
+<pre><code>DMARCAggregateReport report = new DMARCAggregateReport();
+report.setReporterOrgName("receiver.example.com");
+report.setReporterEmail("dmarc-reports@receiver.example.com");
+report.setReportId("report-12345");
+report.setDateRange(beginEpoch, endEpoch);
+
+// Record results for each evaluated message
+report.addResult(sourceIP, headerFrom, policy, adkim, aspf,
+    dmarcResult, spfResult, spfDomain, dkimResult, dkimDomain, selector);
+
+// Write the XML report
+report.writeXML(outputStream);</code></pre>
+
+<p>
+The <code>DMARCValidator</code> parses the <code>rua=</code>,
+<code>ruf=</code>, <code>fo=</code>, and <code>rf=</code> tags from DMARC
+records. After evaluation, call <code>getLastRua()</code> /
+<code>getLastRuf()</code> to obtain report destination URIs, and
+<code>getLastFo()</code> to retrieve the failure reporting options.
+</p>
+
+<h4>DMARC Forensic / Failure Reporting (RFC 7489 §7.2)</h4>
+
+<p>
+The <code>DMARCForensicReport</code> class generates per-message failure
+reports in the Abuse Reporting Format (ARF, RFC 5965) with DMARC-specific
+extensions (RFC 6591). Reports are <code>multipart/report</code> MIME
+messages with three parts: a human-readable description, a machine-readable
+<code>message/feedback-report</code>, and the original message headers.
+</p>
+
+<pre><code>// Check if a forensic report should be generated
+String fo = validator.getLastFo();
+if (DMARCForensicReport.shouldReport(fo, spfResult, dkimResult, dmarcResult)) {
+    DMARCForensicReport report = new DMARCForensicReport();
+    report.setReporterDomain("receiver.example.com");
+    report.setSourceIP(clientIP);
+    report.setHeaderFrom(fromDomain);
+    report.setDmarcResult(dmarcResult);
+    report.setDmarcPolicy(policy);
+    report.setSpfResult(spfResult);
+    report.setDkimResult(dkimResult);
+    report.setOriginalHeaders(messageHeaders);
+
+    report.writeMIME(outputStream, boundary);
+}</code></pre>
+
+<p>
+The <code>fo=</code> tag controls when reports are generated:
+<code>0</code> (default) = all mechanisms fail,
+<code>1</code> = any mechanism fails,
+<code>d</code> = DKIM fails,
+<code>s</code> = SPF fails. Multiple options may be colon-separated.
+</p>
+
 <h3 id="policy">Security Policies</h3>
 
 <p>
@@ -494,6 +590,14 @@ Gumdrop supports the full range of SMTP AUTH mechanisms:
 <li><b>GSSAPI</b> - Kerberos authentication (RFC 4752)</li>
 <li><b>EXTERNAL</b> - TLS client certificate (RFC 4422)</li>
 </ul>
+
+<p>
+All mechanisms are fully implemented on the server side, including multi-round
+challenge-response exchanges (CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256) and
+token-based authentication (OAUTHBEARER with JSON error challenges per
+RFC 7628 §3.2.2). If a client sends <code>*</code> during an AUTH exchange,
+the server cancels the attempt and responds with 501 (RFC 4954 §4).
+</p>
 
 <p>
 Authentication integrates with Gumdrop's centralised
@@ -938,13 +1042,19 @@ executes entirely within the I/O worker without blocking.
 
 <ul>
 <li><b>Asynchronous operation</b> - integrates with Gumdrop's SelectorLoop</li>
-<li><b>ESMTP support</b> - EHLO with extension discovery</li>
+<li><b>ESMTP support</b> - EHLO with full capability parsing (15 extension keywords
+including 8BITMIME, SMTPUTF8, DSN, ENHANCEDSTATUSCODES, BINARYMIME, REQUIRETLS,
+MT-PRIORITY, FUTURERELEASE, DELIVERBY, LIMITS)</li>
 <li><b>STARTTLS</b> - opportunistic TLS upgrade</li>
 <li><b>Certificate pinning</b> - <code>setTrustManager(X509TrustManager)</code>
 for outbound TLS; use <code>PinnedCertTrustManager</code> for SHA-256
 fingerprint pinning</li>
 <li><b>Streaming DATA</b> - dot-stuffing handled automatically without buffering</li>
 <li><b>Pipelining</b> - multiple commands in flight (when server supports)</li>
+<li><b>MAIL FROM extensions</b> - BODY, SMTPUTF8, RET/ENVID, REQUIRETLS,
+MT-PRIORITY, HOLDFOR/HOLDUNTIL, BY via <code>MailFromParams</code></li>
+<li><b>RCPT TO DSN parameters</b> - NOTIFY and ORCPT (RFC 3461 §4.1–4.2)</li>
+<li><b>VRFY/EXPN commands</b> - RFC 5321 §4.1.1.6–7 via generic reply handler</li>
 </ul>
 
 <h4>Client Handler Interface</h4>

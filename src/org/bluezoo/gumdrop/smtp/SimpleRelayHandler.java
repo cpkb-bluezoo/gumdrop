@@ -80,6 +80,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.*;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.7">RFC 5321 §3.7</a> (mail relay)
  * @see SimpleRelayService
  */
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
@@ -182,9 +183,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         // Validate delivery requirements we can't fulfill
         // FUTURERELEASE requires a scheduled queue, which this simple relay doesn't have
         if (deliveryRequirements != null && deliveryRequirements.isFutureRelease()) {
-            // TODO: A production MTA would store the message in a scheduled queue
-            // and release it at getReleaseTime(). This simple relay doesn't support
-            // holding messages, so we must reject.
+            // A production MTA would store the message in a scheduled queue
+            // and release it at getReleaseTime(). This simple relay doesn't
+            // support holding messages, so we reject.
             state.rejectSenderPolicy("FUTURERELEASE not supported by this relay", this);
             return;
         }
@@ -192,9 +193,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         // DELIVERBY would require deadline tracking and bounce generation
         // We accept it but log a warning that we won't enforce the deadline
         if (deliveryRequirements != null && deliveryRequirements.hasDeliverByDeadline()) {
-            // TODO: A production MTA would track the deadline and bounce the message
-            // if it cannot be delivered in time. This simple relay accepts but doesn't
-            // enforce the deadline.
+            // A production MTA would track the deadline and bounce the
+            // message if it cannot be delivered in time. This simple relay
+            // accepts but doesn't enforce the deadline.
             if (LOGGER.isLoggable(Level.WARNING)) {
                 LOGGER.warning("DELIVERBY specified but deadline enforcement not implemented");
             }
@@ -203,7 +204,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         // MT-PRIORITY would require a priority queue for message processing
         // We accept it but don't prioritize
         if (deliveryRequirements != null && deliveryRequirements.hasPriority()) {
-            // TODO: A production MTA would use priority queues to process higher
+            // A production MTA would use priority queues to process higher
             // priority messages first. This simple relay uses FIFO ordering.
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("MT-PRIORITY=" + deliveryRequirements.getPriority() + 
@@ -669,10 +670,9 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                     }
                 }
                 
-                // TODO: Forward DSN parameters (RET, ENVID) to the next hop.
-                // This would require extending ClientSession.mailFrom() to accept
-                // delivery options. For now, DSN parameters are accepted but not
-                // propagated.
+                // DSN parameters (RET, ENVID) are accepted but not propagated
+                // to the next hop. A full MTA would extend ClientSession.mailFrom()
+                // to forward delivery options.
                 
                 session.mailFrom(sender, this);
             }

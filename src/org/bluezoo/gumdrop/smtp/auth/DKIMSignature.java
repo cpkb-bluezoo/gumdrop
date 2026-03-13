@@ -25,7 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Parsed DKIM-Signature header as defined in RFC 6376.
+ * Parsed DKIM-Signature header as defined in RFC 6376 §3.5 (DKIM-Signature header field).
  *
  * <p>A DKIM signature contains tags that specify the signing domain,
  * selector, algorithm, signed headers, and the signature itself.

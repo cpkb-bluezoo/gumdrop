@@ -25,7 +25,8 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 
 /**
  * Common operations available during envelope construction.
- * 
+ * RFC 5321 §4.1.1.3 (RCPT TO and RSET).
+ *
  * <p>This interface provides the operations common to both
  * {@link ClientEnvelope} (before any recipients accepted) and
  * {@link ClientEnvelopeReady} (after recipients accepted).
@@ -37,6 +38,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientEnvelope
  * @see ClientEnvelopeReady
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ClientEnvelopeState {
 
@@ -47,6 +49,17 @@ public interface ClientEnvelopeState {
      * @param callback receives the server's response
      */
     void rcptTo(EmailAddress recipient, ServerRcptToReplyHandler callback);
+
+    /**
+     * RFC 3461 §4.1–4.2 — adds a recipient with DSN parameters.
+     *
+     * @param recipient the envelope recipient address
+     * @param notify NOTIFY value (e.g. "NEVER" or "SUCCESS,FAILURE,DELAY"), or null
+     * @param orcpt ORCPT value (e.g. "rfc822;user@example.com"), or null
+     * @param callback receives the server's response
+     */
+    void rcptTo(EmailAddress recipient, String notify, String orcpt,
+                ServerRcptToReplyHandler callback);
 
     /**
      * Aborts the current mail transaction.

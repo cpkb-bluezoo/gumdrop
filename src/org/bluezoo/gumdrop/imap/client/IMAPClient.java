@@ -37,13 +37,17 @@ import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
 import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
 
 /**
- * High-level IMAP client facade.
+ * High-level IMAP4rev2 client facade (RFC 9051).
  *
  * <p>This class provides a simple, concrete API for connecting to IMAP
  * servers. It internally creates a {@link TCPTransportFactory},
  * {@link ClientEndpoint}, and {@link IMAPClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link ServerGreeting} handler.
+ *
+ * <p>Supports plaintext (port 143) with STARTTLS upgrade
+ * (RFC 9051 section 6.2.1) and implicit TLS/IMAPS (port 993,
+ * RFC 8314 section 3.3).
  *
  * <h4>Plaintext with STARTTLS</h4>
  * <pre>{@code

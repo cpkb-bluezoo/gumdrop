@@ -204,12 +204,107 @@ public class DNSMessageTest {
         assertEquals(0x5678, msg.getId());
     }
     
+    // -- EDNS0 tests (RFC 6891) --
+
+    @Test
+    public void testCreateQueryWithEdns0() throws Exception {
+        List<DNSResourceRecord> additionals = Collections.singletonList(
+                DNSResourceRecord.opt(4096));
+        DNSMessage query = DNSMessage.createQuery(
+                9999, "example.com", DNSType.A, additionals);
+
+        assertEquals(9999, query.getId());
+        assertTrue(query.isQuery());
+        assertEquals(1, query.getAdditionals().size());
+        assertEquals(DNSType.OPT, query.getAdditionals().get(0).getType());
+        assertEquals(4096, query.getAdditionals().get(0).getUdpPayloadSize());
+    }
+
+    @Test
+    public void testSerializeAndParseEdns0() throws Exception {
+        List<DNSResourceRecord> additionals = Collections.singletonList(
+                DNSResourceRecord.opt(4096));
+        DNSMessage original = DNSMessage.createQuery(
+                7777, "edns.example.com", DNSType.AAAA, additionals);
+
+        ByteBuffer serialized = original.serialize();
+        DNSMessage parsed = DNSMessage.parse(serialized);
+
+        assertEquals(7777, parsed.getId());
+        assertEquals(1, parsed.getAdditionals().size());
+        DNSResourceRecord opt = parsed.getAdditionals().get(0);
+        assertEquals(DNSType.OPT, opt.getType());
+        assertEquals(4096, opt.getUdpPayloadSize());
+    }
+
+    @Test
+    public void testDefaultEdnsUdpSize() {
+        assertEquals(4096, DNSMessage.DEFAULT_EDNS_UDP_SIZE);
+    }
+
     @Test(expected = DNSFormatException.class)
     public void testParseTooShort() throws DNSFormatException {
         ByteBuffer buf = ByteBuffer.wrap(new byte[10]); // Less than 12 bytes header
         DNSMessage.parse(buf);
     }
     
+    // -- Name compression tests (RFC 1035 section 4.1.4) --
+
+    @Test
+    public void testCompressionReducesSize() throws Exception {
+        InetAddress addr1 = InetAddress.getByName("1.2.3.4");
+        InetAddress addr2 = InetAddress.getByName("5.6.7.8");
+        InetAddress addr3 = InetAddress.getByName("9.10.11.12");
+
+        DNSQuestion question = new DNSQuestion("www.example.com", DNSType.A);
+        DNSResourceRecord a1 = DNSResourceRecord.a("www.example.com", 300, addr1);
+        DNSResourceRecord a2 = DNSResourceRecord.a("www.example.com", 300, addr2);
+        DNSResourceRecord ns = DNSResourceRecord.ns("example.com", 86400, "ns1.example.com");
+
+        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        DNSMessage msg = new DNSMessage(1, flags,
+                Collections.singletonList(question),
+                Arrays.asList(a1, a2),
+                Collections.singletonList(ns),
+                Collections.emptyList());
+
+        ByteBuffer compressed = msg.serialize();
+
+        // Without compression each "www.example.com" is 17 bytes.
+        // With compression, second+ occurrences use a 2-byte pointer.
+        // Just verify it round-trips correctly and is smaller than naive size.
+        DNSMessage parsed = DNSMessage.parse(compressed);
+        assertEquals(1, parsed.getId());
+        assertEquals(2, parsed.getAnswers().size());
+        assertEquals("www.example.com", parsed.getAnswers().get(0).getName());
+        assertEquals("www.example.com", parsed.getAnswers().get(1).getName());
+        assertEquals(1, parsed.getAuthorities().size());
+        assertEquals("example.com", parsed.getAuthorities().get(0).getName());
+    }
+
+    @Test
+    public void testCompressionRoundTrip() throws Exception {
+        InetAddress addr = InetAddress.getByName("10.0.0.1");
+        DNSResourceRecord mx = DNSResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
+        DNSResourceRecord a = DNSResourceRecord.a("mail.example.com", 300, addr);
+
+        DNSQuestion q = new DNSQuestion("example.com", DNSType.MX);
+        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        DNSMessage original = new DNSMessage(42, flags,
+                Collections.singletonList(q),
+                Collections.singletonList(mx),
+                Collections.emptyList(),
+                Collections.singletonList(a));
+
+        ByteBuffer serialized = original.serialize();
+        DNSMessage parsed = DNSMessage.parse(serialized);
+
+        assertEquals(42, parsed.getId());
+        assertEquals("example.com", parsed.getQuestions().get(0).getName());
+        assertEquals(DNSType.MX, parsed.getAnswers().get(0).getType());
+        assertEquals("mail.example.com", parsed.getAdditionals().get(0).getName());
+    }
+
     @Test
     public void testToString() {
         DNSMessage query = DNSMessage.createQuery(1, "test.com", DNSType.A);

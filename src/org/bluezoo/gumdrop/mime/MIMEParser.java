@@ -85,6 +85,8 @@ import java.util.ResourceBundle;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2046">RFC 2046: MIME Part Two — Media Types</a>
  */
 public class MIMEParser {
 
@@ -248,6 +250,8 @@ public class MIMEParser {
 	 * @throws MIMEParseException if any part of the parsing or
 	 *         processing process wishes to cancel and abandon the parse
 	 * @throws IllegalStateException if no handler has been set
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2045#section-2">RFC 2045 §2</a>
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2046#section-5.1">RFC 2046 §5.1</a>
 	 */
 	public void receive(ByteBuffer data) throws MIMEParseException {
 		if (handler == null) {
@@ -335,6 +339,7 @@ public class MIMEParser {
 	 * Process a header line up to its CRLF.
 	 * The line delimiter (ideally CRLF) IS present at the end of the line.
 	 * Buffer position/limit should be set to the line range.
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-2.2">RFC 5322 §2.2</a>
 	 */
 	protected void headerLine(ByteBuffer buffer) throws MIMEParseException {
 		int start = buffer.position();
@@ -653,6 +658,7 @@ public class MIMEParser {
 		}
 	}
 
+	/** RFC 2045 §5 / RFC 2046 §5.1.1 — Content-Type header with boundary. */
 	protected void handleContentTypeHeader(String name, ByteBuffer value) throws MIMEParseException {
 		ContentType contentType = ContentTypeParser.parse(value.duplicate(), getIso8859Decoder());
 		if (contentType != null) {
@@ -671,6 +677,7 @@ public class MIMEParser {
 		}
 	}
 
+	/** RFC 2183 — Content-Disposition header. */
 	protected void handleContentDispositionHeader(String name, ByteBuffer value) throws MIMEParseException {
 		ContentDisposition contentDisposition = ContentDispositionParser.parse(value.duplicate(), getIso8859Decoder());
 		if (contentDisposition != null) {
@@ -678,6 +685,7 @@ public class MIMEParser {
 		}
 	}
 
+	/** RFC 2045 §6.1 — Content-Transfer-Encoding header. */
 	protected void handleContentTransferEncodingHeader(String name, ByteBuffer value) throws MIMEParseException {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
 		switch (valueStr.toLowerCase().intern()) {
@@ -701,6 +709,7 @@ public class MIMEParser {
 		}
 	}
 
+	/** RFC 2045 §7 — Content-ID header. */
 	protected void handleContentIDHeader(String name, ByteBuffer value) throws MIMEParseException {
 		ContentID id = ContentIDParser.parse(value.duplicate(), getIso8859Decoder());
 		if (id != null) {
@@ -708,11 +717,13 @@ public class MIMEParser {
 		}
 	}
 
+	/** RFC 2045 §8 — Content-Description header. */
 	protected void handleContentDescriptionHeader(String name, ByteBuffer value) throws MIMEParseException {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
 		handler.contentDescription(valueStr);
 	}
 
+	/** RFC 2045 §4 — MIME-Version header. */
 	protected void handleMIMEVersionHeader(String name, ByteBuffer value) throws MIMEParseException {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
 		MIMEVersion mimeVersion = MIMEVersion.parse(valueStr);
@@ -874,9 +885,10 @@ public class MIMEParser {
 			int consumed;
             int decodeBufferPos = decodeBuffer.position();
 			switch (transferEncoding) {
-				case BASE64:
-					consumed = Base64Decoder.decode(source, decodeBuffer, maxBufferSize, flushRemaining);
-					break;
+			case BASE64:
+				consumed = Base64Decoder.decode(source, decodeBuffer, maxBufferSize,
+						flushRemaining, !allowMalformed); // RFC 2045 §6.8 strict line length
+				break;
 				case QUOTED_PRINTABLE:
 					consumed = QuotedPrintableDecoder.decode(source, decodeBuffer, maxBufferSize, flushRemaining);
 					break;
@@ -1105,6 +1117,7 @@ public class MIMEParser {
 	 *
 	 * @param buffer the buffer to check
 	 * @return BoundaryMatch if boundary found, null otherwise
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2046#section-5.1.1">RFC 2046 §5.1.1</a>
 	 */
 	protected BoundaryMatch detectBoundary(ByteBuffer buffer) {
 		if (boundaries.isEmpty()) {
@@ -1123,6 +1136,7 @@ public class MIMEParser {
 	 * @param buffer the buffer to check
 	 * @param boundary the boundary string to match
 	 * @return BoundaryMatch if boundary found, null otherwise
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2046#section-5.1.1">RFC 2046 §5.1.1</a>
 	 */
 	protected BoundaryMatch checkBoundary(ByteBuffer buffer, String boundary) {
 		int start = buffer.position();

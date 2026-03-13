@@ -38,11 +38,17 @@ import org.bluezoo.gumdrop.TCPTransportFactory;
 /**
  * High-level Redis client facade.
  *
- * <p>This class provides a simple, concrete API for connecting to Redis servers.
- * It internally creates a {@link TCPTransportFactory},
- * {@link ClientEndpoint}, and {@link RedisClientProtocolHandler}, wiring
- * them together and forwarding lifecycle events to the caller's
- * {@link RedisConnectionReady} handler.
+ * <p>This class provides a simple, concrete API for connecting to Redis servers
+ * using the RESP (Redis Serialization Protocol) wire format. It internally
+ * creates a {@link TCPTransportFactory}, {@link ClientEndpoint}, and
+ * {@link RedisClientProtocolHandler}, wiring them together and forwarding
+ * lifecycle events to the caller's {@link RedisConnectionReady} handler.
+ *
+ * <p>Connection modes:
+ * <ul>
+ *   <li>Plaintext on default port 6379</li>
+ *   <li>TLS-encrypted (Redis 6+ with {@code tls-port})</li>
+ * </ul>
  *
  * <h4>Basic Usage</h4>
  * <pre>{@code
@@ -61,6 +67,7 @@ import org.bluezoo.gumdrop.TCPTransportFactory;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RedisConnectionReady
  * @see RedisClientProtocolHandler
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public class RedisClient {
 

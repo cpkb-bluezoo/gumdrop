@@ -29,6 +29,7 @@ package org.bluezoo.gumdrop.mime;
  * process so it is not suitable for permanent association with any resulting
  * artifacts.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  */
 public interface MIMELocator {
 

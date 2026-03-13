@@ -21,12 +21,9 @@
 
 package org.bluezoo.gumdrop.dns.client;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
@@ -44,23 +41,35 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DNSCache;
 import org.bluezoo.gumdrop.dns.DNSClass;
+import org.bluezoo.gumdrop.dns.DNSCookie;
 import org.bluezoo.gumdrop.dns.DNSFormatException;
 import org.bluezoo.gumdrop.dns.DNSMessage;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSQuestion;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DNSSECChainValidator;
+import org.bluezoo.gumdrop.dns.DNSSECStatus;
+import org.bluezoo.gumdrop.dns.DNSSECTrustAnchor;
+import org.bluezoo.gumdrop.dns.DNSSECValidationCallback;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.GumdropNative;
 
 /**
- * Asynchronous DNS resolver using non-blocking I/O.
+ * Asynchronous DNS stub resolver using non-blocking I/O.
+ * RFC 1035 section 7: resolver implementation. This is a stub resolver
+ * that forwards queries to configured recursive servers with RD (Recursion
+ * Desired) set (section 4.1.1).
  *
- * <p>DNSResolver provides non-blocking DNS lookups with callback-based
- * result delivery. It is designed for use in event-driven applications.
+ * <p>Key RFC 1035 behaviors:
+ * <ul>
+ * <li>Section 7.2: queries are sent to multiple servers with timeout/retry</li>
+ * <li>Section 7.3: responses are matched by Message ID</li>
+ * <li>Section 7.4: responses are cached using TTL</li>
+ * <li>Section 4.2.1: truncated UDP responses trigger TCP retry</li>
+ * </ul>
  *
- * <p>Queries are sent to configured upstream DNS servers and responses
- * are delivered via the {@link DNSQueryCallback} interface. Timeout
- * handling is integrated with the Gumdrop scheduler.
+ * <p>RFC 1034 section 3.6.2: CNAME records are chased up to a
+ * configurable depth limit.
  *
  * <p>The transport used for DNS communication is pluggable via
  * {@link DNSClientTransport}. By default, plain UDP is used
@@ -107,11 +116,23 @@ public class DNSResolver {
 
     private static final int DEFAULT_PORT = 53;
     private static final long DEFAULT_TIMEOUT_MS = 5000;
+    // RFC 1034 section 3.6.2: limit CNAME chain depth to prevent loops
     private static final int MAX_CNAME_DEPTH = 8;
 
     private static final Map<SelectorLoop, DNSResolver> resolvers =
             new ConcurrentHashMap<>();
     private static volatile DNSCache sharedCache = new DNSCache();
+    private static volatile boolean defaultDnssecEnabled;
+
+    /**
+     * Sets the default DNSSEC enablement for resolvers created by
+     * {@link #forLoop(SelectorLoop)}.
+     *
+     * @param enabled true to enable DNSSEC by default
+     */
+    public static void setDefaultDnssecEnabled(boolean enabled) {
+        defaultDnssecEnabled = enabled;
+    }
 
     /**
      * Returns a resolver bound to the given SelectorLoop, creating one
@@ -130,6 +151,7 @@ public class DNSResolver {
         }
         DNSResolver r = new DNSResolver();
         r.setSelectorLoop(loop);
+        r.setDnssecEnabled(defaultDnssecEnabled);
         r.useSystemResolvers();
         try {
             r.open();
@@ -192,6 +214,14 @@ public class DNSResolver {
     private long timeoutMs;
     private boolean opened;
     private SelectorLoop selectorLoop;
+
+    /** RFC 7873: DNS cookie manager for source address verification. */
+    private final DNSCookie dnsCookie = new DNSCookie();
+
+    /** RFC 4035: when true, set the DO bit and validate responses. */
+    private boolean dnssecEnabled;
+    private DNSSECChainValidator chainValidator;
+    private DNSSECTrustAnchor trustAnchor;
 
     /**
      * Creates a new DNS resolver with no servers configured.
@@ -284,6 +314,39 @@ public class DNSResolver {
     }
 
     /**
+     * Enables or disables DNSSEC validation.
+     * RFC 4035 section 3.2.1: when enabled, the DO bit is set in
+     * outgoing queries and responses are validated via the chain of
+     * trust before delivery.
+     *
+     * <p>Must be called before {@link #open()}.
+     *
+     * @param enabled true to enable DNSSEC validation
+     */
+    public void setDnssecEnabled(boolean enabled) {
+        this.dnssecEnabled = enabled;
+    }
+
+    /**
+     * Returns true if DNSSEC validation is enabled.
+     *
+     * @return true if DNSSEC is enabled
+     */
+    public boolean isDnssecEnabled() {
+        return dnssecEnabled;
+    }
+
+    /**
+     * Sets a custom trust anchor store. If not set and DNSSEC is
+     * enabled, a default store with the IANA root anchors is used.
+     *
+     * @param trustAnchor the trust anchor store
+     */
+    public void setTrustAnchor(DNSSECTrustAnchor trustAnchor) {
+        this.trustAnchor = trustAnchor;
+    }
+
+    /**
      * Sets the SelectorLoop for resolver I/O. When set, all DNS client
      * connections and timers use this loop, so callbacks are invoked on
      * the same thread. Use this when the resolver is used from a Gumdrop
@@ -350,6 +413,12 @@ public class DNSResolver {
         }
         if (servers.isEmpty()) {
             throw new IOException(L10N.getString("err.no_dns_servers"));
+        }
+        if (dnssecEnabled) {
+            if (trustAnchor == null) {
+                trustAnchor = new DNSSECTrustAnchor();
+            }
+            chainValidator = new DNSSECChainValidator(this, trustAnchor);
         }
         TransportCallback callback = new TransportCallback();
         for (InetSocketAddress server : servers) {
@@ -436,10 +505,9 @@ public class DNSResolver {
 
     /**
      * Performs a DNS query with the specified type.
-     *
-     * <p>If the first server times out, the query is automatically retried
-     * on the next configured server (round-robin), up to one attempt per
-     * server.
+     * RFC 1035 section 7.2: if the first server times out, the query is
+     * automatically retried on the next configured server, up to one
+     * attempt per server.
      *
      * @param name the domain name to query
      * @param type the record type to query
@@ -449,23 +517,37 @@ public class DNSResolver {
         query(name, type, callback, 0);
     }
 
+    /**
+     * Performs an SRV record query.
+     * RFC 2782: SRV records provide service location (host + port)
+     * with priority and weight for load balancing.
+     *
+     * @param name the service name (e.g. _sip._tcp.example.com)
+     * @param callback the callback to receive results
+     */
+    public void querySRV(String name, DNSQueryCallback callback) {
+        query(name, DNSType.SRV, callback);
+    }
+
     // -- High-Level Resolution --
 
     /**
      * Resolves a hostname to IP addresses by issuing parallel A and AAAA
      * queries.
+     * RFC 1035 section 7.1: transform user request into queries.
+     * RFC 8305 (Happy Eyeballs v2): IPv6 addresses are returned before
+     * IPv4 for dual-stack readiness.
      *
      * <p>Resolution order:
      * <ol>
      * <li>Check the local hosts file ({@link HostsFile})</li>
-     * <li>Check the shared {@link DNSCache}</li>
+     * <li>Check the shared {@link DNSCache} (RFC 1035 section 7.4)</li>
      * <li>Issue A and AAAA queries in parallel</li>
      * </ol>
      *
-     * <p>The callback receives addresses with IPv6 first, then IPv4,
-     * for Happy Eyeballs readiness. If one query type fails but the
-     * other succeeds, the successful results are delivered. The error
-     * callback is invoked only if both queries fail.
+     * <p>If one query type fails but the other succeeds, the successful
+     * results are delivered. The error callback is invoked only if both
+     * queries fail.
      *
      * @param hostname the hostname to resolve
      * @param callback the callback to receive results
@@ -518,6 +600,20 @@ public class DNSResolver {
         int queryId = queryIdGenerator.getAndIncrement() & 0xFFFF;
         List<DNSQuestion> questions = new ArrayList<>();
         questions.add(question);
+        // RFC 6891 section 6.1.1: include OPT pseudo-record to signal
+        // EDNS0 support and advertise UDP payload size.
+        // RFC 7873: include DNS cookie in the OPT record.
+        // RFC 4035 section 3.2.1: set DO bit when DNSSEC is enabled.
+        List<DNSResourceRecord> additionals = new ArrayList<>();
+        String serverAddr = servers.isEmpty() ? "" :
+                servers.get(0).getAddress().getHostAddress();
+        byte[] cookieOption = dnsCookie.buildCookieOption(serverAddr);
+        int ednsFlags = dnssecEnabled
+                ? DNSResourceRecord.EDNS_FLAG_DO : 0;
+        additionals.add(DNSResourceRecord.opt(
+                DNSMessage.DEFAULT_EDNS_UDP_SIZE, ednsFlags,
+                cookieOption));
+        // RFC 1035 section 4.1.1: set RD to request recursive resolution
         int flags = DNSMessage.FLAG_RD;
         DNSMessage queryMsg = new DNSMessage(
                 queryId,
@@ -525,7 +621,7 @@ public class DNSResolver {
                 questions,
                 Collections.<DNSResourceRecord>emptyList(),
                 Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList()
+                additionals
         );
         ByteBuffer serialized = queryMsg.serialize();
         long expiry = System.currentTimeMillis() + timeoutMs;
@@ -598,7 +694,8 @@ public class DNSResolver {
         }
         DNSQuestion question = questions.get(0);
         if (response.getRcode() == DNSMessage.RCODE_NXDOMAIN) {
-            cache.cacheNegative(question.getName());
+            cache.cacheNegative(question.getName(),
+                    response.getAuthorities());
         } else if (response.getRcode() == DNSMessage.RCODE_NOERROR) {
             List<DNSResourceRecord> answers = response.getAnswers();
             if (!answers.isEmpty()) {
@@ -662,6 +759,7 @@ public class DNSResolver {
         return new UDPDNSClientTransport();
     }
 
+    // RFC 1035 section 7.3: match response to query by Message ID
     private void handleResponse(DNSMessage response) {
         int queryId = response.getId();
         PendingQuery pending = pendingQueries.remove(queryId);
@@ -674,20 +772,44 @@ public class DNSResolver {
             }
             return;
         }
+        // RFC 7873: extract and cache server cookie from the response
+        processResponseCookies(response, pending);
         if (pending.timeoutHandle != null) {
             pending.timeoutHandle.cancel();
         }
+        // RFC 1035 section 4.2.1: if TC bit set, retry query over TCP
         if (response.isTruncated()) {
             InetSocketAddress server = servers.get(pending.serverIndex);
-            DNSMessage tcpResponse = retryOverTcp(pending, server);
-            if (tcpResponse != null) {
-                response = tcpResponse;
-            } else {
-                LOGGER.warning(MessageFormat.format(
-                        "Truncated response for {0}, TCP retry failed,"
-                        + " delivering partial result", pending.name));
+            retryOverTcpAsync(pending, server, response);
+            return;
+        }
+        deliverResponse(pending, response);
+    }
+
+    /**
+     * RFC 7873: extracts the server cookie from a response's OPT record
+     * and caches it for use in subsequent queries.
+     */
+    private void processResponseCookies(DNSMessage response,
+                                         PendingQuery pending) {
+        for (Object obj : response.getAdditionals()) {
+            DNSResourceRecord rr = (DNSResourceRecord) obj;
+            if (rr.getType() == DNSType.OPT) {
+                byte[] cookieData = DNSCookie.findEdnsOption(
+                        rr.getRData(), DNSCookie.EDNS_OPTION_COOKIE);
+                if (cookieData != null) {
+                    String serverAddr = servers.get(
+                            pending.serverIndex).getAddress()
+                            .getHostAddress();
+                    dnsCookie.processResponseCookie(
+                            serverAddr, cookieData);
+                }
+                break;
             }
         }
+    }
+
+    private void deliverResponse(PendingQuery pending, DNSMessage response) {
         cacheResponse(response);
         if (shouldChaseCname(pending, response)) {
             String cname = extractCname(response);
@@ -708,7 +830,23 @@ public class DNSResolver {
                     pending.name, response.getAnswers().size());
             LOGGER.fine(msg);
         }
-        pending.callback.onResponse(response);
+        if (dnssecEnabled && chainValidator != null) {
+            final DNSQueryCallback cb = pending.callback;
+            final DNSMessage resp = response;
+            chainValidator.validate(response,
+                    new DNSSECValidationCallback() {
+                        @Override
+                        public void onValidated(DNSSECStatus status,
+                                                DNSMessage validated) {
+                            if (LOGGER.isLoggable(Level.FINE)) {
+                                LOGGER.fine("DNSSEC status: " + status);
+                            }
+                            cb.onResponse(validated);
+                        }
+                    });
+        } else {
+            pending.callback.onResponse(response);
+        }
     }
 
     private void handleTimeout(int queryId) {
@@ -738,48 +876,98 @@ public class DNSResolver {
 
     private static final int TCP_TIMEOUT_MS = 5000;
 
-    private DNSMessage retryOverTcp(PendingQuery pending,
-                                    InetSocketAddress server) {
+    DNSClientTransport createTcpRetryTransport() {
+        return new TCPDNSClientTransport();
+    }
+
+    private void retryOverTcpAsync(final PendingQuery pending,
+                                   InetSocketAddress server,
+                                   final DNSMessage truncatedResponse) {
         try {
-            Socket socket = new Socket();
+            final DNSClientTransport tcpTransport =
+                    createTcpRetryTransport();
+            TcpRetryHandler handler = new TcpRetryHandler(
+                    pending, truncatedResponse, tcpTransport);
+            tcpTransport.open(server.getAddress(), server.getPort(),
+                    selectorLoop, handler);
+            handler.timeoutHandle = tcpTransport.scheduleTimer(
+                    TCP_TIMEOUT_MS, handler::onTimeout);
+            pending.queryData.rewind();
+            tcpTransport.send(pending.queryData);
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE,
+                    "TCP retry failed for " + pending.name, e);
+            deliverResponse(pending, truncatedResponse);
+        }
+    }
+
+    private class TcpRetryHandler implements DNSClientTransportHandler {
+
+        private final PendingQuery pending;
+        private final DNSMessage truncatedResponse;
+        private final DNSClientTransport transport;
+        TimerHandle timeoutHandle;
+        private boolean completed;
+
+        TcpRetryHandler(PendingQuery pending,
+                        DNSMessage truncatedResponse,
+                        DNSClientTransport transport) {
+            this.pending = pending;
+            this.truncatedResponse = truncatedResponse;
+            this.transport = transport;
+        }
+
+        @Override
+        public void onReceive(ByteBuffer data) {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            if (timeoutHandle != null) {
+                timeoutHandle.cancel();
+            }
             try {
-                socket.setSoTimeout(TCP_TIMEOUT_MS);
-                socket.connect(server, TCP_TIMEOUT_MS);
-
-                DataOutputStream out =
-                        new DataOutputStream(socket.getOutputStream());
-                DataInputStream in =
-                        new DataInputStream(socket.getInputStream());
-
-                byte[] queryBytes = new byte[pending.queryData.remaining()];
-                pending.queryData.rewind();
-                pending.queryData.get(queryBytes);
-                pending.queryData.rewind();
-
-                out.writeShort(queryBytes.length);
-                out.write(queryBytes);
-                out.flush();
-
-                int responseLen = in.readUnsignedShort();
-                byte[] responseBytes = new byte[responseLen];
-                in.readFully(responseBytes);
-
-                DNSMessage tcpResponse = DNSMessage.parse(
-                        ByteBuffer.wrap(responseBytes));
+                DNSMessage tcpResponse = DNSMessage.parse(data);
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(
                             "TCP retry for {0} succeeded ({1} answers)",
                             pending.name,
                             tcpResponse.getAnswers().size()));
                 }
-                return tcpResponse;
-            } finally {
-                socket.close();
+                deliverResponse(pending, tcpResponse);
+            } catch (DNSFormatException e) {
+                LOGGER.log(Level.WARNING,
+                        "TCP retry parse error for " + pending.name, e);
+                deliverResponse(pending, truncatedResponse);
             }
-        } catch (Exception e) {
+            transport.close();
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            if (timeoutHandle != null) {
+                timeoutHandle.cancel();
+            }
             LOGGER.log(Level.FINE,
-                    "TCP retry failed for " + pending.name, e);
-            return null;
+                    "TCP retry failed for " + pending.name, cause);
+            deliverResponse(pending, truncatedResponse);
+            transport.close();
+        }
+
+        void onTimeout() {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("TCP retry timed out for " + pending.name);
+            }
+            deliverResponse(pending, truncatedResponse);
+            transport.close();
         }
     }
 

@@ -191,9 +191,11 @@ public final class QuicConnection {
      */
     /**
      * Checks whether the QUIC handshake has completed and, if so,
-     * transitions the connection to the established state. Called
-     * after flushing outgoing packets, since quiche may mark the
-     * connection as established only after HANDSHAKE_DONE is queued.
+     * transitions the connection to the established state. Per
+     * RFC 9000 section 7.3, the server sends HANDSHAKE_DONE to
+     * confirm handshake completion. Called after flushing outgoing
+     * packets, since quiche may mark the connection as established
+     * only after HANDSHAKE_DONE is queued.
      */
     void checkEstablished() {
         if (!established) {
@@ -215,6 +217,7 @@ public final class QuicConnection {
         }
     }
 
+    // RFC 9000 section 2.1 — bidirectional and unidirectional stream types
     void processReadableStreams(ByteBuffer streamBuf) {
         if (!established) {
             boolean nowEstablished =
@@ -364,6 +367,7 @@ public final class QuicConnection {
         return stream;
     }
 
+    // RFC 9000 section 2.1 — client-initiated bidi streams use IDs 0, 4, 8, ...
     private long findNextStreamId() {
         long maxId = -1;
         for (Long id : streams.keySet()) {
@@ -395,7 +399,20 @@ public final class QuicConnection {
     }
 
     /**
-     * Schedules the quiche timeout timer.
+     * RFC 9000 section 4.6: sends RESET_STREAM with the given error code.
+     * RFC 9250 section 4.3 defines DoQ application error codes.
+     */
+    void streamShutdown(long streamId, long errorCode) {
+        GumdropNative.quiche_conn_stream_shutdown(connPtr, streamId,
+                0, errorCode);
+        streams.remove(Long.valueOf(streamId));
+        engine.requestFlush();
+    }
+
+    /**
+     * Schedules the quiche timeout timer. Per RFC 9000 section 10.1,
+     * a connection that remains idle for longer than the negotiated
+     * max_idle_timeout is silently closed.
      */
     void scheduleTimeout() {
         if (timerHandle != null) {
@@ -429,6 +446,7 @@ public final class QuicConnection {
 
     /**
      * Closes this connection and all its streams.
+     * RFC 9000 section 10.2: sends CONNECTION_CLOSE before freeing.
      */
     void close() {
         if (closed) {
@@ -438,6 +456,17 @@ public final class QuicConnection {
 
         if (timerHandle != null) {
             timerHandle.cancel();
+        }
+
+        // RFC 9000 section 10.2: send CONNECTION_CLOSE with appropriate
+        // error code. Use H3_NO_ERROR (0x100) if an h3 handler is
+        // installed, otherwise QUIC NO_ERROR (0x0).
+        boolean isH3 = connectionReadyHandler != null;
+        long errorCode = isH3 ? 0x100L : 0x0L;
+        int rc = GumdropNative.quiche_conn_close(
+                connPtr, isH3, errorCode, "");
+        if (rc == 0 || rc == GumdropNative.QUICHE_ERR_DONE) {
+            engine.flushConnection(this);
         }
 
         for (QuicStreamEndpoint stream : streams.values()) {

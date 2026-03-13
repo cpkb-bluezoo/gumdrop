@@ -22,10 +22,11 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -44,16 +45,24 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 /**
  * Server-side HTTP/3 handler built on top of quiche's h3 module.
  *
+ * <p>HTTP/3 (RFC 9114) maps HTTP semantics onto QUIC (RFC 9000) transport.
+ * Unlike HTTP/2, HTTP/3 does not use TCP; instead each request/response
+ * exchange occupies a dedicated QUIC stream, with QPACK (RFC 9204) for
+ * header compression on separate unidirectional streams.
+ *
  * <p>This class implements
  * {@link QuicConnection.ConnectionReadyHandler} to receive
  * notifications when QUIC packets arrive. It then polls the quiche h3
  * module for HTTP/3 events (HEADERS, DATA, FINISHED, GOAWAY, RESET)
  * and dispatches them to per-stream {@link H3Stream} instances.
+ * The quiche h3 module handles all HTTP/3 framing (RFC 9114 section 7)
+ * and QPACK header compression (RFC 9204) internally.
  *
- * <p>The quiche h3 module handles all HTTP/3 framing and QPACK header
- * compression internally. This class simply bridges between the h3
- * event model and the {@link HTTPRequestHandler} API used by the
- * existing gumdrop HTTP stack.
+ * <p>Connection setup follows RFC 9114 section 3: the client and server
+ * negotiate "h3" via ALPN (RFC 9114 section 3.1), QUIC mandates
+ * TLS 1.3 (RFC 9001), and the h3 connection exchanges SETTINGS frames
+ * (RFC 9114 section 7.2.4) during initialisation. Unidirectional control
+ * and QPACK streams (RFC 9114 section 6.2) are managed by quiche.
  *
  * <p>Architecture:
  * <pre>
@@ -109,11 +118,17 @@ public class HTTP3ServerHandler
 
     private final Map<Long, H3Stream> streams =
             new HashMap<Long, H3Stream>();
-    private final List<H3Stream> pendingWriteStreams =
-            new ArrayList<H3Stream>();
+    private final Set<H3Stream> pendingWriteStreams =
+            new LinkedHashSet<H3Stream>();
+    private final Set<H3Stream> deferredReadStreams =
+            new LinkedHashSet<H3Stream>();
 
+    private long highestClientStreamId = -1;
     private Trace trace;
     private boolean goaway;
+    private org.bluezoo.gumdrop.websocket.WebSocketServerMetrics wsMetrics;
+    // RFC 9114 section 5.2: client-indicated last stream ID from GOAWAY
+    private long goawayStreamId = Long.MAX_VALUE;
 
     /**
      * Creates a new HTTP/3 server handler on top of an existing
@@ -146,11 +161,17 @@ public class HTTP3ServerHandler
 
     /**
      * Initialises the quiche h3 config and creates the h3 connection.
+     * Configures QPACK dynamic table capacity (RFC 9204 section 3.2.3)
+     * and exchanges the initial SETTINGS frame (RFC 9114 section 7.2.4).
      */
     private void initH3() {
         h3Config = GumdropNative.quiche_h3_config_new();
+        // RFC 9204 section 3.2.3 — QPACK dynamic table capacity
         GumdropNative.quiche_h3_config_set_max_dynamic_table_capacity(
                 h3Config, DEFAULT_QPACK_MAX_TABLE_CAPACITY);
+        // RFC 9220 section 2 — advertise Extended CONNECT support
+        GumdropNative.quiche_h3_config_enable_extended_connect(
+                h3Config, true);
 
         long quicheConn = quicConnection.getConnPtr();
         h3Conn = GumdropNative.quiche_h3_conn_new_with_transport(
@@ -178,7 +199,10 @@ public class HTTP3ServerHandler
 
     /**
      * Polls the h3 connection for pending events and dispatches them
-     * to the appropriate stream handlers.
+     * to the appropriate stream handlers. Events correspond to HTTP/3
+     * frame types defined in RFC 9114 section 7.2 (HEADERS, DATA) and
+     * connection-level signals (GOAWAY per section 5.2, stream reset
+     * per section 8).
      */
     private void pollEvents() {
         long quicheConn = quicConnection.getConnPtr();
@@ -219,6 +243,7 @@ public class HTTP3ServerHandler
         }
     }
 
+    // RFC 9114 section 4.1 — HEADERS frame initiates a request
     private void onHeaders(long streamId) {
         String[] headerPairs =
                 GumdropNative.quiche_h3_event_headers(h3Conn);
@@ -227,9 +252,13 @@ public class HTTP3ServerHandler
         }
 
         H3Stream stream = getOrCreateStream(streamId);
+        if (stream == null) {
+            return;
+        }
         stream.onHeaders(headerPairs);
     }
 
+    // RFC 9114 section 4.1 — DATA frame carries request body
     private void onData(long streamId) {
         H3Stream stream = streams.get(Long.valueOf(streamId));
         if (stream == null) {
@@ -239,7 +268,23 @@ public class HTTP3ServerHandler
             return;
         }
 
+        if (stream.isReadPaused()) {
+            deferredReadStreams.add(stream);
+            return;
+        }
+
+        drainBody(stream, streamId);
+    }
+
+    /**
+     * Drains body data from quiche for a single stream.
+     * If the stream has been upgraded to WebSocket mode (RFC 9220),
+     * incoming DATA frames carry WebSocket frames and are routed
+     * directly to the WebSocket adapter.
+     */
+    private void drainBody(H3Stream stream, long streamId) {
         long quicheConn = quicConnection.getConnPtr();
+        boolean wsMode = stream.isWebSocketUpgraded();
 
         while (true) {
             bodyBuffer.clear();
@@ -250,25 +295,54 @@ public class HTTP3ServerHandler
                 break;
             }
             bodyBuffer.limit(len);
-            stream.onData(bodyBuffer);
+            if (wsMode) {
+                stream.onWebSocketData(bodyBuffer);
+            } else {
+                stream.onData(bodyBuffer);
+            }
+            if (stream.isReadPaused()) {
+                deferredReadStreams.add(stream);
+                break;
+            }
         }
     }
 
+    // RFC 9114 section 4.1 — FIN on the QUIC stream completes the message.
+    // For WebSocket-upgraded streams (RFC 9220), FIN means the peer
+    // closed the WebSocket transport.
     private void onFinished(long streamId) {
         H3Stream stream = streams.get(Long.valueOf(streamId));
         if (stream != null) {
-            stream.onFinished();
+            if (stream.isWebSocketUpgraded()) {
+                stream.onWebSocketFinished();
+            } else {
+                stream.onFinished();
+            }
             streams.remove(Long.valueOf(streamId));
         }
     }
 
+    // RFC 9114 section 5.2: GOAWAY for graceful shutdown.
+    // Record the last stream ID the client will process so we
+    // stop accepting new streams beyond it.  Send a server GOAWAY
+    // in response to indicate which client requests we will honour.
     private void onGoaway(long streamId) {
         goaway = true;
+        goawayStreamId = streamId;
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("GOAWAY received, last stream: " + streamId);
         }
+        // Send a server GOAWAY with the highest client-initiated
+        // stream ID we have accepted
+        if (h3Conn != 0 && highestClientStreamId >= 0) {
+            long quicheConn = quicConnection.getConnPtr();
+            GumdropNative.quiche_h3_send_goaway(
+                    h3Conn, quicheConn, highestClientStreamId);
+            flushQuic();
+        }
     }
 
+    // RFC 9114 section 8 — stream error via QUIC RESET_STREAM
     private void onReset(long streamId) {
         H3Stream stream = streams.get(Long.valueOf(streamId));
         if (stream != null) {
@@ -280,12 +354,24 @@ public class HTTP3ServerHandler
     /**
      * Returns the existing stream or creates a new one.
      */
+    // RFC 9114 section 5.2: after receiving GOAWAY, reject new
+    // streams beyond the indicated last-stream-ID
     private H3Stream getOrCreateStream(long streamId) {
         Long key = Long.valueOf(streamId);
         H3Stream stream = streams.get(key);
         if (stream == null) {
+            if (goaway && streamId > goawayStreamId) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Rejecting stream " + streamId
+                            + " beyond GOAWAY limit " + goawayStreamId);
+                }
+                return null;
+            }
             stream = new H3Stream(this, streamId);
             streams.put(key, stream);
+            if (streamId > highestClientStreamId) {
+                highestClientStreamId = streamId;
+            }
         }
         return stream;
     }
@@ -332,29 +418,40 @@ public class HTTP3ServerHandler
     }
 
     /**
+     * Resumes reading body data for a stream that was previously
+     * paused via {@link H3Stream#pauseRequestBody()}.  Drains any
+     * data that accumulated in quiche's buffer while the stream
+     * was paused.
+     *
+     * @param stream the stream to resume
+     */
+    void resumeStreamRead(H3Stream stream) {
+        deferredReadStreams.remove(stream);
+        drainBody(stream, stream.getStreamId());
+    }
+
+    /**
      * Registers a stream that has buffered data waiting for the
      * congestion window to open.  Called by {@link H3Stream} when
      * {@code quiche_h3_send_body} returns {@code QUICHE_ERR_DONE}.
+     * QUIC flow control (RFC 9000 section 4) limits how much data
+     * can be in flight; the congestion window opens as ACKs arrive.
      */
     void registerPendingWrite(H3Stream stream) {
-        if (!pendingWriteStreams.contains(stream)) {
-            pendingWriteStreams.add(stream);
-        }
+        pendingWriteStreams.add(stream);
     }
 
     /**
      * Drains buffered data on all streams that were blocked by flow
-     * control.  Called from {@link #onConnectionReady()} after
-     * incoming packets (which may carry ACKs) have been processed.
+     * control (RFC 9000 section 4).  Called from
+     * {@link #onConnectionReady()} after incoming packets (which may
+     * carry ACKs that open the congestion window) have been processed.
      */
     private void resumePendingWrites() {
-        int i = 0;
-        while (i < pendingWriteStreams.size()) {
-            H3Stream stream = pendingWriteStreams.get(i);
+        for (Iterator<H3Stream> it = pendingWriteStreams.iterator(); it.hasNext(); ) {
+            H3Stream stream = it.next();
             if (stream.resumeWrite()) {
-                pendingWriteStreams.remove(i);
-            } else {
-                i++;
+                it.remove();
             }
         }
     }
@@ -438,9 +535,42 @@ public class HTTP3ServerHandler
     }
 
     /**
+     * Sets the WebSocket server metrics for streams upgraded via
+     * RFC 9220 Extended CONNECT.
+     *
+     * @param wsMetrics the WebSocket metrics, or null
+     */
+    public void setWebSocketMetrics(
+            org.bluezoo.gumdrop.websocket.WebSocketServerMetrics wsMetrics) {
+        this.wsMetrics = wsMetrics;
+    }
+
+    /**
+     * Returns the WebSocket server metrics, or null.
+     */
+    org.bluezoo.gumdrop.websocket.WebSocketServerMetrics getWebSocketMetrics() {
+        return wsMetrics;
+    }
+
+    /**
      * Closes this HTTP/3 handler and frees native resources.
+     * RFC 9114 section 5.2: sends GOAWAY with the highest client-initiated
+     * stream ID before resetting streams and freeing handles.
      */
     public void close() {
+        if (h3Conn != 0 && highestClientStreamId >= 0) {
+            long quicheConn = quicConnection.getConnPtr();
+            int rc = GumdropNative.quiche_h3_send_goaway(
+                    h3Conn, quicheConn, highestClientStreamId);
+            if (rc < 0) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("h3 send_goaway failed: " + rc);
+                }
+            } else {
+                quicConnection.getEngine().flushConnection(quicConnection);
+            }
+        }
+
         for (H3Stream stream : streams.values()) {
             stream.onReset();
         }

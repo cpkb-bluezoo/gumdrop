@@ -31,13 +31,19 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Manages WebDAV locks for resources.
  *
+ * <p>Implements RFC 4918 §6 (locking) and §7 (write locks).
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 class WebDAVLockManager {
 
     private final Map<String, WebDAVLock> locksByToken = new ConcurrentHashMap<String, WebDAVLock>();
     private final Map<Path, List<WebDAVLock>> locksByPath = new ConcurrentHashMap<Path, List<WebDAVLock>>();
 
+    /**
+     * Acquires a lock on a resource (RFC 4918 §9.10).
+     */
     synchronized WebDAVLock lock(Path path, WebDAVLock.Scope scope, 
                                   WebDAVLock.Type type, int depth,
                                   String owner, long timeoutSeconds) {
@@ -60,6 +66,9 @@ class WebDAVLockManager {
         return lock;
     }
 
+    /**
+     * Releases a lock by token (RFC 4918 §9.11).
+     */
     synchronized boolean unlock(String token) {
         WebDAVLock lock = locksByToken.remove(token);
         if (lock == null) {
@@ -77,6 +86,9 @@ class WebDAVLockManager {
         return true;
     }
 
+    /**
+     * Refreshes a lock timeout (RFC 4918 §9.10.2).
+     */
     synchronized WebDAVLock refresh(String token, long timeoutSeconds) {
         WebDAVLock lock = locksByToken.get(token);
         if (lock != null && !lock.isExpired()) {
@@ -133,6 +145,9 @@ class WebDAVLockManager {
         return lock != null && lock.covers(path);
     }
 
+    /**
+     * Checks for conflicting locks (RFC 4918 §6.1–6.2).
+     */
     private boolean hasConflictingLock(Path path, WebDAVLock.Scope requestedScope) {
         for (WebDAVLock existing : locksByToken.values()) {
             if (existing.isExpired()) {

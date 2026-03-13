@@ -28,6 +28,7 @@ module org.bluezoo.gumdrop {
     requires java.naming;          // JNDI for servlet container
     requires java.management;      // JMX for monitoring
     requires java.xml;             // JAXP for gonzalez SAX parser
+    requires java.security.jgss;   // GSS-API for SASL GSSAPI (RFC 4752)
     
     // External parsing libraries (internal use only, not re-exported)
     requires org.bluezoo.gonzalez;
@@ -86,6 +87,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.protobuf;
+    exports org.bluezoo.gumdrop.telemetry.json;
     
 }
 

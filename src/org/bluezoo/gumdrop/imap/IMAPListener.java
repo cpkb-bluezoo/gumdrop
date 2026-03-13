@@ -21,11 +21,14 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -81,6 +84,11 @@ public class IMAPListener extends TCPListener {
     protected boolean enableNAMESPACE = true;
     protected boolean enableQUOTA = true;
     protected boolean enableMOVE = true;
+    protected boolean enableCONDSTORE = true;
+    protected boolean enableQRESYNC = true;
+
+    // RFC 2971 — ID command server fields
+    protected java.util.Map<String, String> serverIdFields;
 
     // Limits
     protected int maxLineLength = 8192;         // Max command line length
@@ -88,6 +96,9 @@ public class IMAPListener extends TCPListener {
 
     // Security options
     protected boolean allowPlaintextLogin = false;
+
+    // RFC 4752 — GSSAPI/Kerberos authentication
+    protected GSSAPIServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
     private IMAPService service;
@@ -136,6 +147,44 @@ public class IMAPListener extends TCPListener {
      */
     public void setRealm(Realm realm) {
         this.realm = realm;
+    }
+
+    /**
+     * Returns the GSSAPI server for Kerberos authentication (RFC 4752),
+     * or null if GSSAPI is not configured.
+     *
+     * @return the GSSAPI server, or null
+     */
+    public GSSAPIServer getGSSAPIServer() {
+        return gssapiServer;
+    }
+
+    /**
+     * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
+     *
+     * @param gssapiServer the GSSAPI server
+     */
+    public void setGSSAPIServer(GSSAPIServer gssapiServer) {
+        this.gssapiServer = gssapiServer;
+    }
+
+    /**
+     * Configures GSSAPI/Kerberos authentication (RFC 4752) by creating
+     * a {@link GSSAPIServer} from the specified keytab and service
+     * principal.
+     *
+     * <p>This is a convenience method equivalent to calling
+     * {@code setGSSAPIServer(new GSSAPIServer(keytabPath, servicePrincipal))}.
+     *
+     * @param keytabPath the path to the Kerberos keytab file
+     * @param servicePrincipal the service principal name
+     *        (e.g. "imap/mail.example.com@EXAMPLE.COM")
+     * @throws IOException if the keytab cannot be read or credentials
+     *         cannot be acquired
+     */
+    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+            throws IOException {
+        this.gssapiServer = new GSSAPIServer(keytabPath, servicePrincipal);
     }
 
     /**
@@ -314,6 +363,64 @@ public class IMAPListener extends TCPListener {
     }
 
     /**
+     * Returns whether CONDSTORE (RFC 7162) is enabled.
+     *
+     * @return true if CONDSTORE is enabled
+     */
+    public boolean isEnableCONDSTORE() {
+        return enableCONDSTORE;
+    }
+
+    /**
+     * Sets whether CONDSTORE (RFC 7162) is enabled.
+     *
+     * @param enableCONDSTORE true to enable CONDSTORE
+     */
+    public void setEnableCONDSTORE(boolean enableCONDSTORE) {
+        this.enableCONDSTORE = enableCONDSTORE;
+    }
+
+    /**
+     * Returns whether QRESYNC (RFC 7162) is enabled.
+     *
+     * @return true if QRESYNC is enabled
+     */
+    public boolean isEnableQRESYNC() {
+        return enableQRESYNC;
+    }
+
+    /**
+     * Sets whether QRESYNC (RFC 7162) is enabled.
+     *
+     * @param enableQRESYNC true to enable QRESYNC
+     */
+    public void setEnableQRESYNC(boolean enableQRESYNC) {
+        this.enableQRESYNC = enableQRESYNC;
+    }
+
+    /**
+     * Returns the server identification fields sent in response to the
+     * ID command (RFC 2971). When {@code null}, a default set containing
+     * "name" and "version" is used.
+     *
+     * @return the server ID fields, or null for defaults
+     */
+    public java.util.Map<String, String> getServerIdFields() {
+        return serverIdFields;
+    }
+
+    /**
+     * Sets the server identification fields. Keys should be the standard
+     * field names defined in RFC 2971 section 3.3 (e.g. "name", "version",
+     * "vendor"). Pass {@code null} to use defaults.
+     *
+     * @param fields the key-value pairs to advertise
+     */
+    public void setServerIdFields(java.util.Map<String, String> fields) {
+        this.serverIdFields = fields;
+    }
+
+    /**
      * Returns whether plaintext LOGIN is allowed over non-TLS connections.
      *
      * @return true if plaintext login is allowed
@@ -461,7 +568,25 @@ public class IMAPListener extends TCPListener {
 
     /**
      * Returns the list of capabilities to advertise.
-     * This is used by the IMAP handler to build CAPABILITY responses.
+     *
+     * <p>RFC 9051 section 6.1.1 — CAPABILITY response.  Each token maps
+     * to a specific RFC:
+     * <ul>
+     *   <li>{@code IMAP4rev2} — RFC 9051</li>
+     *   <li>{@code STARTTLS} — RFC 9051 section 6.2.1</li>
+     *   <li>{@code AUTH=*} — RFC 9051 section 6.2.2, individual
+     *       mechanisms per RFC 4616, 5802, 7628, etc.</li>
+     *   <li>{@code LOGINDISABLED} — RFC 9051 section 6.2.3</li>
+     *   <li>{@code IDLE} — RFC 2177</li>
+     *   <li>{@code NAMESPACE} — RFC 2342</li>
+     *   <li>{@code QUOTA} — RFC 9208</li>
+     *   <li>{@code MOVE} — RFC 6851</li>
+     *   <li>{@code UNSELECT} — RFC 9051 section 6.4.2</li>
+     *   <li>{@code UIDPLUS} — RFC 4315</li>
+     *   <li>{@code CHILDREN} — RFC 3348</li>
+     *   <li>{@code LIST-EXTENDED} — RFC 5258</li>
+     *   <li>{@code LIST-STATUS} — RFC 5819</li>
+     * </ul>
      *
      * @param authenticated true if the user is authenticated
      * @param secure true if the connection is using TLS
@@ -471,11 +596,13 @@ public class IMAPListener extends TCPListener {
         StringBuilder caps = new StringBuilder();
         caps.append("IMAP4rev2");
 
+        // RFC 9051 section 6.2.1 — advertise STARTTLS only pre-auth on cleartext
         if (!authenticated && !secure && isSTARTTLSAvailable()) {
             caps.append(" STARTTLS");
         }
 
         if (!authenticated) {
+            // RFC 9051 section 6.2.2 — SASL mechanism advertisement
             if (realm != null) {
                 Set<SASLMechanism> supported =
                         realm.getSupportedSASLMechanisms();
@@ -487,6 +614,11 @@ public class IMAPListener extends TCPListener {
                             .append(mech.getMechanismName());
                 }
             }
+            // RFC 4752 — advertise GSSAPI when configured
+            if (gssapiServer != null) {
+                caps.append(" AUTH=GSSAPI");
+            }
+            // RFC 9051 section 6.2.3 — LOGINDISABLED on cleartext
             if (!secure && !allowPlaintextLogin) {
                 caps.append(" LOGINDISABLED");
             }
@@ -494,24 +626,32 @@ public class IMAPListener extends TCPListener {
 
         if (authenticated) {
             if (enableIDLE) {
-                caps.append(" IDLE");
+                caps.append(" IDLE");          // RFC 2177
             }
             if (enableNAMESPACE) {
-                caps.append(" NAMESPACE");
+                caps.append(" NAMESPACE");     // RFC 2342
             }
             if (enableQUOTA) {
-                caps.append(" QUOTA");
+                caps.append(" QUOTA");         // RFC 9208
             }
             if (enableMOVE) {
-                caps.append(" MOVE");
+                caps.append(" MOVE");          // RFC 6851
+            }
+            if (enableCONDSTORE) {
+                caps.append(" CONDSTORE");     // RFC 7162
+            }
+            if (enableQRESYNC) {
+                caps.append(" QRESYNC");       // RFC 7162
             }
         }
 
-        caps.append(" UNSELECT");
-        caps.append(" UIDPLUS");
-        caps.append(" CHILDREN");
-        caps.append(" LIST-EXTENDED");
-        caps.append(" LIST-STATUS");
+        caps.append(" UNSELECT");              // RFC 9051 section 6.4.2
+        caps.append(" UIDPLUS");               // RFC 4315
+        caps.append(" CHILDREN");              // RFC 3348
+        caps.append(" LIST-EXTENDED");         // RFC 5258
+        caps.append(" LIST-STATUS");           // RFC 5819
+        caps.append(" LITERAL-");              // RFC 7888
+        caps.append(" ID");                    // RFC 2971
 
         return caps.toString();
     }

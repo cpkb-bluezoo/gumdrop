@@ -39,6 +39,9 @@ import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
  * identically regardless of whether the underlying transport is
  * HTTP/1.1, HTTP/2, or HTTP/3.
  *
+ * <p>Pseudo-headers are constructed per RFC 9114 section 4.3.1:
+ * {@code :method}, {@code :scheme}, {@code :authority}, {@code :path}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ClientHandler
  */
@@ -69,10 +72,15 @@ public class H3Request implements HTTPRequest {
         headers.add(new Header(name, value));
     }
 
+    /**
+     * RFC 9218 section 4: sets the urgency parameter in the Priority
+     * header field. The weight (0-255) is mapped to urgency (0-7)
+     * where 0 is highest and 7 is lowest priority.
+     */
     @Override
     public void priority(int weight) {
-        // HTTP/3 priority uses the Priority header (RFC 9218)
-        // rather than HTTP/2-style stream dependencies
+        int urgency = 7 - Math.min(7, weight * 7 / 255);
+        headers.add(new Header("priority", "u=" + urgency));
     }
 
     @Override
@@ -138,7 +146,10 @@ public class H3Request implements HTTPRequest {
     }
 
     /**
-     * Builds the full h3 header list including pseudo-headers.
+     * Builds the full h3 header list including pseudo-headers per
+     * RFC 9114 section 4.3.1. Pseudo-headers are emitted first in
+     * the order :method, :scheme, :authority, :path, followed by
+     * regular headers.
      */
     private Headers buildHeaders() {
         Headers result = new Headers();

@@ -23,7 +23,11 @@ package org.bluezoo.gumdrop.imap.client;
 
 /**
  * Information about a selected IMAP mailbox, populated from
- * SELECT/EXAMINE response data.
+ * SELECT/EXAMINE response data (RFC 9051 section 7.3.1).
+ *
+ * <p>Fields map to the untagged responses defined by RFC 9051:
+ * EXISTS (message count), RECENT, FLAGS, PERMANENTFLAGS,
+ * UIDVALIDITY, UIDNEXT, UNSEEN, READ-WRITE/READ-ONLY access mode.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

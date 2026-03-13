@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.ldap.client;
 
+import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+
 /**
- * Operations available after LDAP connection is established.
+ * Operations available after LDAP connection is established (RFC 4511).
  * 
  * <p>This interface is provided to the handler in
  * {@link LDAPConnectionReady#handleReady} after the TCP connection
@@ -31,9 +33,10 @@ package org.bluezoo.gumdrop.ldap.client;
  * <p>Unlike SMTP which has a server greeting, LDAP clients initiate
  * the conversation. At this stage, the handler should typically:
  * <ul>
- * <li>Bind with credentials using {@code bind()}</li>
- * <li>Bind anonymously using {@code bindAnonymous()}</li>
- * <li>Upgrade to TLS using {@code startTLS()} (for non-LDAPS connections)</li>
+ * <li>Bind with credentials — RFC 4511 section 4.2</li>
+ * <li>Bind anonymously — RFC 4511 section 4.2.1</li>
+ * <li>Upgrade to TLS via STARTTLS — RFC 4511 section 4.14, RFC 4513 section 3</li>
+ * <li>Disconnect via unbind — RFC 4511 section 4.3</li>
  * </ul>
  * 
  * <p>Most LDAP operations require a successful bind first. After binding,
@@ -43,6 +46,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPConnectionReady#handleReady
  * @see LDAPSession
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.2">RFC 4511 §4.2 — Bind</a>
  */
 public interface LDAPConnected {
 
@@ -69,6 +73,21 @@ public interface LDAPConnected {
      * @param callback receives the bind result
      */
     void bindAnonymous(BindResultHandler callback);
+
+    /**
+     * Performs a SASL bind (RFC 4513 section 5.2).
+     *
+     * <p>The provided {@link SASLClientMechanism} drives the multi-step
+     * challenge-response exchange. Create it via
+     * {@link org.bluezoo.gumdrop.auth.SASLUtils#createClient}.
+     * The protocol handler manages intermediate
+     * {@code SASL_BIND_IN_PROGRESS} responses internally and only
+     * invokes the callback on final success or failure.
+     *
+     * @param saslClient the pre-created SASL client mechanism
+     * @param callback receives the bind result
+     */
+    void bindSASL(SASLClientMechanism saslClient, BindResultHandler callback);
 
     /**
      * Initiates a STARTTLS upgrade to encrypt the connection.

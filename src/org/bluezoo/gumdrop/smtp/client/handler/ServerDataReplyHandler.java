@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for DATA command response.
- * 
+ * RFC 5321 §4.1.1.4 (354/4xx/5xx).
+ *
  * <p>This handler receives the server's response to a DATA command. On success
  * (354), the handler receives a {@link ClientMessageData} interface for writing
  * message content.
@@ -31,6 +32,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientEnvelopeReady#data
  * @see ClientMessageData
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerDataReplyHandler extends ServerReplyHandler {
 

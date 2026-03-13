@@ -25,12 +25,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Operations available when responding to quota commands.
+ * Operations available when responding to quota commands (RFC 9208).
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see AuthenticatedHandler#getQuota
  * @see AuthenticatedHandler#getQuotaRoot
  * @see AuthenticatedHandler#setQuota
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9208">RFC 9208 — QUOTA</a>
  */
 public interface QuotaState {
 

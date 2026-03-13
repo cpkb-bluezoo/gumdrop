@@ -88,6 +88,7 @@ import org.xml.sax.helpers.DefaultHandler;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
 public class BasicRealm extends DefaultHandler implements Realm {
 

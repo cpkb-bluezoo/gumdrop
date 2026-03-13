@@ -25,9 +25,12 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.security.Principal;
 
+import java.util.List;
+
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
 /**
  * State interface for sending an HTTP response.
@@ -36,6 +39,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
  * allows the handler to send the response. Methods should be called in order:
  *
  * <pre>
+ * sendInformational()    // optional, 1xx (e.g. 103 Early Hints)
  * headers()              // required, includes :status
  * headers()              // continuation headers (if needed)
  * startResponseBody()    // if response has a body
@@ -245,6 +249,24 @@ public interface HTTPResponseState {
     void complete();
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Thread Dispatch
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Dispatches a task to run on this stream's SelectorLoop thread.
+     * If the caller is already on the SelectorLoop thread, the task
+     * runs immediately.  Otherwise it is enqueued and will run on
+     * the next selector iteration.
+     *
+     * <p>This is intended for use from external threads (e.g. an
+     * {@link java.nio.channels.AsynchronousFileChannel} completion
+     * handler) that need to call back into the response API.
+     *
+     * @param task the task to execute
+     */
+    void execute(Runnable task);
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Backpressure / Flow Control
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -272,12 +294,17 @@ public interface HTTPResponseState {
      * ({@link HTTPRequestHandler#requestBodyContent}).
      *
      * <p>When paused, the transport stops reading data from the network
-     * for this stream.  TCP flow control will propagate the backpressure
-     * to the client, causing it to slow or stop sending.
+     * for this stream.  Backpressure propagates to the client, causing
+     * it to slow or stop sending.
      *
-     * <p>For HTTP/2, this uses stream-level flow control (withholding
-     * WINDOW_UPDATE frames for this stream).  For HTTP/1.1, this removes
-     * {@code OP_READ} from the connection's {@code SelectionKey}.
+     * <p>For HTTP/1.1, this removes {@code OP_READ} from the
+     * connection's {@code SelectionKey}, causing TCP backpressure.
+     *
+     * <p>For HTTP/2, this withholds WINDOW_UPDATE frames for this
+     * stream.  Other streams on the same connection are unaffected.
+     *
+     * <p>For HTTP/3, this stops consuming body data from the QUIC
+     * stream, causing the peer's flow control window to fill.
      *
      * <p>Call {@link #resumeRequestBody()} to resume delivery.
      */
@@ -292,6 +319,53 @@ public interface HTTPResponseState {
      * promptly, followed by further data as it arrives.
      */
     void resumeRequestBody();
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Informational Responses (1xx)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sends an informational (1xx) response before the final response.
+     *
+     * <p>RFC 9110 section 15.2 allows a server to send one or more
+     * intermediate 1xx responses before the final response. The primary
+     * use case is 103 Early Hints (RFC 8297), which allows the server to
+     * send {@code Link} headers so the client can begin preloading
+     * resources while the final response is being prepared.
+     *
+     * <p>This method may be called zero or more times before
+     * {@link #headers(Headers)}. The response state is not transitioned
+     * -- the handler must still send the final response via
+     * {@code headers()} and {@code complete()}.
+     *
+     * <p>Example:
+     * <pre>{@code
+     * Headers hints = new Headers();
+     * hints.add("Link", "</style.css>; rel=preload; as=style");
+     * hints.add("Link", "</app.js>; rel=preload; as=script");
+     * state.sendInformational(103, hints);
+     *
+     * Headers response = new Headers();
+     * response.status(HTTPStatus.OK);
+     * response.add("content-type", "text/html");
+     * state.headers(response);
+     * // ... body and complete() ...
+     * }</pre>
+     *
+     * <p>For HTTP/1.0 connections, this method is a no-op (1xx responses
+     * are not defined for HTTP/1.0). For HTTP/1.1, HTTP/2, and HTTP/3,
+     * the informational response is sent immediately on the wire.
+     *
+     * @param statusCode the informational status code (100-199)
+     * @param headers the headers to include (e.g. Link headers)
+     * @throws IllegalArgumentException if statusCode is not 1xx
+     * @throws IllegalStateException if the final response has already started
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc8297">RFC 8297: Early Hints</a>
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc9110#section-15.2">RFC 9110 Section 15.2</a>
+     */
+    default void sendInformational(int statusCode, Headers headers) {
+        // Default: no-op for implementations that do not support 1xx
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Server Push
@@ -348,6 +422,22 @@ public interface HTTPResponseState {
      *         or if the response has already started
      */
     void upgradeToWebSocket(String subprotocol, WebSocketEventHandler handler);
+
+    /**
+     * RFC 6455 §4.2.2 / §9.1 — upgrades to WebSocket with negotiated
+     * extensions. The extensions header is included in the 101 response
+     * and the extension pipeline is configured on the connection.
+     *
+     * @param subprotocol optional negotiated subprotocol (may be null)
+     * @param extensions negotiated extensions (may be null or empty)
+     * @param handler receives WebSocket lifecycle events
+     * @throws IllegalStateException if not a valid WebSocket upgrade request
+     */
+    default void upgradeToWebSocket(String subprotocol,
+                                    List<WebSocketExtension> extensions,
+                                    WebSocketEventHandler handler) {
+        upgradeToWebSocket(subprotocol, handler);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Cancel

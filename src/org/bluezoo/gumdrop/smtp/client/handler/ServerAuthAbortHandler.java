@@ -23,12 +23,14 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for AUTH abort response.
- * 
+ * RFC 4954 §4 (abort with *).
+ *
  * <p>This handler receives the server's response when the client aborts
  * authentication by sending "*" during a SASL exchange.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientAuthExchange#abort(ServerAuthAbortHandler)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
  */
 public interface ServerAuthAbortHandler extends ServerReplyHandler {
 

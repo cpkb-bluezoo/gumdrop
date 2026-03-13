@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Operations during SASL authentication exchange.
- * 
+ * RFC 4954 §4 (SASL continuation).
+ *
  * <p>This interface is provided to the handler in
  * {@link ServerAuthReplyHandler#handleChallenge} when the server sends a
  * SASL challenge (334 response). The handler computes the appropriate
@@ -34,6 +35,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerAuthReplyHandler#handleChallenge
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
  */
 public interface ClientAuthExchange {
 

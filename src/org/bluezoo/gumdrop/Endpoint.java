@@ -209,6 +209,16 @@ public interface Endpoint {
     SelectorLoop getSelectorLoop();
 
     /**
+     * Dispatches a task to run on this endpoint's SelectorLoop thread.
+     * If the caller is already on the SelectorLoop thread, the task
+     * runs immediately.  Otherwise it is enqueued and will run on
+     * the next selector iteration.
+     *
+     * @param task the task to execute
+     */
+    void execute(Runnable task);
+
+    /**
      * Schedules a callback to be executed after the specified delay.
      * The callback runs on this endpoint's SelectorLoop thread,
      * making it safe to perform I/O operations.

@@ -37,6 +37,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPSession#extended
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.12">RFC 4511 §4.12 — Extended</a>
  */
 public interface ExtendedResultHandler {
 

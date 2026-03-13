@@ -22,10 +22,11 @@
 package org.bluezoo.gumdrop.redis.client;
 
 /**
- * Handler for Redis commands that return a simple string.
+ * Handler for Redis commands that return a RESP Simple String ({@code +}).
  *
  * <p>Simple strings are used for status replies like "OK" or "PONG".
- * They are single-line strings without binary data.
+ * They are single-line strings without binary data
+ * (RESP spec — "Simple Strings").
  *
  * <h4>Commands returning simple strings:</h4>
  * <ul>

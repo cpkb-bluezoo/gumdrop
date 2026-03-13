@@ -23,10 +23,9 @@ package org.bluezoo.gumdrop.websocket;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
-import java.util.logging.Logger;
-
 /**
  * WebSocket frame implementation following RFC 6455.
  * Handles parsing and generation of WebSocket frames including
@@ -59,22 +58,21 @@ import java.util.logging.Logger;
  */
 public class WebSocketFrame {
 
-    private static final Logger LOGGER = Logger.getLogger(WebSocketFrame.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle(
         "org.bluezoo.gumdrop.websocket.L10N");
 
-    // WebSocket frame opcodes (RFC 6455 Section 5.2)
-    /** Continuation frame opcode */
+    // RFC 6455 §5.2 — WebSocket frame opcodes
+    /** RFC 6455 §5.4 — continuation frame opcode */
     public static final int OPCODE_CONTINUATION = 0x0;
-    /** Text frame opcode */
+    /** RFC 6455 §5.6 — text frame opcode */
     public static final int OPCODE_TEXT = 0x1;
-    /** Binary frame opcode */
+    /** RFC 6455 §5.6 — binary frame opcode */
     public static final int OPCODE_BINARY = 0x2;
-    /** Connection close frame opcode */
+    /** RFC 6455 §5.5.1 — connection close frame opcode */
     public static final int OPCODE_CLOSE = 0x8;
-    /** Ping frame opcode */
+    /** RFC 6455 §5.5.2 — ping frame opcode */
     public static final int OPCODE_PING = 0x9;
-    /** Pong frame opcode */
+    /** RFC 6455 §5.5.3 — pong frame opcode */
     public static final int OPCODE_PONG = 0xA;
 
     // Frame components
@@ -130,6 +128,21 @@ public class WebSocketFrame {
     }
 
     /**
+     * Creates a data frame with custom RSV bits (for use by extensions).
+     * RFC 6455 §9 — extensions may define non-zero RSV bit values.
+     *
+     * @param opcode the frame opcode
+     * @param payload the frame payload
+     * @param masked true if payload should be masked
+     * @param rsv1 RSV1 bit (e.g. permessage-deflate sets this)
+     */
+    WebSocketFrame(int opcode, byte[] payload, boolean masked, boolean rsv1)
+            throws WebSocketProtocolException {
+        this(true, rsv1, false, false, opcode, masked,
+             masked ? generateMaskingKey() : null, payload);
+    }
+
+    /**
      * Creates a text frame.
      *
      * @param text the text content
@@ -162,6 +175,7 @@ public class WebSocketFrame {
      * @param masked true if payload should be masked
      * @throws WebSocketProtocolException if the frame is invalid
      */
+    /** RFC 6455 §7.1 — close frame: 2-byte status code + optional UTF-8 reason. */
     public static WebSocketFrame createCloseFrame(int closeCode, String reason, boolean masked) throws WebSocketProtocolException {
         ByteBuffer buffer = ByteBuffer.allocate(2 + (reason != null ? reason.getBytes(StandardCharsets.UTF_8).length : 0));
         buffer.putShort((short) closeCode);
@@ -212,6 +226,7 @@ public class WebSocketFrame {
      * @return the parsed frame, or null if insufficient data
      * @throws WebSocketProtocolException if the frame is malformed
      */
+    /** RFC 6455 §5.2 — parse base framing protocol from wire bytes. */
     public static WebSocketFrame parse(ByteBuffer buffer) throws WebSocketProtocolException {
         if (buffer.remaining() < 2) {
             return null; // Need at least 2 bytes for basic header
@@ -302,6 +317,7 @@ public class WebSocketFrame {
      *
      * @return ByteBuffer containing the encoded frame
      */
+    /** RFC 6455 §5.2 — encode frame to wire format. */
     public ByteBuffer encode() {
         int headerSize = 2; // Basic header
         long payloadLength = payload.length;
@@ -372,17 +388,21 @@ public class WebSocketFrame {
     }
 
     /**
-     * Validates the frame according to RFC 6455 rules.
+     * RFC 6455 §5.2/§5.5 — validates the frame against protocol rules:
+     * control frames must be FIN and ≤125 bytes, opcodes must be known.
+     *
+     * <p>RSV bit validation is intentionally omitted here. Per RFC 6455 §9,
+     * extensions may define non-zero RSV values. RSV validation is performed
+     * by {@link WebSocketConnection#processFrame} which knows which
+     * extensions are active.
      *
      * @throws WebSocketProtocolException if the frame is invalid
      */
     private void validateFrame() throws WebSocketProtocolException {
-        // Validate opcode
         if (opcode < 0 || opcode > 15) {
             throw new WebSocketProtocolException("Invalid opcode: " + opcode);
         }
 
-        // Control frames validation (RFC 6455 Section 5.5)
         if (isControlFrame()) {
             if (!fin) {
                 throw new WebSocketProtocolException(L10N.getString("err.control_frame_fragmented"));
@@ -393,30 +413,23 @@ public class WebSocketFrame {
             }
         }
 
-        // Reserved bits must be false unless extension defines them
-        if (rsv1 || rsv2 || rsv3) {
-            LOGGER.fine(L10N.getString("log.reserved_bits"));
-        }
-
-        // Masking key validation
         if (masked && (maskingKey == null || maskingKey.length != 4)) {
             throw new WebSocketProtocolException(L10N.getString("err.invalid_masking_key"));
         }
     }
 
+    /** Shared SecureRandom for masking key generation (thread-safe). */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     /**
-     * Generates a random 4-byte masking key.
+     * RFC 6455 §5.3 — generates a random 4-byte masking key using a
+     * strong source of entropy ({@link SecureRandom}).
      *
      * @return 4-byte random masking key
      */
-    private static byte[] generateMaskingKey() {
+    static byte[] generateMaskingKey() {
         byte[] key = new byte[4];
-        // Simple random key generation - could use SecureRandom for better security
-        long time = System.nanoTime();
-        key[0] = (byte) (time & 0xFF);
-        key[1] = (byte) ((time >> 8) & 0xFF);
-        key[2] = (byte) ((time >> 16) & 0xFF);
-        key[3] = (byte) ((time >> 24) & 0xFF);
+        SECURE_RANDOM.nextBytes(key);
         return key;
     }
 
@@ -448,16 +461,12 @@ public class WebSocketFrame {
         return payload;
     }
 
-    /**
-     * Returns true if this is a control frame (close, ping, pong).
-     */
+    /** RFC 6455 §5.5 — control frames have opcodes >= 0x8. */
     public boolean isControlFrame() {
         return opcode >= 0x8;
     }
 
-    /**
-     * Returns true if this is a data frame (text, binary, continuation).
-     */
+    /** RFC 6455 §5.6 — data frames have opcodes 0x0–0x2. */
     public boolean isDataFrame() {
         return opcode <= 0x2;
     }
@@ -474,11 +483,7 @@ public class WebSocketFrame {
         return new String(payload, StandardCharsets.UTF_8);
     }
 
-    /**
-     * Returns the close code from a close frame payload.
-     *
-     * @return the close code, or -1 if not a close frame or no code present
-     */
+    /** RFC 6455 §7.1.5 — extract 2-byte close status code from payload. */
     public int getCloseCode() {
         if (opcode != OPCODE_CLOSE || payload.length < 2) {
             return -1;
@@ -486,11 +491,7 @@ public class WebSocketFrame {
         return ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
     }
 
-    /**
-     * Returns the close reason from a close frame payload.
-     *
-     * @return the close reason, or null if not a close frame or no reason present
-     */
+    /** RFC 6455 §7.1.6 — extract UTF-8 close reason from payload after status code. */
     public String getCloseReason() {
         if (opcode != OPCODE_CLOSE || payload.length <= 2) {
             return null;

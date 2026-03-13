@@ -42,8 +42,8 @@ public class SpanContextTest {
         
         SpanContext ctx = new SpanContext(traceId, spanId, true);
         
-        assertArrayEquals(traceId, ctx.getTraceId());
-        assertArrayEquals(spanId, ctx.getSpanId());
+        assertArrayEquals(traceId, ctx.getTraceId().getBytes());
+        assertArrayEquals(spanId, ctx.getSpanId().getBytes());
         assertTrue(ctx.isSampled());
         assertEquals(SpanContext.FLAG_SAMPLED, ctx.getTraceFlags());
     }
@@ -82,8 +82,8 @@ public class SpanContextTest {
         spanId[0] = 0;
         
         // Context should have original values
-        assertNotEquals(0, ctx.getTraceId()[0]);
-        assertNotEquals(0, ctx.getSpanId()[0]);
+        assertNotEquals(0, ctx.getTraceId().getBytes()[0]);
+        assertNotEquals(0, ctx.getSpanId().getBytes()[0]);
     }
 
     @Test
@@ -93,15 +93,15 @@ public class SpanContextTest {
         
         SpanContext ctx = new SpanContext(traceId, spanId, true);
         
-        // Modify returned arrays
-        byte[] returnedTraceId = ctx.getTraceId();
-        byte[] returnedSpanId = ctx.getSpanId();
+        // Modify returned arrays (getBytes() returns copies)
+        byte[] returnedTraceId = ctx.getTraceId().getBytes();
+        byte[] returnedSpanId = ctx.getSpanId().getBytes();
         returnedTraceId[0] = 0;
         returnedSpanId[0] = 0;
         
         // Context should still have original values
-        assertNotEquals(0, ctx.getTraceId()[0]);
-        assertNotEquals(0, ctx.getSpanId()[0]);
+        assertNotEquals(0, ctx.getTraceId().getBytes()[0]);
+        assertNotEquals(0, ctx.getSpanId().getBytes()[0]);
     }
 
     // ========================================================================
@@ -243,8 +243,8 @@ public class SpanContextTest {
         SpanContext parsed = SpanContext.fromTraceparent(traceparent);
         
         assertNotNull(parsed);
-        assertArrayEquals(original.getTraceId(), parsed.getTraceId());
-        assertArrayEquals(original.getSpanId(), parsed.getSpanId());
+        assertArrayEquals(original.getTraceId().getBytes(), parsed.getTraceId().getBytes());
+        assertArrayEquals(original.getSpanId().getBytes(), parsed.getSpanId().getBytes());
         assertEquals(original.isSampled(), parsed.isSampled());
     }
 

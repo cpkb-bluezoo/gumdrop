@@ -24,7 +24,8 @@
  *
  * <p>This package provides WebSocket support for real-time bidirectional
  * communication between clients and the server. WebSocket connections
- * are established via HTTP upgrade from the HTTP server.
+ * are established via HTTP upgrade from the HTTP server (HTTP/1.1 and
+ * HTTP/2), or via Extended CONNECT over HTTP/3 (RFC 9220).
  *
  * <h2>Service API</h2>
  *
@@ -59,18 +60,29 @@
  *       Exception for protocol violations</li>
  * </ul>
  *
- * <h2>Features</h2>
+ * <h2>Features (RFC 6455)</h2>
  *
  * <ul>
- *   <li>Text and binary message types</li>
- *   <li>Message fragmentation</li>
- *   <li>Ping/pong heartbeats</li>
- *   <li>Close frame handling with status codes</li>
- *   <li>Subprotocol negotiation</li>
+ *   <li>Text and binary message types (§5.6)</li>
+ *   <li>Message fragmentation (§5.4)</li>
+ *   <li>Ping/pong heartbeats (§5.5.2, §5.5.3)</li>
+ *   <li>Close frame handling with status codes (§7)</li>
+ *   <li>Subprotocol negotiation (§4.2.2)</li>
+ *   <li>Client and server masking (§5.3)</li>
+ * </ul>
+ *
+ * <h2>Transport Listeners</h2>
+ *
+ * <ul>
+ *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketListener} —
+ *       TCP transport (HTTP/1.1 upgrade, HTTP/2 Extended CONNECT)</li>
+ *   <li>{@link org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener} —
+ *       QUIC transport (HTTP/3 Extended CONNECT per RFC 9220)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455 - WebSocket</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220 - WebSocket over HTTP/3</a>
  * @see org.bluezoo.gumdrop.websocket.WebSocketService
  */
 package org.bluezoo.gumdrop.websocket;

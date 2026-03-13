@@ -26,11 +26,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Streaming BER (Basic Encoding Rules) decoder for ASN.1 data.
+ * Streaming BER (Basic Encoding Rules) decoder for ASN.1 data (ITU-T X.690).
  *
  * <p>This decoder is designed for use with non-blocking I/O. It accepts
  * data incrementally via {@link #receive(ByteBuffer)} and returns complete
- * elements via {@link #next()}.</p>
+ * LDAP messages (RFC 4511 section 5.1) via {@link #next()}.</p>
  *
  * <h4>Usage Example</h4>
  * <pre>{@code
@@ -46,6 +46,7 @@ import java.util.List;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-5.1">RFC 4511 §5.1 — Protocol Encoding</a>
  */
 public class BERDecoder {
 

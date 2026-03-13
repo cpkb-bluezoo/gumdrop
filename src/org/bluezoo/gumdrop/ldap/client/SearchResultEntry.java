@@ -29,9 +29,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Represents a single entry from an LDAP search result.
+ * Represents a single entry from an LDAP search result
+ * (RFC 4511 section 4.5.2 — SearchResultEntry).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.5.2">RFC 4511 §4.5.2</a>
  */
 public class SearchResultEntry {
 

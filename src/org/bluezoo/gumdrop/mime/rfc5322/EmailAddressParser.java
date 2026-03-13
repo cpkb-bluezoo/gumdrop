@@ -51,6 +51,7 @@ import java.util.ResourceBundle;
  * <p>This class cannot be instantiated. All methods are static.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-3.4">RFC 5322 §3.4</a>
  */
 public final class EmailAddressParser {
 

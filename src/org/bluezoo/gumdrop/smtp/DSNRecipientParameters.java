@@ -47,6 +47,8 @@ import java.util.Set;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DSNNotify
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.1">RFC 3461 §4.1</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.2">RFC 3461 §4.2</a>
  */
 public class DSNRecipientParameters {
 

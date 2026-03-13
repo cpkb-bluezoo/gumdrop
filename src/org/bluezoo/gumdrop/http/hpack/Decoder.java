@@ -32,10 +32,21 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.util.ByteArrays;
 
 /**
- * An HPACK HTTP/2 header block decoder.
+ * HPACK header block decoder (RFC 7541).
+ *
+ * <p>Decodes a compressed field block into HTTP/2 header fields using:
+ * <ul>
+ * <li>Indexed header field representation (RFC 7541 section 6.1)</li>
+ * <li>Literal header field with incremental indexing (section 6.2.1)</li>
+ * <li>Literal header field without indexing (section 6.2.2)</li>
+ * <li>Literal header field never indexed (section 6.2.3)</li>
+ * <li>Dynamic table size update (section 6.3)</li>
+ * <li>Integer representation (section 5.1)</li>
+ * <li>String literal / Huffman decoding (section 5.2)</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see https://www.rfc-editor.org/rfc/rfc7541
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
  */
 public class Decoder extends HPACKConstants {
 
@@ -82,7 +93,7 @@ public class Decoder extends HPACKConstants {
             byte b = buf.get();
             Header header;
             //System.err.println("decoding header, opcode is "+String.format("%02x",b));
-            if ((b & 0x80) != 0) { // indexed header field
+            if ((b & 0x80) != 0) { // RFC 7541 section 6.1: indexed header field
                 int index = decodeInteger(buf, b, 7);
                 //System.err.println(" indexed header field, index is "+index);
                 //dumpDynamicTable(dynamicTable);
@@ -100,7 +111,7 @@ public class Decoder extends HPACKConstants {
                 } else {
                     throw new ProtocolException("HPACK indexed header field index out of range: "+index);
                 }
-            } else if ((b & 0x40) != 0) { // literal header field with incremental indexing
+            } else if ((b & 0x40) != 0) { // RFC 7541 section 6.2.1: literal with incremental indexing
                 //System.err.println(" literal header field");
                 header = getLiteralHeaderField(buf, b, 6, dynamicTable);
                 // evict entries: RFC 7541 section 4.4
@@ -111,7 +122,7 @@ public class Decoder extends HPACKConstants {
                 // The header field is added to the beginning of the dynamic
                 // table, see sections 3.2, 2.3.2
                 dynamicTable.add(0, header);
-            } else if ((b & 0x20) != 0) { // dynamic table size update
+            } else if ((b & 0x20) != 0) { // RFC 7541 section 6.3: dynamic table size update
                 int maxSize = decodeInteger(buf, b, 5);
                 //System.err.println(" dynamic table size update, maxSize="+maxSize);
                 if (maxSize > headerTableSize) {
@@ -123,8 +134,7 @@ public class Decoder extends HPACKConstants {
                 }
                 this.maxSize = maxSize;
                 continue;
-            } else { // literal header field never indexed
-                // OR literal header field without indexing
+            } else { // RFC 7541 section 6.2.2/6.2.3: literal without indexing / never indexed
                 //System.err.println(" literal header field without indexing");
                 header = getLiteralHeaderField(buf, b, 4, dynamicTable);
                 // do not add to dynamicTable

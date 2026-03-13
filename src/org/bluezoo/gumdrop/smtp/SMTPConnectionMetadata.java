@@ -47,8 +47,10 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * <li>Authentication status and user identity</li>
  * <li>Connection security and encryption</li>
  * </ul>
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689 - REQUIRETLS</a>
  * @see org.bluezoo.gumdrop.smtp.handler.ClientConnected
  */
 public interface SMTPConnectionMetadata {
@@ -119,44 +121,47 @@ public interface SMTPConnectionMetadata {
 
     /**
      * Returns the DSN envelope parameters from the MAIL FROM command.
-     * 
+     *
      * <p>These parameters indicate how the sender wants Delivery Status
      * Notifications handled for this message:
      * <ul>
      * <li><b>RET</b> - Whether to return the full message or just headers in DSNs</li>
      * <li><b>ENVID</b> - An opaque envelope identifier for correlation</li>
      * </ul>
-     * 
+     *
      * @return DSN envelope parameters, or null if none were specified
      * @see DSNEnvelopeParameters
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.3">RFC 3461 §4.3</a>
      */
     DSNEnvelopeParameters getDSNEnvelopeParameters();
 
     /**
      * Returns the DSN recipient parameters for a specific recipient.
-     * 
+     *
      * <p>These parameters indicate when to send Delivery Status Notifications
      * for this recipient:
      * <ul>
      * <li><b>NOTIFY</b> - When to send DSNs (NEVER, SUCCESS, FAILURE, DELAY)</li>
      * <li><b>ORCPT</b> - The original recipient address before any forwarding</li>
      * </ul>
-     * 
+     *
      * @param recipient the recipient to get DSN parameters for
      * @return DSN recipient parameters, or null if none were specified
      * @see DSNRecipientParameters
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.1">RFC 3461 §4.1</a>
      */
     DSNRecipientParameters getDSNRecipientParameters(EmailAddress recipient);
 
     /**
      * Returns whether REQUIRETLS was specified for this message.
-     * 
+     *
      * <p>When true, the sender has indicated that this message must only be
      * transmitted over TLS-protected connections (RFC 8689). If the server
      * cannot guarantee TLS protection to the next hop during relay, the
      * message should be bounced rather than delivered insecurely.
-     * 
+     *
      * @return true if REQUIRETLS was specified in MAIL FROM
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689</a>
      */
     boolean isRequireTls();
 

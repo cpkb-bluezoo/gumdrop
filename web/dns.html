@@ -45,6 +45,8 @@ implementation for developers building UDP-based services.
 <ul>
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#features">Features</a></li>
+<li><a href="#dnssec">DNSSEC Validation</a></li>
+<li><a href="#protocol">Protocol Compliance</a></li>
 <li><a href="#custom">Custom Resolution</a></li>
 <li><a href="#records">Record Types</a></li>
 <li><a href="#configuration">Configuration</a></li>
@@ -121,6 +123,174 @@ For secure DNS (DNS over DTLS), the server can be configured with TLS
 credentials. DTLS session state is maintained per remote address, providing
 encrypted DNS for privacy-conscious deployments.
 </p>
+
+<h4>Upstream TCP Fallback</h4>
+
+<p>
+When a UDP response from an upstream server has the TC (truncated) flag set,
+the server automatically retries the query over TCP using standard DNS-over-TCP
+framing (2-byte length prefix per RFC 1035 section 4.2.1). This is transparent
+to the client and ensures that large responses (such as DNSSEC-signed or
+multi-record answers) are delivered intact.
+</p>
+
+<h4>Response ID Validation</h4>
+
+<p>
+Upstream responses are validated to ensure the DNS message ID matches the
+query that was sent (RFC 5452). Mismatched IDs are logged and discarded,
+protecting against cache poisoning and spoofed responses.
+</p>
+
+<h3 id="protocol">Protocol Compliance</h3>
+
+<p>
+Gumdrop's DNS implementation goes beyond basic query/response handling with
+comprehensive protocol compliance across multiple RFCs.
+</p>
+
+<h4>EDNS0 (RFC 6891)</h4>
+
+<p>
+Both the server proxy and the client resolver advertise EDNS0 support by
+including an OPT pseudo-record in outgoing queries. This signals the maximum
+UDP payload size (4096 bytes by default), allowing larger responses without
+TCP fallback. EDNS0 options are also used as the transport for DNS cookies
+and padding.
+</p>
+
+<h4>DNSSEC Validation (RFC 4033–4035, RFC 5155)</h4>
+
+<p>
+Gumdrop supports DNSSEC validation for DNS responses. When enabled, the
+resolver sets the DO (DNSSEC OK) bit in EDNS0 queries to request DNSSEC
+records from upstream servers, then validates the chain of trust from
+the signer zone to a configured trust anchor.
+</p>
+
+<p>Supported algorithms (per RFC 8624):</p>
+<ul>
+<li>RSA/SHA-256 (algorithm 8)</li>
+<li>RSA/SHA-512 (algorithm 10)</li>
+<li>ECDSA P-256/SHA-256 (algorithm 13)</li>
+<li>ECDSA P-384/SHA-384 (algorithm 14)</li>
+<li>Ed25519 (algorithm 15)</li>
+<li>Ed448 (algorithm 16)</li>
+</ul>
+
+<p>Supported DS digest types: SHA-1 (1), SHA-256 (2), SHA-384 (4).</p>
+
+<p>
+All cryptographic operations use <code>java.security</code> from the
+<code>java.base</code> module and are purely CPU-bound — no blocking I/O,
+fully safe for the NIO event loop. DNSKEY and DS records needed for
+chain-of-trust validation are fetched asynchronously through the existing
+resolver callback model.
+</p>
+
+<p>Configuration:</p>
+<pre>
+// Enable DNSSEC on the client resolver
+DNSResolver resolver = new DNSResolver();
+resolver.setDnssecEnabled(true);
+resolver.addServer("8.8.8.8");
+resolver.open();
+
+// Enable DNSSEC-aware proxying on the server
+DNSService service = new DNSService();
+service.setDnssecEnabled(true);
+</pre>
+
+<p>
+When the server has DNSSEC enabled, it sets DO in upstream queries and
+strips DNSSEC records from responses to clients that did not request
+them (no DO bit). The AD (Authenticated Data) flag is preserved from
+upstream responses.
+</p>
+
+<h4>DNS Message Compression (RFC 1035 section 4.1.4)</h4>
+
+<p>
+Outgoing DNS messages use name compression as specified in RFC 1035 section
+4.1.4. Repeated domain name suffixes are replaced with pointers to earlier
+occurrences, reducing message size on the wire. This is especially effective
+for responses containing multiple records with shared suffixes.
+</p>
+
+<h4>DNS Cookies (RFC 7873)</h4>
+
+<p>
+The server and resolver support DNS cookies, a lightweight mechanism for
+source address verification carried as an EDNS0 option. The client generates
+a random cookie and includes it in queries; the server replies with a
+server cookie computed using HMAC-SHA256. On subsequent queries, the client
+presents the cached server cookie for validation. This provides protection
+against off-path spoofing without the overhead of DNSSEC or encrypted
+transports.
+</p>
+
+<h4>DNS over TLS — DoT (RFC 7858)</h4>
+
+<p>
+The DoT client transport includes several optimizations and security features:
+</p>
+
+<ul>
+<li><b>TLS session resumption (RFC 5077)</b> — the TLS session cache is
+configured to allow session tickets, reducing handshake latency on
+reconnections</li>
+<li><b>TCP Fast Open (RFC 7413)</b> — when available, DoT connections use
+TCP Fast Open to send data during the TCP handshake, saving a round trip</li>
+<li><b>SPKI fingerprint verification (RFC 7858 section 4.2)</b> — for the
+Strict privacy profile, the client can be configured with SHA-256 hashes of
+the server's Subject Public Key Info (SPKI). After the TLS handshake, the
+server's leaf certificate public key is verified against the configured pins
+via <code>SPKIPinnedCertTrustManager</code></li>
+<li><b>Connection pooling (RFC 7766)</b> — <code>TCPDNSConnectionPool</code>
+maintains persistent TCP connections to upstream servers with configurable
+maximum connections, idle timeout, and connection lifetime</li>
+</ul>
+
+<h4>DNS over QUIC — DoQ (RFC 9250)</h4>
+
+<p>
+DoQ support includes error handling, session resumption, and connection reuse:
+</p>
+
+<ul>
+<li><b>Error codes (RFC 9250 section 4.3)</b> — the server sends proper DoQ
+application error codes (<code>DOQ_NO_ERROR</code> through
+<code>DOQ_EXCESSIVE_LOAD</code>) via QUIC RESET_STREAM frames for malformed
+queries, oversized messages, and server errors</li>
+<li><b>0-RTT early data (RFC 9250 section 4.5)</b> — the QUIC transport
+enables early data, allowing QUERY and NOTIFY messages to be sent during
+session resumption without waiting for the full handshake. Session tickets
+are cached per server</li>
+<li><b>Connection reuse (RFC 9250 section 5.5.1)</b> —
+<code>DoQConnectionPool</code> maintains persistent QUIC connections per
+upstream server. Subsequent queries open new streams on the existing
+connection rather than establishing new QUIC sessions, with automatic eviction
+of idle connections</li>
+<li><b>Padding (RFC 9250 section 5.4)</b> — all DoQ messages include EDNS(0)
+padding aligned to 128-byte blocks (RFC 8467) to mitigate traffic analysis</li>
+</ul>
+
+<h4>DNS over HTTPS — DoH (RFC 8484)</h4>
+
+<p>
+<code>DoHClientTransport</code> provides DNS resolution over HTTPS, sending
+queries as HTTP POST requests with <code>application/dns-message</code>
+content type. The response body contains the raw DNS wire-format answer.
+</p>
+
+<ul>
+<li>Uses Gumdrop's existing <code>HTTPClient</code> infrastructure (HTTP/2
+with TLS)</li>
+<li>Configurable URI path (default <code>/dns-query</code>)</li>
+<li>Default port 443 with HTTPS</li>
+<li>Works through HTTP proxies and CDNs — useful in environments where
+UDP and port 853 are blocked</li>
+</ul>
 
 <h3 id="custom">Custom Resolution</h3>
 
@@ -273,6 +443,23 @@ record types:
 <td>Text record</td></tr>
 <tr><td>SRV</td><td><code>DNSResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
 <td>Service location</td></tr>
+</table>
+
+<h4>DNSSEC Record Types</h4>
+
+<p>
+DNSSEC record types (RFC 4034, RFC 5155) are parsed from wire format and
+provide RDATA accessor methods:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Type</th><th>Value</th><th>Description</th></tr>
+<tr><td>DS</td><td>43</td><td>Delegation signer — links child DNSKEY to parent zone</td></tr>
+<tr><td>RRSIG</td><td>46</td><td>DNSSEC signature — covers an RRset</td></tr>
+<tr><td>NSEC</td><td>47</td><td>Next secure record — denial of existence</td></tr>
+<tr><td>DNSKEY</td><td>48</td><td>DNS public key — zone signing key or key signing key</td></tr>
+<tr><td>NSEC3</td><td>50</td><td>Hashed denial of existence (RFC 5155)</td></tr>
+<tr><td>NSEC3PARAM</td><td>51</td><td>NSEC3 parameters (RFC 5155)</td></tr>
 </table>
 
 <h3 id="metrics">Metrics</h3>
@@ -498,6 +685,35 @@ endpoint when the first request arrives, or use a shared loop if your design
 assigns one loop per service.
 </p>
 
+<h4>Client Transports</h4>
+
+<p>
+The resolver uses a pluggable <code>DNSClientTransport</code> interface.
+The default is plain UDP, but you can select any of the following:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Transport</th><th>Class</th><th>RFC</th><th>Default Port</th></tr>
+<tr><td>UDP</td><td><code>UDPDNSClientTransport</code></td>
+<td>RFC 1035</td><td>53</td></tr>
+<tr><td>TCP</td><td><code>TCPDNSClientTransport</code></td>
+<td>RFC 1035</td><td>53</td></tr>
+<tr><td>DoT</td><td><code>TCPDNSClientTransport</code> (secure)</td>
+<td>RFC 7858</td><td>853</td></tr>
+<tr><td>DoQ</td><td><code>DoQClientTransport</code></td>
+<td>RFC 9250</td><td>853</td></tr>
+<tr><td>DoH</td><td><code>DoHClientTransport</code></td>
+<td>RFC 8484</td><td>443</td></tr>
+</table>
+
+<p>
+To use DoT, create a <code>TCPDNSClientTransport</code> with
+<code>setSecure(true)</code> and optionally configure SPKI fingerprints
+for the Strict privacy profile. For DoQ, use <code>DoQClientTransport</code>
+or <code>DoQConnectionPool</code> for persistent connections. For DoH, use
+<code>DoHClientTransport</code> and optionally set a custom URI path.
+</p>
+
 <h4>Truncated Response Retry</h4>
 
 <p>
@@ -505,6 +721,30 @@ When a UDP response has the TC (truncated) flag set, <code>DNSResolver</code>
 automatically retries over TCP using standard DNS-over-TCP framing (2-byte
 length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
 </p>
+
+<h4>SRV Record Queries</h4>
+
+<p>
+<code>DNSResolver</code> provides a convenience method for SRV lookups
+(RFC 2782) commonly used for service discovery:
+</p>
+
+<pre>
+resolver.querySRV("_xmpp-server._tcp.example.com",
+        new DNSQueryCallback() {
+    public void onResponse(DNSMessage response) {
+        for (DNSResourceRecord rr : response.getAnswers()) {
+            System.out.println(rr.getSRVTarget() + ":"
+                + rr.getSRVPort()
+                + " (priority=" + rr.getSRVPriority()
+                + ", weight=" + rr.getSRVWeight() + ")");
+        }
+    }
+    public void onError(String error) {
+        // Handle error
+    }
+});
+</pre>
 
 <h3 id="udp">UDP Protocol Support</h3>
 

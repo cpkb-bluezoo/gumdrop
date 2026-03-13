@@ -165,5 +165,15 @@ public interface MessageContext {
      */
     CharSequence getBodyText() throws IOException;
 
+    /**
+     * Returns the modification sequence number for CONDSTORE (RFC 7162).
+     * 
+     * @return the mod-sequence value, or 0 if not supported
+     * @throws IOException if the value cannot be read
+     */
+    default long getModSeq() throws IOException {
+        return 0;
+    }
+
 }
 

@@ -114,6 +114,11 @@ S: TOP
 S: SASL PLAIN LOGIN CRAM-MD5 SCRAM-SHA-256
 S: UTF8
 S: PIPELINING
+S: RESP-CODES
+S: AUTH-RESP-CODE
+S: EXPIRE NEVER
+S: LOGIN-DELAY 5
+S: IMPLEMENTATION gumdrop
 S: .
 </pre>
 
@@ -158,6 +163,49 @@ S: +OK UTF-8 mode enabled
 <p>
 When enabled, clients can send multiple commands without waiting for responses.
 This reduces round-trip latency for batch operations.
+</p>
+
+<h4>RESP-CODES (RFC 2449 section 8)</h4>
+
+<p>
+The server includes extended response codes in <code>-ERR</code> replies to help
+clients provide meaningful error messages. Supported codes:
+</p>
+
+<ul>
+<li><code>[AUTH]</code> &mdash; authentication failures (wrong password, bad
+credentials, unsupported mechanism)</li>
+<li><code>[SYS/TEMP]</code> &mdash; temporary server errors (mailbox I/O,
+timeouts, connection issues)</li>
+<li><code>[SYS/PERM]</code> &mdash; permanent configuration errors (auth or
+mailbox not configured)</li>
+</ul>
+
+<h4>AUTH-RESP-CODE (RFC 3206)</h4>
+
+<p>
+Extends RESP-CODES with authentication-specific <code>[AUTH]</code> response
+codes. All authentication failure <code>-ERR</code> replies include the
+<code>[AUTH]</code> code, allowing clients to distinguish credential errors
+from server-side failures.
+</p>
+
+<h4>EXPIRE (RFC 2449 section 6.5)</h4>
+
+<p>
+Declares the message retention policy. Configured via
+<code>setExpireDays(int)</code> on <code>POP3Listener</code>:
+<code>0</code> means messages may be expired immediately, a positive value is
+the minimum retention in days, and <code>Integer.MAX_VALUE</code> advertises
+<code>EXPIRE NEVER</code>. Set to <code>-1</code> to suppress the capability.
+</p>
+
+<h4>LOGIN-DELAY (RFC 2449 section 6.6)</h4>
+
+<p>
+Advertises the minimum delay between authentication attempts. When
+<code>loginDelayMs</code> is greater than zero, the server advertises
+<code>LOGIN-DELAY &lt;seconds&gt;</code> so clients can avoid premature retries.
 </p>
 
 <h3 id="authentication">Authentication</h3>
@@ -298,6 +346,9 @@ been downloaded.
 (default: 0); helps mitigate brute-force attacks</li>
 <li><code>transaction-timeout</code> - session timeout in milliseconds
 (default: 600000 / 10 minutes); RFC 1939 recommends at least 10 minutes</li>
+<li><code>expire-days</code> - message retention policy advertised in CAPA:
+0+ for days, <code>Integer.MAX_VALUE</code> for NEVER, -1 to suppress
+(default: -1)</li>
 </ul>
 
 <h4>Example Configuration</h4>

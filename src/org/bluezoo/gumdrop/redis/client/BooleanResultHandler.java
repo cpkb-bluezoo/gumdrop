@@ -24,8 +24,9 @@ package org.bluezoo.gumdrop.redis.client;
 /**
  * Handler for Redis commands that return a boolean-like result.
  *
- * <p>Redis uses integers for boolean results (0 = false, non-zero = true).
- * This handler provides a more natural boolean interface.
+ * <p>Redis uses RESP Integers ({@code :}) for boolean results
+ * (0 = false, non-zero = true). This handler provides a more natural
+ * boolean interface by converting the integer value.
  *
  * <h4>Commands with boolean results:</h4>
  * <ul>

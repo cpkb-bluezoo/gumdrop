@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.websocket.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -41,8 +43,10 @@ import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 
 /**
@@ -84,6 +88,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketEventHandler
  * @see org.bluezoo.gumdrop.websocket.WebSocketSession
  */
@@ -105,6 +110,8 @@ public class WebSocketClient {
     private String keystorePass;
     private String keystoreFormat;
     private String subprotocol;
+    private boolean deflateEnabled = true;
+    private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
 
     // Internal transport components (created at connect time)
     private TCPTransportFactory transportFactory;
@@ -172,6 +179,7 @@ public class WebSocketClient {
 
     /**
      * Sets whether this client uses TLS (wss:// scheme).
+     * RFC 6455 §11.1.2 defines the "wss" URI scheme for secure WebSocket.
      *
      * @param secure true for TLS
      */
@@ -231,7 +239,8 @@ public class WebSocketClient {
     }
 
     /**
-     * Sets the WebSocket subprotocol to request during the handshake.
+     * RFC 6455 §4.1 — sets the WebSocket subprotocol to include in
+     * the {@code Sec-WebSocket-Protocol} header during the handshake.
      *
      * @param subprotocol the subprotocol name (e.g. "graphql-ws")
      */
@@ -239,26 +248,50 @@ public class WebSocketClient {
         this.subprotocol = subprotocol;
     }
 
+    /**
+     * RFC 7692 — enables or disables permessage-deflate for this client.
+     * Enabled by default.
+     *
+     * @param enabled true to request permessage-deflate
+     */
+    public void setDeflateEnabled(boolean enabled) {
+        this.deflateEnabled = enabled;
+    }
+
+    /**
+     * RFC 6455 §9 — adds a custom extension to request during the handshake.
+     *
+     * @param extension the extension to request
+     */
+    public void addExtension(WebSocketExtension extension) {
+        this.requestedExtensions.add(extension);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Connects to the WebSocket server and initiates the upgrade handshake.
-     *
-     * <p>The upgrade is performed automatically: an HTTP GET with the
-     * required WebSocket upgrade headers is sent, and on receiving a
-     * valid 101 Switching Protocols response the connection transitions
-     * to WebSocket mode. The provided handler then receives
-     * {@link WebSocketEventHandler#opened} when the connection is ready.
+     * RFC 6455 §4.1 — connects to the WebSocket server and initiates the
+     * client opening handshake. On a valid 101 Switching Protocols response,
+     * the connection transitions to WebSocket mode and the handler receives
+     * {@link WebSocketEventHandler#opened}.
      *
      * @param path the request path (e.g. "/ws" or "/chat")
      * @param handler the handler to receive WebSocket events
      */
     public void connect(String path, final WebSocketEventHandler handler) {
         final String key = WebSocketHandshake.generateKey();
+
+        // RFC 6455 §9 — build extension offer list
+        List<WebSocketExtension> allExtensions = new ArrayList<>(requestedExtensions);
+        if (deflateEnabled) {
+            allExtensions.add(0, new PerMessageDeflateExtension());
+        }
+        String extOffer = WebSocketHandshake.formatOffers(allExtensions);
+
         final Headers upgradeHeaders =
-                WebSocketHandshake.createUpgradeRequest(key, subprotocol);
+                WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
 
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
@@ -310,6 +343,7 @@ public class WebSocketClient {
         protocolHandler = new WebSocketClientProtocolHandler(
                 internalHandler, handler, host, port, secure);
         protocolHandler.setWebSocketKey(key);
+        protocolHandler.setRequestedExtensions(allExtensions);
 
         // Disable h2c upgrade: the 101 must be for WebSocket, not HTTP/2
         protocolHandler.setH2Enabled(false);

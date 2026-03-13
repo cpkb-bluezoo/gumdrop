@@ -23,10 +23,9 @@ package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SNIKeyManager;
+import org.bluezoo.gumdrop.util.TLSUtils;
 
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
@@ -42,7 +41,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
@@ -86,6 +84,9 @@ public class TCPTransportFactory extends TransportFactory {
 
     // ALPN (Application-Layer Protocol Negotiation) protocols
     private String[] applicationProtocols;
+
+    // RFC 7413: TCP Fast Open for reduced connection latency
+    private boolean tcpFastOpen;
 
     public TCPTransportFactory() {
     }
@@ -141,6 +142,29 @@ public class TCPTransportFactory extends TransportFactory {
     }
 
     /**
+     * Enables TCP Fast Open (RFC 7413) on client connections.
+     * When enabled, the kernel can send data in the SYN packet,
+     * eliminating one RTT from connection setup for repeat connections.
+     * RFC 7858 section 3.4 recommends TFO for DoT re-establishment.
+     *
+     * <p>Silently ignored on platforms that do not support TFO.
+     *
+     * @param tcpFastOpen true to enable TCP Fast Open
+     */
+    public void setTcpFastOpen(boolean tcpFastOpen) {
+        this.tcpFastOpen = tcpFastOpen;
+    }
+
+    /**
+     * Returns whether TCP Fast Open is enabled.
+     *
+     * @return true if TCP Fast Open is enabled
+     */
+    public boolean isTcpFastOpen() {
+        return tcpFastOpen;
+    }
+
+    /**
      * Sets an externally-configured SSLContext.
      *
      * @param context the SSL context
@@ -188,16 +212,9 @@ public class TCPTransportFactory extends TransportFactory {
         if (sslContext == null && keystoreFile != null &&
                 keystorePass != null) {
             try {
-                KeyStore ks = KeyStore.getInstance(keystoreFormat);
-                InputStream in = new FileInputStream(keystoreFile.toFile());
-                char[] pass = keystorePass.toCharArray();
-                ks.load(in, pass);
-                in.close();
-                KeyManagerFactory f = KeyManagerFactory.getInstance(
-                        KeyManagerFactory.getDefaultAlgorithm());
-                f.init(ks, pass);
                 sslContext = SSLContext.getInstance("TLS");
-                KeyManager[] km = f.getKeyManagers();
+                KeyManager[] km = TLSUtils.loadKeyManagers(
+                        keystoreFile, keystorePass, keystoreFormat);
 
                 if (isSNIEnabled()) {
                     km = wrapWithSNIKeyManager(km);
@@ -211,6 +228,10 @@ public class TCPTransportFactory extends TransportFactory {
                 TrustManager[] tm = loadTrustManagers();
                 SecureRandom random = new SecureRandom();
                 sslContext.init(km, tm, random);
+
+                // RFC 5077 / RFC 7858 section 3.4: enable TLS session
+                // resumption with explicit cache sizing and timeout.
+                configureTlsSessionCache(sslContext);
             } catch (Exception e) {
                 RuntimeException e2 = new RuntimeException(
                         "Failed to initialise SSL context");
@@ -232,15 +253,8 @@ public class TCPTransportFactory extends TransportFactory {
         }
         TrustManager[] base = null;
         if (truststoreFile != null && truststorePass != null) {
-            KeyStore ts = KeyStore.getInstance(truststoreFormat);
-            try (InputStream in = new FileInputStream(
-                    truststoreFile.toFile())) {
-                ts.load(in, truststorePass.toCharArray());
-            }
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                    TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init(ts);
-            base = tmf.getTrustManagers();
+            base = TLSUtils.loadTrustManagers(
+                    truststoreFile, truststorePass, truststoreFormat);
         }
 
         if (pinnedCertFingerprint != null) {
@@ -307,6 +321,30 @@ public class TCPTransportFactory extends TransportFactory {
         SocketChannel channel = SocketChannel.open();
         channel.configureBlocking(false);
 
+        // RFC 7413: enable TCP Fast Open to send data in SYN.
+        // Use reflection to access jdk.net.ExtendedSocketOptions which
+        // may not be available in all build/runtime configurations.
+        if (tcpFastOpen) {
+            try {
+                Class<?> extOpts = Class.forName(
+                        "jdk.net.ExtendedSocketOptions");
+                @SuppressWarnings("unchecked")
+                java.net.SocketOption<Boolean> tfo =
+                        (java.net.SocketOption<Boolean>)
+                                extOpts.getField("TCP_FASTOPEN_CONNECT")
+                                        .get(null);
+                channel.setOption(tfo, Boolean.TRUE);
+            } catch (UnsupportedOperationException e) {
+                LOGGER.fine("TCP Fast Open not supported on this "
+                        + "platform");
+            } catch (ClassNotFoundException e) {
+                LOGGER.fine("jdk.net.ExtendedSocketOptions not available");
+            } catch (Exception e) {
+                LOGGER.log(Level.FINE,
+                        "Failed to enable TCP Fast Open", e);
+            }
+        }
+
         SSLEngine engine = null;
         if (sslContext != null) {
             engine = sslContext.createSSLEngine(
@@ -356,6 +394,8 @@ public class TCPTransportFactory extends TransportFactory {
 
     /**
      * Configures an SSL engine for server mode.
+     * RFC 9113 section 9.2: HTTP/2 over TLS MUST use TLS 1.2 or later;
+     * TLS 1.3 is RECOMMENDED.
      */
     private static final String[] SECURE_PROTOCOLS =
             { "TLSv1.2", "TLSv1.3" };
@@ -484,6 +524,37 @@ public class TCPTransportFactory extends TransportFactory {
         }
         result[idx] = s.substring(start);
         return result;
+    }
+
+    // -- TLS session resumption --
+
+    // RFC 5077, RFC 7858 section 3.4: TLS session cache parameters
+    private static final int SESSION_CACHE_SIZE = 1024;
+    private static final int SESSION_TIMEOUT_SECONDS = 86400;
+
+    /**
+     * Configures TLS session caching for session resumption.
+     * RFC 5077: TLS session tickets allow servers to resume sessions
+     * without storing per-client state. RFC 7858 section 3.4 says DoT
+     * servers SHOULD enable fast TLS session resumption.
+     *
+     * <p>The Java TLS stack supports both session ID caching and session
+     * tickets natively. This method explicitly configures cache size and
+     * timeout to ensure resumption is active on all JVM implementations.
+     */
+    private static void configureTlsSessionCache(SSLContext ctx) {
+        javax.net.ssl.SSLSessionContext serverCtx =
+                ctx.getServerSessionContext();
+        if (serverCtx != null) {
+            serverCtx.setSessionCacheSize(SESSION_CACHE_SIZE);
+            serverCtx.setSessionTimeout(SESSION_TIMEOUT_SECONDS);
+        }
+        javax.net.ssl.SSLSessionContext clientCtx =
+                ctx.getClientSessionContext();
+        if (clientCtx != null) {
+            clientCtx.setSessionCacheSize(SESSION_CACHE_SIZE);
+            clientCtx.setSessionTimeout(SESSION_TIMEOUT_SECONDS);
+        }
     }
 
     // -- Registration helpers --

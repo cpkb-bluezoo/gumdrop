@@ -21,10 +21,12 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.telemetry.json.OTLPFileExporter;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -64,6 +66,9 @@ public class TelemetryConfig {
     private String serviceInstanceId;
     private String deploymentEnvironment;
 
+    // Exporter type: "otlp" (default) or "file"
+    private String exporterType = "otlp";
+
     // OTLP exporter settings
     private String endpoint;
     private String tracesEndpoint;
@@ -71,12 +76,19 @@ public class TelemetryConfig {
     private String metricsEndpoint;
     private String protocol = "http/protobuf";
     private String headers;
+    private volatile Map<String, String> parsedHeadersCache;
     private int timeoutMs = 10000;
 
     // TLS configuration for HTTPS endpoints
     private Path truststoreFile;
     private String truststorePass;
     private String truststoreFormat = "PKCS12";
+
+    // File exporter settings
+    private Path fileTracesPath;
+    private Path fileLogsPath;
+    private Path fileMetricsPath;
+    private int fileBufferSize = 8192; // 8KB default
 
     // Metrics configuration
     private AggregationTemporality metricsTemporality = AggregationTemporality.CUMULATIVE;
@@ -255,6 +267,26 @@ public class TelemetryConfig {
         resourceAttributes.put(key, value);
     }
 
+    // -- Exporter type --
+
+    /**
+     * Returns the exporter type.
+     *
+     * @return "otlp" or "file"
+     */
+    public String getExporterType() {
+        return exporterType;
+    }
+
+    /**
+     * Sets the exporter type.
+     *
+     * @param exporterType "otlp" for OTLP/HTTP export, "file" for JSONL file export
+     */
+    public void setExporterType(String exporterType) {
+        this.exporterType = exporterType;
+    }
+
     // -- Exporter settings --
 
     /**
@@ -416,14 +448,20 @@ public class TelemetryConfig {
      */
     public void setHeaders(String headers) {
         this.headers = headers;
+        this.parsedHeadersCache = null;
     }
 
     /**
      * Parses the headers string into a map.
+     * The result is cached and invalidated when headers are set.
      *
-     * @return a map of header names to values
+     * @return an unmodifiable map of header names to values
      */
     public Map<String, String> getParsedHeaders() {
+        Map<String, String> cache = parsedHeadersCache;
+        if (cache != null) {
+            return Collections.unmodifiableMap(cache);
+        }
         Map<String, String> result = new HashMap<String, String>();
         if (headers != null && headers.length() > 0) {
             int start = 0;
@@ -443,7 +481,8 @@ public class TelemetryConfig {
                 start = end + 1;
             }
         }
-        return result;
+        parsedHeadersCache = result;
+        return Collections.unmodifiableMap(result);
     }
 
     /**
@@ -520,6 +559,93 @@ public class TelemetryConfig {
         this.truststoreFormat = truststoreFormat;
     }
 
+    // -- File exporter settings --
+
+    /**
+     * Returns the file path for trace JSONL output.
+     * When null, traces are written to stdout.
+     */
+    public Path getFileTracesPath() {
+        return fileTracesPath;
+    }
+
+    /**
+     * Sets the file path for trace JSONL output.
+     *
+     * @param path the file path, or null for stdout
+     */
+    public void setFileTracesPath(Path path) {
+        this.fileTracesPath = path;
+    }
+
+    public void setFileTracesPath(String path) {
+        this.fileTracesPath = path != null ? Path.of(path) : null;
+    }
+
+    /**
+     * Returns the file path for log JSONL output.
+     * When null, logs are written to stdout.
+     */
+    public Path getFileLogsPath() {
+        return fileLogsPath;
+    }
+
+    /**
+     * Sets the file path for log JSONL output.
+     *
+     * @param path the file path, or null for stdout
+     */
+    public void setFileLogsPath(Path path) {
+        this.fileLogsPath = path;
+    }
+
+    public void setFileLogsPath(String path) {
+        this.fileLogsPath = path != null ? Path.of(path) : null;
+    }
+
+    /**
+     * Returns the file path for metrics JSONL output.
+     * When null, metrics are written to stdout.
+     */
+    public Path getFileMetricsPath() {
+        return fileMetricsPath;
+    }
+
+    /**
+     * Sets the file path for metrics JSONL output.
+     *
+     * @param path the file path, or null for stdout
+     */
+    public void setFileMetricsPath(Path path) {
+        this.fileMetricsPath = path;
+    }
+
+    public void setFileMetricsPath(String path) {
+        this.fileMetricsPath = path != null ? Path.of(path) : null;
+    }
+
+    /**
+     * Returns the buffer size for file exporter I/O in bytes.
+     */
+    public int getFileBufferSize() {
+        return fileBufferSize;
+    }
+
+    /**
+     * Sets the buffer size for file exporter I/O in bytes.
+     * Writes are accumulated in a buffer of this size before being
+     * flushed to the underlying file channel.
+     *
+     * @param fileBufferSize buffer size in bytes (default 8192)
+     */
+    public void setFileBufferSize(int fileBufferSize) {
+        this.fileBufferSize = fileBufferSize;
+    }
+
+    public void setFileBufferSize(String fileBufferSize) {
+        this.fileBufferSize = Integer.parseInt(fileBufferSize);
+    }
+
     // -- Batching settings --
 
     /**
@@ -576,13 +702,20 @@ public class TelemetryConfig {
      * Initializes the telemetry configuration.
      * This method is called automatically by the ComponentRegistry after
      * all properties have been set via the gumdroprc configuration file.
-     * 
-     * <p>If any OTLP endpoints are configured (tracesEndpoint, logsEndpoint,
-     * or metricsEndpoint), an OTLPExporter is automatically created and started.
+     *
+     * <p>If the exporter type is "file", an {@link OTLPFileExporter} is created.
+     * Otherwise, if any OTLP endpoints are configured, an {@link OTLPExporter}
+     * is created.
      */
     public void init() {
-        // Only create exporter if at least one endpoint is configured
-        if (hasAnyEndpoint() && exporter == null) {
+        if (exporter != null) {
+            return;
+        }
+        if ("file".equalsIgnoreCase(exporterType)) {
+            exporter = new OTLPFileExporter(this,
+                    fileTracesPath, fileLogsPath, fileMetricsPath);
+            registerShutdownHook();
+        } else if (hasAnyEndpoint()) {
             exporter = new OTLPExporter(this);
             registerShutdownHook();
         }
@@ -714,7 +847,7 @@ public class TelemetryConfig {
      * Returns all registered meters.
      */
     public Map<String, Meter> getMeters() {
-        return new HashMap<>(meters);
+        return Collections.unmodifiableMap(meters);
     }
 
     // -- Shutdown handling --

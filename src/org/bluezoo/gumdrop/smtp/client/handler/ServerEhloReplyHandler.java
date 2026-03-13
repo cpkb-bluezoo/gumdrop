@@ -25,7 +25,8 @@ import java.util.List;
 
 /**
  * Handler for EHLO command response.
- * 
+ * RFC 5321 §4.1.1.1 (250 EHLO reply).
+ *
  * <p>This handler receives the server's response to an EHLO command, including
  * the advertised SMTP extensions. On success, the handler receives detailed
  * capability information and a {@link ClientSession} interface for continuing
@@ -37,6 +38,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientSession
  * @see ClientHelloState
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerEhloReplyHandler extends ServerReplyHandler {
 

@@ -54,9 +54,11 @@
  *
  * <ul>
  *   <li>Non-blocking I/O using the shared SelectorLoop</li>
- *   <li>STARTTLS support for upgrading to encrypted connections (RFC 2595)</li>
- *   <li>Implicit TLS (IMAPS, port 993)</li>
- *   <li>SASL authentication (RFC 4959)</li>
+ *   <li>STARTTLS support for upgrading to encrypted connections
+ *       (RFC 9051 section 6.2.1)</li>
+ *   <li>Implicit TLS (IMAPS, port 993, RFC 8314 section 3.3)</li>
+ *   <li>SASL authentication with initial response (RFC 9051 section 6.2.2,
+ *       RFC 4959)</li>
  *   <li>LOGIN authentication</li>
  *   <li>Tagged command tracking with auto-generated tags</li>
  *   <li>Streaming FETCH body literal data via ByteBuffer chunks</li>

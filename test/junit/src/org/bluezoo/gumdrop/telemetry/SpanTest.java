@@ -54,9 +54,9 @@ public class SpanTest {
         Trace trace = new Trace("test", SpanKind.SERVER);
         Span span = trace.getRootSpan();
         
-        byte[] spanId = span.getSpanId();
+        SpanId spanId = span.getSpanId();
         assertNotNull(spanId);
-        assertEquals(SpanContext.SPAN_ID_LENGTH, spanId.length);
+        assertEquals(SpanContext.SPAN_ID_LENGTH, spanId.getBytes().length);
     }
 
     @Test
@@ -64,15 +64,15 @@ public class SpanTest {
         Trace trace = new Trace("test", SpanKind.SERVER);
         Span span = trace.getRootSpan();
         
-        byte[] id1 = span.getSpanId();
-        byte[] id2 = span.getSpanId();
+        byte[] id1 = span.getSpanId().getBytes();
+        byte[] id2 = span.getSpanId().getBytes();
         
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
         
         // Modify returned array
         id1[0] = 0;
-        assertNotEquals(id1[0], span.getSpanId()[0]);
+        assertNotEquals(id1[0], span.getSpanId().getBytes()[0]);
     }
 
     @Test
@@ -424,8 +424,8 @@ public class SpanTest {
         SpanContext ctx = span.getSpanContext();
         
         assertNotNull(ctx);
-        assertArrayEquals(trace.getTraceId(), ctx.getTraceId());
-        assertArrayEquals(span.getSpanId(), ctx.getSpanId());
+        assertEquals(trace.getTraceId(), ctx.getTraceId());
+        assertEquals(span.getSpanId(), ctx.getSpanId());
         assertEquals(trace.isSampled(), ctx.isSampled());
     }
 

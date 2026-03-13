@@ -118,9 +118,11 @@ S: A001 OK IDLE terminated
 <h4>NAMESPACE (RFC 2342)</h4>
 
 <p>
-Exposes the mailbox hierarchy structure, distinguishing between personal
-mailboxes, other users' shared mailboxes, and public folders. Helps clients
-discover the hierarchy delimiter and namespace prefixes.
+Exposes the mailbox hierarchy structure, including personal, shared, and
+other-users' namespaces when configured. The <code>MailboxStore</code> can
+return shared and other-users namespace prefixes via
+<code>getSharedNamespace()</code> and <code>getOtherUsersNamespace()</code>.
+Helps clients discover the hierarchy delimiter and namespace prefixes.
 </p>
 
 <h4>MOVE (RFC 6851)</h4>
@@ -145,6 +147,10 @@ enabling display of storage limits in mail client interfaces.
 <li><b>UNSELECT</b> - unselect mailbox without expunge</li>
 <li><b>LIST-EXTENDED</b> - enhanced LIST command with selection options</li>
 <li><b>LIST-STATUS</b> - return STATUS data with LIST responses</li>
+<li><b>LITERAL-</b> (RFC 7888) - non-synchronizing literals up to 4096 bytes for
+reduced round-trips on APPEND</li>
+<li><b>ID</b> (RFC 2971) - server identification; configurable via
+<code>setServerIdFields()</code></li>
 </ul>
 
 <h3 id="authentication">Authentication</h3>
@@ -204,6 +210,9 @@ The server advertises available mechanisms in the CAPABILITY response:
 <li><b>CRAM-MD5</b> - challenge-response; password not transmitted</li>
 <li><b>DIGEST-MD5</b> - digest authentication (RFC 2831)</li>
 <li><b>SCRAM-SHA-256</b> - salted challenge-response (RFC 7677); recommended</li>
+<li><b>GSSAPI</b> - Kerberos V5 authentication (RFC 4752); keytab-based</li>
+<li><b>OAUTHBEARER</b> - OAuth 2.0 bearer tokens (RFC 7628); requires TLS</li>
+<li><b>EXTERNAL</b> - TLS client certificate (RFC 4422)</li>
 </ul>
 
 <p>
@@ -270,6 +279,7 @@ each format's characteristics and configuration.
 <li><code>keystorePass</code> - keystore password</li>
 <li><code>realm</code> - reference to a Realm for authentication</li>
 <li><code>mailboxFactory</code> - reference to a MailboxFactory</li>
+<li><code>gssapiServer</code> - reference to a GSSAPIServer for Kerberos auth (optional)</li>
 </ul>
 
 <h4>Extension Toggles</h4>
@@ -279,6 +289,8 @@ each format's characteristics and configuration.
 <li><code>enableNAMESPACE</code> - enable NAMESPACE extension (default: true)</li>
 <li><code>enableQUOTA</code> - enable QUOTA extension (default: true)</li>
 <li><code>enableMOVE</code> - enable MOVE extension (default: true)</li>
+<li><code>serverIdFields</code> - map of key/value pairs returned by the ID
+command (RFC 2971). Default: name=gumdrop, version from package manifest.</li>
 </ul>
 
 <h4>Timeouts</h4>
@@ -478,6 +490,31 @@ Quota operations are integrated with Gumdrop's telemetry. Events include:
 <li><code>QUOTA_CHECK</code> - GETQUOTA/GETQUOTAROOT queries</li>
 <li><code>QUOTA_SET</code> - administrator quota changes</li>
 <li><code>QUOTA_EXCEEDED</code> - APPEND denied due to quota</li>
+</ul>
+
+<h3 id="client">IMAP Client</h3>
+
+<p>
+Gumdrop includes a fully asynchronous IMAP client supporting IMAPS, STARTTLS,
+and the full range of RFC 9051 commands. The client uses a callback-driven
+design with typed reply handler interfaces for each command category.
+</p>
+
+<h4>Client QUOTA Support (RFC 9208)</h4>
+
+<p>
+The client provides <code>getQuota()</code> and <code>getQuotaRoot()</code>
+commands via the <code>ClientAuthenticatedState</code> interface. Responses
+are delivered through the <code>ServerQuotaReplyHandler</code> callback:
+</p>
+
+<ul>
+<li><code>handleQuota(quotaRoot, resourceName, usage, limit)</code> &mdash;
+called for each resource triplet in a QUOTA response</li>
+<li><code>handleQuotaRoot(mailbox, quotaRoots)</code> &mdash; called for
+QUOTAROOT untagged responses</li>
+<li><code>handleQuotaComplete()</code> / <code>handleQuotaError(msg)</code>
+&mdash; completion callbacks</li>
 </ul>
 
 <hr/>

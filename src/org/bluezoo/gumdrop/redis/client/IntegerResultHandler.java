@@ -22,10 +22,11 @@
 package org.bluezoo.gumdrop.redis.client;
 
 /**
- * Handler for Redis commands that return an integer.
+ * Handler for Redis commands that return a RESP Integer ({@code :}).
  *
- * <p>Integers are used for counts, lengths, and boolean-like results
- * (where 0 means false and non-zero means true).
+ * <p>Integers are signed 64-bit values used for counts, lengths, and
+ * boolean-like results (where 0 means false and non-zero means true)
+ * (RESP spec — "Integers").
  *
  * <h4>Commands returning integers:</h4>
  * <ul>

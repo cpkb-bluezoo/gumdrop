@@ -74,6 +74,7 @@ import org.bluezoo.gumdrop.ClientHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RedisSession
  * @see ClientHandler
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public interface RedisConnectionReady extends ClientHandler {
 

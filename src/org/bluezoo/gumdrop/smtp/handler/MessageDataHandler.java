@@ -47,6 +47,8 @@ import java.nio.ByteBuffer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MessageStartState#acceptMessage
  * @see MessageEndState
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.4">RFC 5321 §4.1.1.4</a> (DATA)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a> (BDAT)
  */
 public interface MessageDataHandler {
 

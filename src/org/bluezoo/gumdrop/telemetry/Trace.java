@@ -37,7 +37,7 @@ public class Trace {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private final byte[] traceId;
+    private final TraceId traceId;
     private final boolean sampled;
     private final Span rootSpan;
     private Span currentSpan;
@@ -117,26 +117,24 @@ public class Trace {
         return new Trace(rootSpanName, kind);
     }
 
-    private static byte[] generateTraceId() {
+    private static TraceId generateTraceId() {
         byte[] id = new byte[SpanContext.TRACE_ID_LENGTH];
         RANDOM.nextBytes(id);
-        return id;
+        return new TraceId(id);
     }
 
     /**
-     * Returns a copy of the trace ID bytes.
+     * Returns the trace ID.
      */
-    public byte[] getTraceId() {
-        byte[] copy = new byte[SpanContext.TRACE_ID_LENGTH];
-        System.arraycopy(traceId, 0, copy, 0, SpanContext.TRACE_ID_LENGTH);
-        return copy;
+    public TraceId getTraceId() {
+        return traceId;
     }
 
     /**
      * Returns the trace ID as a lowercase hexadecimal string.
      */
     public String getTraceIdHex() {
-        return bytesToHex(traceId);
+        return traceId.toHexString();
     }
 
     /**
@@ -276,16 +274,6 @@ public class Trace {
         }
     }
 
-    private static String bytesToHex(byte[] bytes) {
-        char[] hexChars = "0123456789abcdef".toCharArray();
-        char[] result = new char[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int v = bytes[i] & 0xFF;
-            result[i * 2] = hexChars[v >>> 4];
-            result[i * 2 + 1] = hexChars[v & 0x0F];
-        }
-        return new String(result);
-    }
 
     @Override
     public String toString() {

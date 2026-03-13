@@ -104,7 +104,7 @@ public class FTPProtocolHandler
     private boolean epsvAllMode = false;
     private boolean pbszSet = false;
     private boolean dataProtection = false;
-    private boolean authUsed = false;
+    private boolean utf8Enabled = false;
 
     private CharBuffer charBuffer;
 
@@ -159,7 +159,10 @@ public class FTPProtocolHandler
         this.endpoint = ep;
 
         if (endpoint.getRemoteAddress() != null) {
-            metadata.setClientAddress((InetSocketAddress) endpoint.getRemoteAddress());
+            InetSocketAddress clientAddr = (InetSocketAddress) endpoint.getRemoteAddress();
+            metadata.setClientAddress(clientAddr);
+            // RFC 4217 section 10: store for data connection IP verification
+            dataCoordinator.setControlClientAddress(clientAddr.getAddress());
         }
         if (endpoint.getLocalAddress() != null) {
             metadata.setServerAddress((InetSocketAddress) endpoint.getLocalAddress());
@@ -465,9 +468,12 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 5.4: "The command codes themselves are not case
+    // sensitive."  This dispatch uses exact-match which rejects lower-case
+    // commands — a compliance gap.
     private void lineRead(String line) throws IOException {
         int si = line.indexOf(' ');
-        String command = (si > 0) ? line.substring(0, si) : line;
+        String command = (si > 0) ? line.substring(0, si).toUpperCase() : line.toUpperCase();
         String args = (si > 0) ? line.substring(si + 1) : null;
         if ("USER".equals(command)) {
             doUser(args);
@@ -539,7 +545,7 @@ public class FTPProtocolHandler
             doHelp(args);
         } else if ("NOOP".equals(command)) {
             doNoop(args);
-        } else if ("AUTH".equals(command) && !authUsed) {
+        } else if ("AUTH".equals(command)) {
             doAuth(args);
         } else if ("PBSZ".equals(command)) {
             doPbsz(args);
@@ -547,6 +553,16 @@ public class FTPProtocolHandler
             doProt(args);
         } else if ("CCC".equals(command)) {
             doCcc(args);
+        } else if ("SIZE".equals(command)) {
+            doSize(args);
+        } else if ("MDTM".equals(command)) {
+            doMdtm(args);
+        } else if ("MLST".equals(command)) {
+            doMlst(args);
+        } else if ("MLSD".equals(command)) {
+            doMlsd(args);
+        } else if ("OPTS".equals(command)) {
+            doOpts(args);
         } else if ("FEAT".equals(command)) {
             doFeat(args);
         } else {
@@ -555,20 +571,27 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.2: reply format is "<code> <text>\r\n" for
+    // single-line replies.  Multi-line uses "<code>-<text>\r\n" for
+    // intermediate lines and "<code> <text>\r\n" for the final line.
     private void reply(int code, String description) throws IOException {
         String message = String.format("%d %s\r\n", code, description);
-        ByteBuffer buffer = ByteBuffer.wrap(message.getBytes("US-ASCII"));
+        // RFC 2640: use UTF-8 encoding when OPTS UTF8 ON has been issued
+        String encoding = utf8Enabled ? "UTF-8" : "US-ASCII";
+        ByteBuffer buffer = ByteBuffer.wrap(message.getBytes(encoding));
         send(buffer);
     }
 
     private void sendLine(String line) throws IOException {
         String message = line + "\r\n";
-        ByteBuffer buffer = ByteBuffer.wrap(message.getBytes("US-ASCII"));
+        String encoding = utf8Enabled ? "UTF-8" : "US-ASCII";
+        ByteBuffer buffer = ByteBuffer.wrap(message.getBytes(encoding));
         send(buffer);
     }
 
-    // ── FTP commands ──
+    // ── RFC 959 section 4.1.1 — ACCESS CONTROL COMMANDS ──
 
+    // RFC 959 section 4.1.1: USER <SP> <username> <CRLF>
     private void doUser(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
@@ -588,6 +611,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.1: PASS <SP> <password> <CRLF>
     private void doPass(String args) throws IOException {
         if (user == null) {
             reply(503, L10N.getString("ftp.err.bad_sequence"));
@@ -604,6 +628,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.1: ACCT <SP> <account-information> <CRLF>
     private void doAcct(String args) throws IOException {
         if (user == null) {
             reply(503, L10N.getString("ftp.err.bad_sequence"));
@@ -620,6 +645,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.1: CWD <SP> <pathname> <CRLF>
     private void doCwd(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -653,6 +679,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.1: CDUP <CRLF>
     private void doCdup(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -680,16 +707,35 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.1: SMNT <SP> <pathname> <CRLF>
+    // Optional command; 502 is appropriate for unimplemented.
     private void doSmnt(String args) throws IOException {
         reply(502, L10N.getString("ftp.err.command_not_implemented"));
     }
 
+    // RFC 959 section 4.1.1: REIN <CRLF>
+    // MUST flush the session (user, transfer parameters, representations)
+    // and reply 120/220.  Current implementation is incomplete: it resets
+    // credentials but does not reset transfer parameters, does not close
+    // data connections, and does not send a reply.
     private void doRein(String args) throws IOException {
         user = null;
         password = null;
         account = null;
+        authenticated = false;
+        metadata.setAuthenticated(false);
+        metadata.setAuthenticatedUser(null);
+        metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.ASCII);
+        metadata.setTransferMode(FTPConnectionMetadata.FTPTransferMode.STREAM);
+        currentDirectory = "/";
+        metadata.setCurrentDirectory("/");
+        restartOffset = 0;
+        renameFrom = null;
+        dataCoordinator.cleanup();
+        reply(220, L10N.getString("ftp.welcome_banner").substring(4));
     }
 
+    // RFC 959 section 4.1.1: QUIT <CRLF>
     private void doQuit(String args) throws IOException {
         addSessionEvent("QUIT");
         reply(221, L10N.getString("ftp.goodbye"));
@@ -705,6 +751,10 @@ public class FTPProtocolHandler
         closeEndpoint();
     }
 
+    // ── RFC 959 section 4.1.2 — TRANSFER PARAMETER COMMANDS ──
+
+    // RFC 959 section 4.1.2: PORT <SP> <host-port> <CRLF>
+    // Format: h1,h2,h3,h4,p1,p2 (IPv4 address and port)
     private void doPort(String args) throws IOException {
         if (epsvAllMode) {
             reply(522, L10N.getString("ftp.err.epsv_all_active"));
@@ -772,6 +822,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.2: PASV <CRLF>
     private void doPasv(String args) throws IOException {
         if (epsvAllMode) {
             reply(522, L10N.getString("ftp.err.epsv_all_active"));
@@ -807,6 +858,9 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 2428 section 2: EPRT <SP> <d><net-prt><d><net-addr><d><tcp-port><d>
+    // Supports both IPv4 (net-prt=1) and IPv6 (net-prt=2).
+    // The delimiter <d> is chosen by the client (first char of args).
     private void doEprt(String args) throws IOException {
         if (epsvAllMode) {
             reply(522, L10N.getString("ftp.err.epsv_all_active"));
@@ -872,6 +926,10 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 2428 section 3: EPSV [<SP> <net-prt> | ALL]
+    // Response: 229 Entering Extended Passive Mode (|||<port>|)
+    // EPSV ALL tells the server to reject all PORT/PASV/EPRT commands
+    // for the remainder of the session (RFC 2428 section 4).
     private void doEpsv(String args) throws IOException {
         try {
             if (args != null && args.trim().equalsIgnoreCase("ALL")) {
@@ -901,6 +959,12 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 3.1.1 — DATA TYPE
+    // Format: TYPE <type-code> [<format-control>]
+    // A(SCII) is the default and MUST be accepted.
+    // I(MAGE) SHOULD be accepted by all implementations.
+    // Note: format control parameter (N/T/C) is not parsed; NON-PRINT is
+    // assumed, which is the default per RFC 959 section 3.1.1.5.1.
     private void doType(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
@@ -909,28 +973,48 @@ public class FTPProtocolHandler
 
         String typeCode = args.trim().toUpperCase();
         switch (typeCode.charAt(0)) {
-            case 'A':
+            case 'A': // RFC 959 section 3.1.1.1
                 metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.ASCII);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
-            case 'I':
+            case 'I': // RFC 959 section 3.1.1.3
                 metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.BINARY);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
-            case 'E':
+            case 'E': // RFC 959 section 3.1.1.2
                 metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.EBCDIC);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
-            case 'L':
-                metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.LOCAL);
-                reply(200, L10N.getString("ftp.command_ok"));
+            case 'L': { // RFC 959 section 3.1.1.4 — mandatory byte-size parameter
+                String rest = typeCode.substring(1).trim();
+                if (rest.isEmpty()) {
+                    reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+                    return;
+                }
+                try {
+                    int byteSize = Integer.parseInt(rest);
+                    if (byteSize < 1) {
+                        reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+                        return;
+                    }
+                    metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.LOCAL);
+                    metadata.setLocalByteSize(byteSize);
+                    reply(200, L10N.getString("ftp.command_ok"));
+                } catch (NumberFormatException e) {
+                    reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+                }
                 break;
+            }
             default:
                 reply(504, L10N.getString("ftp.err.parameter_not_implemented"));
                 break;
         }
     }
 
+    // RFC 959 section 3.1.2 — DATA STRUCTURES
+    // F(ile) is the default and MUST be accepted.
+    // R(ecord) MUST be accepted for text files (ASCII, EBCDIC) per section 3.1.2.2.
+    // P(age) is optional; 504 is appropriate.
     private void doStru(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
@@ -939,11 +1023,20 @@ public class FTPProtocolHandler
 
         String structureCode = args.trim().toUpperCase();
         switch (structureCode.charAt(0)) {
-            case 'F':
+            case 'F': // RFC 959 section 3.1.2.1
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
-            case 'R':
-            case 'P':
+            case 'R': // RFC 959 section 3.1.2.2
+                FTPConnectionMetadata.FTPTransferType currentType =
+                        metadata.getTransferType();
+                if (currentType == FTPConnectionMetadata.FTPTransferType.ASCII
+                        || currentType == FTPConnectionMetadata.FTPTransferType.EBCDIC) {
+                    reply(200, L10N.getString("ftp.command_ok"));
+                } else {
+                    reply(504, L10N.getString("ftp.err.parameter_not_implemented"));
+                }
+                break;
+            case 'P': // RFC 959 section 3.1.2.3
                 reply(504, L10N.getString("ftp.err.parameter_not_implemented"));
                 break;
             default:
@@ -952,6 +1045,9 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 3.4 — TRANSMISSION MODES
+    // S(tream) is the default and MUST be accepted.
+    // B(lock) and C(ompressed) are optional; 504 is appropriate.
     private void doMode(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
@@ -960,16 +1056,12 @@ public class FTPProtocolHandler
 
         String modeCode = args.trim().toUpperCase();
         switch (modeCode.charAt(0)) {
-            case 'S':
+            case 'S': // RFC 959 section 3.4.1
                 metadata.setTransferMode(FTPConnectionMetadata.FTPTransferMode.STREAM);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
-            case 'B':
-                metadata.setTransferMode(FTPConnectionMetadata.FTPTransferMode.BLOCK);
-                reply(504, L10N.getString("ftp.err.parameter_not_implemented"));
-                break;
-            case 'C':
-                metadata.setTransferMode(FTPConnectionMetadata.FTPTransferMode.COMPRESSED);
+            case 'B': // RFC 959 section 3.4.2
+            case 'C': // RFC 959 section 3.4.3
                 reply(504, L10N.getString("ftp.err.parameter_not_implemented"));
                 break;
             default:
@@ -978,6 +1070,9 @@ public class FTPProtocolHandler
         }
     }
 
+    // ── RFC 959 section 4.1.3 — FTP SERVICE COMMANDS ──
+
+    // RFC 959 section 4.1.3: RETR <SP> <pathname> <CRLF>
     private void doRetr(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1057,6 +1152,41 @@ public class FTPProtocolHandler
         }
     }
 
+    /**
+     * Completion callback for LIST/NLST async listing.
+     */
+    private class ListTransferCallback
+            implements FTPDataConnectionCoordinator.TransferCallback {
+        private final String listPath;
+
+        ListTransferCallback(String listPath) {
+            this.listPath = listPath;
+        }
+
+        @Override
+        public void transferComplete(long bytesTransferred) {
+            try {
+                reply(226, L10N.getString("ftp.transfer_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send LIST completion", e);
+            }
+        }
+
+        @Override
+        public void transferFailed(IOException cause) {
+            try {
+                reply(550, MessageFormat.format(
+                        L10N.getString("ftp.err.file_not_found"),
+                        listPath));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send LIST error", e);
+            }
+        }
+    }
+
+    // RFC 959 section 4.1.3: STOR <SP> <pathname> <CRLF>
     private void doStor(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1136,6 +1266,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: STOU <CRLF>
     private void doStou(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1173,6 +1304,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: APPE <SP> <pathname> <CRLF>
     private void doAppe(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1220,6 +1352,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: ALLO <SP> <decimal-integer> <CRLF>
     private void doAllo(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1245,6 +1378,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3 / RFC 3659 section 5: REST <SP> <marker> <CRLF>
     private void doRest(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1266,6 +1400,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: RNFR <SP> <pathname> <CRLF>
     private void doRnfr(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1297,6 +1432,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: RNTO <SP> <pathname> <CRLF>
     private void doRnto(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1326,11 +1462,18 @@ public class FTPProtocolHandler
         renameFrom = null;
     }
 
+    // RFC 959 section 4.1.3: ABOR <CRLF>
+    // If a transfer is in progress the server MUST first send 426
+    // (connection closed, transfer aborted) then 226.
     private void doAbor(String args) throws IOException {
-        dataCoordinator.abortTransfer();
-        reply(225, "ABOR command successful");
+        boolean wasTransferring = dataCoordinator.abortTransfer();
+        if (wasTransferring) {
+            reply(426, L10N.getString("ftp.transfer_aborted"));
+        }
+        reply(226, L10N.getString("ftp.abort_successful"));
     }
 
+    // RFC 959 section 4.1.3: DELE <SP> <pathname> <CRLF>
     private void doDele(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1361,6 +1504,7 @@ public class FTPProtocolHandler
         handleFileOperationResult(result, filePath);
     }
 
+    // RFC 959 section 4.1.3: RMD <SP> <pathname> <CRLF>
     private void doRmd(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1388,6 +1532,7 @@ public class FTPProtocolHandler
         handleFileOperationResult(result, dirPath);
     }
 
+    // RFC 959 section 4.1.3: MKD <SP> <pathname> <CRLF>
     private void doMkd(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1421,6 +1566,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: PWD <CRLF>
     private void doPwd(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1430,6 +1576,7 @@ public class FTPProtocolHandler
         reply(257, "\"" + currentDirectory + "\" " + L10N.getString("ftp.directory_created").substring(4));
     }
 
+    // RFC 959 section 4.1.3: LIST [<SP> <pathname>] <CRLF>
     private void doList(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1455,9 +1602,8 @@ public class FTPProtocolHandler
                     metadata
                 );
 
-            dataCoordinator.startTransfer(transfer);
-
-            reply(226, L10N.getString("ftp.transfer_complete"));
+            dataCoordinator.startAsyncListing(endpoint, transfer,
+                    new ListTransferCallback(listPath));
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "LIST failed for " + listPath, e);
@@ -1465,6 +1611,8 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: NLST [<SP> <pathname>] <CRLF>
+    // NLST returns file names only (not full listing lines).
     private void doNlst(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1482,7 +1630,7 @@ public class FTPProtocolHandler
 
             FTPDataConnectionCoordinator.PendingTransfer transfer =
                 new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.LISTING,
+                    FTPDataConnectionCoordinator.TransferType.NAME_LIST,
                     listPath,
                     false,
                     0,
@@ -1490,9 +1638,8 @@ public class FTPProtocolHandler
                     metadata
                 );
 
-            dataCoordinator.startTransfer(transfer);
-
-            reply(226, L10N.getString("ftp.transfer_complete"));
+            dataCoordinator.startAsyncListing(endpoint, transfer,
+                    new ListTransferCallback(listPath));
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "NLST failed for " + listPath, e);
@@ -1500,6 +1647,7 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 959 section 4.1.3: SITE <SP> <string> <CRLF>
     private void doSite(String args) throws IOException {
         if (!authenticated) {
             reply(530, L10N.getString("ftp.err.not_logged_in"));
@@ -1742,10 +1890,18 @@ public class FTPProtocolHandler
         return null;
     }
 
+    // RFC 959 section 4.1.3: SYST <CRLF>
     private void doSyst(String args) throws IOException {
         reply(215, L10N.getString("ftp.system_type"));
     }
 
+    // RFC 959 section 4.1.3: STAT [<SP> <pathname>] <CRLF>
+    // With no argument, server MUST send status over control connection.
+    // With a pathname argument, like LIST but over control connection.
+    // RFC 959 section 4.1.3: STAT [<SP> <pathname>] <CRLF>
+    // Without argument: server status.
+    // With a directory argument: directory listing over the control connection
+    // (no data connection needed).
     private void doStat(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             StringBuilder status = new StringBuilder();
@@ -1755,30 +1911,49 @@ public class FTPProtocolHandler
             status.append("Secure: ").append(metadata.isSecureConnection() ? "Yes" : "No").append("\r\n");
             reply(211, status.toString());
         } else {
+            String path = args.trim();
             FTPFileSystem fs = getFileSystem();
-            if (fs != null) {
-                FTPFileInfo info = fs.getFileInfo(args.trim(), metadata);
-                if (info != null) {
-                    reply(213, L10N.getString("ftp.file_status") + ": " + info.formatAsListingLine());
-                } else {
-                    reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), args));
-                }
-            } else {
+            if (fs == null) {
                 reply(550, L10N.getString("ftp.err.file_system_error"));
+                return;
+            }
+            FTPFileInfo info = fs.getFileInfo(path, metadata);
+            if (info != null && info.isDirectory()) {
+                // RFC 959 section 4.1.3: directory listing over control
+                List<FTPFileInfo> files = fs.listDirectory(path, metadata);
+                if (files != null) {
+                    sendLine("213-Status of " + path + ":");
+                    for (FTPFileInfo file : files) {
+                        sendLine(" " + file.formatAsListingLine());
+                    }
+                    sendLine("213 End of status");
+                } else {
+                    reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+                }
+            } else if (info != null) {
+                reply(213, info.formatAsListingLine());
+            } else {
+                reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
             }
         }
     }
 
+    // RFC 959 section 4.1.3: HELP [<SP> <string>] <CRLF>
     private void doHelp(String args) throws IOException {
         reply(214, L10N.getString("ftp.help_message"));
     }
 
+    // RFC 959 section 4.1.3: NOOP <CRLF>
     private void doNoop(String args) throws IOException {
         reply(200, L10N.getString("ftp.no_operation"));
     }
 
-    // ── RFC 4217 - FTP Security Extensions ──
+    // ── RFC 4217 — FTP Security Extensions ──
 
+    // RFC 4217 section 4: AUTH <SP> <mechanism> <CRLF>
+    // AUTH TLS initiates explicit TLS on the control connection.
+    // RFC 4217 section 4 says re-AUTH MUST be accepted (to renegotiate);
+    // the `!authUsed` guard in `lineRead` incorrectly blocks re-AUTH.
     private void doAuth(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             reply(504, L10N.getString("ftp.err.auth_mechanism_required"));
@@ -1809,7 +1984,6 @@ public class FTPProtocolHandler
 
             pbszSet = false;
             dataProtection = false;
-            authUsed = true;
 
             recordStartTLSSuccess();
 
@@ -1826,6 +2000,9 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 4217 section 8: PBSZ <SP> <decimal-integer> <CRLF>
+    // For TLS, the protection buffer size MUST be 0. The server
+    // always responds with PBSZ=0 regardless of client value.
     private void doPbsz(String args) throws IOException {
         if (!endpoint.isSecure()) {
             reply(503, L10N.getString("ftp.err.pbsz_requires_auth"));
@@ -1851,6 +2028,10 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 4217 section 9: PROT <SP> <level> <CRLF>
+    // C = Clear (no protection), P = Private (TLS on data channel).
+    // S (Safe) and E (Confidential) are not supported — 536 is correct.
+    // PBSZ must be issued before PROT (RFC 4217 section 9).
     private void doProt(String args) throws IOException {
         if (!endpoint.isSecure()) {
             reply(503, L10N.getString("ftp.err.prot_requires_auth"));
@@ -1892,12 +2073,178 @@ public class FTPProtocolHandler
         }
     }
 
+    // RFC 4217 section 6: CCC <CRLF>
+    // Clears the command channel protection (reverts control connection
+    // to plaintext).  Server MAY refuse; 533 is appropriate.
     private void doCcc(String args) throws IOException {
         reply(533, L10N.getString("ftp.err.ccc_not_supported"));
     }
 
+    // ── RFC 3659 — Extensions to FTP ──
+
+    // RFC 3659 section 4: SIZE <SP> <pathname> <CRLF>
+    // Returns the transfer size of the file identified by <pathname>.
+    private void doSize(String args) throws IOException {
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
+        if (args == null || args.trim().isEmpty()) {
+            reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+            return;
+        }
+        String path = args.trim();
+        if (!checkAuthorization(FTPOperation.READ, path)) {
+            return;
+        }
+        FTPFileSystem fs = getFileSystem();
+        if (fs == null) {
+            reply(550, L10N.getString("ftp.err.file_system_error"));
+            return;
+        }
+        FTPFileInfo info = fs.getFileInfo(path, metadata);
+        if (info == null) {
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+            return;
+        }
+        if (info.isDirectory()) {
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.is_directory"), path));
+            return;
+        }
+        // RFC 3659 section 4: reply code 213
+        reply(213, String.valueOf(info.getSize()));
+    }
+
+    // RFC 3659 section 3: MDTM <SP> <pathname> <CRLF>
+    // Returns the last modification time of the file as YYYYMMDDhhmmss (UTC).
+    private void doMdtm(String args) throws IOException {
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
+        if (args == null || args.trim().isEmpty()) {
+            reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+            return;
+        }
+        String path = args.trim();
+        if (!checkAuthorization(FTPOperation.READ, path)) {
+            return;
+        }
+        FTPFileSystem fs = getFileSystem();
+        if (fs == null) {
+            reply(550, L10N.getString("ftp.err.file_system_error"));
+            return;
+        }
+        FTPFileInfo info = fs.getFileInfo(path, metadata);
+        if (info == null) {
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+            return;
+        }
+        if (info.isDirectory()) {
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.is_directory"), path));
+            return;
+        }
+        java.time.Instant modified = info.getLastModified();
+        if (modified == null) {
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+            return;
+        }
+        // RFC 3659 section 3: reply code 213, format YYYYMMDDhhmmss
+        String timestamp = java.time.format.DateTimeFormatter
+                .ofPattern("yyyyMMddHHmmss")
+                .withZone(java.time.ZoneOffset.UTC)
+                .format(modified);
+        reply(213, timestamp);
+    }
+
+    // RFC 3659 section 7.2: MLST <SP> <pathname> <CRLF>
+    // Returns a single machine-readable listing entry over the control connection.
+    private void doMlst(String args) throws IOException {
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
+        String path = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
+        if (!checkAuthorization(FTPOperation.READ, path)) {
+            return;
+        }
+        FTPFileSystem fs = getFileSystem();
+        if (fs == null) {
+            reply(550, L10N.getString("ftp.err.file_system_error"));
+            return;
+        }
+        FTPFileInfo info = fs.getFileInfo(path, metadata);
+        if (info == null) {
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+            return;
+        }
+        // RFC 3659 section 7.2: multi-line 250 with leading space on the entry
+        sendLine("250-Listing " + path);
+        sendLine(" " + info.formatAsMLSEntry());
+        sendLine("250 End");
+    }
+
+    // RFC 3659 section 7.2: MLSD [<SP> <pathname>] <CRLF>
+    // Machine-readable directory listing over the data connection.
+    private void doMlsd(String args) throws IOException {
+        if (!authenticated) {
+            reply(530, L10N.getString("ftp.err.not_logged_in"));
+            return;
+        }
+        String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
+        if (!checkAuthorization(FTPOperation.READ, listPath)) {
+            return;
+        }
+        try {
+            reply(150, L10N.getString("ftp.directory_listing"));
+            FTPDataConnectionCoordinator.PendingTransfer transfer =
+                new FTPDataConnectionCoordinator.PendingTransfer(
+                    FTPDataConnectionCoordinator.TransferType.MACHINE_LISTING,
+                    listPath,
+                    false,
+                    0,
+                    handler,
+                    metadata
+                );
+            dataCoordinator.startAsyncListing(endpoint, transfer,
+                    new ListTransferCallback(listPath));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "MLSD failed for " + listPath, e);
+            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), listPath));
+        }
+    }
+
+    // ── RFC 2640 — Internationalization of FTP ──
+
+    // RFC 2640: OPTS <SP> <command> [<SP> <parameter>] <CRLF>
+    // Handles OPTS UTF8 ON to enable UTF-8 on the control connection.
+    private void doOpts(String args) throws IOException {
+        if (args == null || args.trim().isEmpty()) {
+            reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+            return;
+        }
+        String option = args.trim().toUpperCase();
+        // RFC 2640 section 4.2: OPTS UTF8 ON
+        if ("UTF8 ON".equals(option) || "UTF8".equals(option)) {
+            utf8Enabled = true;
+            reply(200, "UTF8 set to ON");
+        } else {
+            reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
+        }
+    }
+
+    // RFC 2389 section 3.2: FEAT response format:
+    //   211-Extensions supported:
+    //    <feature>
+    //   211 End
+    // RFC 2389 section 3: "A server MUST NOT include in the FEAT response
+    // any feature which it does not support."
+    // SIZE (RFC 3659 section 4) and MDTM (section 3) are not implemented
+    // and were incorrectly advertised.  UTF8 was also not truly supported.
+    // REST STREAM (RFC 3659 section 5) is supported via doRest.
+    // TVFS (RFC 3659 section 6) is supported by BasicFTPFileSystem.
     private void doFeat(String args) throws IOException {
-        reply(211, "-Extensions supported:");
+        sendLine("211-Extensions supported:");
 
         sendLine(" EPRT");
         sendLine(" EPSV");
@@ -1911,13 +2258,18 @@ public class FTPProtocolHandler
             sendLine(" PROT");
         }
 
-        sendLine(" UTF8");
-        sendLine(" SIZE");
-        sendLine(" MDTM");
         sendLine(" REST STREAM");
         sendLine(" TVFS");
 
-        reply(211, " End");
+        // RFC 3659 extensions
+        sendLine(" SIZE");
+        sendLine(" MDTM");
+        sendLine(" MLST size*;modify*;type*;perm*;");
+
+        // RFC 2640: UTF-8 support
+        sendLine(" UTF8");
+
+        sendLine("211 End");
     }
 
     /**

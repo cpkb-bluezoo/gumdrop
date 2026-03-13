@@ -26,12 +26,14 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Represents an LDAP operation result.
+ * Represents an LDAPResult (RFC 4511 section 4.1.9).
  *
  * <p>This is the base result type returned by LDAP operations such as
- * bind, search, modify, add, delete, etc.</p>
+ * bind, search, modify, add, delete, etc. Contains resultCode,
+ * matchedDN, diagnosticMessage, and optional referrals.</p>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.1.9">RFC 4511 §4.1.9</a>
  */
 public class LDAPResult {
 
@@ -39,6 +41,7 @@ public class LDAPResult {
     private final String matchedDN;
     private final String diagnosticMessage;
     private final List<String> referrals;
+    private List<Control> controls;
 
     /**
      * Creates a new LDAP result.
@@ -128,6 +131,34 @@ public class LDAPResult {
      */
     public List<String> getReferrals() {
         return referrals;
+    }
+
+    /**
+     * Returns the response controls (RFC 4511 section 4.1.11).
+     *
+     * @return unmodifiable list of controls, empty if none
+     */
+    public List<Control> getControls() {
+        return controls != null ? controls : Collections.<Control>emptyList();
+    }
+
+    /**
+     * Returns whether response controls are present.
+     *
+     * @return true if at least one control is present
+     */
+    public boolean hasControls() {
+        return controls != null && !controls.isEmpty();
+    }
+
+    /**
+     * Sets the response controls (RFC 4511 section 4.1.11).
+     *
+     * @param controls the controls parsed from the response message
+     */
+    void setControls(List<Control> controls) {
+        this.controls = controls != null ?
+                Collections.unmodifiableList(controls) : null;
     }
 
     @Override

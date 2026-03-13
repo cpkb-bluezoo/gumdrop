@@ -35,9 +35,10 @@ package org.bluezoo.gumdrop.smtp.client;
  * <p>Note: SMTP protocol-level errors (4xx/5xx responses) are handled through
  * the specific callback methods in the {@code Server*ReplyHandler} interfaces,
  * not through this exception.
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public class SMTPException extends Exception {
     

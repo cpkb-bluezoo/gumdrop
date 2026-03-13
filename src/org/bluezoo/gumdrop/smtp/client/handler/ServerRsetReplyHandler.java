@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for RSET command response.
- * 
+ * RFC 5321 §4.1.1.5 (250 reset OK).
+ *
  * <p>This handler receives the server's response to a RSET command. RSET
  * aborts the current mail transaction and returns to the session state,
  * ready for a new MAIL FROM command.
@@ -31,6 +32,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientEnvelope#rset
  * @see ClientEnvelopeReady#rset
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerRsetReplyHandler extends ServerReplyHandler {
 

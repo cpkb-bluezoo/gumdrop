@@ -23,65 +23,72 @@ package org.bluezoo.gumdrop.smtp.client;
 
 /**
  * SMTP client connection state enumeration.
- * 
+ *
  * <p>These states track the internal protocol state of the SMTP client
  * connection. The stage-based interfaces ({@link ClientHelloState},
  * {@link ClientSession}, etc.) provide a type-safe view of what operations
  * are valid at each state.
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  */
 enum SMTPState {
     
     /** Not connected to any server. */
     DISCONNECTED,
     
-    /** Establishing TCP connection to server. */
+    /** Establishing TCP connection to server. RFC 5321 §3.1 */
     CONNECTING,
     
-    /** Connected and ready for commands. */
+    /** Connected and ready for commands. RFC 5321 §4.2 */
     CONNECTED,
     
-    /** HELO command sent, waiting for response. */
+    /** HELO command sent, waiting for response. RFC 5321 §4.1.1.1 */
     HELO_SENT,
     
-    /** EHLO command sent, waiting for response. */
+    /** EHLO command sent, waiting for response. RFC 5321 §4.1.1.1 */
     EHLO_SENT,
     
-    /** STARTTLS command sent, waiting for response. */
+    /** STARTTLS command sent, waiting for response. RFC 3207 */
     STARTTLS_SENT,
     
-    /** AUTH command sent, waiting for response. */
+    /** AUTH command sent, waiting for response. RFC 4954 */
     AUTH_SENT,
     
     /** AUTH abort (*) sent, waiting for response. */
     AUTH_ABORT_SENT,
     
-    /** MAIL FROM command sent, waiting for response. */
+    /** MAIL FROM command sent, waiting for response. RFC 5321 §4.1.1.2 */
     MAIL_FROM_SENT,
     
-    /** MAIL FROM accepted, can add recipients. */
+    /** MAIL FROM accepted, can add recipients. RFC 5321 §4.1.1.2 */
     MAIL_FROM_ACCEPTED,
     
-    /** RCPT TO command sent, waiting for response. */
+    /** RCPT TO command sent, waiting for response. RFC 5321 §4.1.1.3 */
     RCPT_TO_SENT,
     
-    /** At least one RCPT TO accepted, can add more or send DATA. */
+    /** At least one RCPT TO accepted, can add more or send DATA. RFC 5321 §4.1.1.3 */
     RCPT_TO_ACCEPTED,
     
-    /** DATA command sent, waiting for 354 response. */
+    /** DATA command sent, waiting for 354 response. RFC 5321 §4.1.1.4 */
     DATA_COMMAND_SENT,
     
-    /** In data mode, can send message content. */
+    /** In data mode, can send message content. RFC 5321 §4.1.1.4 */
     DATA_MODE,
     
     /** End of data sent, waiting for message acceptance. */
     DATA_END_SENT,
     
-    /** RSET command sent, waiting for response. */
+    /** RSET command sent, waiting for response. RFC 5321 §4.1.1.5 */
     RSET_SENT,
     
-    /** QUIT command sent, waiting for response. */
+    /** VRFY command sent, waiting for response. RFC 5321 §4.1.1.6 */
+    VRFY_SENT,
+
+    /** EXPN command sent, waiting for response. RFC 5321 §4.1.1.7 */
+    EXPN_SENT,
+
+    /** QUIT command sent, waiting for response. RFC 5321 §4.1.1.10 */
     QUIT_SENT,
     
     /** Protocol error or connection failure occurred. */

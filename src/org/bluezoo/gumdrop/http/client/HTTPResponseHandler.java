@@ -27,8 +27,10 @@ import java.nio.ByteBuffer;
  * Handler interface for receiving HTTP response events.
  *
  * <p>This interface uses an event-driven pattern where response components are
- * delivered incrementally as they arrive. This enables streaming processing of
- * large responses and proper handling of HTTP trailer headers.
+ * delivered incrementally as they arrive, matching the message structure
+ * defined by RFC 9112 (HTTP/1.1) and RFC 9113 (HTTP/2). This enables
+ * streaming processing of large responses and proper handling of HTTP
+ * trailer headers (RFC 9112 section 7.1.2).
  *
  * <h3>Event Flow</h3>
  *

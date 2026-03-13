@@ -30,7 +30,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Push-parser for HTTP/2 frames.
+ * Push-parser for HTTP/2 frames (RFC 9113 section 4).
  *
  * <p>This parser consumes complete HTTP/2 frames from a ByteBuffer and delivers
  * them to a registered {@link H2FrameHandler} via typed callback methods.
@@ -41,7 +41,7 @@ import java.util.logging.Logger;
  *   <li>Zero allocation - no Frame objects created</li>
  *   <li>Zero-copy parsing - uses ByteBuffer slices for payloads</li>
  *   <li>Handles partial frames - leaves incomplete data in buffer</li>
- *   <li>Validates frame constraints before delivery</li>
+ *   <li>Validates frame constraints per RFC 9113 before delivery</li>
  * </ul>
  *
  * <p>Usage:
@@ -65,20 +65,26 @@ public class H2Parser {
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h2.L10N");
     private static final Logger LOGGER = Logger.getLogger(H2Parser.class.getName());
 
-    /** Frame header is always 9 bytes: length(3) + type(1) + flags(1) + streamId(4) */
+    /** RFC 9113 section 4.1: frame header is 9 octets: Length(24) Type(8) Flags(8) R(1) StreamId(31) */
     public static final int FRAME_HEADER_LENGTH = 9;
 
-    /** Default maximum frame size per RFC 7540 */
+    /** RFC 9113 section 6.5.2: default SETTINGS_MAX_FRAME_SIZE */
     public static final int DEFAULT_MAX_FRAME_SIZE = 16384;
 
-    /** Minimum allowed max frame size */
+    /** RFC 9113 section 6.5.2: minimum allowed SETTINGS_MAX_FRAME_SIZE */
     public static final int MIN_MAX_FRAME_SIZE = 16384;
 
-    /** Maximum allowed max frame size per RFC 7540 */
-    public static final int MAX_MAX_FRAME_SIZE = 16777215; // 2^24 - 1
+    /** RFC 9113 section 6.5.2: maximum allowed SETTINGS_MAX_FRAME_SIZE (2^24-1) */
+    public static final int MAX_MAX_FRAME_SIZE = 16777215;
 
     private final H2FrameHandler handler;
     private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
+
+    /**
+     * When non-zero, a field block is in progress on this stream and only
+     * CONTINUATION frames for the same stream are permitted (RFC 9113 section 4.3).
+     */
+    private int continuationExpectedStream;
 
     /**
      * Creates a new HTTP/2 frame parser.
@@ -153,7 +159,8 @@ public class H2Parser {
                          | ((buf.get(pos + 7) & 0xff) << 8)
                          | (buf.get(pos + 8) & 0xff);
 
-            // Validate frame size
+            // RFC 9113 section 4.2: frames exceeding SETTINGS_MAX_FRAME_SIZE
+            // MUST be treated as a connection error of type FRAME_SIZE_ERROR
             if (length > maxFrameSize) {
                 handler.frameError(H2FrameHandler.ERROR_FRAME_SIZE_ERROR, streamId,
                     "Frame size " + length + " exceeds maximum " + maxFrameSize);
@@ -188,6 +195,19 @@ public class H2Parser {
      * Dispatches a parsed frame to the appropriate handler method.
      */
     private void dispatchFrame(int type, int flags, int streamId, ByteBuffer payload) {
+        // RFC 9113 section 6.2: While a header block is in progress, only
+        // CONTINUATION frames for the same stream may appear.
+        if (continuationExpectedStream != 0) {
+            if (type != H2FrameHandler.TYPE_CONTINUATION
+                    || streamId != continuationExpectedStream) {
+                handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
+                    "Expected CONTINUATION for stream " + continuationExpectedStream
+                        + ", got " + H2FrameHandler.typeToString(type)
+                        + " on stream " + streamId);
+                return;
+            }
+        }
+
         switch (type) {
             case H2FrameHandler.TYPE_DATA:
                 parseDataFrame(flags, streamId, payload);
@@ -220,7 +240,7 @@ public class H2Parser {
                 parseContinuationFrame(flags, streamId, payload);
                 break;
             default:
-                // Unknown frame types should be ignored per RFC 7540
+                // RFC 9113 section 4.1: implementations MUST ignore unknown frame types
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine("Ignoring unknown frame type: " + type);
                 }
@@ -228,7 +248,9 @@ public class H2Parser {
         }
     }
 
+    // RFC 9113 section 6.1: DATA frame parsing
     private void parseDataFrame(int flags, int streamId, ByteBuffer payload) {
+        // RFC 9113 section 6.1: DATA frames MUST be associated with a stream
         if (streamId == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
                 "DATA frame with stream ID 0");
@@ -258,7 +280,9 @@ public class H2Parser {
         handler.dataFrameReceived(streamId, endStream, data);
     }
 
+    // RFC 9113 section 6.2: HEADERS frame parsing
     private void parseHeadersFrame(int flags, int streamId, ByteBuffer payload) {
+        // RFC 9113 section 6.2: HEADERS frames MUST be associated with a stream
         if (streamId == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
                 "HEADERS frame with stream ID 0");
@@ -304,10 +328,17 @@ public class H2Parser {
         ByteBuffer headerBlockFragment = payload.slice();
         payload.limit(savedLimit);
 
+        // RFC 9113 section 4.3: if END_HEADERS is not set, the next frame
+        // on this connection MUST be a CONTINUATION for the same stream
+        if (!endHeaders) {
+            continuationExpectedStream = streamId;
+        }
+
         handler.headersFrameReceived(streamId, endStream, endHeaders,
             streamDependency, exclusive, weight, headerBlockFragment);
     }
 
+    // RFC 9113 section 6.3: PRIORITY frame parsing
     private void parsePriorityFrame(int streamId, ByteBuffer payload) {
         if (streamId == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
@@ -331,6 +362,7 @@ public class H2Parser {
         handler.priorityFrameReceived(streamId, streamDependency, exclusive, weight);
     }
 
+    // RFC 9113 section 6.4: RST_STREAM frame parsing
     private void parseRstStreamFrame(int streamId, ByteBuffer payload) {
         if (streamId == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
@@ -351,7 +383,9 @@ public class H2Parser {
         handler.rstStreamFrameReceived(streamId, errorCode);
     }
 
+    // RFC 9113 section 6.5: SETTINGS frame parsing
     private void parseSettingsFrame(int flags, int streamId, ByteBuffer payload) {
+        // RFC 9113 section 6.5: SETTINGS frames always apply to a connection, stream ID MUST be 0
         if (streamId != 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
                 "SETTINGS frame with non-zero stream ID");
@@ -360,12 +394,14 @@ public class H2Parser {
 
         boolean ack = (flags & H2FrameHandler.FLAG_ACK) != 0;
 
+        // RFC 9113 section 6.5: ACK SETTINGS MUST have empty payload
         if (ack && payload.remaining() != 0) {
             handler.frameError(H2FrameHandler.ERROR_FRAME_SIZE_ERROR, 0,
                 "SETTINGS ACK frame must be empty");
             return;
         }
 
+        // RFC 9113 section 6.5: payload MUST be a multiple of 6 octets
         if (payload.remaining() % 6 != 0) {
             handler.frameError(H2FrameHandler.ERROR_FRAME_SIZE_ERROR, 0,
                 "SETTINGS frame size must be multiple of 6");
@@ -381,20 +417,23 @@ public class H2Parser {
                 | ((payload.get() & 0xff) << 8)
                 | (payload.get() & 0xff);
 
-            // Validate specific settings
+            // RFC 9113 section 6.5.2: validate individual settings
             if (identifier == H2FrameHandler.SETTINGS_ENABLE_PUSH) {
+                // RFC 9113 section 6.5.2: value MUST be 0 or 1
                 if (value != 0 && value != 1) {
                     handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
                         "SETTINGS_ENABLE_PUSH must be 0 or 1");
                     return;
                 }
             } else if (identifier == H2FrameHandler.SETTINGS_MAX_FRAME_SIZE) {
+                // RFC 9113 section 6.5.2: value MUST be between 2^14 and 2^24-1
                 if (value < MIN_MAX_FRAME_SIZE || value > MAX_MAX_FRAME_SIZE) {
                     handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
                         "SETTINGS_MAX_FRAME_SIZE out of range");
                     return;
                 }
             } else if (identifier == H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE) {
+                // RFC 9113 section 6.5.2: value MUST NOT exceed 2^31-1
                 if (value > 0x7FFFFFFF) {
                     handler.frameError(H2FrameHandler.ERROR_FLOW_CONTROL_ERROR, 0,
                         "SETTINGS_INITIAL_WINDOW_SIZE too large");
@@ -408,6 +447,7 @@ public class H2Parser {
         handler.settingsFrameReceived(ack, settings);
     }
 
+    // RFC 9113 section 6.6: PUSH_PROMISE frame parsing
     private void parsePushPromiseFrame(int flags, int streamId, ByteBuffer payload) {
         if (streamId == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
@@ -442,11 +482,18 @@ public class H2Parser {
         ByteBuffer headerBlockFragment = payload.slice();
         payload.limit(savedLimit);
 
+        // RFC 9113 section 4.3: CONTINUATION locking (same as HEADERS)
+        if (!endHeaders) {
+            continuationExpectedStream = streamId;
+        }
+
         handler.pushPromiseFrameReceived(streamId, promisedStreamId,
             endHeaders, headerBlockFragment);
     }
 
+    // RFC 9113 section 6.7: PING frame parsing
     private void parsePingFrame(int flags, int streamId, ByteBuffer payload) {
+        // RFC 9113 section 6.7: stream ID MUST be 0, payload MUST be 8 octets
         if (streamId != 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
                 "PING frame with non-zero stream ID");
@@ -472,7 +519,9 @@ public class H2Parser {
         handler.pingFrameReceived(ack, opaqueData);
     }
 
+    // RFC 9113 section 6.8: GOAWAY frame parsing
     private void parseGoawayFrame(int streamId, ByteBuffer payload) {
+        // RFC 9113 section 6.8: stream ID MUST be 0
         if (streamId != 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
                 "GOAWAY frame with non-zero stream ID");
@@ -499,6 +548,7 @@ public class H2Parser {
         handler.goawayFrameReceived(lastStreamId, errorCode, debugData);
     }
 
+    // RFC 9113 section 6.9: WINDOW_UPDATE frame parsing
     private void parseWindowUpdateFrame(int streamId, ByteBuffer payload) {
         if (payload.remaining() != 4) {
             handler.frameError(H2FrameHandler.ERROR_FRAME_SIZE_ERROR, streamId,
@@ -511,6 +561,7 @@ public class H2Parser {
             | ((payload.get() & 0xff) << 8)
             | (payload.get() & 0xff);
 
+        // RFC 9113 section 6.9: increment of 0 MUST be treated as PROTOCOL_ERROR
         if (windowSizeIncrement == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
                 "WINDOW_UPDATE increment must be non-zero");
@@ -520,6 +571,7 @@ public class H2Parser {
         handler.windowUpdateFrameReceived(streamId, windowSizeIncrement);
     }
 
+    // RFC 9113 section 6.10: CONTINUATION frame parsing
     private void parseContinuationFrame(int flags, int streamId, ByteBuffer payload) {
         if (streamId == 0) {
             handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
@@ -527,7 +579,16 @@ public class H2Parser {
             return;
         }
 
+        if (continuationExpectedStream == 0) {
+            handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
+                "Unexpected CONTINUATION frame (no header block in progress)");
+            return;
+        }
+
         boolean endHeaders = (flags & H2FrameHandler.FLAG_END_HEADERS) != 0;
+        if (endHeaders) {
+            continuationExpectedStream = 0;
+        }
         ByteBuffer headerBlockFragment = payload.slice();
 
         handler.continuationFrameReceived(streamId, endHeaders, headerBlockFragment);

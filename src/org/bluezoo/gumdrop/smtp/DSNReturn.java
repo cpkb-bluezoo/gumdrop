@@ -25,21 +25,22 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 
 /**
- * DSN return type as defined in RFC 3461.
- * 
+ * DSN return type as defined in RFC 3461 §4.3 (RET parameter).
+ *
  * <p>This value is specified in the MAIL FROM command via the RET parameter
  * and indicates how much of the original message should be included in
  * any Delivery Status Notification that is generated:
- * 
+ *
  * <ul>
  *   <li>{@link #FULL} - Include the full original message</li>
  *   <li>{@link #HDRS} - Include only the message headers</li>
  * </ul>
- * 
+ *
  * <p>Example: {@code MAIL FROM:<sender@example.com> RET=HDRS}
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.3">RFC 3461 §4.3</a>
  */
 public enum DSNReturn {
 

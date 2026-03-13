@@ -47,6 +47,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ConnectedState#acceptConnection
  * @see AuthenticateState
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-4">RFC 1939 section 4 — The AUTHORIZATION State</a>
  */
 public interface AuthorizationHandler {
 

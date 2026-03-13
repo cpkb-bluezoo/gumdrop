@@ -26,10 +26,11 @@ import java.util.List;
 import org.bluezoo.gumdrop.redis.codec.RESPValue;
 
 /**
- * Handler for Redis commands that return an array.
+ * Handler for Redis commands that return a RESP Array ({@code *}).
  *
  * <p>Arrays contain a list of RESP values which may be bulk strings,
- * integers, nested arrays, or null values.
+ * integers, nested arrays, or null values. Null arrays ({@code *-1\r\n})
+ * are dispatched to {@link #handleNull} (RESP spec — "Arrays").
  *
  * <h4>Commands returning arrays:</h4>
  * <ul>

@@ -35,19 +35,24 @@ import java.util.List;
 /**
  * Parses WebDAV request XML bodies using the Gonzalez streaming parser.
  *
+ * <p>Implements RFC 4918 §14 (XML element definitions).
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 class WebDAVRequestParser extends DefaultHandler {
 
     enum PropfindType { ALLPROP, PROPNAME, PROP }
     enum PropPatchOp { SET, REMOVE }
 
+    /** PROPFIND request body (§14.20 propfind) */
     static class PropfindRequest {
         PropfindType type = PropfindType.ALLPROP;
         final List<PropertyRef> properties = new ArrayList<PropertyRef>();
         final List<PropertyRef> include = new ArrayList<PropertyRef>();
     }
 
+    /** PROPPATCH request body (§14.19 propertyupdate) */
     static class ProppatchRequest {
         final List<PropertyUpdate> updates = new ArrayList<PropertyUpdate>();
     }
@@ -60,6 +65,7 @@ class WebDAVRequestParser extends DefaultHandler {
         boolean isXML;
     }
 
+    /** LOCK request body (§14.11 lockinfo) */
     static class LockRequest {
         WebDAVLock.Scope scope = WebDAVLock.Scope.EXCLUSIVE;
         WebDAVLock.Type type = WebDAVLock.Type.WRITE;

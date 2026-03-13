@@ -38,13 +38,14 @@ import java.util.logging.Logger;
 
 /**
  * Platform-aware parser for the system hosts file.
- *
- * <p>Provides hostname-to-address lookups from the local hosts file,
- * matching the precedence used by {@code getaddrinfo()}: hosts file
- * entries take priority over DNS.
+ * Not specified by a DNS RFC, but follows POSIX/getaddrinfo() semantics:
+ * hosts file entries take priority over DNS resolution.
+ * RFC 1035 section 7.1 notes that a resolver should check local
+ * information sources before making network queries.
  *
  * <p>This class is a shared singleton. The hosts file is parsed lazily
  * on first access and the result is cached in memory.
+ * Hostnames are compared case-insensitively (RFC 1035 section 2.3.3).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

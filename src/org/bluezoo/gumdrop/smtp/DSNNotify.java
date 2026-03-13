@@ -25,23 +25,24 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 
 /**
- * DSN notification types as defined in RFC 3461.
- * 
+ * DSN notification types as defined in RFC 3461 §4.1 (NOTIFY parameter).
+ *
  * <p>These values indicate when the sender wants to receive
  * Delivery Status Notifications for a recipient:
- * 
+ *
  * <ul>
  *   <li>{@link #NEVER} - Never send DSN (mutually exclusive with others)</li>
  *   <li>{@link #SUCCESS} - Send DSN on successful delivery</li>
  *   <li>{@link #FAILURE} - Send DSN on delivery failure</li>
  *   <li>{@link #DELAY} - Send DSN if delivery is delayed</li>
  * </ul>
- * 
- * <p>Multiple values (except NEVER) can be combined, e.g., 
+ *
+ * <p>Multiple values (except NEVER) can be combined, e.g.,
  * {@code NOTIFY=SUCCESS,FAILURE}.
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.1">RFC 3461 §4.1</a>
  */
 public enum DSNNotify {
 

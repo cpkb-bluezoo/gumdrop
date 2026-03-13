@@ -20,12 +20,13 @@
  */
 
 /**
- * HTTP/3 support using quiche's h3 module via JNI.
+ * HTTP/3 (RFC 9114) support using quiche's h3 module via JNI.
  *
- * <p>HTTP/3 runs over QUIC and uses QPACK for header compression
- * (replacing HPACK used by HTTP/2). The quiche library handles all
- * HTTP/3 framing and QPACK encoding/decoding internally. This package
- * bridges between the quiche h3 event model and the gumdrop
+ * <p>HTTP/3 runs over QUIC (RFC 9000) and uses QPACK (RFC 9204) for
+ * header compression (replacing HPACK used by HTTP/2). The quiche
+ * library handles all HTTP/3 framing (RFC 9114 section 7) and QPACK
+ * encoding/decoding internally. This package bridges between the quiche
+ * h3 event model and the gumdrop
  * {@link org.bluezoo.gumdrop.http.HTTPRequestHandler} API.
  *
  * <p>Key classes:
@@ -44,6 +45,28 @@
  *     {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}
  *     callbacks</li>
  * </ul>
+ *
+ * <h2>103 Early Hints (RFC 8297)</h2>
+ *
+ * <p>{@link org.bluezoo.gumdrop.http.h3.H3Stream#sendInformational} sends
+ * 1xx informational responses before the final response. The first
+ * HEADERS frame uses {@code quiche_h3_send_response}; subsequent frames
+ * (additional 1xx or the final response) use
+ * {@code quiche_h3_send_additional_headers} since quiche only allows
+ * {@code send_response} once per stream.
+ *
+ * <h2>WebSocket over HTTP/3 (RFC 9220)</h2>
+ *
+ * <p>The server advertises {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1}
+ * in the initial SETTINGS frame (configured via
+ * {@code quiche_h3_config_enable_extended_connect} in JNI). Clients may
+ * then send an Extended CONNECT request with {@code :protocol = "websocket"}
+ * to establish a WebSocket connection over an HTTP/3 stream.
+ * {@link org.bluezoo.gumdrop.http.h3.H3Stream#upgradeToWebSocket} handles
+ * the upgrade by sending a {@code :status 200} response and bridging the
+ * stream to a {@link org.bluezoo.gumdrop.websocket.WebSocketConnection}.
+ * The {@link org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener} provides
+ * the service-level integration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

@@ -27,7 +27,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Represents an LDAP search request.
+ * Represents an LDAP SearchRequest (RFC 4511 section 4.5.1).
  *
  * <h4>Usage Example</h4>
  * <pre>{@code
@@ -41,6 +41,8 @@ import java.util.List;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.5.1">RFC 4511 §4.5.1</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4515">RFC 4515 — Search Filters</a>
  */
 public class SearchRequest {
 

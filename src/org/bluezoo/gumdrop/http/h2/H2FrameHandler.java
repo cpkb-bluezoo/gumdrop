@@ -35,65 +35,68 @@ import java.util.Map;
  * as parameters. ByteBuffer parameters are slices of the parser's input buffer
  * and should be consumed or copied before returning.
  *
+ * <p>Frame types, flags, error codes, and SETTINGS parameters are defined
+ * per RFC 9113 sections 6 and 7 (obsoletes RFC 7540).
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H2Parser
  */
 public interface H2FrameHandler {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Frame Type Constants
+    // RFC 9113 section 6: Frame Type Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    int TYPE_DATA = 0x0;
-    int TYPE_HEADERS = 0x1;
-    int TYPE_PRIORITY = 0x2;
-    int TYPE_RST_STREAM = 0x3;
-    int TYPE_SETTINGS = 0x4;
-    int TYPE_PUSH_PROMISE = 0x5;
-    int TYPE_PING = 0x6;
-    int TYPE_GOAWAY = 0x7;
-    int TYPE_WINDOW_UPDATE = 0x8;
-    int TYPE_CONTINUATION = 0x9;
+    int TYPE_DATA = 0x0;          // RFC 9113 section 6.1
+    int TYPE_HEADERS = 0x1;       // RFC 9113 section 6.2
+    int TYPE_PRIORITY = 0x2;      // RFC 9113 section 6.3 (deprecated)
+    int TYPE_RST_STREAM = 0x3;    // RFC 9113 section 6.4
+    int TYPE_SETTINGS = 0x4;      // RFC 9113 section 6.5
+    int TYPE_PUSH_PROMISE = 0x5;  // RFC 9113 section 6.6
+    int TYPE_PING = 0x6;          // RFC 9113 section 6.7
+    int TYPE_GOAWAY = 0x7;        // RFC 9113 section 6.8
+    int TYPE_WINDOW_UPDATE = 0x8; // RFC 9113 section 6.9
+    int TYPE_CONTINUATION = 0x9;  // RFC 9113 section 6.10
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Flag Constants
+    // RFC 9113 section 6: Flag Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    int FLAG_ACK = 0x1;
-    int FLAG_END_STREAM = 0x1;
-    int FLAG_END_HEADERS = 0x4;
-    int FLAG_PADDED = 0x8;
-    int FLAG_PRIORITY = 0x20;
+    int FLAG_ACK = 0x1;         // SETTINGS (6.5), PING (6.7)
+    int FLAG_END_STREAM = 0x1;  // DATA (6.1), HEADERS (6.2)
+    int FLAG_END_HEADERS = 0x4; // HEADERS (6.2), PUSH_PROMISE (6.6), CONTINUATION (6.10)
+    int FLAG_PADDED = 0x8;      // DATA (6.1), HEADERS (6.2), PUSH_PROMISE (6.6)
+    int FLAG_PRIORITY = 0x20;   // HEADERS (6.2) (deprecated per RFC 9113 section 5.3)
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Error Code Constants
+    // RFC 9113 section 7: Error Code Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    int ERROR_NO_ERROR = 0x0;
-    int ERROR_PROTOCOL_ERROR = 0x1;
-    int ERROR_INTERNAL_ERROR = 0x2;
-    int ERROR_FLOW_CONTROL_ERROR = 0x3;
-    int ERROR_SETTINGS_TIMEOUT = 0x4;
-    int ERROR_STREAM_CLOSED = 0x5;
-    int ERROR_FRAME_SIZE_ERROR = 0x6;
-    int ERROR_REFUSED_STREAM = 0x7;
-    int ERROR_CANCEL = 0x8;
-    int ERROR_COMPRESSION_ERROR = 0x9;
-    int ERROR_CONNECT_ERROR = 0xa;
-    int ERROR_ENHANCE_YOUR_CALM = 0xb;
-    int ERROR_INADEQUATE_SECURITY = 0xc;
-    int ERROR_HTTP_1_1_REQUIRED = 0xd;
+    int ERROR_NO_ERROR = 0x0;            // graceful shutdown
+    int ERROR_PROTOCOL_ERROR = 0x1;      // generic protocol violation
+    int ERROR_INTERNAL_ERROR = 0x2;      // implementation fault
+    int ERROR_FLOW_CONTROL_ERROR = 0x3;  // flow control limits violated
+    int ERROR_SETTINGS_TIMEOUT = 0x4;    // SETTINGS not acknowledged
+    int ERROR_STREAM_CLOSED = 0x5;       // frame on half-closed/closed stream
+    int ERROR_FRAME_SIZE_ERROR = 0x6;    // invalid frame size
+    int ERROR_REFUSED_STREAM = 0x7;      // stream not processed
+    int ERROR_CANCEL = 0x8;              // stream no longer needed
+    int ERROR_COMPRESSION_ERROR = 0x9;   // HPACK decompression failure
+    int ERROR_CONNECT_ERROR = 0xa;       // underlying connection error
+    int ERROR_ENHANCE_YOUR_CALM = 0xb;   // excessive load
+    int ERROR_INADEQUATE_SECURITY = 0xc; // TLS requirements not met
+    int ERROR_HTTP_1_1_REQUIRED = 0xd;   // use HTTP/1.1 for this request
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SETTINGS Parameter Constants
+    // RFC 9113 section 6.5.2: SETTINGS Parameter Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    int SETTINGS_HEADER_TABLE_SIZE = 0x1;
-    int SETTINGS_ENABLE_PUSH = 0x2;
-    int SETTINGS_MAX_CONCURRENT_STREAMS = 0x3;
-    int SETTINGS_INITIAL_WINDOW_SIZE = 0x4;
-    int SETTINGS_MAX_FRAME_SIZE = 0x5;
-    int SETTINGS_MAX_HEADER_LIST_SIZE = 0x6;
+    int SETTINGS_HEADER_TABLE_SIZE = 0x1;      // RFC 7541 section 6.3
+    int SETTINGS_ENABLE_PUSH = 0x2;            // RFC 9113 section 6.5.2
+    int SETTINGS_MAX_CONCURRENT_STREAMS = 0x3; // RFC 9113 section 6.5.2
+    int SETTINGS_INITIAL_WINDOW_SIZE = 0x4;    // RFC 9113 section 6.5.2
+    int SETTINGS_MAX_FRAME_SIZE = 0x5;         // RFC 9113 section 6.5.2
+    int SETTINGS_MAX_HEADER_LIST_SIZE = 0x6;   // RFC 9113 section 6.5.2
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame Callbacks

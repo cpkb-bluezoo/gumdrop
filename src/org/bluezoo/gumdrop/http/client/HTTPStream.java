@@ -29,13 +29,14 @@ import org.bluezoo.gumdrop.http.Headers;
 /**
  * Internal implementation of {@link HTTPRequest} representing an HTTP stream.
  *
- * <p>In HTTP/2, each request/response exchange occurs on a separate stream.
+ * <p>In HTTP/2 (RFC 9113 section 5.1), each request/response exchange occurs
+ * on a separate stream identified by a client-initiated odd stream ID.
  * In HTTP/1.1, there is logically one stream per request on the connection.
  * This class encapsulates the request state and delegates actual I/O to
  * the owning {@link HTTPClientProtocolHandler}.
  *
  * <p>Instances are created internally via factory methods like
- * factory methods like {@link HTTPClient#get(String)}.
+ * {@link HTTPClient#get(String)}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -52,7 +53,7 @@ class HTTPStream implements HTTPRequest {
     // HTTP/2 stream ID (assigned when sent)
     int streamId;
     
-    // HTTP/2 priority settings
+    // HTTP/2 priority settings (RFC 9113 section 5.3: deprecated)
     private int priority = 16;  // Default weight
     private HTTPRequest dependency;
     private boolean exclusive;

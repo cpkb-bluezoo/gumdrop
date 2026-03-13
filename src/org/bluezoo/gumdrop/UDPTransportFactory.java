@@ -21,23 +21,20 @@
 
 package org.bluezoo.gumdrop;
 
-import java.io.FileInputStream;
+import org.bluezoo.gumdrop.util.TLSUtils;
+
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.channels.DatagramChannel;
-import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
 
 /**
  * UDP transport factory.
@@ -74,16 +71,9 @@ public class UDPTransportFactory extends TransportFactory {
 
         if (keystoreFile != null && keystorePass != null) {
             try {
-                KeyStore ks = KeyStore.getInstance(keystoreFormat);
-                InputStream in = new FileInputStream(keystoreFile.toFile());
-                char[] pass = keystorePass.toCharArray();
-                ks.load(in, pass);
-                in.close();
-                KeyManagerFactory f = KeyManagerFactory.getInstance(
-                        KeyManagerFactory.getDefaultAlgorithm());
-                f.init(ks, pass);
                 dtlsContext = SSLContext.getInstance("DTLSv1.2");
-                KeyManager[] km = f.getKeyManagers();
+                KeyManager[] km = TLSUtils.loadKeyManagers(
+                        keystoreFile, keystorePass, keystoreFormat);
                 TrustManager[] tm = loadTrustManagers();
                 SecureRandom random = new SecureRandom();
                 dtlsContext.init(km, tm, random);
@@ -102,15 +92,8 @@ public class UDPTransportFactory extends TransportFactory {
      */
     private TrustManager[] loadTrustManagers() throws Exception {
         if (truststoreFile != null && truststorePass != null) {
-            KeyStore ts = KeyStore.getInstance(truststoreFormat);
-            try (InputStream in = new FileInputStream(
-                    truststoreFile.toFile())) {
-                ts.load(in, truststorePass.toCharArray());
-            }
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                    TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init(ts);
-            return tmf.getTrustManagers();
+            return TLSUtils.loadTrustManagers(
+                    truststoreFile, truststorePass, truststoreFormat);
         }
         return null;
     }

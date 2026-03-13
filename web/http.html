@@ -48,6 +48,7 @@ container</a> and <a href="webdav.html">file server</a>.
 <li><a href="#server-handler">Server Handler API</a></li>
 <li><a href="websocket.html">WebSocket Service &amp; Client</a> (separate page)</li>
 <li><a href="#upgrades">Protocol Upgrades</a></li>
+<li><a href="#connection-management">Connection Management</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#client">HTTP Client</a></li>
 <li><a href="webdav.html">File Server &amp; WebDAV</a> (separate page)</li>
@@ -221,12 +222,58 @@ supported by the network, clients fall back to HTTP/2 or HTTP/1.1
 transparently.
 </p>
 
+<h4>Protocol Compliance</h4>
+
+<p>
+The server validates incoming requests per RFC 9114:
+</p>
+
+<ul>
+<li><b>Pseudo-header validation</b> (RFC 9114 section 4.1.2) &ndash;
+requests missing mandatory <code>:method</code>, <code>:scheme</code>, or
+<code>:path</code> pseudo-headers are rejected with a 400 response.
+CONNECT requests are exempted from the <code>:scheme</code>/<code>:path</code>
+requirement per section 4.3.1.</li>
+<li><b>GOAWAY last-stream-ID tracking</b> (RFC 9114 section 5.2) &ndash;
+when a GOAWAY is received from the client, the server records the indicated
+last-stream-ID and rejects new streams beyond it. A server GOAWAY is sent
+in response.</li>
+<li><b>HTTP Priority</b> (RFC 9218) &ndash; the <code>Priority</code>
+header is passed through to handlers for scheduling decisions. The
+client emits a <code>Priority</code> header with the
+<code>u=</code> urgency parameter.</li>
+</ul>
+
+<p>
+On the client side:
+</p>
+
+<ul>
+<li><b>:status validation</b> (RFC 9114 section 4.3.2) &ndash; responses
+missing the mandatory <code>:status</code> pseudo-header are treated as
+malformed and the stream is failed.</li>
+<li><b>1xx informational responses</b> (RFC 9114 section 4.1) &ndash;
+interim 1xx HEADERS frames (e.g. 100 Continue, 103 Early Hints) are
+consumed without dispatching <code>ok()</code>/<code>error()</code>;
+the client awaits the final response.</li>
+<li><b>GOAWAY stream retry</b> (RFC 9114 section 5.2) &ndash; when
+a server GOAWAY is received, streams with IDs above the last-stream-ID
+are failed with a retryable error so the caller can reconnect.</li>
+</ul>
+
 <h4>HTTP3Listener Properties</h4>
 
 <ul>
 <li><code>port</code> &ndash; UDP listening port (default: 443)</li>
 <li><code>cert-file</code> &ndash; path to PEM certificate chain (required)</li>
 <li><code>key-file</code> &ndash; path to PEM private key (required)</li>
+<li><code>quic-max-idle-timeout</code> &ndash; QUIC max idle timeout in ms (RFC 9000 section 18)</li>
+<li><code>quic-max-data</code> &ndash; connection-level flow control limit in bytes</li>
+<li><code>quic-max-stream-data-bidi-local</code> &ndash; per-stream flow control for locally-initiated bidi streams (bytes)</li>
+<li><code>quic-max-stream-data-bidi-remote</code> &ndash; per-stream flow control for remotely-initiated bidi streams (bytes)</li>
+<li><code>quic-max-stream-data-uni</code> &ndash; per-stream flow control for unidirectional streams (bytes)</li>
+<li><code>quic-max-streams-bidi</code> &ndash; max concurrent bidirectional streams</li>
+<li><code>quic-max-streams-uni</code> &ndash; max concurrent unidirectional streams</li>
 </ul>
 
 <h3 id="http2">HTTP/2 Support</h3>
@@ -292,6 +339,26 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
   &lt;/listener&gt;
 &lt;/service&gt;
 </pre>
+
+<h4>Connection Management (HTTP/2)</h4>
+
+<ul>
+<li><b>Graceful GOAWAY</b> &ndash; two-phase shutdown sends an initial GOAWAY
+with maximum last-stream-ID, then a final GOAWAY after a brief delay to
+allow in-flight streams to complete (RFC 9113 section 5.4.1)</li>
+<li><b>GOAWAY debug data</b> &ndash; all GOAWAY frames include a human-readable
+UTF-8 reason string (RFC 9113 section 6.8)</li>
+<li><b>SETTINGS ACK timeout</b> &ndash; connections that do not acknowledge
+SETTINGS within 5 seconds are closed with SETTINGS_TIMEOUT
+(RFC 9113 section 6.5.3)</li>
+<li><b>PING keep-alive</b> &ndash; configurable periodic PING frames detect dead
+connections and keep them alive (RFC 9113 section 6.7)</li>
+<li><b>Idle timeout</b> &ndash; idle HTTP/2 connections are closed with a
+graceful GOAWAY (RFC 9113 section 9.1)</li>
+<li><b>TLS cipher suite validation</b> &ndash; non-AEAD cipher suites on
+TLS 1.2 are rejected with INADEQUATE_SECURITY
+(RFC 9113 section 9.2.2)</li>
+</ul>
 
 <h3 id="server-handler">Server Handler API</h3>
 
@@ -518,6 +585,65 @@ public class StreamHandler extends DefaultHTTPRequestHandler {
 }
 </pre>
 
+<h4>Flow Control and Backpressure</h4>
+
+<p>
+When a handler produces response data faster than the network can deliver it,
+or receives request body data faster than it can process it, backpressure
+prevents unbounded buffering. <code>HTTPResponseState</code> provides three
+methods that work uniformly across HTTP/1.1, HTTP/2, and HTTP/3:
+</p>
+
+<ul>
+<li><b><code>onWritable(callback)</code></b> &ndash; registers a one-shot
+callback invoked when the transport is ready for more response data.
+Use this to send body content in chunks without overwhelming the
+connection.</li>
+<li><b><code>pauseRequestBody()</code></b> &ndash; stops delivery of
+<code>requestBodyContent()</code> events. The transport propagates
+backpressure to the client per-stream (HTTP/2 and HTTP/3) or per-connection
+(HTTP/1.1).</li>
+<li><b><code>resumeRequestBody()</code></b> &ndash; resumes delivery after a
+pause. Any data that arrived while paused is delivered promptly.</li>
+</ul>
+
+<pre>
+// Streaming a large file with write-side backpressure
+state.startResponseBody();
+sendNextChunk(state, channel);
+
+void sendNextChunk(HTTPResponseState state, ReadableByteChannel src) {
+    ByteBuffer buf = ByteBuffer.allocate(8192);
+    int n = src.read(buf);
+    if (n > 0) {
+        buf.flip();
+        state.responseBodyContent(buf);
+        state.onWritable(() -&gt; sendNextChunk(state, src));
+    } else {
+        state.endResponseBody();
+        state.complete();
+    }
+}
+</pre>
+
+<pre>
+// Throttling request body consumption with read-side backpressure
+public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    if (!processor.ready()) {
+        state.pauseRequestBody();
+        processor.onReady(() -&gt; state.resumeRequestBody());
+        return;
+    }
+    processor.consume(data);
+}
+</pre>
+
+<p>
+For HTTP/2 and HTTP/3, backpressure is per-stream: pausing one stream does
+not affect other streams on the same connection. For HTTP/1.1, it operates
+at the connection level via TCP flow control.
+</p>
+
 <h4>Error Handling</h4>
 
 <p>
@@ -571,6 +697,50 @@ frame payload, allowing the client to communicate initial settings before
 the upgrade completes.
 </p>
 
+<h3 id="connection-management">Connection Management</h3>
+
+<p>
+Gumdrop provides several mechanisms for managing HTTP/1.1 persistent
+connections efficiently (RFC 9112 section 9):
+</p>
+
+<h4>Idle Connection Timeout</h4>
+
+<p>
+The <code>idle-timeout-ms</code> property configures how long a persistent
+connection can remain idle before the server closes it (RFC 9112 section 9.8).
+The timer resets each time data is received. A value of 0 disables the timeout.
+</p>
+
+<h4>Graceful Shutdown</h4>
+
+<p>
+The <code>max-requests-per-connection</code> property limits how many requests
+are served on a single persistent connection. When the limit is reached, the
+server adds a <code>Connection: close</code> header to the response, signalling
+the client to close the connection after the current exchange (RFC 9112
+section 9.6). A value of 0 means unlimited.
+</p>
+
+<h4>Expect: 100-continue</h4>
+
+<p>
+When a client sends an <code>Expect: 100-continue</code> header, the server
+sends an interim <code>100 Continue</code> response before the client transmits
+the request body. This avoids wasting bandwidth on large uploads the server
+would ultimately reject (RFC 9110 section 10.1.1).
+</p>
+
+<h4>OPTIONS * and TRACE</h4>
+
+<p>
+The server handles <code>OPTIONS *</code> requests directly, returning a
+<code>200 OK</code> with an <code>Allow</code> header listing the supported
+methods (RFC 9110 section 9.3.7). The <code>TRACE</code> method is supported
+but disabled by default for security; set <code>trace-method-enabled</code> to
+<code>true</code> to enable it (RFC 9110 section 9.3.8).
+</p>
+
 <h3 id="configuration">Configuration</h3>
 
 <h4>HTTPListener Properties</h4>
@@ -588,6 +758,19 @@ inherits standard listener properties and adds HTTP-specific options:
 <li><code>keystore-format</code> &ndash; keystore format (default: PKCS12)</li>
 <li><code>need-client-auth</code> &ndash; require client certificates</li>
 <li><code>frame-padding</code> &ndash; HTTP/2 frame padding (0&ndash;255 bytes)</li>
+<li><code>max-concurrent-streams</code> &ndash; HTTP/2 maximum concurrent streams
+per connection (default: 100)</li>
+<li><code>idle-timeout-ms</code> &ndash; close connections that receive no data for
+this many milliseconds; 0 to disable (default: 0). See
+<a href="#connection-management">Connection Management</a>.</li>
+<li><code>max-requests-per-connection</code> &ndash; send <code>Connection:
+close</code> after this many requests on a persistent connection; 0 for unlimited
+(default: 0)</li>
+<li><code>trace-method-enabled</code> &ndash; enable the HTTP TRACE method
+(default: false, disabled for security)</li>
+<li><code>ping-interval-ms</code> &ndash; interval in milliseconds for server-initiated
+HTTP/2 PING keep-alive frames; 0 to disable (default: 0,
+RFC 9113 section 6.7)</li>
 <li><code>authentication-provider</code> &ndash; HTTP authentication configuration</li>
 </ul>
 
@@ -603,6 +786,13 @@ uses PEM files instead of a keystore:
 <li><code>port</code> &ndash; UDP listening port (default: 443)</li>
 <li><code>cert-file</code> &ndash; path to PEM certificate chain (required)</li>
 <li><code>key-file</code> &ndash; path to PEM private key (required)</li>
+<li><code>quic-max-idle-timeout</code> &ndash; QUIC idle timeout in ms (RFC 9000 section 18)</li>
+<li><code>quic-max-data</code> &ndash; connection-level flow control limit (bytes)</li>
+<li><code>quic-max-stream-data-bidi-local</code> &ndash; stream flow control, local bidi (bytes)</li>
+<li><code>quic-max-stream-data-bidi-remote</code> &ndash; stream flow control, remote bidi (bytes)</li>
+<li><code>quic-max-stream-data-uni</code> &ndash; stream flow control, unidirectional (bytes)</li>
+<li><code>quic-max-streams-bidi</code> &ndash; max concurrent bidi streams</li>
+<li><code>quic-max-streams-uni</code> &ndash; max concurrent uni streams</li>
 </ul>
 
 <h4>Combined HTTP/3 + HTTP/2 + HTTP/1.1</h4>
@@ -702,9 +892,35 @@ non-blocking connections to them via this feature.
 plaintext</li>
 <li><b>Stream multiplexing</b> &ndash; concurrent requests over a single HTTP/2
 or HTTP/3 connection</li>
-<li><b>Authentication</b> &ndash; Basic, Digest, Bearer, and OAuth support</li>
+<li><b>Concurrent stream limiting</b> &ndash; respects the server&rsquo;s
+<code>SETTINGS_MAX_CONCURRENT_STREAMS</code>; excess requests are queued and
+dispatched as capacity becomes available (RFC 9113 section 5.1.2)</li>
+<li><b>Idle connection timeout</b> &ndash; configurable via
+<code>setIdleTimeoutMs()</code>; on expiry, sends GOAWAY with NO_ERROR
+(RFC 9113 section 9.1)</li>
+<li><b>TLS cipher suite validation</b> &ndash; rejects non-AEAD cipher suites
+over TLS 1.2 with INADEQUATE_SECURITY (RFC 9113 section 9.2.2)</li>
+<li><b>GOAWAY debug data</b> &ndash; all GOAWAY frames include a UTF-8 debug
+message describing the reason (RFC 9113 section 6.8)</li>
+<li><b>Authentication</b> &ndash; Basic and Digest (MD5/SHA-256) with
+userhash support; Bearer and OAuth (RFC 7616, RFC 7617)</li>
+<li><b>Proxy authentication</b> &ndash; 407 Proxy-Authenticate challenges
+handled with Proxy-Authorization (RFC 9110 section 11.7.1)</li>
 <li><b>Automatic retry</b> &ndash; authentication challenges handled
 transparently</li>
+<li><b>Connection: close</b> &ndash; the client detects
+<code>Connection: close</code> in responses and stops reusing the
+connection (RFC 9112 section 9.6)</li>
+<li><b>obs-fold handling</b> &ndash; obsolete line folding in response
+headers is correctly unfolded (RFC 9112 section 5.2)</li>
+<li><b>Content-Length validation</b> &ndash; multiple differing values or
+negative values are rejected (RFC 9110 section 8.6)</li>
+<li><b>Smuggling protection</b> &ndash; responses with both
+Transfer-Encoding and Content-Length are handled safely with a warning
+(RFC 9112 section 6.2)</li>
+<li><b>Header size limit</b> &ndash; configurable max response header size
+(default 1&nbsp;MB) protects against memory exhaustion (RFC 9112
+section 5)</li>
 </ul>
 
 <h4>Connection Pooling</h4>

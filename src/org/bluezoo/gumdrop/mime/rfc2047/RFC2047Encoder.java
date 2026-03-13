@@ -28,17 +28,21 @@ import java.util.Base64;
 /**
  * High-performance RFC 2047 encoder for MIME header encoding.
  *
- * Implements selective encoding that groups nearby non-ASCII sequences
+ * <p>Implements selective encoding that groups nearby non-ASCII sequences
  * to reduce fragmentation while maintaining compatibility with
  * native message-library behaviour.
  *
- * This implementation uses character-by-character processing for
- * optimal performance and precise control over encoding boundaries.
+ * <p>RFC 2047 §2 requires that each encoded-word be no longer than
+ * 75 characters. This encoder splits segments accordingly.
  *
- * @see <a href='https://www.rfc-editor.org/rfc/rfc2047'>RFC 2047</a>
+ * @see <a href='https://www.rfc-editor.org/rfc/rfc2047#section-2'>RFC 2047 §2</a>
+ * @see <a href='https://www.rfc-editor.org/rfc/rfc2047#section-5'>RFC 2047 §5</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RFC2047Encoder {
+
+	/** RFC 2047 §2 — an encoded-word MUST NOT be more than 75 characters long. */
+	static final int MAX_ENCODED_WORD_LENGTH = 75;
 
 	private static final Charset ISO_8859_1 = StandardCharsets.ISO_8859_1;
 
@@ -147,6 +151,11 @@ public class RFC2047Encoder {
 	/**
 	 * Encode using RFC 2047 Base64 format with specified charset.
 	 *
+	 * <p>RFC 2047 §2: each encoded-word is limited to 75 characters total.
+	 * The overhead is {@code =?charset?B?...?=}, so the maximum Base64
+	 * payload length per word is {@code 75 - overhead}. The raw byte
+	 * chunk size is derived from that via standard Base64 sizing.
+	 *
 	 * @param header raw header bytes to encode
 	 * @param start start index
 	 * @param end end index (exclusive)
@@ -154,6 +163,14 @@ public class RFC2047Encoder {
 	 * @return RFC 2047 encoded string with selective encoding applied
 	 */
 	public static String encodeB(byte[] header, int start, int end, String charset) {
+		// RFC 2047 §2 overhead: =?charset?B?...?=
+		int overhead = 2 + charset.length() + 3 + 2; // "=?" + charset + "?B?" + "?="
+		int maxBase64Chars = MAX_ENCODED_WORD_LENGTH - overhead;
+		int maxRawBytes = (maxBase64Chars / 4) * 3; // Base64: 4 chars per 3 bytes
+		if (maxRawBytes < 1) {
+			maxRawBytes = 1;
+		}
+
 		StringBuilder result = new StringBuilder();
 		int i = start;
 
@@ -193,16 +210,16 @@ public class RFC2047Encoder {
 				byte[] segmentBytes = new byte[segmentEnd - i];
 				System.arraycopy(header, i, segmentBytes, 0, segmentEnd - i);
 
-				int maxBase64Length = 500;
 				int offset = 0;
 
 				while (offset < segmentBytes.length) {
-					int chunkSize = Math.min(maxBase64Length * 3 / 4, segmentBytes.length - offset);
+					int chunkSize = Math.min(maxRawBytes, segmentBytes.length - offset);
 
+					// Avoid splitting in the middle of a UTF-8 multi-byte sequence
 					while (chunkSize > 0 && offset + chunkSize < segmentBytes.length) {
 						byte b = segmentBytes[offset + chunkSize];
-						if ((b & 0x80) == 0) break;
-						if ((b & 0xC0) == 0xC0) break;
+						if ((b & 0x80) == 0) break;   // ASCII — safe
+						if ((b & 0xC0) == 0xC0) break; // UTF-8 lead byte — safe
 						chunkSize--;
 					}
 
@@ -229,11 +246,20 @@ public class RFC2047Encoder {
 	/**
 	 * Encode using RFC 2047 Q-encoding (Quoted-Printable) format with specified charset.
 	 *
+	 * <p>RFC 2047 §2: each encoded-word is limited to 75 characters total.
+	 * Each Q-encoded non-ASCII byte requires 3 characters ({@code =XX}),
+	 * so the maximum number of encoded bytes per word is
+	 * {@code (75 - overhead) / 3}.
+	 *
 	 * @param header raw header bytes to encode
 	 * @param charset charset name for RFC 2047 header
 	 * @return RFC 2047 encoded string with Q-encoding applied
 	 */
 	public static String encodeQ(byte[] header, String charset) {
+		// RFC 2047 §2 overhead: =?charset?Q?...?=
+		int overhead = 2 + charset.length() + 3 + 2; // "=?" + charset + "?Q?" + "?="
+		int maxEncodedChars = MAX_ENCODED_WORD_LENGTH - overhead;
+
 		StringBuilder result = new StringBuilder();
 		int i = 0;
 
@@ -259,14 +285,18 @@ public class RFC2047Encoder {
 			}
 
 			if (segmentEnd > i) {
-				result.append("=?").append(charset).append("?Q?");
-
-				for (int j = i; j < segmentEnd; j++) {
-					int byteValue = header[j] & 0xFF;
-					result.append("=").append(String.format("%02X", byteValue));
+				int j = i;
+				while (j < segmentEnd) {
+					result.append("=?").append(charset).append("?Q?");
+					int charsUsed = 0;
+					while (j < segmentEnd && charsUsed + 3 <= maxEncodedChars) {
+						int byteValue = header[j] & 0xFF;
+						result.append("=").append(String.format("%02X", byteValue));
+						charsUsed += 3;
+						j++;
+					}
+					result.append("?=");
 				}
-
-				result.append("?=");
 				i = segmentEnd;
 			}
 		}

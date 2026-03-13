@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for MAIL FROM command response.
- * 
+ * RFC 5321 §4.1.1.2 (250/4xx/5xx).
+ *
  * <p>This handler receives the server's response to a MAIL FROM command.
  * On success, the handler receives a {@link ClientEnvelope} interface for
  * adding recipients to the mail transaction.
@@ -31,6 +32,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientSession#mailFrom
  * @see ClientEnvelope
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerMailFromReplyHandler extends ServerReplyHandler {
 

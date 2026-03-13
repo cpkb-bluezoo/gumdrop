@@ -22,13 +22,16 @@
 package org.bluezoo.gumdrop.imap.client;
 
 /**
- * Represents a parsed IMAP server response line.
+ * Represents a parsed IMAP server response line (RFC 9051 section 7).
  *
  * <p>IMAP responses have three forms:
  * <ul>
- *   <li><b>Tagged:</b> {@code tag OK/NO/BAD [response-code] text}</li>
- *   <li><b>Untagged:</b> {@code * response-data}</li>
- *   <li><b>Continuation:</b> {@code + text}</li>
+ *   <li><b>Tagged:</b> {@code tag OK/NO/BAD [response-code] text}
+ *       (RFC 9051 section 7.1)</li>
+ *   <li><b>Untagged:</b> {@code * response-data}
+ *       (RFC 9051 section 7.2–7.5)</li>
+ *   <li><b>Continuation:</b> {@code + text}
+ *       (RFC 9051 section 7.5)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for STARTTLS command response.
- * 
+ * RFC 3207 §4 (220/454/502).
+ *
  * <p>This handler receives the server's response to a STARTTLS command.
  * If TLS is successfully established, the handler receives a
  * {@link ClientPostTls} interface and <em>must</em> re-issue EHLO as
@@ -36,6 +37,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientPostTls
  * @see ClientSession
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
  */
 public interface ServerStarttlsReplyHandler extends ServerReplyHandler {
 

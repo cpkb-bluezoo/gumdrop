@@ -29,6 +29,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPSession#compare
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.10">RFC 4511 §4.10 — Compare</a>
  */
 public interface CompareResultHandler {
 

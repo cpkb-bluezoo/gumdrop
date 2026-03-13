@@ -256,6 +256,10 @@ public class SearchParser {
             // UID
             case "UID":
                 return parseUidSet();
+
+            // CONDSTORE (RFC 7162)
+            case "MODSEQ":
+                return parseModSeq();
             
             // Boolean operators
             case "NOT":
@@ -426,6 +430,24 @@ public class SearchParser {
         } catch (NumberFormatException e) {
             throw new ParseException("Invalid number: " + input.substring(start, pos), start);
         }
+    }
+
+    /**
+     * Parses a MODSEQ search key (RFC 7162).
+     * Syntax: MODSEQ [entry-name entry-type-req] modseq-value
+     * We support the simplified form: MODSEQ modseq-value
+     */
+    private SearchCriteria parseModSeq() throws ParseException {
+        skipWhitespace();
+        // Skip optional entry-name/entry-type-req in quotes
+        if (pos < length && input.charAt(pos) == '"') {
+            parseQuotedString(); // entry-name
+            skipWhitespace();
+            parseAtom(); // entry-type-req (shared/priv/all)
+            skipWhitespace();
+        }
+        long value = parseNumber();
+        return SearchCriteria.modSeq(value);
     }
 
     /**

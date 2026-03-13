@@ -31,9 +31,14 @@ package org.bluezoo.gumdrop.smtp.handler;
  * transports - this is handled transparently by the connection. Message
  * bytes are written to the pipeline's channel if one was provided.
  * 
+ * <p>Methods map to reply codes: {@code acceptMessage} → 354,
+ * {@code rejectMessageStorageFull} → 452, {@code rejectMessageProcessingError} → 451,
+ * {@code rejectMessage} → 550.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RecipientHandler#startMessage
  * @see MessageDataHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.4">RFC 5321 §4.1.1.4</a>
  */
 public interface MessageStartState {
 

@@ -26,9 +26,10 @@ import org.bluezoo.gumdrop.http.Headers;
 /**
  * Represents an HTTP/2 server push promise (PUSH_PROMISE frame).
  *
- * <p>When an HTTP/2 server pushes a resource, the client receives a push promise
- * containing the headers that would have been sent in a request for that resource.
- * The client can choose to accept or reject the push.
+ * <p>Per RFC 9113 section 8.4, when an HTTP/2 server pushes a resource,
+ * the client receives a push promise containing the headers that would
+ * have been sent in a request for that resource. The client can choose
+ * to accept or reject the push.
  *
  * <p>This interface is delivered to the {@link HTTPResponseHandler#pushPromise(PushPromise)}
  * callback. The handler must either call {@link #accept(HTTPResponseHandler)} to receive
@@ -110,8 +111,9 @@ public interface PushPromise {
     /**
      * Rejects the push promise.
      *
-     * <p>This sends an RST_STREAM frame to cancel the promised stream.
-     * No further callbacks will be received for this push.
+     * <p>This sends an RST_STREAM frame (RFC 9113 section 6.4) with
+     * REFUSED_STREAM to cancel the promised stream. No further callbacks
+     * will be received for this push.
      *
      * <p>This method must be called at most once. After calling this method,
      * {@link #accept(HTTPResponseHandler)} must not be called.

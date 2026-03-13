@@ -27,11 +27,16 @@ import java.util.UUID;
 /**
  * Represents a WebDAV lock on a resource.
  *
+ * <p>Implements RFC 4918 §6.5 (lock tokens) and §14.1 (activelock element).
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 class WebDAVLock {
 
+    /** Lock scope: exclusive (§14.13) or shared (§14.26) */
     enum Scope { EXCLUSIVE, SHARED }
+    /** Lock type: write (§14.29) */
     enum Type { WRITE }
 
     private final String token;
@@ -100,6 +105,9 @@ class WebDAVLock {
         }
     }
 
+    /**
+     * Returns whether this lock covers the target path (RFC 4918 §14.4 depth element).
+     */
     boolean covers(Path targetPath) {
         if (path.equals(targetPath)) {
             return true;

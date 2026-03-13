@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.pop3.handler;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -163,8 +164,19 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             } else if (mailbox.isDeleted(messageNumber)) {
                 state.messageDeleted(this);
             } else {
-                ReadableByteChannel content = mailbox.getMessageContent(messageNumber);
-                state.sendMessage(msg.getSize(), content, this);
+                AsyncMessageContent asyncContent = null;
+                try {
+                    asyncContent = mailbox.openAsyncContent(messageNumber);
+                } catch (IOException ignored) {
+                    // Fall back to sync path
+                }
+                if (asyncContent != null) {
+                    state.sendMessage(msg.getSize(), asyncContent, this);
+                } else {
+                    ReadableByteChannel content =
+                            mailbox.getMessageContent(messageNumber);
+                    state.sendMessage(msg.getSize(), content, this);
+                }
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to retrieve message " + messageNumber, e);

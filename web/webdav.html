@@ -48,6 +48,7 @@ combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners.
 <li><a href="#webdav">WebDAV Support</a></li>
 <li><a href="#webdav-methods">WebDAV Methods</a></li>
 <li><a href="#live-properties">Live Properties</a></li>
+<li><a href="#dead-properties">Dead Properties</a></li>
 <li><a href="#locking">Locking</a></li>
 <li><a href="#examples">Protocol Examples</a></li>
 </ul>
@@ -179,8 +180,10 @@ OPTIONS responses and supports the following additional HTTP methods:
 <code>allprop</code>, <code>propname</code>, or specific property requests.
 The <code>Depth</code> header controls recursion (0, 1, or infinity).</li>
 
-<li><b>PROPPATCH</b> - Set or remove dead properties on resources.
-Live properties (those computed from the filesystem) cannot be modified.</li>
+<li><b>PROPPATCH</b> - Set or remove dead (custom) properties on resources.
+Each property operation returns an individual status code (200 on success,
+403 for protected live properties). See
+<a href="#dead-properties">Dead Properties</a> for storage configuration.</li>
 
 <li><b>MKCOL</b> - Create a new collection (directory). The request must
 not have a body. The parent directory must exist.</li>
@@ -224,6 +227,61 @@ for directories</li>
 write locks)</li>
 </ul>
 
+<h3 id="dead-properties">Dead Properties</h3>
+
+<p>
+Dead (custom) properties are arbitrary name/value pairs stored on resources
+by WebDAV clients via PROPPATCH. Gumdrop persists dead properties using a
+dual-strategy backend:
+</p>
+
+<ul>
+<li><b>Extended attributes</b> (xattr) - Primary storage. Properties are
+stored as filesystem extended attributes with names prefixed
+<code>user.webdav.</code>. Properties travel with the file on copy/move
+and are deleted automatically. Requires filesystem xattr support.</li>
+<li><b>Sidecar files</b> - Fallback for filesystems without xattr support
+or when a value exceeds the xattr size limit. Sidecar files are named
+<code>.webdav_<i>filename</i></code> and contain XML serialized with the
+Gonzalez library. Sidecar I/O is fully non-blocking via
+<code>AsynchronousFileChannel</code>.</li>
+</ul>
+
+<h4>Configuration</h4>
+
+<p>
+The dead property storage mode is configurable:
+</p>
+
+<pre>
+&lt;service id="webdav" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
+  &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
+  &lt;property name="allow-write"&gt;true&lt;/property&gt;
+  &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
+  &lt;property name="dead-property-storage"&gt;auto&lt;/property&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<table class="config">
+<tr><th>Value</th><th>Behaviour</th></tr>
+<tr><td><code>auto</code></td><td>Use xattr when available, fall back to
+sidecar (default)</td></tr>
+<tr><td><code>xattr</code></td><td>Extended attributes only; fails if
+unsupported</td></tr>
+<tr><td><code>sidecar</code></td><td>Sidecar files only</td></tr>
+<tr><td><code>none</code></td><td>Dead properties disabled (PROPPATCH
+returns 403)</td></tr>
+</table>
+
+<p>
+Sidecar files are hidden from PROPFIND responses, HTML directory listings,
+and direct GET requests. They are automatically copied, moved, and deleted
+alongside their parent resource.
+</p>
+
 <h3 id="locking">Locking</h3>
 
 <p>
@@ -246,6 +304,54 @@ When a resource is locked, modifying operations (PUT, DELETE, MOVE, PROPPATCH)
 require a valid lock token in the <code>If</code> or <code>Lock-Token</code>
 header.
 </p>
+
+<h4>Collection DELETE (RFC 4918 §9.6.1)</h4>
+
+<p>
+DELETE on a collection (directory) recursively deletes all member resources
+depth-first. If all deletions succeed, <code>204 No Content</code> is returned.
+If any individual deletion fails, a <code>207 Multi-Status</code> response
+lists the failed resources:
+</p>
+
+<pre>
+DELETE /documents/old-project/ HTTP/1.1
+Host: example.com
+
+HTTP/1.1 207 Multi-Status
+Content-Type: application/xml
+
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;D:multistatus xmlns:D="DAV:"&gt;
+  &lt;D:response&gt;
+    &lt;D:href&gt;/documents/old-project/locked-file.txt&lt;/D:href&gt;
+    &lt;D:status&gt;HTTP/1.1 403 Forbidden&lt;/D:status&gt;
+  &lt;/D:response&gt;
+&lt;/D:multistatus&gt;
+</pre>
+
+<h4>If Header (RFC 4918 §10.4)</h4>
+
+<p>
+The <code>If</code> header supports the full grammar defined in RFC 4918 §10.4,
+including tagged-list and no-tag-list syntax with ETag conditions and
+<code>Not</code> negation. Multiple lists for the same resource are OR'd;
+conditions within a list are AND'd.
+</p>
+
+<pre>
+// No-tag-list with lock token:
+If: (&lt;opaquelocktoken:a1b2c3d4-...&gt;)
+
+// Tagged-list for a specific resource:
+If: &lt;/documents/file.txt&gt; (&lt;opaquelocktoken:a1b2c3d4-...&gt; ["etag-value"])
+
+// Not condition (lock token must NOT be present):
+If: (Not &lt;opaquelocktoken:old-token&gt;)
+
+// Multiple conditions (OR'd):
+If: (&lt;token-a&gt;) (&lt;token-b&gt;)
+</pre>
 
 <h3 id="examples">Protocol Examples</h3>
 

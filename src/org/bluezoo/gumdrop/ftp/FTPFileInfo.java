@@ -22,12 +22,15 @@
 package org.bluezoo.gumdrop.ftp;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ResourceBundle;
 
 /**
  * Represents metadata about a file or directory in the FTP file system.
- * This class abstracts file system details from the FTP protocol implementation,
- * allowing handlers to work with various storage backends (filesystem, database, etc.).
+ * Used to format directory listings for the LIST command (RFC 959 section 4.1.3).
+ * The listing format follows the conventional Unix {@code ls -l} style used
+ * by virtually all modern FTP servers.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -180,6 +183,58 @@ public class FTPFileInfo {
         sb.append(name);
         
         return sb.toString();
+    }
+
+    /**
+     * RFC 3659 section 7.2 date/time format: YYYYMMDDHHMMSS[.sss]
+     */
+    private static final DateTimeFormatter MLST_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC);
+
+    /**
+     * Formats this file info as an RFC 3659 machine-readable listing entry.
+     * Used for MLST and MLSD command responses (RFC 3659 section 7).
+     *
+     * <p>The format is {@code fact=value;fact=value; filename} with a
+     * space separating the facts from the filename.
+     *
+     * @return formatted MLS entry (e.g., "type=file;size=1234;modify=20250115103000;perm=r; filename.txt")
+     */
+    public String formatAsMLSEntry() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("type=").append(directory ? "dir" : "file").append(';');
+        sb.append("size=").append(size).append(';');
+        if (lastModified != null) {
+            sb.append("modify=").append(MLST_TIME_FORMAT.format(lastModified)).append(';');
+        }
+        sb.append("perm=").append(deriveMLSPermissions()).append(';');
+        sb.append(' ').append(name);
+        return sb.toString();
+    }
+
+    /**
+     * Derives RFC 3659 section 7.5.5 permission facts from the Unix permission string.
+     */
+    private String deriveMLSPermissions() {
+        StringBuilder perm = new StringBuilder();
+        if (directory) {
+            perm.append('e'); // enter (CWD)
+            perm.append('l'); // list (LIST/NLST/MLSD)
+            if (permissions != null && permissions.length() >= 2 && permissions.charAt(1) == 'w') {
+                perm.append('c'); // create files
+                perm.append('m'); // create subdirectories (MKDIR)
+                perm.append('p'); // purge (RMD)
+            }
+        } else {
+            perm.append('r'); // read (RETR)
+            if (permissions != null && permissions.length() >= 2 && permissions.charAt(1) == 'w') {
+                perm.append('w'); // write (STOR)
+                perm.append('a'); // append (APPE)
+                perm.append('d'); // delete (DELE)
+                perm.append('f'); // rename (RNFR)
+            }
+        }
+        return perm.toString();
     }
 
     @Override

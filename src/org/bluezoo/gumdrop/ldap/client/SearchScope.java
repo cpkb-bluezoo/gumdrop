@@ -22,9 +22,10 @@
 package org.bluezoo.gumdrop.ldap.client;
 
 /**
- * LDAP search scope as defined in RFC 4511.
+ * LDAP search scope (RFC 4511 section 4.5.1.2).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.5.1">RFC 4511 §4.5.1.2</a>
  */
 public enum SearchScope {
 

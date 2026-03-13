@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
 
 /**
  * A message parser that captures raw header bytes for DKIM verification.
+ * RFC 6376 §3.4 — header/body canonicalization.
  *
  * <p>This parser extends {@link MessageParser} and intercepts header lines
  * to capture their raw bytes before decoding. DKIM signature verification
@@ -77,6 +78,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DKIMValidator
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
 public class DKIMMessageParser extends MessageParser {
 

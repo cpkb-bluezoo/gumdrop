@@ -29,6 +29,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7208#section-2.6">RFC 7208 §2.6</a> — check_host() results
  */
 public enum SPFResult {
 

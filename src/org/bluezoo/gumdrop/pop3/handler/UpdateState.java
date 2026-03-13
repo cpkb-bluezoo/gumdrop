@@ -33,6 +33,7 @@ package org.bluezoo.gumdrop.pop3.handler;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see TransactionHandler#quit
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-6">RFC 1939 section 6 — The UPDATE State</a>
  */
 public interface UpdateState {
 

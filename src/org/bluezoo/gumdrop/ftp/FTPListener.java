@@ -32,6 +32,8 @@ import org.bluezoo.gumdrop.auth.Realm;
 
 /**
  * TCP transport listener for FTP control connections.
+ * RFC 959 section 5.2 specifies port 21 for the control connection;
+ * implicit FTPS uses port 990.
  *
  * <p>Handler creation follows a dual-source pattern:
  * <ol>
@@ -67,6 +69,7 @@ public class FTPListener extends TCPListener {
     protected static final int FTP_DEFAULT_DATA_PORT = 20;
 
     protected int port = FTP_DEFAULT_PORT;
+    private boolean portExplicitlySet = false;
     protected FTPConnectionHandlerFactory handlerFactory;
     private boolean requireTLSForData = false;
     private Realm realm;
@@ -82,12 +85,22 @@ public class FTPListener extends TCPListener {
         return secure ? "ftps" : "ftp";
     }
 
+    /**
+     * Returns the control port. If no port has been explicitly set and
+     * the listener is configured for TLS ({@link #isSecure()}), the
+     * implicit FTPS port 990 is returned per RFC 4217.
+     */
     public int getPort() {
+        // RFC 4217: implicit FTPS uses port 990
+        if (!portExplicitlySet && secure) {
+            return FTPS_DEFAULT_PORT;
+        }
         return port;
     }
 
     public void setPort(int port) {
         this.port = port;
+        this.portExplicitlySet = true;
     }
 
     public void setHandlerFactory(FTPConnectionHandlerFactory factory) {

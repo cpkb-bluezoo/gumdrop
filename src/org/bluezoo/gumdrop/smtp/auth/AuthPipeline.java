@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.smtp.SMTPPipeline;
 
 /**
  * Authentication pipeline for SPF, DKIM, and DMARC checks.
+ * Integrates RFC 7208 (SPF), RFC 6376 (DKIM), RFC 7489 (DMARC).
  *
  * <p>AuthPipeline implements {@link SMTPPipeline} to integrate with
  * SMTPConnection. Configure it with callbacks for the checks you want,
@@ -71,6 +72,9 @@ import org.bluezoo.gumdrop.smtp.SMTPPipeline;
  * @see SMTPPipeline
  * @see DMARCValidator
  * @see DMARCMessageHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
 public class AuthPipeline implements SMTPPipeline {
 

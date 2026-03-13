@@ -22,7 +22,11 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -36,14 +40,20 @@ import org.bluezoo.gumdrop.GumdropNative;
 /**
  * Client-side HTTP/3 handler built on top of quiche's h3 module.
  *
+ * <p>HTTP/3 (RFC 9114) maps HTTP semantics onto QUIC (RFC 9000)
+ * transport. The client negotiates "h3" via ALPN (RFC 9114 section 3.1)
+ * during the QUIC handshake, then exchanges SETTINGS frames
+ * (RFC 9114 section 7.2.4). QPACK header compression (RFC 9204) and
+ * HTTP/3 framing (RFC 9114 section 7) are handled by the quiche h3
+ * module internally.
+ *
  * <p>This class implements
  * {@link QuicConnection.ConnectionReadyHandler} to receive
  * notifications when QUIC packets arrive. It then polls the quiche h3
  * module for HTTP/3 response events (HEADERS, DATA, FINISHED, RESET)
  * and dispatches them to per-stream {@link H3ClientStream} instances.
  *
- * <p>The quiche h3 module handles all HTTP/3 framing and QPACK header
- * compression internally. This class provides
+ * <p>This class provides
  * {@link #sendRequest(Headers, HTTPResponseHandler)} to initiate
  * HTTP/3 requests and translates h3 response events into
  * {@link HTTPResponseHandler} callbacks.
@@ -72,6 +82,8 @@ public class HTTP3ClientHandler
 
     private final Map<Long, H3ClientStream> streams =
             new HashMap<Long, H3ClientStream>();
+    private final Map<Long, PendingWrite> pendingWrites =
+            new LinkedHashMap<Long, PendingWrite>();
 
     private boolean goaway;
 
@@ -145,7 +157,11 @@ public class HTTP3ClientHandler
     }
 
     /**
-     * Sends an HTTP/3 request on a new stream.
+     * Sends an HTTP/3 request on a new stream (RFC 9114 section 4.1).
+     *
+     * <p>The headers must include the pseudo-headers defined in
+     * RFC 9114 section 4.3.1: {@code :method}, {@code :scheme},
+     * {@code :authority}, and {@code :path}.
      *
      * <p>If {@code fin} is false, the caller must send the request body
      * via {@link #sendRequestBody(long, ByteBuffer, boolean)}.
@@ -189,7 +205,12 @@ public class HTTP3ClientHandler
     }
 
     /**
-     * Sends request body data on the specified stream.
+     * Sends request body data on the specified stream (RFC 9114
+     * section 4.1 — DATA frames carry the message body).
+     *
+     * <p>If the QUIC congestion window is full, remaining data is
+     * buffered and drained when ACKs arrive (mirroring the server-side
+     * {@code H3Stream.enqueue()} pattern).
      *
      * @param streamId the stream ID returned by
      *                 {@link #sendRequest(Headers, HTTPResponseHandler, boolean)}
@@ -198,14 +219,42 @@ public class HTTP3ClientHandler
      */
     public void sendRequestBody(long streamId, ByteBuffer data,
                                 boolean fin) {
+        PendingWrite pending = pendingWrites.get(Long.valueOf(streamId));
+        if (pending != null) {
+            pending.enqueue(data, fin);
+            return;
+        }
+
         long quicheConn = quicConnection.getConnPtr();
-        int result = GumdropNative.quiche_h3_send_body(
-                h3Conn, quicheConn, streamId,
-                data, data.remaining(), fin);
-        if (result < 0) {
-            LOGGER.log(Level.WARNING,
-                    "h3 send_body failed: " + result +
-                    " stream=" + streamId);
+
+        while (data.hasRemaining()) {
+            int result = GumdropNative.quiche_h3_send_body(
+                    h3Conn, quicheConn, streamId,
+                    data, data.remaining(), false);
+            if (result > 0) {
+                data.position(data.position() + result);
+                flushQuic();
+            } else if (result == GumdropNative.QUICHE_ERR_DONE) {
+                flushQuic();
+                PendingWrite pw = new PendingWrite();
+                pw.enqueue(data, fin);
+                pendingWrites.put(Long.valueOf(streamId), pw);
+                return;
+            } else {
+                LOGGER.warning("h3 send_body error: " + result
+                        + " stream=" + streamId);
+                return;
+            }
+        }
+
+        if (fin) {
+            int result = GumdropNative.quiche_h3_send_body(
+                    h3Conn, quicheConn, streamId, data, 0, true);
+            if (result < 0
+                    && result != GumdropNative.QUICHE_ERR_DONE) {
+                LOGGER.warning("h3 send_body FIN error: " + result
+                        + " stream=" + streamId);
+            }
         }
         flushQuic();
     }
@@ -220,13 +269,16 @@ public class HTTP3ClientHandler
             cb.run();
         }
         pollEvents();
+        resumePendingWrites();
     }
 
     // ── Event Polling ──
 
     /**
      * Polls the h3 connection for pending events and dispatches them
-     * to the appropriate client stream handlers.
+     * to the appropriate client stream handlers. Events correspond to
+     * HTTP/3 frame types (RFC 9114 section 7.2) and connection-level
+     * signals (GOAWAY per section 5.2, stream reset per section 8).
      */
     private void pollEvents() {
         long quicheConn = quicConnection.getConnPtr();
@@ -309,10 +361,28 @@ public class HTTP3ClientHandler
         }
     }
 
-    private void onGoaway(long streamId) {
+    // RFC 9114 section 5.2: GOAWAY for graceful shutdown. The server
+    // sends GOAWAY with the stream ID of the last request it will
+    // process; the client should not send new requests and may retry
+    // unprocessed requests on a new connection.
+    private void onGoaway(long lastStreamId) {
         goaway = true;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("GOAWAY received, last stream: " + streamId);
+            LOGGER.fine("GOAWAY received, last stream: " + lastStreamId);
+        }
+
+        // RFC 9114 section 5.2: fail all streams with IDs above
+        // the server's last-stream-ID so the caller can retry them
+        // on a new connection
+        java.io.IOException retryable = new java.io.IOException(
+                "Server GOAWAY: stream not processed (retryable)");
+        for (java.util.Iterator<java.util.Map.Entry<Long, H3ClientStream>> it =
+                     streams.entrySet().iterator(); it.hasNext(); ) {
+            java.util.Map.Entry<Long, H3ClientStream> entry = it.next();
+            if (entry.getKey().longValue() > lastStreamId) {
+                entry.getValue().onGoawayFailed(retryable);
+                it.remove();
+            }
         }
     }
 
@@ -345,6 +415,82 @@ public class HTTP3ClientHandler
      */
     void flushQuic() {
         quicConnection.getEngine().requestFlush();
+    }
+
+    /**
+     * Drains buffered request body data on all streams that were
+     * blocked by QUIC flow control. Called from
+     * {@link #onConnectionReady()} after processing incoming packets
+     * (which may carry ACKs that open the congestion window).
+     */
+    private void resumePendingWrites() {
+        long quicheConn = quicConnection.getConnPtr();
+
+        for (Iterator<Map.Entry<Long, PendingWrite>> it =
+                     pendingWrites.entrySet().iterator();
+             it.hasNext(); ) {
+            Map.Entry<Long, PendingWrite> entry = it.next();
+            long streamId = entry.getKey().longValue();
+            PendingWrite pw = entry.getValue();
+
+            while (!pw.buffers.isEmpty()) {
+                ByteBuffer buf = pw.buffers.get(0);
+                while (buf.hasRemaining()) {
+                    int result = GumdropNative.quiche_h3_send_body(
+                            h3Conn, quicheConn, streamId,
+                            buf, buf.remaining(), false);
+                    if (result > 0) {
+                        buf.position(buf.position() + result);
+                        flushQuic();
+                    } else if (result == GumdropNative.QUICHE_ERR_DONE) {
+                        flushQuic();
+                        return;
+                    } else {
+                        LOGGER.warning("h3 send_body error: " + result
+                                + " stream=" + streamId);
+                        pw.buffers.clear();
+                        pw.fin = false;
+                        it.remove();
+                        return;
+                    }
+                }
+                pw.buffers.remove(0);
+            }
+
+            if (pw.fin) {
+                int result = GumdropNative.quiche_h3_send_body(
+                        h3Conn, quicheConn, streamId,
+                        ByteBuffer.allocate(0), 0, true);
+                if (result < 0
+                        && result != GumdropNative.QUICHE_ERR_DONE) {
+                    LOGGER.warning("h3 send_body FIN error: " + result
+                            + " stream=" + streamId);
+                }
+                flushQuic();
+            }
+            it.remove();
+        }
+    }
+
+    /**
+     * Tracks buffered request body data for a stream that is blocked
+     * by QUIC flow control.
+     */
+    private static class PendingWrite {
+        final List<ByteBuffer> buffers = new ArrayList<ByteBuffer>();
+        boolean fin;
+
+        void enqueue(ByteBuffer data, boolean fin) {
+            if (data.hasRemaining()) {
+                ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+                copy.put(data);
+                copy.flip();
+                buffers.add(copy);
+            }
+            if (fin) {
+                this.fin = true;
+            }
+        }
     }
 
     /**

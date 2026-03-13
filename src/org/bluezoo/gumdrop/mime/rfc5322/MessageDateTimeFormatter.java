@@ -38,6 +38,7 @@ import java.util.Locale;
  * This formatter preserves timezone information and follows RFC 5322 section 3.3
  * specifications exactly.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-3.3">RFC 5322 §3.3</a>
  */
 public class MessageDateTimeFormatter {
 

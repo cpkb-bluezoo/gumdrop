@@ -35,6 +35,11 @@ import org.bluezoo.gumdrop.UDPTransportFactory;
 
 /**
  * Plain UDP transport for DNS client queries.
+ * RFC 1035 section 4.2.1: DNS queries over UDP use port 53. Each query
+ * and response is carried as a single UDP datagram. Messages are limited
+ * to 512 octets unless EDNS0 (RFC 6891) negotiates a larger size.
+ * If the response is truncated (TC bit), the client should retry over TCP
+ * (RFC 1035 section 4.2.2).
  *
  * <p>Wraps {@link UDPTransportFactory} to send and receive DNS messages
  * as single UDP datagrams on port 53 (or a configured port).

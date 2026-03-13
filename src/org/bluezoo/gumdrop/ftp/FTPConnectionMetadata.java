@@ -26,8 +26,9 @@ import java.security.cert.Certificate;
 
 /**
  * Provides comprehensive metadata about an active FTP connection.
- * This object is passed to {@link FTPConnectionHandler} methods to provide
- * context for authentication decisions and file operations.
+ * Tracks the protocol state defined in RFC 959 section 3: data representation
+ * type (section 3.1.1), file structure (section 3.1.2), and transmission
+ * mode (section 3.4).
  *
  * <p>It includes network information, security status, authentication details,
  * FTP protocol state, and connection lifecycle information.
@@ -52,6 +53,9 @@ public class FTPConnectionMetadata {
     private FTPTransferMode transferMode;
     private FTPTransferType transferType;
 
+    // RFC 959 section 3.1.1.4: byte size for TYPE L
+    private int localByteSize = 8;
+
     // Data connection state
     private String dataHost;
     private int dataPort;
@@ -62,27 +66,29 @@ public class FTPConnectionMetadata {
 
     /**
      * Transfer modes for FTP data connections.
+     * RFC 959 section 3.4.
      */
     public enum FTPTransferMode {
-        /** Stream mode - data sent as continuous stream */
+        /** Stream mode (default). RFC 959 section 3.4.1. */
         STREAM,
-        /** Block mode - data sent in blocks with headers */
+        /** Block mode. RFC 959 section 3.4.2. */
         BLOCK,
-        /** Compressed mode - data is compressed */
+        /** Compressed mode. RFC 959 section 3.4.3. */
         COMPRESSED
     }
 
     /**
      * Transfer types for FTP data representation.
+     * RFC 959 section 3.1.1.
      */
     public enum FTPTransferType {
-        /** ASCII mode - text files with line ending conversion */
+        /** ASCII type (default, MUST be accepted). RFC 959 section 3.1.1.1. */
         ASCII,
-        /** Binary mode - raw binary data, no conversion */
+        /** Image type (binary). RFC 959 section 3.1.1.3. */
         BINARY,
-        /** EBCDIC mode - IBM mainframe character encoding */
+        /** EBCDIC type. RFC 959 section 3.1.1.2. */
         EBCDIC,
-        /** Local mode - implementation-specific format */
+        /** Local type with byte size. RFC 959 section 3.1.1.4. */
         LOCAL
     }
 
@@ -116,12 +122,12 @@ public class FTPConnectionMetadata {
         this.connectionStartTimeMillis = connectionStartTimeMillis;
         this.connectorDescription = connectorDescription;
         
-        // Initialize defaults
+        // RFC 959 section 3: default transfer parameters
         this.authenticated = false;
         this.authenticatedUser = null;
         this.currentDirectory = "/";
-        this.transferMode = FTPTransferMode.STREAM;
-        this.transferType = FTPTransferType.ASCII;
+        this.transferMode = FTPTransferMode.STREAM;   // RFC 959 section 3.4.1
+        this.transferType = FTPTransferType.ASCII;     // RFC 959 section 3.1.1.1
         this.passiveMode = false;
     }
 
@@ -239,6 +245,19 @@ public class FTPConnectionMetadata {
 
     void setProtocolVersion(String protocolVersion) {
         this.protocolVersion = protocolVersion;
+    }
+
+    /**
+     * Returns the byte size for TYPE L transfers (RFC 959 section 3.1.1.4).
+     *
+     * @return the local byte size, default 8
+     */
+    public int getLocalByteSize() {
+        return localByteSize;
+    }
+
+    void setLocalByteSize(int localByteSize) {
+        this.localByteSize = localByteSize;
     }
 
     void setDataConnection(String dataHost, int dataPort, boolean passiveMode) {

@@ -39,6 +39,8 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * DMARC (Domain-based Message Authentication, Reporting and Conformance)
  * validator as defined in RFC 7489.
  *
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
+ *
  * <p>DMARC combines SPF and DKIM authentication results with domain alignment
  * checks to determine whether a message should be accepted, quarantined, or
  * rejected. This implementation is fully asynchronous and event-driven.
@@ -85,6 +87,7 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * @see DMARCMessageHandler
  */
 public class DMARCValidator implements SPFCallback, DKIMCallback {
+
 
     private static final Logger LOGGER = Logger.getLogger(DMARCValidator.class.getName());
 
@@ -306,6 +309,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     private String spfDomain;
     private String fromDomain;
 
+    /** The last parsed DMARC record, retained for aggregate reporting (RFC 7489 §7.1). */
+    private DMARCRecord lastRecord;
+
     /**
      * Creates a new DMARC validator using the specified DNS resolver.
      *
@@ -404,10 +410,70 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         this.spfResult = null;
         this.spfDomain = null;
         this.fromDomain = null;
+        this.lastRecord = null;
+    }
+
+    /**
+     * RFC 7489 §7.1 — returns the aggregate report URIs (rua= tag) from the
+     * last evaluated DMARC record, or null if not available.
+     *
+     * @return the list of rua= URIs, or null
+     */
+    public List<String> getLastRua() {
+        return lastRecord != null ? lastRecord.rua : null;
+    }
+
+    /**
+     * Returns the DKIM alignment mode from the last evaluated record.
+     *
+     * @return "r" (relaxed) or "s" (strict), or null
+     */
+    public String getLastAdkim() {
+        return lastRecord != null ? lastRecord.adkim : null;
+    }
+
+    /**
+     * Returns the SPF alignment mode from the last evaluated record.
+     *
+     * @return "r" (relaxed) or "s" (strict), or null
+     */
+    public String getLastAspf() {
+        return lastRecord != null ? lastRecord.aspf : null;
+    }
+
+    /**
+     * RFC 7489 §7.2 — returns the forensic report URIs (ruf= tag) from the
+     * last evaluated DMARC record, or null if not available.
+     *
+     * @return the list of ruf= URIs, or null
+     */
+    public List<String> getLastRuf() {
+        return lastRecord != null ? lastRecord.ruf : null;
+    }
+
+    /**
+     * RFC 7489 §6.3 — returns the failure reporting options (fo= tag) from
+     * the last evaluated DMARC record.
+     *
+     * @return the fo= value ("0", "1", "d", "s", or colon-separated), or null
+     */
+    public String getLastFo() {
+        return lastRecord != null ? lastRecord.fo : null;
+    }
+
+    /**
+     * RFC 7489 §6.3 — returns the failure report format (rf= tag) from
+     * the last evaluated DMARC record.
+     *
+     * @return the rf= value (typically "afrf"), or null
+     */
+    public String getLastRf() {
+        return lastRecord != null ? lastRecord.rf : null;
     }
 
     /**
      * Evaluates DMARC for a message.
+     * RFC 7489 §6 — policy discovery and evaluation.
      *
      * @param fromDomain the RFC5322.From domain
      * @param spfResult the SPF check result
@@ -497,6 +563,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             callback.dmarcResult(DMARCResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
             return;
         }
+        this.lastRecord = record;
 
         // Evaluate alignment
         DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
@@ -569,6 +636,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             callback.dmarcResult(DMARCResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
             return;
         }
+        this.lastRecord = record;
 
         // Use subdomain policy if available
         DMARCRecord effectiveRecord = record;
@@ -621,6 +689,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /**
      * Computes the authentication verdict based on DMARC result, policy, and
      * the pct= percentage tag.
+     * RFC 7489 §6.3 — policy evaluation and verdict.
      *
      * <p>When pct is less than 100, the policy is only applied to that percentage
      * of failing messages. Messages outside the percentage are treated as if the
@@ -658,6 +727,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     /**
      * Checks domain alignment.
+     * RFC 7489 §3.1 — identifier alignment.
      *
      * @param fromDomain the From header domain
      * @param authDomain the authenticated domain (SPF or DKIM)
@@ -687,6 +757,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     /**
      * Gets the organizational domain (registered domain).
+     * RFC 7489 §3.2 — organizational domain.
      *
      * <p>This implementation uses a partial Public Suffix List covering common
      * two-level TLDs like co.uk, com.au, etc. For domains with these suffixes,
@@ -737,6 +808,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     /**
      * Parses a DMARC record.
+     * RFC 7489 §6.3 — TXT record format.
      */
     private DMARCRecord parseDMARCRecord(String record) {
         DMARCRecord result = new DMARCRecord();
@@ -762,6 +834,18 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
                 result.aspf = value;
             } else if ("pct".equals(tag)) {
                 result.pct = parseInt(value, 100);
+            } else if ("rua".equals(tag)) {
+                // RFC 7489 §6.2 — aggregate report destination(s)
+                result.rua = parseUriList(value);
+            } else if ("ruf".equals(tag)) {
+                // RFC 7489 §6.2 — forensic report destination(s)
+                result.ruf = parseUriList(value);
+            } else if ("fo".equals(tag)) {
+                // RFC 7489 §6.3 — failure reporting options
+                result.fo = value;
+            } else if ("rf".equals(tag)) {
+                // RFC 7489 §6.3 — failure report format
+                result.rf = value;
             }
         }
 
@@ -789,6 +873,29 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         return parts.toArray(new String[0]);
     }
 
+    /**
+     * Parses a comma-separated list of DMARC report URIs.
+     * RFC 7489 §6.2 — each URI may have an optional size limit suffix.
+     */
+    private static List<String> parseUriList(String value) {
+        List<String> uris = new ArrayList<String>();
+        int start = 0;
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == ',') {
+                String uri = value.substring(start, i).trim();
+                if (!uri.isEmpty()) {
+                    uris.add(uri);
+                }
+                start = i + 1;
+            }
+        }
+        String last = value.substring(start).trim();
+        if (!last.isEmpty()) {
+            uris.add(last);
+        }
+        return uris;
+    }
+
     private static int parseInt(String s, int defaultValue) {
         try {
             return Integer.parseInt(s.trim());
@@ -801,13 +908,22 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     /**
      * Parsed DMARC record.
+     * RFC 7489 §6.3 — contains all parsed tags from the DNS TXT record.
      */
-    private static class DMARCRecord {
+    static class DMARCRecord {
         DMARCPolicy policy;
         DMARCPolicy subdomainPolicy;
         String adkim = "r"; // relaxed by default
         String aspf = "r";  // relaxed by default
         int pct = 100;
+        /** RFC 7489 §6.2 — aggregate report URIs (rua= tag). */
+        List<String> rua;
+        /** RFC 7489 §6.2 — forensic report URIs (ruf= tag). */
+        List<String> ruf;
+        /** RFC 7489 §6.3 — failure reporting options (fo= tag, default "0"). */
+        String fo = "0";
+        /** RFC 7489 §6.3 — failure report format (rf= tag, default "afrf"). */
+        String rf = "afrf";
     }
 
 }

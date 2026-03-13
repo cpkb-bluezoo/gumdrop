@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Operations available after at least one recipient is accepted.
- * 
+ * RFC 5321 §4.1.1.3-4 (ready for DATA). RFC 3030 (BDAT).
+ *
  * <p>This interface is provided to the handler in
  * {@link ServerRcptToReplyHandler#handleRcptToOk} after a recipient is
  * accepted, and includes the {@code data()} method to proceed to message
@@ -40,6 +41,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerRcptToReplyHandler#handleRcptToOk
  * @see ClientEnvelopeState
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a>
  */
 public interface ClientEnvelopeReady extends ClientEnvelopeState {
 

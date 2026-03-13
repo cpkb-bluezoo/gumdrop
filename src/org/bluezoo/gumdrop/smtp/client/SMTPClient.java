@@ -67,6 +67,9 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerGreeting
  * @see SMTPClientProtocolHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> (Implicit TLS, SMTPS port 465)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)
  */
 public class SMTPClient {
 
@@ -156,6 +159,7 @@ public class SMTPClient {
      * used to upgrade if an SSLContext is configured.
      *
      * @param secure true for implicit TLS
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> — implicit TLS (port 465)
      */
     public void setSecure(boolean secure) {
         this.secure = secure;

@@ -52,6 +52,7 @@ import java.util.List;
  * The parser itself will not block the process receiving message byte data.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5322">RFC 5322: Internet Message Format</a>
  */
 public class MessageParser extends MIMEParser {
 

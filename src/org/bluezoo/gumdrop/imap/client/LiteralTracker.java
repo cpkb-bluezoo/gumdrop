@@ -25,9 +25,11 @@ import java.nio.ByteBuffer;
 
 /**
  * Tracks incoming literal byte data during IMAP FETCH responses.
- * Pure byte-counting: delivers content chunks via a callback and
- * signals completion when the expected number of bytes has been
- * consumed.
+ *
+ * <p>IMAP literals (RFC 9051 section 4.3) are octet-counted byte
+ * sequences ({count}CRLF data). This class does pure byte-counting:
+ * delivers content chunks via a callback and signals completion when
+ * the expected number of bytes has been consumed.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

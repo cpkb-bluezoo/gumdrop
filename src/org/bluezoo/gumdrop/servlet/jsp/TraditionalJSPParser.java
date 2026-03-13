@@ -440,25 +440,43 @@ public class TraditionalJSPParser implements JSPParser {
         Map<String, String> attributes = parseAttributes(attrPart, jspUri, line, column);
         
         int endPos = tagEnd;
-        
-        // If not self-closing, find the closing tag </jsp:actionName>
+        StandardActionElement element = new StandardActionElement(actionName, attributes, line, column);
+
+        // If not self-closing, parse body for nested elements (e.g. jsp:param)
         if (!selfClosing) {
             String closeTag = "</jsp:" + actionName + ">";
             int closeTagPos = content.indexOf(closeTag, tagEnd);
             if (closeTagPos == -1) {
-                throw new JSPParseException("Missing closing tag for jsp:" + actionName, 
+                throw new JSPParseException("Missing closing tag for jsp:" + actionName,
                                            jspUri, line, column);
             }
+            String bodyContent = content.substring(tagEnd, closeTagPos);
+            parseNestedStandardActions(bodyContent, jspUri, line, column, element);
             endPos = closeTagPos + closeTag.length();
-            // Note: Body content between tags is ignored for now
-            // Could be parsed recursively for nested elements
         }
-        
-        StandardActionElement element = new StandardActionElement(actionName, attributes, line, column);
-        
+
         return new JSPElementInfo(element, endPos);
     }
     
+    /**
+     * Parses nested standard action elements (e.g. jsp:param) from the body
+     * of a non-self-closing standard action.
+     */
+    private void parseNestedStandardActions(String body, String jspUri,
+                                            int line, int column,
+                                            StandardActionElement parent) throws JSPParseException {
+        int pos = 0;
+        while (pos < body.length()) {
+            int nextAction = body.indexOf(STANDARD_ACTION_START, pos);
+            if (nextAction == -1) {
+                break;
+            }
+            JSPElementInfo info = parseStandardAction(body, nextAction, jspUri, line, column);
+            parent.addChild(info.element);
+            pos = info.endPos;
+        }
+    }
+
     /**
      * Parses directive attributes from a string.
      */

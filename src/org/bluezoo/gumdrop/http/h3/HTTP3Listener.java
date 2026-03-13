@@ -48,10 +48,14 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  *
  * <p>This is the HTTP/3 equivalent of
  * {@link org.bluezoo.gumdrop.http.HTTPListener}. It creates a
- * {@link QuicTransportFactory} with ALPN "h3", binds to the configured
- * port, and installs an {@link HTTP3ServerHandler} on each new QUIC
- * connection to bridge between the quiche h3 module and the gumdrop
+ * {@link QuicTransportFactory} with ALPN "h3" (RFC 9114 section 3.1),
+ * binds to the configured UDP port, and installs an
+ * {@link HTTP3ServerHandler} on each new QUIC connection to bridge
+ * between the quiche h3 module and the gumdrop
  * {@link org.bluezoo.gumdrop.http.HTTPRequestHandler} API.
+ *
+ * <p>Per RFC 9114 section 3, HTTP/3 runs exclusively over QUIC
+ * (RFC 9000) with mandatory TLS 1.3 (RFC 9001).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ServerHandler
@@ -74,6 +78,15 @@ public class HTTP3Listener extends TCPListener
 
     private Path certFile;
     private Path keyFile;
+
+    // RFC 9000 section 18: configurable QUIC transport parameters
+    private long quicMaxIdleTimeout = -1;
+    private long quicMaxData = -1;
+    private long quicMaxStreamDataBidiLocal = -1;
+    private long quicMaxStreamDataBidiRemote = -1;
+    private long quicMaxStreamDataUni = -1;
+    private long quicMaxStreamsBidi = -1;
+    private long quicMaxStreamsUni = -1;
 
     private final List<QuicEngine> engines =
             new ArrayList<QuicEngine>();
@@ -188,6 +201,23 @@ public class HTTP3Listener extends TCPListener
         this.selectorLoop = loop;
     }
 
+    // ── RFC 9000 section 18: QUIC transport parameter setters ──
+
+    /** XML: {@code quic-max-idle-timeout} (milliseconds) */
+    public void setQuicMaxIdleTimeout(long ms) { this.quicMaxIdleTimeout = ms; }
+    /** XML: {@code quic-max-data} (bytes) */
+    public void setQuicMaxData(long bytes) { this.quicMaxData = bytes; }
+    /** XML: {@code quic-max-stream-data-bidi-local} (bytes) */
+    public void setQuicMaxStreamDataBidiLocal(long bytes) { this.quicMaxStreamDataBidiLocal = bytes; }
+    /** XML: {@code quic-max-stream-data-bidi-remote} (bytes) */
+    public void setQuicMaxStreamDataBidiRemote(long bytes) { this.quicMaxStreamDataBidiRemote = bytes; }
+    /** XML: {@code quic-max-stream-data-uni} (bytes) */
+    public void setQuicMaxStreamDataUni(long bytes) { this.quicMaxStreamDataUni = bytes; }
+    /** XML: {@code quic-max-streams-bidi} (count) */
+    public void setQuicMaxStreamsBidi(long count) { this.quicMaxStreamsBidi = count; }
+    /** XML: {@code quic-max-streams-uni} (count) */
+    public void setQuicMaxStreamsUni(long count) { this.quicMaxStreamsUni = count; }
+
     // ── Lifecycle ──
 
     @Override
@@ -195,6 +225,7 @@ public class HTTP3Listener extends TCPListener
         return false;
     }
 
+    // RFC 9114 section 3.1 — ALPN protocol identifier "h3"
     @Override
     protected TransportFactory createTransportFactory() {
         QuicTransportFactory factory = new QuicTransportFactory();
@@ -205,6 +236,14 @@ public class HTTP3Listener extends TCPListener
         if (keyFile != null) {
             factory.setKeyFile(keyFile);
         }
+        // RFC 9000 section 18: apply configured transport parameters
+        if (quicMaxIdleTimeout >= 0) { factory.setMaxIdleTimeout(quicMaxIdleTimeout); }
+        if (quicMaxData >= 0) { factory.setMaxData(quicMaxData); }
+        if (quicMaxStreamDataBidiLocal >= 0) { factory.setMaxStreamDataBidiLocal(quicMaxStreamDataBidiLocal); }
+        if (quicMaxStreamDataBidiRemote >= 0) { factory.setMaxStreamDataBidiRemote(quicMaxStreamDataBidiRemote); }
+        if (quicMaxStreamDataUni >= 0) { factory.setMaxStreamDataUni(quicMaxStreamDataUni); }
+        if (quicMaxStreamsBidi >= 0) { factory.setMaxStreamsBidi(quicMaxStreamsBidi); }
+        if (quicMaxStreamsUni >= 0) { factory.setMaxStreamsUni(quicMaxStreamsUni); }
         return factory;
     }
 

@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -89,10 +90,10 @@ public class OTLPExporter implements TelemetryExporter {
 
     // Active exports for flush synchronization
     private final Set<OTLPResponseHandler> pendingExports;
+    private final Object exportLock = new Object();
 
-    // Background threads
+    // Background thread
     private final ExportThread exportThread;
-    private final MetricsCollectionThread metricsCollectionThread;
     private volatile boolean running;
 
     /**
@@ -150,14 +151,6 @@ public class OTLPExporter implements TelemetryExporter {
         this.exportThread = new ExportThread();
         this.exportThread.start();
 
-        // Start metrics collection thread if metrics are enabled
-        if (config.isMetricsEnabled() && metricsEndpoint != null) {
-            this.metricsCollectionThread = new MetricsCollectionThread();
-            this.metricsCollectionThread.start();
-        } else {
-            this.metricsCollectionThread = null;
-        }
-
         String endpoints = (tracesEndpoint != null ? ", traces: " + tracesEndpoint : "") +
                 (logsEndpoint != null ? ", logs: " + logsEndpoint : "") +
                 (metricsEndpoint != null ? ", metrics: " + metricsEndpoint : "");
@@ -213,15 +206,9 @@ public class OTLPExporter implements TelemetryExporter {
 
         running = false;
         exportThread.interrupt();
-        if (metricsCollectionThread != null) {
-            metricsCollectionThread.interrupt();
-        }
 
         try {
             exportThread.join(config.getTimeoutMs());
-            if (metricsCollectionThread != null) {
-                metricsCollectionThread.join(config.getTimeoutMs());
-            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -288,7 +275,16 @@ public class OTLPExporter implements TelemetryExporter {
      * @param handler the completed handler
      */
     void onExportComplete(OTLPResponseHandler handler) {
-        pendingExports.remove(handler);
+        removePendingExport(handler);
+    }
+
+    private void removePendingExport(OTLPResponseHandler handler) {
+        synchronized (exportLock) {
+            pendingExports.remove(handler);
+            if (pendingExports.isEmpty()) {
+                exportLock.notifyAll();
+            }
+        }
     }
 
     /**
@@ -296,12 +292,18 @@ public class OTLPExporter implements TelemetryExporter {
      */
     private void waitForPendingExports(long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
-        while (!pendingExports.isEmpty() && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
+        synchronized (exportLock) {
+            while (!pendingExports.isEmpty() && System.currentTimeMillis() < deadline) {
+                try {
+                    long remaining = deadline - System.currentTimeMillis();
+                    if (remaining <= 0) {
+                        break;
+                    }
+                    exportLock.wait(Math.min(remaining, 100));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
             }
         }
     }
@@ -312,6 +314,7 @@ public class OTLPExporter implements TelemetryExporter {
 
     /**
      * Background thread that batches and exports telemetry data.
+     * Also handles periodic metrics collection.
      */
     private class ExportThread extends Thread {
 
@@ -333,23 +336,37 @@ public class OTLPExporter implements TelemetryExporter {
             List<LogRecord> logBatch = new ArrayList<>();
             List<List<MetricData>> metricBatches = new ArrayList<>();
             long lastFlush = System.currentTimeMillis();
+            long lastMetricsCollection = lastFlush;
 
             while (running || !traceQueue.isEmpty() || !logQueue.isEmpty() || !metricQueue.isEmpty()) {
                 try {
-                    // Wait for data or flush interval
                     long now = System.currentTimeMillis();
-                    long waitTime = config.getFlushIntervalMs() - (now - lastFlush);
+                    long flushWait = config.getFlushIntervalMs() - (now - lastFlush);
+                    long metricsWait = config.isMetricsEnabled()
+                            ? config.getMetricsIntervalMs() - (now - lastMetricsCollection)
+                            : flushWait;
+                    long waitTime = Math.min(flushWait, metricsWait);
+
                     if (waitTime > 0 && !flushRequested) {
-                        Thread.sleep(Math.min(waitTime, 100));
+                        Trace polled = traceQueue.poll(waitTime, TimeUnit.MILLISECONDS);
+                        if (polled != null) {
+                            traceBatch.add(polled);
+                        }
                     }
 
-                    // Drain queues into batches
                     drainQueue(traceQueue, traceBatch);
                     drainQueue(logQueue, logBatch);
                     drainQueue(metricQueue, metricBatches);
 
-                    // Check if we should flush
                     now = System.currentTimeMillis();
+
+                    if (config.isMetricsEnabled()
+                            && (now - lastMetricsCollection) >= config.getMetricsIntervalMs()) {
+                        collectMetrics();
+                        drainQueue(metricQueue, metricBatches);
+                        lastMetricsCollection = now;
+                    }
+
                     boolean shouldFlush = flushRequested ||
                             traceBatch.size() >= config.getBatchSize() ||
                             logBatch.size() >= config.getBatchSize() ||
@@ -357,7 +374,6 @@ public class OTLPExporter implements TelemetryExporter {
                             (now - lastFlush) >= config.getFlushIntervalMs();
 
                     if (shouldFlush) {
-                        // Only export if the endpoint is connected, otherwise keep data for retry
                         if (!traceBatch.isEmpty() && tracesEndpoint != null && tracesEndpoint.isConnected()) {
                             exportTraces(traceBatch);
                             traceBatch.clear();
@@ -379,7 +395,10 @@ public class OTLPExporter implements TelemetryExporter {
                 }
             }
 
-            // Final flush on shutdown
+            // Final flush including metrics
+            if (config.isMetricsEnabled()) {
+                collectMetrics();
+            }
             drainQueue(traceQueue, traceBatch);
             drainQueue(logQueue, logBatch);
             drainQueue(metricQueue, metricBatches);
@@ -399,6 +418,21 @@ public class OTLPExporter implements TelemetryExporter {
             T item;
             while ((item = queue.poll()) != null) {
                 batch.add(item);
+            }
+        }
+
+        private void collectMetrics() {
+            Map<String, Meter> meters = config.getMeters();
+            if (meters.isEmpty()) {
+                return;
+            }
+            AggregationTemporality temporality = config.getMetricsTemporality();
+            List<MetricData> allMetrics = new ArrayList<>();
+            for (Meter meter : meters.values()) {
+                allMetrics.addAll(meter.collect(temporality));
+            }
+            if (!allMetrics.isEmpty()) {
+                export(allMetrics);
             }
         }
 
@@ -422,7 +456,7 @@ public class OTLPExporter implements TelemetryExporter {
                 } catch (IOException e) {
                     logger.warning(MessageFormat.format(L10N.getString("warn.serialize_trace_failed"), 
                         trace.getTraceIdHex(), e.getMessage()));
-                    pendingExports.remove(handler);
+                    removePendingExport(handler);
                 }
             }
         }
@@ -445,7 +479,7 @@ public class OTLPExporter implements TelemetryExporter {
                 channel.close();
             } catch (IOException e) {
                 logger.warning(MessageFormat.format(L10N.getString("warn.serialize_logs_failed"), e.getMessage()));
-                pendingExports.remove(handler);
+                removePendingExport(handler);
             }
         }
 
@@ -468,63 +502,8 @@ public class OTLPExporter implements TelemetryExporter {
                     channel.close();
                 } catch (IOException e) {
                     logger.warning(MessageFormat.format(L10N.getString("warn.serialize_metrics_failed"), e.getMessage()));
-                    pendingExports.remove(handler);
+                    removePendingExport(handler);
                 }
-            }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Metrics Collection Thread
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Background thread that periodically collects metrics from registered meters.
-     */
-    private class MetricsCollectionThread extends Thread {
-
-        MetricsCollectionThread() {
-            super("OTLPExporter-Metrics");
-            setDaemon(true);
-        }
-
-        @Override
-        public void run() {
-            while (running) {
-                try {
-                    Thread.sleep(config.getMetricsIntervalMs());
-
-                    if (!running) {
-                        break;
-                    }
-
-                    collectAndExportMetrics();
-
-                } catch (InterruptedException e) {
-                    // Check for shutdown
-                }
-            }
-
-            // Final collection on shutdown
-            collectAndExportMetrics();
-        }
-
-        private void collectAndExportMetrics() {
-            Map<String, Meter> meters = config.getMeters();
-            if (meters.isEmpty()) {
-                return;
-            }
-
-            AggregationTemporality temporality = config.getMetricsTemporality();
-            List<MetricData> allMetrics = new ArrayList<>();
-
-            for (Meter meter : meters.values()) {
-                List<MetricData> meterMetrics = meter.collect(temporality);
-                allMetrics.addAll(meterMetrics);
-            }
-
-            if (!allMetrics.isEmpty()) {
-                export(allMetrics);
             }
         }
     }

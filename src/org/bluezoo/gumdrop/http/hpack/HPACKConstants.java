@@ -33,15 +33,16 @@ import java.util.List;
 import org.bluezoo.gumdrop.http.Header;
 
 /**
- * Static constants for HPACK decoder and encoder.
+ * Static constants for HPACK decoder and encoder (RFC 7541).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see https://www.rfc-editor.org/rfc/rfc7541
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
  */
 abstract class HPACKConstants {
 
     /**
-     * @see https://www.rfc-editor.org/rfc/rfc7541.html#appendix-A
+     * RFC 7541 Appendix A: Static Table Definition.
+     * 61 entries (indices 1-61); index 0 is null (unused).
      */
     protected static final List<Header> STATIC_TABLE = Collections.unmodifiableList(Arrays.asList(new Header[] {
         null,
@@ -111,7 +112,8 @@ abstract class HPACKConstants {
     protected static final int STATIC_TABLE_SIZE = STATIC_TABLE.size(); // 62
 
     /**
-     * The size of a dynamic table is the sum of the size of its entries.
+     * RFC 7541 section 4.1: the size of a dynamic table is the sum of
+     * the size of its entries.
      */
     protected static int tableSize(List<Header> table) {
         int acc = 0;
@@ -122,10 +124,9 @@ abstract class HPACKConstants {
     }
 
     /**
-     * The size of an entry is the sum of its name's length in octets (as
-     * defined in Section 5.2), its value's length in octets, and 32.
-     * The size of an entry is calculated using the length of its name and
-     * value without any Huffman encoding applied.
+     * RFC 7541 section 4.1: the size of an entry is the sum of its name's
+     * length in octets, its value's length in octets, and 32.
+     * Calculated using uncompressed lengths (no Huffman encoding applied).
      */
     protected static int headerSize(Header header) {
         return header.getName().length() + header.getValue().length() + 32;

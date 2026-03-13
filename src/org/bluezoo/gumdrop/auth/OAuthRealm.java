@@ -38,6 +38,9 @@ import java.net.URLEncoder;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
+import java.security.Signature;
+import java.security.spec.X509EncodedKeySpec;
 import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.Collections;
@@ -54,14 +57,19 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
 /**
  * OAuth 2.0 Realm implementation for token-based authentication.
  * 
- * <p>This realm validates OAuth 2.0 access tokens using the token introspection
- * endpoint (RFC 7662) and maps OAuth scopes to servlet security roles.
+ * <p>This realm validates OAuth 2.0 access tokens using either local JWT
+ * validation (RFC 7519) or the token introspection endpoint (RFC 7662),
+ * and maps OAuth scopes to servlet security roles.
  * 
  * <h3>Features</h3>
  * <ul>
+ *   <li>Optional local JWT validation with HS256, RS256, and ES256 signatures</li>
  *   <li>Token introspection with OAuth authorization server</li>
  *   <li>Configurable scope-to-role mapping</li>
  *   <li>Optional token caching for performance</li>
@@ -87,6 +95,13 @@ import java.util.logging.Logger;
  *   <tr><td>oauth.cache.max.size</td><td>1000</td><td>Maximum cache entries</td></tr>
  *   <tr><td>oauth.http.timeout</td><td>5000</td><td>HTTP timeout in milliseconds</td></tr>
  *   <tr><td>oauth.scope.mapping.{role}</td><td></td><td>Comma-separated scopes for role</td></tr>
+ *   <tr><td>oauth.jwt.enabled</td><td>false</td><td>Enable local JWT validation (RFC 7519)</td></tr>
+ *   <tr><td>oauth.jwt.secret</td><td></td><td>Shared secret for HS256 validation</td></tr>
+ *   <tr><td>oauth.jwt.public.key</td><td></td><td>Base64-encoded PKIX (X.509) public key for RS256/ES256</td></tr>
+ *   <tr><td>oauth.jwt.key.algorithm</td><td>RSA</td><td>Key algorithm: RSA or EC</td></tr>
+ *   <tr><td>oauth.jwt.issuer</td><td></td><td>Expected issuer (iss) claim</td></tr>
+ *   <tr><td>oauth.jwt.audience</td><td></td><td>Expected audience (aud) claim</td></tr>
+ *   <tr><td>oauth.jwt.clock.skew</td><td>30</td><td>Clock skew tolerance in seconds</td></tr>
  * </table>
  *
  * <h3>Configuration Example</h3>
@@ -112,8 +127,12 @@ import java.util.logging.Logger;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519 - JSON Web Token (JWT)</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7515">RFC 7515 - JSON Web Signature (JWS)</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7518">RFC 7518 - JSON Web Algorithms (JWA)</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662 - OAuth 2.0 Token Introspection</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6749">RFC 6749 - OAuth 2.0 Framework</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6750">RFC 6750 - OAuth 2.0 Bearer Token Usage</a>
  */
 public class OAuthRealm implements Realm {
 
@@ -146,6 +165,14 @@ public class OAuthRealm implements Realm {
     // Optional token cache
     private final Map<String, CachedTokenResult> tokenCache;
     private final ConcurrentHashMap<String, TokenValidationResult> userResultCache;
+    
+    // RFC 7519 — Local JWT validation
+    private final boolean jwtEnabled;
+    private final byte[] jwtSecret;        // HS256 shared secret
+    private final byte[] jwtPublicKeyBytes; // RS256/ES256 DER-encoded public key
+    private final String jwtIssuer;        // expected iss claim (null = don't check)
+    private final String jwtAudience;      // expected aud claim (null = don't check)
+    private final long jwtClockSkewSeconds;
     
     // SelectorLoop binding
     private final SelectorLoop selectorLoop;
@@ -195,6 +222,18 @@ public class OAuthRealm implements Realm {
         // Initialize cache if enabled
         this.tokenCache = cacheEnabled ? new ConcurrentHashMap<String, CachedTokenResult>() : null;
         this.userResultCache = new ConcurrentHashMap<String, TokenValidationResult>();
+        // RFC 7519 — local JWT validation configuration
+        this.jwtEnabled = Boolean.parseBoolean(config.getProperty("oauth.jwt.enabled", "false"));
+        String secret = config.getProperty("oauth.jwt.secret");
+        this.jwtSecret = (secret != null && !secret.isEmpty())
+                ? secret.getBytes(StandardCharsets.UTF_8) : null;
+        String pubKeyB64 = config.getProperty("oauth.jwt.public.key");
+        this.jwtPublicKeyBytes = (pubKeyB64 != null && !pubKeyB64.isEmpty())
+                ? Base64.getDecoder().decode(pubKeyB64) : null;
+        this.jwtIssuer = config.getProperty("oauth.jwt.issuer");
+        this.jwtAudience = config.getProperty("oauth.jwt.audience");
+        this.jwtClockSkewSeconds = Long.parseLong(
+                config.getProperty("oauth.jwt.clock.skew", "30"));
         // Configure logging level
         String logLevel = config.getProperty("oauth.log.level", "INFO");
         try {
@@ -224,6 +263,7 @@ public class OAuthRealm implements Realm {
         return SUPPORTED_MECHANISMS;
     }
 
+    /** RFC 7662 §2.1 / RFC 7519 §7.2 — token validation. */
     @Override
     public TokenValidationResult validateOAuthToken(String accessToken) {
         if (accessToken == null || accessToken.trim().isEmpty()) {
@@ -238,13 +278,19 @@ public class OAuthRealm implements Realm {
             }
         }
         try {
-            // Perform token introspection
-            TokenValidationResult result = performTokenIntrospection(accessToken);
+            // RFC 7519 — try local JWT validation first if enabled
+            TokenValidationResult result = null;
+            if (jwtEnabled && looksLikeJWT(accessToken)) {
+                result = validateJWT(accessToken);
+            }
+            // Fall back to introspection if JWT validation was not attempted or failed
+            if (result == null || !result.valid) {
+                result = performTokenIntrospection(accessToken);
+            }
             if (result.valid) {
                 if (result.username != null) {
                     userResultCache.put(result.username, result);
                 }
-                // Cache result if caching is enabled
                 if (cacheEnabled && tokenCache != null) {
                     if (tokenCache.size() >= maxCacheSize) {
                         cleanupCache();
@@ -259,6 +305,7 @@ public class OAuthRealm implements Realm {
         }
     }
 
+    /** RFC 6750 §2.1 — bearer token validation. */
     @Override
     public TokenValidationResult validateBearerToken(String token) {
         // For OAuth realm, Bearer tokens are treated as OAuth access tokens
@@ -286,7 +333,7 @@ public class OAuthRealm implements Realm {
     }
     
     /**
-     * Checks if a user has any of the required scopes.
+     * RFC 6749 §3.3 — checks if a user has any of the required scopes.
      * 
      * @param userScopes the scopes granted to the user
      * @param requiredScopes the scopes required for access
@@ -307,7 +354,7 @@ public class OAuthRealm implements Realm {
     }
     
     /**
-     * Checks if a user has a role based on their granted scopes.
+     * RFC 6749 §3.3 — checks if a user has a role based on their granted scopes.
      * 
      * @param userScopes the scopes granted to the user
      * @param role the role to check
@@ -333,6 +380,208 @@ public class OAuthRealm implements Realm {
     @Override
     public String getPassword(String username) throws UnsupportedOperationException {
         throw new UnsupportedOperationException("OAuth realm does not support password retrieval");
+    }
+    
+    // ─────────────────────────────────────────────────────────────────────────────
+    // RFC 7519 — Local JWT Validation
+    // ─────────────────────────────────────────────────────────────────────────────
+    
+    /**
+     * RFC 7519 §7.2 — checks whether a token has the three-part
+     * {@code header.payload.signature} structure of a JWT.
+     */
+    private static boolean looksLikeJWT(String token) {
+        int firstDot = token.indexOf('.');
+        if (firstDot <= 0) {
+            return false;
+        }
+        int secondDot = token.indexOf('.', firstDot + 1);
+        return secondDot > firstDot + 1 && token.indexOf('.', secondDot + 1) < 0;
+    }
+    
+    /**
+     * RFC 7519 §7.2 — validates a JWT locally by verifying its
+     * signature and standard claims ({@code exp}, {@code iss},
+     * {@code aud}, {@code sub}, {@code scope}).
+     *
+     * <p>Supported algorithms (RFC 7518):
+     * <ul>
+     *   <li>HS256 — HMAC-SHA256 with shared secret</li>
+     *   <li>RS256 — RSA PKCS#1 v1.5 SHA-256</li>
+     *   <li>ES256 — ECDSA P-256 SHA-256</li>
+     * </ul>
+     *
+     * @return a valid {@code TokenValidationResult}, or {@code null}
+     *         if the token cannot be validated locally
+     */
+    TokenValidationResult validateJWT(String token) {
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length != 3) {
+                return null;
+            }
+            
+            Base64.Decoder urlDecoder = Base64.getUrlDecoder();
+            String headerJson = new String(urlDecoder.decode(parts[0]), StandardCharsets.UTF_8);
+            String payloadJson = new String(urlDecoder.decode(parts[1]), StandardCharsets.UTF_8);
+            byte[] signatureBytes = urlDecoder.decode(parts[2]);
+            
+            // Parse header to determine algorithm
+            JWTClaimsHandler headerHandler = new JWTClaimsHandler();
+            parseJsonString(headerJson, headerHandler);
+            String alg = headerHandler.getString("alg");
+            if (alg == null) {
+                LOGGER.fine(L10N.getString("debug.jwt_no_alg"));
+                return null;
+            }
+            
+            // RFC 7515 §5.2 — verify signature
+            byte[] signingInput = (parts[0] + "." + parts[1]).getBytes(StandardCharsets.US_ASCII);
+            if (!verifySignature(alg, signingInput, signatureBytes)) {
+                LOGGER.fine(L10N.getString("debug.jwt_sig_failed"));
+                return null;
+            }
+            
+            // Parse payload claims
+            JWTClaimsHandler claimsHandler = new JWTClaimsHandler();
+            parseJsonString(payloadJson, claimsHandler);
+            
+            // RFC 7519 §4.1.4 — check expiration
+            long now = System.currentTimeMillis() / 1000;
+            Long exp = claimsHandler.getNumber("exp");
+            if (exp != null && now > exp + jwtClockSkewSeconds) {
+                LOGGER.fine(L10N.getString("debug.jwt_expired"));
+                return null;
+            }
+            
+            // RFC 7519 §4.1.6 — check not-before
+            Long nbf = claimsHandler.getNumber("nbf");
+            if (nbf != null && now < nbf - jwtClockSkewSeconds) {
+                LOGGER.fine(L10N.getString("debug.jwt_not_yet_valid"));
+                return null;
+            }
+            
+            // RFC 7519 §4.1.1 — check issuer
+            if (jwtIssuer != null) {
+                String iss = claimsHandler.getString("iss");
+                if (!jwtIssuer.equals(iss)) {
+                    String msg = MessageFormat.format(
+                            L10N.getString("debug.jwt_issuer_mismatch"), iss, jwtIssuer);
+                    LOGGER.fine(msg);
+                    return null;
+                }
+            }
+            
+            // RFC 7519 §4.1.3 — check audience
+            if (jwtAudience != null) {
+                String aud = claimsHandler.getString("aud");
+                if (!jwtAudience.equals(aud)) {
+                    String msg = MessageFormat.format(
+                            L10N.getString("debug.jwt_audience_mismatch"), aud, jwtAudience);
+                    LOGGER.fine(msg);
+                    return null;
+                }
+            }
+            
+            // Extract subject and scopes
+            String sub = claimsHandler.getString("sub");
+            String username = claimsHandler.getString("username");
+            if (username == null || username.isEmpty()) {
+                username = sub;
+            }
+            if (username == null || username.isEmpty()) {
+                LOGGER.fine(L10N.getString("debug.jwt_no_subject"));
+                return null;
+            }
+            
+            String scopeStr = claimsHandler.getString("scope");
+            String[] scopes = (scopeStr != null && !scopeStr.isEmpty())
+                    ? scopeStr.split("\\s+") : new String[0];
+            
+            long expiration = (exp != null) ? exp : 0;
+            LOGGER.fine(MessageFormat.format(
+                    L10N.getString("debug.jwt_valid"), username, alg));
+            return TokenValidationResult.success(username, scopes, "JWT", expiration);
+            
+        } catch (Exception e) {
+            LOGGER.log(Level.FINE, L10N.getString("debug.jwt_validation_error"), e);
+            return null;
+        }
+    }
+    
+    /**
+     * RFC 7515 §5.2 / RFC 7518 §3 — verifies a JWS signature.
+     */
+    private boolean verifySignature(String alg, byte[] signingInput,
+                                    byte[] signatureBytes) throws Exception {
+        switch (alg) {
+            case "HS256":
+                if (jwtSecret == null) {
+                    LOGGER.fine(L10N.getString("debug.jwt_no_secret"));
+                    return false;
+                }
+                Mac mac = Mac.getInstance("HmacSHA256");
+                mac.init(new SecretKeySpec(jwtSecret, "HmacSHA256"));
+                byte[] expected = mac.doFinal(signingInput);
+                return constantTimeEquals(expected, signatureBytes);
+                
+            case "RS256":
+                if (jwtPublicKeyBytes == null) {
+                    LOGGER.fine(L10N.getString("debug.jwt_no_pubkey"));
+                    return false;
+                }
+                KeyFactory rsaKf = KeyFactory.getInstance("RSA");
+                java.security.PublicKey rsaKey =
+                        rsaKf.generatePublic(new X509EncodedKeySpec(jwtPublicKeyBytes));
+                Signature rsaSig = Signature.getInstance("SHA256withRSA");
+                rsaSig.initVerify(rsaKey);
+                rsaSig.update(signingInput);
+                return rsaSig.verify(signatureBytes);
+                
+            case "ES256":
+                if (jwtPublicKeyBytes == null) {
+                    LOGGER.fine(L10N.getString("debug.jwt_no_pubkey"));
+                    return false;
+                }
+                KeyFactory ecKf = KeyFactory.getInstance("EC");
+                java.security.PublicKey ecKey =
+                        ecKf.generatePublic(new X509EncodedKeySpec(jwtPublicKeyBytes));
+                Signature ecSig = Signature.getInstance("SHA256withECDSA");
+                ecSig.initVerify(ecKey);
+                ecSig.update(signingInput);
+                return ecSig.verify(signatureBytes);
+                
+            default:
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("debug.jwt_unsupported_alg"), alg));
+                return false;
+        }
+    }
+    
+    /**
+     * Constant-time byte array comparison to prevent timing attacks
+     * during HMAC verification.
+     */
+    private static boolean constantTimeEquals(byte[] a, byte[] b) {
+        if (a.length != b.length) {
+            return false;
+        }
+        int result = 0;
+        for (int i = 0; i < a.length; i++) {
+            result |= a[i] ^ b[i];
+        }
+        return result == 0;
+    }
+    
+    /**
+     * Parses a JSON string using the streaming parser.
+     */
+    private static void parseJsonString(String json, JWTClaimsHandler handler)
+            throws JSONException {
+        JSONParser parser = new JSONParser();
+        parser.setContentHandler(handler);
+        parser.receive(ByteBuffer.wrap(json.getBytes(StandardCharsets.UTF_8)));
+        parser.close();
     }
     
     // ─────────────────────────────────────────────────────────────────────────────
@@ -661,10 +910,60 @@ public class OAuthRealm implements Realm {
     }
     
     /**
-     * Event-driven JSON content handler for OAuth token introspection responses.
-     * 
-     * <p>This handler processes the JSON response from an OAuth 2.0 token introspection
-     * endpoint (RFC 7662) in a streaming manner, extracting the relevant fields:
+     * RFC 7519 §4 — generic JWT claims handler that stores string and
+     * number values by key, used for both the JOSE header and the
+     * JWT claims set.
+     */
+    static class JWTClaimsHandler extends JSONDefaultHandler {
+        
+        private String currentKey;
+        private final Map<String, String> strings = new HashMap<String, String>();
+        private final Map<String, Long> numbers = new HashMap<String, Long>();
+        
+        @Override
+        public void key(String key) throws JSONException {
+            this.currentKey = key;
+        }
+        
+        @Override
+        public void stringValue(String value) throws JSONException {
+            if (currentKey != null) {
+                strings.put(currentKey, value);
+            }
+        }
+        
+        @Override
+        public void numberValue(Number number) throws JSONException {
+            if (currentKey != null) {
+                numbers.put(currentKey, number.longValue());
+                strings.put(currentKey, number.toString());
+            }
+        }
+        
+        @Override
+        public void booleanValue(boolean value) throws JSONException {
+            if (currentKey != null) {
+                strings.put(currentKey, Boolean.toString(value));
+            }
+        }
+        
+        @Override
+        public void endObject() throws JSONException {
+            this.currentKey = null;
+        }
+        
+        String getString(String key) {
+            return strings.get(key);
+        }
+        
+        Long getNumber(String key) {
+            return numbers.get(key);
+        }
+    }
+    
+    /**
+     * RFC 7662 §2.2 — event-driven JSON content handler for OAuth token
+     * introspection responses, extracting the relevant fields:
      * <ul>
      *   <li>active: boolean indicating if the token is valid</li>
      *   <li>username: the authenticated user's name</li>

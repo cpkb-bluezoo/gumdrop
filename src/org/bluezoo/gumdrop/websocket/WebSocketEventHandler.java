@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.websocket;
 import java.nio.ByteBuffer;
 
 /**
- * Handler for WebSocket lifecycle events.
+ * Handler for WebSocket lifecycle events (RFC 6455).
  *
  * <p>Implement this interface to receive WebSocket events. When used
  * with {@link WebSocketService}, implement
@@ -53,6 +53,7 @@ import java.nio.ByteBuffer;
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketSession
  * @see DefaultWebSocketEventHandler
  * @see WebSocketService
@@ -86,12 +87,12 @@ public interface WebSocketEventHandler {
     void binaryMessageReceived(WebSocketSession session, ByteBuffer data);
 
     /**
-     * Called when the WebSocket connection is closed.
+     * RFC 6455 §7.4 — called when the WebSocket connection is closed.
      *
      * <p>This is called after the closing handshake is complete.
      * The session is no longer usable after this method returns.
      *
-     * @param code the close code (see RFC 6455 Section 7.4)
+     * @param code the close code (RFC 6455 §7.4.1)
      * @param reason the close reason (may be null or empty)
      */
     void closed(int code, String reason);

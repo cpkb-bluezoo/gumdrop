@@ -297,11 +297,11 @@ public class LogSerializer {
             // bytes trace_id = 9
             if (record.hasSpanContext()) {
                 writer.writeBytesField(OTLPFieldNumbers.LOG_RECORD_TRACE_ID,
-                        record.getTraceId());
+                        record.getTraceId().getBytes());
 
                 // bytes span_id = 10
                 writer.writeBytesField(OTLPFieldNumbers.LOG_RECORD_SPAN_ID,
-                        record.getSpanId());
+                        record.getSpanId().getBytes());
             }
         }
     }

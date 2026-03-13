@@ -629,6 +629,26 @@ public interface SearchCriteria {
     }
 
     // ========================================================================
+    // CONDSTORE Criteria (RFC 7162)
+    // ========================================================================
+
+    /**
+     * Matches messages with a modification sequence number greater than
+     * or equal to the specified value.
+     * 
+     * @param modSeq the minimum modification sequence
+     * @return criteria for matching MODSEQ
+     */
+    static SearchCriteria modSeq(final long modSeq) {
+        return new SearchCriteria() {
+            @Override
+            public boolean matches(MessageContext context) throws IOException {
+                return context.getModSeq() >= modSeq;
+            }
+        };
+    }
+
+    // ========================================================================
     // Boolean Operators
     // ========================================================================
 

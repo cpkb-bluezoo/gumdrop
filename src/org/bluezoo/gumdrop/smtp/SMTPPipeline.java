@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 
 /**
  * Generic pipeline interface for SMTP message processing.
+ * Integrates with the SMTP transaction model per RFC 5321 §3.3.
  *
  * <p>An SMTPPipeline receives notifications at key stages of an SMTP
  * transaction and can optionally receive the raw message bytes. This
@@ -67,6 +68,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.3">RFC 5321 §3.3</a>
  * @see org.bluezoo.gumdrop.smtp.auth.AuthPipeline
  */
 public interface SMTPPipeline {

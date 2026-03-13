@@ -43,14 +43,14 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 
 /**
  * QUIC transport listener for DNS-over-QUIC (DoQ) queries.
- *
- * <p>DoQ (RFC 9250) transports DNS messages over QUIC on port 853.
- * Each query-response pair is carried in its own bidirectional QUIC
- * stream. Unlike DNS-over-TCP/TLS, no two-byte length prefix is used;
- * each stream carries exactly one DNS message delimited by the
- * stream FIN.
- *
- * <p>The ALPN protocol identifier is {@code "doq"}.
+ * RFC 9250 section 4.1.1: a DoQ server MUST listen on dedicated UDP port 853.
+ * Port 53 MUST NOT be used for DoQ.
+ * RFC 9250 section 4.1: ALPN token is "doq".
+ * RFC 9250 section 4.2: each query-response pair uses its own bidirectional
+ * QUIC stream. All messages MUST be encoded with a 2-octet length prefix
+ * (same as DNS-over-TCP, RFC 1035 section 4.2.2). The client MUST indicate
+ * STREAM FIN after the query; the server MUST indicate STREAM FIN after
+ * the response.
  *
  * <p>This listener follows the same architectural pattern as the
  * HTTP/3 listener: it extends {@link TCPListener} but overrides
@@ -171,6 +171,7 @@ public class DoQListener extends TCPListener
     @Override
     protected TransportFactory createTransportFactory() {
         QuicTransportFactory factory = new QuicTransportFactory();
+        // RFC 9250 section 4.1: ALPN token "doq"
         factory.setApplicationProtocols("doq");
         if (certFile != null) {
             factory.setCertFile(certFile);

@@ -82,6 +82,26 @@ public interface MailboxStore {
     }
 
     /**
+     * Returns the shared namespace prefix, if any.
+     * RFC 2342: second element of the NAMESPACE response.
+     *
+     * @return the shared namespace prefix, or null if none
+     */
+    default String getSharedNamespace() {
+        return null;
+    }
+
+    /**
+     * Returns the other users' namespace prefix, if any.
+     * RFC 2342: third element of the NAMESPACE response.
+     *
+     * @return the other users' namespace prefix, or null if none
+     */
+    default String getOtherUsersNamespace() {
+        return null;
+    }
+
+    /**
      * Lists mailboxes matching the given reference and pattern.
      * 
      * <p>The reference is a prefix that is prepended to the pattern.

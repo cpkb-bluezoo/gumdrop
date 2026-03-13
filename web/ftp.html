@@ -74,11 +74,19 @@ ABOR, DELE, RMD, MKD, PWD, LIST, NLST, SITE, SYST, STAT, HELP, NOOP</li>
 <h4>Extended Commands</h4>
 
 <ul>
-<li><b>EPRT/EPSV</b> - extended port commands for IPv6 (RFC 2428)</li>
-<li><b>FEAT</b> - feature negotiation (RFC 2389)</li>
-<li><b>SIZE</b> - file size query</li>
-<li><b>MDTM</b> - file modification time</li>
-<li><b>MLST/MLSD</b> - machine-readable directory listings (RFC 3659)</li>
+<li><b>EPRT/EPSV</b> &ndash; extended port commands for IPv6 (RFC 2428)</li>
+<li><b>FEAT</b> &ndash; feature negotiation (RFC 2389)</li>
+<li><b>SIZE</b> &ndash; file size query (RFC 3659 section 4)</li>
+<li><b>MDTM</b> &ndash; file modification time as <code>YYYYMMDDhhmmss</code>
+UTC (RFC 3659 section 3)</li>
+<li><b>MLST/MLSD</b> &ndash; machine-readable directory listings with
+standardised facts (size, modify, type, perm) per RFC 3659 section 7.
+MLST sends a single entry over the control connection; MLSD sends the
+full directory over the data connection.</li>
+<li><b>OPTS UTF8 ON</b> &ndash; switches the control connection to UTF-8
+encoding for non-ASCII pathnames (RFC 2640)</li>
+<li><b>STAT</b> with directory path &ndash; directory listing over the control
+connection without a data connection (RFC 959 section 4.1.3)</li>
 </ul>
 
 <h4>Data Connection Modes</h4>
@@ -118,19 +126,28 @@ C: USER alice
 
 <p>
 When configured with <code>secure="true"</code>, the server expects TLS from
-connection establishment (typically on port 990).
+connection establishment. The listening port automatically defaults to 990
+(per RFC 4217) unless an explicit port is set.
 </p>
 
 <h4>Data Connection Protection</h4>
 
 <ul>
-<li><b>PBSZ 0</b> - protection buffer size (required before PROT)</li>
-<li><b>PROT P</b> - enable protected (encrypted) data connections</li>
-<li><b>PROT C</b> - clear (unencrypted) data connections</li>
+<li><b>PBSZ 0</b> &ndash; protection buffer size (required before PROT)</li>
+<li><b>PROT P</b> &ndash; enable protected (encrypted) data connections</li>
+<li><b>PROT C</b> &ndash; clear (unencrypted) data connections</li>
 </ul>
 
 <p>
 Use <code>requireTLSForData="true"</code> to mandate encrypted data transfers.
+</p>
+
+<h4>Data Connection Security (RFC 4217 section 10)</h4>
+
+<p>
+In passive mode, the server verifies that the IP address of each incoming data
+connection matches the control connection&rsquo;s client IP. Connections from
+mismatched addresses are rejected to prevent data connection hijacking.
 </p>
 
 <h3 id="authentication">Authentication</h3>
@@ -315,12 +332,11 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
     &lt;/listener&gt;
 &lt;/service&gt;
 
-&lt;!-- FTPS with implicit TLS (port 990) --&gt;
+&lt;!-- FTPS with implicit TLS (port defaults to 990 when secure) --&gt;
 &lt;service id="ftps" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
     &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
     &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
-        &lt;property name="port"&gt;990&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;

@@ -21,10 +21,13 @@
 
 package org.bluezoo.gumdrop.pop3;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 /**
@@ -55,11 +58,13 @@ public class POP3Listener extends TCPListener {
 
     /**
      * The default POP3 port (cleartext or with STARTTLS).
+     * RFC 1939 — standard POP3 port.
      */
     protected static final int POP3_DEFAULT_PORT = 110;
 
     /**
      * The default POP3S port (implicit TLS).
+     * RFC 8314 section 3.3 — implicit TLS for POP3.
      */
     protected static final int POP3S_DEFAULT_PORT = 995;
 
@@ -71,6 +76,12 @@ public class POP3Listener extends TCPListener {
     protected boolean enableAPOP = true;
     protected boolean enableUTF8 = true;
     protected boolean enablePipelining = false;
+
+    // RFC 2449 section 6.5 — message retention policy (-1 = don't advertise)
+    protected int expireDays = -1;
+
+    // RFC 4752 — GSSAPI/Kerberos authentication
+    protected GSSAPIServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
     private POP3Service service;
@@ -119,6 +130,41 @@ public class POP3Listener extends TCPListener {
      */
     public void setRealm(Realm realm) {
         this.realm = realm;
+    }
+
+    /**
+     * Returns the GSSAPI server for Kerberos authentication (RFC 4752),
+     * or null if GSSAPI is not configured.
+     *
+     * @return the GSSAPI server, or null
+     */
+    public GSSAPIServer getGSSAPIServer() {
+        return gssapiServer;
+    }
+
+    /**
+     * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
+     *
+     * @param gssapiServer the GSSAPI server
+     */
+    public void setGSSAPIServer(GSSAPIServer gssapiServer) {
+        this.gssapiServer = gssapiServer;
+    }
+
+    /**
+     * Configures GSSAPI/Kerberos authentication (RFC 4752) by creating
+     * a {@link GSSAPIServer} from the specified keytab and service
+     * principal.
+     *
+     * @param keytabPath the path to the Kerberos keytab file
+     * @param servicePrincipal the service principal name
+     *        (e.g. "pop/mail.example.com@EXAMPLE.COM")
+     * @throws IOException if the keytab cannot be read or credentials
+     *         cannot be acquired
+     */
+    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+            throws IOException {
+        this.gssapiServer = new GSSAPIServer(keytabPath, servicePrincipal);
     }
 
     /**
@@ -263,6 +309,28 @@ public class POP3Listener extends TCPListener {
     }
 
     /**
+     * Returns the EXPIRE value advertised in CAPA (RFC 2449 section 6.5).
+     * A value of 0 means messages may be expired immediately, a positive
+     * value is the minimum retention in days, and -1 means the capability
+     * is not advertised. Use {@code Integer.MAX_VALUE} for NEVER.
+     *
+     * @return the expire days, or -1 if not advertised
+     */
+    public int getExpireDays() {
+        return expireDays;
+    }
+
+    /**
+     * Sets the EXPIRE capability value.
+     *
+     * @param days retention days (0+), {@code Integer.MAX_VALUE} for
+     *             NEVER, or -1 to suppress the capability
+     */
+    public void setExpireDays(int days) {
+        this.expireDays = days;
+    }
+
+    /**
      * Starts this endpoint, setting default port if not specified.
      */
     @Override
@@ -332,6 +400,7 @@ public class POP3Listener extends TCPListener {
 
     /**
      * Checks if SSL/TLS context is available for STARTTLS.
+     * RFC 2595 section 4 — STLS command availability.
      *
      * @return true if STARTTLS is supported, false otherwise
      */

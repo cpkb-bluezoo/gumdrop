@@ -26,6 +26,7 @@ package org.bluezoo.gumdrop.mime;
  * This can be thrown by either the parser itself or by the handler if it
  * wishes to abort parsing.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  */
 public class MIMEParseException extends Exception {
 

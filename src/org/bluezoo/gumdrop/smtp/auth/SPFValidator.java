@@ -76,6 +76,7 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7208#section-4">RFC 7208 §4</a> — check_host()
  */
 public class SPFValidator {
 
@@ -100,6 +101,7 @@ public class SPFValidator {
 
     /**
      * Checks the SPF policy for a sender.
+     * RFC 7208 §4 — check_host() function.
      *
      * @param sender the envelope sender (MAIL FROM) address, or null for bounce
      * @param clientIP the IP address of the connecting client
@@ -209,6 +211,7 @@ public class SPFValidator {
 
     /**
      * Evaluates mechanisms starting from a given index.
+     * RFC 7208 §5 — mechanism evaluation; §6.1 — redirect modifier; §6.2 — exp modifier.
      * This allows resuming after async lookups complete without a match.
      */
     private void evaluateMechanisms(CheckContext ctx, String domain, 
@@ -304,6 +307,7 @@ public class SPFValidator {
 
     /**
      * Fetches the explanation TXT record for a FAIL result.
+     * RFC 7208 §6.2 — exp modifier (explanation string).
      */
     private void fetchExplanation(final CheckContext ctx, String expDomain,
                                    final SPFResult result) {
@@ -333,6 +337,7 @@ public class SPFValidator {
 
     /**
      * Evaluates a single mechanism synchronously (ip4, ip6, all).
+     * RFC 7208 §5.1 — all; §5.6 — ip4/ip6.
      * Returns non-null if the mechanism matches, null otherwise.
      */
     private SPFResult evaluateMechanism(CheckContext ctx, String domain, String mechanism) {
@@ -361,6 +366,7 @@ public class SPFValidator {
 
     /**
      * Checks if an IP matches an IPv4 CIDR network.
+     * RFC 7208 §5.6 — ip4 mechanism.
      */
     private boolean matchesIP4(InetAddress ip, String network) {
         try {
@@ -373,6 +379,7 @@ public class SPFValidator {
 
     /**
      * Checks if an IP matches an IPv6 CIDR network.
+     * RFC 7208 §5.6 — ip6 mechanism.
      */
     private boolean matchesIP6(InetAddress ip, String network) {
         try {
@@ -385,6 +392,7 @@ public class SPFValidator {
 
     /**
      * Looks up an included domain's SPF record.
+     * RFC 7208 §5.2 — include mechanism.
      */
     private void lookupInclude(final CheckContext ctx, final String originalDomain,
                                 final String[] parts, final int currentIndex,
@@ -512,6 +520,7 @@ public class SPFValidator {
 
     /**
      * Looks up A/AAAA records for the "a" mechanism.
+     * RFC 7208 §5.3 — a mechanism.
      */
     private void lookupA(final CheckContext ctx, final String originalDomain,
                           final String[] parts, final int currentIndex,
@@ -611,6 +620,7 @@ public class SPFValidator {
 
     /**
      * Looks up PTR records for the "ptr" mechanism.
+     * RFC 7208 §5.5 — ptr mechanism (deprecated).
      * Note: This mechanism is deprecated (RFC 7208) due to performance and
      * reliability issues, but must still be supported.
      */
@@ -781,6 +791,7 @@ public class SPFValidator {
 
     /**
      * Looks up MX records for the "mx" mechanism.
+     * RFC 7208 §5.4 — mx mechanism.
      */
     private void lookupMX(final CheckContext ctx, final String originalDomain,
                            final String[] parts, final int currentIndex,
@@ -947,6 +958,7 @@ public class SPFValidator {
 
     /**
      * Looks up a domain for the "exists" mechanism.
+     * RFC 7208 §5.7 — exists mechanism.
      */
     private void lookupExists(final CheckContext ctx, final String originalDomain,
                                final String[] parts, final int currentIndex,
@@ -1081,6 +1093,7 @@ public class SPFValidator {
 
     /**
      * Expands SPF macros in a string.
+     * RFC 7208 §7 — macro processing.
      *
      * <p>Supported macros:
      * <ul>
@@ -1152,6 +1165,7 @@ public class SPFValidator {
 
     /**
      * Expands a single macro specification (the part inside %{...}).
+     * RFC 7208 §7 — macro processing.
      */
     private String expandMacro(String spec, CheckContext ctx, String currentDomain) {
         if (spec.isEmpty()) {

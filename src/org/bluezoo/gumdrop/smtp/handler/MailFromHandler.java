@@ -40,6 +40,8 @@ import org.bluezoo.gumdrop.smtp.SMTPPipeline;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MailFromState
  * @see SMTPPipeline
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.2">RFC 5321 §4.1.1.2</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6531">RFC 6531</a> (SMTPUTF8)
  */
 public interface MailFromHandler {
 

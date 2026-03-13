@@ -251,6 +251,11 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     }
 
     @Override
+    public void execute(Runnable task) {
+        selectorLoop.invokeLater(task);
+    }
+
+    @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
         return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
     }

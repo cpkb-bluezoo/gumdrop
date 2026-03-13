@@ -23,31 +23,26 @@ package org.bluezoo.gumdrop.dns;
 
 /**
  * DNS record classes.
+ * RFC 1035 section 3.2.4 defines CLASS values.
+ * RFC 1035 section 3.2.5 defines QCLASS values (superset of CLASS).
  *
  * <p>In practice, only IN (Internet) is commonly used.
+ * CS (2, CSNET) is omitted as it is explicitly obsolete in RFC 1035.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public enum DNSClass {
 
-    /**
-     * Internet class.
-     */
+    /** Internet class. RFC 1035 section 3.2.4. */
     IN(1),
 
-    /**
-     * Chaos class (historical).
-     */
+    /** CHAOS class. RFC 1035 section 3.2.4. */
     CH(3),
 
-    /**
-     * Hesiod class (historical).
-     */
+    /** Hesiod class. RFC 1035 section 3.2.4. */
     HS(4),
 
-    /**
-     * Any class (query only).
-     */
+    /** Any class (QCLASS only). RFC 1035 section 3.2.5. */
     ANY(255);
 
     private final int value;

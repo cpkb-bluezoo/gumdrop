@@ -23,6 +23,10 @@ package org.bluezoo.gumdrop.websocket.client;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -33,22 +37,24 @@ import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 /**
- * Protocol handler for WebSocket client connections.
+ * Protocol handler for WebSocket client connections (RFC 6455 §4.1).
  *
  * <p>Extends {@link HTTPClientProtocolHandler} to add WebSocket upgrade
  * handling. Before the upgrade, HTTP parsing proceeds normally. Once a
- * 101 Switching Protocols response is received and validated, this handler
- * switches to WebSocket mode and routes all subsequent data to the
- * {@link WebSocketConnection}.
+ * 101 Switching Protocols response is received and validated (§4.1 step 5),
+ * this handler switches to WebSocket mode (§5) and routes all subsequent
+ * data to the {@link WebSocketConnection}.
  *
  * <p>This class is not intended to be used directly. Use
  * {@link WebSocketClient} instead.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketClient
  * @see HTTPClientProtocolHandler
  */
@@ -60,6 +66,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
     private final WebSocketEventHandler eventHandler;
 
     private String websocketKey;
+    private List<WebSocketExtension> requestedExtensions = Collections.emptyList();
     private volatile boolean webSocketMode;
     private ClientWebSocketConnection webSocketConnection;
 
@@ -91,6 +98,16 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
     }
 
     /**
+     * RFC 6455 §9 — sets the extensions that were offered in the request.
+     * Used to match against the server's accepted extensions in the response.
+     *
+     * @param extensions the requested extensions
+     */
+    void setRequestedExtensions(List<WebSocketExtension> extensions) {
+        this.requestedExtensions = extensions != null ? extensions : Collections.emptyList();
+    }
+
+    /**
      * Returns the active WebSocket connection, or null if the upgrade
      * has not yet completed.
      *
@@ -100,6 +117,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
         return webSocketConnection;
     }
 
+    /** RFC 6455 §4.1 — validates the server's 101 response and switches to WebSocket mode. */
     @Override
     protected boolean handleProtocolSwitch(HTTPStatus status, Headers headers) {
         if (websocketKey == null) {
@@ -114,9 +132,15 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
 
         LOGGER.fine("WebSocket upgrade accepted, switching to WebSocket mode");
 
+        // RFC 6455 §9 — negotiate extensions from server response
+        List<WebSocketExtension> activeExtensions = negotiateResponseExtensions(headers);
+
         webSocketConnection = new ClientWebSocketConnection(eventHandler);
         webSocketConnection.setClientMode(true);
         webSocketConnection.setTransport(new ClientWebSocketTransport());
+        if (!activeExtensions.isEmpty()) {
+            webSocketConnection.setExtensions(activeExtensions);
+        }
 
         webSocketMode = true;
 
@@ -143,6 +167,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
         return true;
     }
 
+    /** RFC 6455 §5 — routes data to WebSocket frame processing after upgrade. */
     @Override
     public void receive(ByteBuffer data) {
         if (webSocketMode) {
@@ -164,6 +189,31 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
             return;
         }
         super.disconnected();
+    }
+
+    /**
+     * RFC 6455 §9.1 — processes the server's Sec-WebSocket-Extensions
+     * response and activates matching extensions from our offer list.
+     */
+    private List<WebSocketExtension> negotiateResponseExtensions(Headers headers) {
+        String extHeader = headers.getValue("Sec-WebSocket-Extensions");
+        if (extHeader == null || extHeader.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<WebSocketHandshake.ExtensionOffer> accepted =
+                WebSocketHandshake.parseExtensions(extHeader);
+        List<WebSocketExtension> active = new ArrayList<>();
+        for (WebSocketHandshake.ExtensionOffer offer : accepted) {
+            for (WebSocketExtension ext : requestedExtensions) {
+                if (ext.getName().equals(offer.getName())) {
+                    if (ext.acceptResponse(offer.getParams())) {
+                        active.add(ext);
+                    }
+                    break;
+                }
+            }
+        }
+        return active;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

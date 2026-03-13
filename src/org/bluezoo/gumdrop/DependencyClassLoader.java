@@ -24,9 +24,11 @@ package org.bluezoo.gumdrop;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FilterInputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -35,10 +37,10 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
-import org.bluezoo.gumdrop.util.JarInputStream;
 
 /**
  * Class loader to load J2EE dependency classes from jars.
@@ -58,6 +60,8 @@ public class DependencyClassLoader extends ClassLoader {
      * jar URL to a file and use that as a JarFile.
      */
     private Map<URL,File> files = new HashMap<>();
+
+    private final ConcurrentHashMap<String, JarFile> jarFileCache = new ConcurrentHashMap<>();
 
     public DependencyClassLoader(List<URL> urls, ClassLoader parent) {
         super(parent);
@@ -171,11 +175,16 @@ public class DependencyClassLoader extends ClassLoader {
         try {
             // Find the temporary file corresponding to this URL
             File file = getFile(url);
-            try (JarFile jarFile = new JarFile(file)) {
-                JarEntry jarEntry = jarFile.getJarEntry(name);
-                if (jarEntry != null) {
-                    return new URL("jar:" + file.toURI().toURL() + "!/" + name);
+            JarFile jarFile = jarFileCache.computeIfAbsent(file.getPath(), k -> {
+                try {
+                    return new JarFile(file);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
                 }
+            });
+            JarEntry jarEntry = jarFile.getJarEntry(name);
+            if (jarEntry != null) {
+                return new URL("jar:" + file.toURI().toURL() + "!/" + name);
             }
             return null; // not found
         } catch (IOException e) {
@@ -223,14 +232,18 @@ public class DependencyClassLoader extends ClassLoader {
         try {
             // Find the temporary file corresponding to this URL
             File file = getFile(url);
-            JarFile jarFile = new JarFile(file); // NB cannot close yet, use JarInputStream
+            JarFile jarFile = jarFileCache.computeIfAbsent(file.getPath(), k -> {
+                try {
+                    return new JarFile(file);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
             JarEntry jarEntry = jarFile.getJarEntry(name);
             if (jarEntry != null) {
-                return new JarInputStream(jarFile, jarEntry);
-            } else {
-                jarFile.close();
-                return null; // not found
+                return new FilterInputStream(jarFile.getInputStream(jarEntry)) {};
             }
+            return null; // not found
         } catch (IOException e) {
             // error creating or reading the temporary file
             RuntimeException e2 = new RuntimeException();
@@ -298,6 +311,28 @@ public class DependencyClassLoader extends ClassLoader {
 
     protected boolean urlValid(URL url) {
         return urls.contains(url);
+    }
+
+    /**
+     * Closes all cached JarFile instances.
+     */
+    public void close() throws IOException {
+        IOException first = null;
+        for (JarFile jarFile : jarFileCache.values()) {
+            try {
+                jarFile.close();
+            } catch (IOException e) {
+                if (first == null) {
+                    first = e;
+                } else {
+                    first.addSuppressed(e);
+                }
+            }
+        }
+        jarFileCache.clear();
+        if (first != null) {
+            throw first;
+        }
     }
 
 }

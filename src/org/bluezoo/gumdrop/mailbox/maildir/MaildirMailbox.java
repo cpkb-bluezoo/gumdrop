@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mailbox.maildir;
 
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
+import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
@@ -32,18 +34,18 @@ import org.bluezoo.gumdrop.mailbox.index.MessageIndex;
 import org.bluezoo.gumdrop.mailbox.index.MessageIndexBuilder;
 import org.bluezoo.gumdrop.mailbox.index.MessageIndexEntry;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.Channels;
+import java.nio.channels.CompletionHandler;
 import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -113,8 +115,9 @@ public class MaildirMailbox implements Mailbox {
     /** Messages marked for deletion (by UID) */
     private Set<Long> deletedMessages;
 
-    /** Pending append data */
-    private ByteArrayOutputStream appendBuffer;
+    /** Pending append data - FileChannel for direct write to temp file */
+    private FileChannel appendChannel;
+    private Path appendTempPath;
     private OffsetDateTime appendDate;
     private Set<Flag> appendFlags;
     private Set<String> appendKeywords;
@@ -124,6 +127,18 @@ public class MaildirMailbox implements Mailbox {
 
     /** Builder for creating index entries */
     private final MessageIndexBuilder indexBuilder;
+
+    /** CONDSTORE: highest modification sequence */
+    private long highestModSeq;
+
+    /** CONDSTORE: per-UID modification sequence (uid -> modseq) */
+    private Map<Long, Long> uidModSeq;
+
+    /** CONDSTORE: true when modseq data needs to be persisted */
+    private boolean modSeqDirty;
+
+    /** QRESYNC: expunged UIDs with their last modseq (uid -> modseq) */
+    private Map<Long, Long> expungedUids;
 
     /**
      * Opens a Maildir mailbox.
@@ -160,7 +175,13 @@ public class MaildirMailbox implements Mailbox {
 
         // Scan and index messages
         scanMessages();
-        
+
+        // Load MODSEQ data (CONDSTORE/QRESYNC)
+        this.uidModSeq = new HashMap<>();
+        this.expungedUids = new HashMap<>();
+        loadModSeqData();
+        loadExpungedData();
+
         // Load or build search index
         loadOrBuildSearchIndex();
     }
@@ -175,21 +196,16 @@ public class MaildirMailbox implements Mailbox {
         // First, move any messages from new/ to cur/ (marking as seen by client)
         moveNewToCur();
 
-        // Scan cur/ directory
-        File curDir = curPath.toFile();
-        File[] files = curDir.listFiles();
-        if (files == null) {
-            return;
-        }
-
+        // Scan cur/ directory using lazy iteration
         List<MaildirMessageDescriptor> scanned = new ArrayList<>();
-        
-        for (File file : files) {
-            if (!file.isFile()) {
-                continue;
-            }
-            
-            String filename = file.getName();
+
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(curPath)) {
+            for (Path filePath : stream) {
+                if (!Files.isRegularFile(filePath)) {
+                    continue;
+                }
+
+                String filename = filePath.getFileName().toString();
             
             // Skip hidden files
             if (filename.startsWith(".")) {
@@ -209,13 +225,17 @@ public class MaildirMailbox implements Mailbox {
                 MaildirMessageDescriptor descriptor = new MaildirMessageDescriptor(
                     0, // Message number assigned later
                     uid,
-                    file.toPath(),
+                    filePath,
                     parsed
                 );
                 scanned.add(descriptor);
             } catch (IllegalArgumentException e) {
                 LOGGER.log(Level.WARNING, "Skipping invalid Maildir file: " + filename, e);
             }
+        }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error scanning cur directory", e);
+            return;
         }
 
         // Sort by UID and assign message numbers
@@ -248,18 +268,13 @@ public class MaildirMailbox implements Mailbox {
             return;
         }
 
-        File newDir = newPath.toFile();
-        File[] files = newDir.listFiles();
-        if (files == null) {
-            return;
-        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(newPath)) {
+            for (Path filePath : stream) {
+                if (!Files.isRegularFile(filePath) || filePath.getFileName().toString().startsWith(".")) {
+                    continue;
+                }
 
-        for (File file : files) {
-            if (!file.isFile() || file.getName().startsWith(".")) {
-                continue;
-            }
-
-            String filename = file.getName();
+                String filename = filePath.getFileName().toString();
             
             // Parse and ensure has :2, info section
             try {
@@ -299,11 +314,14 @@ public class MaildirMailbox implements Mailbox {
                 // Move to cur/
                 String newFilename = parsed.toString();
                 Path destPath = curPath.resolve(newFilename);
-                Files.move(file.toPath(), destPath, StandardCopyOption.ATOMIC_MOVE);
-                
+                Files.move(filePath, destPath, StandardCopyOption.ATOMIC_MOVE);
+
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Error processing new message: " + filename, e);
             }
+        }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error listing new directory", e);
         }
     }
 
@@ -324,7 +342,11 @@ public class MaildirMailbox implements Mailbox {
             if (keywords.isDirty()) {
                 keywords.save();
             }
-            
+            if (modSeqDirty) {
+                saveModSeqData();
+                modSeqDirty = false;
+            }
+
             // Save search index if modified
             if (searchIndex != null && searchIndex.isDirty()) {
                 try {
@@ -334,7 +356,7 @@ public class MaildirMailbox implements Mailbox {
                 }
             }
         }
-        
+
         searchIndex = null;
     }
 
@@ -394,14 +416,34 @@ public class MaildirMailbox implements Mailbox {
     }
 
     @Override
+    public Path getMessagePath(int messageNumber) throws IOException {
+        MaildirMessageDescriptor msg = (MaildirMessageDescriptor) getMessage(messageNumber);
+        if (msg == null) {
+            throw new IOException("Message not found: " + messageNumber);
+        }
+        return msg.getFilePath();
+    }
+
+    @Override
     public ReadableByteChannel getMessageContent(int messageNumber) throws IOException {
         MaildirMessageDescriptor msg = (MaildirMessageDescriptor) getMessage(messageNumber);
         if (msg == null) {
             throw new IOException("Message not found: " + messageNumber);
         }
         
-        FileInputStream fis = new FileInputStream(msg.getFilePath().toFile());
-        return fis.getChannel();
+        return FileChannel.open(msg.getFilePath(), StandardOpenOption.READ);
+    }
+
+    @Override
+    public long getMessageTopEndOffset(int messageNumber, int bodyLines)
+            throws IOException {
+        MaildirMessageDescriptor msg = (MaildirMessageDescriptor) getMessage(messageNumber);
+        if (msg == null) {
+            throw new IOException("Message not found: " + messageNumber);
+        }
+        try (FileChannel fc = FileChannel.open(msg.getFilePath(), StandardOpenOption.READ)) {
+            return scanTopEnd(fc, bodyLines);
+        }
     }
 
     @Override
@@ -411,45 +453,62 @@ public class MaildirMailbox implements Mailbox {
             throw new IOException("Message not found: " + messageNumber);
         }
 
-        // Read message and extract headers + body lines
-        ByteArrayOutputStream result = new ByteArrayOutputStream();
-        FileInputStream fis = new FileInputStream(msg.getFilePath().toFile());
-        try {
-            byte[] buffer = new byte[8192];
-            boolean inHeaders = true;
-            boolean prevCr = false;
-            int lineCount = 0;
-            int emptyLineCount = 0;
+        try (FileChannel fc = FileChannel.open(msg.getFilePath(), StandardOpenOption.READ)) {
+            long endPos = scanTopEnd(fc, bodyLines);
 
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                for (int i = 0; i < bytesRead; i++) {
-                    byte b = buffer[i];
-                    result.write(b);
-
-                    if (b == LF) {
-                        if (inHeaders) {
-                            // Check if this is the blank line ending headers
-                            if (prevCr || (i > 0 && buffer[i - 1] == LF)) {
-                                inHeaders = false;
-                            }
-                        } else {
-                            lineCount++;
-                            if (lineCount >= bodyLines) {
-                                fis.close();
-                                return Channels.newChannel(
-                                    new java.io.ByteArrayInputStream(result.toByteArray()));
-                            }
-                        }
-                    }
-                    prevCr = (b == CR);
+            ByteBuffer result = ByteBuffer.allocate((int) endPos);
+            fc.position(0);
+            while (result.hasRemaining()) {
+                if (fc.read(result) == -1) {
+                    break;
                 }
             }
-        } finally {
-            fis.close();
+            result.flip();
+            return Channels.newChannel(
+                    new java.io.ByteArrayInputStream(result.array(), 0, result.limit()));
         }
+    }
 
-        return Channels.newChannel(new java.io.ByteArrayInputStream(result.toByteArray()));
+    /**
+     * Scans a message file to find the byte offset after the headers plus
+     * the requested number of body lines. Returns the file size if the
+     * message has fewer body lines than requested.
+     */
+    private static long scanTopEnd(FileChannel fc, int bodyLines) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(8192);
+        boolean inHeaders = true;
+        boolean lastWasNewline = false;
+        int lineCount = 0;
+        long pos = 0;
+
+        while (true) {
+            buf.clear();
+            int n = fc.read(buf);
+            if (n == -1) {
+                break;
+            }
+            buf.flip();
+            for (int i = 0; i < n; i++) {
+                byte b = buf.get(i);
+                if (b == LF) {
+                    if (inHeaders) {
+                        if (lastWasNewline) {
+                            inHeaders = false;
+                        }
+                        lastWasNewline = true;
+                    } else {
+                        lineCount++;
+                        if (lineCount >= bodyLines) {
+                            return pos + i + 1;
+                        }
+                    }
+                } else if (b != CR) {
+                    lastWasNewline = false;
+                }
+            }
+            pos += n;
+        }
+        return pos;
     }
 
     @Override
@@ -483,7 +542,8 @@ public class MaildirMailbox implements Mailbox {
 
         if (!newFlags.equals(currentFlags)) {
             renameWithFlags(msg, newFlags, msg.getKeywordIndices());
-            
+            incrementModSeq(msg.getUid());
+
             // Update search index
             if (searchIndex != null) {
                 searchIndex.updateFlags(msg.getUid(), newFlags);
@@ -503,7 +563,8 @@ public class MaildirMailbox implements Mailbox {
         }
 
         renameWithFlags(msg, flags, msg.getKeywordIndices());
-        
+        incrementModSeq(msg.getUid());
+
         // Update search index
         if (searchIndex != null) {
             searchIndex.updateFlags(msg.getUid(), flags);
@@ -591,27 +652,30 @@ public class MaildirMailbox implements Mailbox {
      */
     private List<Integer> doExpunge() throws IOException {
         List<Integer> expunged = new ArrayList<>();
-        List<Long> expungedUids = new ArrayList<>();
+        List<Long> removedUids = new ArrayList<>();
+        List<MaildirMessageDescriptor> toKeep = new ArrayList<>();
 
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            MaildirMessageDescriptor msg = messages.get(i);
+        for (MaildirMessageDescriptor msg : messages) {
             if (deletedMessages.contains(msg.getUid())) {
-                // Delete the file
                 Files.deleteIfExists(msg.getFilePath());
-                
-                // Remove from UID list
                 uidList.removeUid(msg.getBaseFilename());
-                
-                // Record expunged message number and UID
                 expunged.add(msg.getMessageNumber());
-                expungedUids.add(msg.getUid());
-                
-                // Remove from lists
-                messages.remove(i);
+                removedUids.add(msg.getUid());
                 uidToMessage.remove(msg.getUid());
+
+                // Record for QRESYNC VANISHED
+                long ms = uidModSeq.containsKey(msg.getUid())
+                        ? uidModSeq.get(msg.getUid()).longValue()
+                        : highestModSeq;
+                expungedUids.put(msg.getUid(), ms);
+                uidModSeq.remove(msg.getUid());
+                modSeqDirty = true;
+            } else {
+                toKeep.add(msg);
             }
         }
 
+        messages = toKeep;
         deletedMessages.clear();
 
         // Renumber remaining messages
@@ -630,16 +694,21 @@ public class MaildirMailbox implements Mailbox {
         }
 
         // Update search index - remove expunged entries and compact
-        if (searchIndex != null && !expungedUids.isEmpty()) {
-            for (Long uid : expungedUids) {
+        if (searchIndex != null && !removedUids.isEmpty()) {
+            for (Long uid : removedUids) {
                 searchIndex.removeEntry(uid);
             }
             searchIndex.compact();
         }
 
+        // Persist expunged UIDs
+        if (!removedUids.isEmpty()) {
+            saveExpungedData();
+        }
+
         // Sort expunged list in ascending order
         Collections.sort(expunged);
-        
+
         return expunged;
     }
 
@@ -667,11 +736,13 @@ public class MaildirMailbox implements Mailbox {
         if (readOnly) {
             throw new IOException("Mailbox is read-only");
         }
-        if (appendBuffer != null) {
+        if (appendChannel != null) {
             throw new IllegalStateException("Append already in progress");
         }
-        
-        appendBuffer = new ByteArrayOutputStream();
+
+        appendTempPath = Files.createTempFile(tmpPath, "mail", ".tmp");
+        appendChannel = FileChannel.open(appendTempPath,
+            StandardOpenOption.WRITE);
         appendFlags = flags != null ? EnumSet.copyOf(flags) : EnumSet.noneOf(Flag.class);
         appendDate = internalDate;
         appendKeywords = new HashSet<>();
@@ -679,27 +750,29 @@ public class MaildirMailbox implements Mailbox {
 
     @Override
     public void appendMessageContent(ByteBuffer data) throws IOException {
-        if (appendBuffer == null) {
+        if (appendChannel == null) {
             throw new IllegalStateException("No append in progress");
         }
-        
-        byte[] bytes = new byte[data.remaining()];
-        data.get(bytes);
-        appendBuffer.write(bytes);
+
+        while (data.hasRemaining()) {
+            appendChannel.write(data);
+        }
     }
 
     @Override
     public long endAppendMessage() throws IOException {
-        if (appendBuffer == null) {
+        if (appendChannel == null) {
             throw new IllegalStateException("No append in progress");
         }
 
         Set<Flag> flagsToUse = appendFlags;
         OffsetDateTime dateToUse = appendDate;
-        
+
         try {
-            byte[] content = appendBuffer.toByteArray();
-            long size = content.length;
+            appendChannel.close();
+            appendChannel = null;
+
+            long size = Files.size(appendTempPath);
 
             // Convert keywords to indices
             Set<Integer> keywordIndices = keywords.keywordsToIndices(appendKeywords);
@@ -707,18 +780,10 @@ public class MaildirMailbox implements Mailbox {
             // Generate unique filename
             MaildirFilename filename = MaildirFilename.generate(size, flagsToUse, keywordIndices);
 
-            // Write to tmp/ first
-            Path tmpFile = tmpPath.resolve(filename.toString());
-            FileOutputStream fos = new FileOutputStream(tmpFile.toFile());
-            try {
-                fos.write(content);
-            } finally {
-                fos.close();
-            }
-
-            // Move to cur/ (atomic)
+            // Move from tmp to cur/ (atomic)
             Path curFile = curPath.resolve(filename.toString());
-            Files.move(tmpFile, curFile, StandardCopyOption.ATOMIC_MOVE);
+            Files.move(appendTempPath, curFile, StandardCopyOption.ATOMIC_MOVE);
+            appendTempPath = null;
 
             // Assign UID
             long uid = uidList.assignUid(filename.getBaseFilename());
@@ -729,6 +794,9 @@ public class MaildirMailbox implements Mailbox {
                 msgNum, uid, curFile, filename);
             messages.add(descriptor);
             uidToMessage.put(uid, descriptor);
+
+            // Assign MODSEQ
+            incrementModSeq(uid);
 
             // Save UID list
             uidList.save();
@@ -741,7 +809,22 @@ public class MaildirMailbox implements Mailbox {
             return uid;
 
         } finally {
-            appendBuffer = null;
+            if (appendChannel != null) {
+                try {
+                    appendChannel.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error closing append channel", e);
+                }
+                appendChannel = null;
+            }
+            if (appendTempPath != null) {
+                try {
+                    Files.deleteIfExists(appendTempPath);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error cleaning up temp file", e);
+                }
+                appendTempPath = null;
+            }
             appendFlags = null;
             appendDate = null;
             appendKeywords = null;
@@ -772,6 +855,379 @@ public class MaildirMailbox implements Mailbox {
     }
 
     // ========================================================================
+    // CONDSTORE / QRESYNC
+    // ========================================================================
+
+    @Override
+    public long getHighestModSeq() throws IOException {
+        return highestModSeq;
+    }
+
+    @Override
+    public long getModSeq(int messageNumber) throws IOException {
+        MaildirMessageDescriptor msg =
+                (MaildirMessageDescriptor) getMessage(messageNumber);
+        if (msg == null) {
+            return 0;
+        }
+        Long ms = uidModSeq.get(msg.getUid());
+        return ms != null ? ms.longValue() : 0;
+    }
+
+    @Override
+    public List<Long> getChangedSince(long modSeq) throws IOException {
+        List<Long> result = new ArrayList<>();
+        for (Map.Entry<Long, Long> entry : uidModSeq.entrySet()) {
+            if (entry.getValue().longValue() > modSeq) {
+                result.add(entry.getKey());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public List<Long> getExpungedSince(long modSeq) throws IOException {
+        List<Long> result = new ArrayList<>();
+        for (Map.Entry<Long, Long> entry : expungedUids.entrySet()) {
+            if (entry.getValue().longValue() > modSeq) {
+                result.add(entry.getKey());
+            }
+        }
+        return result;
+    }
+
+    private void incrementModSeq(long uid) {
+        highestModSeq++;
+        uidModSeq.put(uid, highestModSeq);
+        modSeqDirty = true;
+    }
+
+    /**
+     * Loads MODSEQ data from the .modseq sidecar file.
+     * Format: first line is "HIGHEST modseq", subsequent lines
+     * are "uid modseq" pairs.
+     */
+    private void loadModSeqData() {
+        Path modSeqPath = maildirPath.resolve(".modseq");
+        if (!Files.exists(modSeqPath)) {
+            highestModSeq = 0;
+            return;
+        }
+        try {
+            List<String> lines = Files.readAllLines(modSeqPath);
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                int space = line.indexOf(' ');
+                if (space < 0) {
+                    continue;
+                }
+                String key = line.substring(0, space);
+                long value = Long.parseLong(line.substring(space + 1));
+                if ("HIGHEST".equals(key)) {
+                    highestModSeq = value;
+                } else {
+                    long uid = Long.parseLong(key);
+                    uidModSeq.put(uid, value);
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to load .modseq file, starting fresh", e);
+            highestModSeq = 0;
+            uidModSeq.clear();
+        }
+    }
+
+    /**
+     * Saves MODSEQ data to the .modseq sidecar file.
+     */
+    private void saveModSeqData() {
+        Path modSeqPath = maildirPath.resolve(".modseq");
+        try {
+            List<String> lines = new ArrayList<>();
+            lines.add("HIGHEST " + highestModSeq);
+            for (Map.Entry<Long, Long> entry : uidModSeq.entrySet()) {
+                lines.add(entry.getKey() + " " + entry.getValue());
+            }
+            Files.write(modSeqPath, lines);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to save .modseq file", e);
+        }
+    }
+
+    /**
+     * Loads expunged UID data from the .expunged sidecar file.
+     * Format: "uid modseq" per line.
+     */
+    private void loadExpungedData() {
+        Path expungedPath = maildirPath.resolve(".expunged");
+        if (!Files.exists(expungedPath)) {
+            return;
+        }
+        try {
+            List<String> lines = Files.readAllLines(expungedPath);
+            for (String line : lines) {
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                int space = line.indexOf(' ');
+                if (space < 0) {
+                    continue;
+                }
+                long uid = Long.parseLong(line.substring(0, space));
+                long ms = Long.parseLong(line.substring(space + 1));
+                expungedUids.put(uid, ms);
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to load .expunged file", e);
+            expungedUids.clear();
+        }
+    }
+
+    /**
+     * Saves expunged UID data to the .expunged sidecar file.
+     */
+    private void saveExpungedData() {
+        Path expungedPath = maildirPath.resolve(".expunged");
+        try {
+            List<String> lines = new ArrayList<>();
+            for (Map.Entry<Long, Long> entry
+                    : expungedUids.entrySet()) {
+                lines.add(entry.getKey() + " " + entry.getValue());
+            }
+            Files.write(expungedPath, lines);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to save .expunged file", e);
+        }
+    }
+
+    // ========================================================================
+    // Async Message I/O
+    // ========================================================================
+
+    @Override
+    public AsyncMessageContent openAsyncContent(int messageNumber)
+            throws IOException {
+        MaildirMessageDescriptor msg =
+                (MaildirMessageDescriptor) getMessage(messageNumber);
+        if (msg == null) {
+            throw new IOException("Message not found: " + messageNumber);
+        }
+        AsynchronousFileChannel channel = AsynchronousFileChannel.open(
+                msg.getFilePath(), StandardOpenOption.READ);
+        return new MaildirAsyncMessageContent(channel, msg.getSize());
+    }
+
+    @Override
+    public AsyncMessageWriter openAsyncAppend(Set<Flag> flags,
+            OffsetDateTime internalDate) throws IOException {
+        if (readOnly) {
+            throw new IOException("Mailbox is read-only");
+        }
+        Path tempFile = Files.createTempFile(tmpPath, "mail", ".tmp");
+        AsynchronousFileChannel channel = AsynchronousFileChannel.open(
+                tempFile,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE);
+        Set<Flag> flagsCopy = flags != null
+                ? EnumSet.copyOf(flags)
+                : EnumSet.noneOf(Flag.class);
+        return new MaildirAsyncMessageWriter(channel, tempFile,
+                flagsCopy, internalDate);
+    }
+
+    /**
+     * Async positional reader backed by an AsynchronousFileChannel.
+     */
+    private static final class MaildirAsyncMessageContent
+            implements AsyncMessageContent {
+
+        private final AsynchronousFileChannel channel;
+        private final long contentSize;
+        private long cachedBodyOffset = -2; // -2 = not yet scanned
+
+        MaildirAsyncMessageContent(AsynchronousFileChannel channel,
+                long contentSize) {
+            this.channel = channel;
+            this.contentSize = contentSize;
+        }
+
+        @Override
+        public long size() {
+            return contentSize;
+        }
+
+        @Override
+        public long bodyOffset() {
+            if (cachedBodyOffset != -2) {
+                return cachedBodyOffset;
+            }
+            // Synchronously scan the first portion of the file for the
+            // blank-line separator (CRLFCRLF or LFLF).
+            int scanLen = (int) Math.min(contentSize, 8192L);
+            ByteBuffer buf = ByteBuffer.allocate(scanLen);
+            try {
+                int totalRead = 0;
+                while (totalRead < scanLen) {
+                    java.util.concurrent.Future<Integer> f =
+                            channel.read(buf, totalRead);
+                    int n = f.get();
+                    if (n == -1) {
+                        break;
+                    }
+                    totalRead += n;
+                }
+                buf.flip();
+                boolean lastWasLF = false;
+                for (int i = 0; i < buf.limit(); i++) {
+                    byte b = buf.get(i);
+                    if (b == LF) {
+                        if (lastWasLF) {
+                            cachedBodyOffset = (long) i + 1;
+                            return cachedBodyOffset;
+                        }
+                        lastWasLF = true;
+                    } else if (b != CR) {
+                        lastWasLF = false;
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(Level.WARNING, "Interrupted scanning body offset", e);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Error scanning body offset", e);
+            }
+            cachedBodyOffset = -1;
+            return cachedBodyOffset;
+        }
+
+        @Override
+        public void read(ByteBuffer dst, long position,
+                CompletionHandler<Integer, ByteBuffer> handler) {
+            channel.read(dst, position, dst, handler);
+        }
+
+        @Override
+        public void close() throws IOException {
+            channel.close();
+        }
+    }
+
+    /**
+     * Async writer that streams to a temp file then finalizes into cur/.
+     */
+    private final class MaildirAsyncMessageWriter
+            implements AsyncMessageWriter {
+
+        private final AsynchronousFileChannel channel;
+        private final Path tempFile;
+        private final Set<Flag> flags;
+        private final OffsetDateTime internalDate;
+        private long writePosition;
+        private boolean finished;
+
+        MaildirAsyncMessageWriter(AsynchronousFileChannel channel,
+                Path tempFile, Set<Flag> flags,
+                OffsetDateTime internalDate) {
+            this.channel = channel;
+            this.tempFile = tempFile;
+            this.flags = flags;
+            this.internalDate = internalDate;
+        }
+
+        @Override
+        public void write(ByteBuffer src,
+                CompletionHandler<Integer, ByteBuffer> handler) {
+            long pos = writePosition;
+            channel.write(src, pos, src,
+                    new CompletionHandler<Integer, ByteBuffer>() {
+                @Override
+                public void completed(Integer result, ByteBuffer attachment) {
+                    writePosition += result;
+                    handler.completed(result, attachment);
+                }
+
+                @Override
+                public void failed(Throwable exc, ByteBuffer attachment) {
+                    handler.failed(exc, attachment);
+                }
+            });
+        }
+
+        @Override
+        public boolean wantsPause() {
+            return false;
+        }
+
+        @Override
+        public void finish(CompletionHandler<Long, Void> handler) {
+            if (finished) {
+                handler.failed(
+                        new IllegalStateException("Already finished"), null);
+                return;
+            }
+            finished = true;
+            try {
+                channel.close();
+
+                long size = Files.size(tempFile);
+                Set<Integer> keywordIndices = Collections.emptySet();
+                MaildirFilename filename =
+                        MaildirFilename.generate(size, flags, keywordIndices);
+
+                Path curFile = curPath.resolve(filename.toString());
+                Files.move(tempFile, curFile, StandardCopyOption.ATOMIC_MOVE);
+
+                long uid = uidList.assignUid(filename.getBaseFilename());
+
+                int msgNum = messages.size() + 1;
+                MaildirMessageDescriptor descriptor =
+                        new MaildirMessageDescriptor(
+                                msgNum, uid, curFile, filename);
+                messages.add(descriptor);
+                uidToMessage.put(uid, descriptor);
+                uidList.save();
+
+                if (searchIndex != null) {
+                    addMessageToSearchIndex(descriptor, flags, internalDate);
+                }
+
+                handler.completed(uid, null);
+            } catch (IOException e) {
+                handler.failed(e, null);
+            }
+        }
+
+        @Override
+        public void abort() {
+            finished = true;
+            try {
+                channel.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error closing async append channel", e);
+            }
+            try {
+                Files.deleteIfExists(tempFile);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error cleaning up temp file", e);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (!finished) {
+                abort();
+            }
+        }
+    }
+
+    // ========================================================================
     // Search Index Methods
     // ========================================================================
 
@@ -799,7 +1255,66 @@ public class MaildirMailbox implements Mailbox {
             MessageContext context;
             
             if (indexEntry != null) {
-                context = new IndexedMessageContext(indexEntry);
+                IndexedMessageContext indexed =
+                        new IndexedMessageContext(indexEntry);
+                long uid = msg.getUid();
+                Long ms = uidModSeq.get(uid);
+                long modSeqVal = ms != null ? ms : 0;
+                context = new MessageContext() {
+                    @Override
+                    public int getMessageNumber() {
+                        return indexed.getMessageNumber();
+                    }
+                    @Override
+                    public long getUID() {
+                        return indexed.getUID();
+                    }
+                    @Override
+                    public long getSize() {
+                        return indexed.getSize();
+                    }
+                    @Override
+                    public Set<Flag> getFlags() {
+                        return indexed.getFlags();
+                    }
+                    @Override
+                    public Set<String> getKeywords() {
+                        return indexed.getKeywords();
+                    }
+                    @Override
+                    public OffsetDateTime getInternalDate() {
+                        return indexed.getInternalDate();
+                    }
+                    @Override
+                    public String getHeader(String name)
+                            throws IOException {
+                        return indexed.getHeader(name);
+                    }
+                    @Override
+                    public List<String> getHeaders(String name)
+                            throws IOException {
+                        return indexed.getHeaders(name);
+                    }
+                    @Override
+                    public OffsetDateTime getSentDate()
+                            throws IOException {
+                        return indexed.getSentDate();
+                    }
+                    @Override
+                    public CharSequence getHeadersText()
+                            throws IOException {
+                        return indexed.getHeadersText();
+                    }
+                    @Override
+                    public CharSequence getBodyText()
+                            throws IOException {
+                        return indexed.getBodyText();
+                    }
+                    @Override
+                    public long getModSeq() {
+                        return modSeqVal;
+                    }
+                };
             } else {
                 // Fall back to parsing if not in index
                 context = new ParsedMessageContext(

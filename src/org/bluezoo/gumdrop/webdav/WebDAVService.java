@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.http.HTTPService;
 
 /**
  * HTTP service for serving files from a filesystem root with optional
- * WebDAV (RFC 2518) distributed authoring support.
+ * WebDAV (RFC 4918) distributed authoring support.
  *
  * <p>When WebDAV is enabled, this service supports PROPFIND, PROPPATCH,
  * MKCOL, COPY, MOVE, LOCK, and UNLOCK methods in addition to the
@@ -45,6 +45,7 @@ import org.bluezoo.gumdrop.http.HTTPService;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTPService
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 public class WebDAVService extends HTTPService {
 
@@ -55,6 +56,7 @@ public class WebDAVService extends HTTPService {
     private boolean allowWrite = false;
     private boolean webdavEnabled = false;
     private String welcomeFile = "index.html";
+    private String deadPropertyStorage = "auto";
 
     private FileHandlerFactory handlerFactory;
 
@@ -84,7 +86,7 @@ public class WebDAVService extends HTTPService {
     }
 
     /**
-     * Returns whether WebDAV (RFC 2518) support is enabled.
+     * Returns whether WebDAV (RFC 4918) support is enabled.
      *
      * @return true if WebDAV is enabled
      */
@@ -93,7 +95,7 @@ public class WebDAVService extends HTTPService {
     }
 
     /**
-     * Enables or disables WebDAV (RFC 2518) support.
+     * Enables or disables WebDAV (RFC 4918) support.
      *
      * <p>When enabled, the service supports PROPFIND, PROPPATCH, MKCOL,
      * COPY, MOVE, LOCK, and UNLOCK methods in addition to the standard
@@ -116,6 +118,36 @@ public class WebDAVService extends HTTPService {
                 : "index.html";
     }
 
+    /**
+     * Returns the dead property storage mode.
+     *
+     * @return one of "auto", "xattr", "sidecar", or "none"
+     */
+    public String getDeadPropertyStorage() {
+        return deadPropertyStorage;
+    }
+
+    /**
+     * Sets the dead property storage mode.
+     *
+     * <p>Values:
+     * <ul>
+     *   <li>{@code "auto"} -- xattr primary with sidecar fallback
+     *       (default)</li>
+     *   <li>{@code "xattr"} -- extended attributes only</li>
+     *   <li>{@code "sidecar"} -- sidecar files only</li>
+     *   <li>{@code "none"} -- dead properties disabled</li>
+     * </ul>
+     *
+     * @param mode the storage mode
+     */
+    public void setDeadPropertyStorage(String mode) {
+        this.deadPropertyStorage = (mode != null
+                && !mode.trim().isEmpty())
+                ? mode.trim().toLowerCase()
+                : "auto";
+    }
+
     // ── HTTPService hooks ──
 
     /**
@@ -123,8 +155,29 @@ public class WebDAVService extends HTTPService {
      */
     @Override
     protected void initService() {
+        DeadPropertyStore store = null;
+        if (webdavEnabled) {
+            store = createDeadPropertyStore();
+        }
         handlerFactory = new FileHandlerFactory(
-                rootPath, allowWrite, welcomeFile, webdavEnabled);
+                rootPath, allowWrite, welcomeFile, webdavEnabled,
+                store);
+    }
+
+    private DeadPropertyStore createDeadPropertyStore() {
+        DeadPropertyStore store = new DeadPropertyStore();
+        if ("xattr".equals(deadPropertyStorage)) {
+            store.setMode(DeadPropertyStore.Mode.XATTR);
+        } else if ("sidecar".equals(deadPropertyStorage)) {
+            store.setMode(DeadPropertyStore.Mode.SIDECAR);
+        } else if ("none".equals(deadPropertyStorage)) {
+            store.setMode(DeadPropertyStore.Mode.NONE);
+        } else {
+            store.setMode(DeadPropertyStore.Mode.AUTO);
+        }
+        LOGGER.info("Dead property storage: "
+                + store.getMode());
+        return store;
     }
 
     @Override

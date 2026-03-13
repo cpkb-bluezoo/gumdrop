@@ -33,6 +33,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerStarttlsReplyHandler#handleTlsEstablished
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
  */
 public interface ClientPostTls {
 

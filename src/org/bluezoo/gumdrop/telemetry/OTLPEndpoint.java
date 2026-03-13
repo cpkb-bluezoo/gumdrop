@@ -27,17 +27,18 @@ import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 
+import org.bluezoo.gumdrop.util.TLSUtils;
+
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManagerFactory;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
-import java.security.KeyStore;
 import java.text.MessageFormat;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -67,11 +68,12 @@ class OTLPEndpoint {
     private Path truststoreFile;
     private String truststorePass;
     private String truststoreFormat = "PKCS12";
-    private SSLContext sslContext;
+    private volatile SSLContext sslContext;
 
     private HTTPClient client;
     private volatile boolean connecting;
     private volatile boolean connected;
+    private volatile CountDownLatch pendingConnectLatch;
 
     /**
      * Creates an OTLP endpoint from a URL string.
@@ -190,35 +192,28 @@ class OTLPEndpoint {
      * @return the SSLContext, or null to use defaults
      */
     private SSLContext getOrCreateSSLContext() {
-        // If already created, return it
-        if (sslContext != null) {
-            return sslContext;
+        SSLContext ctx = sslContext;
+        if (ctx != null) {
+            return ctx;
         }
-        
-        // Create from truststore config if available
-        if (truststoreFile != null && truststorePass != null) {
-            try {
-                KeyStore trustStore = KeyStore.getInstance(truststoreFormat);
-                try (FileInputStream fis = new FileInputStream(truststoreFile.toFile())) {
-                    trustStore.load(fis, truststorePass.toCharArray());
+        synchronized (this) {
+            ctx = sslContext;
+            if (ctx != null) {
+                return ctx;
+            }
+            if (truststoreFile != null && truststorePass != null) {
+                try {
+                    sslContext = SSLContext.getInstance("TLS");
+                    sslContext.init(null,
+                            TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat),
+                            null);
+                    logger.fine("Loaded truststore for " + name + " endpoint: " + truststoreFile);
+                    return sslContext;
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Failed to load truststore for " + name + " endpoint", e);
                 }
-                
-                TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                        TrustManagerFactory.getDefaultAlgorithm());
-                tmf.init(trustStore);
-                
-                sslContext = SSLContext.getInstance("TLS");
-                sslContext.init(null, tmf.getTrustManagers(), null);
-                
-                logger.fine("Loaded truststore for " + name + " endpoint: " + truststoreFile);
-                return sslContext;
-                
-            } catch (Exception e) {
-                logger.log(Level.WARNING, "Failed to load truststore for " + name + " endpoint", e);
             }
         }
-        
-        // Use JVM defaults
         return null;
     }
 
@@ -256,27 +251,22 @@ class OTLPEndpoint {
             return true;
         }
 
-        // Initiate connection if not already connecting
-        getClient();
-
-        // Wait for connection to complete
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (connected && client != null && client.isOpen()) {
-                return true;
-            }
-            if (!connecting && !connected) {
-                // Connection failed
-                return false;
-            }
+        CountDownLatch connectLatch = new CountDownLatch(1);
+        pendingConnectLatch = connectLatch;
+        try {
+            getClient(connectLatch);
             try {
-                Thread.sleep(50);
+                if (connectLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                    return connected && client != null && client.isOpen();
+                }
+                return false;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
             }
+        } finally {
+            pendingConnectLatch = null;
         }
-        return false;
     }
 
     /**
@@ -288,7 +278,20 @@ class OTLPEndpoint {
      * @return the HTTP client, or null if connection failed or not yet connected
      */
     HTTPClient getClient() {
+        return getClient(null);
+    }
+
+    /**
+     * Returns the HTTP client for this endpoint, optionally signalling when connected.
+     *
+     * @param connectLatch if non-null, counted down when connection is established
+     * @return the HTTP client, or null if connection failed or not yet connected
+     */
+    HTTPClient getClient(CountDownLatch connectLatch) {
         if (connected && client != null && client.isOpen()) {
+            if (connectLatch != null) {
+                connectLatch.countDown();
+            }
             return client;
         }
 
@@ -311,7 +314,7 @@ class OTLPEndpoint {
             }
 
             // Initiate connection with handler
-            client.connect(new OTLPConnectionHandler());
+            client.connect(new OTLPConnectionHandler(connectLatch));
 
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connecting"), name, host, port));
 
@@ -322,6 +325,9 @@ class OTLPEndpoint {
         } catch (Exception e) {
             logger.log(Level.WARNING, "Failed to create OTLP " + name + " connection", e);
             connecting = false;
+            if (connectLatch != null) {
+                connectLatch.countDown();
+            }
             return null;
         }
     }
@@ -331,10 +337,21 @@ class OTLPEndpoint {
      */
     private class OTLPConnectionHandler implements HTTPClientHandler {
 
+        private final CountDownLatch connectLatch;
+
+        OTLPConnectionHandler(CountDownLatch connectLatch) {
+            this.connectLatch = connectLatch;
+        }
+
         @Override
         public void onConnected(Endpoint endpoint) {
             connecting = false;
             connected = true;
+            if (connectLatch != null) {
+                connectLatch.countDown();
+            } else if (pendingConnectLatch != null) {
+                pendingConnectLatch.countDown();
+            }
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connected"), name, host, port));
         }
 

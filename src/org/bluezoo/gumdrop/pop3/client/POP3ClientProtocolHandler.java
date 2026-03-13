@@ -58,7 +58,7 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerUidlReplyHandler;
 import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
 
 /**
- * POP3 client protocol handler implementing {@link ProtocolHandler}.
+ * POP3 client protocol handler (RFC 1939).
  *
  * <p>Implements a type-safe POP3 client state machine
  * ({@code ClientAuthorizationState}, {@code ClientTransactionState}, etc.)
@@ -67,23 +67,21 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
  *
  * <p>Line parsing is handled by the composable {@link LineParser} utility.
  * Multi-line content (RETR, TOP) is dot-unstuffed transparently via
- * {@link DotUnstuffer} and delivered as ByteBuffer chunks.
+ * {@link DotUnstuffer} (RFC 1939 section 3) and delivered as ByteBuffer
+ * chunks.
  *
- * <h4>Usage</h4>
- * <pre>{@code
- * ClientEndpoint client = new ClientEndpoint(factory, "pop.example.com", 110);
- * client.connect(new POP3ClientProtocolHandler(new ServerGreeting() {
- *     public void handleGreeting(ClientAuthorizationState auth,
- *                                String msg, String apopTimestamp) {
- *         auth.capa(capaHandler);
- *     }
- *     public void handleServiceUnavailable(String msg) { ... }
- * }));
- * }</pre>
+ * <p>Supported features:
+ * <ul>
+ *   <li>CAPA — RFC 2449 (capability discovery)</li>
+ *   <li>STLS — RFC 2595 section 4 (STARTTLS upgrade)</li>
+ *   <li>AUTH — RFC 5034 (SASL authentication)</li>
+ *   <li>APOP — RFC 1939 section 7 (challenge-response auth)</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see ServerGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
 public class POP3ClientProtocolHandler
         implements ProtocolHandler, LineParser.Callback,
@@ -304,8 +302,9 @@ public class POP3ClientProtocolHandler
         }
     }
 
-    // ── ClientAuthorizationState ──
+    // ── ClientAuthorizationState (RFC 1939 section 4) ──
 
+    // RFC 2449 section 5 — CAPA command
     @Override
     public void capa(ServerCapaReplyHandler callback) {
         this.currentCallback = callback;
@@ -313,12 +312,14 @@ public class POP3ClientProtocolHandler
         sendCommand("CAPA", POP3State.CAPA_SENT);
     }
 
+    // RFC 1939 section 7 — USER command
     @Override
     public void user(String username, ServerUserReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("USER " + username, POP3State.USER_SENT);
     }
 
+    // RFC 1939 section 7 — APOP command
     @Override
     public void apop(String username, String digest,
                      ServerApopReplyHandler callback) {
@@ -327,6 +328,7 @@ public class POP3ClientProtocolHandler
                 POP3State.APOP_SENT);
     }
 
+    // RFC 5034 section 4 — AUTH command with optional initial response
     @Override
     public void auth(String mechanism, byte[] initialResponse,
                      ServerAuthReplyHandler callback) {
@@ -342,28 +344,32 @@ public class POP3ClientProtocolHandler
         sendCommand(cmd.toString(), POP3State.AUTH_SENT);
     }
 
+    // RFC 2595 section 4 — STLS command
     @Override
     public void stls(ServerStlsReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STLS", POP3State.STLS_SENT);
     }
 
-    // ── ClientPasswordState ──
+    // ── ClientPasswordState (RFC 1939 section 7 — PASS after USER) ──
 
+    // RFC 1939 section 7 — PASS command
     @Override
     public void pass(String password, ServerPassReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("PASS " + password, POP3State.PASS_SENT);
     }
 
-    // ── ClientTransactionState ──
+    // ── ClientTransactionState (RFC 1939 section 5) ──
 
+    // RFC 1939 section 5 — STAT command
     @Override
     public void stat(ServerStatReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STAT", POP3State.STAT_SENT);
     }
 
+    // RFC 1939 section 5 — LIST command (all messages)
     @Override
     public void list(ServerListReplyHandler callback) {
         this.currentCallback = callback;
@@ -371,6 +377,7 @@ public class POP3ClientProtocolHandler
         sendCommand("LIST", POP3State.LIST_SENT);
     }
 
+    // RFC 1939 section 5 — LIST command (single message)
     @Override
     public void list(int messageNumber,
                      ServerListReplyHandler callback) {
@@ -379,6 +386,7 @@ public class POP3ClientProtocolHandler
         sendCommand("LIST " + messageNumber, POP3State.LIST_SENT);
     }
 
+    // RFC 1939 section 5 — RETR command
     @Override
     public void retr(int messageNumber,
                      ServerRetrReplyHandler callback) {
@@ -386,6 +394,7 @@ public class POP3ClientProtocolHandler
         sendCommand("RETR " + messageNumber, POP3State.RETR_SENT);
     }
 
+    // RFC 1939 section 5 — DELE command
     @Override
     public void dele(int messageNumber,
                      ServerDeleReplyHandler callback) {
@@ -393,12 +402,14 @@ public class POP3ClientProtocolHandler
         sendCommand("DELE " + messageNumber, POP3State.DELE_SENT);
     }
 
+    // RFC 1939 section 5 — RSET command
     @Override
     public void rset(ServerRsetReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("RSET", POP3State.RSET_SENT);
     }
 
+    // RFC 1939 section 7 — TOP command
     @Override
     public void top(int messageNumber, int lines,
                     ServerTopReplyHandler callback) {
@@ -407,6 +418,7 @@ public class POP3ClientProtocolHandler
                 POP3State.TOP_SENT);
     }
 
+    // RFC 1939 section 7 — UIDL command (all messages)
     @Override
     public void uidl(ServerUidlReplyHandler callback) {
         this.currentCallback = callback;
@@ -414,6 +426,7 @@ public class POP3ClientProtocolHandler
         sendCommand("UIDL", POP3State.UIDL_SENT);
     }
 
+    // RFC 1939 section 7 — UIDL command (single message)
     @Override
     public void uidl(int messageNumber,
                      ServerUidlReplyHandler callback) {
@@ -422,19 +435,22 @@ public class POP3ClientProtocolHandler
         sendCommand("UIDL " + messageNumber, POP3State.UIDL_SENT);
     }
 
+    // RFC 1939 section 5 — NOOP command
     @Override
     public void noop(ServerNoopReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("NOOP", POP3State.NOOP_SENT);
     }
 
+    // RFC 1939 section 6 — QUIT command
     @Override
     public void quit() {
         sendCommand("QUIT", POP3State.QUIT_SENT);
     }
 
-    // ── ClientAuthExchange ──
+    // ── ClientAuthExchange (RFC 5034 section 4 — SASL continuation) ──
 
+    // RFC 5034 section 4 — send SASL response to server challenge
     @Override
     public void respond(byte[] response,
                         ServerAuthReplyHandler callback) {
@@ -443,6 +459,7 @@ public class POP3ClientProtocolHandler
         sendRawLine(encoded, POP3State.AUTH_SENT);
     }
 
+    // RFC 5034 section 4 — abort SASL exchange with "*"
     @Override
     public void abort(ServerAuthAbortHandler callback) {
         this.currentCallback = callback;
@@ -601,6 +618,7 @@ public class POP3ClientProtocolHandler
 
     // ── Greeting ──
 
+    // RFC 1939 section 4 — parse server greeting (+OK or -ERR)
     private void dispatchGreeting(POP3Response response) {
         if (response.isOk()) {
             state = POP3State.AUTHORIZATION;
@@ -615,6 +633,7 @@ public class POP3ClientProtocolHandler
         }
     }
 
+    // RFC 1939 section 7 — extract APOP timestamp from greeting
     private String parseApopTimestamp(String greeting) {
         int start = greeting.indexOf('<');
         if (start < 0) {

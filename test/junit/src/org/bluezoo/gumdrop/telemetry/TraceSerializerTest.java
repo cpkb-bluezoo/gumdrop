@@ -178,8 +178,8 @@ public class TraceSerializerTest {
         // Parse it back
         SpanContext parsed = SpanContext.fromTraceparent(traceparent);
         assertNotNull(parsed);
-        assertArrayEquals(traceId, parsed.getTraceId());
-        assertArrayEquals(spanId, parsed.getSpanId());
+        assertArrayEquals(traceId, parsed.getTraceId().getBytes());
+        assertArrayEquals(spanId, parsed.getSpanId().getBytes());
         assertTrue(parsed.isSampled());
     }
 

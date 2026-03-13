@@ -32,8 +32,12 @@ package org.bluezoo.gumdrop.smtp.handler;
  * connection. The handler only deals with the policy decision of whether
  * to accept the authenticated identity.
  * 
+ * <p>Methods map to reply codes: {@code accept} → 235, {@code reject} → 535,
+ * {@code rejectAndClose} → 535.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HelloHandler#authenticated
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a> (SASL AUTH)
  */
 public interface AuthenticateState {
 

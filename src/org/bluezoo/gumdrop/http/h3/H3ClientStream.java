@@ -36,7 +36,12 @@ import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
  * <p>This is the client-side counterpart of {@link H3Stream}. Each
  * instance tracks one outgoing request and translates h3 response events
  * (HEADERS, DATA, FINISHED, RESET) into
- * {@link HTTPResponseHandler} callbacks.
+ * {@link HTTPResponseHandler} callbacks per RFC 9114 section 4.1
+ * (HTTP message exchanges).
+ *
+ * <p>Response pseudo-headers (RFC 9114 section 4.3.2) are parsed from
+ * the initial HEADERS event; specifically the {@code :status}
+ * pseudo-header determines the response status code.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ClientHandler
@@ -92,8 +97,38 @@ class H3ClientStream {
      */
     void onHeaders(String[] headerPairs) {
         if (state == State.OPEN) {
+            int statusCode = extractStatus(headerPairs);
+
+            // RFC 9114 section 4.3.2: :status is mandatory; its
+            // absence means the response is malformed
+            if (statusCode < 0) {
+                state = State.CLOSED;
+                responseHandler.failed(new IOException(
+                        "Malformed HTTP/3 response: missing :status"));
+                return;
+            }
+
+            // RFC 9114 section 4.1 / RFC 9110 section 15.2:
+            // informational 1xx responses are interim — consume
+            // headers and return to OPEN to await the final response
+            if (statusCode >= 100 && statusCode < 200) {
+                for (int i = 0; i < headerPairs.length; i += 2) {
+                    if (!headerPairs[i].startsWith(":")) {
+                        responseHandler.header(headerPairs[i],
+                                headerPairs[i + 1]);
+                    }
+                }
+                return;
+            }
+
             state = State.HEADERS_RECEIVED;
-            dispatchStatus(headerPairs);
+            HTTPStatus status = HTTPStatus.fromCode(statusCode);
+            HTTPResponse response = new HTTPResponse(status);
+            if (statusCode >= 200 && statusCode < 400) {
+                responseHandler.ok(response);
+            } else {
+                responseHandler.error(response);
+            }
         }
 
         for (int i = 0; i < headerPairs.length; i += 2) {
@@ -106,29 +141,20 @@ class H3ClientStream {
     }
 
     /**
-     * Extracts the :status pseudo-header and dispatches ok() or error().
+     * Extracts the :status pseudo-header value (RFC 9114 section 4.3.2).
+     * Returns the status code, or -1 if :status is absent.
      */
-    private void dispatchStatus(String[] headerPairs) {
-        int statusCode = 200;
+    private int extractStatus(String[] headerPairs) {
         for (int i = 0; i < headerPairs.length; i += 2) {
             if (":status".equals(headerPairs[i])) {
                 try {
-                    statusCode = Integer.parseInt(headerPairs[i + 1]);
+                    return Integer.parseInt(headerPairs[i + 1]);
                 } catch (NumberFormatException e) {
-                    statusCode = 500;
+                    return 500;
                 }
-                break;
             }
         }
-
-        HTTPStatus status = HTTPStatus.fromCode(statusCode);
-        HTTPResponse response = new HTTPResponse(status);
-
-        if (statusCode >= 200 && statusCode < 400) {
-            responseHandler.ok(response);
-        } else {
-            responseHandler.error(response);
-        }
+        return -1;
     }
 
     /**
@@ -163,5 +189,15 @@ class H3ClientStream {
         state = State.CLOSED;
         responseHandler.failed(new IOException(
                 "HTTP/3 stream reset: " + streamId));
+    }
+
+    /**
+     * RFC 9114 section 5.2: called when the server's GOAWAY indicates
+     * this stream was not processed. The caller may retry on a new
+     * connection.
+     */
+    void onGoawayFailed(IOException cause) {
+        state = State.CLOSED;
+        responseHandler.failed(cause);
     }
 }

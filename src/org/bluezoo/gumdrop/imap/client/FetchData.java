@@ -22,8 +22,11 @@
 package org.bluezoo.gumdrop.imap.client;
 
 /**
- * Structured data from an IMAP FETCH response, representing the
- * non-literal data items for a single message.
+ * Structured data from an IMAP FETCH response (RFC 9051 section 7.4.2),
+ * representing the non-literal data items for a single message.
+ *
+ * <p>Data items correspond to RFC 9051 section 6.4.5 fetch attributes:
+ * FLAGS, UID, RFC822.SIZE, INTERNALDATE, ENVELOPE, BODY[section].
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

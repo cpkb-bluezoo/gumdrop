@@ -30,7 +30,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.LongUpDownCounter;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
 /**
- * OpenTelemetry metrics for WebSocket servers.
+ * OpenTelemetry metrics for WebSocket servers (RFC 6455).
  *
  * <p>This class provides standardized WebSocket server metrics for
  * monitoring connection and message activity.
@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  */
 public class WebSocketServerMetrics {
 

@@ -27,22 +27,32 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-memory cache for DNS responses.
+ * RFC 1035 section 7.4: cached data is periodically discarded using TTL.
+ * TTL values in returned records are adjusted to reflect elapsed time
+ * since caching (RFC 1035 section 3.2.1).
+ * RFC 2308: negative caching of NXDOMAIN responses.
  *
- * <p>Caches DNS resource records respecting their TTL values.
- * Also supports negative caching for NXDOMAIN responses.
+ * <p>RFC 2308 section 5: negative cache TTL is the minimum of the SOA
+ * record's TTL and the SOA MINIMUM field from the authority section of
+ * the NXDOMAIN response. A configurable default is used as fallback
+ * when no SOA record is present.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DNSCache {
 
     private static final int DEFAULT_MAX_ENTRIES = 10000;
-    private static final int DEFAULT_NEGATIVE_TTL = 300; // 5 minutes
+    // RFC 2308 section 5: negative TTL should be derived from SOA MINIMUM
+    private static final int DEFAULT_NEGATIVE_TTL = 300;
 
     private final Map<CacheKey, CacheEntry> cache;
+    private final PriorityQueue<EvictionEntry> expiryQueue;
+    private final Map<CacheKey, EvictionEntry> keyToEvictionEntry;
     private final int maxEntries;
     private final int negativeTTL;
 
@@ -63,6 +73,9 @@ public class DNSCache {
         this.maxEntries = maxEntries;
         this.negativeTTL = negativeTTL;
         this.cache = new ConcurrentHashMap<>();
+        this.expiryQueue = new PriorityQueue<>(
+                Comparator.comparingLong(e -> e.entry.expiryTime));
+        this.keyToEvictionEntry = new ConcurrentHashMap<>();
     }
 
     /**
@@ -80,11 +93,26 @@ public class DNSCache {
         }
 
         if (entry.isExpired()) {
-            cache.remove(key);
+            removeFromCache(key);
             return null;
         }
 
         return entry.getRecordsWithAdjustedTTL();
+    }
+
+    /**
+     * Returns the DNSSEC validation status for a cached entry.
+     *
+     * @param question the DNS question
+     * @return the DNSSEC status, or null if not cached or not validated
+     */
+    public DNSSECStatus lookupStatus(DNSQuestion question) {
+        CacheKey key = new CacheKey(question);
+        CacheEntry entry = cache.get(key);
+        if (entry == null || entry.isExpired()) {
+            return null;
+        }
+        return entry.dnssecStatus;
     }
 
     /**
@@ -94,7 +122,7 @@ public class DNSCache {
      * @return true if the name is cached as non-existent
      */
     public boolean isNegativelyCached(String name) {
-        CacheKey key = new CacheKey(name.toLowerCase(), DNSType.ANY, DNSClass.IN, true);
+        CacheKey key = new CacheKey(name, DNSType.ANY, DNSClass.IN, true);
         CacheEntry entry = cache.get(key);
 
         if (entry == null) {
@@ -102,7 +130,7 @@ public class DNSCache {
         }
 
         if (entry.isExpired()) {
-            cache.remove(key);
+            removeFromCache(key);
             return false;
         }
 
@@ -116,6 +144,18 @@ public class DNSCache {
      * @param records the records to cache
      */
     public void cache(DNSQuestion question, List<DNSResourceRecord> records) {
+        cache(question, records, null);
+    }
+
+    /**
+     * Caches records from a DNS response with a DNSSEC validation status.
+     *
+     * @param question the original question
+     * @param records the records to cache
+     * @param dnssecStatus the DNSSEC validation status, or null if not validated
+     */
+    public void cache(DNSQuestion question, List<DNSResourceRecord> records,
+                      DNSSECStatus dnssecStatus) {
         if (records == null || records.isEmpty()) {
             return;
         }
@@ -129,6 +169,7 @@ public class DNSCache {
             }
         }
 
+        // RFC 1035 section 3.2.1: TTL of 0 means do not cache
         if (minTTL <= 0) {
             return;
         }
@@ -136,21 +177,70 @@ public class DNSCache {
         evictIfNeeded();
 
         CacheKey key = new CacheKey(question);
-        CacheEntry entry = new CacheEntry(records, minTTL);
-        cache.put(key, entry);
+        CacheEntry entry = new CacheEntry(records, minTTL, dnssecStatus);
+        addToCache(key, entry);
     }
 
     /**
      * Caches a negative (NXDOMAIN) response.
+     * RFC 2308 section 5: the negative TTL is the minimum of the SOA
+     * record's TTL and the SOA MINIMUM field. Falls back to the
+     * configured default when no SOA record is present.
+     *
+     * @param name the non-existent domain name
+     * @param authorities the authority section from the NXDOMAIN response
+     */
+    public void cacheNegative(String name,
+                              List<DNSResourceRecord> authorities) {
+        evictIfNeeded();
+
+        int ttl = computeNegativeTTL(authorities);
+        CacheKey key = new CacheKey(name, DNSType.ANY, DNSClass.IN, true);
+        CacheEntry entry = new CacheEntry(null, ttl);
+        addToCache(key, entry);
+    }
+
+    /**
+     * Caches a negative (NXDOMAIN) response using the default TTL.
      *
      * @param name the non-existent domain name
      */
     public void cacheNegative(String name) {
-        evictIfNeeded();
+        cacheNegative(name, null);
+    }
 
-        CacheKey key = new CacheKey(name.toLowerCase(), DNSType.ANY, DNSClass.IN, true);
-        CacheEntry entry = new CacheEntry(null, negativeTTL);
-        cache.put(key, entry);
+    // RFC 2308 section 5: min(SOA.TTL, SOA.MINIMUM)
+    private int computeNegativeTTL(List<DNSResourceRecord> authorities) {
+        if (authorities != null) {
+            for (DNSResourceRecord rr : authorities) {
+                if (rr.getType() == DNSType.SOA) {
+                    int soaMinimum = extractSOAMinimum(rr.getRData());
+                    if (soaMinimum >= 0) {
+                        return Math.min(rr.getTTL(), soaMinimum);
+                    }
+                }
+            }
+        }
+        return negativeTTL;
+    }
+
+    /**
+     * Extracts the MINIMUM field from SOA RDATA.
+     * RFC 1035 section 3.3.13: SOA RDATA is MNAME, RNAME (domain names),
+     * followed by SERIAL, REFRESH, RETRY, EXPIRE, MINIMUM (all 32-bit).
+     * MINIMUM is the last 4 bytes.
+     */
+    private static int extractSOAMinimum(byte[] rdata) {
+        // SOA RDATA ends with 5 x 32-bit integers (20 bytes)
+        // MINIMUM is the last 4 bytes
+        if (rdata.length < 22) {
+            return -1;
+        }
+        int off = rdata.length - 4;
+        return ((rdata[off] & 0xFF) << 24)
+                | ((rdata[off + 1] & 0xFF) << 16)
+                | ((rdata[off + 2] & 0xFF) << 8)
+                | (rdata[off + 3] & 0xFF);
     }
 
     /**
@@ -158,6 +248,8 @@ public class DNSCache {
      */
     public void clear() {
         cache.clear();
+        expiryQueue.clear();
+        keyToEvictionEntry.clear();
     }
 
     /**
@@ -180,7 +272,7 @@ public class DNSCache {
         while (it.hasNext()) {
             Map.Entry<CacheKey, CacheEntry> entry = it.next();
             if (entry.getValue().isExpired()) {
-                it.remove();
+                removeFromCache(entry.getKey());
                 removed++;
             }
         }
@@ -189,32 +281,49 @@ public class DNSCache {
 
     private void evictIfNeeded() {
         if (cache.size() >= maxEntries) {
-            // Simple eviction: remove expired entries first
             evictExpired();
 
-            // If still too full, remove oldest entries by expiry time
             if (cache.size() >= maxEntries) {
                 int toRemove = maxEntries / 10;
-
-                // Collect entries and sort by expiry time
-                List<Map.Entry<CacheKey, CacheEntry>> entries = new ArrayList<>(cache.entrySet());
-                Collections.sort(entries, new Comparator<Map.Entry<CacheKey, CacheEntry>>() {
-                    @Override
-                    public int compare(Map.Entry<CacheKey, CacheEntry> a, Map.Entry<CacheKey, CacheEntry> b) {
-                        return Long.compare(a.getValue().expiryTime, b.getValue().expiryTime);
-                    }
-                });
-
-                // Remove oldest entries
                 int removed = 0;
-                for (Map.Entry<CacheKey, CacheEntry> entry : entries) {
-                    if (removed >= toRemove) {
-                        break;
+                EvictionEntry evictionEntry;
+                while (removed < toRemove
+                        && (evictionEntry = expiryQueue.poll()) != null) {
+                    if (cache.remove(evictionEntry.key) != null) {
+                        keyToEvictionEntry.remove(evictionEntry.key);
+                        removed++;
                     }
-                    cache.remove(entry.getKey());
-                    removed++;
                 }
             }
+        }
+    }
+
+    private void addToCache(CacheKey key, CacheEntry entry) {
+        EvictionEntry evictionEntry = new EvictionEntry(key, entry);
+        cache.put(key, entry);
+        expiryQueue.add(evictionEntry);
+        keyToEvictionEntry.put(key, evictionEntry);
+    }
+
+    private void removeFromCache(CacheKey key) {
+        if (cache.remove(key) != null) {
+            EvictionEntry evictionEntry = keyToEvictionEntry.remove(key);
+            if (evictionEntry != null) {
+                expiryQueue.remove(evictionEntry);
+            }
+        }
+    }
+
+    /**
+     * Wrapper for cache entries ordered by expiry time for eviction.
+     */
+    private static final class EvictionEntry {
+        final CacheKey key;
+        final CacheEntry entry;
+
+        EvictionEntry(CacheKey key, CacheEntry entry) {
+            this.key = key;
+            this.entry = entry;
         }
     }
 
@@ -228,11 +337,11 @@ public class DNSCache {
         final boolean negative;
 
         CacheKey(DNSQuestion question) {
-            this(question.getName().toLowerCase(), question.getType(), question.getDNSClass(), false);
+            this(question.getName(), question.getType(), question.getDNSClass(), false);
         }
 
         CacheKey(String name, DNSType type, DNSClass dnsClass, boolean negative) {
-            this.name = name;
+            this.name = name == null ? null : name.toLowerCase();
             this.type = type;
             this.dnsClass = dnsClass;
             this.negative = negative;
@@ -264,21 +373,33 @@ public class DNSCache {
     }
 
     /**
-     * Cache entry with expiry time.
+     * Cache entry with expiry time and optional DNSSEC status.
      */
     private static final class CacheEntry {
+        private static final long ADJUSTED_TTL_CACHE_MS = 1000;
+
         final List<DNSResourceRecord> records;
         final long expiryTime;
         final long creationTime;
         final int originalTTL;
+        final DNSSECStatus dnssecStatus;
+
+        private List<DNSResourceRecord> cachedAdjusted;
+        private long cachedAdjustedTime;
 
         CacheEntry(List<DNSResourceRecord> records, int ttl) {
+            this(records, ttl, null);
+        }
+
+        CacheEntry(List<DNSResourceRecord> records, int ttl,
+                   DNSSECStatus dnssecStatus) {
             if (records != null) {
                 this.records = new ArrayList<>(records);
             } else {
                 this.records = null;
             }
             this.originalTTL = ttl;
+            this.dnssecStatus = dnssecStatus;
             this.creationTime = System.currentTimeMillis();
             this.expiryTime = creationTime + (ttl * 1000L);
         }
@@ -295,7 +416,13 @@ public class DNSCache {
                 return null;
             }
 
-            long elapsed = (System.currentTimeMillis() - creationTime) / 1000;
+            long now = System.currentTimeMillis();
+            if (cachedAdjusted != null
+                    && (now - cachedAdjustedTime) < ADJUSTED_TTL_CACHE_MS) {
+                return cachedAdjusted;
+            }
+
+            long elapsed = (now - creationTime) / 1000;
             int adjustedTTL = (int) Math.max(1, originalTTL - elapsed);
 
             List<DNSResourceRecord> adjusted = new ArrayList<>(records.size());
@@ -309,7 +436,9 @@ public class DNSCache {
                 );
                 adjusted.add(adjustedRecord);
             }
-            return adjusted;
+            cachedAdjusted = Collections.unmodifiableList(adjusted);
+            cachedAdjustedTime = now;
+            return cachedAdjusted;
         }
     }
 

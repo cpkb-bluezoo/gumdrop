@@ -36,13 +36,20 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 
 /**
- * High-level LDAP client facade.
+ * High-level LDAPv3 client facade (RFC 4511).
  *
  * <p>This class provides a simple, concrete API for connecting to LDAP servers.
  * It internally creates a {@link TCPTransportFactory},
  * {@link ClientEndpoint}, and {@link LDAPClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link LDAPConnectionReady} handler.
+ *
+ * <p>Connection modes:
+ * <ul>
+ *   <li>Plaintext LDAP on port 389 (RFC 4511) — optionally upgraded
+ *       to TLS via STARTTLS (RFC 4511 section 4.14, RFC 4513 section 3)</li>
+ *   <li>LDAPS (implicit TLS) on port 636 (RFC 4513 section 3.1.3)</li>
+ * </ul>
  *
  * <h4>Basic Usage</h4>
  * <pre>{@code
@@ -69,6 +76,8 @@ import org.bluezoo.gumdrop.TCPTransportFactory;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPConnectionReady
  * @see LDAPClientProtocolHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4513">RFC 4513 — LDAP Authentication</a>
  */
 public class LDAPClient {
 
@@ -153,9 +162,9 @@ public class LDAPClient {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Sets whether this client uses TLS (LDAPS).
+     * Sets whether this client uses implicit TLS (LDAPS, port 636).
      *
-     * @param secure true for TLS
+     * @param secure true for LDAPS (RFC 4513 section 3.1.3)
      */
     public void setSecure(boolean secure) {
         this.secure = secure;

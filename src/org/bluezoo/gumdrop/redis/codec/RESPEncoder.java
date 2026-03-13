@@ -26,11 +26,12 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Encodes Redis commands to RESP wire format.
+ * Encodes Redis commands to RESP wire format
+ * (RESP spec — "Sending commands to a Redis server").
  *
- * <p>Commands are encoded as RESP arrays of bulk strings. This encoder
- * provides convenience methods for building commands with various
- * argument types.
+ * <p>Commands are encoded as RESP arrays of bulk strings:
+ * {@code *N\r\n$len\r\narg\r\n...}. This encoder provides convenience
+ * methods for building commands with various argument types.
  *
  * <p>This class is thread-safe. Each encoding operation creates a new
  * buffer, so multiple threads can encode commands concurrently.
@@ -50,6 +51,7 @@ import java.nio.charset.StandardCharsets;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public class RESPEncoder {
 

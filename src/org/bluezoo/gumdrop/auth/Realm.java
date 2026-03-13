@@ -54,6 +54,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SASLMechanism
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
 public interface Realm {
 
@@ -79,7 +80,7 @@ public interface Realm {
     Realm forSelectorLoop(SelectorLoop loop);
     
     /**
-     * Returns the set of SASL mechanisms this realm supports.
+     * RFC 4422 — returns the set of SASL mechanisms this realm supports.
      *
      * <p>Servers should call this method when building their capability
      * response (e.g., IMAP CAPABILITY, SMTP EHLO AUTH, POP3 CAPA SASL)
@@ -106,9 +107,8 @@ public interface Realm {
     Set<SASLMechanism> getSupportedSASLMechanisms();
 
     /**
-     * Verifies that the given password matches the stored credentials for the user.
-     * This is the preferred authentication method as it allows realm implementations
-     * to use password hashing without exposing plaintext passwords.
+     * RFC 4616 — verifies that the given password matches the stored credentials
+     * for the user (used by PLAIN and LOGIN mechanisms).
      *
      * @param username the username to authenticate
      * @param password the password to verify
@@ -117,7 +117,7 @@ public interface Realm {
     boolean passwordMatch(String username, String password);
 
     /**
-     * Computes the H(A1) hash for HTTP Digest Authentication (RFC 2617).
+     * RFC 2617 / RFC 2831 — computes the H(A1) hash for HTTP Digest / DIGEST-MD5.
      * H(A1) = MD5(username:realm:password)
      * 
      * This allows realm implementations to either:
@@ -133,9 +133,8 @@ public interface Realm {
     /**
      * Returns the password for the given user, or null if the user does not exist.
      * 
-     * @deprecated This method exposes plaintext passwords and should be avoided.
-     * Use {@link #passwordMatch(String, String)} for simple authentication or
-     * {@link #getDigestHA1(String, String)} for HTTP Digest Authentication.
+     * @deprecated Exposes plaintext passwords. Use {@link #passwordMatch} (RFC 4616)
+     * or {@link #getDigestHA1} (RFC 2617) instead.
      * 
      * @param username the username
      * @return the plaintext password, or null if the user does not exist
@@ -172,7 +171,7 @@ public interface Realm {
     }
 
     /**
-     * Computes the expected CRAM-MD5 response for a user.
+     * RFC 2195 — computes the expected CRAM-MD5 response for a user.
      * CRAM-MD5 uses HMAC-MD5(password, challenge) where password is the key.
      * 
      * <p>Implementing this method allows realm implementations to support
@@ -188,7 +187,7 @@ public interface Realm {
     }
 
     /**
-     * Computes the expected APOP response for a user.
+     * RFC 1939 — computes the expected APOP response for a user.
      * APOP uses MD5(timestamp + password).
      * 
      * <p>Implementing this method allows realm implementations to support
@@ -204,9 +203,8 @@ public interface Realm {
     }
 
     /**
-     * Gets the SCRAM credentials for a user.
-     * 
-     * <p>SCRAM (RFC 5802) uses derived keys instead of storing plaintext passwords:
+     * RFC 5802 / RFC 7677 — gets the SCRAM credentials for a user.
+     * SCRAM uses derived keys instead of storing plaintext passwords:
      * <ul>
      *   <li>SaltedPassword = PBKDF2(password, salt, iterations)</li>
      *   <li>ClientKey = HMAC(SaltedPassword, "Client Key")</li>
@@ -286,8 +284,8 @@ public interface Realm {
     }
 
     /**
-     * Validates a Bearer token and returns the associated principal information.
-     * This method is used for Bearer Token Authentication (RFC 6750).
+     * RFC 6750 §2.1 / RFC 7628 — validates a Bearer token and returns the
+     * associated principal information.
      * 
      * @param token the bearer token to validate
      * @return a TokenValidationResult containing the username, scopes, and validity, or null if token is invalid
@@ -297,8 +295,8 @@ public interface Realm {
     }
 
     /**
-     * Validates an OAuth access token and returns the associated principal information.
-     * This method is used for OAuth 2.0 Authentication (RFC 6749).
+     * RFC 6749 — validates an OAuth access token and returns the associated
+     * principal information.
      * 
      * @param accessToken the OAuth access token to validate
      * @return a TokenValidationResult containing the username, scopes, and validity, or null if token is invalid
@@ -308,11 +306,8 @@ public interface Realm {
     }
 
     /**
-     * Authenticates a client certificate and returns the associated
-     * principal identity.
-     *
-     * <p>This method is used for SASL EXTERNAL authentication and
-     * servlet CLIENT-CERT authentication. The Realm implementation
+     * RFC 4422 Appendix A — authenticates a client certificate and returns
+     * the associated principal identity (SASL EXTERNAL). The Realm implementation
      * determines how to map a certificate to a username -- for example,
      * {@link BasicRealm} matches by SHA-256 fingerprint, while an LDAP
      * realm might search by the {@code userCertificate} attribute.
@@ -331,12 +326,8 @@ public interface Realm {
     }
 
     /**
-     * Checks whether an authenticated user is authorized to act as
-     * another identity.
-     *
-     * <p>This is used by SASL EXTERNAL when the client provides an
-     * authorization identity (authzid) that differs from the
-     * authentication identity derived from the certificate.
+     * RFC 4422 §4.2 — checks whether an authenticated user is authorized
+     * to act as another identity (proxy authorization).
      *
      * <p>The default implementation only allows a user to act as
      * themselves. Realm implementations may override this to support
@@ -349,6 +340,34 @@ public interface Realm {
     default boolean authorizeAs(String authenticatedUser,
                                 String requestedUser) {
         return authenticatedUser.equals(requestedUser);
+    }
+
+    /**
+     * RFC 4752 §3.1 — maps a GSS-API principal name to a local username.
+     *
+     * <p>After GSSAPI authentication succeeds, the GSS context provides
+     * the client's principal name (e.g. "user@EXAMPLE.COM"). This method
+     * maps it to a local username that the Realm recognises.
+     *
+     * <p>The default implementation strips the Kerberos realm portion
+     * (everything after {@code @}). Realm implementations may override
+     * this for custom principal-to-username mapping (e.g., LDAP lookup
+     * by Kerberos principal).
+     *
+     * @param gssName the GSS-API principal name
+     * @return the local username, or null if the principal cannot be mapped
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc4752#section-3.1">
+     *      RFC 4752 §3.1</a>
+     */
+    default String mapKerberosPrincipal(String gssName) {
+        if (gssName == null) {
+            return null;
+        }
+        int atIndex = gssName.indexOf('@');
+        if (atIndex > 0) {
+            return gssName.substring(0, atIndex);
+        }
+        return gssName;
     }
 
     /**

@@ -23,31 +23,18 @@ package org.bluezoo.gumdrop.ftp;
 
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
  * Abstract interface for FTP file system operations.
- * 
- * <p>This interface abstracts all file system details from the FTP protocol
- * implementation, allowing handlers to work with various storage backends:
- * <ul>
- * <li>Local file system</li>
- * <li>Database-backed virtual file systems</li>
- * <li>Cloud storage (S3, Azure, etc.)</li>
- * <li>In-memory file systems</li>
- * <li>Custom business logic file systems</li>
- * </ul>
  *
- * <p>All paths are normalized Unix-style paths starting with "/" regardless
- * of the underlying storage implementation. The file system is responsible
- * for any necessary path translation.
+ * <p>Implements the "network virtual file system" (NVFS) concept from
+ * RFC 959 section 2.2.  All paths use Unix-style "/" separators starting
+ * from root "/", consistent with the TVFS convention (RFC 3659 section 6).
  *
- * <p>Methods return {@link FTPFileOperationResult} enums that abstract away
- * the need to know FTP response codes - the FTP connection will handle
- * translating these results into proper protocol responses.
- *
- * <p><strong>Performance:</strong> All I/O operations use NIO channels for 
- * optimal performance with zero-copy transfers when possible.
+ * <p>This allows multiple storage backends (local FS, database, cloud
+ * storage, in-memory) to be plugged into the FTP service transparently.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem
@@ -167,6 +154,38 @@ public interface FTPFileSystem {
      */
     WritableByteChannel openForWriting(String path, boolean append, 
                                      FTPConnectionMetadata metadata);
+
+    /**
+     * Resolves a path for asynchronous file read operations.
+     * Used when opening {@link java.nio.channels.AsynchronousFileChannel}
+     * for non-blocking downloads. Returns null if the implementation
+     * does not support async (e.g. virtual file systems).
+     *
+     * @param path the file path to read
+     * @param restartOffset byte offset to start reading from
+     * @param metadata connection metadata for authorization context
+     * @return resolved Path for AsynchronousFileChannel, or null
+     */
+    default Path resolvePathForAsyncRead(String path, long restartOffset,
+            FTPConnectionMetadata metadata) {
+        return null;
+    }
+
+    /**
+     * Resolves a path for asynchronous file write operations.
+     * Used when opening {@link java.nio.channels.AsynchronousFileChannel}
+     * for non-blocking uploads. Returns null if the implementation
+     * does not support async.
+     *
+     * @param path the file path to write
+     * @param append true to append to existing file
+     * @param metadata connection metadata for authorization context
+     * @return resolved Path for AsynchronousFileChannel, or null
+     */
+    default Path resolvePathForAsyncWrite(String path, boolean append,
+            FTPConnectionMetadata metadata) {
+        return null;
+    }
 
     /**
      * Generates a unique file name for store-unique operations.

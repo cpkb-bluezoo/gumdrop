@@ -22,9 +22,10 @@
 package org.bluezoo.gumdrop.ldap.client;
 
 /**
- * LDAP result codes as defined in RFC 4511.
+ * LDAP result codes (RFC 4511 Appendix A).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#appendix-A">RFC 4511 Appendix A</a>
  */
 public enum LDAPResultCode {
 

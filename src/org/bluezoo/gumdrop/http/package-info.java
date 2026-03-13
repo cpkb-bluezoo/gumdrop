@@ -56,6 +56,14 @@
  * {@link org.bluezoo.gumdrop.http.h2} package, which provides a zero-allocation,
  * callback-based API for frame handling.
  *
+ * <h2>Informational Responses (RFC 8297)</h2>
+ *
+ * <p>Handlers can send 1xx informational responses (e.g. 103 Early Hints)
+ * before the final response via
+ * {@link org.bluezoo.gumdrop.http.HTTPResponseState#sendInformational}.
+ * This is supported for HTTP/1.1, HTTP/2, and HTTP/3 (via the h3 package).
+ * HTTP/1.0 connections silently ignore informational responses.
+ *
  * <h2>Configuration Example</h2>
  *
  * <pre>{@code

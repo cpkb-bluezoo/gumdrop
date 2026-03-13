@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.ldap.client;
 
+import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+
 /**
  * Operations available after STARTTLS upgrade completes.
  * 
@@ -37,6 +39,8 @@ package org.bluezoo.gumdrop.ldap.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see StartTLSResultHandler#handleTLSEstablished
  * @see LDAPSession
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.14">RFC 4511 §4.14 — STARTTLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-3">RFC 4513 §3 — TLS</a>
  */
 public interface LDAPPostTLS {
 
@@ -52,6 +56,18 @@ public interface LDAPPostTLS {
      * @param callback receives the bind result
      */
     void bind(String dn, String password, BindResultHandler callback);
+
+    /**
+     * Performs a SASL bind (RFC 4513 section 5.2).
+     *
+     * <p>Credentials are now protected by TLS. The provided
+     * {@link SASLClientMechanism} drives the multi-step
+     * challenge-response exchange.
+     *
+     * @param saslClient the pre-created SASL client mechanism
+     * @param callback receives the bind result
+     */
+    void bindSASL(SASLClientMechanism saslClient, BindResultHandler callback);
 
     /**
      * Performs an anonymous bind.

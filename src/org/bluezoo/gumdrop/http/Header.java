@@ -22,8 +22,12 @@
 package org.bluezoo.gumdrop.http;
 
 /**
- * An HTTP header. This is a name-value pair. Both the name and value are
- * treated as opaque sequences of octets. The name is case-insensitive.
+ * An HTTP header name-value pair.
+ *
+ * <p>RFC 9110 section 5.1: field-name is case-insensitive.
+ * RFC 9110 section 5.5: field-value = *field-content.
+ * Names are validated against the token production (RFC 9110 section 5.6.2)
+ * and values against field-vchar / obs-text via {@link HTTPUtils}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -84,7 +88,7 @@ public class Header {
             if (value != null) {
                 buf.append(value);
             }
-            hashCode = buf.hashCode();
+            hashCode = buf.toString().hashCode();
         }
         return hashCode;
     }

@@ -21,18 +21,22 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
+import org.bluezoo.util.ByteArrays;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * Huffman decoder and encoder for HPACK-encoded byte arrays. This implementation uses the static
- * Huffman code defined in RFC 7541, Appendix B. It builds an in-memory decoding tree (trie) from
- * the predefined codes.
+ * Huffman decoder and encoder for HPACK string literals
+ * (RFC 7541 section 5.2).
+ *
+ * <p>Uses the static Huffman code defined in RFC 7541 Appendix B.
+ * Builds an in-memory decoding trie from the predefined codes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see https://www.rfc-editor.org/rfc/rfc7541.html#appendix-B
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7541#appendix-B">RFC 7541 Appendix B</a>
  */
 public class Huffman {
 
@@ -572,180 +576,4 @@ public class Huffman {
         }
     }
 
-    // --- Main method for demonstration ---
-    // TODO move to test
-    public static void main(String[] args) {
-        // Example 1: "abc"
-        // Manual encoding of "abc" using the subset codes:
-        // 'a': |00011
-        // 'b': |100011
-        // 'c': |00100
-        // Resulting bits: |00011100|01100100| (no padding necessary)
-        // Bytes: 0x1c 0x64
-        byte[] encodedBytes1 = new byte[] {(byte) 0x1c, (byte) 0x64}; // Encoded "abc"
-
-        System.out.println("--- Test Case 1: Encode 'abc' ---");
-        try {
-            byte[] plaintext = new byte[] {(byte) 'a', (byte) 'b', (byte) 'c'};
-            byte[] testEncode = Huffman.encode(plaintext);
-            System.out.println("Expected bytes: " + bytesToHex(encodedBytes1));
-            System.out.println("Encoded bytes: " + bytesToHex(testEncode));
-            System.out.println("Match: " + equals(testEncode, encodedBytes1));
-        } catch (Exception e) {
-            System.err.println("Encoding failed: " + e.getMessage());
-        }
-
-        System.out.println("--- Test Case 1: Decode 'abc' ---");
-        try {
-            byte[] decodedBytes1 = Huffman.decode(encodedBytes1);
-            String decodedString1 =
-                    new String(decodedBytes1, java.nio.charset.StandardCharsets.UTF_8);
-            System.out.println("Encoded bytes: " + bytesToHex(encodedBytes1));
-            System.out.println("Decoded String: " + decodedString1);
-            System.out.println("Expected String: abc");
-            System.out.println("Match: " + decodedString1.equals("abc"));
-        } catch (IOException e) {
-            System.err.println("Decoding failed: " + e.getMessage());
-        }
-        System.out.println("\n");
-
-        // Example 2: "Hello, world!"
-        // 'H': |1100011
-        // 'e': |00101
-        // 'l': |101000
-        // 'l': |101000
-        // 'o': |00111
-        // ',': |11111010
-        // ' ': |010100
-        // 'w': |1111000
-        // 'o': |00111
-        // 'r': |101100
-        // 'l': |101000
-        // 'd': |100100
-        // '!': |11111110|00
-        // Resulting bits:
-        //  H      e     l      l      o    ,        _      w       o    r      l      d      !
-        //     pad
-        // |11000110|01011010|00101000|00111111|11010010|10011110|00001111|01100101|00010010|01111111|00011111
-        // Bytes: 0xc6 0x5a 0x28 0x3f 0xd2 0x9e 0x0f 0x65 0x12 0x7f 0x1f
-        byte[] encodedBytes2 =
-                new byte[] {
-                    (byte) 0xc6,
-                    (byte) 0x5a,
-                    (byte) 0x28,
-                    (byte) 0x3f,
-                    (byte) 0xd2,
-                    (byte) 0x9e,
-                    (byte) 0x0f,
-                    (byte) 0x65,
-                    (byte) 0x12,
-                    (byte) 0x7f,
-                    (byte) 0x1f
-                };
-
-        System.out.println("--- Test Case 2: Encode 'Hello, world!' ---");
-        try {
-            byte[] plaintext =
-                    new byte[] {
-                        (byte) 'H',
-                        (byte) 'e',
-                        (byte) 'l',
-                        (byte) 'l',
-                        (byte) 'o',
-                        (byte) ',',
-                        (byte) ' ',
-                        (byte) 'w',
-                        (byte) 'o',
-                        (byte) 'r',
-                        (byte) 'l',
-                        (byte) 'd',
-                        (byte) '!'
-                    };
-            byte[] testEncode = Huffman.encode(plaintext);
-            System.out.println("Expected bytes: " + bytesToHex(encodedBytes2));
-            System.out.println("Encoded bytes: " + bytesToHex(testEncode));
-            System.out.println("Match: " + equals(testEncode, encodedBytes2));
-        } catch (Exception e) {
-            System.err.println("Encoding failed: " + e.getMessage());
-        }
-
-        System.out.println("--- Test Case 2: Decoding 'Hello, world!' ---");
-        try {
-            byte[] decodedBytes2 = Huffman.decode(encodedBytes2);
-            String decodedString2 =
-                    new String(decodedBytes2, java.nio.charset.StandardCharsets.UTF_8);
-            System.out.println("Encoded bytes: " + bytesToHex(encodedBytes2));
-            System.out.println("Decoded String: " + decodedString2);
-            System.out.println("Expected String: Hello, world!");
-            System.out.println("Match: " + decodedString2.equals("Hello, world!"));
-        } catch (IOException e) {
-            System.err.println("Decoding failed: " + e.getMessage());
-        }
-        System.out.println("\n");
-
-        // Example 3: Malformed input
-        byte[] encodedBytes3 = new byte[] {(byte) 0x06};
-        System.out.println("--- Test Case 3: Malformed Input: Invalid bit sequence ---");
-        try {
-            byte[] b = Huffman.decode(encodedBytes3);
-            System.out.println(
-                    "Failed: decoded " + bytesToHex(b) + " from " + bytesToHex(encodedBytes3));
-        } catch (IOException e) {
-            System.err.println("Decoding failed as expected: " + e.getMessage());
-        }
-        System.out.println("\n");
-
-        // Example 4: Malformed input (EOS present)
-        // If we see the full EOS (30 1s), this is a decoder error according
-        // to RFC 7541 Section 5.2
-        // 'a': |00011
-        // 'b': |100011
-        // EOS: |11111111|11111111|11111111|111111
-        // Resulting bits: |00011100|01111111|11111111|11111111|11111111|11111111 (padded last 7
-        // bits)
-        // Bytes: 0x1c 0x7f 0xff 0xff 0xff 0xff
-        System.out.println("--- Test Case 4: Malformed Input (EOS in literal) ---");
-        byte[] encodedBytes4 =
-                new byte[] {
-                    (byte) 0x1c, (byte) 0x7f, (byte) 0xff, (byte) 0xff, (byte) 0xff, (byte) 0xff
-                };
-        try {
-            Huffman.decode(encodedBytes4);
-        } catch (IOException e) {
-            System.err.println("Decoding failed as expected: " + e.getMessage());
-        }
-        System.out.println("\n");
-
-        // Example 5: Empty input
-        System.out.println("--- Test Case 5: Empty Input ---");
-        byte[] emptyBytes = new byte[] {};
-        try {
-            byte[] decodedEmpty = Huffman.decode(emptyBytes);
-            System.out.println("Decoded empty string: " + new String(decodedEmpty));
-            System.out.println("Match: " + (decodedEmpty.length == 0));
-        } catch (IOException e) {
-            System.err.println("Decoding failed: " + e.getMessage());
-        }
-    }
-
-    private static boolean equals(byte[] b1, byte[] b2) {
-        if (b1.length != b2.length) {
-            return false;
-        }
-        for (int i = 0; i < b1.length; i++) {
-            if (b1[i] != b2[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** Helper method to convert byte array to hex string for display. */
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X", b));
-        }
-        return sb.toString();
-    }
 }

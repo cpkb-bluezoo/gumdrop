@@ -31,6 +31,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DMARCValidator
  * @see DMARCResult
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
 public interface DMARCCallback {
 

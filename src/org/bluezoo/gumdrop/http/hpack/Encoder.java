@@ -31,10 +31,20 @@ import java.util.List;
 import org.bluezoo.gumdrop.http.Header;
 
 /**
- * An HPACK HTTP/2 header encoder.
+ * HPACK header encoder (RFC 7541).
+ *
+ * <p>Encodes HTTP/2 header fields into a compressed field block using:
+ * <ul>
+ * <li>Indexed header field representation (RFC 7541 section 6.1)</li>
+ * <li>Literal header field with incremental indexing (section 6.2.1)</li>
+ * <li>Literal header field without indexing (section 6.2.2)</li>
+ * <li>Integer representation (section 5.1)</li>
+ * <li>String literal / Huffman encoding (section 5.2)</li>
+ * <li>Dynamic table management (section 4)</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see https://www.rfc-editor.org/rfc/rfc7541
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
  */
 public class Encoder extends HPACKConstants {
 

@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RecipientState
  * @see MessageStartState
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.3">RFC 5321 §4.1.1.3</a>
  */
 public interface RecipientHandler {
 

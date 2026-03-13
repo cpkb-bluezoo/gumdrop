@@ -25,14 +25,16 @@ package org.bluezoo.gumdrop.redis.client;
  * Redis session interface for sending commands.
  *
  * <p>This interface is provided to handlers and provides methods for
- * all common Redis operations. Commands are sent asynchronously and
- * results are delivered via callbacks.
+ * all common Redis operations. Commands are encoded as RESP arrays
+ * of bulk strings (RESP spec — "Sending commands to a Redis server")
+ * and results are delivered via typed callbacks.
  *
  * <p>Multiple commands can be issued without waiting for responses
- * (pipelining). Redis processes commands in order and responses
- * arrive in order.
+ * (RESP spec — "Pipelining"). Redis processes commands in order and
+ * responses arrive in order.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public interface RedisSession {
 
@@ -97,6 +99,65 @@ public interface RedisSession {
      * Closes the connection immediately.
      */
     void close();
+
+    // RESP3 — HELLO command (Redis 6+)
+
+    /**
+     * Sends a HELLO command to negotiate the RESP protocol version
+     * and optionally authenticate in a single round-trip (Redis 6+).
+     *
+     * <p>HELLO returns a map of server properties including: server,
+     * version, proto, id, mode, role, modules.
+     *
+     * @param protover the RESP protocol version (2 or 3)
+     * @param handler receives the server properties as an array
+     */
+    void hello(int protover, ArrayResultHandler handler);
+
+    /**
+     * Sends a HELLO command with authentication.
+     *
+     * @param protover the RESP protocol version (2 or 3)
+     * @param username the username (or "default")
+     * @param password the password
+     * @param handler receives the server properties as an array
+     */
+    void hello(int protover, String username, String password, ArrayResultHandler handler);
+
+    // CLIENT commands (Redis command reference — CLIENT)
+
+    /**
+     * Sets the connection name (visible in CLIENT LIST).
+     *
+     * @param name the connection name
+     * @param handler receives "OK"
+     */
+    void clientSetName(String name, StringResultHandler handler);
+
+    /**
+     * Gets the connection name.
+     *
+     * @param handler receives the connection name or null
+     */
+    void clientGetName(BulkResultHandler handler);
+
+    /**
+     * Returns the unique client ID of the current connection.
+     *
+     * @param handler receives the client ID
+     */
+    void clientId(IntegerResultHandler handler);
+
+    // RESET command (Redis 6.2+)
+
+    /**
+     * Resets the connection state, clearing Pub/Sub subscriptions,
+     * MULTI transaction, WATCH keys, and authenticated user
+     * (Redis command reference — RESET).
+     *
+     * @param handler receives "RESET"
+     */
+    void reset(StringResultHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Strings
@@ -328,6 +389,86 @@ public interface RedisSession {
      * @param handler receives the matching keys
      */
     void keys(String pattern, ArrayResultHandler handler);
+
+    // SCAN commands (Redis command reference — SCAN)
+
+    /**
+     * Incrementally iterates over the key space.
+     *
+     * @param cursor the cursor ("0" to start)
+     * @param handler receives the cursor and elements
+     */
+    void scan(String cursor, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over the key space with MATCH and COUNT options.
+     *
+     * @param cursor the cursor ("0" to start)
+     * @param match the glob-style pattern (null to skip)
+     * @param count the hint for number of elements (0 to skip)
+     * @param handler receives the cursor and elements
+     */
+    void scan(String cursor, String match, int count, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over fields in a hash.
+     *
+     * @param key the hash key
+     * @param cursor the cursor ("0" to start)
+     * @param handler receives the cursor and field-value pairs
+     */
+    void hscan(String key, String cursor, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over fields in a hash with MATCH and COUNT.
+     *
+     * @param key the hash key
+     * @param cursor the cursor ("0" to start)
+     * @param match the glob-style pattern (null to skip)
+     * @param count the hint for number of elements (0 to skip)
+     * @param handler receives the cursor and field-value pairs
+     */
+    void hscan(String key, String cursor, String match, int count, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over members of a set.
+     *
+     * @param key the set key
+     * @param cursor the cursor ("0" to start)
+     * @param handler receives the cursor and members
+     */
+    void sscan(String key, String cursor, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over members of a set with MATCH and COUNT.
+     *
+     * @param key the set key
+     * @param cursor the cursor ("0" to start)
+     * @param match the glob-style pattern (null to skip)
+     * @param count the hint for number of elements (0 to skip)
+     * @param handler receives the cursor and members
+     */
+    void sscan(String key, String cursor, String match, int count, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over members of a sorted set.
+     *
+     * @param key the sorted set key
+     * @param cursor the cursor ("0" to start)
+     * @param handler receives the cursor and member-score pairs
+     */
+    void zscan(String key, String cursor, ScanResultHandler handler);
+
+    /**
+     * Incrementally iterates over members of a sorted set with MATCH and COUNT.
+     *
+     * @param key the sorted set key
+     * @param cursor the cursor ("0" to start)
+     * @param match the glob-style pattern (null to skip)
+     * @param count the hint for number of elements (0 to skip)
+     * @param handler receives the cursor and member-score pairs
+     */
+    void zscan(String key, String cursor, String match, int count, ScanResultHandler handler);
 
     /**
      * Renames a key.
@@ -580,6 +721,41 @@ public interface RedisSession {
      * @param handler receives the count removed
      */
     void lrem(String key, int count, String value, IntegerResultHandler handler);
+
+    // Blocking list commands (Redis command reference — BLPOP, BRPOP, BLMOVE)
+
+    /**
+     * Blocking pop from the left (head) of one or more lists.
+     * Blocks until an element is available or the timeout expires.
+     *
+     * @param timeout the timeout in seconds (0 = block indefinitely)
+     * @param handler receives [key, value] array or null on timeout
+     * @param keys the list keys to pop from
+     */
+    void blpop(double timeout, ArrayResultHandler handler, String... keys);
+
+    /**
+     * Blocking pop from the right (tail) of one or more lists.
+     * Blocks until an element is available or the timeout expires.
+     *
+     * @param timeout the timeout in seconds (0 = block indefinitely)
+     * @param handler receives [key, value] array or null on timeout
+     * @param keys the list keys to pop from
+     */
+    void brpop(double timeout, ArrayResultHandler handler, String... keys);
+
+    /**
+     * Blocking move of an element from one list to another (Redis 6.2+).
+     *
+     * @param source the source list key
+     * @param destination the destination list key
+     * @param whereFrom "LEFT" or "RIGHT"
+     * @param whereTo "LEFT" or "RIGHT"
+     * @param timeout the timeout in seconds (0 = block indefinitely)
+     * @param handler receives the moved element or null on timeout
+     */
+    void blmove(String source, String destination, String whereFrom, String whereTo,
+                double timeout, BulkResultHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Sets
@@ -902,6 +1078,127 @@ public interface RedisSession {
      * @param handler receives array of [unix timestamp seconds, microseconds]
      */
     void time(ArrayResultHandler handler);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Streams (Redis command reference — Streams)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Appends an entry to a stream.
+     *
+     * @param key the stream key
+     * @param id the entry ID ("*" for auto-generated)
+     * @param handler receives the entry ID
+     * @param fieldsAndValues alternating field names and values
+     */
+    void xadd(String key, String id, BulkResultHandler handler, String... fieldsAndValues);
+
+    /**
+     * Returns the number of entries in a stream.
+     *
+     * @param key the stream key
+     * @param handler receives the count
+     */
+    void xlen(String key, IntegerResultHandler handler);
+
+    /**
+     * Returns a range of entries from a stream.
+     *
+     * @param key the stream key
+     * @param start the start ID ("-" for minimum)
+     * @param end the end ID ("+" for maximum)
+     * @param handler receives the entries
+     */
+    void xrange(String key, String start, String end, ArrayResultHandler handler);
+
+    /**
+     * Returns a range of entries with a count limit.
+     *
+     * @param key the stream key
+     * @param start the start ID ("-" for minimum)
+     * @param end the end ID ("+" for maximum)
+     * @param count the maximum number of entries
+     * @param handler receives the entries
+     */
+    void xrange(String key, String start, String end, int count, ArrayResultHandler handler);
+
+    /**
+     * Returns a range of entries in reverse order.
+     *
+     * @param key the stream key
+     * @param end the end ID ("+" for maximum)
+     * @param start the start ID ("-" for minimum)
+     * @param handler receives the entries
+     */
+    void xrevrange(String key, String end, String start, ArrayResultHandler handler);
+
+    /**
+     * Returns a range of entries in reverse order with a count limit.
+     *
+     * @param key the stream key
+     * @param end the end ID ("+" for maximum)
+     * @param start the start ID ("-" for minimum)
+     * @param count the maximum number of entries
+     * @param handler receives the entries
+     */
+    void xrevrange(String key, String end, String start, int count, ArrayResultHandler handler);
+
+    /**
+     * Reads entries from one or more streams, optionally blocking.
+     *
+     * @param count the maximum number of entries per stream (0 for default)
+     * @param blockMillis the block timeout in milliseconds (negative to not block)
+     * @param handler receives the entries per stream
+     * @param keysAndIds alternating stream keys and IDs
+     */
+    void xread(int count, long blockMillis, ArrayResultHandler handler, String... keysAndIds);
+
+    /**
+     * Trims a stream to approximately the specified length.
+     *
+     * @param key the stream key
+     * @param maxLen the maximum length
+     * @param handler receives the number of entries removed
+     */
+    void xtrim(String key, long maxLen, IntegerResultHandler handler);
+
+    /**
+     * Acknowledges one or more stream entries for a consumer group.
+     *
+     * @param key the stream key
+     * @param group the consumer group name
+     * @param handler receives the count of acknowledged entries
+     * @param ids the entry IDs to acknowledge
+     */
+    void xack(String key, String group, IntegerResultHandler handler, String... ids);
+
+    /**
+     * Creates a consumer group for a stream.
+     *
+     * @param key the stream key
+     * @param group the consumer group name
+     * @param id the starting entry ID ("$" for new entries only, "0" for all)
+     * @param handler receives "OK"
+     */
+    void xgroupCreate(String key, String group, String id, StringResultHandler handler);
+
+    /**
+     * Deletes a consumer group.
+     *
+     * @param key the stream key
+     * @param group the consumer group name
+     * @param handler receives the result
+     */
+    void xgroupDestroy(String key, String group, IntegerResultHandler handler);
+
+    /**
+     * Returns the number of pending entries for a consumer group.
+     *
+     * @param key the stream key
+     * @param group the consumer group name
+     * @param handler receives the pending entry information
+     */
+    void xpending(String key, String group, ArrayResultHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Generic command

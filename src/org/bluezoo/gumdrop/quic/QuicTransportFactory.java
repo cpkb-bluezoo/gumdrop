@@ -74,12 +74,12 @@ public class QuicTransportFactory extends TransportFactory {
     private static final Logger LOGGER =
             Logger.getLogger(QuicTransportFactory.class.getName());
 
-    /** QUIC version 1 (RFC 9000). */
+    /** QUIC version 1 (RFC 9000 section 15). */
     static final int QUICHE_PROTOCOL_VERSION_1 = 0x00000001;
-    /** QUIC version 2 (RFC 9369). */
+    /** QUIC version 2 (RFC 9369 section 3). */
     static final int QUICHE_PROTOCOL_VERSION_2 = 0x6b3343cf;
 
-    // quiche config defaults
+    // QUIC transport parameter defaults (RFC 9000 section 18)
     private static final long DEFAULT_MAX_IDLE_TIMEOUT = 30000;
     private static final long DEFAULT_MAX_DATA = 10_000_000;
     private static final long DEFAULT_MAX_STREAM_DATA = 1_000_000;
@@ -107,6 +107,8 @@ public class QuicTransportFactory extends TransportFactory {
     private String applicationProtocols;
     private Path caFile;
     private boolean verifyPeer = true;
+    /** RFC 9250 section 4.5: enable 0-RTT early data. */
+    private boolean earlyDataEnabled;
     private long maxIdleTimeout = DEFAULT_MAX_IDLE_TIMEOUT;
     private long maxData = DEFAULT_MAX_DATA;
     private long maxStreamDataBidiLocal = DEFAULT_MAX_STREAM_DATA;
@@ -124,15 +126,37 @@ public class QuicTransportFactory extends TransportFactory {
     // ── QUIC-specific configuration ──
 
     /**
-     * Sets the application protocols for ALPN negotiation.
+     * Sets the application protocols for ALPN negotiation
+     * (RFC 9001 section 8.1, RFC 7301).
      *
-     * <p>Comma-separated protocol identifiers. For HTTP/3, use "h3".
-     * For DNS over QUIC, use "doq".
+     * <p>Comma-separated protocol identifiers. For HTTP/3, use "h3"
+     * (RFC 9114 section 3.1). For DNS over QUIC, use "doq"
+     * (RFC 9250 section 7.1).
      *
      * @param protocols the ALPN protocols (e.g. "h3" or "h3,h3-29")
      */
     public void setApplicationProtocols(String protocols) {
         this.applicationProtocols = protocols;
+    }
+
+    /**
+     * Enables QUIC 0-RTT early data.
+     * RFC 9250 section 4.5: DoQ clients MAY send QUERY and NOTIFY
+     * in 0-RTT data for reduced latency on repeat connections.
+     *
+     * @param enabled true to enable early data
+     */
+    public void setEarlyDataEnabled(boolean enabled) {
+        this.earlyDataEnabled = enabled;
+    }
+
+    /**
+     * Returns whether early data is enabled.
+     *
+     * @return true if 0-RTT is enabled
+     */
+    public boolean isEarlyDataEnabled() {
+        return earlyDataEnabled;
     }
 
     /**
@@ -403,6 +427,11 @@ public class QuicTransportFactory extends TransportFactory {
         GumdropNative.quiche_config_set_max_send_udp_payload_size(
                 config, DEFAULT_MAX_SEND_PAYLOAD);
 
+        // RFC 9250 section 4.5: enable 0-RTT early data for session resumption
+        if (earlyDataEnabled) {
+            GumdropNative.quiche_config_enable_early_data(config);
+        }
+
         return config;
     }
 
@@ -597,7 +626,8 @@ public class QuicTransportFactory extends TransportFactory {
 
     /**
      * Encodes comma-separated ALPN protocol names into the wire format
-     * expected by quiche/BoringSSL: length-prefixed byte sequence.
+     * defined by RFC 7301 section 3.1: each protocol is a length-prefixed
+     * byte sequence. Used by quiche/BoringSSL for TLS ALPN negotiation.
      *
      * <p>Example: "h3,h3-29" becomes [2,'h','3', 5,'h','3','-','2','9']
      *

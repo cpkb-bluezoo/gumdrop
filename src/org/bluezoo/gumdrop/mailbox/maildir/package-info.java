@@ -64,6 +64,16 @@
  * 
  * <p>Example filename: {@code 1733356800000.12345.1,S=4523:2,SF}
  * 
+ * <h2>CONDSTORE/QRESYNC Support</h2>
+ *
+ * <p>Per-message modification sequence numbers (MODSEQ) are persisted in
+ * a {@code .modseq} sidecar file alongside the Maildir directory. Expunged
+ * UIDs with their last MODSEQ are tracked in a {@code .expunged} file for
+ * QRESYNC's VANISHED (EARLIER) response. Async message I/O is provided via
+ * {@link org.bluezoo.gumdrop.mailbox.AsyncMessageContent} and
+ * {@link org.bluezoo.gumdrop.mailbox.AsyncMessageWriter} backed by
+ * {@code java.nio.channels.AsynchronousFileChannel}.
+ *
  * <h2>Advantages</h2>
  * 
  * <ul>
@@ -72,6 +82,7 @@
  *   <li>Flag changes are simple renames</li>
  *   <li>Safe on networked file systems (NFS)</li>
  *   <li>Easy backup and recovery</li>
+ *   <li>Async I/O for streaming large messages without buffering</li>
  * </ul>
  * 
  * <h2>Usage Example</h2>

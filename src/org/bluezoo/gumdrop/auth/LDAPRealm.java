@@ -22,12 +22,14 @@
 package org.bluezoo.gumdrop.auth;
 
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
@@ -48,6 +50,7 @@ import org.bluezoo.gumdrop.ldap.client.LDAPConnected;
 import org.bluezoo.gumdrop.ldap.client.LDAPConnectionReady;
 import org.bluezoo.gumdrop.ldap.client.LDAPConstants;
 import org.bluezoo.gumdrop.ldap.client.LDAPResult;
+import org.bluezoo.gumdrop.ldap.client.LDAPResultCode;
 import org.bluezoo.gumdrop.ldap.client.LDAPSession;
 import org.bluezoo.gumdrop.ldap.client.SearchRequest;
 import org.bluezoo.gumdrop.ldap.client.SearchResultEntry;
@@ -82,6 +85,12 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  *   <li>If successful, user is authenticated</li>
  * </ol>
  *
+ * <h3>SASL Bind (RFC 4513 §5.2)</h3>
+ * <p>Optionally set {@code saslMechanism} to use SASL instead of simple bind.
+ * Supported mechanisms: PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — implemented
+ * via {@link SASLUtils#createClient} using gumdrop's own cryptographic
+ * primitives (non-blocking, no JDK SASL dependency).
+ *
  * <h3>TLS Support</h3>
  * <ul>
  *   <li>LDAPS (port 636): Set {@code secure="true"} and configure {@code sslContext}</li>
@@ -89,6 +98,8 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511: LDAPv3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4513">RFC 4513: LDAP Authentication Methods</a>
  */
 public class LDAPRealm implements Realm {
 
@@ -113,6 +124,7 @@ public class LDAPRealm implements Realm {
     private String roleAttribute = "memberOf";
     private String rolePrefix = "";
     private int timeout = DEFAULT_TIMEOUT;
+    private String saslMechanism;
 
     private String certLookupMode;
     private String certUsernameAttribute = "uid";
@@ -157,6 +169,7 @@ public class LDAPRealm implements Realm {
         this.roleAttribute = source.roleAttribute;
         this.rolePrefix = source.rolePrefix;
         this.timeout = source.timeout;
+        this.saslMechanism = source.saslMechanism;
         this.certLookupMode = source.certLookupMode;
         this.certUsernameAttribute = source.certUsernameAttribute;
         this.certSubjectFilter = source.certSubjectFilter;
@@ -209,6 +222,7 @@ public class LDAPRealm implements Realm {
         this.bindPassword = bindPassword;
     }
 
+    /** @see <a href="https://www.rfc-editor.org/rfc/rfc4515">RFC 4515: LDAP Search Filters</a> */
     public void setUserFilter(String userFilter) {
         this.userFilter = userFilter;
     }
@@ -223,6 +237,21 @@ public class LDAPRealm implements Realm {
 
     public void setTimeout(int timeout) {
         this.timeout = timeout;
+    }
+
+    /**
+     * Sets the SASL mechanism to use for binding to the LDAP server.
+     *
+     * <p>When set, all LDAP binds (service account and user
+     * authentication) use SASL instead of simple bind. Common
+     * mechanisms include {@code DIGEST-MD5}, {@code CRAM-MD5},
+     * {@code GSSAPI}, and {@code EXTERNAL}.
+     *
+     * @param mechanism the SASL mechanism name, or null for simple bind
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-5.2">RFC 4513 §5.2</a>
+     */
+    public void setSaslMechanism(String mechanism) {
+        this.saslMechanism = mechanism;
     }
 
     public void setSelectorLoop(SelectorLoop selectorLoop) {
@@ -273,6 +302,7 @@ public class LDAPRealm implements Realm {
         return SUPPORTED_MECHANISMS;
     }
 
+    /** RFC 4513 §5.1/§5.2 — authenticate via simple or SASL bind. */
     @Override
     public boolean passwordMatch(String username, String password) {
         if (username == null || password == null) {
@@ -338,6 +368,7 @@ public class LDAPRealm implements Realm {
         }
     }
 
+    /** Certificate-to-user mapping via LDAP search. */
     @Override
     public CertificateAuthenticationResult authenticateCertificate(
             X509Certificate certificate) {
@@ -422,12 +453,7 @@ public class LDAPRealm implements Realm {
                     }
                 };
                 
-                // Bind as service account first
-                if (bindDN != null && !bindDN.isEmpty()) {
-                    connection.bind(bindDN, bindPassword, bindHandler);
-                } else {
-                    connection.bindAnonymous(bindHandler);
-                }
+                performServiceBind(connection, bindHandler);
             }
 
             @Override
@@ -475,8 +501,7 @@ public class LDAPRealm implements Realm {
         client.connect(new LDAPConnectionReady() {
             @Override
             public void handleReady(LDAPConnected connection) {
-                // Bind as the user directly
-                connection.bind(dn, password, new BindResultHandler() {
+                performUserBind(connection, dn, password, new BindResultHandler() {
                     @Override
                     public void handleBindSuccess(LDAPSession session) {
                         success.set(true);
@@ -586,11 +611,7 @@ public class LDAPRealm implements Realm {
                     }
                 };
 
-                if (bindDN != null && !bindDN.isEmpty()) {
-                    connection.bind(bindDN, bindPassword, bindHandler);
-                } else {
-                    connection.bindAnonymous(bindHandler);
-                }
+                performServiceBind(connection, bindHandler);
             }
 
             @Override
@@ -724,11 +745,7 @@ public class LDAPRealm implements Realm {
                     }
                 };
 
-                if (bindDN != null && !bindDN.isEmpty()) {
-                    connection.bind(bindDN, bindPassword, bindHandler);
-                } else {
-                    connection.bindAnonymous(bindHandler);
-                }
+                performServiceBind(connection, bindHandler);
             }
 
             @Override
@@ -814,6 +831,49 @@ public class LDAPRealm implements Realm {
             }
         }
         return s.length();
+    }
+
+    // Bind helpers — choose between simple bind and SASL bind
+    // based on the saslMechanism configuration property.
+
+    private void performServiceBind(LDAPConnected connection,
+                                    BindResultHandler handler) {
+        if (bindDN != null && !bindDN.isEmpty()) {
+            if (saslMechanism != null) {
+                performSASLBind(connection, bindDN, bindPassword, handler);
+            } else {
+                connection.bind(bindDN, bindPassword, handler);
+            }
+        } else {
+            connection.bindAnonymous(handler);
+        }
+    }
+
+    private void performUserBind(LDAPConnected connection,
+                                 String dn, String password,
+                                 BindResultHandler handler) {
+        if (saslMechanism != null) {
+            performSASLBind(connection, dn, password, handler);
+        } else {
+            connection.bind(dn, password, handler);
+        }
+    }
+
+    private void performSASLBind(LDAPConnected connection,
+                                 String username, String password,
+                                 BindResultHandler handler) {
+        SASLClientMechanism mechanism =
+                SASLUtils.createClient(saslMechanism, username, password, host);
+        if (mechanism == null) {
+            handler.handleBindFailure(
+                    new LDAPResult(
+                            LDAPResultCode.AUTH_METHOD_NOT_SUPPORTED,
+                            "", "SASL mechanism not available: "
+                                    + saslMechanism, null),
+                    connection);
+            return;
+        }
+        connection.bindSASL(mechanism, handler);
     }
 
     /**

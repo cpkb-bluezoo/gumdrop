@@ -25,45 +25,64 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 
 /**
- * RESP (Redis Serialization Protocol) data types.
+ * RESP (Redis Serialization Protocol) data types
+ * (RESP spec — "RESP protocol description").
  *
  * <p>Each type is identified by a single-byte prefix in the wire format.
+ * RESP2 types: Simple String (+), Error (-), Integer (:), Bulk String ($),
+ * Array (*). RESP3 adds: Map (%), Set (~), Double (,), Boolean (#),
+ * Null (_), Push (&gt;), Verbatim String (=), Big Number ((), Blob Error (!).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public enum RESPType {
 
-    /**
-     * Simple string, prefixed by '+'.
-     * Used for short, non-binary strings like "OK" or "PONG".
-     */
+    // RESP2 types
+
+    /** Simple string, prefixed by '+'. */
     SIMPLE_STRING('+'),
 
-    /**
-     * Error, prefixed by '-'.
-     * Contains an error message, typically with an error type prefix.
-     */
+    /** Error, prefixed by '-'. */
     ERROR('-'),
 
-    /**
-     * Integer, prefixed by ':'.
-     * A signed 64-bit integer.
-     */
+    /** Integer, prefixed by ':'. A signed 64-bit integer. */
     INTEGER(':'),
 
-    /**
-     * Bulk string, prefixed by '$'.
-     * A binary-safe string with explicit length.
-     * Can be null (represented as "$-1\r\n").
-     */
+    /** Bulk string, prefixed by '$'. Binary-safe with explicit length. */
     BULK_STRING('$'),
 
-    /**
-     * Array, prefixed by '*'.
-     * An ordered collection of RESP values.
-     * Can be null (represented as "*-1\r\n").
-     */
-    ARRAY('*');
+    /** Array, prefixed by '*'. An ordered collection of RESP values. */
+    ARRAY('*'),
+
+    // RESP3 types
+
+    /** Map, prefixed by '%'. Key-value pairs (RESP3). */
+    MAP('%'),
+
+    /** Set, prefixed by '~'. Unordered collection (RESP3). */
+    SET('~'),
+
+    /** Double, prefixed by ','. IEEE 754 double (RESP3). */
+    DOUBLE(','),
+
+    /** Boolean, prefixed by '#'. True (#t) or false (#f) (RESP3). */
+    BOOLEAN('#'),
+
+    /** Null, prefixed by '_'. Explicit null type (RESP3). */
+    NULL('_'),
+
+    /** Push, prefixed by '&gt;'. Server-initiated out-of-band data (RESP3). */
+    PUSH('>'),
+
+    /** Verbatim string, prefixed by '='. Like bulk string with encoding hint (RESP3). */
+    VERBATIM_STRING('='),
+
+    /** Big number, prefixed by '('. Arbitrary-precision integer (RESP3). */
+    BIG_NUMBER('('),
+
+    /** Blob error, prefixed by '!'. Like bulk string but an error (RESP3). */
+    BLOB_ERROR('!');
 
     private final byte prefix;
 
@@ -89,16 +108,20 @@ public enum RESPType {
      */
     public static RESPType fromPrefix(byte prefix) throws RESPException {
         switch (prefix) {
-            case '+':
-                return SIMPLE_STRING;
-            case '-':
-                return ERROR;
-            case ':':
-                return INTEGER;
-            case '$':
-                return BULK_STRING;
-            case '*':
-                return ARRAY;
+            case '+': return SIMPLE_STRING;
+            case '-': return ERROR;
+            case ':': return INTEGER;
+            case '$': return BULK_STRING;
+            case '*': return ARRAY;
+            case '%': return MAP;
+            case '~': return SET;
+            case ',': return DOUBLE;
+            case '#': return BOOLEAN;
+            case '_': return NULL;
+            case '>': return PUSH;
+            case '=': return VERBATIM_STRING;
+            case '(': return BIG_NUMBER;
+            case '!': return BLOB_ERROR;
             default:
                 String msg = MessageFormat.format(RESPDecoder.L10N.getString("err.unknown_type_prefix"), (char) prefix);
                 throw new RESPException(msg);

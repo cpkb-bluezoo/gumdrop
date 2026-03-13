@@ -25,7 +25,8 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 
 /**
  * Operations available after MAIL FROM is accepted (no recipients yet).
- * 
+ * RFC 5321 §4.1.1.3 (RCPT TO envelope building, no recipients yet).
+ *
  * <p>This interface is provided to the handler in
  * {@link ServerMailFromReplyHandler#handleMailFromOk} and represents the
  * envelope state before any recipients have been added.
@@ -38,6 +39,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerMailFromReplyHandler#handleMailFromOk
  * @see ClientEnvelopeReady
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ClientEnvelope extends ClientEnvelopeState {
 

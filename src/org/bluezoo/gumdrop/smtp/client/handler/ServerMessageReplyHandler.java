@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for end-of-message response.
- * 
+ * RFC 5321 §3.3 (250/4xx/5xx end-of-data).
+ *
  * <p>This handler receives the server's response after the message content
  * has been sent (after {@code endMessage()}). On success (250), the handler
  * receives a queue ID (if provided by the server) and a {@link ClientSession}
@@ -31,6 +32,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientMessageData#endMessage
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerMessageReplyHandler extends ServerReplyHandler {
 

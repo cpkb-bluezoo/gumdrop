@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,11 +34,9 @@ import java.util.List;
  */
 public class Span {
 
-    private static final SecureRandom RANDOM = new SecureRandom();
-
     private final Trace trace;
     private final Span parent;
-    private final byte[] spanId;
+    private final SpanId spanId;
     private final String name;
     private final SpanKind kind;
     private final long startTimeUnixNano;
@@ -70,7 +67,7 @@ public class Span {
         }
         this.trace = trace;
         this.parent = parent;
-        this.spanId = generateSpanId();
+        this.spanId = SpanId.generate();
         this.name = name;
         this.kind = kind != null ? kind : SpanKind.INTERNAL;
         this.startTimeUnixNano = System.currentTimeMillis() * 1_000_000L;
@@ -96,20 +93,19 @@ public class Span {
      * @param name the span name
      * @param kind the span kind
      */
-    Span(Trace trace, byte[] spanId, String name, SpanKind kind) {
+    Span(Trace trace, SpanId spanId, String name, SpanKind kind) {
         if (trace == null) {
             throw new IllegalArgumentException("trace cannot be null");
         }
-        if (spanId == null || spanId.length != SpanContext.SPAN_ID_LENGTH) {
-            throw new IllegalArgumentException("spanId must be 8 bytes");
+        if (spanId == null) {
+            throw new IllegalArgumentException("spanId cannot be null");
         }
         if (name == null) {
             throw new IllegalArgumentException("name cannot be null");
         }
         this.trace = trace;
         this.parent = null;
-        this.spanId = new byte[SpanContext.SPAN_ID_LENGTH];
-        System.arraycopy(spanId, 0, this.spanId, 0, SpanContext.SPAN_ID_LENGTH);
+        this.spanId = spanId;
         this.name = name;
         this.kind = kind != null ? kind : SpanKind.INTERNAL;
         this.startTimeUnixNano = System.currentTimeMillis() * 1_000_000L;
@@ -122,11 +118,6 @@ public class Span {
         this.children = new ArrayList<Span>();
     }
 
-    private static byte[] generateSpanId() {
-        byte[] id = new byte[SpanContext.SPAN_ID_LENGTH];
-        RANDOM.nextBytes(id);
-        return id;
-    }
 
     private void addChild(Span child) {
         children.add(child);
@@ -147,12 +138,10 @@ public class Span {
     }
 
     /**
-     * Returns a copy of the span ID bytes.
+     * Returns the span ID.
      */
-    public byte[] getSpanId() {
-        byte[] copy = new byte[SpanContext.SPAN_ID_LENGTH];
-        System.arraycopy(spanId, 0, copy, 0, SpanContext.SPAN_ID_LENGTH);
-        return copy;
+    public SpanId getSpanId() {
+        return spanId;
     }
 
     /**
@@ -230,7 +219,7 @@ public class Span {
      * Returns the span context for this span.
      */
     public SpanContext getSpanContext() {
-        return new SpanContext(trace.getTraceId(), spanId, trace.isSampled());
+        return new SpanContext(trace.getTraceId(), spanId, trace.isSampled() ? SpanContext.FLAG_SAMPLED : 0);
     }
 
     // -- Mutators --

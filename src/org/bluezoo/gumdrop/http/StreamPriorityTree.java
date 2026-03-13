@@ -27,8 +27,13 @@ import java.util.logging.Logger;
 
 /**
  * Manages HTTP/2 stream priority dependency tree for optimal resource allocation.
- * 
- * <p>This class implements RFC 7540 Section 5.3 Stream Priority:
+ *
+ * <p><strong>Deprecated per RFC 9113 section 5.3:</strong> Stream prioritization
+ * as defined in RFC 7540 section 5.3 is deprecated. PRIORITY frames, stream
+ * dependencies, and weights are retained for wire compatibility only. This class
+ * is not used by the HTTP/2 protocol handler.
+ *
+ * <p>This class implements RFC 7540 section 5.3 Stream Priority:
  * <ul>
  * <li>Builds and maintains stream dependency trees</li>
  * <li>Calculates relative priorities based on weights and dependencies</li>
@@ -40,7 +45,9 @@ import java.util.logging.Logger;
  * access by multiple HTTP/2 connection threads.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated Stream priority signaling is deprecated per RFC 9113 section 5.3.
  */
+@Deprecated
 public class StreamPriorityTree {
     
     private static final Logger LOGGER = Logger.getLogger(StreamPriorityTree.class.getName());

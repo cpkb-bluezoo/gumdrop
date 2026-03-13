@@ -24,6 +24,9 @@ package org.bluezoo.gumdrop.smtp.auth;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.EdECPoint;
+import java.security.spec.EdECPublicKeySpec;
+import java.security.spec.NamedParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -144,6 +147,7 @@ public class DKIMValidator {
 
     /**
      * Verifies the DKIM signature asynchronously.
+     * RFC 6376 §6 — verifier actions.
      *
      * @param callback the callback to receive the result
      */
@@ -202,6 +206,7 @@ public class DKIMValidator {
 
     /**
      * Handles the DNS response for the public key lookup.
+     * RFC 6376 §6.1.2 — key retrieval via DNS TXT.
      */
     private void handleKeyResponse(DNSMessage response, DKIMCallback callback) {
         // Check for errors
@@ -291,17 +296,15 @@ public class DKIMValidator {
 
         try {
             byte[] keyBytes = Base64.getDecoder().decode(keyData);
-            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
 
-            String algorithm;
             if ("ed25519".equals(keyType)) {
-                algorithm = "Ed25519";
+                // RFC 8463 §4 — Ed25519 public keys are raw 32-byte values.
+                return parseEd25519PublicKey(keyBytes);
             } else {
-                algorithm = "RSA";
+                X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
+                KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+                return keyFactory.generatePublic(keySpec);
             }
-
-            KeyFactory keyFactory = KeyFactory.getInstance(algorithm);
-            return keyFactory.generatePublic(keySpec);
         } catch (Exception e) {
             LOGGER.log(Level.FINE, L10N.getString("debug.dkim_parse_key_error"), e);
             return null;
@@ -309,7 +312,36 @@ public class DKIMValidator {
     }
 
     /**
+     * RFC 8463 §4 — parses a raw Ed25519 public key.
+     * The key in DNS is the raw 32-byte public point, which must be
+     * converted into a Java EdECPublicKeySpec.
+     */
+    private PublicKey parseEd25519PublicKey(byte[] rawKey) throws Exception {
+        if (rawKey.length == 32) {
+            // Raw 32-byte key per RFC 8463 — convert to EdECPublicKeySpec
+            boolean xOdd = (rawKey[31] & 0x80) != 0;
+            byte[] yBytes = rawKey.clone();
+            yBytes[31] &= 0x7F; // clear sign bit
+            // Reverse to big-endian
+            for (int i = 0; i < yBytes.length / 2; i++) {
+                byte tmp = yBytes[i];
+                yBytes[i] = yBytes[yBytes.length - 1 - i];
+                yBytes[yBytes.length - 1 - i] = tmp;
+            }
+            EdECPoint point = new EdECPoint(xOdd, new java.math.BigInteger(1, yBytes));
+            EdECPublicKeySpec spec = new EdECPublicKeySpec(NamedParameterSpec.ED25519, point);
+            KeyFactory kf = KeyFactory.getInstance("Ed25519");
+            return kf.generatePublic(spec);
+        }
+        // Fallback: try X509EncodedKeySpec (wrapped key)
+        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(rawKey);
+        KeyFactory kf = KeyFactory.getInstance("Ed25519");
+        return kf.generatePublic(keySpec);
+    }
+
+    /**
      * Verifies the signature using the public key.
+     * RFC 6376 §6.1 — extract and verify.
      */
     private boolean verifySignature(PublicKey publicKey) throws Exception {
         // Build the header hash
@@ -340,6 +372,7 @@ public class DKIMValidator {
 
     /**
      * Builds the header data for signature verification.
+     * RFC 6376 §3.4 — canonicalization.
      *
      * <p>This uses the raw header bytes captured by {@link DKIMMessageParser}
      * and applies the appropriate canonicalization (simple or relaxed).
@@ -384,6 +417,7 @@ public class DKIMValidator {
 
     /**
      * Canonicalizes a raw header for signature verification.
+     * RFC 6376 §3.4 — canonicalization.
      *
      * @param rawHeader the raw header with captured bytes
      * @param relaxed true for relaxed canonicalization, false for simple

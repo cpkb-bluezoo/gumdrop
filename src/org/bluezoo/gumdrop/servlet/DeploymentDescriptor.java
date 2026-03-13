@@ -205,9 +205,9 @@ abstract class DeploymentDescriptor implements Description {
         listenerDefs.addAll(other.listenerDefs);
         servletMappings.addAll(other.servletMappings);
         if (sessionConfig == null) {
-            // TODO: Verify merge semantics -- should sessionConfig from
-            // web-fragment.xml override or be ignored when the main web.xml
-            // already defines one?
+            // Servlet spec 8.2.3: fragment values only used when main
+            // web.xml does not define the element; conflicts between
+            // fragments are a deployment error.
             sessionConfig = other.sessionConfig;
         }
         mimeMappings.addAll(other.mimeMappings);
@@ -220,9 +220,9 @@ abstract class DeploymentDescriptor implements Description {
         }
         securityConstraints.addAll(other.securityConstraints);
         if (loginConfig == null) {
-            // TODO: Verify merge semantics -- should loginConfig from
-            // web-fragment.xml override or be ignored when the main web.xml
-            // already defines one?
+            // Servlet spec 8.2.3: fragment values only used when main
+            // web.xml does not define the element; conflicts between
+            // fragments are a deployment error.
             loginConfig = other.loginConfig;
         }
         securityRoles.addAll(other.securityRoles);

@@ -27,17 +27,19 @@ import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 
 /**
  * A DNS protocol message.
+ * RFC 1035 section 4.1 defines the message format: header, question,
+ * answer, authority, and additional sections.
  *
  * <p>DNS messages are used for both queries and responses. The message
  * consists of a header followed by question, answer, authority, and
  * additional sections.
- *
- * <p>See RFC 1035 for the DNS protocol specification.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -45,55 +47,68 @@ public final class DNSMessage {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
-    // -- Header flags --
+    // RFC 1035 section 4.1.1 - Header section format.
+    // Flags word layout (16 bits):
+    //   QR(1) OPCODE(4) AA(1) TC(1) RD(1) RA(1) Z(3) RCODE(4)
 
-    /** Query/Response flag: 0 = query, 1 = response */
+    /** Query/Response flag (bit 15): 0 = query, 1 = response. RFC 1035 section 4.1.1. */
     public static final int FLAG_QR = 0x8000;
 
-    /** Authoritative Answer flag */
+    /** Authoritative Answer flag (bit 10). RFC 1035 section 4.1.1. */
     public static final int FLAG_AA = 0x0400;
 
-    /** Truncation flag */
+    /** Truncation flag (bit 9). RFC 1035 section 4.1.1. */
     public static final int FLAG_TC = 0x0200;
 
-    /** Recursion Desired flag */
+    /** Recursion Desired flag (bit 8). RFC 1035 section 4.1.1. */
     public static final int FLAG_RD = 0x0100;
 
-    /** Recursion Available flag */
+    /** Recursion Available flag (bit 7). RFC 1035 section 4.1.1. */
     public static final int FLAG_RA = 0x0080;
 
-    // -- OPCODE values (bits 11-14) --
+    /** Authenticated Data flag (bit 5). RFC 4035 section 3.2.3. */
+    public static final int FLAG_AD = 0x0020;
 
-    /** Standard query */
+    /** Checking Disabled flag (bit 4). RFC 4035 section 3.2.2. */
+    public static final int FLAG_CD = 0x0010;
+
+    // RFC 1035 section 4.1.1 - OPCODE (bits 14-11)
+
+    /** Standard query. RFC 1035 section 4.1.1. */
     public static final int OPCODE_QUERY = 0;
 
-    /** Inverse query (obsolete) */
+    /** Inverse query (obsolete). RFC 1035 section 6.4. */
     public static final int OPCODE_IQUERY = 1;
 
-    /** Server status request */
+    /** Server status request. RFC 1035 section 4.1.1. */
     public static final int OPCODE_STATUS = 2;
 
-    // -- RCODE values (bits 0-3 of flags) --
+    // RFC 1035 section 4.1.1 - RCODE (bits 3-0)
 
-    /** No error */
+    /** No error. RFC 1035 section 4.1.1. */
     public static final int RCODE_NOERROR = 0;
 
-    /** Format error */
+    /** Format error. RFC 1035 section 4.1.1. */
     public static final int RCODE_FORMERR = 1;
 
-    /** Server failure */
+    /** Server failure. RFC 1035 section 4.1.1. */
     public static final int RCODE_SERVFAIL = 2;
 
-    /** Non-existent domain */
+    /** Non-existent domain. RFC 1035 section 4.1.1. */
     public static final int RCODE_NXDOMAIN = 3;
 
-    /** Not implemented */
+    /** Not implemented. RFC 1035 section 4.1.1. */
     public static final int RCODE_NOTIMP = 4;
 
-    /** Query refused */
+    /** Query refused. RFC 1035 section 4.1.1. */
     public static final int RCODE_REFUSED = 5;
 
+    // RFC 1035 section 4.1.1: header is 12 octets (6 x 16-bit fields)
     private static final int HEADER_SIZE = 12;
+    // RFC 4035 section 3.2: bits 5 (AD) and 4 (CD) are DNSSEC flags;
+    // only bit 6 remains reserved as zero.
+    private static final int Z_BITS_MASK = 0x0040;
+    // RFC 1035 section 4.1.4: top 2 bits = 11 indicates a compression pointer
     private static final int COMPRESSION_MASK = 0xC0;
     private static final int COMPRESSION_POINTER = 0xC0;
 
@@ -209,6 +224,28 @@ public final class DNSMessage {
     }
 
     /**
+     * Returns true if the Authenticated Data flag is set.
+     * RFC 4035 section 3.2.3: set by a validating resolver when all
+     * answer and authority RRsets have been validated.
+     *
+     * @return true if authenticated
+     */
+    public boolean isAuthenticatedData() {
+        return (flags & FLAG_AD) != 0;
+    }
+
+    /**
+     * Returns true if the Checking Disabled flag is set.
+     * RFC 4035 section 3.2.2: set by a stub resolver to indicate
+     * that it will perform its own validation.
+     *
+     * @return true if checking is disabled
+     */
+    public boolean isCheckingDisabled() {
+        return (flags & FLAG_CD) != 0;
+    }
+
+    /**
      * Returns the RCODE (response code).
      *
      * @return the response code (0-15)
@@ -253,6 +290,24 @@ public final class DNSMessage {
         return additionals;
     }
 
+    /**
+     * Returns true if the DNSSEC OK (DO) bit is set in this message's
+     * EDNS0 OPT record.
+     * RFC 4035 section 3.2.1: the DO bit signals that the sender
+     * wants DNSSEC resource records in the response.
+     *
+     * @return true if DO is set, false if no OPT record or DO is clear
+     */
+    public boolean hasDO() {
+        for (int i = 0; i < additionals.size(); i++) {
+            DNSResourceRecord rr = additionals.get(i);
+            if (rr.getType() == DNSType.OPT) {
+                return (rr.getEDNSFlags() & DNSResourceRecord.EDNS_FLAG_DO) != 0;
+            }
+        }
+        return false;
+    }
+
     // -- Parsing --
 
     /**
@@ -267,12 +322,13 @@ public final class DNSMessage {
             throw new DNSFormatException(L10N.getString("err.message_too_short"));
         }
 
-        // Save original position for name compression
         ByteBuffer original = data.duplicate();
 
-        // Parse header
+        // RFC 1035 section 4.1.1: parse 12-octet header
+        // ID(16) FLAGS(16) QDCOUNT(16) ANCOUNT(16) NSCOUNT(16) ARCOUNT(16)
         int id = data.getShort() & 0xFFFF;
-        int flags = data.getShort() & 0xFFFF;
+        // RFC 1035 section 4.1.1: mask Z bits (must be zero, lenient handling)
+        int flags = (data.getShort() & 0xFFFF) & ~Z_BITS_MASK;
         int qdCount = data.getShort() & 0xFFFF;
         int anCount = data.getShort() & 0xFFFF;
         int nsCount = data.getShort() & 0xFFFF;
@@ -350,23 +406,20 @@ public final class DNSMessage {
         byte[] rdata = new byte[rdLength];
         data.get(rdata);
 
+        // RFC 3597: preserve unknown types/classes as opaque data
         DNSType type = DNSType.fromValue(typeValue);
-        if (type == null) {
-            // Allow unknown types, store as raw data
-            type = DNSType.A;
-        }
-
         DNSClass dnsClass = DNSClass.fromValue(classValue);
-        if (dnsClass == null) {
-            dnsClass = DNSClass.IN;
-        }
 
-        return new DNSResourceRecord(name, type, dnsClass, ttl, rdata);
+        return new DNSResourceRecord(name, type, typeValue,
+                dnsClass, classValue, ttl, rdata);
     }
 
     /**
      * Decodes a DNS name from the buffer.
-     * Handles compression pointers.
+     * RFC 1035 section 3.1: names are sequences of labels, each a length
+     * octet followed by that many octets, terminated by a zero-length label.
+     * RFC 1035 section 4.1.4: compression pointers (top 2 bits = 11) refer
+     * to a prior occurrence of the same name in the message.
      *
      * @param data the current read position
      * @param original the original message for pointer resolution
@@ -376,6 +429,8 @@ public final class DNSMessage {
         StringBuilder name = new StringBuilder();
         int maxJumps = 10;
         int jumps = 0;
+        // RFC 1035 section 2.3.4: track total wire-format length
+        int totalLength = 0;
 
         while (data.hasRemaining()) {
             int len = data.get() & 0xFF;
@@ -385,7 +440,7 @@ public final class DNSMessage {
             }
 
             if ((len & COMPRESSION_MASK) == COMPRESSION_POINTER) {
-                // Compression pointer
+                // Compression pointer (2 bytes, terminates this name)
                 if (!data.hasRemaining()) {
                     break;
                 }
@@ -409,6 +464,11 @@ public final class DNSMessage {
                 if (data.remaining() < len) {
                     break;
                 }
+                totalLength += 1 + len; // length octet + label data
+                if (totalLength > MAX_NAME_LENGTH) {
+                    throw new IllegalStateException(
+                            L10N.getString("err.name_too_long_decode"));
+                }
                 byte[] label = new byte[len];
                 data.get(label);
                 if (name.length() > 0) {
@@ -423,10 +483,18 @@ public final class DNSMessage {
 
     /**
      * Encodes a domain name to DNS wire format.
+     * RFC 1035 section 3.1: each label is a length octet followed by that
+     * many octets, terminated by a zero-length label.
+     * RFC 1035 section 2.3.4: labels are limited to 63 octets, total name
+     * to 255 octets.
      *
      * @param name the domain name
      * @return the encoded bytes
      */
+    // RFC 1035 section 2.3.4
+    private static final int MAX_LABEL_LENGTH = 63;
+    private static final int MAX_NAME_LENGTH = 255;
+
     static byte[] encodeName(String name) {
         if (name == null || name.isEmpty()) {
             return new byte[] { 0 };
@@ -454,7 +522,7 @@ public final class DNSMessage {
             }
 
             byte[] bytes = label.getBytes(StandardCharsets.US_ASCII);
-            if (bytes.length > 63) {
+            if (bytes.length > MAX_LABEL_LENGTH) {
                 String msg = MessageFormat.format(L10N.getString("err.label_too_long"), label);
                 throw new IllegalArgumentException(msg);
             }
@@ -463,22 +531,37 @@ public final class DNSMessage {
         }
         out.write(0); // Terminating zero
 
-        return out.toByteArray();
+        // RFC 1035 section 2.3.4: total encoded name must not exceed 255 octets
+        byte[] encoded = out.toByteArray();
+        if (encoded.length > MAX_NAME_LENGTH) {
+            String msg = MessageFormat.format(L10N.getString("err.name_too_long"), name);
+            throw new IllegalArgumentException(msg);
+        }
+
+        return encoded;
     }
 
     // -- Serialization --
 
     /**
-     * Serializes this message to a byte buffer.
+     * Serializes this message to DNS wire format with name compression.
+     * RFC 1035 section 4.1: message consists of header, question, answer,
+     * authority, and additional sections serialized sequentially.
+     * RFC 1035 section 4.1.4: repeated domain name suffixes are replaced
+     * with 2-byte compression pointers to reduce message size.
      *
      * @return the serialized message
      */
     public ByteBuffer serialize() {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
+        // RFC 1035 section 4.1.4: compression table maps lowercase
+        // domain name suffixes to their byte offsets in the output.
+        Map<String, Integer> compressionTable = new HashMap<>();
 
-        // Header
+        // RFC 1035 section 4.1.1: 12-octet header
         writeShort(out, id);
-        writeShort(out, flags);
+        // RFC 1035 section 4.1.1: ensure Z bits are cleared
+        writeShort(out, flags & ~Z_BITS_MASK);
         writeShort(out, questions.size());
         writeShort(out, answers.size());
         writeShort(out, authorities.size());
@@ -486,22 +569,22 @@ public final class DNSMessage {
 
         // Questions
         for (DNSQuestion q : questions) {
-            writeQuestion(out, q);
+            writeQuestion(out, q, compressionTable);
         }
 
         // Answers
         for (DNSResourceRecord rr : answers) {
-            writeResourceRecord(out, rr);
+            writeResourceRecord(out, rr, compressionTable);
         }
 
         // Authorities
         for (DNSResourceRecord rr : authorities) {
-            writeResourceRecord(out, rr);
+            writeResourceRecord(out, rr, compressionTable);
         }
 
         // Additionals
         for (DNSResourceRecord rr : additionals) {
-            writeResourceRecord(out, rr);
+            writeResourceRecord(out, rr, compressionTable);
         }
 
         byte[] bytes = out.toByteArray();
@@ -527,15 +610,148 @@ public final class DNSMessage {
         writeShort(out, q.getDNSClass().getValue());
     }
 
+    private static void writeQuestion(ByteArrayOutputStream out, DNSQuestion q,
+                                       Map<String, Integer> compressionTable) {
+        writeNameCompressed(out, q.getName(), compressionTable);
+        writeShort(out, q.getType().getValue());
+        writeShort(out, q.getDNSClass().getValue());
+    }
+
     private static void writeResourceRecord(ByteArrayOutputStream out, DNSResourceRecord rr) {
         byte[] name = encodeName(rr.getName());
         out.write(name, 0, name.length);
-        writeShort(out, rr.getType().getValue());
-        writeShort(out, rr.getDNSClass().getValue());
+        // RFC 3597: use raw values to preserve unknown types/classes
+        writeShort(out, rr.getRawType());
+        writeShort(out, rr.getRawClass());
         writeInt(out, rr.getTTL());
         byte[] rdata = rr.getRData();
         writeShort(out, rdata.length);
         out.write(rdata, 0, rdata.length);
+    }
+
+    private static void writeResourceRecord(ByteArrayOutputStream out, DNSResourceRecord rr,
+                                              Map<String, Integer> compressionTable) {
+        writeNameCompressed(out, rr.getName(), compressionTable);
+        // RFC 3597: use raw values to preserve unknown types/classes
+        writeShort(out, rr.getRawType());
+        writeShort(out, rr.getRawClass());
+        writeInt(out, rr.getTTL());
+        byte[] rdata = rr.getRData();
+        writeShort(out, rdata.length);
+        out.write(rdata, 0, rdata.length);
+    }
+
+    /**
+     * RFC 1035 section 4.1.4: writes a domain name with compression.
+     * For each suffix of the name, checks whether it has already been
+     * written. If so, emits a 2-byte pointer (top two bits = 11,
+     * remaining 14 bits = offset). Otherwise writes labels and records
+     * the offset of each new suffix.
+     *
+     * <p>Pointers are only valid for offsets &lt; 16384 (14-bit range).
+     */
+    private static void writeNameCompressed(ByteArrayOutputStream out,
+                                             String name,
+                                             Map<String, Integer> compressionTable) {
+        if (name == null || name.isEmpty() || name.equals(".")) {
+            out.write(0);
+            return;
+        }
+        // Normalise: remove trailing dot, lowercase for matching
+        String work = name;
+        if (work.endsWith(".")) {
+            work = work.substring(0, work.length() - 1);
+        }
+        String key = work.toLowerCase();
+
+        Integer ptr = compressionTable.get(key);
+        if (ptr != null && ptr < 0x3FFF) {
+            // Emit compression pointer
+            out.write(0xC0 | ((ptr >> 8) & 0x3F));
+            out.write(ptr & 0xFF);
+            return;
+        }
+
+        // Split into first label and remainder
+        String[] labels = work.split("\\.", 2);
+        String label = labels[0];
+
+        // Record offset for this suffix before writing
+        int offset = out.size();
+        if (offset < 0x3FFF) {
+            compressionTable.put(key, offset);
+        }
+
+        // Write the label
+        byte[] labelBytes = label.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        out.write(labelBytes.length);
+        out.write(labelBytes, 0, labelBytes.length);
+
+        if (labels.length > 1 && !labels[1].isEmpty()) {
+            writeNameCompressed(out, labels[1], compressionTable);
+        } else {
+            out.write(0);
+        }
+    }
+
+    // -- EDNS(0) padding (RFC 7830, RFC 9250 section 5.4) --
+
+    // RFC 6891: OPT record overhead = name(1) + type(2) + class(2) + ttl(4) + rdlen(2) = 11
+    private static final int OPT_RECORD_OVERHEAD = 11;
+    // Padding option header: option-code(2) + option-length(2) = 4
+    private static final int PADDING_OPTION_OVERHEAD = 4;
+
+    /**
+     * Adds EDNS(0) padding to a serialized DNS message so that the total
+     * message size (excluding the 2-octet TCP/DoQ length prefix) is a
+     * multiple of {@code blockSize}.
+     * RFC 7830 defines the padding option; RFC 8467 and RFC 9250 section 5.4
+     * recommend block-length padding.
+     *
+     * <p>An OPT pseudo-record with a padding option is appended to the
+     * additional section and ARCOUNT is incremented.
+     *
+     * @param serialized the serialized DNS message
+     * @param blockSize the block size to align to (e.g., 128)
+     * @return a new buffer with the padded message
+     */
+    public static ByteBuffer padToBlockSize(ByteBuffer serialized, int blockSize) {
+        int msgLen = serialized.remaining();
+        int overhead = OPT_RECORD_OVERHEAD + PADDING_OPTION_OVERHEAD;
+        int totalWithOpt = msgLen + overhead;
+        int paddingNeeded = (blockSize - (totalWithOpt % blockSize)) % blockSize;
+
+        byte[] original = new byte[msgLen];
+        int pos = serialized.position();
+        serialized.get(original);
+        serialized.position(pos);
+
+        byte[] padded = new byte[msgLen + overhead + paddingNeeded];
+        System.arraycopy(original, 0, padded, 0, msgLen);
+
+        // Increment ARCOUNT (bytes 10-11)
+        int arCount = ((padded[10] & 0xFF) << 8) | (padded[11] & 0xFF);
+        arCount++;
+        padded[10] = (byte) ((arCount >> 8) & 0xFF);
+        padded[11] = (byte) (arCount & 0xFF);
+
+        // Append OPT record at end
+        int off = msgLen;
+        padded[off] = 0; off++; // root name
+        padded[off] = 0; off++; padded[off] = 41; off++; // TYPE = OPT
+        padded[off] = 0x10; off++; padded[off] = 0x00; off++; // CLASS = 4096 (UDP payload)
+        off += 4; // TTL = 0 (already zero)
+        int rdLen = PADDING_OPTION_OVERHEAD + paddingNeeded;
+        padded[off] = (byte) ((rdLen >> 8) & 0xFF); off++;
+        padded[off] = (byte) (rdLen & 0xFF); off++;
+        // Padding option (RFC 7830): option-code 12
+        off++; // high byte = 0
+        padded[off] = 12; off++;
+        padded[off] = (byte) ((paddingNeeded >> 8) & 0xFF); off++;
+        padded[off] = (byte) (paddingNeeded & 0xFF);
+        // remaining padding bytes are already zero from array initialization
+
+        return ByteBuffer.wrap(padded);
     }
 
     // -- Factory methods for creating responses --
@@ -553,6 +769,9 @@ public final class DNSMessage {
 
     /**
      * Creates a response message for this query.
+     * RFC 1035 section 4.1.1: response copies the query ID and questions,
+     * sets QR=1, preserves RD from the query, and sets RA if recursion
+     * is available.
      *
      * @param answers the answer records
      * @param authorities the authority records
@@ -579,7 +798,16 @@ public final class DNSMessage {
     }
 
     /**
+     * Default EDNS0 UDP payload size (4096 octets).
+     * RFC 6891 section 6.2.5: values of less than 512 MUST be treated
+     * as equal to 512. 4096 is the common practical default.
+     */
+    public static final int DEFAULT_EDNS_UDP_SIZE = 4096;
+
+    /**
      * Creates a new query message.
+     * RFC 1035 section 4.1.1: queries have QR=0. RD is set to request
+     * recursive resolution from the server.
      *
      * @param id the message ID
      * @param name the domain name to query
@@ -591,6 +819,25 @@ public final class DNSMessage {
         List<DNSQuestion> questions = Collections.singletonList(question);
         List<DNSResourceRecord> emptyList = Collections.emptyList();
         return new DNSMessage(id, FLAG_RD, questions, emptyList, emptyList, emptyList);
+    }
+
+    /**
+     * Creates a new query message with an EDNS0 OPT record.
+     * RFC 6891 section 6.1.1: the OPT record is placed in the
+     * additional section to signal extended capabilities.
+     *
+     * @param id the message ID
+     * @param name the domain name to query
+     * @param type the record type
+     * @param additionals the additional section (typically containing an OPT record)
+     * @return the query message
+     */
+    public static DNSMessage createQuery(int id, String name, DNSType type,
+                                          List<DNSResourceRecord> additionals) {
+        DNSQuestion question = new DNSQuestion(name, type, DNSClass.IN);
+        List<DNSQuestion> questions = Collections.singletonList(question);
+        List<DNSResourceRecord> emptyList = Collections.emptyList();
+        return new DNSMessage(id, FLAG_RD, questions, emptyList, emptyList, additionals);
     }
 
     @Override
@@ -618,6 +865,12 @@ public final class DNSMessage {
         }
         if (isRecursionAvailable()) {
             sb.append("RA ");
+        }
+        if (isAuthenticatedData()) {
+            sb.append("AD ");
+        }
+        if (isCheckingDisabled()) {
+            sb.append("CD ");
         }
 
         sb.append(", questions=");

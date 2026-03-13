@@ -38,7 +38,9 @@ import org.bluezoo.gumdrop.http.Headers;
  * model: subclasses implement {@link #createConnectionHandler} to
  * receive WebSocket connections and exchange messages. The HTTP
  * upgrade handshake is handled automatically by the transport layer
- * ({@link WebSocketListener}) and is invisible to the service.
+ * ({@link WebSocketListener} for HTTP/1.1 and HTTP/2, or
+ * {@link HTTP3WebSocketListener} for HTTP/3 via RFC 9220) and is
+ * invisible to the service.
  *
  * <p>After upgrade, the connection is a raw bidirectional message
  * channel &mdash; no HTTP requests, verbs, status codes, or streams.
@@ -78,6 +80,12 @@ import org.bluezoo.gumdrop.http.Headers;
  *   <listener class="org.bluezoo.gumdrop.websocket.WebSocketListener">
  *     <property name="port">8080</property>
  *   </listener>
+ *   <!-- Optional HTTP/3 WebSocket transport (RFC 9220) -->
+ *   <listener class="org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener">
+ *     <property name="port">443</property>
+ *     <property name="cert-file">/path/to/cert.pem</property>
+ *     <property name="key-file">/path/to/key.pem</property>
+ *   </listener>
  * </service>
  * }</pre>
  *
@@ -91,10 +99,12 @@ import org.bluezoo.gumdrop.http.Headers;
  * shared.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketEventHandler
  * @see DefaultWebSocketEventHandler
  * @see WebSocketSession
  * @see WebSocketListener
+ * @see HTTP3WebSocketListener
  */
 public abstract class WebSocketService implements Service {
 
@@ -106,7 +116,7 @@ public abstract class WebSocketService implements Service {
     // ── Listener management ──
 
     /**
-     * Adds a WebSocket listener to this service.
+     * Adds a TCP WebSocket listener to this service.
      *
      * @param listener the WebSocket listener
      */
@@ -115,8 +125,17 @@ public abstract class WebSocketService implements Service {
     }
 
     /**
+     * Adds an HTTP/3 WebSocket listener to this service (RFC 9220).
+     *
+     * @param listener the HTTP/3 WebSocket listener
+     */
+    public void addListener(HTTP3WebSocketListener listener) {
+        listeners.add(listener);
+    }
+
+    /**
      * Sets the listeners from a configuration list. Each item must
-     * be a {@link WebSocketListener}.
+     * be a {@link WebSocketListener} or {@link HTTP3WebSocketListener}.
      *
      * @param list the list of listener endpoints
      */
@@ -125,6 +144,8 @@ public abstract class WebSocketService implements Service {
             Object item = list.get(i);
             if (item instanceof WebSocketListener) {
                 addListener((WebSocketListener) item);
+            } else if (item instanceof HTTP3WebSocketListener) {
+                addListener((HTTP3WebSocketListener) item);
             }
         }
     }
@@ -154,12 +175,9 @@ public abstract class WebSocketService implements Service {
             String requestPath, Headers upgradeHeaders);
 
     /**
-     * Selects a WebSocket subprotocol from the client's request.
-     *
-     * <p>Override this method to negotiate a subprotocol. The
-     * {@code Sec-WebSocket-Protocol} header from the client's request
-     * is available in the provided headers. Return the selected
-     * subprotocol name, or {@code null} for no subprotocol negotiation.
+     * RFC 6455 §4.2.2 — selects a WebSocket subprotocol from the client's
+     * {@code Sec-WebSocket-Protocol} header. Return the selected name,
+     * or {@code null} for no subprotocol negotiation.
      *
      * <p>The default implementation returns {@code null}.
      *
@@ -210,6 +228,8 @@ public abstract class WebSocketService implements Service {
             Object listener = listeners.get(i);
             if (listener instanceof WebSocketListener) {
                 ((WebSocketListener) listener).setService(this);
+            } else if (listener instanceof HTTP3WebSocketListener) {
+                ((HTTP3WebSocketListener) listener).setService(this);
             }
             startListener(listener);
         }

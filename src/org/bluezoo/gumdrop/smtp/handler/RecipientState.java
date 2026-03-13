@@ -30,8 +30,16 @@ package org.bluezoo.gumdrop.smtp.handler;
  * <p>After at least one recipient is accepted, the client can proceed
  * to send message content via DATA or BDAT.
  * 
+ * <p>Methods map to reply codes: {@code acceptRecipient} → 250,
+ * {@code acceptRecipientForward} → 251, {@code rejectRecipientUnavailable} → 450,
+ * {@code rejectRecipientSystemError} → 451, {@code rejectRecipientStorageFull} → 452,
+ * {@code rejectRecipientNotFound} → 550, {@code rejectRecipientNotLocal} /
+ * {@code rejectRecipientRelayDenied} → 551, {@code rejectRecipientQuota} → 552,
+ * {@code rejectRecipientInvalid} / {@code rejectRecipientPolicy} → 553.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RecipientHandler#rcptTo
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.3">RFC 5321 §4.1.1.3</a>
  */
 public interface RecipientState {
 

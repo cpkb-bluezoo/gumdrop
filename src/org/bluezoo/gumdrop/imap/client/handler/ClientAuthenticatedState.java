@@ -56,5 +56,10 @@ public interface ClientAuthenticatedState {
 
     void noop(ServerNoopReplyHandler callback);
 
+    // RFC 9208 — QUOTA commands
+    void getQuota(String quotaRoot, ServerQuotaReplyHandler callback);
+
+    void getQuotaRoot(String mailbox, ServerQuotaReplyHandler callback);
+
     void logout();
 }

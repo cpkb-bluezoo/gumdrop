@@ -54,8 +54,8 @@ public class LogRecordTest {
         LogRecord log = new LogRecord(span, LogRecord.SEVERITY_WARN, "Warning message");
         
         assertTrue(log.hasSpanContext());
-        assertArrayEquals(trace.getTraceId(), log.getTraceId());
-        assertArrayEquals(span.getSpanId(), log.getSpanId());
+        assertEquals(trace.getTraceId(), log.getTraceId());
+        assertEquals(span.getSpanId(), log.getSpanId());
     }
 
     @Test
@@ -270,15 +270,15 @@ public class LogRecordTest {
         Trace trace = new Trace("test", SpanKind.SERVER);
         LogRecord log = new LogRecord(trace.getRootSpan(), LogRecord.SEVERITY_INFO, "Message");
         
-        byte[] id1 = log.getTraceId();
-        byte[] id2 = log.getTraceId();
+        byte[] id1 = log.getTraceId().getBytes();
+        byte[] id2 = log.getTraceId().getBytes();
         
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
         
         // Modify returned array
         id1[0] = 0;
-        assertNotEquals(id1[0], log.getTraceId()[0]);
+        assertNotEquals(id1[0], log.getTraceId().getBytes()[0]);
     }
 
     @Test
@@ -286,8 +286,8 @@ public class LogRecordTest {
         Trace trace = new Trace("test", SpanKind.SERVER);
         LogRecord log = new LogRecord(trace.getRootSpan(), LogRecord.SEVERITY_INFO, "Message");
         
-        byte[] id1 = log.getSpanId();
-        byte[] id2 = log.getSpanId();
+        byte[] id1 = log.getSpanId().getBytes();
+        byte[] id2 = log.getSpanId().getBytes();
         
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);

@@ -40,8 +40,9 @@ import java.io.IOException;
  * </ul>
  * 
  * <p>Only buffers bytes when chunk boundaries split CRLF sequences (max 2 bytes).
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.5.2">RFC 5321 §4.5.2</a>
  */
 class DotStuffer {
     

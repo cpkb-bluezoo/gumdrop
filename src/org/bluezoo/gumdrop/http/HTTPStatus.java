@@ -25,7 +25,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Symbolic enumeration of HTTP status codes.
+ * Symbolic enumeration of HTTP status codes per RFC 9110 section 15.
  *
  * <p>This enum encourages using symbolic values rather than numeric codes,
  * providing type-safe status handling and convenient category-checking methods.
@@ -158,7 +158,7 @@ public enum HTTPStatus {
     /** 412 Precondition Failed */
     PRECONDITION_FAILED(412),
 
-    /** 413 Payload Too Large */
+    /** 413 Content Too Large (RFC 9110 section 15.5.14) */
     PAYLOAD_TOO_LARGE(413),
 
     /** 414 URI Too Long */
@@ -173,13 +173,13 @@ public enum HTTPStatus {
     /** 417 Expectation Failed */
     EXPECTATION_FAILED(417),
 
-    /** 418 I'm a Teapot (RFC 2324) */
+    /** 418 I'm a Teapot (RFC 9110 section 15.5.19) */
     IM_A_TEAPOT(418),
 
     /** 421 Misdirected Request */
     MISDIRECTED_REQUEST(421),
 
-    /** 422 Unprocessable Entity (WebDAV) */
+    /** 422 Unprocessable Content (RFC 9110 section 15.5.21) */
     UNPROCESSABLE_ENTITY(422),
 
     /** 423 Locked (WebDAV) */

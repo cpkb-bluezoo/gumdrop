@@ -29,6 +29,9 @@ import org.bluezoo.gumdrop.TransportFactory;
 /**
  * TCP transport listener for HTTP/1.1 and HTTP/2 connections.
  *
+ * <p>RFC 9112 section 9.3: persistent connections are the default for
+ * HTTP/1.1. Default ports: 80 (HTTP), 443 (HTTPS) per RFC 9110 section 4.2.
+ *
  * <p>This is the transport endpoint; application logic is provided by
  * an {@link HTTPService} which sets the handler factory and
  * authentication provider during wiring.
@@ -45,10 +48,17 @@ public class HTTPListener extends TCPListener {
     /**
      * HTTP/2 frame padding amount for server-originated frames.
      * Padding can be used to obscure the actual size of DATA, HEADERS,
-     * and PUSH_PROMISE frames for security purposes (RFC 7540 Section 6.1).
+     * and PUSH_PROMISE frames for security purposes (RFC 9113 section 6.1).
      * Value must be between 0-255 bytes.
      */
     protected int framePadding = 0;
+
+    /**
+     * RFC 9113 section 5.1.2: maximum number of concurrent HTTP/2 streams
+     * the server will accept per connection.  Advertised to the client via
+     * SETTINGS_MAX_CONCURRENT_STREAMS (section 6.5.2).
+     */
+    private int maxConcurrentStreams = 100;
 
     /**
      * Authentication provider for HTTP connections created by this endpoint.
@@ -67,6 +77,33 @@ public class HTTPListener extends TCPListener {
      * configured.
      */
     private String altSvc;
+
+    /**
+     * RFC 9112 section 9.8: idle connection timeout in milliseconds.
+     * Connections that receive no data for this duration are closed.
+     * 0 means no timeout (default).
+     */
+    private long idleTimeoutMs = 0;
+
+    /**
+     * RFC 9112 section 9.6: maximum requests per persistent connection.
+     * After this many requests, the server sends Connection: close.
+     * 0 means unlimited (default).
+     */
+    private int maxRequestsPerConnection = 0;
+
+    /**
+     * RFC 9110 section 9.3.8: whether TRACE method is enabled.
+     * Disabled by default for security reasons.
+     */
+    private boolean traceMethodEnabled = false;
+
+    /**
+     * RFC 9113 section 6.7: PING keep-alive interval in milliseconds.
+     * The server sends periodic PING frames on idle HTTP/2 connections
+     * to detect dead connections. 0 means disabled (default).
+     */
+    private long pingIntervalMs = 0;
 
     /**
      * Metrics for this endpoint (null if telemetry is not enabled).
@@ -130,6 +167,31 @@ public class HTTPListener extends TCPListener {
      * @param framePadding padding amount in bytes (0-255)
      * @throws IllegalArgumentException if padding is outside valid range
      */
+    /**
+     * Returns the maximum number of concurrent HTTP/2 streams per connection.
+     *
+     * @return the maximum concurrent streams
+     */
+    public int getMaxConcurrentStreams() {
+        return maxConcurrentStreams;
+    }
+
+    /**
+     * Sets the maximum number of concurrent HTTP/2 streams per connection.
+     * Advertised via SETTINGS_MAX_CONCURRENT_STREAMS.
+     * XML property name: {@code max-concurrent-streams}
+     *
+     * @param maxConcurrentStreams the limit (must be positive)
+     */
+    public void setMaxConcurrentStreams(int maxConcurrentStreams) {
+        if (maxConcurrentStreams < 1) {
+            throw new IllegalArgumentException(
+                    "maxConcurrentStreams must be positive, got: "
+                            + maxConcurrentStreams);
+        }
+        this.maxConcurrentStreams = maxConcurrentStreams;
+    }
+
     public void setFramePadding(int framePadding) {
         if (framePadding < 0 || framePadding > 255) {
             throw new IllegalArgumentException(
@@ -199,15 +261,84 @@ public class HTTPListener extends TCPListener {
         return altSvc;
     }
 
-    @Override
-    protected ProtocolHandler createHandler() {
-        return new HTTPProtocolHandler(this, framePadding);
+    /**
+     * RFC 9112 section 9.8: idle connection timeout in milliseconds.
+     * @return the idle timeout, or 0 for no timeout
+     */
+    public long getIdleTimeoutMs() {
+        return idleTimeoutMs;
+    }
+
+    /**
+     * Sets the idle connection timeout.
+     * XML property name: {@code idle-timeout-ms}
+     * @param idleTimeoutMs timeout in milliseconds, 0 to disable
+     */
+    public void setIdleTimeoutMs(long idleTimeoutMs) {
+        this.idleTimeoutMs = idleTimeoutMs;
+    }
+
+    /**
+     * RFC 9112 section 9.6: maximum requests per persistent connection.
+     * @return the limit, or 0 for unlimited
+     */
+    public int getMaxRequestsPerConnection() {
+        return maxRequestsPerConnection;
+    }
+
+    /**
+     * Sets the maximum requests per persistent connection.
+     * XML property name: {@code max-requests-per-connection}
+     * @param maxRequestsPerConnection the limit, 0 for unlimited
+     */
+    public void setMaxRequestsPerConnection(int maxRequestsPerConnection) {
+        this.maxRequestsPerConnection = maxRequestsPerConnection;
+    }
+
+    /**
+     * RFC 9110 section 9.3.8: whether the TRACE method is enabled.
+     * @return true if TRACE is enabled
+     */
+    public boolean isTraceMethodEnabled() {
+        return traceMethodEnabled;
+    }
+
+    /**
+     * Enables or disables the TRACE method.
+     * XML property name: {@code trace-method-enabled}
+     * @param traceMethodEnabled true to enable
+     */
+    public void setTraceMethodEnabled(boolean traceMethodEnabled) {
+        this.traceMethodEnabled = traceMethodEnabled;
+    }
+
+    /**
+     * RFC 9113 section 6.7: PING keep-alive interval for HTTP/2.
+     * @return the interval in milliseconds, or 0 if disabled
+     */
+    public long getPingIntervalMs() {
+        return pingIntervalMs;
+    }
+
+    /**
+     * Sets the PING keep-alive interval for HTTP/2 connections.
+     * XML property name: {@code ping-interval-ms}
+     * @param pingIntervalMs interval in milliseconds, 0 to disable
+     */
+    public void setPingIntervalMs(long pingIntervalMs) {
+        this.pingIntervalMs = pingIntervalMs;
     }
 
     @Override
+    protected ProtocolHandler createHandler() {
+        return new HTTPProtocolHandler(this, framePadding, maxConcurrentStreams);
+    }
+
+    // RFC 9113 section 3.2: HTTP/2 over TLS uses ALPN (RFC 7301)
+    // with "h2" as the protocol identifier. "http/1.1" is the fallback.
+    @Override
     protected void configureTransportFactory(TransportFactory factory) {
         super.configureTransportFactory(factory);
-        // Configure ALPN for HTTP/2 support on secure connections
         if (secure && factory instanceof TCPTransportFactory) {
             TCPTransportFactory tcpFactory = (TCPTransportFactory) factory;
             tcpFactory.setApplicationProtocols("h2", "http/1.1");

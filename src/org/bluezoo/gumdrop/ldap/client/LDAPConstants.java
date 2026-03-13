@@ -22,24 +22,30 @@
 package org.bluezoo.gumdrop.ldap.client;
 
 /**
- * LDAP protocol constants.
+ * LDAPv3 protocol constants (RFC 4511).
+ *
+ * <p>Message tags are defined in RFC 4511 section 4.2 (application-class
+ * BER tags). Context-specific tags are used within individual messages.
+ * Extended operation OIDs are from RFC 4511 Appendix B and related RFCs.
+ * Search filter tags are from RFC 4511 section 4.5.1.7.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
  */
 public final class LDAPConstants {
 
-    // Default ports
+    // Default ports (RFC 4511, RFC 4513 section 3.1.3)
     /** Default LDAP port (389). */
     public static final int DEFAULT_PORT = 389;
-    /** Default LDAPS port (636). */
+    /** Default LDAPS port (636) — RFC 4513 section 3.1.3. */
     public static final int DEFAULT_SECURE_PORT = 636;
 
     // Protocol version
     /** LDAP protocol version 3. */
     public static final int LDAP_VERSION_3 = 3;
 
-    // Message tags (application class, constructed)
-    /** BindRequest tag (0x60). */
+    // Message tags — RFC 4511 section 4.2 (application class, constructed)
+    /** BindRequest tag (0x60) — RFC 4511 section 4.2. */
     public static final int TAG_BIND_REQUEST = 0x60;
     /** BindResponse tag (0x61). */
     public static final int TAG_BIND_RESPONSE = 0x61;
@@ -82,10 +88,10 @@ public final class LDAPConstants {
     /** IntermediateResponse tag (0x79). */
     public static final int TAG_INTERMEDIATE_RESPONSE = 0x79;
 
-    // Context-specific tags within messages
-    /** Simple authentication context tag. */
+    // Context-specific tags within messages (RFC 4511 section 4.2)
+    /** Simple authentication context tag — RFC 4513 section 5.1. */
     public static final int TAG_AUTH_SIMPLE = 0x80;
-    /** SASL authentication context tag. */
+    /** SASL authentication context tag — RFC 4513 section 5.2. */
     public static final int TAG_AUTH_SASL = 0xA3;
     /** Server SASL credentials context tag. */
     public static final int TAG_SERVER_SASL_CREDS = 0x87;
@@ -94,16 +100,18 @@ public final class LDAPConstants {
     /** Controls context tag. */
     public static final int TAG_CONTROLS = 0xA0;
 
-    // Extended operation OIDs
-    /** STARTTLS extended operation OID. */
+    // Extended operation OIDs (RFC 4511 section 4.14, RFC 3062, RFC 4532)
+    /** STARTTLS extended operation OID — RFC 4511 section 4.14. */
     public static final String OID_STARTTLS = "1.3.6.1.4.1.1466.20037";
+    /** Notice of Disconnection OID — RFC 4511 section 4.4.1. */
+    public static final String OID_NOTICE_OF_DISCONNECTION = "1.3.6.1.4.1.1466.20036";
     /** Password modify extended operation OID. */
     public static final String OID_PASSWORD_MODIFY = "1.3.6.1.4.1.4203.1.11.1";
     /** Who Am I? extended operation OID. */
     public static final String OID_WHO_AM_I = "1.3.6.1.4.1.4203.1.11.3";
 
-    // Search filter tags
-    /** AND filter tag. */
+    // Search filter tags — RFC 4511 section 4.5.1.7
+    /** AND filter tag — RFC 4511 section 4.5.1. */
     public static final int FILTER_AND = 0xA0;
     /** OR filter tag. */
     public static final int FILTER_OR = 0xA1;

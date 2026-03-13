@@ -87,6 +87,14 @@ interface AltSvcListener {
  * wiring the appropriate protocol handler and forwarding lifecycle
  * events to the caller's {@link HTTPClientHandler}.
  *
+ * <p>HTTP/2 connection modes (RFC 9113 section 3):
+ * <ul>
+ *   <li>TLS with ALPN "h2" (section 3.2) -- default for secure connections</li>
+ *   <li>h2c cleartext upgrade (section 3.1, deprecated by RFC 9113 but
+ *       intentionally retained) -- see {@link #setH2cUpgradeEnabled}</li>
+ *   <li>Prior knowledge (section 3.3) -- see {@link #setH2WithPriorKnowledge}</li>
+ * </ul>
+ *
  * <h4>Basic Usage</h4>
  * <pre>{@code
  * HTTPClient client = new HTTPClient("api.example.com", 443);
@@ -138,6 +146,7 @@ public class HTTPClient implements AltSvcListener {
     private Path certFile;
     private Path keyFile;
     private boolean verifyPeer = true;
+    private long idleTimeoutMs;
     private ClientEndpointPool connectionPool;
     private ClientEndpointPool.PoolEntry poolEntry;
 
@@ -298,6 +307,9 @@ public class HTTPClient implements AltSvcListener {
     /**
      * Enables or disables HTTP/2 upgrade from HTTP/1.1 (h2c).
      *
+     * <p>RFC 9113 section 3.1 deprecates this mechanism, but it is
+     * intentionally retained for backward compatibility.
+     *
      * @param enabled true to enable h2c upgrade
      */
     public void setH2cUpgradeEnabled(boolean enabled) {
@@ -306,6 +318,9 @@ public class HTTPClient implements AltSvcListener {
 
     /**
      * Enables or disables HTTP/2 with prior knowledge (no upgrade).
+     *
+     * <p>Per RFC 9113 section 3.3, the client sends the connection preface
+     * immediately without negotiation.
      *
      * @param enabled true to connect with prior knowledge of HTTP/2
      */
@@ -378,6 +393,17 @@ public class HTTPClient implements AltSvcListener {
      */
     public void setVerifyPeer(boolean verify) {
         this.verifyPeer = verify;
+    }
+
+    /**
+     * Sets the idle connection timeout in milliseconds.
+     * When positive, the connection is closed after the specified
+     * period of inactivity (RFC 9113 section 9.1).
+     *
+     * @param ms timeout in milliseconds, 0 to disable
+     */
+    public void setIdleTimeoutMs(long ms) {
+        this.idleTimeoutMs = ms;
     }
 
     /**
@@ -459,6 +485,9 @@ public class HTTPClient implements AltSvcListener {
         endpointHandler.setH2cUpgradeEnabled(h2cUpgradeEnabled);
         if (h2WithPriorKnowledge) {
             endpointHandler.setH2WithPriorKnowledge(true);
+        }
+        if (idleTimeoutMs > 0) {
+            endpointHandler.setIdleTimeoutMs(idleTimeoutMs);
         }
 
         try {

@@ -26,9 +26,18 @@ import java.nio.ByteBuffer;
 /**
  * BASE64 decoder for Content-Transfer-Encoding processing.
  *
+ * <p>When {@code strictLineLength} is {@code true}, lines exceeding
+ * 76 characters are rejected with an {@link IllegalArgumentException}
+ * as required by RFC 2045 §6.8. In lenient mode (the default), line
+ * length is not validated.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045#section-6.8">RFC 2045 §6.8</a>
  */
 class Base64Decoder {
+
+	/** RFC 2045 §6.8 — maximum encoded line length. */
+	static final int MAX_LINE_LENGTH = 76;
 
 	// BASE64 decoding table - maps ASCII values to 6 bits
 	// Values: 0-63 for valid chars, -1 for invalid, -2 for whitespace (skip)
@@ -74,7 +83,7 @@ class Base64Decoder {
 	 * @return the number of bytes consumed
 	 */
 	static int decode(ByteBuffer src, ByteBuffer dst, int max) {
-		return decode(src, dst, max, false);
+		return decode(src, dst, max, false, false);
 	}
 
 	/**
@@ -90,12 +99,56 @@ class Base64Decoder {
 	 * @return the number of bytes consumed
 	 */
 	static int decode(ByteBuffer src, ByteBuffer dst, int max, boolean endOfStream) {
-		// Use array-backed fast path if available
+		return decode(src, dst, max, endOfStream, false);
+	}
+
+	/**
+	 * RFC 2045 §6.8 — decodes BASE64 with optional strict line length
+	 * validation. When {@code strictLineLength} is {@code true}, any
+	 * line exceeding 76 characters triggers an {@link IllegalArgumentException}.
+	 *
+	 * @param src the source buffer containing BASE64 encoded data
+	 * @param dst the destination buffer to write decoded bytes to
+	 * @param max maximum bytes to write to destination buffer
+	 * @param endOfStream true if this is the final chunk of data
+	 * @param strictLineLength true to reject lines exceeding 76 characters
+	 * @return the number of bytes consumed
+	 * @throws IllegalArgumentException if strict mode is on and a line exceeds 76 chars
+	 */
+	static int decode(ByteBuffer src, ByteBuffer dst, int max,
+					  boolean endOfStream, boolean strictLineLength) {
+		if (strictLineLength) {
+			validateLineLength(src);
+		}
 		if (src.hasArray() && dst.hasArray()) {
 			return decodeArrayBacked(src, dst, max, endOfStream);
 		} else {
 		    return decodeByteBuffer(src, dst, max, endOfStream);
         }
+	}
+
+	/**
+	 * RFC 2045 §6.8 — scans the buffer for lines exceeding 76 characters.
+	 * The buffer position is preserved (read-only scan).
+	 *
+	 * @throws IllegalArgumentException if any line exceeds 76 characters
+	 */
+	private static void validateLineLength(ByteBuffer src) {
+		int pos = src.position();
+		int limit = src.limit();
+		int lineLen = 0;
+		for (int i = pos; i < limit; i++) {
+			byte b = src.get(i);
+			if (b == '\r' || b == '\n') {
+				lineLen = 0;
+			} else {
+				lineLen++;
+				if (lineLen > MAX_LINE_LENGTH) {
+					throw new IllegalArgumentException(
+							"RFC 2045 §6.8: Base64 line exceeds " + MAX_LINE_LENGTH + " characters");
+				}
+			}
+		}
 	}
 
 	/**

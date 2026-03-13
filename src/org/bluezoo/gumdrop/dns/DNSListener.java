@@ -33,6 +33,10 @@ import org.bluezoo.gumdrop.SecurityInfo;
 
 /**
  * UDP transport listener for DNS queries.
+ * RFC 1035 section 4.2.1: DNS queries over UDP use port 53. Messages
+ * carried by UDP are restricted to 512 octets (not counting the IP or
+ * UDP headers). Longer messages must be truncated (TC bit set) and the
+ * client should retry over TCP.
  *
  * <p>This endpoint binds a UDP socket on the configured port and
  * dispatches incoming DNS datagrams to its owning

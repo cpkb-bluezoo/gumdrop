@@ -22,10 +22,12 @@
 package org.bluezoo.gumdrop.redis.client;
 
 /**
- * Handler for Redis commands that return a bulk string.
+ * Handler for Redis commands that return a RESP Bulk String ({@code $}).
  *
  * <p>Bulk strings are binary-safe and can contain any data. They are
  * used for commands that return values stored in Redis.
+ * Null bulk strings ({@code $-1\r\n}) are dispatched to
+ * {@link #handleNull} (RESP spec — "Bulk Strings").
  *
  * <h4>Commands returning bulk strings:</h4>
  * <ul>

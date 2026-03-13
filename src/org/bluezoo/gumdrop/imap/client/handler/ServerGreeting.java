@@ -26,15 +26,25 @@ import org.bluezoo.gumdrop.ClientHandler;
 import java.util.List;
 
 /**
- * Entry point handler for IMAP server greeting.
+ * Entry point handler for IMAP server greeting (RFC 9051 section 7.1).
+ *
+ * <p>An IMAP server sends one of three greetings:
+ * <ul>
+ *   <li>{@code * OK} — standard greeting, client in NOT_AUTHENTICATED state</li>
+ *   <li>{@code * PREAUTH} — pre-authenticated (e.g. via TLS client cert)</li>
+ *   <li>{@code * BYE} — service unavailable, connection will close</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface ServerGreeting extends ClientHandler {
 
+    /** RFC 9051 section 7.1 — OK greeting (NOT_AUTHENTICATED state). */
     void handleGreeting(ClientNotAuthenticatedState auth, String greeting, List<String> preAuthCapabilities);
 
+    /** RFC 9051 section 7.1 — PREAUTH greeting (AUTHENTICATED state). */
     void handlePreAuthenticated(ClientAuthenticatedState auth, String greeting);
 
+    /** RFC 9051 section 7.1 — BYE greeting (service unavailable). */
     void handleServiceUnavailable(String message);
 }

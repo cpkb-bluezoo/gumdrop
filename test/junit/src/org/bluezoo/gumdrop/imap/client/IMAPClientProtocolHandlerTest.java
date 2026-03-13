@@ -61,6 +61,7 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerLoginReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerMailboxReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerNamespaceReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerNoopReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.ServerQuotaReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerSearchReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerSelectReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerStarttlsReplyHandler;
@@ -1066,6 +1067,94 @@ public class IMAPClientProtocolHandlerTest {
         assertTrue(noopHandler.ok);
     }
 
+    // ── QUOTA tests (RFC 9208) ──
+
+    @Test
+    public void testGetQuotaSuccess() {
+        enterAuthenticatedState();
+
+        RecordingQuotaHandler quotaHandler =
+                new RecordingQuotaHandler();
+        greetingHandler.session.getQuota("", quotaHandler);
+        String tag = lastSentTag();
+        assertTrue(lastSentCommand().startsWith("GETQUOTA"));
+
+        receiveMultipleLines(
+                "* QUOTA \"\" (STORAGE 10 512)",
+                tag + " OK GETQUOTA completed");
+
+        assertTrue(quotaHandler.complete);
+        assertEquals(1, quotaHandler.quotas.size());
+        RecordingQuotaHandler.QuotaEntry q = quotaHandler.quotas.get(0);
+        assertEquals("", q.quotaRoot);
+        assertEquals("STORAGE", q.resourceName);
+        assertEquals(10L, q.usage);
+        assertEquals(512L, q.limit);
+    }
+
+    @Test
+    public void testGetQuotaMultipleResources() {
+        enterAuthenticatedState();
+
+        RecordingQuotaHandler quotaHandler =
+                new RecordingQuotaHandler();
+        greetingHandler.session.getQuota("user.alice", quotaHandler);
+        String tag = lastSentTag();
+
+        receiveMultipleLines(
+                "* QUOTA \"user.alice\" (STORAGE 100 1024 MESSAGE 500 10000)",
+                tag + " OK GETQUOTA completed");
+
+        assertTrue(quotaHandler.complete);
+        assertEquals(2, quotaHandler.quotas.size());
+        assertEquals("STORAGE",
+                quotaHandler.quotas.get(0).resourceName);
+        assertEquals(100L, quotaHandler.quotas.get(0).usage);
+        assertEquals(1024L, quotaHandler.quotas.get(0).limit);
+        assertEquals("MESSAGE",
+                quotaHandler.quotas.get(1).resourceName);
+        assertEquals(500L, quotaHandler.quotas.get(1).usage);
+        assertEquals(10000L, quotaHandler.quotas.get(1).limit);
+    }
+
+    @Test
+    public void testGetQuotaRootSuccess() {
+        enterAuthenticatedState();
+
+        RecordingQuotaHandler quotaHandler =
+                new RecordingQuotaHandler();
+        greetingHandler.session.getQuotaRoot("INBOX", quotaHandler);
+        String tag = lastSentTag();
+        assertTrue(lastSentCommand().startsWith("GETQUOTAROOT"));
+
+        receiveMultipleLines(
+                "* QUOTAROOT INBOX \"\"",
+                "* QUOTA \"\" (STORAGE 10 512)",
+                tag + " OK GETQUOTAROOT completed");
+
+        assertTrue(quotaHandler.complete);
+        assertEquals(1, quotaHandler.roots.size());
+        assertEquals("INBOX", quotaHandler.roots.get(0).mailbox);
+        assertArrayEquals(new String[]{""},
+                quotaHandler.roots.get(0).quotaRoots);
+        assertEquals(1, quotaHandler.quotas.size());
+    }
+
+    @Test
+    public void testGetQuotaError() {
+        enterAuthenticatedState();
+
+        RecordingQuotaHandler quotaHandler =
+                new RecordingQuotaHandler();
+        greetingHandler.session.getQuota("badroot", quotaHandler);
+        String tag = lastSentTag();
+
+        receiveResponse(tag + " NO Permission denied");
+
+        assertTrue(quotaHandler.errorReceived);
+        assertEquals("Permission denied", quotaHandler.errorMessage);
+    }
+
     // ── LOGOUT tests ──
 
     @Test
@@ -1262,6 +1351,9 @@ public class IMAPClientProtocolHandlerTest {
         }
         @Override public SelectorLoop getSelectorLoop() {
             return null;
+        }
+        @Override public void execute(Runnable task) {
+            task.run();
         }
         @Override public TimerHandle scheduleTimer(long delayMs,
                                                    Runnable cb) {
@@ -1666,6 +1758,59 @@ public class IMAPClientProtocolHandlerTest {
 
         @Override
         public void handleServiceClosing(String message) {}
+    }
+
+    static class RecordingQuotaHandler
+            implements ServerQuotaReplyHandler {
+        boolean complete;
+        boolean errorReceived;
+        String errorMessage;
+        List<QuotaEntry> quotas = new ArrayList<>();
+        List<QuotaRootEntry> roots = new ArrayList<>();
+
+        static class QuotaEntry {
+            String quotaRoot;
+            String resourceName;
+            long usage;
+            long limit;
+        }
+
+        static class QuotaRootEntry {
+            String mailbox;
+            String[] quotaRoots;
+        }
+
+        @Override
+        public void handleQuota(String quotaRoot,
+                                String resourceName,
+                                long usage, long limit) {
+            QuotaEntry e = new QuotaEntry();
+            e.quotaRoot = quotaRoot;
+            e.resourceName = resourceName;
+            e.usage = usage;
+            e.limit = limit;
+            quotas.add(e);
+        }
+
+        @Override
+        public void handleQuotaRoot(String mailbox,
+                                    String[] quotaRoots) {
+            QuotaRootEntry e = new QuotaRootEntry();
+            e.mailbox = mailbox;
+            e.quotaRoots = quotaRoots;
+            roots.add(e);
+        }
+
+        @Override
+        public void handleQuotaComplete() {
+            complete = true;
+        }
+
+        @Override
+        public void handleQuotaError(String message) {
+            errorReceived = true;
+            errorMessage = message;
+        }
     }
 
     static class RecordingSearchHandler

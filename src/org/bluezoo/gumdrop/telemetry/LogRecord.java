@@ -47,8 +47,8 @@ public class LogRecord {
     private final int severityNumber;
     private final String severityText;
     private final String body;
-    private final byte[] traceId;
-    private final byte[] spanId;
+    private final TraceId traceId;
+    private final SpanId spanId;
     private final List<Attribute> attributes;
 
     /**
@@ -130,27 +130,17 @@ public class LogRecord {
     }
 
     /**
-     * Returns a copy of the trace ID bytes, or null if not correlated.
+     * Returns the trace ID, or null if not correlated.
      */
-    public byte[] getTraceId() {
-        if (traceId == null) {
-            return null;
-        }
-        byte[] copy = new byte[traceId.length];
-        System.arraycopy(traceId, 0, copy, 0, traceId.length);
-        return copy;
+    public TraceId getTraceId() {
+        return traceId;
     }
 
     /**
-     * Returns a copy of the span ID bytes, or null if not correlated.
+     * Returns the span ID, or null if not correlated.
      */
-    public byte[] getSpanId() {
-        if (spanId == null) {
-            return null;
-        }
-        byte[] copy = new byte[spanId.length];
-        System.arraycopy(spanId, 0, copy, 0, spanId.length);
-        return copy;
+    public SpanId getSpanId() {
+        return spanId;
     }
 
     /**

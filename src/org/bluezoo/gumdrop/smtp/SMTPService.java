@@ -63,6 +63,7 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see Service
  * @see SMTPListener
  */

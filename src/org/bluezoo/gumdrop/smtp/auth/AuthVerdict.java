@@ -23,11 +23,13 @@ package org.bluezoo.gumdrop.smtp.auth;
 
 /**
  * Combined verdict from email authentication checks.
+ * Combined verdict per RFC 7489 §6.3 (DMARC policy evaluation).
  *
  * <p>This represents the final decision based on SPF, DKIM, and DMARC
  * results, taking into account DMARC policy and alignment.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
 public enum AuthVerdict {
 

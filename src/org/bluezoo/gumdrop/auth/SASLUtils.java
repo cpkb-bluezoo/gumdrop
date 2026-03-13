@@ -21,8 +21,11 @@
 
 package org.bluezoo.gumdrop.auth;
 
+import org.bluezoo.util.ByteArrays;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -44,7 +47,11 @@ import org.bluezoo.gumdrop.auth.Realm.CertificateAuthenticationResult;
  * Utility methods for SASL authentication mechanisms.
  * Provides cryptographic helpers shared across POP3, IMAP, and SMTP.
  *
+ * <p>DIGEST-MD5 (RFC 2831) is deprecated by RFC 6331 and SHOULD NOT be
+ * used in new deployments; it is retained here for backward compatibility.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
 public final class SASLUtils {
 
@@ -52,7 +59,6 @@ public final class SASLUtils {
 
     private static final Charset US_ASCII = StandardCharsets.US_ASCII;
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
-    private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private SASLUtils() {
@@ -64,7 +70,7 @@ public final class SASLUtils {
     // ========================================================================
 
     /**
-     * Encodes data to Base64.
+     * RFC 4648 §4 — encodes data to Base64.
      * 
      * @param data the data to encode
      * @return Base64-encoded string
@@ -74,7 +80,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Encodes a string to Base64 using US-ASCII.
+     * RFC 4648 §4 — encodes a string to Base64 using US-ASCII.
      * 
      * @param data the string to encode
      * @return Base64-encoded string
@@ -84,7 +90,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Decodes a Base64 string.
+     * RFC 4648 §4 — decodes a Base64 string.
      * 
      * @param encoded the Base64-encoded string
      * @return decoded bytes
@@ -95,7 +101,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Decodes a Base64 string to a UTF-8 string.
+     * RFC 4648 §4 — decodes a Base64 string to a UTF-8 string.
      * 
      * @param encoded the Base64-encoded string
      * @return decoded string
@@ -105,45 +111,14 @@ public final class SASLUtils {
         return new String(decodeBase64(encoded), UTF_8);
     }
 
-    /**
-     * Converts bytes to hexadecimal string.
-     * 
-     * @param bytes the bytes to convert
-     * @return lowercase hexadecimal string
-     */
-    public static String bytesToHex(byte[] bytes) {
-        char[] hexChars = new char[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int v = bytes[i] & 0xFF;
-            hexChars[i * 2] = HEX_CHARS[v >>> 4];
-            hexChars[i * 2 + 1] = HEX_CHARS[v & 0x0F];
-        }
-        return new String(hexChars);
-    }
 
-    /**
-     * Converts hexadecimal string to bytes.
-     * 
-     * @param hex the hexadecimal string
-     * @return decoded bytes
-     * @throws IllegalArgumentException if the input is not valid hex
-     */
-    public static byte[] hexToBytes(String hex) {
-        int len = hex.length();
-        byte[] data = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
-                                 + Character.digit(hex.charAt(i + 1), 16));
-        }
-        return data;
-    }
 
     // ========================================================================
     // Challenge Generation
     // ========================================================================
 
     /**
-     * Generates a random nonce for challenge-response authentication.
+     * RFC 4422 — generates a random nonce for challenge-response authentication.
      * 
      * @param length the number of random bytes
      * @return hex-encoded nonce
@@ -151,11 +126,11 @@ public final class SASLUtils {
     public static String generateNonce(int length) {
         byte[] bytes = new byte[length];
         RANDOM.nextBytes(bytes);
-        return bytesToHex(bytes);
+        return ByteArrays.toHexString(bytes);
     }
 
     /**
-     * Generates a CRAM-MD5 challenge string.
+     * RFC 2195 — generates a CRAM-MD5 challenge string.
      * 
      * @param hostname the server hostname
      * @return the challenge string (ready for Base64 encoding)
@@ -174,7 +149,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Generates a DIGEST-MD5 challenge.
+     * RFC 2831 §2.1 — generates a DIGEST-MD5 challenge.
      * 
      * @param realm the authentication realm
      * @param nonce the nonce value
@@ -186,7 +161,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Generates a SCRAM server-first-message.
+     * RFC 5802 §5 / RFC 7677 — generates a SCRAM server-first-message.
      * 
      * @param nonce the combined client+server nonce
      * @param salt the salt (Base64-encoded)
@@ -202,7 +177,7 @@ public final class SASLUtils {
     // ========================================================================
 
     /**
-     * Computes MD5 hash.
+     * RFC 1321 — computes MD5 hash.
      * 
      * @param data the data to hash
      * @return MD5 digest
@@ -217,17 +192,17 @@ public final class SASLUtils {
     }
 
     /**
-     * Computes MD5 hash as hex string.
+     * RFC 1321 — computes MD5 hash as hex string.
      * 
      * @param data the data to hash
      * @return hex-encoded MD5 digest
      */
     public static String md5Hex(byte[] data) {
-        return bytesToHex(md5(data));
+        return ByteArrays.toHexString(md5(data));
     }
 
     /**
-     * Computes SHA-256 hash.
+     * FIPS 180-4 — computes SHA-256 hash.
      * 
      * @param data the data to hash
      * @return SHA-256 digest
@@ -242,7 +217,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Computes HMAC-MD5.
+     * RFC 2104 — computes HMAC-MD5.
      * 
      * @param key the secret key
      * @param data the data to authenticate
@@ -260,7 +235,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Computes HMAC-SHA256.
+     * RFC 2104 — computes HMAC-SHA256.
      * 
      * @param key the secret key
      * @param data the data to authenticate
@@ -282,7 +257,7 @@ public final class SASLUtils {
     // ========================================================================
 
     /**
-     * Computes the expected CRAM-MD5 response.
+     * RFC 2195 §2 — computes the expected CRAM-MD5 response.
      * 
      * @param password the user's password
      * @param challenge the server's challenge
@@ -290,11 +265,11 @@ public final class SASLUtils {
      */
     public static String computeCramMD5Response(String password, String challenge) {
         byte[] hmac = hmacMD5(password.getBytes(UTF_8), challenge.getBytes(US_ASCII));
-        return bytesToHex(hmac);
+        return ByteArrays.toHexString(hmac);
     }
 
     /**
-     * Verifies a CRAM-MD5 response.
+     * RFC 2195 §2 — verifies a CRAM-MD5 response.
      * 
      * @param response the response in format "username digest"
      * @param challenge the original challenge
@@ -316,7 +291,7 @@ public final class SASLUtils {
     // ========================================================================
 
     /**
-     * Parses DIGEST-MD5 response parameters.
+     * RFC 2831 §2.1 — parses DIGEST-MD5 response parameters.
      * 
      * @param response the response string
      * @return map of parameter names to values
@@ -362,7 +337,7 @@ public final class SASLUtils {
     }
 
     /**
-     * Computes DIGEST-MD5 HA1 value.
+     * RFC 2831 §2.1.1 — computes DIGEST-MD5 HA1 value.
      * 
      * @param username the username
      * @param realm the authentication realm
@@ -379,7 +354,7 @@ public final class SASLUtils {
     // ========================================================================
 
     /**
-     * Parses PLAIN credentials.
+     * RFC 4616 §2 — parses PLAIN credentials.
      * Format: authzid NUL authcid NUL password
      * 
      * @param credentials Base64-decoded credentials
@@ -417,7 +392,7 @@ public final class SASLUtils {
     // ========================================================================
 
     /**
-     * Parses OAUTHBEARER credentials.
+     * RFC 7628 §3.1 — parses OAUTHBEARER credentials.
      * Format: n,a=user@example.com,^Aauth=Bearer token^A^A
      * 
      * @param credentials Base64-decoded credentials
@@ -426,30 +401,41 @@ public final class SASLUtils {
      */
     public static Map<String, String> parseOAuthBearerCredentials(String credentials) {
         Map<String, String> result = new HashMap<String, String>();
-        
-        // Parse parts separated by ^A (0x01)
-        int partStart = 0;
+
+        // RFC 7628 §3.1: the first part (before the first ^A) is the
+        // GS2 header with comma-separated fields: gs2-cb-flag, [authzid], ""
+        int firstCtrlA = credentials.indexOf('\u0001');
+        if (firstCtrlA < 0) {
+            return result;
+        }
+        String gs2Header = credentials.substring(0, firstCtrlA);
+        for (String field : gs2Header.split(",", -1)) {
+            if (field.startsWith("a=")) {
+                result.put("user", field.substring(2));
+            }
+        }
+
+        // Remaining parts are ^A-separated key=value pairs
+        int partStart = firstCtrlA + 1;
         int credLen = credentials.length();
-        while (partStart <= credLen) {
+        while (partStart < credLen) {
             int partEnd = credentials.indexOf('\u0001', partStart);
             if (partEnd < 0) {
                 partEnd = credLen;
             }
             String part = credentials.substring(partStart, partEnd);
-            if (part.startsWith("a=")) {
-                result.put("user", part.substring(2));
-            } else if (part.startsWith("auth=Bearer ")) {
+            if (part.startsWith("auth=Bearer ")) {
                 result.put("token", part.substring(12));
             }
             partStart = partEnd + 1;
         }
-        
+
         return result;
     }
 
     /**
-     * Performs SASL EXTERNAL authentication using the peer certificate
-     * from the TLS session.
+     * RFC 4422 Appendix A — performs SASL EXTERNAL authentication using
+     * the peer certificate from the TLS session.
      *
      * <p>This method extracts the client certificate from the endpoint's
      * security info, delegates to the Realm for certificate-to-user
@@ -492,6 +478,250 @@ public final class SASLUtils {
             targetUser = authzid;
         }
         return CertificateAuthenticationResult.success(targetUser);
+    }
+
+    // ========================================================================
+    // Client-Side SASL Mechanisms
+    // ========================================================================
+
+    /**
+     * Creates a client-side SASL mechanism for driving an authentication
+     * exchange with a remote server.
+     *
+     * <p>All implementations are non-blocking and use only gumdrop's own
+     * cryptographic primitives, making them safe for the NIO event loop.
+     *
+     * <p>For GSSAPI, use the overload that accepts a {@code Subject}.
+     *
+     * @param mechanism the SASL mechanism name (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL)
+     * @param username the authentication identity
+     * @param password the password (may be null for EXTERNAL)
+     * @param host the server hostname (used by DIGEST-MD5 for digest-uri)
+     * @return the mechanism, or null if the name is not recognised
+     * @see #createClient(String, String, String, String, javax.security.auth.Subject)
+     */
+    public static SASLClientMechanism createClient(String mechanism,
+                                                   String username,
+                                                   String password,
+                                                   String host) {
+        return createClient(mechanism, username, password, host, null);
+    }
+
+    /**
+     * Creates a client-side SASL mechanism for driving an authentication
+     * exchange with a remote server.
+     *
+     * <p>All implementations except GSSAPI are non-blocking and safe for
+     * the NIO event loop. GSSAPI may block on the first call to
+     * {@code evaluateChallenge()} due to KDC contact; callers must
+     * offload to a worker thread.
+     *
+     * @param mechanism the SASL mechanism name (PLAIN, CRAM-MD5, DIGEST-MD5,
+     *        EXTERNAL, GSSAPI)
+     * @param username the authentication identity
+     * @param password the password (may be null for EXTERNAL/GSSAPI)
+     * @param host the server hostname (used by DIGEST-MD5 for digest-uri,
+     *        and by GSSAPI for the service principal)
+     * @param subject the JAAS Subject with Kerberos credentials (required
+     *        for GSSAPI, ignored for other mechanisms)
+     * @return the mechanism, or null if the name is not recognised
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc4752">RFC 4752: GSSAPI SASL</a>
+     */
+    public static SASLClientMechanism createClient(String mechanism,
+                                                   String username,
+                                                   String password,
+                                                   String host,
+                                                   javax.security.auth.Subject subject) {
+        if (mechanism == null) {
+            return null;
+        }
+        switch (mechanism.toUpperCase()) {
+            case "PLAIN":
+                return new PlainClient(username, password);
+            case "CRAM-MD5":
+                return new CramMD5Client(username, password);
+            case "DIGEST-MD5":
+                return new DigestMD5Client(username, password, host);
+            case "EXTERNAL":
+                return new ExternalClient();
+            case "GSSAPI":
+                if (subject == null || host == null) {
+                    return null;
+                }
+                try {
+                    return new GSSAPIClientMechanism(host, subject);
+                } catch (java.io.IOException e) {
+                    return null;
+                }
+            default:
+                return null;
+        }
+    }
+
+    // RFC 4616 — PLAIN: \0authcid\0password (single step)
+    private static final class PlainClient implements SASLClientMechanism {
+        private final String username;
+        private final String password;
+        private boolean complete;
+
+        PlainClient(String username, String password) {
+            this.username = username;
+            this.password = password != null ? password : "";
+        }
+
+        @Override
+        public String getMechanismName() { return "PLAIN"; }
+
+        @Override
+        public boolean hasInitialResponse() { return true; }
+
+        @Override
+        public byte[] evaluateChallenge(byte[] challenge) {
+            complete = true;
+            byte[] user = username.getBytes(UTF_8);
+            byte[] pass = password.getBytes(UTF_8);
+            byte[] response = new byte[1 + user.length + 1 + pass.length];
+            // response[0] = 0 (authzid empty)
+            System.arraycopy(user, 0, response, 1, user.length);
+            // response[1 + user.length] = 0 (separator)
+            System.arraycopy(pass, 0, response, 2 + user.length, pass.length);
+            return response;
+        }
+
+        @Override
+        public boolean isComplete() { return complete; }
+    }
+
+    // RFC 2195 — CRAM-MD5: server sends challenge, client returns
+    // "username SP HMAC-MD5-hex" (single step after challenge)
+    private static final class CramMD5Client implements SASLClientMechanism {
+        private final String username;
+        private final String password;
+        private boolean complete;
+
+        CramMD5Client(String username, String password) {
+            this.username = username;
+            this.password = password != null ? password : "";
+        }
+
+        @Override
+        public String getMechanismName() { return "CRAM-MD5"; }
+
+        @Override
+        public boolean hasInitialResponse() { return false; }
+
+        @Override
+        public byte[] evaluateChallenge(byte[] challenge) {
+            complete = true;
+            String challengeStr = new String(challenge, UTF_8);
+            String digest = computeCramMD5Response(password, challengeStr);
+            return (username + " " + digest).getBytes(UTF_8);
+        }
+
+        @Override
+        public boolean isComplete() { return complete; }
+    }
+
+    // RFC 2831 — DIGEST-MD5: server sends challenge with realm/nonce,
+    // client computes md5-sess response digest.
+    private static final class DigestMD5Client implements SASLClientMechanism {
+        private final String username;
+        private final String password;
+        private final String host;
+        private boolean complete;
+        private int step;
+
+        DigestMD5Client(String username, String password, String host) {
+            this.username = username;
+            this.password = password != null ? password : "";
+            this.host = host;
+        }
+
+        @Override
+        public String getMechanismName() { return "DIGEST-MD5"; }
+
+        @Override
+        public boolean hasInitialResponse() { return false; }
+
+        @Override
+        public byte[] evaluateChallenge(byte[] challenge) throws IOException {
+            if (step == 0) {
+                step = 1;
+                complete = true;
+                return computeDigestResponse(challenge);
+            }
+            // Optional rspauth verification step — nothing to send back
+            return new byte[0];
+        }
+
+        private byte[] computeDigestResponse(byte[] challenge)
+                throws IOException {
+            Map<String, String> params =
+                    parseDigestParams(new String(challenge, UTF_8));
+
+            String realm = params.getOrDefault("realm", "");
+            String nonce = params.get("nonce");
+            String qop = params.getOrDefault("qop", "auth");
+            if (nonce == null) {
+                throw new IOException("DIGEST-MD5: missing nonce");
+            }
+
+            String cnonce = generateNonce(16);
+            String nc = "00000001";
+            String digestUri = "ldap/" + host;
+
+            // RFC 2831 §2.1.2.1 — A1 for md5-sess:
+            //   H(username:realm:password) : nonce : cnonce
+            byte[] h = md5((username + ":" + realm + ":" + password)
+                    .getBytes(UTF_8));
+            byte[] suffix = (":" + nonce + ":" + cnonce).getBytes(UTF_8);
+            byte[] a1 = new byte[h.length + suffix.length];
+            System.arraycopy(h, 0, a1, 0, h.length);
+            System.arraycopy(suffix, 0, a1, h.length, suffix.length);
+            String ha1 = md5Hex(a1);
+
+            String ha2 = md5Hex(
+                    ("AUTHENTICATE:" + digestUri).getBytes(UTF_8));
+
+            String responseHash = md5Hex(
+                    (ha1 + ":" + nonce + ":" + nc + ":" + cnonce
+                            + ":" + qop + ":" + ha2).getBytes(UTF_8));
+
+            String response = "charset=utf-8"
+                    + ",username=\"" + username + "\""
+                    + ",realm=\"" + realm + "\""
+                    + ",nonce=\"" + nonce + "\""
+                    + ",nc=" + nc
+                    + ",cnonce=\"" + cnonce + "\""
+                    + ",digest-uri=\"" + digestUri + "\""
+                    + ",response=" + responseHash
+                    + ",qop=" + qop;
+
+            return response.getBytes(UTF_8);
+        }
+
+        @Override
+        public boolean isComplete() { return complete; }
+    }
+
+    // RFC 4422 Appendix A — EXTERNAL: no credentials, relies on TLS cert
+    private static final class ExternalClient implements SASLClientMechanism {
+        private boolean complete;
+
+        @Override
+        public String getMechanismName() { return "EXTERNAL"; }
+
+        @Override
+        public boolean hasInitialResponse() { return true; }
+
+        @Override
+        public byte[] evaluateChallenge(byte[] challenge) {
+            complete = true;
+            return new byte[0];
+        }
+
+        @Override
+        public boolean isComplete() { return complete; }
     }
 
 }

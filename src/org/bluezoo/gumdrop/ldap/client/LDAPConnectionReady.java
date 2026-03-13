@@ -73,6 +73,7 @@ import org.bluezoo.gumdrop.ClientHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPConnected
  * @see ClientHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
  */
 public interface LDAPConnectionReady extends ClientHandler {
 

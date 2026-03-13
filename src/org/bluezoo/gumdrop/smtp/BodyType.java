@@ -55,29 +55,35 @@ public enum BodyType {
 
     /**
      * Traditional 7-bit ASCII content.
-     * 
+     *
      * <p>This is the default body type when no BODY parameter is specified.
      * All content must be US-ASCII (characters 0-127), with lines no longer
      * than 998 characters.
+     *
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
      */
     SEVEN_BIT("7BIT"),
 
     /**
      * 8-bit MIME content (RFC 6152).
-     * 
+     *
      * <p>Allows octets with values 128-255 in the message body. This is
      * commonly used for messages with non-ASCII text or binary attachments
      * that have been encoded with base64 or quoted-printable.
+     *
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc6152">RFC 6152</a>
      */
     EIGHT_BIT_MIME("8BITMIME"),
 
     /**
      * Raw binary content (RFC 3030).
-     * 
+     *
      * <p>Allows arbitrary binary content without any encoding. When this
      * body type is declared, the message MUST be transmitted using the
      * BDAT command because the DATA command's dot-stuffing could corrupt
      * binary data.
+     *
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a>
      */
     BINARY_MIME("BINARYMIME");
 

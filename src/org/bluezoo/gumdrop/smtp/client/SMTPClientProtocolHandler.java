@@ -45,6 +45,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientPostTls;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
+import org.bluezoo.gumdrop.smtp.client.handler.MailFromParams;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerAuthAbortHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerAuthReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerDataReplyHandler;
@@ -59,7 +60,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerRsetReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
 
 /**
- * SMTP client protocol handler implementing {@link ProtocolHandler}.
+ * SMTP client protocol handler implementing RFC 5321 (SMTP).
  *
  * <p>Implements a type-safe SMTP client state machine
  * ({@code ClientHelloState}, {@code ClientSession}, etc.) and
@@ -67,6 +68,16 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  * {@link Endpoint}.
  *
  * <p>Line parsing is handled by the composable {@link LineParser} utility.
+ *
+ * <p>Supported client capabilities:
+ * <ul>
+ *   <li>EHLO/HELO (RFC 5321 §4.1.1.1)</li>
+ *   <li>STARTTLS (RFC 3207)</li>
+ *   <li>AUTH (RFC 4954) — generic SASL mechanism support</li>
+ *   <li>SIZE (RFC 1870) — declared in MAIL FROM</li>
+ *   <li>PIPELINING (RFC 2920) — parsed from EHLO</li>
+ *   <li>CHUNKING (RFC 3030) — automatic BDAT when server advertises</li>
+ * </ul>
  *
  * <h4>Usage</h4>
  * <pre>{@code
@@ -82,6 +93,9 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see ServerGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207 - STARTTLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
  */
 public class SMTPClientProtocolHandler
         implements ProtocolHandler, LineParser.Callback,
@@ -110,12 +124,23 @@ public class SMTPClientProtocolHandler
     private List<String> multiLineResponse;
     private boolean inMultiLineResponse;
 
-    // EHLO capability parsing
+    // EHLO capability parsing (RFC 5321 §4.1.1.1)
     private boolean ehloStarttls;
     private long ehloMaxSize;
     private List<String> ehloAuthMethods;
     private boolean ehloPipelining;
     private boolean ehloChunking;
+    private boolean ehlo8BitMime;                         // RFC 6152
+    private boolean ehloSmtpUtf8;                         // RFC 6531
+    private boolean ehloDsn;                              // RFC 3461
+    private boolean ehloEnhancedStatusCodes;              // RFC 2034
+    private boolean ehloBinaryMime;                       // RFC 3030
+    private boolean ehloRequireTls;                       // RFC 8689
+    private boolean ehloMtPriority;                       // RFC 6710
+    private boolean ehloFutureRelease;                    // RFC 4865
+    private boolean ehloDeliverBy;                        // RFC 2852
+    private int ehloLimitsRcptMax;                        // RFC 9422
+    private int ehloLimitsMailMax;                        // RFC 9422
 
     // Envelope state
     private int acceptedRecipients;
@@ -170,8 +195,9 @@ public class SMTPClientProtocolHandler
         this.secure = secure;
     }
 
-    // ── ProtocolHandler ──
+    // ── ProtocolHandler (RFC 5321 §3.1 — session initiation) ──
 
+    /** RFC 5321 §3.1 — TCP connection established, wait for 220 greeting. */
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
@@ -183,6 +209,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.2 — replies are line-oriented: code SP text CRLF. */
     @Override
     public void receive(ByteBuffer data) {
         LineParser.parse(data, this);
@@ -195,6 +222,10 @@ public class SMTPClientProtocolHandler
         handler.onDisconnected();
     }
 
+    /**
+     * RFC 3207 §4.2 — TLS handshake complete; client must re-issue EHLO.
+     * RFC 8314 — implicit TLS: greeting follows TLS establishment.
+     */
     @Override
     public void securityEstablished(SecurityInfo info) {
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -281,8 +312,9 @@ public class SMTPClientProtocolHandler
         }
     }
 
-    // ── ClientHelloState ──
+    // ── ClientHelloState (RFC 5321 §4.1.1.1) ──
 
+    /** RFC 5321 §4.1.1.1 — EHLO command with extension negotiation. */
     @Override
     public void ehlo(String hostname,
                      ServerEhloReplyHandler callback) {
@@ -291,6 +323,7 @@ public class SMTPClientProtocolHandler
         sendCommand("EHLO " + hostname, SMTPState.EHLO_SENT);
     }
 
+    /** RFC 5321 §4.1.1.1 — HELO command (non-extended). */
     @Override
     public void helo(String hostname,
                      ServerHeloReplyHandler callback) {
@@ -298,16 +331,31 @@ public class SMTPClientProtocolHandler
         sendCommand("HELO " + hostname, SMTPState.HELO_SENT);
     }
 
-    // ── ClientSession ──
+    // ── ClientSession (RFC 5321 §4.1.1.2–10) ──
 
+    /** RFC 5321 §4.1.1.2 — MAIL FROM command. */
     @Override
     public void mailFrom(EmailAddress sender,
                          ServerMailFromReplyHandler callback) {
         mailFrom(sender, 0, callback);
     }
 
+    /** RFC 5321 §4.1.1.2 — MAIL FROM with SIZE parameter (RFC 1870). */
     @Override
     public void mailFrom(EmailAddress sender, long size,
+                         ServerMailFromReplyHandler callback) {
+        mailFrom(sender, size, null, callback);
+    }
+
+    /**
+     * RFC 5321 §4.1.1.2 — MAIL FROM with full extension parameters.
+     * Appends BODY (RFC 6152/3030), SMTPUTF8 (RFC 6531), RET/ENVID (RFC 3461),
+     * REQUIRETLS (RFC 8689), MT-PRIORITY (RFC 6710), HOLDFOR/HOLDUNTIL
+     * (RFC 4865), and BY (RFC 2852) when the server advertises support.
+     */
+    @Override
+    public void mailFrom(EmailAddress sender, long size,
+                         MailFromParams params,
                          ServerMailFromReplyHandler callback) {
         this.currentCallback = callback;
         this.acceptedRecipients = 0;
@@ -321,16 +369,47 @@ public class SMTPClientProtocolHandler
         if (size > 0 && ehloMaxSize > 0) {
             cmd.append(" SIZE=").append(size);
         }
+        if (params != null) {
+            if (params.body != null && (ehlo8BitMime || ehloBinaryMime)) {
+                cmd.append(" BODY=").append(params.body);           // RFC 6152, RFC 3030
+            }
+            if (params.smtpUtf8 && ehloSmtpUtf8) {
+                cmd.append(" SMTPUTF8");                            // RFC 6531
+            }
+            if (params.ret != null && ehloDsn) {
+                cmd.append(" RET=").append(params.ret);             // RFC 3461 §4.3
+            }
+            if (params.envid != null && ehloDsn) {
+                cmd.append(" ENVID=").append(params.envid);         // RFC 3461 §4.4
+            }
+            if (params.requireTls && ehloRequireTls) {
+                cmd.append(" REQUIRETLS");                          // RFC 8689
+            }
+            if (params.mtPriority != null && ehloMtPriority) {
+                cmd.append(" MT-PRIORITY=").append(params.mtPriority); // RFC 6710
+            }
+            if (params.holdFor > 0 && ehloFutureRelease) {
+                cmd.append(" HOLDFOR=").append(params.holdFor);     // RFC 4865
+            }
+            if (params.holdUntil != null && ehloFutureRelease) {
+                cmd.append(" HOLDUNTIL=").append(params.holdUntil); // RFC 4865
+            }
+            if (params.by != null && ehloDeliverBy) {
+                cmd.append(" BY=").append(params.by);               // RFC 2852
+            }
+        }
 
         sendCommand(cmd.toString(), SMTPState.MAIL_FROM_SENT);
     }
 
+    /** RFC 3207 §4 — STARTTLS command. */
     @Override
     public void starttls(ServerStarttlsReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STARTTLS", SMTPState.STARTTLS_SENT);
     }
 
+    /** RFC 4954 — AUTH command with optional initial-response. */
     @Override
     public void auth(String mechanism, byte[] initialResponse,
                      ServerAuthReplyHandler callback) {
@@ -348,13 +427,64 @@ public class SMTPClientProtocolHandler
         sendCommand(cmd.toString(), SMTPState.AUTH_SENT);
     }
 
+    /** RFC 5321 §4.1.1.6 — VRFY command. */
+    @Override
+    public void vrfy(String user, ServerReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("VRFY " + user, SMTPState.VRFY_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.7 — EXPN command. */
+    @Override
+    public void expn(String mailingList, ServerReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("EXPN " + mailingList, SMTPState.EXPN_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.10 — QUIT command. */
     @Override
     public void quit() {
         sendCommand("QUIT", SMTPState.QUIT_SENT);
     }
 
-    // ── ClientAuthExchange ──
+    // ── EHLO capability accessors ──
 
+    @Override
+    public boolean has8BitMime() { return ehlo8BitMime; }
+
+    @Override
+    public boolean hasSmtpUtf8() { return ehloSmtpUtf8; }
+
+    @Override
+    public boolean hasDsn() { return ehloDsn; }
+
+    @Override
+    public boolean hasEnhancedStatusCodes() { return ehloEnhancedStatusCodes; }
+
+    @Override
+    public boolean hasBinaryMime() { return ehloBinaryMime; }
+
+    @Override
+    public boolean hasRequireTls() { return ehloRequireTls; }
+
+    @Override
+    public boolean hasMtPriority() { return ehloMtPriority; }
+
+    @Override
+    public boolean hasFutureRelease() { return ehloFutureRelease; }
+
+    @Override
+    public boolean hasDeliverBy() { return ehloDeliverBy; }
+
+    @Override
+    public int getLimitsRcptMax() { return ehloLimitsRcptMax; }
+
+    @Override
+    public int getLimitsMailMax() { return ehloLimitsMailMax; }
+
+    // ── ClientAuthExchange (RFC 4954 §4) ──
+
+    /** RFC 4954 §4 — send base64-encoded SASL response. */
     @Override
     public void respond(byte[] response,
                         ServerAuthReplyHandler callback) {
@@ -363,23 +493,45 @@ public class SMTPClientProtocolHandler
         sendRawLine(encoded, SMTPState.AUTH_SENT);
     }
 
+    /** RFC 4954 §4 — abort AUTH exchange with "*". */
     @Override
     public void abort(ServerAuthAbortHandler callback) {
         this.currentCallback = callback;
         sendRawLine("*", SMTPState.AUTH_ABORT_SENT);
     }
 
-    // ── ClientEnvelope ──
+    // ── ClientEnvelope (RFC 5321 §4.1.1.3) ──
 
+    /** RFC 5321 §4.1.1.3 — RCPT TO command. */
     @Override
     public void rcptTo(EmailAddress recipient,
                        ServerRcptToReplyHandler callback) {
-        this.currentCallback = callback;
-        sendCommand("RCPT TO:<"
-                + recipient.getEnvelopeAddress() + ">",
-                SMTPState.RCPT_TO_SENT);
+        rcptTo(recipient, null, null, callback);
     }
 
+    /**
+     * RFC 5321 §4.1.1.3 — RCPT TO with DSN parameters (RFC 3461 §4.1–4.2).
+     * NOTIFY and ORCPT are only appended when the server advertises DSN.
+     */
+    @Override
+    public void rcptTo(EmailAddress recipient, String notify, String orcpt,
+                       ServerRcptToReplyHandler callback) {
+        this.currentCallback = callback;
+        StringBuilder cmd = new StringBuilder("RCPT TO:<");
+        cmd.append(recipient.getEnvelopeAddress());
+        cmd.append(">");
+        if (ehloDsn) {
+            if (notify != null) {
+                cmd.append(" NOTIFY=").append(notify);              // RFC 3461 §4.1
+            }
+            if (orcpt != null) {
+                cmd.append(" ORCPT=").append(orcpt);                // RFC 3461 §4.2
+            }
+        }
+        sendCommand(cmd.toString(), SMTPState.RCPT_TO_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.5 — RSET command. */
     @Override
     public void rset(ServerRsetReplyHandler callback) {
         this.currentCallback = callback;
@@ -391,8 +543,9 @@ public class SMTPClientProtocolHandler
         return acceptedRecipients > 0;
     }
 
-    // ── ClientEnvelopeReady ──
+    // ── ClientEnvelopeReady (RFC 5321 §4.1.1.4 / RFC 3030) ──
 
+    /** RFC 5321 §4.1.1.4 — DATA command; RFC 3030 — automatic BDAT. */
     @Override
     public void data(ServerDataReplyHandler callback) {
         if (acceptedRecipients == 0) {
@@ -412,8 +565,9 @@ public class SMTPClientProtocolHandler
         }
     }
 
-    // ── ClientMessageData ──
+    // ── ClientMessageData (RFC 5321 §4.5.2 / RFC 3030 §3) ──
 
+    /** RFC 5321 §4.5.2 — dot-stuffed DATA; RFC 3030 — BDAT chunks. */
     @Override
     public void writeContent(ByteBuffer content) {
         if (state != SMTPState.DATA_MODE) {
@@ -442,6 +596,7 @@ public class SMTPClientProtocolHandler
         endpoint.onWriteReady(callback);
     }
 
+    /** RFC 5321 §4.1.1.4 — end DATA (CRLF.CRLF); RFC 3030 — BDAT 0 LAST. */
     @Override
     public void endMessage(ServerMessageReplyHandler callback) {
         if (state != SMTPState.DATA_MODE) {
@@ -565,6 +720,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.2.1 — 421 service closing transmission channel. */
     private void handle421ServiceClosing(String message) {
         state = SMTPState.CLOSED;
 
@@ -642,6 +798,10 @@ public class SMTPClientProtocolHandler
             case RSET_SENT:
                 dispatchRsetReply(code, message);
                 break;
+            case VRFY_SENT:
+            case EXPN_SENT:
+                dispatchVrfyExpnReply(code, message);
+                break;
             case QUIT_SENT:
                 state = SMTPState.CLOSED;
                 close();
@@ -656,8 +816,9 @@ public class SMTPClientProtocolHandler
         }
     }
 
-    // ── State-specific dispatch ──
+    // ── State-specific dispatch (RFC 5321 §4.2 — reply codes) ──
 
+    /** RFC 5321 §4.2 — 220 greeting or service unavailable. */
     private void dispatchGreeting(int code, String message) {
         if (code == 220) {
             state = SMTPState.CONNECTED;
@@ -672,6 +833,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.1.1.1 — 250 multi-line EHLO reply or 502 not supported. */
     private void dispatchEhloReply(int code,
                                    List<String> messages) {
         ServerEhloReplyHandler callback =
@@ -714,6 +876,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 3207 §4 — 220 ready for TLS, 454 unavailable, 502 not recognized. */
     private void dispatchStarttlsReply(int code, String message) {
         ServerStarttlsReplyHandler callback =
                 (ServerStarttlsReplyHandler) currentCallback;
@@ -738,6 +901,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 4954 — 235 success, 334 challenge, 454/504/535 failure. */
     private void dispatchAuthReply(int code, String message) {
         ServerAuthReplyHandler callback =
                 (ServerAuthReplyHandler) currentCallback;
@@ -774,6 +938,7 @@ public class SMTPClientProtocolHandler
         callback.handleAborted(this);
     }
 
+    /** RFC 5321 §4.1.1.2 — 250 sender OK, 4xx/5xx rejection. */
     private void dispatchMailFromReply(int code, String message) {
         ServerMailFromReplyHandler callback =
                 (ServerMailFromReplyHandler) currentCallback;
@@ -791,6 +956,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.1.1.3 — 250/251/252 accepted, 4xx/5xx rejected. */
     private void dispatchRcptToReply(int code, String message) {
         ServerRcptToReplyHandler callback =
                 (ServerRcptToReplyHandler) currentCallback;
@@ -813,6 +979,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.1.1.4 — 354 start mail input. */
     private void dispatchDataReply(int code, String message) {
         ServerDataReplyHandler callback =
                 (ServerDataReplyHandler) currentCallback;
@@ -860,6 +1027,7 @@ public class SMTPClientProtocolHandler
         }
     }
 
+    /** RFC 5321 §3.3 — 250 message accepted for delivery. */
     private void dispatchMessageReply(int code, String message) {
         ServerMessageReplyHandler callback =
                 (ServerMessageReplyHandler) currentCallback;
@@ -888,7 +1056,16 @@ public class SMTPClientProtocolHandler
         callback.handleResetOk(this);
     }
 
-    // ── EHLO capability parsing ──
+    /** RFC 5321 §4.1.1.6–7 — dispatch VRFY / EXPN reply. */
+    private void dispatchVrfyExpnReply(int code, String message) {
+        ServerReplyHandler callback =
+                (ServerReplyHandler) currentCallback;
+        currentCallback = null;
+        state = SMTPState.CONNECTED;
+        callback.handleReply(code, message, this);
+    }
+
+    // ── EHLO capability parsing (RFC 5321 §4.1.1.1) ──
 
     private void resetEhloCapabilities() {
         ehloStarttls = false;
@@ -896,16 +1073,31 @@ public class SMTPClientProtocolHandler
         ehloAuthMethods = new ArrayList<String>();
         ehloPipelining = false;
         ehloChunking = false;
+        ehlo8BitMime = false;
+        ehloSmtpUtf8 = false;
+        ehloDsn = false;
+        ehloEnhancedStatusCodes = false;
+        ehloBinaryMime = false;
+        ehloRequireTls = false;
+        ehloMtPriority = false;
+        ehloFutureRelease = false;
+        ehloDeliverBy = false;
+        ehloLimitsRcptMax = 0;
+        ehloLimitsMailMax = 0;
     }
 
+    /**
+     * Parse EHLO capability keywords from 250 multi-line response.
+     * RFC 5321 §4.1.1.1 — each line is an EHLO keyword with optional params.
+     */
     private void parseEhloCapabilities(List<String> lines) {
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             String upper = line.toUpperCase();
 
-            if (upper.equals("STARTTLS")) {
+            if (upper.equals("STARTTLS")) {                    // RFC 3207
                 ehloStarttls = true;
-            } else if (upper.startsWith("SIZE")) {
+            } else if (upper.startsWith("SIZE")) {             // RFC 1870
                 if (upper.length() > 5) {
                     try {
                         ehloMaxSize = Long.parseLong(
@@ -914,7 +1106,7 @@ public class SMTPClientProtocolHandler
                         // Ignore malformed SIZE
                     }
                 }
-            } else if (upper.startsWith("AUTH")) {
+            } else if (upper.startsWith("AUTH")) {             // RFC 4954
                 int start = 4;
                 int length = line.length();
                 while (start < length) {
@@ -937,10 +1129,51 @@ public class SMTPClientProtocolHandler
                                     .toUpperCase());
                     start = end;
                 }
-            } else if (upper.equals("PIPELINING")) {
+            } else if (upper.equals("PIPELINING")) {           // RFC 2920
                 ehloPipelining = true;
-            } else if (upper.equals("CHUNKING")) {
+            } else if (upper.equals("CHUNKING")) {             // RFC 3030
                 ehloChunking = true;
+            } else if (upper.equals("8BITMIME")) {             // RFC 6152
+                ehlo8BitMime = true;
+            } else if (upper.equals("SMTPUTF8")) {             // RFC 6531
+                ehloSmtpUtf8 = true;
+            } else if (upper.equals("DSN")) {                  // RFC 3461
+                ehloDsn = true;
+            } else if (upper.equals("ENHANCEDSTATUSCODES")) {  // RFC 2034
+                ehloEnhancedStatusCodes = true;
+            } else if (upper.equals("BINARYMIME")) {           // RFC 3030
+                ehloBinaryMime = true;
+            } else if (upper.equals("REQUIRETLS")) {           // RFC 8689
+                ehloRequireTls = true;
+            } else if (upper.startsWith("MT-PRIORITY")) {      // RFC 6710
+                ehloMtPriority = true;
+            } else if (upper.startsWith("FUTURERELEASE")) {    // RFC 4865
+                ehloFutureRelease = true;
+            } else if (upper.startsWith("DELIVERBY")) {        // RFC 2852
+                ehloDeliverBy = true;
+            } else if (upper.startsWith("LIMITS")) {           // RFC 9422
+                parseLimits(line);
+            }
+        }
+    }
+
+    /** RFC 9422 — parse LIMITS keyword parameters (RCPTMAX, MAILMAX). */
+    private void parseLimits(String line) {
+        String[] tokens = line.split("\\s+");
+        for (int i = 1; i < tokens.length; i++) {
+            String token = tokens[i].toUpperCase();
+            if (token.startsWith("RCPTMAX=")) {
+                try {
+                    ehloLimitsRcptMax = Integer.parseInt(token.substring(8));
+                } catch (NumberFormatException e) {
+                    // Ignore malformed value
+                }
+            } else if (token.startsWith("MAILMAX=")) {
+                try {
+                    ehloLimitsMailMax = Integer.parseInt(token.substring(8));
+                } catch (NumberFormatException e) {
+                    // Ignore malformed value
+                }
             }
         }
     }

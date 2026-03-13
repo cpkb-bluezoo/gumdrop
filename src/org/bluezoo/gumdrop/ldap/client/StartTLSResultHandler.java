@@ -33,6 +33,8 @@ package org.bluezoo.gumdrop.ldap.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPConnected#startTLS
  * @see LDAPPostTLS
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.14">RFC 4511 §4.14 — STARTTLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-3">RFC 4513 §3 — TLS</a>
  */
 public interface StartTLSResultHandler {
 

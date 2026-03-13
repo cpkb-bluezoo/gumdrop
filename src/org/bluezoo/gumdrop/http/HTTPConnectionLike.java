@@ -69,7 +69,15 @@ interface HTTPConnectionLike {
 
     /**
      * Registers a one-shot callback invoked when the transport is ready
-     * for more data on the given stream (write buffer drained).
+     * for more data on the given stream.
+     *
+     * <p>For HTTP/1.1 this registers on the TCP endpoint's write-complete
+     * callback.  For HTTP/2 this is tracked per-stream; the callback fires
+     * when the stream's flow-control send window opens (WINDOW_UPDATE
+     * received) or when the TCP write buffer drains.  For HTTP/3 the
+     * callback fires when the QUIC congestion/flow-control window opens
+     * after a previous {@code QUICHE_ERR_DONE} from
+     * {@code quiche_h3_send_body}.
      *
      * @param streamId the stream requesting write-readiness notification
      * @param callback the callback, or null to clear
@@ -77,18 +85,39 @@ interface HTTPConnectionLike {
     void onWritable(int streamId, Runnable callback);
 
     /**
-     * Pauses reading from the network for the given stream.
-     * For HTTP/1.1 this removes {@code OP_READ} from the
-     * connection's {@code SelectionKey}.  For HTTP/2 this withholds
-     * WINDOW_UPDATE frames for the stream.
+     * Pauses delivery of request body data for the given stream.
+     *
+     * <p>For HTTP/1.1, this removes {@code OP_READ} from the
+     * connection's {@code SelectionKey}, causing TCP backpressure.
+     *
+     * <p>For HTTP/2, this withholds WINDOW_UPDATE frames for the
+     * stream.  The peer's send window will eventually fill and it
+     * will stop sending DATA on this stream, without affecting other
+     * streams on the same connection.
+     *
+     * <p>For HTTP/3, this stops consuming body data from the QUIC
+     * stream via {@code quiche_h3_recv_body}.  The peer's
+     * flow-control window fills naturally and it stops sending,
+     * without affecting other streams.
      *
      * @param streamId the stream to pause
      */
     void pauseRead(int streamId);
 
     /**
-     * Resumes reading from the network for the given stream after a
-     * previous {@link #pauseRead(int)}.
+     * Resumes delivery of request body data for the given stream
+     * after a previous {@link #pauseRead(int)}.
+     *
+     * <p>For HTTP/1.1, this restores {@code OP_READ} on the
+     * connection's {@code SelectionKey}.
+     *
+     * <p>For HTTP/2, this sends the accumulated WINDOW_UPDATE
+     * increment that was withheld while the stream was paused,
+     * allowing the peer to resume sending DATA.
+     *
+     * <p>For HTTP/3, this resumes draining body data from the QUIC
+     * stream.  quiche will automatically send MAX_STREAM_DATA as
+     * data is consumed, re-opening the peer's flow-control window.
      *
      * @param streamId the stream to resume
      */

@@ -26,6 +26,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPSession#delete
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.8">RFC 4511 §4.8 — Delete</a>
  */
 public interface DeleteResultHandler {
 

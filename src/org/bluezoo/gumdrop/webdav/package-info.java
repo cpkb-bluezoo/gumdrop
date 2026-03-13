@@ -24,7 +24,7 @@
  *
  * <p>{@link org.bluezoo.gumdrop.webdav.WebDAVService} is an
  * {@link org.bluezoo.gumdrop.http.HTTPService} that serves files from
- * a filesystem root directory. It optionally supports RFC 2518
+ * a filesystem root directory. It optionally supports RFC 4918
  * (WebDAV) distributed authoring methods: PROPFIND, PROPPATCH, MKCOL,
  * COPY, MOVE, LOCK, and UNLOCK.
  *
@@ -41,5 +41,6 @@
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 package org.bluezoo.gumdrop.webdav;

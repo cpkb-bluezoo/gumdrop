@@ -58,9 +58,9 @@ public class TraceTest {
     public void testTraceId() {
         Trace trace = new Trace("operation");
         
-        byte[] traceId = trace.getTraceId();
-        assertNotNull(traceId);
-        assertEquals(SpanContext.TRACE_ID_LENGTH, traceId.length);
+        TraceId traceIdObj = trace.getTraceId();
+        assertNotNull(traceIdObj);
+        assertEquals(SpanContext.TRACE_ID_LENGTH, traceIdObj.getBytes().length);
     }
 
     @Test
@@ -77,15 +77,15 @@ public class TraceTest {
     public void testTraceIdDefensiveCopy() {
         Trace trace = new Trace("operation");
         
-        byte[] id1 = trace.getTraceId();
-        byte[] id2 = trace.getTraceId();
+        byte[] id1 = trace.getTraceId().getBytes();
+        byte[] id2 = trace.getTraceId().getBytes();
         
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
         
         // Modify returned array
         id1[0] = 0;
-        assertNotEquals(id1[0], trace.getTraceId()[0]);
+        assertNotEquals(id1[0], trace.getTraceId().getBytes()[0]);
     }
 
     @Test
@@ -110,7 +110,7 @@ public class TraceTest {
         Trace trace = new Trace(parentCtx, "child-operation", SpanKind.SERVER);
         
         // Should use parent's trace ID
-        assertArrayEquals(parentTraceId, trace.getTraceId());
+        assertArrayEquals(parentTraceId, trace.getTraceId().getBytes());
         assertTrue(trace.isSampled());
     }
 

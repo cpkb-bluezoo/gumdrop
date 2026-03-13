@@ -21,11 +21,14 @@
 
 package org.bluezoo.gumdrop.smtp;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
@@ -47,6 +50,7 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - Implicit TLS (port 465)</a>
  */
 public class SMTPListener extends TCPListener {
 
@@ -55,16 +59,19 @@ public class SMTPListener extends TCPListener {
 
     /**
      * The default SMTP port (standard mail transfer).
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.5.4.1">RFC 5321 §4.5.4.1</a>
      */
     protected static final int SMTP_DEFAULT_PORT = 25;
 
     /**
      * The default SMTP submission port (authenticated mail submission).
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409</a>
      */
     protected static final int SMTP_SUBMISSION_PORT = 587;
 
     /**
      * The default SMTPS port (SMTP over SSL/TLS).
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a>
      */
     protected static final int SMTPS_DEFAULT_PORT = 465;
 
@@ -77,6 +84,9 @@ public class SMTPListener extends TCPListener {
 
     // Connection filtering and policy settings
     protected boolean authRequired = false; // Force authentication (MSA mode)
+
+    // RFC 4752 — GSSAPI/Kerberos authentication
+    protected GSSAPIServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
     private SMTPService service;
@@ -186,6 +196,41 @@ public class SMTPListener extends TCPListener {
      */
     public void setRealm(Realm realm) {
         this.realm = realm;
+    }
+
+    /**
+     * Returns the GSSAPI server for Kerberos authentication (RFC 4752),
+     * or null if GSSAPI is not configured.
+     *
+     * @return the GSSAPI server, or null
+     */
+    public GSSAPIServer getGSSAPIServer() {
+        return gssapiServer;
+    }
+
+    /**
+     * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
+     *
+     * @param gssapiServer the GSSAPI server
+     */
+    public void setGSSAPIServer(GSSAPIServer gssapiServer) {
+        this.gssapiServer = gssapiServer;
+    }
+
+    /**
+     * Configures GSSAPI/Kerberos authentication (RFC 4752) by creating
+     * a {@link GSSAPIServer} from the specified keytab and service
+     * principal.
+     *
+     * @param keytabPath the path to the Kerberos keytab file
+     * @param servicePrincipal the service principal name
+     *        (e.g. "smtp/mail.example.com@EXAMPLE.COM")
+     * @throws IOException if the keytab cannot be read or credentials
+     *         cannot be acquired
+     */
+    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+            throws IOException {
+        this.gssapiServer = new GSSAPIServer(keytabPath, servicePrincipal);
     }
 
     /**

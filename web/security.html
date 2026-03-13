@@ -151,11 +151,49 @@ containing space-separated role names. Users reference groups using the
 <h3 id="oauthrealm">OAuthRealm</h3>
 
 <p>
-<code>OAuthRealm</code> validates OAuth 2.0 tokens via RFC 7662 (token
-introspection). Constructed with a <code>Properties</code> instance specifying
+<code>OAuthRealm</code> validates OAuth 2.0 tokens via
+<a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662</a> (token
+introspection) and optionally via local
+<a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519</a> JWT
+validation. Constructed with a <code>Properties</code> instance specifying
 the introspection endpoint, client credentials, and role-scope mappings. Not
 directly DI-instantiable; use a factory or programmatic setup.
 </p>
+
+<h4>Local JWT Validation (RFC 7519)</h4>
+
+<p>
+When <code>oauth.jwt.enabled=true</code>, tokens that look like JWTs
+(three Base64url-encoded dot-separated segments) are validated locally
+before falling back to the introspection endpoint. This eliminates the
+round-trip for self-contained JWTs.
+</p>
+
+<p>Supported signature algorithms
+(<a href="https://www.rfc-editor.org/rfc/rfc7518#section-3">RFC 7518 §3</a>):</p>
+<ul>
+<li><b>HS256</b> — HMAC-SHA256 with shared secret
+    (<code>oauth.jwt.secret</code>)</li>
+<li><b>RS256</b> — RSA PKCS#1 v1.5 SHA-256 with public key
+    (<code>oauth.jwt.public.key</code>)</li>
+<li><b>ES256</b> — ECDSA P-256 SHA-256 with public key
+    (<code>oauth.jwt.public.key</code>)</li>
+</ul>
+
+<p>Standard claims are verified: <code>exp</code> (expiration),
+<code>nbf</code> (not-before) with configurable clock skew tolerance,
+<code>iss</code> (issuer), and <code>aud</code> (audience).</p>
+
+<pre>
+# Enable local JWT validation
+oauth.jwt.enabled=true
+oauth.jwt.secret=my-shared-secret
+
+# Optional claim validation
+oauth.jwt.issuer=https://auth.example.com
+oauth.jwt.audience=my-service
+oauth.jwt.clock.skew=30
+</pre>
 
 <p>
 <code>isUserInRole()</code> checks cached token scopes against role-scope
@@ -229,6 +267,18 @@ Security Layer) mechanisms for secure credential exchange.
   <td>OAuth 2.0 infrastructure</td>
   <td>For OAuth deployments</td>
 </tr>
+<tr>
+  <td><b>GSSAPI</b></td>
+  <td>Kerberos V5 mutual auth</td>
+  <td>Keytab + service principal</td>
+  <td>For Kerberos/enterprise SSO</td>
+</tr>
+<tr>
+  <td><b>EXTERNAL</b></td>
+  <td>TLS client certificate</td>
+  <td>mTLS configured</td>
+  <td>For certificate-based auth</td>
+</tr>
 </table>
 
 <h4>SCRAM-SHA-256 (Recommended)</h4>
@@ -248,6 +298,48 @@ SCRAM-SHA-256 is the recommended mechanism because:
 The realm stores <code>StoredKey</code> and <code>ServerKey</code> instead of
 the password. Even if the credential store is compromised, attackers cannot
 recover the original password.
+</p>
+
+<h4>GSSAPI/Kerberos (RFC 4752)</h4>
+
+<p>
+GSSAPI enables Kerberos V5 single sign-on authentication for IMAP, POP3, and
+SMTP. Each service requires a keytab file and service principal.
+</p>
+
+<p>
+Server-side GSSAPI authentication is event-loop safe: the
+<code>acceptSecContext()</code> operation decrypts the service ticket using the
+local keytab with no KDC network I/O. The LDAP client's GSSAPI bind
+automatically offloads the first <code>initSecContext()</code> call to a worker
+thread since it may contact the KDC.
+</p>
+
+<p>
+Gumdrop negotiates "no security layer" (RFC 4752 &sect;3.1) since TLS already
+provides confidentiality and integrity.
+</p>
+
+<h5>Configuration</h5>
+
+<pre>
+// Programmatic
+imapListener.configureGSSAPI(
+    Path.of("/etc/krb5.keytab"),
+    "imap/mail.example.com@EXAMPLE.COM");
+
+// Or via setGSSAPIServer() for shared keytab
+GSSAPIServer gss = new GSSAPIServer(
+    Path.of("/etc/krb5.keytab"),
+    "imap/mail.example.com@EXAMPLE.COM");
+imapListener.setGSSAPIServer(gss);
+</pre>
+
+<p>
+After successful GSSAPI authentication, the authenticated Kerberos principal
+(e.g. <code>user@EXAMPLE.COM</code>) is mapped to a local username via the
+Realm's <code>mapKerberosPrincipal()</code> method. The default implementation
+strips the realm portion.
 </p>
 
 <h3 id="rbac">Role-Based Access Control</h3>

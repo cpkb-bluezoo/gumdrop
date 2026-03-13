@@ -22,9 +22,11 @@
 package org.bluezoo.gumdrop.quic;
 
 import org.bluezoo.gumdrop.GumdropNative;
+import org.bluezoo.util.ByteArrays;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.security.SecureRandom;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
@@ -49,6 +51,12 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
  * QUIC engine managing connections over a single DatagramChannel.
+ *
+ * <p>QUIC (RFC 9000) is a UDP-based transport providing reliable,
+ * multiplexed streams with built-in TLS 1.3 (RFC 9001). This engine
+ * handles connection demultiplexing (RFC 9000 section 5), version
+ * negotiation (RFC 9000 section 6), and connection establishment
+ * (RFC 9000 section 7).
  *
  * <p>QuicEngine is a {@link ChannelHandler} registered with a
  * {@link SelectorLoop} on a {@link DatagramChannel}. When the channel
@@ -75,7 +83,9 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private static final Logger LOGGER =
             Logger.getLogger(QuicEngine.class.getName());
 
-    /** Maximum QUIC connection ID length per RFC 9000. */
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** Maximum QUIC connection ID length per RFC 9000 section 5.1. */
     private static final int MAX_CONN_ID_LEN = 20;
 
     private final QuicTransportFactory factory;
@@ -235,11 +245,11 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (LOGGER.isLoggable(Level.FINEST)) {
             LOGGER.finest("Parsed header: version=0x"
                     + Integer.toHexString(version)
-                    + " dcid=" + bytesToHex(dcid)
-                    + " scid=" + bytesToHex(peerScid));
+                    + " dcid=" + ByteArrays.toHexString(dcid)
+                    + " scid=" + ByteArrays.toHexString(peerScid));
         }
 
-        String connKey = bytesToHex(dcid);
+        String connKey = ByteArrays.toHexString(dcid);
         QuicConnection conn = connections.get(connKey);
 
         if (conn == null && serverMode) {
@@ -322,8 +332,9 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     /**
-     * Sends a stateless QUIC Version Negotiation packet.
-     * Called when an Initial packet arrives with an unsupported version.
+     * Sends a stateless QUIC Version Negotiation packet per
+     * RFC 9000 section 6.1. Called when an Initial packet arrives
+     * with an unsupported version.
      */
     private void sendVersionNegotiation(byte[] peerScid, byte[] dcid,
                                         InetSocketAddress dest) {
@@ -346,7 +357,8 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     /**
-     * Accepts a new incoming QUIC connection.
+     * Accepts a new incoming QUIC connection per RFC 9000 section 7
+     * (handshake).
      *
      * @param dcid    the DCID from the client's Initial packet
      * @param version the QUIC version from the packet header
@@ -385,13 +397,13 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             conn.setStreamAcceptHandler(streamAcceptHandler);
         }
 
-        String connKey = bytesToHex(scid);
+        String connKey = ByteArrays.toHexString(scid);
         connections.put(connKey, conn);
 
         // Also map the original client DCID so that the first
         // packet (which created this connection) can be looked up
         // after quiche responds with the server SCID.
-        String dcidKey = bytesToHex(dcid);
+        String dcidKey = ByteArrays.toHexString(dcid);
         if (!dcidKey.equals(connKey)) {
             connections.put(dcidKey, conn);
         }
@@ -679,6 +691,11 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     @Override
+    public void execute(Runnable task) {
+        selectorLoop.invokeLater(task);
+    }
+
+    @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
         return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
     }
@@ -686,8 +703,9 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     // ── Client connection setup ──
 
     /**
-     * Initiates a QUIC client connection to the specified remote address.
-     * Called by QuicTransportFactory.
+     * Initiates a QUIC client connection to the specified remote address
+     * per RFC 9000 section 7 (handshake). The client sends an Initial
+     * packet to begin the handshake. Called by QuicTransportFactory.
      *
      * @param remote the remote address
      * @param handler the handler for the initial stream
@@ -749,7 +767,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         clientConnection = conn;
 
-        String connKey = bytesToHex(scid);
+        String connKey = ByteArrays.toHexString(scid);
         connections.put(connKey, conn);
 
         // Send initial QUIC handshake packet
@@ -781,10 +799,10 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
     }
 
+    // RFC 9000 section 5.1 — connection IDs up to MAX_CONN_ID_LEN bytes
     private static byte[] generateConnectionId() {
         byte[] id = new byte[MAX_CONN_ID_LEN];
-        java.security.SecureRandom random = new java.security.SecureRandom();
-        random.nextBytes(id);
+        RANDOM.nextBytes(id);
         return id;
     }
 
@@ -805,15 +823,4 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         return result;
     }
 
-    private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
-
-    private static String bytesToHex(byte[] bytes) {
-        char[] hex = new char[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int v = bytes[i] & 0xFF;
-            hex[i * 2] = HEX_CHARS[v >>> 4];
-            hex[i * 2 + 1] = HEX_CHARS[v & 0x0F];
-        }
-        return new String(hex);
-    }
 }

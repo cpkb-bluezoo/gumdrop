@@ -26,17 +26,17 @@ import org.bluezoo.gumdrop.TCPListener;
 
 /**
  * TCP/TLS transport listener for DNS-over-TLS (DoT) queries.
- *
- * <p>DoT (RFC 7858) transports DNS messages over a TLS-encrypted TCP
- * connection on port 853. Each DNS message is prefixed with a two-byte
- * length field (DNS-over-TCP framing, RFC 1035 section 4.2.2).
+ * RFC 7858 section 3.1: a DoT server MUST listen on port 853. Port 853
+ * MUST NOT carry cleartext DNS. The first data exchange MUST be a TLS
+ * handshake.
+ * RFC 1035 section 4.2.2: DNS-over-TCP uses 2-byte length-prefixed framing.
  *
  * <p>A single TCP connection may carry multiple sequential
- * query-response pairs. Each accepted connection gets its own
- * {@link DoTProtocolHandler} that accumulates, parses, and responds
- * to DNS messages.
+ * query-response pairs (RFC 7858 section 3.3). Each accepted connection
+ * gets its own {@link DoTProtocolHandler} that accumulates, parses, and
+ * responds to DNS messages.
  *
- * <p>The listener is always secure (TLS is mandatory for DoT).
+ * <p>The listener is always secure (TLS is mandatory per RFC 7858 section 3.1).
  * Configure a keystore or certificate chain via the standard
  * {@link org.bluezoo.gumdrop.Listener} TLS properties.
  *

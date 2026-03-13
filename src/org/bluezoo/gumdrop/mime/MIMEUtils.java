@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.mime;
 /**
  * Utility methods for MIME parsing and validation.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2046">RFC 2046: MIME Part Two</a>
  */
 public final class MIMEUtils {
 

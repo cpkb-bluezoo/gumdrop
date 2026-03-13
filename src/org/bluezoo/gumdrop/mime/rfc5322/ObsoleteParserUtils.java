@@ -41,6 +41,7 @@ import java.util.List;
  * The parsers attempt to extract valid information from these obsolete formats
  * and convert them to modern objects.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-4">RFC 5322 §4 — Obsolete Syntax</a>
  */
 public class ObsoleteParserUtils {
 

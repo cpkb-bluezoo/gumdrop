@@ -514,4 +514,90 @@ public class Base64DecoderTest {
 		assertEquals("Hello World!", new String(decoded, StandardCharsets.UTF_8));
 	}
 
+	// ========== RFC 2045 §6.8 strict line length tests ==========
+
+	@Test
+	public void testStrictModeAcceptsValidLineLength() {
+		// 76 chars is exactly the RFC limit — a valid line of Base64
+		StringBuilder sb = new StringBuilder();
+		String base64 = Base64.getEncoder().encodeToString(
+				"This is some test data that should encode to a reasonable length.".getBytes(StandardCharsets.UTF_8));
+		// Trim to exactly 76 chars if longer
+		String line = base64.length() > 76 ? base64.substring(0, 76) : base64;
+		sb.append(line);
+
+		ByteBuffer src = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer dst = ByteBuffer.allocate(200);
+		// Should not throw
+		Base64Decoder.decode(src, dst, dst.capacity(), true, true);
+		assertTrue(dst.position() > 0);
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void testStrictModeRejectsLongLine() {
+		// Build a line of 77 valid Base64 characters (exceeds 76)
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < 77; i++) {
+			sb.append('A');
+		}
+		ByteBuffer src = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer dst = ByteBuffer.allocate(200);
+		Base64Decoder.decode(src, dst, dst.capacity(), true, true);
+	}
+
+	@Test
+	public void testStrictModeAcceptsMultipleShortLines() {
+		// Two lines of 20 chars each, separated by CRLF
+		String data = "QUFBQUFBQUFBQUFBQUFB\r\nQkJCQkJCQkJCQkJCQkJC\r\n";
+		ByteBuffer src = ByteBuffer.wrap(data.getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer dst = ByteBuffer.allocate(200);
+		Base64Decoder.decode(src, dst, dst.capacity(), true, true);
+		assertTrue(dst.position() > 0);
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void testStrictModeRejectsSecondLongLine() {
+		// First line OK (20 chars), second line too long (77 chars)
+		StringBuilder sb = new StringBuilder();
+		sb.append("QUFBQUFBQUFBQUFBQUFB\r\n");
+		for (int i = 0; i < 77; i++) {
+			sb.append('B');
+		}
+		ByteBuffer src = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer dst = ByteBuffer.allocate(200);
+		Base64Decoder.decode(src, dst, dst.capacity(), true, true);
+	}
+
+	@Test
+	public void testLenientModeAllowsLongLine() {
+		// In lenient mode (strict=false), long lines should be accepted
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < 100; i++) {
+			sb.append('A');
+		}
+		ByteBuffer src = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer dst = ByteBuffer.allocate(200);
+		// strict=false — no exception
+		Base64Decoder.decode(src, dst, dst.capacity(), true, false);
+		assertTrue(dst.position() > 0);
+	}
+
+	@Test
+	public void testStrictModeExactly76Chars() {
+		// Exactly 76 valid Base64 chars on a single line — should pass
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < 76; i++) {
+			sb.append('Q'); // 'Q' is valid Base64
+		}
+		ByteBuffer src = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII));
+		ByteBuffer dst = ByteBuffer.allocate(200);
+		Base64Decoder.decode(src, dst, dst.capacity(), true, true);
+		assertTrue(dst.position() > 0);
+	}
+
+	@Test
+	public void testMaxLineLengthConstant() {
+		assertEquals(76, Base64Decoder.MAX_LINE_LENGTH);
+	}
+
 }

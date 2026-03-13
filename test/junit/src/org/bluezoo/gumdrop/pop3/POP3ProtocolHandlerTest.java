@@ -284,6 +284,105 @@ public class POP3ProtocolHandlerTest {
                 hasStls);
     }
 
+    @Test
+    public void testCAPAIncludesRespCodes() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        String all = allResponses();
+        assertTrue("Should include RESP-CODES",
+                all.contains("RESP-CODES"));
+    }
+
+    @Test
+    public void testCAPAIncludesAuthRespCode() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        String all = allResponses();
+        assertTrue("Should include AUTH-RESP-CODE",
+                all.contains("AUTH-RESP-CODE"));
+    }
+
+    @Test
+    public void testCAPAIncludesExpireWhenConfigured() {
+        listener.setExpireDays(7);
+        handler = new POP3ProtocolHandler(listener);
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        String all = allResponses();
+        assertTrue("Should include EXPIRE 7",
+                all.contains("EXPIRE 7"));
+    }
+
+    @Test
+    public void testCAPAIncludesExpireNever() {
+        listener.setExpireDays(Integer.MAX_VALUE);
+        handler = new POP3ProtocolHandler(listener);
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        String all = allResponses();
+        assertTrue("Should include EXPIRE NEVER",
+                all.contains("EXPIRE NEVER"));
+    }
+
+    @Test
+    public void testCAPAExcludesExpireByDefault() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        List<String> lines = endpoint.getResponses();
+        boolean hasExpire = false;
+        for (String line : lines) {
+            if (line.startsWith("EXPIRE")) {
+                hasExpire = true;
+            }
+        }
+        assertFalse("Should not include EXPIRE by default",
+                hasExpire);
+    }
+
+    @Test
+    public void testCAPAIncludesLoginDelay() {
+        listener.setLoginDelayMs(5000);
+        handler = new POP3ProtocolHandler(listener);
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        String all = allResponses();
+        assertTrue("Should include LOGIN-DELAY 5",
+                all.contains("LOGIN-DELAY 5"));
+    }
+
+    @Test
+    public void testCAPAExcludesLoginDelayWhenZero() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("CAPA");
+        List<String> lines = endpoint.getResponses();
+        boolean hasLoginDelay = false;
+        for (String line : lines) {
+            if (line.startsWith("LOGIN-DELAY")) {
+                hasLoginDelay = true;
+            }
+        }
+        assertFalse("Should not include LOGIN-DELAY when 0",
+                hasLoginDelay);
+    }
+
+    @Test
+    public void testAuthFailureIncludesAuthRespCode() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("USER baduser");
+        sendCommand("PASS wrongpass");
+        String all = allResponses();
+        assertTrue("Auth failure should include [AUTH]",
+                all.contains("[AUTH]"));
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // NOOP tests
     // ═══════════════════════════════════════════════════════════════════
@@ -1340,6 +1439,9 @@ public class POP3ProtocolHandlerTest {
         @Override public void startTLS() { startTLSCalled = true; }
         @Override public SelectorLoop getSelectorLoop() {
             return null;
+        }
+        @Override public void execute(Runnable task) {
+            task.run();
         }
         @Override public TimerHandle scheduleTimer(long delayMs,
                                                    Runnable cb) {

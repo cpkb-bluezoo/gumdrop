@@ -62,7 +62,7 @@ public interface MIMEHandler {
 	void setLocator(MIMELocator locator);
 
 	/**
-	 * Receive notification of the beginning of a MIME entity.
+	 * RFC 2046 §5.1 — receive notification of the beginning of a MIME entity.
 	 * For the root entity, the boundary parameter will be null.
 	 * For nested entities in a multipart body, the boundary parameter will
 	 * be the MIME boundary string that started this entity.
@@ -74,7 +74,7 @@ public interface MIMEHandler {
 	void startEntity(String boundary) throws MIMEParseException;
 
 	/**
-	 * Receive notification of a Content-Type header in the current entity.
+	 * RFC 2045 §5 — receive notification of a Content-Type header.
 	 * @param contentType the structured content type value
 	 * @exception MIMEParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
@@ -82,7 +82,7 @@ public interface MIMEHandler {
 	void contentType(ContentType contentType) throws MIMEParseException;
 
 	/**
-	 * Receive notification of a Content-Disposition header in the current entity.
+	 * RFC 2183 — receive notification of a Content-Disposition header.
 	 * @param contentDisposition the structured content disposition value
 	 * @exception MIMEParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
@@ -90,7 +90,7 @@ public interface MIMEHandler {
 	void contentDisposition(ContentDisposition contentDisposition) throws MIMEParseException;
 
 	/**
-	 * Receive notification of a Content-Transfer-Encoding header in the current entity.
+	 * RFC 2045 §6.1 — receive notification of a Content-Transfer-Encoding header.
 	 * The argument to this method will be a token, either one of the 5
 	 * predefined ones (base64, quoted-printable, 8bit, 7bit, binary),
 	 * or a string token beginning with "x-" i.e. an x-token.
@@ -103,7 +103,7 @@ public interface MIMEHandler {
 	void contentTransferEncoding(String encoding) throws MIMEParseException;
 
 	/**
-	 * Receive notification of a Content-ID header in the current entity.
+	 * RFC 2045 §7 — receive notification of a Content-ID header.
 	 * @param contentID the structured content-id value
 	 * @exception MIMEParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
@@ -111,7 +111,7 @@ public interface MIMEHandler {
 	void contentID(ContentID contentID) throws MIMEParseException;
 
 	/**
-	 * Receive notification of a Content-Description header in the current entity.
+	 * RFC 2045 §8 — receive notification of a Content-Description header.
 	 * The description will have any RFC 2047 encoded words decoded.
 	 * @param description the content description text
 	 * @exception MIMEParseException if the processor encountered a fatal
@@ -120,7 +120,7 @@ public interface MIMEHandler {
 	void contentDescription(String description) throws MIMEParseException;
 
 	/**
-	 * Receive notification of a MIME-Version header in the current entity.
+	 * RFC 2045 §4 — receive notification of a MIME-Version header.
 	 * @param version the MIME-Version value
 	 * @exception MIMEParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
@@ -159,8 +159,8 @@ public interface MIMEHandler {
 	void bodyContent(ByteBuffer data) throws MIMEParseException;
 
 	/**
-	 * Receive notification of unexpected body content.
-	 * This is content that is:
+	 * RFC 2046 §5.1.1 — receive notification of unexpected body content
+	 * (preamble or epilogue).
 	 * <ul>
 	 * <li>at the start of a multipart entity where the first boundary would
 	 * be expected (preamble), or</li>
@@ -173,8 +173,8 @@ public interface MIMEHandler {
 	void unexpectedContent(ByteBuffer data) throws MIMEParseException;
 
 	/**
-	 * Receive notification that a MIME entity has been completely parsed.
-	 * For the root entity, the boundary parameter will be null.
+	 * RFC 2046 §5.1 — receive notification that a MIME entity has been
+	 * completely parsed. For the root entity, the boundary parameter will be null.
 	 * For nested entities in a multipart body, the boundary parameter will
 	 * be the MIME boundary string that ended this entity.
 	 * @param boundary the MIME boundary that ended this entity, or null

@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
  * implementing all methods of the interface.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketEventHandler
  */
 public abstract class DefaultWebSocketEventHandler implements WebSocketEventHandler {

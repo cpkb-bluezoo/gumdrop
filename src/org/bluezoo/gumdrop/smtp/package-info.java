@@ -215,6 +215,23 @@
  * (SPF at MAIL FROM, DKIM/DMARC at end-of-data).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207 - STARTTLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - SMTP AUTH</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - Implicit TLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1870">RFC 1870 - SIZE</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6152">RFC 6152 - 8BITMIME</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6531">RFC 6531 - SMTPUTF8</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2920">RFC 2920 - PIPELINING</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030 - CHUNKING/BINARYMIME</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2034">RFC 2034 - ENHANCEDSTATUSCODES</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - DSN</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9422">RFC 9422 - LIMITS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689 - REQUIRETLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6710">RFC 6710 - MT-PRIORITY</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4865">RFC 4865 - FUTURERELEASE</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2852">RFC 2852 - DELIVERBY</a>
  * @see org.bluezoo.gumdrop.smtp.SMTPListener
  * @see org.bluezoo.gumdrop.smtp.handler.ClientConnected
  * @see org.bluezoo.gumdrop.smtp.SMTPPipeline

@@ -61,6 +61,7 @@ import org.bluezoo.gumdrop.Endpoint;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ConnectedState
  * @see HelloHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.2">RFC 5321 §4.2</a> (initial connection)
  */
 public interface ClientConnected {
 

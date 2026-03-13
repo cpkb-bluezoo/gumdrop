@@ -26,11 +26,18 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 
 /**
- * Decodes RESP wire format to values.
+ * Decodes RESP wire format to values (RESP spec — "RESP protocol description").
+ *
+ * <p>Supports RESP2 data types: Simple String (+), Error (-), Integer (:),
+ * Bulk String ($), and Array (*), as well as RESP3 types: Map (%),
+ * Set (~), Double (,), Boolean (#), Null (_), Push (&gt;), Verbatim
+ * String (=), Big Number ((), and Blob Error (!).
  *
  * <p>This decoder handles streaming input, accumulating data until complete
  * RESP values can be parsed. It is designed for use with non-blocking I/O
@@ -58,6 +65,7 @@ import java.util.ResourceBundle;
  * values are preserved across multiple {@code receive()} calls.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public class RESPDecoder {
 
@@ -187,6 +195,34 @@ public class RESPDecoder {
             case ARRAY:
                 result = parseArray();
                 break;
+            // RESP3 types
+            case MAP:
+                result = parseMap();
+                break;
+            case SET:
+                result = parseSet();
+                break;
+            case DOUBLE:
+                result = parseDouble();
+                break;
+            case BOOLEAN:
+                result = parseBoolean();
+                break;
+            case NULL:
+                result = parseNull();
+                break;
+            case PUSH:
+                result = parsePush();
+                break;
+            case VERBATIM_STRING:
+                result = parseVerbatimString();
+                break;
+            case BIG_NUMBER:
+                result = parseBigNumber();
+                break;
+            case BLOB_ERROR:
+                result = parseBlobError();
+                break;
             default:
                 String msg = MessageFormat.format(L10N.getString("err.unknown_type"), type);
                 throw new RESPException(msg);
@@ -309,6 +345,208 @@ public class RESPDecoder {
         }
         return RESPValue.array(elements);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RESP3 type parsers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // RESP3 — Map type: %count\r\n key1 value1 key2 value2 ...
+    private RESPValue parseMap() throws RESPException {
+        String countLine = readLine();
+        if (countLine == null) {
+            return null;
+        }
+        int count;
+        try {
+            count = Integer.parseInt(countLine);
+        } catch (NumberFormatException e) {
+            throw new RESPException("Invalid map count: " + countLine, e);
+        }
+        if (count < 0) {
+            return RESPValue.nullValue();
+        }
+        Map<RESPValue, RESPValue> entries = new LinkedHashMap<RESPValue, RESPValue>(count);
+        for (int i = 0; i < count; i++) {
+            RESPValue key = tryParse();
+            if (key == null) {
+                return null;
+            }
+            RESPValue val = tryParse();
+            if (val == null) {
+                return null;
+            }
+            entries.put(key, val);
+        }
+        return RESPValue.map(entries);
+    }
+
+    // RESP3 — Set type: ~count\r\n elem1 elem2 ...
+    private RESPValue parseSet() throws RESPException {
+        String countLine = readLine();
+        if (countLine == null) {
+            return null;
+        }
+        int count;
+        try {
+            count = Integer.parseInt(countLine);
+        } catch (NumberFormatException e) {
+            throw new RESPException("Invalid set count: " + countLine, e);
+        }
+        List<RESPValue> elements = new ArrayList<RESPValue>(count);
+        for (int i = 0; i < count; i++) {
+            RESPValue element = tryParse();
+            if (element == null) {
+                return null;
+            }
+            elements.add(element);
+        }
+        return RESPValue.set(elements);
+    }
+
+    // RESP3 — Double type: ,value\r\n (supports "inf", "-inf", "nan")
+    private RESPValue parseDouble() throws RESPException {
+        String line = readLine();
+        if (line == null) {
+            return null;
+        }
+        double val;
+        if ("inf".equals(line)) {
+            val = Double.POSITIVE_INFINITY;
+        } else if ("-inf".equals(line)) {
+            val = Double.NEGATIVE_INFINITY;
+        } else if ("nan".equals(line)) {
+            val = Double.NaN;
+        } else {
+            try {
+                val = Double.parseDouble(line);
+            } catch (NumberFormatException e) {
+                throw new RESPException("Invalid double value: " + line, e);
+            }
+        }
+        return RESPValue.doubleValue(val);
+    }
+
+    // RESP3 — Boolean type: #t\r\n or #f\r\n
+    private RESPValue parseBoolean() throws RESPException {
+        String line = readLine();
+        if (line == null) {
+            return null;
+        }
+        if ("t".equals(line)) {
+            return RESPValue.booleanValue(true);
+        } else if ("f".equals(line)) {
+            return RESPValue.booleanValue(false);
+        }
+        throw new RESPException("Invalid boolean value: " + line);
+    }
+
+    // RESP3 — Null type: _\r\n
+    private RESPValue parseNull() throws RESPException {
+        String line = readLine();
+        if (line == null) {
+            return null;
+        }
+        return RESPValue.resp3Null();
+    }
+
+    // RESP3 — Push type: >count\r\n elem1 elem2 ... (same structure as Array)
+    private RESPValue parsePush() throws RESPException {
+        String countLine = readLine();
+        if (countLine == null) {
+            return null;
+        }
+        int count;
+        try {
+            count = Integer.parseInt(countLine);
+        } catch (NumberFormatException e) {
+            throw new RESPException("Invalid push count: " + countLine, e);
+        }
+        List<RESPValue> elements = new ArrayList<RESPValue>(count);
+        for (int i = 0; i < count; i++) {
+            RESPValue element = tryParse();
+            if (element == null) {
+                return null;
+            }
+            elements.add(element);
+        }
+        return RESPValue.push(elements);
+    }
+
+    // RESP3 — Verbatim string: =length\r\nenc:data\r\n (3-char encoding + ':' + data)
+    private RESPValue parseVerbatimString() throws RESPException {
+        String lengthLine = readLine();
+        if (lengthLine == null) {
+            return null;
+        }
+        int length;
+        try {
+            length = Integer.parseInt(lengthLine);
+        } catch (NumberFormatException e) {
+            throw new RESPException("Invalid verbatim string length: " + lengthLine, e);
+        }
+        if (length < 0) {
+            return RESPValue.nullValue();
+        }
+        if (buffer.remaining() < length + 2) {
+            return null;
+        }
+        byte[] raw = new byte[length];
+        buffer.get(raw);
+        byte cr = buffer.get();
+        byte lf = buffer.get();
+        if (cr != '\r' || lf != '\n') {
+            throw new RESPException("Missing CRLF after verbatim string");
+        }
+        String encoding = "txt";
+        byte[] data = raw;
+        if (length >= 4 && raw[3] == ':') {
+            encoding = new String(raw, 0, 3, UTF_8);
+            data = new byte[length - 4];
+            System.arraycopy(raw, 4, data, 0, data.length);
+        }
+        return RESPValue.verbatimString(encoding, data);
+    }
+
+    // RESP3 — Big number: (value\r\n
+    private RESPValue parseBigNumber() throws RESPException {
+        String line = readLine();
+        if (line == null) {
+            return null;
+        }
+        return RESPValue.bigNumber(line);
+    }
+
+    // RESP3 — Blob error: !length\r\ndata\r\n (same structure as Bulk String)
+    private RESPValue parseBlobError() throws RESPException {
+        String lengthLine = readLine();
+        if (lengthLine == null) {
+            return null;
+        }
+        int length;
+        try {
+            length = Integer.parseInt(lengthLine);
+        } catch (NumberFormatException e) {
+            throw new RESPException("Invalid blob error length: " + lengthLine, e);
+        }
+        if (length < 0) {
+            return RESPValue.nullValue();
+        }
+        if (buffer.remaining() < length + 2) {
+            return null;
+        }
+        byte[] data = new byte[length];
+        buffer.get(data);
+        byte cr = buffer.get();
+        byte lf = buffer.get();
+        if (cr != '\r' || lf != '\n') {
+            throw new RESPException("Missing CRLF after blob error");
+        }
+        return RESPValue.blobError(data);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Line reading
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Reads a line terminated by CRLF.

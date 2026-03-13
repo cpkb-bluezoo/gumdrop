@@ -47,6 +47,7 @@ import org.bluezoo.gumdrop.mailbox.Mailbox;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see AuthenticateState#accept
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-5">RFC 1939 section 5 — The TRANSACTION State</a>
  */
 public interface TransactionHandler {
 

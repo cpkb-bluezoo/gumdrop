@@ -27,6 +27,7 @@ import java.nio.ByteBuffer;
  * Quoted-Printable decoder for Content-Transfer-Encoding processing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045#section-6.7">RFC 2045 §6.7</a>
  */
 class QuotedPrintableDecoder {
 

@@ -30,9 +30,14 @@ package org.bluezoo.gumdrop.smtp.handler;
  * <p>After accepting or rejecting, the connection returns to the mail-from
  * ready state where another transaction can begin.
  * 
+ * <p>Methods map to reply codes: {@code acceptMessageDelivery} → 250,
+ * {@code rejectMessageTemporary} → 450, {@code rejectMessagePermanent} → 550,
+ * {@code rejectMessagePolicy} → 553.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MessageDataHandler#messageComplete
  * @see MailFromHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.3">RFC 5321 §3.3</a>
  */
 public interface MessageEndState {
 

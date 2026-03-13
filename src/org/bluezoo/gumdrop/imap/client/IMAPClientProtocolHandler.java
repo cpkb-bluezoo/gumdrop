@@ -56,6 +56,7 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerListReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerLoginReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerMailboxReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerNamespaceReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.ServerQuotaReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerNoopReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerSearchReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerSelectReplyHandler;
@@ -64,20 +65,31 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerStatusReplyHandler;
 import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
 
 /**
- * IMAP client protocol handler implementing {@link ProtocolHandler}.
+ * IMAP4rev2 client protocol handler (RFC 9051).
  *
  * <p>Implements a type-safe IMAP client state machine with staged
  * callback interfaces constraining which operations are valid at
  * each protocol stage. Tagged command tracking ensures exactly one
- * command is in-flight at a time.
+ * command is in-flight at a time (RFC 9051 section 5.5).
  *
  * <p>Line parsing is handled by the composable {@link LineParser} utility.
  * Incoming literal data (FETCH body sections) is tracked by
  * {@link LiteralTracker} and streamed as ByteBuffer chunks.
  *
+ * <p>Supported features:
+ * <ul>
+ *   <li>STARTTLS — RFC 9051 section 6.2.1</li>
+ *   <li>SASL AUTHENTICATE with initial response — RFC 4959</li>
+ *   <li>IDLE — RFC 2177</li>
+ *   <li>NAMESPACE — RFC 2342</li>
+ *   <li>MOVE — RFC 6851</li>
+ *   <li>APPEND with literal streaming</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see ServerGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
 public class IMAPClientProtocolHandler
         implements ProtocolHandler, LineParser.Callback,
@@ -315,8 +327,9 @@ public class IMAPClientProtocolHandler
         }
     }
 
-    // ── ClientNotAuthenticatedState ──
+    // ── ClientNotAuthenticatedState (RFC 9051 section 6.1–6.2) ──
 
+    // RFC 9051 section 6.1.1 — CAPABILITY command
     @Override
     public void capability(ServerCapabilityReplyHandler callback) {
         this.currentCallback = callback;
@@ -324,6 +337,7 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand("CAPABILITY", IMAPState.CAPABILITY_SENT);
     }
 
+    // RFC 9051 section 6.2.3 — LOGIN command
     @Override
     public void login(String username, String password,
                       ServerLoginReplyHandler callback) {
@@ -332,6 +346,7 @@ public class IMAPClientProtocolHandler
                 + quoteString(password), IMAPState.LOGIN_SENT);
     }
 
+    // RFC 9051 section 6.2.2 — AUTHENTICATE, RFC 4959 initial response
     @Override
     public void authenticate(String mechanism, byte[] initialResponse,
                              ServerAuthReplyHandler callback) {
@@ -346,12 +361,14 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand(cmd.toString(), IMAPState.AUTHENTICATE_SENT);
     }
 
+    // RFC 9051 section 6.2.1 — STARTTLS command
     @Override
     public void starttls(ServerStarttlsReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("STARTTLS", IMAPState.STARTTLS_SENT);
     }
 
+    // RFC 9051 section 6.1.3 — LOGOUT command
     @Override
     public void logout() {
         sendTaggedCommand("LOGOUT", IMAPState.LOGOUT_SENT);
@@ -376,8 +393,9 @@ public class IMAPClientProtocolHandler
         sendRawLine("*", IMAPState.AUTH_ABORT_SENT);
     }
 
-    // ── ClientAuthenticatedState ──
+    // ── ClientAuthenticatedState (RFC 9051 section 6.3) ──
 
+    // RFC 9051 section 6.3.1 — SELECT command
     @Override
     public void select(String mailbox,
                        ServerSelectReplyHandler callback) {
@@ -387,6 +405,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.SELECT_SENT);
     }
 
+    // RFC 9051 section 6.3.2 — EXAMINE command
     @Override
     public void examine(String mailbox,
                         ServerSelectReplyHandler callback) {
@@ -396,6 +415,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.EXAMINE_SENT);
     }
 
+    // RFC 9051 section 6.3.3 — CREATE command
     @Override
     public void create(String mailbox,
                        ServerMailboxReplyHandler callback) {
@@ -404,6 +424,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.CREATE_SENT);
     }
 
+    // RFC 9051 section 6.3.4 — DELETE command
     @Override
     public void delete(String mailbox,
                        ServerMailboxReplyHandler callback) {
@@ -412,6 +433,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.DELETE_SENT);
     }
 
+    // RFC 9051 section 6.3.5 — RENAME command
     @Override
     public void rename(String from, String to,
                        ServerMailboxReplyHandler callback) {
@@ -420,6 +442,7 @@ public class IMAPClientProtocolHandler
                 + quoteString(to), IMAPState.RENAME_SENT);
     }
 
+    // RFC 9051 section 6.3.6 — SUBSCRIBE command
     @Override
     public void subscribe(String mailbox,
                           ServerMailboxReplyHandler callback) {
@@ -428,6 +451,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.SUBSCRIBE_SENT);
     }
 
+    // RFC 9051 section 6.3.7 — UNSUBSCRIBE command
     @Override
     public void unsubscribe(String mailbox,
                             ServerMailboxReplyHandler callback) {
@@ -436,6 +460,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.UNSUBSCRIBE_SENT);
     }
 
+    // RFC 9051 section 6.3.8 — LIST command
     @Override
     public void list(String reference, String pattern,
                      ServerListReplyHandler callback) {
@@ -444,6 +469,7 @@ public class IMAPClientProtocolHandler
                 + quoteString(pattern), IMAPState.LIST_SENT);
     }
 
+    // RFC 9051 section 6.3.9 — LSUB command (deprecated)
     @Override
     public void lsub(String reference, String pattern,
                      ServerListReplyHandler callback) {
@@ -452,6 +478,7 @@ public class IMAPClientProtocolHandler
                 + quoteString(pattern), IMAPState.LSUB_SENT);
     }
 
+    // RFC 9051 section 6.3.11 — STATUS command
     @Override
     public void status(String mailbox, String[] items,
                        ServerStatusReplyHandler callback) {
@@ -470,6 +497,7 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand(cmd.toString(), IMAPState.STATUS_SENT);
     }
 
+    // RFC 2342 — NAMESPACE command
     @Override
     public void namespace(ServerNamespaceReplyHandler callback) {
         this.currentCallback = callback;
@@ -478,6 +506,25 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand("NAMESPACE", IMAPState.NAMESPACE_SENT);
     }
 
+    // RFC 9208 — GETQUOTA command
+    @Override
+    public void getQuota(String quotaRoot,
+                         ServerQuotaReplyHandler callback) {
+        this.currentCallback = callback;
+        sendTaggedCommand("GETQUOTA " + quoteString(quotaRoot),
+                IMAPState.GETQUOTA_SENT);
+    }
+
+    // RFC 9208 — GETQUOTAROOT command
+    @Override
+    public void getQuotaRoot(String mailbox,
+                             ServerQuotaReplyHandler callback) {
+        this.currentCallback = callback;
+        sendTaggedCommand("GETQUOTAROOT " + quoteString(mailbox),
+                IMAPState.GETQUOTAROOT_SENT);
+    }
+
+    // RFC 9051 section 6.3.12 — APPEND command
     @Override
     public void append(String mailbox, String[] flags, String date,
                        long size, ServerAppendReplyHandler callback) {
@@ -501,6 +548,7 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand(cmd.toString(), IMAPState.APPEND_SENT);
     }
 
+    // RFC 2177 — IDLE command
     @Override
     public void idle(ServerIdleEventHandler callback) {
         this.currentCallback = callback;
@@ -508,32 +556,37 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand("IDLE", IMAPState.IDLE_SENT);
     }
 
+    // RFC 9051 section 6.1.2 — NOOP command
     @Override
     public void noop(ServerNoopReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("NOOP", IMAPState.NOOP_SENT);
     }
 
-    // ── ClientSelectedState ──
+    // ── ClientSelectedState (RFC 9051 section 6.4) ──
 
+    // RFC 9051 section 6.4.1 — CLOSE command
     @Override
     public void close(ServerCloseReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("CLOSE", IMAPState.CLOSE_SENT);
     }
 
+    // RFC 9051 section 6.4.2 — UNSELECT command
     @Override
     public void unselect(ServerCloseReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("UNSELECT", IMAPState.UNSELECT_SENT);
     }
 
+    // RFC 9051 section 6.4.3 — EXPUNGE command
     @Override
     public void expunge(ServerExpungeReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("EXPUNGE", IMAPState.EXPUNGE_SENT);
     }
 
+    // RFC 9051 section 6.4.4 — SEARCH command
     @Override
     public void search(String criteria,
                        ServerSearchReplyHandler callback) {
@@ -552,6 +605,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.SEARCH_SENT);
     }
 
+    // RFC 9051 section 6.4.5 — FETCH command
     @Override
     public void fetch(String sequenceSet, String dataItems,
                       ServerFetchReplyHandler callback) {
@@ -568,6 +622,7 @@ public class IMAPClientProtocolHandler
                 IMAPState.FETCH_SENT);
     }
 
+    // RFC 9051 section 6.4.6 — STORE command
     @Override
     public void store(String sequenceSet, String action,
                       String[] flags,
@@ -602,6 +657,7 @@ public class IMAPClientProtocolHandler
         sendTaggedCommand(cmd.toString(), IMAPState.STORE_SENT);
     }
 
+    // RFC 9051 section 6.4.7 — COPY command
     @Override
     public void copy(String sequenceSet, String mailbox,
                      ServerCopyReplyHandler callback) {
@@ -620,6 +676,7 @@ public class IMAPClientProtocolHandler
                 + quoteString(mailbox), IMAPState.COPY_SENT);
     }
 
+    // RFC 6851 — MOVE command
     @Override
     public void move(String sequenceSet, String mailbox,
                      ServerCopyReplyHandler callback) {
@@ -720,8 +777,9 @@ public class IMAPClientProtocolHandler
         }
     }
 
-    // ── Response handling ──
+    // ── Response handling (RFC 9051 section 7) ──
 
+    // RFC 9051 section 7 — server responses: tagged, untagged, continuation
     private void handleResponseLine(String line) {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Received IMAP response: " + line);
@@ -860,6 +918,16 @@ public class IMAPClientProtocolHandler
             return;
         }
 
+        // RFC 9208 — QUOTA / QUOTAROOT untagged responses
+        if (upper.startsWith("QUOTA ")) {
+            dispatchQuotaLine(msg.substring(6));
+            return;
+        }
+        if (upper.startsWith("QUOTAROOT ")) {
+            dispatchQuotaRootLine(msg.substring(10));
+            return;
+        }
+
         if (upper.startsWith("FLAGS ")) {
             if (pendingMailboxInfo != null) {
                 pendingMailboxInfo.setFlags(
@@ -873,6 +941,7 @@ public class IMAPClientProtocolHandler
         }
     }
 
+    // RFC 9051 section 7.1 — server greeting (OK, PREAUTH, BYE)
     private void dispatchGreeting(IMAPResponse response) {
         String msg = response.getMessage();
 
@@ -1299,6 +1368,82 @@ public class IMAPClientProtocolHandler
         }
     }
 
+    // ── QUOTA / QUOTAROOT parsing (RFC 9208) ──
+
+    private void dispatchQuotaLine(String data) {
+        // Format: quotaroot (resource usage limit ...)
+        // e.g.  "" (STORAGE 10 512)
+        if (!(currentCallback instanceof ServerQuotaReplyHandler)) {
+            return;
+        }
+        ServerQuotaReplyHandler cb =
+                (ServerQuotaReplyHandler) currentCallback;
+        int parenStart = data.indexOf('(');
+        if (parenStart < 0) {
+            return;
+        }
+        String quotaRoot = unquote(data.substring(0, parenStart).trim());
+        String resources = data.substring(parenStart + 1,
+                data.lastIndexOf(')'));
+        String[] tokens = resources.trim().split("\\s+");
+        // triplets: resourceName usage limit
+        for (int i = 0; i + 2 < tokens.length; i += 3) {
+            String resourceName = tokens[i];
+            long usage = Long.parseLong(tokens[i + 1]);
+            long limit = Long.parseLong(tokens[i + 2]);
+            cb.handleQuota(quotaRoot, resourceName, usage, limit);
+        }
+    }
+
+    private void dispatchQuotaRootLine(String data) {
+        // Format: mailbox quotaroot1 quotaroot2 ...
+        // e.g.  INBOX ""
+        if (!(currentCallback instanceof ServerQuotaReplyHandler)) {
+            return;
+        }
+        ServerQuotaReplyHandler cb =
+                (ServerQuotaReplyHandler) currentCallback;
+        String[] parts = splitQuotedArgs(data);
+        if (parts.length >= 1) {
+            String mailbox = unquote(parts[0]);
+            String[] roots = new String[parts.length - 1];
+            for (int i = 1; i < parts.length; i++) {
+                roots[i - 1] = unquote(parts[i]);
+            }
+            cb.handleQuotaRoot(mailbox, roots);
+        }
+    }
+
+    private static String[] splitQuotedArgs(String s) {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        int len = s.length();
+        int i = 0;
+        while (i < len) {
+            while (i < len && s.charAt(i) == ' ') {
+                i++;
+            }
+            if (i >= len) {
+                break;
+            }
+            if (s.charAt(i) == '"') {
+                int end = s.indexOf('"', i + 1);
+                if (end < 0) {
+                    end = len;
+                }
+                parts.add(s.substring(i, end + 1));
+                i = end + 1;
+            } else {
+                int end = s.indexOf(' ', i);
+                if (end < 0) {
+                    end = len;
+                }
+                parts.add(s.substring(i, end));
+                i = end;
+            }
+        }
+        return parts.toArray(new String[0]);
+    }
+
     // ── Tagged dispatch ──
 
     private void dispatchTagged(IMAPResponse response) {
@@ -1352,6 +1497,10 @@ public class IMAPClientProtocolHandler
                 break;
             case NAMESPACE_SENT:
                 dispatchNamespaceComplete(response);
+                break;
+            case GETQUOTA_SENT:
+            case GETQUOTAROOT_SENT:
+                dispatchQuotaComplete(response);
                 break;
             case APPEND_DATA:
                 dispatchAppendComplete(response);
@@ -1568,6 +1717,20 @@ public class IMAPClientProtocolHandler
                     namespacePersonalDelimiter);
         } else {
             callback.handleError(this, response.getMessage());
+        }
+    }
+
+    // RFC 9208 — GETQUOTA / GETQUOTAROOT completion
+    private void dispatchQuotaComplete(IMAPResponse response) {
+        ServerQuotaReplyHandler callback =
+                (ServerQuotaReplyHandler) currentCallback;
+        currentCallback = null;
+        state = restoreBaseState();
+
+        if (response.isOk()) {
+            callback.handleQuotaComplete();
+        } else {
+            callback.handleQuotaError(response.getMessage());
         }
     }
 

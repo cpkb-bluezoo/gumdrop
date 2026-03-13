@@ -56,6 +56,7 @@ import org.bluezoo.gumdrop.ClientHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientAuthorizationState
  * @see ClientHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-4">RFC 1939 section 4 — Server Greeting</a>
  */
 public interface ServerGreeting extends ClientHandler {
 

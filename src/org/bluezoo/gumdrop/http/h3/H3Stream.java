@@ -31,9 +31,15 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import java.io.IOException;
+
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
+import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPPrincipal;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
@@ -48,19 +54,22 @@ import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 /**
  * A single HTTP/3 request/response exchange on a QUIC stream.
  *
  * <p>This is the HTTP/3 equivalent of the HTTP/2 {@code Stream} class.
- * Each instance manages one request/response lifecycle and implements
- * {@link HTTPResponseState} so that {@link HTTPRequestHandler}
- * implementations can send responses identically to HTTP/2.
+ * Each instance manages one request/response lifecycle (RFC 9114
+ * section 4.1) and implements {@link HTTPResponseState} so that
+ * {@link HTTPRequestHandler} implementations can send responses
+ * identically to HTTP/2.
  *
  * <p>HTTP/3 framing (HEADERS, DATA, GOAWAY) is handled by the quiche
  * h3 module via JNI. This class translates h3 events into the
  * {@link HTTPRequestHandler} event sequence and converts
  * {@code HTTPResponseState} calls into h3 send operations.
+ * Connection-specific headers are stripped per RFC 9114 section 4.2.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ServerHandler
@@ -79,7 +88,10 @@ class H3Stream implements HTTPResponseState {
             ByteBuffer.allocate(0).asReadOnlyBuffer();
 
     /**
-     * Stream lifecycle states.
+     * Stream lifecycle states. Maps to the HTTP/3 request/response
+     * lifecycle in RFC 9114 section 4.1: a client sends HEADERS
+     * (optionally followed by DATA), then FIN; the server sends
+     * HEADERS (optionally followed by DATA), then FIN.
      */
     enum State {
         /** Waiting for initial HEADERS event. */
@@ -102,11 +114,16 @@ class H3Stream implements HTTPResponseState {
     private Headers requestHeaders;
     private String method;
     private String requestTarget;
+    private String protocol;
     private Principal authenticatedPrincipal;
     private boolean bodyStarted;
     private boolean responseStarted;
     private boolean responseBodyStarted;
     private List<Header> pendingResponseHeaders;
+
+    private H3WebSocketConnectionAdapter webSocketAdapter;
+
+    private boolean readPaused;
 
     private List<ByteBuffer> pendingWriteQueue;
     private boolean pendingFin;
@@ -133,7 +150,13 @@ class H3Stream implements HTTPResponseState {
 
     /**
      * Called when an h3 HEADERS event is received for this stream.
-     * The headers are provided as a flat array of alternating name/value pairs.
+     * The headers are provided as a flat array of alternating name/value
+     * pairs including pseudo-headers (RFC 9114 section 4.3.1).
+     *
+     * <p>For requests, RFC 9114 section 4.3.1 requires the pseudo-headers
+     * {@code :method}, {@code :scheme}, and {@code :path} (or
+     * {@code :authority} for CONNECT). Quiche validates pseudo-header
+     * presence at the h3 layer.
      */
     void onHeaders(String[] headerPairs) {
         Headers headers = new Headers();
@@ -146,6 +169,19 @@ class H3Stream implements HTTPResponseState {
             requestHeaders = headers;
             method = headers.getValue(":method");
             requestTarget = headers.getValue(":path");
+            protocol = headers.getValue(":protocol");
+
+            // RFC 9114 section 4.1.2 / 4.3.1: validate mandatory
+            // pseudo-headers. CONNECT omits :scheme and :path.
+            if (method == null
+                    || (!"CONNECT".equals(method)
+                        && (headers.getValue(":scheme") == null
+                            || requestTarget == null))) {
+                LOGGER.warning("Malformed request: missing required "
+                        + "pseudo-headers on stream " + streamId);
+                sendErrorResponse(400);
+                return;
+            }
 
             HTTPAuthenticationProvider authProvider =
                     connection.getAuthenticationProvider();
@@ -213,6 +249,8 @@ class H3Stream implements HTTPResponseState {
 
     /**
      * Called when an h3 RESET event is received (stream aborted by peer).
+     * Per RFC 9114 section 8, stream errors are signalled via QUIC
+     * RESET_STREAM with an HTTP/3 error code.
      */
     void onReset() {
         if (span != null && !span.isEnded()) {
@@ -267,6 +305,56 @@ class H3Stream implements HTTPResponseState {
     }
 
     @Override
+    public void sendInformational(int statusCode, Headers headers) {
+        if (statusCode < 100 || statusCode > 199) {
+            throw new IllegalArgumentException(
+                    "Status code must be 1xx: " + statusCode);
+        }
+        if (responseBodyStarted) {
+            throw new IllegalStateException(
+                    "Cannot send informational response after body started");
+        }
+
+        List<Header> infoHeaders = new ArrayList<>();
+        infoHeaders.add(new Header(":status", String.valueOf(statusCode)));
+        for (int i = 0; i < headers.size(); i++) {
+            Header h = headers.get(i);
+            String name = h.getName();
+            if ("Connection".equalsIgnoreCase(name)
+                    || "Keep-Alive".equalsIgnoreCase(name)
+                    || "Transfer-Encoding".equalsIgnoreCase(name)) {
+                continue;
+            }
+            infoHeaders.add(h);
+        }
+
+        String[] headerArray = new String[infoHeaders.size() * 2];
+        for (int i = 0; i < infoHeaders.size(); i++) {
+            Header h = infoHeaders.get(i);
+            headerArray[i * 2] = h.getName();
+            headerArray[i * 2 + 1] = h.getValue();
+        }
+
+        long h3Conn = connection.getH3Conn();
+        long quicheConn = connection.getQuicheConn();
+        int result;
+        if (!responseStarted) {
+            result = GumdropNative.quiche_h3_send_response(
+                    h3Conn, quicheConn, streamId, headerArray, false);
+        } else {
+            result = GumdropNative.quiche_h3_send_additional_headers(
+                    h3Conn, quicheConn, streamId, headerArray, false, false);
+        }
+        if (result < 0) {
+            LOGGER.log(Level.WARNING,
+                    "h3 send informational failed: " + result
+                            + " stream=" + streamId);
+        }
+        responseStarted = true;
+        connection.flushQuic();
+    }
+
+    @Override
     public void headers(Headers headers) {
         if (pendingResponseHeaders == null) {
             pendingResponseHeaders = new ArrayList<Header>();
@@ -310,21 +398,253 @@ class H3Stream implements HTTPResponseState {
         }
     }
 
+    /**
+     * RFC 9114 section 4.6 — server push. HTTP/3 server push uses
+     * PUSH_PROMISE frames on the request stream plus a unidirectional
+     * push stream. Push is rarely used in practice and many clients
+     * disable it. This implementation declines all push requests.
+     */
     @Override
     public boolean pushPromise(Headers headers) {
-        // HTTP/3 server push is rarely used and deprecated in practice
         return false;
+    }
+
+    /**
+     * RFC 9220 section 3 — WebSocket over HTTP/3 via Extended CONNECT.
+     * Validates the request, sends a 200 OK response (no
+     * {@code Sec-WebSocket-Key} exchange — HTTP/3 integrity is provided
+     * by TLS), and bridges the H3 stream to a {@link WebSocketConnection}.
+     */
+    @Override
+    public void upgradeToWebSocket(String subprotocol,
+            WebSocketEventHandler wsHandler) {
+        upgradeToWebSocketInternal(subprotocol, null, wsHandler);
     }
 
     @Override
     public void upgradeToWebSocket(String subprotocol,
-            WebSocketEventHandler handler) {
-        // TODO: Implement WebSocket over HTTP/3 per RFC 9220. Requires:
-        // (1) Extended CONNECT with :protocol "websocket"
-        // (2) SETTINGS_ENABLE_CONNECT_PROTOCOL advertisement in H3Connection
-        // (3) Stream-to-WebSocket adapter mirroring Stream.WebSocketConnectionAdapter
-        throw new UnsupportedOperationException(
-                "WebSocket over HTTP/3 not yet supported");
+            List<WebSocketExtension> extensions,
+            WebSocketEventHandler wsHandler) {
+        upgradeToWebSocketInternal(subprotocol, extensions, wsHandler);
+    }
+
+    private void upgradeToWebSocketInternal(String subprotocol,
+            List<WebSocketExtension> extensions,
+            WebSocketEventHandler wsHandler) {
+        if (!"CONNECT".equals(method)
+                || !"websocket".equalsIgnoreCase(protocol)) {
+            throw new IllegalStateException(
+                    "Not an Extended CONNECT with :protocol websocket");
+        }
+        if (responseStarted) {
+            throw new IllegalStateException(
+                    "Response already started");
+        }
+
+        // RFC 9220 section 4 — send 200 OK to accept the upgrade.
+        // Include negotiated subprotocol and extensions as regular
+        // headers (RFC 9220 section 3).
+        pendingResponseHeaders = new ArrayList<Header>();
+        pendingResponseHeaders.add(new Header(":status", "200"));
+        if (subprotocol != null && !subprotocol.isEmpty()) {
+            pendingResponseHeaders.add(
+                    new Header("sec-websocket-protocol", subprotocol));
+        }
+        if (extensions != null && !extensions.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < extensions.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(extensions.get(i).getName());
+                java.util.Map<String, String> extParams =
+                        extensions.get(i).generateOffer();
+                if (extParams != null) {
+                    for (java.util.Map.Entry<String, String> ep
+                            : extParams.entrySet()) {
+                        sb.append("; ").append(ep.getKey());
+                        if (ep.getValue() != null) {
+                            sb.append("=").append(ep.getValue());
+                        }
+                    }
+                }
+            }
+            pendingResponseHeaders.add(
+                    new Header("sec-websocket-extensions", sb.toString()));
+        }
+        flushHeaders(false);
+
+        WebSocketServerMetrics wsMetrics =
+                connection.getWebSocketMetrics();
+
+        webSocketAdapter = new H3WebSocketConnectionAdapter(
+                wsHandler, wsMetrics);
+        webSocketAdapter.setTransport(new H3WebSocketTransport());
+        if (extensions != null && !extensions.isEmpty()) {
+            webSocketAdapter.setExtensions(extensions);
+        }
+
+        if (connection.isTelemetryEnabled()) {
+            webSocketAdapter.setTelemetryConfig(
+                    connection.getTelemetryConfig());
+            if (span != null) {
+                webSocketAdapter.setParentSpan(span);
+            } else {
+                webSocketAdapter.createSpan(null);
+            }
+        }
+
+        webSocketAdapter.notifyConnectionOpen();
+    }
+
+    /**
+     * Returns true if this stream has been upgraded to WebSocket mode.
+     */
+    boolean isWebSocketUpgraded() {
+        return webSocketAdapter != null;
+    }
+
+    /**
+     * Routes incoming body data to the WebSocket frame parser when the
+     * stream is in WebSocket mode.
+     */
+    void onWebSocketData(ByteBuffer data) {
+        if (webSocketAdapter == null) {
+            return;
+        }
+        try {
+            webSocketAdapter.processIncomingData(data);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "WebSocket frame processing error on stream "
+                            + streamId, e);
+            webSocketAdapter.notifyError(e);
+        }
+    }
+
+    /**
+     * Called when the peer sends FIN on a WebSocket-upgraded stream,
+     * indicating that the transport has been closed.
+     */
+    void onWebSocketFinished() {
+        if (webSocketAdapter != null) {
+            try {
+                webSocketAdapter.processIncomingData(EMPTY_BUFFER.duplicate());
+            } catch (IOException ignored) {
+                // FIN with empty data
+            }
+            webSocketAdapter.notifyTransportClosed();
+        }
+        state = State.CLOSED;
+    }
+
+    // ── WebSocket adapter inner classes ──
+
+    /**
+     * Bridges {@link WebSocketEventHandler} to the {@link WebSocketConnection}
+     * abstract class. Modelled on {@code Stream.WebSocketConnectionAdapter}.
+     */
+    private class H3WebSocketConnectionAdapter extends WebSocketConnection
+            implements WebSocketSession {
+
+        private final WebSocketEventHandler wsHandler;
+        private final WebSocketServerMetrics wsMetrics;
+        private long openedAtNanos;
+
+        H3WebSocketConnectionAdapter(WebSocketEventHandler wsHandler,
+                WebSocketServerMetrics wsMetrics) {
+            this.wsHandler = wsHandler;
+            this.wsMetrics = wsMetrics;
+            setServerMetrics(wsMetrics);
+        }
+
+        @Override
+        protected void opened() {
+            openedAtNanos = System.nanoTime();
+            if (wsMetrics != null) {
+                wsMetrics.connectionOpened();
+            }
+            wsHandler.opened(this);
+        }
+
+        @Override
+        protected void textMessageReceived(String message) {
+            if (wsMetrics != null) {
+                wsMetrics.textMessageReceived();
+            }
+            wsHandler.textMessageReceived(this, message);
+        }
+
+        @Override
+        protected void binaryMessageReceived(ByteBuffer data) {
+            if (wsMetrics != null) {
+                wsMetrics.binaryMessageReceived();
+            }
+            wsHandler.binaryMessageReceived(this, data);
+        }
+
+        @Override
+        protected void closed(int code, String reason) {
+            if (wsMetrics != null) {
+                double durationMs =
+                        (System.nanoTime() - openedAtNanos) / 1_000_000.0;
+                wsMetrics.connectionClosed(durationMs, code);
+            }
+            wsHandler.closed(code, reason);
+        }
+
+        @Override
+        protected void error(Throwable cause) {
+            if (wsMetrics != null) {
+                wsMetrics.error();
+            }
+            wsHandler.error(cause);
+        }
+
+        @Override
+        public Principal getPrincipal() {
+            return authenticatedPrincipal;
+        }
+
+        void notifyError(Throwable cause) {
+            error(cause);
+        }
+
+        void notifyTransportClosed() {
+            if (isOpen()) {
+                try {
+                    close(1001, "Transport closed");
+                } catch (IOException ignored) {
+                    // best effort
+                }
+            }
+        }
+    }
+
+    /**
+     * {@link WebSocketConnection.WebSocketTransport} that sends WebSocket
+     * frames as HTTP/3 DATA frames on this stream.
+     */
+    private class H3WebSocketTransport
+            implements WebSocketConnection.WebSocketTransport {
+
+        @Override
+        public void sendFrame(ByteBuffer frameData) throws IOException {
+            if (state == State.CLOSED) {
+                throw new IOException("Stream closed");
+            }
+            responseBodyBytes += frameData.remaining();
+            sendBody(frameData, false);
+        }
+
+        @Override
+        public void close(boolean normalClose) throws IOException {
+            if (state != State.CLOSED) {
+                sendBody(EMPTY_BUFFER.duplicate(), true);
+                state = State.CLOSED;
+                endTelemetrySpan(200);
+            }
+        }
     }
 
     // ── Backpressure / flow control ──
@@ -352,23 +672,43 @@ class H3Stream implements HTTPResponseState {
             new WriteReadyDispatcher();
 
     @Override
+    public void execute(Runnable task) {
+        connection.getSelectorLoop().invokeLater(task);
+    }
+
+    @Override
     public void onWritable(Runnable callback) {
         this.writableCallback = callback;
     }
 
     @Override
     public void pauseRequestBody() {
-        // QUIC stream-level flow control: stop consuming data on this
-        // stream.  Without calling quiche_h3_recv_body the peer's
-        // flow-control window will fill and it will stop sending.
+        readPaused = true;
     }
 
     @Override
     public void resumeRequestBody() {
-        // Resume consumption; the next onConnectionReady will poll
-        // for pending DATA events on this stream.
+        if (readPaused) {
+            readPaused = false;
+            connection.resumeStreamRead(this);
+        }
     }
 
+    /**
+     * Returns true if request body consumption is paused.
+     * When paused, the connection should not call
+     * {@code quiche_h3_recv_body} for this stream, allowing
+     * the peer's flow control window to fill naturally.
+     */
+    boolean isReadPaused() {
+        return readPaused;
+    }
+
+    /**
+     * Cancels this stream. Per RFC 9114 section 8, the server may
+     * reset a stream with H3_REQUEST_CANCELLED (0x10c) if the request
+     * is no longer needed.
+     */
     @Override
     public void cancel() {
         if (span != null && !span.isEnded()) {
@@ -488,7 +828,24 @@ class H3Stream implements HTTPResponseState {
     // ── Internal ──
 
     /**
+     * Sends a minimal error response (e.g. 400) and closes the stream.
+     * Used when the request is malformed before a handler is created.
+     */
+    private void sendErrorResponse(int statusCode) {
+        pendingResponseHeaders = new ArrayList<Header>();
+        pendingResponseHeaders.add(
+                new Header(":status", Integer.toString(statusCode)));
+        pendingResponseHeaders.add(
+                new Header("content-length", "0"));
+        flushHeaders(true);
+        state = State.CLOSED;
+        handler = null;
+    }
+
+    /**
      * Flushes pending response headers to the h3 connection.
+     * Strips connection-specific headers per RFC 9114 section 4.2
+     * before sending.
      *
      * @param fin true to include FIN (no body will follow)
      */
@@ -543,11 +900,19 @@ class H3Stream implements HTTPResponseState {
 
         long h3Conn = connection.getH3Conn();
         long quicheConn = connection.getQuicheConn();
-        int result = GumdropNative.quiche_h3_send_response(
-                h3Conn, quicheConn, streamId, headerArray, fin);
+        int result;
+        if (!responseStarted) {
+            result = GumdropNative.quiche_h3_send_response(
+                    h3Conn, quicheConn, streamId, headerArray, fin);
+        } else {
+            boolean isTrailer = responseBodyStarted;
+            result = GumdropNative.quiche_h3_send_additional_headers(
+                    h3Conn, quicheConn, streamId, headerArray,
+                    isTrailer, fin);
+        }
         if (result < 0) {
             LOGGER.log(Level.WARNING,
-                    "h3 send_response failed: " + result
+                    "h3 send headers failed: " + result
                             + " stream=" + streamId);
         }
 
@@ -591,12 +956,15 @@ class H3Stream implements HTTPResponseState {
                 } else {
                     LOGGER.warning("h3 send_body error: " + result
                             + " stream=" + streamId);
+                    for (ByteBuffer b : pendingWriteQueue) {
+                        ByteBufferPool.release(b);
+                    }
                     pendingWriteQueue.clear();
                     pendingFin = false;
                     return true;
                 }
             }
-            pendingWriteQueue.remove(0);
+            ByteBufferPool.release(pendingWriteQueue.remove(0));
         }
 
         if (pendingFin) {
@@ -673,7 +1041,7 @@ class H3Stream implements HTTPResponseState {
             pendingWriteQueue = new ArrayList<ByteBuffer>();
         }
         if (data.hasRemaining()) {
-            ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+            ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
             copy.put(data);
             copy.flip();
             pendingWriteQueue.add(copy);

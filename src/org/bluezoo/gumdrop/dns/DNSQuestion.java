@@ -23,9 +23,11 @@ package org.bluezoo.gumdrop.dns;
 
 /**
  * A question in a DNS query.
+ * RFC 1035 section 4.1.2 defines the question section format:
+ * QNAME (variable), QTYPE (16-bit), QCLASS (16-bit).
  *
  * <p>Each question specifies a domain name, record type, and class
- * to look up.
+ * to look up. Name comparison is case-insensitive per RFC 1035 section 2.3.3.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

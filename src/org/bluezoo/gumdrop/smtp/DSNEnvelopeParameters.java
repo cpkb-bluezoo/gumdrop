@@ -43,6 +43,8 @@ package org.bluezoo.gumdrop.smtp;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DSNReturn
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.3">RFC 3461 §4.3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.4">RFC 3461 §4.4</a>
  */
 public class DSNEnvelopeParameters {
 

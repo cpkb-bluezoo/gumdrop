@@ -1,0 +1,876 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>LDAP Client &amp; Realm - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop LDAP Client &amp; Realm</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a fully asynchronous LDAPv3 client and a companion
+<code>LDAPRealm</code> that integrates LDAP-based authentication and
+authorisation into the framework's centralised realm interface. Both
+are built on gumdrop's non-blocking I/O architecture and use BER encoding
+(ITU-T X.690) for wire-level communication.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#client-usage">Client Usage</a></li>
+<li><a href="#connection-modes">Connection Modes</a></li>
+<li><a href="#binding">Binding (Authentication)</a></li>
+<li><a href="#sasl-bind">SASL Bind</a></li>
+<li><a href="#search">Search Operations</a></li>
+<li><a href="#directory-ops">Directory Modification Operations</a></li>
+<li><a href="#abandon">Abandon</a></li>
+<li><a href="#controls">Controls</a></li>
+<li><a href="#notifications">Unsolicited Notifications &amp; Intermediate Responses</a></li>
+<li><a href="#starttls">STARTTLS</a></li>
+<li><a href="#tls">TLS / LDAPS</a></li>
+<li><a href="#realm">LDAPRealm</a></li>
+<li><a href="#realm-config">LDAPRealm Configuration Reference</a></li>
+<li><a href="#realm-cert">Certificate Authentication</a></li>
+<li><a href="#selector-affinity">SelectorLoop Affinity</a></li>
+<li><a href="#examples">Integration Examples</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The LDAP client follows the same asynchronous, callback-driven patterns as
+other Gumdrop clients (Redis, SMTP, HTTP). The connection progresses through
+a series of typed interfaces that enforce the correct protocol sequence.
+</p>
+
+<h4>Key Components</h4>
+
+<ul>
+<li><code>org.bluezoo.gumdrop.ldap.client.LDAPClient</code> &mdash; connection
+factory; configures transport, TLS, and initiates the connection</li>
+<li><code>org.bluezoo.gumdrop.ldap.client.LDAPClientProtocolHandler</code>
+&mdash; protocol handler implementing BER message encoding/decoding and the
+three state interfaces</li>
+<li><code>org.bluezoo.gumdrop.ldap.client.LDAPConnected</code> &mdash;
+interface available immediately after connection; offers
+<code>bind()</code>, <code>bindSASL()</code>, <code>startTLS()</code>,
+and <code>unbind()</code></li>
+<li><code>org.bluezoo.gumdrop.ldap.client.LDAPPostTLS</code> &mdash;
+interface available after STARTTLS; same bind operations, no second
+STARTTLS</li>
+<li><code>org.bluezoo.gumdrop.ldap.client.LDAPSession</code> &mdash;
+interface available after a successful bind; provides search, modify, add,
+delete, compare, modifyDN, extended, rebind, and unbind</li>
+<li><code>org.bluezoo.gumdrop.ldap.client.LDAPConnectionReady</code> &mdash;
+entry-point callback receiving the initial <code>LDAPConnected</code></li>
+<li><code>org.bluezoo.gumdrop.ldap.asn1</code> &mdash; BER encoder/decoder
+used for all wire-level encoding</li>
+</ul>
+
+<h4>Protocol State Machine</h4>
+
+<pre>
+  connect()
+     |
+     v
+ LDAPConnected  ──startTLS()──&gt;  LDAPPostTLS
+     |                                |
+     ├── bind() ──────────────────────┤
+     ├── bindSASL() ──────────────────┤
+     └── bindAnonymous() ─────────────┘
+                                      |
+                                      v
+                                 LDAPSession
+                                      |
+                      ┌───────────────┼───────────────┐
+                      v               v               v
+                  search()       modify()        rebind()
+                  add()          delete()        rebindSASL()
+                  compare()      modifyDN()      unbind()
+                  extended()
+</pre>
+
+<h3 id="client-usage">Client Usage</h3>
+
+<p>
+Create an <code>LDAPClient</code>, configure it, then call
+<code>connect()</code> with a handler:
+</p>
+
+<pre>
+LDAPClient client = new LDAPClient(selectorLoop, "ldap.example.com", 389);
+
+client.connect(new LDAPConnectionReady() {
+    @Override
+    public void handleReady(LDAPConnected connection) {
+        connection.bind("cn=admin,dc=example,dc=com", "secret",
+            new BindResultHandler() {
+                @Override
+                public void handleBindSuccess(LDAPSession session) {
+                    // Authenticated &mdash; perform directory operations
+                }
+
+                @Override
+                public void handleBindFailure(LDAPResult result,
+                                              LDAPConnected conn) {
+                    System.err.println("Bind failed: "
+                        + result.getDiagnosticMessage());
+                    conn.unbind();
+                }
+            });
+    }
+
+    @Override
+    public void onConnected(Endpoint endpoint) {
+        // TCP connection established
+    }
+
+    @Override
+    public void onSecurityEstablished(SecurityInfo info) {
+        // TLS handshake complete
+    }
+
+    @Override
+    public void onError(Exception cause) {
+        cause.printStackTrace();
+    }
+
+    @Override
+    public void onDisconnected() {
+        // Connection closed
+    }
+});
+</pre>
+
+<h3 id="connection-modes">Connection Modes</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Mode</th><th>Default Port</th><th>Description</th></tr>
+<tr>
+  <td>Plaintext LDAP</td>
+  <td>389</td>
+  <td>Standard LDAPv3 (RFC 4511). Optionally upgrade to TLS via STARTTLS.</td>
+</tr>
+<tr>
+  <td>LDAPS (implicit TLS)</td>
+  <td>636</td>
+  <td>TLS established before any LDAP traffic (RFC 4513 &sect;3.1.3).
+  Set <code>client.setSecure(true)</code>.</td>
+</tr>
+</table>
+
+<h3 id="binding">Binding (Authentication)</h3>
+
+<h4>Simple Bind (RFC 4513 &sect;5.1)</h4>
+
+<p>
+Simple bind sends a distinguished name and password in the clear (or
+over TLS). This is the most common authentication method:
+</p>
+
+<pre>
+connection.bind("cn=admin,dc=example,dc=com", "secret", bindHandler);
+</pre>
+
+<h4>Anonymous Bind</h4>
+
+<pre>
+connection.bindAnonymous(bindHandler);
+</pre>
+
+<h3 id="sasl-bind">SASL Bind (RFC 4513 &sect;5.2)</h3>
+
+<p>
+SASL bind uses a challenge-response mechanism to authenticate without sending
+the password in the clear. Gumdrop implements client-side SASL using its own
+cryptographic primitives (<code>SASLUtils</code>), so all mechanism evaluation
+is non-blocking and safe for the NIO event loop.
+</p>
+
+<h4>Supported SASL Mechanisms</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Mechanism</th><th>RFC</th><th>Description</th></tr>
+<tr>
+  <td><code>PLAIN</code></td>
+  <td>RFC 4616</td>
+  <td>Single-step: sends <code>\0authcid\0password</code>. Requires TLS.</td>
+</tr>
+<tr>
+  <td><code>CRAM-MD5</code></td>
+  <td>RFC 2195</td>
+  <td>Server sends a challenge; client responds with
+  <code>username HMAC-MD5(password, challenge)</code>.</td>
+</tr>
+<tr>
+  <td><code>DIGEST-MD5</code></td>
+  <td>RFC 2831</td>
+  <td>Multi-step md5-sess digest with nonce, cnonce, and digest-uri.
+  Does not require TLS.</td>
+</tr>
+<tr>
+  <td><code>EXTERNAL</code></td>
+  <td>RFC 4422 App. A</td>
+  <td>Relies on TLS client certificate. No credentials transmitted.</td>
+</tr>
+<tr>
+  <td><code>GSSAPI</code></td>
+  <td>RFC 4752</td>
+  <td>Kerberos V5 authentication. Requires a JAAS Subject with valid
+  credentials. The first <code>evaluateChallenge()</code> call may contact
+  the KDC; use <code>bindSASL(mechanism, callback, executor)</code> to
+  offload to a worker thread.</td>
+</tr>
+</table>
+
+<h4>Usage</h4>
+
+<pre>
+import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SASLUtils;
+
+SASLClientMechanism mechanism =
+    SASLUtils.createClient("DIGEST-MD5", "admin", "secret",
+                           "ldap.example.com");
+
+connection.bindSASL(mechanism, new BindResultHandler() {
+    @Override
+    public void handleBindSuccess(LDAPSession session) {
+        // Authenticated via DIGEST-MD5
+    }
+
+    @Override
+    public void handleBindFailure(LDAPResult result,
+                                  LDAPConnected conn) {
+        System.err.println("SASL bind failed: "
+            + result.getDiagnosticMessage());
+        conn.unbind();
+    }
+});
+</pre>
+
+<p>
+The protocol handler manages intermediate
+<code>SASL_BIND_IN_PROGRESS</code> (result code 14) responses internally
+and only invokes the callback on final success or failure.
+</p>
+
+<h3 id="search">Search Operations</h3>
+
+<p>
+After binding, the <code>LDAPSession</code> interface provides search with
+the full RFC 4511 &sect;4.5 syntax:
+</p>
+
+<pre>
+SearchRequest search = new SearchRequest();
+search.setBaseDN("dc=example,dc=com");
+search.setScope(SearchScope.SUBTREE);
+search.setFilter("(&amp;(objectClass=person)(uid=alice))");
+search.setAttributes("cn", "mail", "memberOf");
+search.setSizeLimit(10);
+
+session.search(search, new SearchResultHandler() {
+    @Override
+    public void handleEntry(SearchResultEntry entry) {
+        System.out.println("DN: " + entry.getDN());
+        for (String mail : entry.getAttributeStringValues("mail")) {
+            System.out.println("  mail: " + mail);
+        }
+    }
+
+    @Override
+    public void handleReference(String[] referralUrls) {
+        // Continuation references (RFC 4511 &sect;4.5.3)
+    }
+
+    @Override
+    public void handleDone(LDAPResult result, LDAPSession session) {
+        if (!result.isSuccess()) {
+            System.err.println("Search failed: "
+                + result.getDiagnosticMessage());
+        }
+        session.unbind();
+    }
+});
+</pre>
+
+<h4>Search Scope</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Scope</th><th>Description</th></tr>
+<tr><td><code>SearchScope.BASE</code></td><td>Search only the base entry</td></tr>
+<tr><td><code>SearchScope.ONE_LEVEL</code></td><td>Search immediate children of the base</td></tr>
+<tr><td><code>SearchScope.SUBTREE</code></td><td>Search the entire subtree rooted at the base</td></tr>
+</table>
+
+<h4>Search Filters (RFC 4515)</h4>
+
+<p>
+Filters use the standard LDAP string representation. The encoder supports
+equality (<code>=</code>), presence (<code>=*</code>), substring
+(<code>*</code>), greater-or-equal (<code>&gt;=</code>),
+less-or-equal (<code>&lt;=</code>), approximate match (<code>~=</code>,
+RFC 4515 &sect;4 / context tag 8), extensible match (<code>:=</code>,
+RFC 4515 &sect;4 / context tag 9), AND (<code>&amp;</code>),
+OR (<code>|</code>), and NOT (<code>!</code>).
+Extensible match uses the syntax
+<code>[attr][:dn][:matchingRule]:=value</code>.
+</p>
+
+<h3 id="directory-ops">Directory Modification Operations</h3>
+
+<p>
+The <code>LDAPSession</code> interface provides full CRUD operations
+against the directory:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>RFC 4511</th><th>Description</th></tr>
+<tr><td><code>modify(dn, modifications, handler)</code></td>
+    <td>&sect;4.6</td><td>Modify attributes of an existing entry</td></tr>
+<tr><td><code>add(dn, attributes, handler)</code></td>
+    <td>&sect;4.7</td><td>Add a new entry</td></tr>
+<tr><td><code>delete(dn, handler)</code></td>
+    <td>&sect;4.8</td><td>Delete an entry</td></tr>
+<tr><td><code>modifyDN(dn, newRDN, deleteOldRDN, handler)</code></td>
+    <td>&sect;4.9</td><td>Rename or move an entry</td></tr>
+<tr><td><code>compare(dn, attribute, value, handler)</code></td>
+    <td>&sect;4.10</td><td>Compare an attribute value</td></tr>
+<tr><td><code>extended(oid, value, handler)</code></td>
+    <td>&sect;4.12</td><td>Extended operation (e.g. password modify, whoami)</td></tr>
+<tr><td><code>rebind(dn, password, handler)</code></td>
+    <td>&sect;4.2</td><td>Re-bind with different credentials</td></tr>
+<tr><td><code>rebindSASL(mechanism, handler)</code></td>
+    <td>&sect;4.2</td><td>Re-bind with a different SASL mechanism</td></tr>
+<tr><td><code>abandon(messageId)</code></td>
+    <td>&sect;4.11</td><td>Cancel an in-progress operation</td></tr>
+</table>
+
+<h3 id="abandon">Abandon</h3>
+
+<p>
+The <code>abandon(int messageId)</code> method sends an AbandonRequest
+(RFC 4511 &sect;4.11) to cancel an in-progress operation, such as a
+long-running search. The server is not required to honour the request and
+does not send a response. Any pending callback for the abandoned
+operation is removed immediately on the client side.
+</p>
+
+<h3 id="controls">Controls</h3>
+
+<p>
+LDAP Controls (RFC 4511 &sect;4.1.11) extend the behaviour of operations.
+The <code>Control</code> class represents a control with an OID,
+criticality flag, and optional value.
+</p>
+
+<h4>Request Controls</h4>
+
+<p>
+Call <code>setRequestControls(List&lt;Control&gt;)</code> before an
+operation to attach controls. They are consumed (cleared) once the
+next request is sent:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.ldap.client.Control;
+import java.util.Collections;
+
+// Paged results control (RFC 2696)
+byte[] pagedValue = encodePagedResultsControl(100, cookie);
+Control paged = new Control(Control.OID_PAGED_RESULTS, true, pagedValue);
+session.setRequestControls(Collections.singletonList(paged));
+session.search(request, searchHandler);
+</pre>
+
+<h4>Response Controls</h4>
+
+<p>
+After receiving a response, call <code>getResponseControls()</code>
+on the session to retrieve any controls the server included.
+Controls are also available on <code>LDAPResult.getControls()</code>.
+</p>
+
+<h3 id="notifications">Unsolicited Notifications &amp; Intermediate Responses</h3>
+
+<p>
+<b>Unsolicited Notifications</b> (RFC 4511 &sect;4.4) are server-initiated
+messages with messageID 0. The client automatically handles the
+<em>Notice of Disconnection</em> (OID <code>1.3.6.1.4.1.1466.20036</code>)
+by logging the diagnostic message, notifying the handler via
+<code>onError()</code>, and closing the connection.
+</p>
+
+<p>
+<b>IntermediateResponse</b> (RFC 4511 &sect;4.13) messages are delivered
+to the pending callback for the corresponding operation, provided it
+implements <code>IntermediateResponseHandler</code>. This enables
+multi-stage extended operations to return incremental data.
+</p>
+
+<h3 id="starttls">STARTTLS</h3>
+
+<p>
+Upgrade a plaintext connection to TLS using the STARTTLS extended operation
+(RFC 4511 &sect;4.14, RFC 4513 &sect;3). The client must have TLS credentials
+configured before connecting:
+</p>
+
+<pre>
+LDAPClient client = new LDAPClient(selectorLoop, "ldap.example.com", 389);
+client.setKeystoreFile("/path/to/truststore.p12");
+client.setKeystorePass("changeit");
+
+client.connect(new LDAPConnectionReady() {
+    @Override
+    public void handleReady(LDAPConnected connection) {
+        connection.startTLS(new StartTLSResultHandler() {
+            @Override
+            public void handleTLSEstablished(LDAPPostTLS secureConn) {
+                // Now bind over TLS
+                secureConn.bind("cn=admin,dc=example,dc=com",
+                                "secret", bindHandler);
+            }
+
+            @Override
+            public void handleStartTLSFailure(LDAPResult result,
+                                              LDAPConnected conn) {
+                System.err.println("STARTTLS failed: "
+                    + result.getDiagnosticMessage());
+                conn.unbind();
+            }
+        });
+    }
+    // ... lifecycle callbacks
+});
+</pre>
+
+<h3 id="tls">TLS / LDAPS</h3>
+
+<p>
+For implicit TLS (LDAPS on port 636), enable secure mode before connecting:
+</p>
+
+<pre>
+LDAPClient client = new LDAPClient(selectorLoop, "ldap.example.com", 636);
+client.setSecure(true);
+client.setKeystoreFile("/path/to/truststore.p12");
+client.setKeystorePass("changeit");
+client.connect(handler);
+</pre>
+
+<h4>Client Configuration Options</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Description</th></tr>
+<tr><td><code>setSecure(boolean)</code></td>
+    <td>Enable implicit TLS (LDAPS)</td></tr>
+<tr><td><code>setSSLContext(SSLContext)</code></td>
+    <td>Provide an externally-configured SSLContext</td></tr>
+<tr><td><code>setTrustManager(X509TrustManager)</code></td>
+    <td>Custom trust manager for certificate verification</td></tr>
+<tr><td><code>setKeystoreFile(Path)</code></td>
+    <td>Keystore for client certificate authentication</td></tr>
+<tr><td><code>setKeystorePass(String)</code></td>
+    <td>Keystore password</td></tr>
+<tr><td><code>setKeystoreFormat(String)</code></td>
+    <td>Keystore format (default: PKCS12)</td></tr>
+</table>
+
+<h3 id="realm">LDAPRealm</h3>
+
+<p>
+<code>org.bluezoo.gumdrop.auth.LDAPRealm</code> implements the framework's
+<code>Realm</code> interface, enabling LDAP-backed authentication and
+authorisation for any Gumdrop protocol (SMTP, IMAP, POP3, FTP, HTTP, etc.).
+</p>
+
+<h4>Authentication Flow</h4>
+
+<ol>
+<li>Bind to the LDAP server using a service account
+(<code>bind-dn</code>/<code>bind-password</code>), or anonymously if no
+service account is configured</li>
+<li>Search for the user with <code>user-filter</code> (e.g.
+<code>(uid={0})</code>) substituting the username</li>
+<li>Re-bind as the discovered user DN with the user's password</li>
+<li>If the re-bind succeeds, the user is authenticated</li>
+</ol>
+
+<h4>Configuration Example</h4>
+
+<pre>
+&lt;realm id="ldapRealm" class="org.bluezoo.gumdrop.auth.LDAPRealm"&gt;
+    &lt;property name="host"&gt;ldap.example.com&lt;/property&gt;
+    &lt;property name="port"&gt;389&lt;/property&gt;
+    &lt;property name="base-dn"&gt;dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-dn"&gt;cn=service,dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-password"&gt;secret&lt;/property&gt;
+    &lt;property name="user-filter"&gt;(uid={0})&lt;/property&gt;
+    &lt;property name="role-attribute"&gt;memberOf&lt;/property&gt;
+    &lt;property name="timeout"&gt;30&lt;/property&gt;
+&lt;/realm&gt;
+</pre>
+
+<h4>LDAPS Configuration</h4>
+
+<pre>
+&lt;realm id="ldapRealm" class="org.bluezoo.gumdrop.auth.LDAPRealm"&gt;
+    &lt;property name="host"&gt;ldap.example.com&lt;/property&gt;
+    &lt;property name="port"&gt;636&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;/etc/gumdrop/truststore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+    &lt;property name="base-dn"&gt;dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-dn"&gt;cn=service,dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-password"&gt;secret&lt;/property&gt;
+    &lt;property name="user-filter"&gt;(uid={0})&lt;/property&gt;
+&lt;/realm&gt;
+</pre>
+
+<h4>SASL Bind Configuration</h4>
+
+<p>
+To use SASL instead of simple bind for all LDAP operations (both service
+account and user authentication), set <code>sasl-mechanism</code>:
+</p>
+
+<pre>
+&lt;realm id="ldapRealm" class="org.bluezoo.gumdrop.auth.LDAPRealm"&gt;
+    &lt;property name="host"&gt;ldap.example.com&lt;/property&gt;
+    &lt;property name="port"&gt;389&lt;/property&gt;
+    &lt;property name="sasl-mechanism"&gt;DIGEST-MD5&lt;/property&gt;
+    &lt;property name="base-dn"&gt;dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-dn"&gt;cn=service,dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-password"&gt;secret&lt;/property&gt;
+    &lt;property name="user-filter"&gt;(uid={0})&lt;/property&gt;
+&lt;/realm&gt;
+</pre>
+
+<h3 id="realm-config">LDAPRealm Configuration Reference</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>Type</th><th>Default</th><th>Description</th></tr>
+<tr>
+  <td><code>host</code></td>
+  <td>String</td>
+  <td><code>localhost</code></td>
+  <td>LDAP server hostname or IP address</td>
+</tr>
+<tr>
+  <td><code>port</code></td>
+  <td>int</td>
+  <td><code>389</code></td>
+  <td>LDAP server port (636 for LDAPS)</td>
+</tr>
+<tr>
+  <td><code>secure</code></td>
+  <td>boolean</td>
+  <td><code>false</code></td>
+  <td>Enable implicit TLS (LDAPS)</td>
+</tr>
+<tr>
+  <td><code>start-tls</code></td>
+  <td>boolean</td>
+  <td><code>false</code></td>
+  <td>Upgrade to TLS via STARTTLS after connecting</td>
+</tr>
+<tr>
+  <td><code>keystore-file</code></td>
+  <td>Path</td>
+  <td>&mdash;</td>
+  <td>Path to the keystore/truststore for TLS</td>
+</tr>
+<tr>
+  <td><code>keystore-pass</code></td>
+  <td>String</td>
+  <td>&mdash;</td>
+  <td>Keystore password</td>
+</tr>
+<tr>
+  <td><code>keystore-format</code></td>
+  <td>String</td>
+  <td><code>PKCS12</code></td>
+  <td>Keystore format (PKCS12, JKS)</td>
+</tr>
+<tr>
+  <td><code>base-dn</code></td>
+  <td>String</td>
+  <td><code>""</code></td>
+  <td>Base DN for user searches (e.g. <code>dc=example,dc=com</code>)</td>
+</tr>
+<tr>
+  <td><code>bind-dn</code></td>
+  <td>String</td>
+  <td>&mdash;</td>
+  <td>Service account DN for searching. If empty, anonymous bind is used.</td>
+</tr>
+<tr>
+  <td><code>bind-password</code></td>
+  <td>String</td>
+  <td>&mdash;</td>
+  <td>Service account password</td>
+</tr>
+<tr>
+  <td><code>user-filter</code></td>
+  <td>String</td>
+  <td><code>(uid={0})</code></td>
+  <td>LDAP search filter template. <code>{0}</code> is replaced with the
+  username. Use <code>(sAMAccountName={0})</code> for Active Directory.</td>
+</tr>
+<tr>
+  <td><code>role-attribute</code></td>
+  <td>String</td>
+  <td><code>memberOf</code></td>
+  <td>Attribute containing group/role membership</td>
+</tr>
+<tr>
+  <td><code>role-prefix</code></td>
+  <td>String</td>
+  <td><code>""</code></td>
+  <td>Prefix prepended to role names before matching against
+  <code>role-attribute</code> values</td>
+</tr>
+<tr>
+  <td><code>timeout</code></td>
+  <td>int</td>
+  <td><code>30</code></td>
+  <td>Operation timeout in seconds</td>
+</tr>
+<tr>
+  <td><code>sasl-mechanism</code></td>
+  <td>String</td>
+  <td>&mdash;</td>
+  <td>SASL mechanism for LDAP binds (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL, GSSAPI).
+  When null, simple bind is used.</td>
+</tr>
+<tr>
+  <td><code>cert-lookup-mode</code></td>
+  <td>String</td>
+  <td>&mdash;</td>
+  <td>Certificate authentication mode: <code>binary</code> (match by DER)
+  or <code>subject</code> (extract CN from Subject DN)</td>
+</tr>
+<tr>
+  <td><code>cert-username-attribute</code></td>
+  <td>String</td>
+  <td><code>uid</code></td>
+  <td>LDAP attribute to read as the username from a matched certificate entry</td>
+</tr>
+<tr>
+  <td><code>cert-subject-filter</code></td>
+  <td>String</td>
+  <td>&mdash;</td>
+  <td>Filter template for subject-mode certificate lookup.
+  Placeholders like <code>{CN}</code>, <code>{O}</code>, <code>{OU}</code>
+  are replaced with the corresponding RDN values from the certificate's
+  Subject DN. Example: <code>(uid={CN})</code></td>
+</tr>
+</table>
+
+<h3 id="realm-cert">Certificate Authentication</h3>
+
+<p>
+When <code>cert-lookup-mode</code> is configured, the realm can authenticate
+users by their TLS client certificate. This is used by protocol handlers that
+support the SASL <code>EXTERNAL</code> mechanism (SMTP, IMAP, POP3) and by
+the HTTP mTLS authentication provider.
+</p>
+
+<h4>Binary Mode</h4>
+
+<p>
+Searches LDAP for an entry whose <code>userCertificate;binary</code>
+attribute matches the DER encoding of the presented certificate:
+</p>
+
+<pre>
+&lt;property name="cert-lookup-mode"&gt;binary&lt;/property&gt;
+&lt;property name="cert-username-attribute"&gt;uid&lt;/property&gt;
+</pre>
+
+<h4>Subject DN Mode</h4>
+
+<p>
+Extracts RDN components from the certificate's Subject DN and substitutes
+them into a filter template:
+</p>
+
+<pre>
+&lt;property name="cert-lookup-mode"&gt;subject&lt;/property&gt;
+&lt;property name="cert-subject-filter"&gt;(uid={CN})&lt;/property&gt;
+&lt;property name="cert-username-attribute"&gt;uid&lt;/property&gt;
+</pre>
+
+<h3 id="selector-affinity">SelectorLoop Affinity</h3>
+
+<p>
+When using the LDAP client from within a Gumdrop server handler, create
+the client on the same SelectorLoop as the originating connection. This
+ensures that all callbacks execute on the same thread, avoiding
+synchronisation overhead:
+</p>
+
+<pre>
+SelectorLoop loop = endpoint.getSelectorLoop();
+LDAPClient ldap = new LDAPClient(loop, "ldap.example.com", 389);
+</pre>
+
+<p>
+The <code>LDAPRealm</code> handles SelectorLoop affinity automatically via
+its <code>forSelectorLoop()</code> method, which is called by each protocol
+listener.
+</p>
+
+<h3 id="examples">Integration Examples</h3>
+
+<h4>Using LDAPRealm with SMTP</h4>
+
+<pre>
+&lt;realm id="ldapRealm" class="org.bluezoo.gumdrop.auth.LDAPRealm"&gt;
+    &lt;property name="host"&gt;ldap.example.com&lt;/property&gt;
+    &lt;property name="port"&gt;636&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;/etc/gumdrop/truststore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+    &lt;property name="base-dn"&gt;dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-dn"&gt;cn=smtp-service,dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-password"&gt;secret&lt;/property&gt;
+    &lt;property name="user-filter"&gt;(mail={0})&lt;/property&gt;
+&lt;/realm&gt;
+
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPService"&gt;
+    &lt;property name="realm" ref="#ldapRealm"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+        &lt;property name="port"&gt;587&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;/etc/gumdrop/keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>Active Directory Configuration</h4>
+
+<pre>
+&lt;realm id="adRealm" class="org.bluezoo.gumdrop.auth.LDAPRealm"&gt;
+    &lt;property name="host"&gt;dc01.corp.example.com&lt;/property&gt;
+    &lt;property name="port"&gt;636&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;/etc/gumdrop/ad-truststore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
+    &lt;property name="base-dn"&gt;dc=corp,dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-dn"&gt;cn=svc-gumdrop,ou=Service Accounts,dc=corp,dc=example,dc=com&lt;/property&gt;
+    &lt;property name="bind-password"&gt;secret&lt;/property&gt;
+    &lt;property name="user-filter"&gt;(sAMAccountName={0})&lt;/property&gt;
+    &lt;property name="role-attribute"&gt;memberOf&lt;/property&gt;
+    &lt;property name="role-prefix"&gt;cn=&lt;/property&gt;
+&lt;/realm&gt;
+</pre>
+
+<h4>Programmatic LDAP Client Usage</h4>
+
+<pre>
+LDAPClient client = new LDAPClient(selectorLoop, "ldap.example.com", 389);
+
+client.connect(new LDAPConnectionReady() {
+    @Override
+    public void handleReady(LDAPConnected connection) {
+        connection.bind("cn=admin,dc=example,dc=com", "secret",
+            new BindResultHandler() {
+                @Override
+                public void handleBindSuccess(LDAPSession session) {
+                    // Add a new entry
+                    Map&lt;String, List&lt;byte[]&gt;&gt; attrs = new HashMap&lt;&gt;();
+                    attrs.put("objectClass", List.of(
+                        "inetOrgPerson".getBytes(UTF_8),
+                        "top".getBytes(UTF_8)));
+                    attrs.put("cn", List.of("Alice".getBytes(UTF_8)));
+                    attrs.put("sn", List.of("Smith".getBytes(UTF_8)));
+                    attrs.put("mail", List.of(
+                        "alice@example.com".getBytes(UTF_8)));
+
+                    session.add(
+                        "cn=Alice,ou=People,dc=example,dc=com",
+                        attrs,
+                        new AddResultHandler() {
+                            @Override
+                            public void handleAddResult(
+                                    LDAPResult result,
+                                    LDAPSession s) {
+                                if (result.isSuccess()) {
+                                    System.out.println("Entry added");
+                                } else {
+                                    System.err.println("Add failed: "
+                                        + result.getDiagnosticMessage());
+                                }
+                                s.unbind();
+                            }
+                        });
+                }
+
+                @Override
+                public void handleBindFailure(LDAPResult result,
+                                              LDAPConnected conn) {
+                    conn.unbind();
+                }
+            });
+    }
+
+    @Override
+    public void onConnected(Endpoint endpoint) { }
+
+    @Override
+    public void onSecurityEstablished(SecurityInfo info) { }
+
+    @Override
+    public void onError(Exception cause) {
+        cause.printStackTrace();
+    }
+
+    @Override
+    public void onDisconnected() { }
+});
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="security.html">Security</a> |
+<a href="redis.html">Redis Client</a> |
+<a href="smtp.html">SMTP Server &amp; Client</a>
+</p>
+
+<p class='server-info'>Gumdrop LDAP Client &amp; Realm</p>
+
+</body>
+</html>

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet.session;
 
 import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
+import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.telemetry.protobuf.DefaultProtobufHandler;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
@@ -33,7 +34,7 @@ import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.io.ObjectStreamClass;
+
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.HashSet;
@@ -102,7 +103,7 @@ class SessionSerializer {
         ProtobufWriter writer = new ProtobufWriter(channel);
 
         // Field 1: Session ID (convert hex string to 16 bytes)
-        byte[] idBytes = hexToBytes(session.id);
+        byte[] idBytes = ByteArrays.toByteArray(session.id);
         writer.writeBytesField(FIELD_ID, idBytes);
 
         // Field 2: Creation time
@@ -225,7 +226,7 @@ class SessionSerializer {
             }
 
             if (fieldNumber == FIELD_ID) {
-                id = bytesToHex(asBytes(data));
+                id = ByteArrays.toHexString(asBytes(data));
             }
         }
 
@@ -364,7 +365,8 @@ class SessionSerializer {
      */
     private static Object deserializeObject(byte[] bytes) throws IOException {
         ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-        try (FilteredObjectInputStream ois = new FilteredObjectInputStream(bais)) {
+        try (ObjectInputStream ois = new ObjectInputStream(bais)) {
+            ois.setObjectInputFilter(SESSION_DESERIALIZATION_FILTER);
             return ois.readObject();
         } catch (ClassNotFoundException e) {
             String message = L10N.getString("err.class_not_found");
@@ -373,112 +375,91 @@ class SessionSerializer {
         }
     }
 
-    /**
-     * ObjectInputStream with a strict deserialization filter.
-     * Uses resolveClass() to restrict deserializable classes.
-     * TODO: Could be migrated to ObjectInputFilter (available since Java 9).
-     */
-    private static class FilteredObjectInputStream extends ObjectInputStream {
-
-        // Safe JDK packages that are commonly used in session attributes
-        private static final Set<String> ALLOWED_PACKAGES;
-        static {
-            Set<String> allowed = new HashSet<>();
-            allowed.add("java.lang.");
-            allowed.add("java.util.");
-            allowed.add("java.math.");
-            allowed.add("java.time.");
-            allowed.add("java.io.Serializable");
-            allowed.add("java.net.URI");
-            allowed.add("java.net.URL");
-            ALLOWED_PACKAGES = allowed;
-        }
-
-        // Explicitly denied classes (known gadget classes)
-        private static final Set<String> DENIED_CLASSES;
-        static {
-            Set<String> denied = new HashSet<>();
-            denied.add("org.apache.commons.collections.functors.");
-            denied.add("org.apache.commons.collections4.functors.");
-            denied.add("org.apache.xalan.");
-            denied.add("com.sun.org.apache.xalan.");
-            denied.add("org.codehaus.groovy.runtime.");
-            denied.add("org.springframework.beans.factory.");
-            denied.add("com.mchange.v2.c3p0.");
-            denied.add("com.sun.rowset.JdbcRowSetImpl");
-            denied.add("java.rmi.server.UnicastRemoteObject");
-            denied.add("javax.management.");
-            DENIED_CLASSES = denied;
-        }
-
-        FilteredObjectInputStream(ByteArrayInputStream in) throws IOException {
-            super(in);
-        }
-
-        @Override
-        protected Class<?> resolveClass(ObjectStreamClass desc)
-                throws IOException, ClassNotFoundException {
-            String className = desc.getName();
-
-            // Check denied list first
-            for (String denied : DENIED_CLASSES) {
-                if (className.startsWith(denied)) {
-                    String message = L10N.getString("warn.blocked_class");
-                    message = MessageFormat.format(message, className);
-                    LOGGER.warning(message);
-                    throw new InvalidClassException(className, "Blocked class");
-                }
-            }
-
-            // Check allowed JDK packages
-            for (String allowed : ALLOWED_PACKAGES) {
-                if (className.startsWith(allowed)) {
-                    return super.resolveClass(desc);
-                }
-            }
-
-            // For other classes, resolve first then check classloader
-            Class<?> clazz = super.resolveClass(desc);
-
-            // Allow primitives
-            if (clazz.isPrimitive()) {
-                return clazz;
-            }
-
-            // Allow arrays (the component type will be checked separately)
-            if (clazz.isArray()) {
-                return clazz;
-            }
-
-            // Allow enum types
-            if (clazz.isEnum()) {
-                return clazz;
-            }
-
-            // Check if class is from the webapp's classloader
-            ClassLoader classLoader = clazz.getClassLoader();
-            ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
-
-            if (classLoader == contextClassLoader) {
-                return clazz;
-            }
-
-            // Check parent classloaders
-            ClassLoader parent = contextClassLoader;
-            while (parent != null) {
-                if (classLoader == parent) {
-                    return clazz;
-                }
-                parent = parent.getParent();
-            }
-
-            // Unknown class from unknown classloader - reject for safety
-            String message = L10N.getString("warn.rejected_class");
-            message = MessageFormat.format(message, className);
-            LOGGER.warning(message);
-            throw new InvalidClassException(className, "Rejected class");
-        }
+    // Safe JDK packages commonly used in session attributes
+    private static final Set<String> ALLOWED_PACKAGES;
+    static {
+        Set<String> allowed = new HashSet<>();
+        allowed.add("java.lang.");
+        allowed.add("java.util.");
+        allowed.add("java.math.");
+        allowed.add("java.time.");
+        allowed.add("java.io.Serializable");
+        allowed.add("java.net.URI");
+        allowed.add("java.net.URL");
+        ALLOWED_PACKAGES = allowed;
     }
+
+    // Explicitly denied classes (known gadget classes)
+    private static final Set<String> DENIED_CLASSES;
+    static {
+        Set<String> denied = new HashSet<>();
+        denied.add("org.apache.commons.collections.functors.");
+        denied.add("org.apache.commons.collections4.functors.");
+        denied.add("org.apache.xalan.");
+        denied.add("com.sun.org.apache.xalan.");
+        denied.add("org.codehaus.groovy.runtime.");
+        denied.add("org.springframework.beans.factory.");
+        denied.add("com.mchange.v2.c3p0.");
+        denied.add("com.sun.rowset.JdbcRowSetImpl");
+        denied.add("java.rmi.server.UnicastRemoteObject");
+        denied.add("javax.management.");
+        DENIED_CLASSES = denied;
+    }
+
+    /**
+     * ObjectInputFilter that restricts deserialization to safe classes.
+     * Rejects known gadget classes, allows standard JDK packages and
+     * webapp-loaded classes, and rejects everything else.
+     */
+    private static final java.io.ObjectInputFilter SESSION_DESERIALIZATION_FILTER =
+            filterInfo -> {
+        Class<?> clazz = filterInfo.serialClass();
+        if (clazz == null) {
+            return java.io.ObjectInputFilter.Status.UNDECIDED;
+        }
+
+        String className = clazz.getName();
+
+        for (String denied : DENIED_CLASSES) {
+            if (className.startsWith(denied)) {
+                String message = L10N.getString("warn.blocked_class");
+                message = MessageFormat.format(message, className);
+                LOGGER.warning(message);
+                return java.io.ObjectInputFilter.Status.REJECTED;
+            }
+        }
+
+        for (String allowed : ALLOWED_PACKAGES) {
+            if (className.startsWith(allowed)) {
+                return java.io.ObjectInputFilter.Status.ALLOWED;
+            }
+        }
+
+        if (clazz.isPrimitive() || clazz.isArray() || clazz.isEnum()) {
+            return java.io.ObjectInputFilter.Status.ALLOWED;
+        }
+
+        ClassLoader classLoader = clazz.getClassLoader();
+        ClassLoader contextClassLoader =
+                Thread.currentThread().getContextClassLoader();
+
+        if (classLoader == contextClassLoader) {
+            return java.io.ObjectInputFilter.Status.ALLOWED;
+        }
+
+        ClassLoader parent = contextClassLoader;
+        while (parent != null) {
+            if (classLoader == parent) {
+                return java.io.ObjectInputFilter.Status.ALLOWED;
+            }
+            parent = parent.getParent();
+        }
+
+        String message = L10N.getString("warn.rejected_class");
+        message = MessageFormat.format(message, className);
+        LOGGER.warning(message);
+        return java.io.ObjectInputFilter.Status.REJECTED;
+    };
 
     // -- Delta serialization for incremental updates --
 
@@ -492,7 +473,7 @@ class SessionSerializer {
         ProtobufWriter writer = new ProtobufWriter(channel);
 
         // Field 1: Session ID (16 bytes)
-        byte[] idBytes = hexToBytes(session.id);
+        byte[] idBytes = ByteArrays.toByteArray(session.id);
         writer.writeBytesField(DELTA_ID, idBytes);
 
         // Field 2: Version
@@ -591,7 +572,7 @@ class SessionSerializer {
 
             switch (fieldNumber) {
                 case DELTA_ID:
-                    id = bytesToHex(asBytes(data));
+                    id = ByteArrays.toHexString(asBytes(data));
                     break;
                 case DELTA_REMOVED:
                     removedAttrs.add(asString(data));
@@ -635,24 +616,5 @@ class SessionSerializer {
         }
     }
 
-    // -- Hex conversion utilities --
 
-    private static byte[] hexToBytes(String hex) {
-        int len = hex.length();
-        byte[] data = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
-                    + Character.digit(hex.charAt(i + 1), 16));
-        }
-        return data;
-    }
-
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
-            sb.append(Character.forDigit(b & 0xF, 16));
-        }
-        return sb.toString();
-    }
 }

@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -49,8 +52,7 @@ public class CustomTagElement implements JSPElement {
     private final Map<String, String> attributes;
     private final int lineNumber;
     private final int columnNumber;
-    
-    // TODO: Add support for body content and nested elements
+    private final List<JSPElement> children = new ArrayList<>();
     
     /**
      * Creates a new custom tag element.
@@ -121,6 +123,24 @@ public class CustomTagElement implements JSPElement {
         return new HashMap<>(attributes);
     }
     
+    /**
+     * Adds a child element (body content).
+     *
+     * @param child the child element
+     */
+    public void addChild(JSPElement child) {
+        children.add(child);
+    }
+
+    /**
+     * Returns the child elements (body content) of this tag.
+     *
+     * @return an unmodifiable list of child elements
+     */
+    public List<JSPElement> getChildren() {
+        return Collections.unmodifiableList(children);
+    }
+
     @Override
     public void accept(JSPElementVisitor visitor) throws Exception {
         visitor.visitCustomTag(this);

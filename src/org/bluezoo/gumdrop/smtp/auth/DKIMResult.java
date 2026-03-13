@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.smtp.auth;
 
 /**
- * DKIM (DomainKeys Identified Mail) verification result as defined in RFC 6376.
+ * DKIM (DomainKeys Identified Mail) verification result as defined in RFC 6376 §6.1 (verification result).
  *
  * <p>DKIM results indicate whether the cryptographic signature on a message
  * is valid and matches the claimed signing domain.

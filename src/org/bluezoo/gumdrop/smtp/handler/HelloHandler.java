@@ -36,6 +36,10 @@ import java.security.Principal;
  * handler transitions to {@link MailFromHandler} where MAIL FROM commands
  * can be received.
  * 
+ * <p>Method mappings: {@code hello} → HELO/EHLO received (RFC 5321 §4.1.1.1);
+ * {@code tlsEstablished} → RFC 3207 (STARTTLS); {@code authenticated} →
+ * RFC 4954 (SASL AUTH).
+ * 
  * <h4>STARTTLS</h4>
  * <p>STARTTLS is handled automatically by the connection when available.
  * If the client requests STARTTLS and TLS is configured, the connection
@@ -54,6 +58,9 @@ import java.security.Principal;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HelloState
  * @see ConnectedState#acceptConnection
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.1">RFC 5321 §4.1.1.1</a> (HELO/EHLO)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a> (SASL AUTH)
  */
 public interface HelloHandler {
 

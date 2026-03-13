@@ -25,10 +25,19 @@ import java.text.*;
 import java.util.*;
 
 /**
- * HTTP date formatter and parser.
- * Formats dates according to RFC 822 (updated by RFC 1123).
- * Parses dates according to the above, <i>or</i> RFC 1036, <i>or</i> the
- * ANSI C <code>asctime()</code> format.
+ * HTTP date formatter and parser per RFC 9110 section 5.6.7.
+ *
+ * <p>Formats dates using the preferred IMF-fixdate format:
+ * <pre>day-name "," SP date1 SP time-of-day SP GMT</pre>
+ * Example: {@code Sun, 06 Nov 1994 08:49:37 GMT}
+ *
+ * <p>Parses all three HTTP date formats that recipients MUST accept
+ * (RFC 9110 section 5.6.7):
+ * <ul>
+ * <li>IMF-fixdate (preferred): {@code Sun, 06 Nov 1994 08:49:37 GMT}</li>
+ * <li>RFC 850 (obsolete): {@code Sunday, 06-Nov-94 08:49:37 GMT}</li>
+ * <li>ANSI C asctime: {@code Sun Nov  6 08:49:37 1994}</li>
+ * </ul>
  *
  * @author <a href="mailto:dog@gnu.org">Chris Burdess</a>
  */
@@ -107,26 +116,8 @@ public class HTTPDateFormat extends DateFormat {
         buf.append(Character.forDigit(second % 10, 10));
         buf.append(' ');
 
-        // Timezone
-        // Get time offset in minutes
-        int zoneOffset =
-                (calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET)) / 60000;
-
-        // Apply + or - appropriately
-        if (zoneOffset < 0) {
-            zoneOffset = -zoneOffset;
-            buf.append('-');
-        } else {
-            buf.append('+');
-        }
-
-        // Set the 2 2-char fields as specified above
-        int tzhours = zoneOffset / 60;
-        buf.append(Character.forDigit(tzhours / 10, 10));
-        buf.append(Character.forDigit(tzhours % 10, 10));
-        int tzminutes = zoneOffset % 60;
-        buf.append(Character.forDigit(tzminutes / 10, 10));
-        buf.append(Character.forDigit(tzminutes % 10, 10));
+        // RFC 9110 section 5.6.7: IMF-fixdate uses literal "GMT"
+        buf.append("GMT");
 
         field.setBeginIndex(0);
         field.setEndIndex(buf.length());

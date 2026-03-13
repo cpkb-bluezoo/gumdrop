@@ -28,8 +28,8 @@ import java.util.logging.Logger;
 
 /**
  * Represents an FTP data connection for file transfers and listings.
- * This is a lightweight wrapper around a SocketChannel used for
- * blocking I/O during data transfers.
+ * RFC 959 section 3.2 specifies the data connection is a full duplex
+ * connection established for each transfer and closed on completion.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

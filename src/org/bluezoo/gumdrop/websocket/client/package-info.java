@@ -38,6 +38,7 @@
  * switches to WebSocket mode and all subsequent I/O bypasses HTTP
  * parsing entirely.
  *
+ * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see org.bluezoo.gumdrop.websocket.client.WebSocketClient
  * @see org.bluezoo.gumdrop.websocket.WebSocketEventHandler
  * @see org.bluezoo.gumdrop.websocket.WebSocketSession

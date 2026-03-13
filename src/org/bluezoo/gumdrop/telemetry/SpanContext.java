@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.util.ByteArrays;
+
 /**
  * Immutable context identifying a span within a trace.
  * This contains the trace ID, span ID, and trace flags for context propagation.
@@ -44,10 +46,8 @@ public class SpanContext {
      */
     public static final int FLAG_SAMPLED = 0x01;
 
-    private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
-
-    private final byte[] traceId;
-    private final byte[] spanId;
+    private final TraceId traceId;
+    private final SpanId spanId;
     private final int traceFlags;
 
     /**
@@ -64,8 +64,8 @@ public class SpanContext {
         if (spanId == null || spanId.length != SPAN_ID_LENGTH) {
             throw new IllegalArgumentException("spanId must be 8 bytes");
         }
-        this.traceId = copyBytes(traceId);
-        this.spanId = copyBytes(spanId);
+        this.traceId = new TraceId(traceId);
+        this.spanId = new SpanId(spanId);
         this.traceFlags = sampled ? FLAG_SAMPLED : 0;
     }
 
@@ -83,23 +83,42 @@ public class SpanContext {
         if (spanId == null || spanId.length != SPAN_ID_LENGTH) {
             throw new IllegalArgumentException("spanId must be 8 bytes");
         }
-        this.traceId = copyBytes(traceId);
-        this.spanId = copyBytes(spanId);
+        this.traceId = new TraceId(traceId);
+        this.spanId = new SpanId(spanId);
         this.traceFlags = traceFlags;
     }
 
     /**
-     * Returns a copy of the trace ID bytes.
+     * Creates a span context with the given identifiers.
+     *
+     * @param traceId the trace ID
+     * @param spanId the span ID
+     * @param traceFlags the trace flags
      */
-    public byte[] getTraceId() {
-        return copyBytes(traceId);
+    public SpanContext(TraceId traceId, SpanId spanId, int traceFlags) {
+        if (traceId == null) {
+            throw new IllegalArgumentException("traceId cannot be null");
+        }
+        if (spanId == null) {
+            throw new IllegalArgumentException("spanId cannot be null");
+        }
+        this.traceId = traceId;
+        this.spanId = spanId;
+        this.traceFlags = traceFlags;
     }
 
     /**
-     * Returns a copy of the span ID bytes.
+     * Returns the trace ID.
      */
-    public byte[] getSpanId() {
-        return copyBytes(spanId);
+    public TraceId getTraceId() {
+        return traceId;
+    }
+
+    /**
+     * Returns the span ID.
+     */
+    public SpanId getSpanId() {
+        return spanId;
     }
 
     /**
@@ -120,14 +139,14 @@ public class SpanContext {
      * Returns the trace ID as a lowercase hexadecimal string.
      */
     public String getTraceIdHex() {
-        return bytesToHex(traceId);
+        return traceId.toHexString();
     }
 
     /**
      * Returns the span ID as a lowercase hexadecimal string.
      */
     public String getSpanIdHex() {
-        return bytesToHex(spanId);
+        return spanId.toHexString();
     }
 
     /**
@@ -141,8 +160,7 @@ public class SpanContext {
         sb.append('-');
         sb.append(getSpanIdHex());
         sb.append('-');
-        sb.append(HEX_CHARS[(traceFlags >> 4) & 0x0F]);
-        sb.append(HEX_CHARS[traceFlags & 0x0F]);
+        sb.append(ByteArrays.toHexString(new byte[] { (byte) traceFlags }));
         return sb.toString();
     }
 
@@ -165,8 +183,8 @@ public class SpanContext {
             return null;
         }
         try {
-            byte[] traceId = hexToBytes(traceparent.substring(3, 35));
-            byte[] spanId = hexToBytes(traceparent.substring(36, 52));
+            byte[] traceId = ByteArrays.toByteArray(traceparent.substring(3, 35));
+            byte[] spanId = ByteArrays.toByteArray(traceparent.substring(36, 52));
             int flags = Integer.parseInt(traceparent.substring(53, 55), 16);
             return new SpanContext(traceId, spanId, flags);
         } catch (IllegalArgumentException e) {
@@ -174,38 +192,7 @@ public class SpanContext {
         }
     }
 
-    private static byte[] copyBytes(byte[] source) {
-        byte[] copy = new byte[source.length];
-        System.arraycopy(source, 0, copy, 0, source.length);
-        return copy;
-    }
 
-    private static String bytesToHex(byte[] bytes) {
-        char[] result = new char[bytes.length * 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int v = bytes[i] & 0xFF;
-            result[i * 2] = HEX_CHARS[v >>> 4];
-            result[i * 2 + 1] = HEX_CHARS[v & 0x0F];
-        }
-        return new String(result);
-    }
-
-    private static byte[] hexToBytes(String hex) {
-        int len = hex.length();
-        if (len % 2 != 0) {
-            throw new IllegalArgumentException("Invalid hex string length");
-        }
-        byte[] result = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            int high = Character.digit(hex.charAt(i), 16);
-            int low = Character.digit(hex.charAt(i + 1), 16);
-            if (high == -1 || low == -1) {
-                throw new IllegalArgumentException("Invalid hex character");
-            }
-            result[i / 2] = (byte) ((high << 4) + low);
-        }
-        return result;
-    }
 
     @Override
     public String toString() {

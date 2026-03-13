@@ -119,6 +119,7 @@ public final class ContentTypeParser {
 	 * @param buf the buffer (position at params start, limit at params end); position advanced to limit
 	 * @param decoder charset decoder for decoding slices
 	 * @return list of parameters, or null if none
+	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2231#section-4">RFC 2231 §4</a>
 	 */
 	static List<Parameter> parseParameterList(ByteBuffer buf, CharsetDecoder decoder) {
 		int paramsEnd = buf.limit();
@@ -255,9 +256,8 @@ public final class ContentTypeParser {
 	}
 
 	/**
-	 * Parses a semicolon-separated list of parameters from a string.
-	 * Handles RFC 2231 extended parameters (name*=charset''value) and continuations (name*0, name*1).
-	 * Parameter values are returned in canonical form (no surrounding quotes).
+	 * RFC 2045 §5.1 / RFC 2231 §4 — parses a semicolon-separated list
+	 * of parameters from a string, including extended parameters and continuations.
 	 */
 	static List<Parameter> parseParameterList(String paramsPart) {
 		if (paramsPart == null || paramsPart.isEmpty()) {

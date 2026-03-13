@@ -28,7 +28,11 @@ import java.util.logging.Logger;
 
 /**
  * HTTP/2 stream priority-aware scheduler for optimal resource allocation.
- * 
+ *
+ * <p><strong>Deprecated per RFC 9113 section 5.3:</strong> Stream prioritization
+ * as defined in RFC 7540 section 5.3 is deprecated. This class is retained for
+ * reference but is not used by the HTTP/2 protocol handler.
+ *
  * <p>This scheduler integrates with {@link StreamPriorityTree} to provide:
  * <ul>
  * <li>Priority-based stream scheduling for response processing</li>
@@ -41,7 +45,9 @@ import java.util.logging.Logger;
  * access by multiple threads processing HTTP/2 streams.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated Stream priority signaling is deprecated per RFC 9113 section 5.3.
  */
+@Deprecated
 public class StreamPriorityScheduler {
     
     private static final Logger LOGGER = Logger.getLogger(StreamPriorityScheduler.class.getName());

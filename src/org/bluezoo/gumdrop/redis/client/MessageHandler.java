@@ -22,11 +22,13 @@
 package org.bluezoo.gumdrop.redis.client;
 
 /**
- * Handler for Redis Pub/Sub messages.
+ * Handler for Redis Pub/Sub messages (RESP spec — "Pub/Sub").
  *
  * <p>When a client subscribes to channels, it enters Pub/Sub mode and
  * can only execute Pub/Sub commands. Messages arrive asynchronously
- * through this handler.
+ * as RESP push arrays: {@code [type, channel, message]} for direct
+ * subscriptions, {@code [type, pattern, channel, message]} for pattern
+ * subscriptions.
  *
  * <h4>Usage Example</h4>
  * <pre>{@code

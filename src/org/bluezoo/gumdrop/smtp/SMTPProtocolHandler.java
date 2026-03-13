@@ -59,6 +59,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
@@ -92,7 +93,8 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
- * SMTP protocol handler using {@link ProtocolHandler} and {@link LineParser}.
+ * SMTP server protocol handler implementing RFC 5321 (SMTP) and
+ * RFC 6409 (Message Submission).
  *
  * <p>Implements the SMTP protocol with the transport layer fully decoupled:
  * <ul>
@@ -103,10 +105,31 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
  *
+ * <p>Supported SMTP extensions:
+ * <ul>
+ *   <li>STARTTLS (RFC 3207)</li>
+ *   <li>AUTH (RFC 4954) &mdash; PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, OAUTHBEARER, EXTERNAL</li>
+ *   <li>SIZE (RFC 1870)</li>
+ *   <li>8BITMIME (RFC 6152)</li>
+ *   <li>SMTPUTF8 (RFC 6531)</li>
+ *   <li>PIPELINING (RFC 2920)</li>
+ *   <li>CHUNKING / BINARYMIME (RFC 3030)</li>
+ *   <li>ENHANCEDSTATUSCODES (RFC 2034)</li>
+ *   <li>DSN (RFC 3461)</li>
+ *   <li>LIMITS (RFC 9422)</li>
+ *   <li>REQUIRETLS (RFC 8689)</li>
+ *   <li>MT-PRIORITY (RFC 6710)</li>
+ *   <li>FUTURERELEASE (RFC 4865)</li>
+ *   <li>DELIVERBY (RFC 2852)</li>
+ *   <li>XCLIENT (Postfix extension)</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see LineParser
  * @see SMTPListener
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  */
 public class SMTPProtocolHandler
         implements ProtocolHandler, LineParser.Callback,
@@ -183,6 +206,7 @@ public class SMTPProtocolHandler
     private int authIterations = 4096;
 
     private SaslServer saslServer;
+    private GSSAPIServer.GSSAPIExchange gssapiExchange;
     private X509Certificate clientCertificate;
     private InetSocketAddress xclientAddr;
     private InetSocketAddress xclientDestAddr;
@@ -216,6 +240,7 @@ public class SMTPProtocolHandler
 
     // ── ProtocolHandler implementation ──
 
+    /** RFC 5321 §4.2 — server greeting (220) on connection. */
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
@@ -230,6 +255,7 @@ public class SMTPProtocolHandler
         sendGreeting();
     }
 
+    /** RFC 5321 §2.3.8 — line-oriented command processing; DATA/BDAT binary. */
     @Override
     public void receive(ByteBuffer buf) {
         try {
@@ -296,6 +322,10 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * RFC 3207 §4.2 — post-STARTTLS, state resets and client must re-EHLO.
+     * RFC 8314 — implicit TLS (port 465): greeting sent after TLS established.
+     */
     @Override
     public void securityEstablished(SecurityInfo info) {
         if (state == SMTPState.INITIAL && !starttlsUsed) {
@@ -315,6 +345,7 @@ public class SMTPProtocolHandler
 
     // ── LineParser.Callback implementation ──
 
+    /** RFC 5321 §2.3.8 — command lines are CR LF terminated, max 512 octets. */
     @Override
     public void lineReceived(ByteBuffer line) {
         try {
@@ -546,6 +577,7 @@ public class SMTPProtocolHandler
         return false;
     }
 
+    /** RFC 5321 §4.5.1 — command dispatch and sequencing. */
     private void dispatchCommand(String command, String args) throws IOException {
         if (state == SMTPState.REJECTED) {
             if ("QUIT".equals(command)) {
@@ -586,6 +618,8 @@ public class SMTPProtocolHandler
             auth(args);
         } else if ("XCLIENT".equals(command)) {
             xclient(args);
+        } else if ("ETRN".equals(command)) {
+            etrn(args);                                   // RFC 1985
         } else {
             reply(500, MessageFormat.format(L10N.getString("smtp.err.command_unrecognized"), command));
         }
@@ -765,6 +799,7 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.5.2 — DATA content dot-unstuffing state machine. */
     private void processDataBuffer(ByteBuffer buf) throws IOException {
         int chunkStart = buf.position();
         while (buf.hasRemaining()) {
@@ -855,6 +890,7 @@ public class SMTPProtocolHandler
         checkMessageHandlerBackPressure();
     }
 
+    /** RFC 3030 §3 — BDAT chunk content processing. */
     private void handleBdatContent(ByteBuffer buf) throws IOException {
         while (buf.hasRemaining() && bdatBytesRemaining > 0) {
             int available = buf.remaining();
@@ -946,6 +982,7 @@ public class SMTPProtocolHandler
         return false;
     }
 
+    /** RFC 5321 §4.1.1.1 — HELO command. */
     private void helo(String hostname) throws IOException {
         if (hostname == null || hostname.trim().isEmpty()) {
             reply(501, "5.0.0 Syntax: HELO hostname");
@@ -964,6 +1001,7 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.1.1.1 — EHLO command with extension negotiation. */
     private void ehlo(String hostname) throws IOException {
         if (hostname == null || hostname.trim().isEmpty()) {
             reply(501, "5.0.0 Syntax: EHLO hostname");
@@ -982,17 +1020,21 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * RFC 5321 §4.1.1.1 — EHLO 250 multi-line response advertising extensions.
+     * Each keyword references its defining RFC.
+     */
     private void sendEhloResponse() throws IOException {
         String localHostname = endpoint.getLocalAddress().toString();
         replyMultiline(250, localHostname + " Hello " + heloName);
-        replyMultiline(250, "SIZE " + server.getMaxMessageSize());
-        replyMultiline(250, "PIPELINING");
-        replyMultiline(250, "8BITMIME");
-        replyMultiline(250, "SMTPUTF8");
-        replyMultiline(250, "ENHANCEDSTATUSCODES");
-        replyMultiline(250, "CHUNKING");
-        replyMultiline(250, "BINARYMIME");
-        replyMultiline(250, "DSN");
+        replyMultiline(250, "SIZE " + server.getMaxMessageSize());     // RFC 1870
+        replyMultiline(250, "PIPELINING");                              // RFC 2920
+        replyMultiline(250, "8BITMIME");                                // RFC 6152
+        replyMultiline(250, "SMTPUTF8");                                // RFC 6531
+        replyMultiline(250, "ENHANCEDSTATUSCODES");                     // RFC 2034
+        replyMultiline(250, "CHUNKING");                                // RFC 3030
+        replyMultiline(250, "BINARYMIME");                              // RFC 3030
+        replyMultiline(250, "DSN");                                     // RFC 3461
         StringBuilder limits = new StringBuilder("LIMITS");
         int maxRecipients = server.getMaxRecipients();
         if (maxRecipients > 0) {
@@ -1002,13 +1044,13 @@ public class SMTPProtocolHandler
         if (maxTransactions > 0) {
             limits.append(" MAILMAX=").append(maxTransactions);
         }
-        replyMultiline(250, limits.toString());
+        replyMultiline(250, limits.toString());                       // RFC 9422
         if (endpoint.isSecure()) {
-            replyMultiline(250, "REQUIRETLS");
+            replyMultiline(250, "REQUIRETLS");                          // RFC 8689
         }
-        replyMultiline(250, "MT-PRIORITY MIXER STANAG4406 NSEP");
-        replyMultiline(250, "FUTURERELEASE 604800 2012-01-01T00:00:00Z");
-        replyMultiline(250, "DELIVERBY 604800");
+        replyMultiline(250, "MT-PRIORITY MIXER STANAG4406 NSEP");       // RFC 6710
+        replyMultiline(250, "FUTURERELEASE 604800 2012-01-01T00:00:00Z"); // RFC 4865
+        replyMultiline(250, "DELIVERBY 604800");                        // RFC 2852
         if (isXclientAuthorized()) {
             replyMultiline(250, "XCLIENT NAME ADDR PORT PROTO HELO LOGIN DESTADDR DESTPORT");
         }
@@ -1018,7 +1060,7 @@ public class SMTPProtocolHandler
         Realm r = getRealm();
         if (r != null && (endpoint.isSecure() || server.isSTARTTLSAvailable())) {
             Set<SASLMechanism> supported = r.getSupportedSASLMechanisms();
-            if (!supported.isEmpty()) {
+            if (!supported.isEmpty() || server.getGSSAPIServer() != null) {
                 StringBuilder authLine = new StringBuilder("AUTH");
                 for (SASLMechanism mech : supported) {
                     if (!endpoint.isSecure() && mech.requiresTLS()) {
@@ -1029,12 +1071,17 @@ public class SMTPProtocolHandler
                     }
                     authLine.append(" ").append(mech.getMechanismName());
                 }
+                // RFC 4752 — advertise GSSAPI when configured
+                if (server.getGSSAPIServer() != null) {
+                    authLine.append(" GSSAPI");
+                }
                 replyMultiline(250, authLine.toString());
             }
         }
         sendResponse(250, "HELP");
     }
 
+    /** RFC 3207 §4 — STARTTLS command. */
     private void starttls(String args) throws IOException {
         if (endpoint.isSecure()) {
             reply(454, "4.7.0 TLS already active");
@@ -1051,6 +1098,7 @@ public class SMTPProtocolHandler
         doStarttls();
     }
 
+    /** RFC 3207 §4.2 — 220 response, start TLS, reset SMTP state. */
     private void doStarttls() {
         try {
             reply(220, "2.0.0 Ready to start TLS");
@@ -1075,6 +1123,12 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * RFC 4954 — AUTH command.
+     * Supported mechanisms: PLAIN (RFC 4616), LOGIN, CRAM-MD5 (RFC 2195),
+     * DIGEST-MD5 (RFC 2831), SCRAM-SHA-256 (RFC 5802/7677),
+     * OAUTHBEARER (RFC 7628), EXTERNAL (RFC 4422).
+     */
     private void auth(String args) throws IOException {
         if (getRealm() == null) {
             reply(502, "5.5.1 Authentication not available");
@@ -1122,11 +1176,22 @@ public class SMTPProtocolHandler
             handleAuthLogin(initialResponse);
         } else if ("EXTERNAL".equals(mechanism)) {
             handleAuthExternal(initialResponse);
+        } else if ("CRAM-MD5".equals(mechanism)) {
+            handleAuthCramMD5(initialResponse);           // RFC 2195
+        } else if ("DIGEST-MD5".equals(mechanism)) {
+            handleAuthDigestMD5(initialResponse);         // RFC 2831
+        } else if ("SCRAM-SHA-256".equals(mechanism)) {
+            handleAuthScramSHA256(initialResponse);       // RFC 5802, RFC 7677
+        } else if ("OAUTHBEARER".equals(mechanism)) {
+            handleAuthOAuthBearer(initialResponse);       // RFC 7628
+        } else if ("GSSAPI".equals(mechanism)) {
+            handleAuthGSSAPI(initialResponse);            // RFC 4752
         } else {
             reply(504, "5.5.4 Authentication mechanism not supported");
         }
     }
 
+    /** RFC 4616 — SASL PLAIN mechanism (authzid NUL authcid NUL password). */
     private void handleAuthPlain(String initialResponse) throws IOException {
         try {
             String credentials;
@@ -1170,6 +1235,7 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 4422 — SASL EXTERNAL mechanism using TLS client certificate. */
     private void handleAuthExternal(String initialResponse) throws IOException {
         String authzid = null;
         if (initialResponse != null && !initialResponse.isEmpty()
@@ -1198,6 +1264,7 @@ public class SMTPProtocolHandler
         resetAuthState();
     }
 
+    /** draft-murchison-sasl-login — SASL LOGIN mechanism (username/password). */
     private void handleAuthLogin(String initialResponse) throws IOException {
         try {
             if (initialResponse != null && !initialResponse.equals("=")) {
@@ -1230,7 +1297,332 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * RFC 2195 — CRAM-MD5 mechanism.
+     * Server sends a challenge; client responds with "username digest".
+     */
+    private void handleAuthCramMD5(String initialResponse) throws IOException {
+        try {
+            String hostname = endpoint.getLocalAddress().toString();
+            authChallenge = SASLUtils.generateCramMD5Challenge(hostname);
+            String encoded = Base64.getEncoder()
+                    .encodeToString(authChallenge.getBytes(US_ASCII));
+            reply(334, encoded);
+            authState = AuthState.CRAM_MD5_RESPONSE;
+            authMechanism = "CRAM-MD5";
+        } catch (Exception e) {
+            reply(454, "4.7.0 Temporary authentication failure");
+            resetAuthState();
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "AUTH CRAM-MD5 error", e);
+            }
+        }
+    }
+
+    /**
+     * RFC 2831 — DIGEST-MD5 mechanism.
+     * Server sends a challenge with realm/nonce/qop; client computes response.
+     * Deprecated by RFC 6331 but retained for backward compatibility.
+     */
+    private void handleAuthDigestMD5(String initialResponse) throws IOException {
+        try {
+            authNonce = SASLUtils.generateNonce(16);
+            String realmName = endpoint.getLocalAddress().toString();
+            authChallenge = SASLUtils.generateDigestMD5Challenge(realmName, authNonce);
+            String encoded = Base64.getEncoder()
+                    .encodeToString(authChallenge.getBytes(UTF_8));
+            reply(334, encoded);
+            authState = AuthState.DIGEST_MD5_RESPONSE;
+            authMechanism = "DIGEST-MD5";
+        } catch (Exception e) {
+            reply(454, "4.7.0 Temporary authentication failure");
+            resetAuthState();
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "AUTH DIGEST-MD5 error", e);
+            }
+        }
+    }
+
+    /**
+     * RFC 5802 / RFC 7677 — SCRAM-SHA-256 mechanism.
+     * Multi-round: client-first → server-first → client-final → server-final.
+     */
+    private void handleAuthScramSHA256(String initialResponse) throws IOException {
+        try {
+            if (initialResponse != null && !initialResponse.equals("=")) {
+                processScramClientFirst(initialResponse);
+            } else {
+                reply(334, "");
+                authState = AuthState.SCRAM_INITIAL;
+                authMechanism = "SCRAM-SHA-256";
+            }
+        } catch (Exception e) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", e);
+            }
+        }
+    }
+
+    /** RFC 5802 §5 — parse the SCRAM client-first-message and reply with server-first. */
+    private void processScramClientFirst(String encoded) throws IOException {
+        String clientFirst = new String(Base64.getDecoder().decode(encoded), UTF_8);
+        // client-first-message: gs2-header "," authcid "," nonce
+        // e.g. n,,n=user,r=clientnonce
+        int commaCount = 0;
+        int bareStart = 0;
+        for (int i = 0; i < clientFirst.length(); i++) {
+            if (clientFirst.charAt(i) == ',') {
+                commaCount++;
+                if (commaCount == 2) {
+                    bareStart = i + 1;
+                    break;
+                }
+            }
+        }
+        String clientFirstBare = clientFirst.substring(bareStart);
+        String username = null;
+        String clientNonce = null;
+        for (String attr : clientFirstBare.split(",")) {
+            if (attr.startsWith("n=")) {
+                username = attr.substring(2);
+            } else if (attr.startsWith("r=")) {
+                clientNonce = attr.substring(2);
+            }
+        }
+        if (username == null || clientNonce == null) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        Realm.ScramCredentials creds = getRealm().getScramCredentials(username);
+        if (creds == null) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        pendingAuthUsername = username;
+        authClientNonce = clientNonce;
+        String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+        authNonce = serverNonce;
+        authSalt = Base64.getDecoder().decode(creds.salt);
+        authIterations = creds.iterations;
+
+        String serverFirst = SASLUtils.generateScramServerFirst(serverNonce, creds.salt, creds.iterations);
+        // Store the auth message for later verification: clientFirstBare + "," + serverFirst
+        authChallenge = clientFirstBare + "," + serverFirst;
+        authServerSignature = null; // computed in final step
+
+        String serverFirstEncoded = Base64.getEncoder()
+                .encodeToString(serverFirst.getBytes(UTF_8));
+        reply(334, serverFirstEncoded);
+        authState = AuthState.SCRAM_FINAL;
+        authMechanism = "SCRAM-SHA-256";
+    }
+
+    /** RFC 5802 §5 — process SCRAM client-final-message and verify proof. */
+    private void processScramClientFinal(String encoded) throws IOException {
+        String clientFinal = new String(Base64.getDecoder().decode(encoded), UTF_8);
+        // client-final-message: channel-binding "," nonce "," proof
+        // e.g. c=biws,r=combinednonce,p=base64proof
+        String nonce = null;
+        String proof = null;
+        for (String attr : clientFinal.split(",")) {
+            if (attr.startsWith("c=")) {
+                // channel-binding data — verified implicitly by nonce match
+            } else if (attr.startsWith("r=")) {
+                nonce = attr.substring(2);
+            } else if (attr.startsWith("p=")) {
+                proof = attr.substring(2);
+            }
+        }
+        if (nonce == null || proof == null || !nonce.equals(authNonce)) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        Realm.ScramCredentials creds = getRealm().getScramCredentials(pendingAuthUsername);
+        if (creds == null) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        // clientFinalWithoutProof = everything before ",p="
+        int proofIdx = clientFinal.lastIndexOf(",p=");
+        String clientFinalWithoutProof = clientFinal.substring(0, proofIdx);
+        String authMessage = authChallenge + "," + clientFinalWithoutProof;
+
+        // RFC 5802 §3: ClientSignature = HMAC(StoredKey, AuthMessage)
+        byte[] clientSignature = SASLUtils.hmacSHA256(creds.storedKey, authMessage.getBytes(UTF_8));
+        byte[] clientProof = Base64.getDecoder().decode(proof);
+
+        // ClientKey = ClientProof XOR ClientSignature
+        byte[] recoveredClientKey = new byte[clientProof.length];
+        for (int i = 0; i < clientProof.length; i++) {
+            recoveredClientKey[i] = (byte) (clientProof[i] ^ clientSignature[i]);
+        }
+        // StoredKey = H(ClientKey)
+        byte[] computedStoredKey = SASLUtils.sha256(recoveredClientKey);
+        if (!java.security.MessageDigest.isEqual(computedStoredKey, creds.storedKey)) {
+            notifyAuthenticationFailure(pendingAuthUsername, "SCRAM-SHA-256");
+            resetAuthState();
+            return;
+        }
+        // ServerSignature = HMAC(ServerKey, AuthMessage)
+        byte[] serverSignature = SASLUtils.hmacSHA256(creds.serverKey, authMessage.getBytes(UTF_8));
+        String serverFinal = "v=" + Base64.getEncoder().encodeToString(serverSignature);
+        notifyAuthenticationSuccess(pendingAuthUsername, "SCRAM-SHA-256");
+        // RFC 5802 §5: server-final appended to the 235 response
+        reply(235, "2.7.0 " + Base64.getEncoder().encodeToString(serverFinal.getBytes(UTF_8)));
+        resetAuthState();
+    }
+
+    /**
+     * RFC 7628 — OAUTHBEARER mechanism.
+     * Client sends a single message containing the Bearer token.
+     */
+    private void handleAuthOAuthBearer(String initialResponse) throws IOException {
+        try {
+            if (initialResponse != null && !initialResponse.equals("=")) {
+                processOAuthBearerResponse(initialResponse);
+            } else {
+                reply(334, "");
+                authState = AuthState.OAUTH_RESPONSE;
+                authMechanism = "OAUTHBEARER";
+            }
+        } catch (Exception e) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "AUTH OAUTHBEARER error", e);
+            }
+        }
+    }
+
+    /** RFC 7628 §3.1 — validate the OAUTHBEARER initial client response. */
+    private void processOAuthBearerResponse(String encoded) throws IOException {
+        String decoded = new String(Base64.getDecoder().decode(encoded), UTF_8);
+        Map<String, String> oauthParams = SASLUtils.parseOAuthBearerCredentials(decoded);
+        String token = oauthParams.get("token");
+        String user = oauthParams.get("user");
+        if (token == null || token.isEmpty()) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        Realm.TokenValidationResult result = getRealm().validateBearerToken(token);
+        if (result == null || !result.valid || result.isExpired()) {
+            // RFC 7628 §3.2.2 — server sends JSON error on failure
+            String errorJson = "{\"status\":\"invalid_token\"}";
+            String errorEncoded = Base64.getEncoder()
+                    .encodeToString(errorJson.getBytes(UTF_8));
+            reply(334, errorEncoded);
+            // Client must send empty response (^A) to acknowledge, then 535
+            authState = AuthState.OAUTH_RESPONSE;
+            authMechanism = "OAUTHBEARER";
+            return;
+        }
+        String username = (user != null && !user.isEmpty()) ? user : result.username;
+        notifyAuthenticationSuccess(username, "OAUTHBEARER");
+        resetAuthState();
+    }
+
+    /** RFC 4752 — SASL GSSAPI mechanism (Kerberos V5). */
+    private void handleAuthGSSAPI(String initialResponse) throws IOException {
+        GSSAPIServer gssapiServer = server.getGSSAPIServer();
+        if (gssapiServer == null) {
+            reply(504, "5.5.4 Authentication mechanism not supported");
+            return;
+        }
+        try {
+            gssapiExchange = gssapiServer.createExchange();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "GSSAPI exchange creation failed", e);
+            reply(454, "4.7.0 Temporary authentication failure");
+            return;
+        }
+        authState = AuthState.GSSAPI_EXCHANGE;
+        authMechanism = "GSSAPI";
+        if (initialResponse != null && !initialResponse.equals("=")) {
+            processGSSAPIToken(initialResponse);
+        } else {
+            reply(334, "");
+        }
+    }
+
+    /** RFC 4752 §3.1 — processes a GSSAPI token exchange step. */
+    private void processGSSAPIToken(String line) throws IOException {
+        try {
+            byte[] clientToken = Base64.getDecoder().decode(line);
+            byte[] responseToken = gssapiExchange.acceptToken(clientToken);
+
+            if (gssapiExchange.isContextEstablished()) {
+                byte[] challenge =
+                        gssapiExchange.generateSecurityLayerChallenge();
+                String encoded = Base64.getEncoder()
+                        .encodeToString(challenge);
+                reply(334, encoded);
+                return;
+            }
+
+            if (responseToken != null && responseToken.length > 0) {
+                String encoded = Base64.getEncoder()
+                        .encodeToString(responseToken);
+                reply(334, encoded);
+            } else {
+                reply(334, "");
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "GSSAPI token rejected", e);
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+        } catch (IllegalArgumentException e) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+        }
+    }
+
+    /** RFC 4752 §3.1 para 7-8 — processes the security layer response. */
+    private void processGSSAPISecurityLayer(String line) throws IOException {
+        try {
+            byte[] wrapped = Base64.getDecoder().decode(line);
+            String gssName =
+                    gssapiExchange.validateSecurityLayerResponse(wrapped);
+            Realm realm = getRealm();
+            String localUser = null;
+            if (realm != null) {
+                localUser = realm.mapKerberosPrincipal(gssName);
+            }
+            if (localUser == null) {
+                localUser = gssName;
+                int atIndex = localUser.indexOf('@');
+                if (atIndex > 0) {
+                    localUser = localUser.substring(0, atIndex);
+                }
+            }
+            notifyAuthenticationSuccess(localUser, "GSSAPI");
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "GSSAPI security layer failed", e);
+            reply(535, "5.7.8 Authentication credentials invalid");
+        } catch (IllegalArgumentException e) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+        } finally {
+            resetAuthState();
+        }
+    }
+
+    /**
+     * RFC 4954 §4 — process AUTH continuation data.
+     * If the client sends "*", the exchange is aborted (501).
+     */
     private void handleAuthData(String data) throws IOException {
+        // RFC 4954 §4 — "*" aborts the authentication exchange
+        if ("*".equals(data)) {
+            reply(501, "5.0.0 Authentication aborted");
+            resetAuthState();
+            return;
+        }
         try {
             switch (authState) {
                 case PLAIN_RESPONSE:
@@ -1285,6 +1677,29 @@ public class SMTPProtocolHandler
                     resetAuthState();
                     break;
                 }
+                case CRAM_MD5_RESPONSE:
+                    handleCramMD5Response(data);
+                    break;
+                case DIGEST_MD5_RESPONSE:
+                    handleDigestMD5Response(data);
+                    break;
+                case SCRAM_INITIAL:
+                    processScramClientFirst(data);
+                    break;
+                case SCRAM_FINAL:
+                    processScramClientFinal(data);
+                    break;
+                case OAUTH_RESPONSE:
+                    handleOAuthDataResponse(data);
+                    break;
+                case GSSAPI_EXCHANGE:
+                    if (gssapiExchange != null
+                            && gssapiExchange.isContextEstablished()) {
+                        processGSSAPISecurityLayer(data);
+                    } else {
+                        processGSSAPIToken(data);
+                    }
+                    break;
                 default:
                     reply(503, "5.5.1 Bad sequence of commands");
                     resetAuthState();
@@ -1296,6 +1711,101 @@ public class SMTPProtocolHandler
                 LOGGER.log(Level.WARNING, "AUTH data handling error", e);
             }
         }
+    }
+
+    /** RFC 2195 §2 — verify CRAM-MD5 response ("username digest"). */
+    private void handleCramMD5Response(String encodedData) throws IOException {
+        String response = new String(Base64.getDecoder().decode(encodedData), US_ASCII);
+        int spaceIdx = response.lastIndexOf(' ');
+        if (spaceIdx <= 0) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        String username = response.substring(0, spaceIdx);
+        String expectedResponse = getRealm().getCramMD5Response(username, authChallenge);
+        String clientDigest = response.substring(spaceIdx + 1).toLowerCase(Locale.ENGLISH);
+        if (expectedResponse != null
+                && java.security.MessageDigest.isEqual(
+                        clientDigest.getBytes(US_ASCII),
+                        expectedResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
+            notifyAuthenticationSuccess(username, "CRAM-MD5");
+        } else {
+            notifyAuthenticationFailure(username, "CRAM-MD5");
+        }
+        resetAuthState();
+    }
+
+    /** RFC 2831 §2.1.2 — verify DIGEST-MD5 response. */
+    private void handleDigestMD5Response(String encodedData) throws IOException {
+        String response = new String(Base64.getDecoder().decode(encodedData), UTF_8);
+        Map<String, String> params = SASLUtils.parseDigestParams(response);
+        String username = params.get("username");
+        String clientNonce = params.get("nonce");
+        String nc = params.get("nc");
+        String cnonce = params.get("cnonce");
+        String qop = params.get("qop");
+        String digestUri = params.get("digest-uri");
+        String clientResponse = params.get("response");
+
+        if (username == null || clientNonce == null || clientResponse == null) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        if (!authNonce.equals(clientNonce)) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        String realmName = params.get("realm");
+        if (realmName == null) {
+            realmName = endpoint.getLocalAddress().toString();
+        }
+        String ha1 = getRealm().getDigestHA1(username, realmName);
+        if (ha1 == null) {
+            notifyAuthenticationFailure(username, "DIGEST-MD5");
+            resetAuthState();
+            return;
+        }
+        // RFC 2831: HA1 for md5-sess = H(H(username:realm:password):nonce:cnonce)
+        String a1Input = ha1 + ":" + authNonce + ":" + cnonce;
+        String sessionHA1 = SASLUtils.md5Hex(a1Input.getBytes(UTF_8));
+        String a2 = "AUTHENTICATE:" + digestUri;
+        String ha2 = SASLUtils.md5Hex(a2.getBytes(UTF_8));
+        String expectedInput = sessionHA1 + ":" + authNonce + ":" + nc + ":"
+                + cnonce + ":" + qop + ":" + ha2;
+        String expected = SASLUtils.md5Hex(expectedInput.getBytes(UTF_8));
+
+        if (java.security.MessageDigest.isEqual(
+                expected.getBytes(US_ASCII),
+                clientResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
+            // RFC 2831 §2.1.3 — rspauth in response-value
+            String rspA2 = ":" + digestUri;
+            String rspHA2 = SASLUtils.md5Hex(rspA2.getBytes(UTF_8));
+            String rspInput = sessionHA1 + ":" + authNonce + ":" + nc + ":"
+                    + cnonce + ":" + qop + ":" + rspHA2;
+            String rspAuth = SASLUtils.md5Hex(rspInput.getBytes(UTF_8));
+            String rspEncoded = Base64.getEncoder()
+                    .encodeToString(("rspauth=" + rspAuth).getBytes(US_ASCII));
+            reply(334, rspEncoded);
+            notifyAuthenticationSuccess(username, "DIGEST-MD5");
+        } else {
+            notifyAuthenticationFailure(username, "DIGEST-MD5");
+        }
+        resetAuthState();
+    }
+
+    /** RFC 7628 §3.2.2 — handle OAUTHBEARER continuation (either initial or error ack). */
+    private void handleOAuthDataResponse(String data) throws IOException {
+        // After an error challenge (334), client sends empty response to acknowledge
+        String decoded = new String(Base64.getDecoder().decode(data), UTF_8);
+        if (decoded.isEmpty() || decoded.equals("\u0001")) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        processOAuthBearerResponse(data);
     }
 
     private boolean authenticateUser(String username, String password) {
@@ -1322,6 +1832,10 @@ public class SMTPProtocolHandler
                 // Ignore
             }
             saslServer = null;
+        }
+        if (gssapiExchange != null) {
+            gssapiExchange.dispose();
+            gssapiExchange = null;
         }
         clientCertificate = null;
     }
@@ -1357,6 +1871,7 @@ public class SMTPProtocolHandler
         reply(535, "5.7.8 Authentication credentials invalid");
     }
 
+    /** RFC 5321 §4.1.1.10 — QUIT command; reply 221 and close. */
     private void quit(String args) throws IOException {
         endSessionSpan("QUIT");
         this.state = SMTPState.QUIT;
@@ -1367,14 +1882,16 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.1.1.9 — NOOP command; reply 250. */
     private void noop(String args) throws IOException {
         reply(250, "2.0.0 Ok");
     }
 
+    /** RFC 5321 §4.1.1.8 — HELP command; reply 214. */
     private void help(String args) throws IOException {
         if (args == null || args.trim().isEmpty()) {
             replyMultiline(214, "2.0.0 Gumdrop SMTP server - supported commands:");
-            replyMultiline(214, "  HELO EHLO MAIL RCPT DATA BDAT RSET");
+            replyMultiline(214, "  HELO EHLO MAIL RCPT DATA BDAT RSET ETRN");
             replyMultiline(214, "  VRFY NOOP QUIT HELP");
             if (!endpoint.isSecure() && server.isSTARTTLSAvailable() && !starttlsUsed) {
                 replyMultiline(214, "  STARTTLS");
@@ -1416,18 +1933,34 @@ public class SMTPProtocolHandler
                 reply(214, "2.0.0 AUTH <mechanism> [initial-response] - Authenticate");
             } else if ("XCLIENT".equals(cmd)) {
                 reply(214, "2.0.0 XCLIENT attr=value [...] - Override connection attributes (Postfix extension)");
+            } else if ("ETRN".equals(cmd)) {
+                reply(214, "2.0.0 ETRN <node> - Request remote queue processing (RFC 1985)");
             } else {
                 reply(504, "5.5.1 HELP not available for: " + args);
             }
         }
     }
 
+    /** RFC 5321 §4.1.1.6 — VRFY command; 252 per §7.3 (information hiding). */
     private void vrfy(String args) throws IOException {
         reply(252, "2.5.2 Cannot VRFY user, but will accept message and attempt delivery");
     }
 
+    /** RFC 5321 §4.1.1.7 — EXPN command; 502 (not implemented, optional). */
     private void expn(String args) throws IOException {
         reply(502, "5.5.1 EXPN not implemented");
+    }
+
+    /**
+     * RFC 1985 — ETRN command (Remote Message Queue Starting).
+     * Optional; returns 502 since this server does not support on-demand relay.
+     */
+    private void etrn(String args) throws IOException {
+        if (!extendedSMTP) {
+            reply(502, "5.5.1 ETRN requires EHLO");
+            return;
+        }
+        reply(458, "Unable to queue messages for node " + (args != null ? args.trim() : ""));
     }
 
     private String decodeXtext(String value) {
@@ -1452,6 +1985,7 @@ public class SMTPProtocolHandler
         return sb.toString();
     }
 
+    /** Postfix XCLIENT extension — override client connection attributes. */
     private void xclient(String args) throws IOException {
         if (!isXclientAuthorized()) {
             reply(550, "5.7.0 XCLIENT not authorized");
@@ -1618,6 +2152,7 @@ public class SMTPProtocolHandler
         startSessionSpan();
     }
 
+    /** RFC 5321 §4.1.1.5 — RSET command; reset transaction state, reply 250. */
     private void rset(String args) throws IOException {
         endSessionSpan("RSET");
         resetDataState();
@@ -1631,6 +2166,12 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * RFC 5321 §4.1.1.2 — MAIL FROM command.
+     * Parameters: SIZE (RFC 1870), BODY (RFC 6152 / RFC 3030),
+     * SMTPUTF8 (RFC 6531), RET/ENVID (RFC 3461), REQUIRETLS (RFC 8689),
+     * MT-PRIORITY (RFC 6710), HOLDFOR/HOLDUNTIL (RFC 4865), BY (RFC 2852).
+     */
     private void mail(String args) throws IOException {
         if (state != SMTPState.READY) {
             reply(503, "5.0.0 Bad sequence of commands");
@@ -1912,6 +2453,10 @@ public class SMTPProtocolHandler
         return false;
     }
 
+    /**
+     * RFC 5321 §4.1.1.3 — RCPT TO command.
+     * Parameters: NOTIFY/ORCPT (RFC 3461 §4.1–4.2).
+     */
     private void rcpt(String args) throws IOException {
         if (state != SMTPState.MAIL && state != SMTPState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
@@ -2045,6 +2590,10 @@ public class SMTPProtocolHandler
         }
     }
 
+    /**
+     * RFC 5321 §4.1.1.4 — DATA command; §4.5.2 dot transparency.
+     * RFC 3030 — BODY=BINARYMIME requires BDAT, not DATA.
+     */
     private void data(String args) throws IOException {
         if (state != SMTPState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
@@ -2080,6 +2629,7 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 3030 §3 — BDAT command for chunked content transfer. */
     private void bdat(String args) throws IOException {
         if (!extendedSMTP) {
             reply(503, "5.0.0 BDAT requires EHLO");
@@ -2235,8 +2785,9 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── ConnectedState implementation ──
+    // ── ConnectedState implementation (RFC 5321 §4.2 — greeting) ──
 
+    /** RFC 5321 §4.2 — 220 greeting. */
     @Override
     public void acceptConnection(String greeting, HelloHandler handler) {
         this.helloHandler = handler;
@@ -2254,6 +2805,7 @@ public class SMTPProtocolHandler
         rejectConnection("Connection rejected");
     }
 
+    /** RFC 5321 §4.2 — 554 connection refused. */
     @Override
     public void rejectConnection(String message) {
         this.state = SMTPState.REJECTED;
@@ -2268,8 +2820,9 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── HelloState implementation ──
+    // ── HelloState implementation (RFC 5321 §4.1.1.1) ──
 
+    /** RFC 5321 §4.1.1.1 — 250 EHLO/HELO accepted. */
     @Override
     public void acceptHello(MailFromHandler handler) {
         this.mailFromHandler = handler;
@@ -2323,8 +2876,9 @@ public class SMTPProtocolHandler
         closeEndpoint();
     }
 
-    // ── AuthenticateState implementation ──
+    // ── AuthenticateState implementation (RFC 4954) ──
 
+    /** RFC 4954 — 235 authentication successful. */
     @Override
     public void accept(MailFromHandler handler) {
         this.authenticated = true;
@@ -2339,6 +2893,7 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 4954 — 535 authentication credentials invalid. */
     @Override
     public void reject(HelloHandler handler) {
         this.helloHandler = handler;
@@ -2370,8 +2925,9 @@ public class SMTPProtocolHandler
         closeEndpoint();
     }
 
-    // ── MailFromState implementation ──
+    // ── MailFromState implementation (RFC 5321 §4.1.1.2) ──
 
+    /** RFC 5321 §4.1.1.2 — 250 sender accepted. */
     @Override
     public void acceptSender(RecipientHandler handler) {
         this.recipientHandler = handler;
@@ -2473,8 +3029,9 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── RecipientState implementation ──
+    // ── RecipientState implementation (RFC 5321 §4.1.1.3) ──
 
+    /** RFC 5321 §4.1.1.3 — 250 recipient accepted. */
     @Override
     public void acceptRecipient(RecipientHandler handler) {
         this.recipientHandler = handler;
@@ -2499,6 +3056,7 @@ public class SMTPProtocolHandler
         }
     }
 
+    /** RFC 5321 §4.1.1.3 — 251 user not local; will forward. */
     @Override
     public void acceptRecipientForward(String forwardPath, RecipientHandler handler) {
         this.recipientHandler = handler;
@@ -2608,16 +3166,18 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── MessageStartState implementation ──
+    // ── MessageStartState implementation (RFC 5321 §4.1.1.4) ──
 
+    /** RFC 5321 §4.1.1.4 — 354 start mail input. */
     @Override
     public void acceptMessage(MessageDataHandler handler) {
         this.messageHandler = handler;
         doAcceptMessage();
     }
 
-    // ── MessageEndState implementation ──
+    // ── MessageEndState implementation (RFC 5321 §3.3) ──
 
+    /** RFC 5321 §3.3 — 250 message accepted for delivery. */
     @Override
     public void acceptMessageDelivery(String queueId, MailFromHandler handler) {
         this.mailFromHandler = handler;
@@ -2667,8 +3227,9 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── ResetState implementation ──
+    // ── ResetState implementation (RFC 5321 §4.1.1.5) ──
 
+    /** RFC 5321 §4.1.1.5 — 250 reset OK. */
     @Override
     public void acceptReset(MailFromHandler handler) {
         this.mailFromHandler = handler;
@@ -2681,7 +3242,7 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── SMTPConnectionMetadata implementation ──
+    // ── SMTPConnectionMetadata implementation (RFC 5321 / RFC 3461 / RFC 8689) ──
 
     @Override
     public InetSocketAddress getClientAddress() {

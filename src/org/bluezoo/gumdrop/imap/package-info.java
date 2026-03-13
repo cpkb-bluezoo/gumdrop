@@ -49,17 +49,24 @@
  *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc9208">RFC 9208</a></td>
  *       <td>QUOTA</td><td>Supported</td></tr>
  *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc7888">RFC 7888</a></td>
- *       <td>LITERAL+/LITERAL-</td><td>TODO</td></tr>
+ *       <td>LITERAL-</td><td>Supported</td></tr>
  *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc7162">RFC 7162</a></td>
- *       <td>CONDSTORE/QRESYNC</td><td>TODO</td></tr>
+ *       <td>CONDSTORE/QRESYNC</td><td>Supported</td></tr>
  * </table>
  *
  * <p><b>Extension implementation notes:</b>
- * LITERAL+ (RFC 7888) requires non-synchronizing literal handling in the
- * IMAP command parser -- the server must accept literal data without sending
- * a continuation request. CONDSTORE/QRESYNC (RFC 7162) requires per-message
- * MODSEQ tracking in the Mailbox interface and VANISHED response support
- * in the protocol handler for efficient mailbox resynchronization.</p>
+ * LITERAL- (RFC 7888) allows non-synchronizing literals up to 4096 bytes.
+ * The command parser in {@code processLine()} detects {@code {N+}} suffixes
+ * and buffers the partial command while consuming the literal data, then
+ * assembles the complete command for dispatch. APPEND handles its own
+ * literal via the specialized binary data path.
+ * CONDSTORE/QRESYNC (RFC 7162) is enabled per-session
+ * via the ENABLE command. CONDSTORE provides MODSEQ tracking via the
+ * {@link org.bluezoo.gumdrop.mailbox.Mailbox} interface, HIGHESTMODSEQ in
+ * SELECT/EXAMINE/STATUS, MODSEQ in FETCH and SEARCH responses, and
+ * UNCHANGEDSINCE for STORE. QRESYNC adds VANISHED (EARLIER) during SELECT
+ * resynchronization and replaces EXPUNGE with VANISHED notifications
+ * throughout the session.</p>
  *
  * <h2>Protocol States</h2>
  * <ul>

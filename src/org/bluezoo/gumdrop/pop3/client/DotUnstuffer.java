@@ -46,6 +46,7 @@ import java.nio.ByteBuffer;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-3">RFC 1939 section 3 — Multi-line Responses</a>
  */
 class DotUnstuffer {
 

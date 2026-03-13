@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.pop3.handler;
 
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
+
 import java.nio.channels.ReadableByteChannel;
 
 /**
@@ -50,6 +52,23 @@ public interface RetrieveState {
      * @param handler continues receiving transaction commands after send completes
      */
     void sendMessage(long size, ReadableByteChannel content, TransactionHandler handler);
+
+    /**
+     * Sends the message content using async I/O.
+     *
+     * <p>Sends a +OK response with the message size, then streams the
+     * message content asynchronously with byte-stuffing, and terminates
+     * with a line containing only '.'.
+     *
+     * @param size the message size in octets
+     * @param content the async message content reader
+     * @param handler continues receiving transaction commands after send completes
+     */
+    default void sendMessage(long size, AsyncMessageContent content,
+            TransactionHandler handler) {
+        throw new UnsupportedOperationException(
+                "Async message retrieval not supported");
+    }
 
     /**
      * The requested message does not exist.

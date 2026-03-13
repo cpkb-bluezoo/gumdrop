@@ -124,5 +124,10 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
  * @see org.bluezoo.gumdrop.smtp
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a> (SMTP AUTH)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a> (CHUNKING)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> (Implicit TLS)
  */
 package org.bluezoo.gumdrop.smtp.client;

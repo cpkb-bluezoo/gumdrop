@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.mailbox;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.file.Path;
+import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -129,8 +131,61 @@ public interface Mailbox {
     MessageDescriptor getMessage(int messageNumber) throws IOException;
 
     // ========================================================================
+    // Async Message I/O
+    // ========================================================================
+
+    /**
+     * Opens an asynchronous content reader for the given message.
+     * Returns {@code null} if async reading is not supported, in which
+     * case callers fall back to {@link #getMessageContent(int)}.
+     *
+     * @param messageNumber the message sequence number (1-based)
+     * @return an async content reader, or null if not supported
+     * @throws IOException if the reader cannot be opened
+     * @see AsyncMessageContent
+     */
+    default AsyncMessageContent openAsyncContent(int messageNumber)
+            throws IOException {
+        return null;
+    }
+
+    /**
+     * Begins an asynchronous append operation. The returned writer
+     * accepts successive {@link java.nio.ByteBuffer} chunks of message
+     * data, then is finished to finalize the message. Returns {@code null}
+     * if async append is not supported, in which case callers fall back
+     * to {@link #startAppendMessage}/{@link #appendMessageContent}/
+     * {@link #endAppendMessage}.
+     *
+     * @param flags initial flags for the message, or null for no flags
+     * @param internalDate the internal date, or null for current time
+     * @return an async writer, or null if not supported
+     * @throws IOException if the writer cannot be opened
+     * @see AsyncMessageWriter
+     */
+    default AsyncMessageWriter openAsyncAppend(Set<Flag> flags,
+            OffsetDateTime internalDate) throws IOException {
+        return null;
+    }
+
+    // ========================================================================
     // Message Content Access
     // ========================================================================
+
+    /**
+     * Returns the file path for a message, when the mailbox stores
+     * each message in a separate file. Used for opening
+     * {@link java.nio.channels.AsynchronousFileChannel} for non-blocking
+     * reads. Returns null for implementations that do not support this
+     * (e.g. mbox format).
+     *
+     * @param messageNumber the message sequence number (1-based)
+     * @return the path to the message file, or null
+     * @throws IOException if the path cannot be determined
+     */
+    default Path getMessagePath(int messageNumber) throws IOException {
+        return null;
+    }
 
     /**
      * Opens a channel to read the entire message content.
@@ -143,6 +198,25 @@ public interface Mailbox {
      * @throws IOException if the message cannot be opened
      */
     ReadableByteChannel getMessageContent(int messageNumber) throws IOException;
+
+    /**
+     * Returns the byte offset (exclusive) for the end of the message "top"
+     * (headers plus first {@code bodyLines} body lines). Used with
+     * {@link #getMessagePath(int)} to allow async reads of the top section.
+     * 
+     * <p>Implementations that do not support this (e.g. non-file backends)
+     * should throw {@link UnsupportedOperationException}.
+     * 
+     * @param messageNumber the message sequence number (1-based)
+     * @param bodyLines the number of body lines after headers
+     * @return the byte offset of the end of the top section
+     * @throws IOException if the message cannot be scanned
+     */
+    default long getMessageTopEndOffset(int messageNumber, int bodyLines)
+            throws IOException {
+        throw new UnsupportedOperationException(
+                "getMessageTopEndOffset not supported by this mailbox");
+    }
 
     /**
      * Opens a channel to read the message headers and optionally a portion of
@@ -289,6 +363,56 @@ public interface Mailbox {
      */
     default long getUidNext() throws IOException {
         return getMessageCount() + 1;
+    }
+
+    // ========================================================================
+    // CONDSTORE / QRESYNC (RFC 7162)
+    // ========================================================================
+
+    /**
+     * Returns the highest modification sequence number in this mailbox.
+     * A zero return value indicates that MODSEQ tracking is not supported.
+     *
+     * @return the highest mod-sequence value, or 0 if unsupported
+     * @throws IOException if the value cannot be determined
+     */
+    default long getHighestModSeq() throws IOException {
+        return 0;
+    }
+
+    /**
+     * Returns the modification sequence number for the given message.
+     *
+     * @param messageNumber the message sequence number (1-based)
+     * @return the mod-sequence value, or 0 if unsupported
+     * @throws IOException if the value cannot be determined
+     */
+    default long getModSeq(int messageNumber) throws IOException {
+        return 0;
+    }
+
+    /**
+     * Returns UIDs of messages that have been modified (flag change or
+     * delivery) since the given mod-sequence value.
+     *
+     * @param modSeq the mod-sequence threshold (exclusive)
+     * @return list of UIDs with modseq greater than the given value
+     * @throws IOException if the list cannot be determined
+     */
+    default List<Long> getChangedSince(long modSeq) throws IOException {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Returns UIDs of messages that have been expunged since the given
+     * mod-sequence value. Used by QRESYNC's VANISHED (EARLIER) response.
+     *
+     * @param modSeq the mod-sequence threshold (exclusive)
+     * @return list of expunged UIDs since the given modseq
+     * @throws IOException if the list cannot be determined
+     */
+    default List<Long> getExpungedSince(long modSeq) throws IOException {
+        return Collections.emptyList();
     }
 
     // ========================================================================

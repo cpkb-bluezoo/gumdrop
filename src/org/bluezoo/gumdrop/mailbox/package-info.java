@@ -34,6 +34,8 @@
  *   <li>{@link org.bluezoo.gumdrop.mailbox.SimpleMessageDescriptor} - Basic implementation for POP3</li>
  *   <li>{@link org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor} - Extended interface for IMAP</li>
  *   <li>{@link org.bluezoo.gumdrop.mailbox.MailboxNameCodec} - Encodes mailbox names for filesystem safety</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.AsyncMessageContent} - Async message content reading</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.AsyncMessageWriter} - Async message append writing</li>
  * </ul>
  *
  * <h2>Mailbox Name Encoding</h2>
@@ -93,6 +95,9 @@
  *   <tr><td>Message search</td><td>✗</td><td>✓</td></tr>
  *   <tr><td>Append messages</td><td>✗</td><td>✓</td></tr>
  *   <tr><td>Copy/Move</td><td>✗</td><td>✓</td></tr>
+ *   <tr><td>MODSEQ tracking</td><td>✗</td><td>✓ (CONDSTORE)</td></tr>
+ *   <tr><td>Async content read</td><td>✓</td><td>✓</td></tr>
+ *   <tr><td>Async content write</td><td>✗</td><td>✓</td></tr>
  * </table>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

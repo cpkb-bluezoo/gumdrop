@@ -67,6 +67,8 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     private String pageEncoding = "UTF-8";
     private String language = "java";
     private String className = null;
+    private String extendsClass = null;
+    private String implementsInterfaces = null;
 
     /**
      * Constructs a new JSPCodeGenerator.
@@ -307,12 +309,10 @@ public class JSPCodeGenerator implements JSPElementVisitor {
                 }
                 break;
             case "extends":
-                // TODO: Parse extends= directive and set generated servlet superclass
-                // instead of the default HttpServlet
+                extendsClass = value;
                 break;
             case "implements":
-                // TODO: Parse implements= directive and add interfaces to the
-                // generated servlet class declaration
+                implementsInterfaces = value;
                 break;
         }
     }
@@ -374,7 +374,15 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         writer.println(" * Generated servlet from JSP: " + jspPage.getUri());
         writer.println(" * Generated at: " + new java.util.Date());
         writer.println(" */");
-        writer.println("public class " + getGeneratedClassName() + " extends HttpServlet {");
+        String superClass = (extendsClass != null) ? extendsClass : "HttpServlet";
+        StringBuilder classDecl = new StringBuilder();
+        classDecl.append("public class ").append(getGeneratedClassName())
+                .append(" extends ").append(superClass);
+        if (implementsInterfaces != null && !implementsInterfaces.isBlank()) {
+            classDecl.append(" implements ").append(implementsInterfaces);
+        }
+        classDecl.append(" {");
+        writer.println(classDecl.toString());
         writer.println();
         
         // Class-level declarations
@@ -587,12 +595,29 @@ public class JSPCodeGenerator implements JSPElementVisitor {
             serviceMethodBody.append("            }\n");
         } else {
             // Tag with body content (JSP, scriptless, tagdependent)
-            serviceMethodBody.append("            // TODO: Implement body content handling for ")
-                           .append(bodyContent).append(" tags\n");
             serviceMethodBody.append("            try {\n");
-            serviceMethodBody.append("                int result = ").append(tagVarName).append(".doStartTag();\n");
-            serviceMethodBody.append("                // Body content would be processed here\n");
-            serviceMethodBody.append("                ").append(tagVarName).append(".doEndTag();\n");
+            serviceMethodBody.append("                int _sr = ").append(tagVarName).append(".doStartTag();\n");
+            serviceMethodBody.append("                if (_sr != javax.servlet.jsp.tagext.Tag.SKIP_BODY) {\n");
+            // Generate body content from children
+            java.util.List<JSPElement> children = element.getChildren();
+            if (!children.isEmpty()) {
+                serviceMethodBody.append("                    do {\n");
+                for (JSPElement child : children) {
+                    try {
+                        child.accept(this);
+                    } catch (RuntimeException re) {
+                        throw re;
+                    } catch (Exception ex) {
+                        throw new RuntimeException(ex);
+                    }
+                }
+                serviceMethodBody.append("                    } while (").append(tagVarName)
+                        .append(" instanceof javax.servlet.jsp.tagext.IterationTag && ((javax.servlet.jsp.tagext.IterationTag) ")
+                        .append(tagVarName).append(").doAfterBody() == javax.servlet.jsp.tagext.IterationTag.EVAL_BODY_AGAIN);\n");
+            }
+            serviceMethodBody.append("                }\n");
+            serviceMethodBody.append("                if (").append(tagVarName)
+                    .append(".doEndTag() == javax.servlet.jsp.tagext.Tag.SKIP_PAGE) return;\n");
             serviceMethodBody.append("            } catch (javax.servlet.jsp.JspException e) {\n");
             serviceMethodBody.append("                throw new ServletException(\"JSP tag error\", e);\n");
             serviceMethodBody.append("            } finally {\n");
@@ -604,20 +629,25 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     /**
      * Generates code to set a tag attribute value.
      */
-    private void generateAttributeSetterCode(String tagVarName, String attrName, String attrValue, 
+    private void generateAttributeSetterCode(String tagVarName, String attrName, String attrValue,
                                            TagLibraryDescriptor.AttributeDescriptor attrDescriptor) {
-        
-        // Convert attribute name to setter method name
+
         String setterName = "set" + Character.toUpperCase(attrName.charAt(0)) + attrName.substring(1);
-        
-        // Handle attribute value based on whether it can contain runtime expressions
-        if (attrDescriptor.isRtexprvalue() && attrValue.startsWith("${") && attrValue.endsWith("}")) {
-            // EL expression - for now just treat as string literal
-            serviceMethodBody.append("            // TODO: Evaluate EL expression: ").append(attrValue).append("\n");
-            serviceMethodBody.append("            ").append(tagVarName).append(".").append(setterName)
-                           .append("(\"").append(escapeJavaString(attrValue)).append("\");\n");
+
+        if (attrDescriptor.isRtexprvalue() && attrValue.contains("${")) {
+            // EL expression -- evaluate at runtime via ELEvaluator
+            if (attrValue.startsWith("${") && attrValue.endsWith("}")) {
+                // Pure EL: evaluate() returns Object, convert to String
+                serviceMethodBody.append("            ").append(tagVarName).append(".").append(setterName)
+                        .append("(String.valueOf(new org.bluezoo.gumdrop.servlet.jsp.ELEvaluator(pageContext).evaluate(\"")
+                        .append(escapeJavaString(attrValue)).append("\")));\n");
+            } else {
+                // Mixed literal + EL: evaluateTemplate() returns String
+                serviceMethodBody.append("            ").append(tagVarName).append(".").append(setterName)
+                        .append("(new org.bluezoo.gumdrop.servlet.jsp.ELEvaluator(pageContext).evaluateTemplate(\"")
+                        .append(escapeJavaString(attrValue)).append("\"));\n");
+            }
         } else {
-            // String literal value
             serviceMethodBody.append("            ").append(tagVarName).append(".").append(setterName)
                            .append("(\"").append(escapeJavaString(attrValue)).append("\");\n");
         }
@@ -646,42 +676,177 @@ public class JSPCodeGenerator implements JSPElementVisitor {
             case "include":
                 String includePage = attributes.get("page");
                 if (includePage != null) {
-                    serviceMethodBody.append("            request.getRequestDispatcher(\"")
-                                   .append(escapeJavaString(includePage))
-                                   .append("\").include(request, response);\n");
+                    generateDispatch(element, includePage, "include");
                 }
                 break;
                 
             case "forward":
                 String forwardPage = attributes.get("page");
                 if (forwardPage != null) {
-                    serviceMethodBody.append("            request.getRequestDispatcher(\"")
-                                   .append(escapeJavaString(forwardPage))
-                                   .append("\").forward(request, response);\n");
+                    generateDispatch(element, forwardPage, "forward");
                     serviceMethodBody.append("            return;\n");
                 }
                 break;
                 
             case "useBean":
-                String beanId = attributes.get("id");
-                String beanClass = attributes.get("class");
-                String beanScope = attributes.get("scope");
-                if (beanId != null && beanClass != null) {
-                    serviceMethodBody.append("            // TODO: Implement jsp:useBean for ")
-                                   .append(beanId)
-                                   .append(" (")
-                                   .append(beanClass)
-                                   .append(")\n");
-                }
+                generateUseBean(attributes);
                 break;
-                
+
+            case "setProperty":
+                generateSetProperty(attributes);
+                break;
+
+            case "getProperty":
+                generateGetProperty(attributes);
+                break;
+
             default:
-                // TODO: Implement remaining standard actions (jsp:forward,
-                // jsp:include, jsp:plugin, etc.) per JSP 2.3 spec ch. 5
-                serviceMethodBody.append("            // TODO: Implement ")
-                               .append(actionName)
-                               .append(" action\n");
+                serviceMethodBody.append("            // Unimplemented action: ")
+                               .append(actionName).append("\n");
                 break;
+        }
+    }
+
+    /**
+     * Generates code for jsp:include or jsp:forward, including nested
+     * jsp:param children as additional request parameters.
+     */
+    private void generateDispatch(StandardActionElement element, String page,
+                                  String method) {
+        java.util.List<JSPElement> children = element.getChildren();
+        java.util.List<StandardActionElement> params = new java.util.ArrayList<>();
+        for (JSPElement child : children) {
+            if (child instanceof StandardActionElement) {
+                StandardActionElement childAction = (StandardActionElement) child;
+                if ("param".equals(childAction.getActionName())) {
+                    params.add(childAction);
+                }
+            }
+        }
+
+        if (params.isEmpty()) {
+            serviceMethodBody.append("            request.getRequestDispatcher(\"")
+                    .append(escapeJavaString(page)).append("\").").append(method)
+                    .append("(request, response);\n");
+        } else {
+            // Build query string from jsp:param children and append to page URL
+            serviceMethodBody.append("            { StringBuilder _qs = new StringBuilder(\"")
+                    .append(escapeJavaString(page)).append("\");\n");
+            serviceMethodBody.append("              _qs.append('?');\n");
+            boolean first = true;
+            for (StandardActionElement param : params) {
+                String pName = param.getAttribute("name");
+                String pValue = param.getAttribute("value");
+                if (pName == null) {
+                    continue;
+                }
+                if (!first) {
+                    serviceMethodBody.append("              _qs.append('&');\n");
+                }
+                serviceMethodBody.append("              _qs.append(\"")
+                        .append(escapeJavaString(pName)).append("=\");\n");
+                if (pValue != null) {
+                    serviceMethodBody.append("              _qs.append(java.net.URLEncoder.encode(\"")
+                            .append(escapeJavaString(pValue)).append("\", \"UTF-8\"));\n");
+                }
+                first = false;
+            }
+            serviceMethodBody.append("              request.getRequestDispatcher(_qs.toString()).").append(method)
+                    .append("(request, response);\n");
+            serviceMethodBody.append("            }\n");
+        }
+    }
+
+    /**
+     * Generates code for jsp:useBean -- finds or creates a bean in the
+     * given scope and declares a local variable for it.
+     */
+    private void generateUseBean(Map<String, String> attributes) {
+        String beanId = attributes.get("id");
+        String beanClass = attributes.get("class");
+        String beanType = attributes.get("type");
+        String scope = attributes.get("scope");
+        if (beanId == null || beanClass == null) {
+            return;
+        }
+        String javaType = (beanType != null) ? beanType : beanClass;
+        int scopeConst = resolveScopeConstant(scope);
+
+        serviceMethodBody.append("            ").append(javaType).append(" ").append(beanId)
+                .append(" = (").append(javaType).append(") pageContext.getAttribute(\"")
+                .append(escapeJavaString(beanId)).append("\", ").append(scopeConst).append(");\n");
+        serviceMethodBody.append("            if (").append(beanId).append(" == null) {\n");
+        serviceMethodBody.append("                ").append(beanId).append(" = (").append(javaType)
+                .append(") Class.forName(\"").append(escapeJavaString(beanClass))
+                .append("\").getDeclaredConstructor().newInstance();\n");
+        serviceMethodBody.append("                pageContext.setAttribute(\"")
+                .append(escapeJavaString(beanId)).append("\", ").append(beanId)
+                .append(", ").append(scopeConst).append(");\n");
+        serviceMethodBody.append("            }\n");
+    }
+
+    /**
+     * Generates code for jsp:setProperty -- sets a bean property using
+     * reflection-based introspection.
+     */
+    private void generateSetProperty(Map<String, String> attributes) {
+        String name = attributes.get("name");
+        String property = attributes.get("property");
+        String value = attributes.get("value");
+        String param = attributes.get("param");
+        if (name == null || property == null) {
+            return;
+        }
+        String setter = "set" + Character.toUpperCase(property.charAt(0)) + property.substring(1);
+        if (value != null) {
+            if (value.contains("${")) {
+                serviceMethodBody.append("            ").append(name).append(".").append(setter)
+                        .append("(String.valueOf(new org.bluezoo.gumdrop.servlet.jsp.ELEvaluator(pageContext).evaluate(\"")
+                        .append(escapeJavaString(value)).append("\")));\n");
+            } else {
+                serviceMethodBody.append("            ").append(name).append(".").append(setter)
+                        .append("(\"").append(escapeJavaString(value)).append("\");\n");
+            }
+        } else {
+            // Use request parameter; param attribute specifies which, default is property name
+            String paramName = (param != null) ? param : property;
+            serviceMethodBody.append("            { String _pv = request.getParameter(\"")
+                    .append(escapeJavaString(paramName)).append("\");\n");
+            serviceMethodBody.append("              if (_pv != null) ")
+                    .append(name).append(".").append(setter).append("(_pv); }\n");
+        }
+    }
+
+    /**
+     * Generates code for jsp:getProperty -- outputs a bean property.
+     */
+    private void generateGetProperty(Map<String, String> attributes) {
+        String name = attributes.get("name");
+        String property = attributes.get("property");
+        if (name == null || property == null) {
+            return;
+        }
+        String getter = "get" + Character.toUpperCase(property.charAt(0)) + property.substring(1);
+        serviceMethodBody.append("            out.print(String.valueOf(")
+                .append(name).append(".").append(getter).append("()));\n");
+    }
+
+    /**
+     * Resolves a JSP scope name to the corresponding PageContext constant.
+     */
+    private int resolveScopeConstant(String scope) {
+        if (scope == null) {
+            return 1; // PageContext.PAGE_SCOPE
+        }
+        switch (scope) {
+            case "request":
+                return 2; // PageContext.REQUEST_SCOPE
+            case "session":
+                return 3; // PageContext.SESSION_SCOPE
+            case "application":
+                return 4; // PageContext.APPLICATION_SCOPE
+            default:
+                return 1; // PageContext.PAGE_SCOPE
         }
     }
 

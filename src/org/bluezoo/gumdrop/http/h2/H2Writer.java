@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.http.h2;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
 import java.text.MessageFormat;
@@ -32,7 +31,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Streaming writer for HTTP/2 frames with NIO-first design.
+ * Streaming writer for HTTP/2 frames (RFC 9113 section 4.1) with
+ * NIO-first design.
  *
  * <p>This class provides efficient serialization of HTTP/2 frames to a
  * {@link WritableByteChannel}. It uses an internal buffer and automatically
@@ -77,7 +77,7 @@ public class H2Writer {
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h2.L10N");
     private static final Logger LOGGER = Logger.getLogger(H2Writer.class.getName());
 
-    /** Frame header is always 9 bytes */
+    /** RFC 9113 section 4.1: frame header is always 9 octets */
     public static final int FRAME_HEADER_LENGTH = 9;
 
     /** Default buffer capacity */
@@ -86,7 +86,7 @@ public class H2Writer {
     /** Send threshold as fraction of buffer capacity */
     private static final float SEND_THRESHOLD = 0.75f;
 
-    // SETTINGS parameter identifiers
+    // RFC 9113 section 6.5.2: SETTINGS parameter identifiers
     public static final int SETTINGS_HEADER_TABLE_SIZE = 0x1;
     public static final int SETTINGS_ENABLE_PUSH = 0x2;
     public static final int SETTINGS_MAX_CONCURRENT_STREAMS = 0x3;
@@ -97,15 +97,6 @@ public class H2Writer {
     private final WritableByteChannel channel;
     private ByteBuffer buffer;
     private final int sendThreshold;
-
-    /**
-     * Creates a new HTTP/2 frame writer with default buffer capacity.
-     *
-     * @param out the output stream to write to
-     */
-    public H2Writer(OutputStream out) {
-        this(new OutputStreamChannel(out), DEFAULT_CAPACITY);
-    }
 
     /**
      * Creates a new HTTP/2 frame writer with default buffer capacity.
@@ -149,7 +140,7 @@ public class H2Writer {
     }
 
     /**
-     * Writes a DATA frame with optional padding.
+     * Writes a DATA frame with optional padding (RFC 9113 section 6.1).
      *
      * @param streamId the stream identifier (must be non-zero)
      * @param data the data payload
@@ -224,7 +215,11 @@ public class H2Writer {
     }
 
     /**
-     * Writes a HEADERS frame with all options.
+     * Writes a HEADERS frame with all options (RFC 9113 section 6.2).
+     *
+     * <p>If the header block exceeds SETTINGS_MAX_FRAME_SIZE, callers must
+     * fragment the block across this HEADERS frame (with END_HEADERS unset)
+     * followed by CONTINUATION frames (RFC 9113 section 4.3).
      *
      * @param streamId the stream identifier (must be non-zero)
      * @param headerBlock the HPACK-encoded header block
@@ -365,7 +360,7 @@ public class H2Writer {
     }
 
     /**
-     * Writes a SETTINGS frame with the specified parameters.
+     * Writes a SETTINGS frame (RFC 9113 section 6.5).
      *
      * @param settings map of setting ID to value
      * @throws IOException if there is an error writing
@@ -462,7 +457,7 @@ public class H2Writer {
     }
 
     /**
-     * Writes a GOAWAY frame with additional debug data.
+     * Writes a GOAWAY frame (RFC 9113 section 6.8).
      *
      * @param lastStreamId the last stream ID the sender will accept
      * @param errorCode the error code
@@ -497,13 +492,14 @@ public class H2Writer {
     }
 
     /**
-     * Writes a WINDOW_UPDATE frame.
+     * Writes a WINDOW_UPDATE frame (RFC 9113 section 6.9).
      *
      * @param streamId the stream identifier (0 for connection-level)
-     * @param increment the window size increment
+     * @param increment the window size increment (1 to 2^31-1)
      * @throws IOException if there is an error writing
      */
     public void writeWindowUpdate(int streamId, int increment) throws IOException {
+        // RFC 9113 section 6.9: increment MUST be between 1 and 2^31-1
         if (increment <= 0 || increment > 0x7FFFFFFF) {
             String msg = MessageFormat.format(L10N.getString("err.window_update_invalid"), increment);
             throw new IllegalArgumentException(msg);
@@ -522,7 +518,12 @@ public class H2Writer {
     }
 
     /**
-     * Writes a CONTINUATION frame.
+     * Writes a CONTINUATION frame (RFC 9113 section 6.10).
+     *
+     * <p>CONTINUATION frames carry additional header block fragments
+     * when the block exceeds a single HEADERS or PUSH_PROMISE frame.
+     * Per RFC 9113 section 4.3, CONTINUATION frames MUST follow
+     * immediately with no intervening frames on the connection.
      *
      * @param streamId the stream identifier (must be non-zero)
      * @param headerBlock the HPACK-encoded header block fragment
@@ -575,6 +576,7 @@ public class H2Writer {
     // Internal Methods
     // ─────────────────────────────────────────────────────────────────────────
 
+    // RFC 9113 section 4.1: frame header layout: Length(24) Type(8) Flags(8) R StreamId(31)
     private void writeFrameHeader(int length, int type, int flags, int streamId) {
         ensureCapacity(FRAME_HEADER_LENGTH);
         buffer.put((byte) ((length >> 16) & 0xff));
@@ -629,46 +631,5 @@ public class H2Writer {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // OutputStream Adapter
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Adapter that wraps an OutputStream as a WritableByteChannel.
-     */
-    static class OutputStreamChannel implements WritableByteChannel {
-
-        private final OutputStream out;
-        private boolean open = true;
-
-        OutputStreamChannel(OutputStream out) {
-            this.out = out;
-        }
-
-        @Override
-        public int write(ByteBuffer src) throws IOException {
-            if (!open) {
-                throw new IOException(L10N.getString("err.channel_closed"));
-            }
-            int written = src.remaining();
-            while (src.hasRemaining()) {
-                out.write(src.get());
-            }
-            return written;
-        }
-
-        @Override
-        public boolean isOpen() {
-            return open;
-        }
-
-        @Override
-        public void close() throws IOException {
-            if (open) {
-                open = false;
-                out.close();
-            }
-        }
-    }
 }
 

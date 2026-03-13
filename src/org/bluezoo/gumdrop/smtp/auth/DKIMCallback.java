@@ -31,6 +31,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DKIMValidator
  * @see DKIMResult
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
 public interface DKIMCallback {
 

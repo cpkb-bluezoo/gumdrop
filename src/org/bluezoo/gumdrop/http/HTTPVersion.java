@@ -23,6 +23,9 @@ package org.bluezoo.gumdrop.http;
 
 /**
  * Enum of possible HTTP versions.
+ *
+ * <p>RFC 9112 section 2.3 defines: HTTP-version = HTTP-name "/" DIGIT "." DIGIT
+ * where HTTP-name = %s"HTTP".
  * 
  * <p>This enum handles both traditional HTTP version strings (e.g., "HTTP/1.1")
  * and ALPN negotiation identifiers (e.g., "h2", "h2c") used during protocol
@@ -92,6 +95,10 @@ public enum HTTPVersion {
 
     /**
      * Parses an HTTP version from an ALPN identifier (e.g., "h2", "h2c", "http/1.1").
+     *
+     * <p>RFC 9113 section 3.2: "h2" identifies HTTP/2 over TLS via ALPN.
+     * RFC 9113 section 3.1: "h2c" identifies cleartext HTTP/2 (deprecated
+     * by RFC 9113 but intentionally supported for backwards compatibility).
      * 
      * @param alpnIdentifier the ALPN identifier to parse
      * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
@@ -101,7 +108,7 @@ public enum HTTPVersion {
             return UNKNOWN;
         }
         
-        // Handle special case of HTTP/2 cleartext upgrade
+        // RFC 9113 section 3.1: h2c is deprecated but intentionally supported
         if ("h2c".equals(alpnIdentifier)) {
             return HTTP_2_0;
         }

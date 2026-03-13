@@ -25,7 +25,8 @@ import org.bluezoo.gumdrop.ClientHandler;
 
 /**
  * Handler interface for receiving the initial SMTP server greeting.
- * 
+ * RFC 5321 §4.2 (220 greeting / 421 service unavailable).
+ *
  * <p>This is the entry point for SMTP client handlers. When connecting to an
  * SMTP server, the handler passed to {@code SMTPClient.connect()} must implement
  * this interface to receive the server's initial greeting and begin the session.
@@ -58,6 +59,7 @@ import org.bluezoo.gumdrop.ClientHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientHelloState
  * @see ClientHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ServerGreeting extends ClientHandler {
 

@@ -59,6 +59,10 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp.client
  * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a>
  */
 package org.bluezoo.gumdrop.smtp.client.handler;
 

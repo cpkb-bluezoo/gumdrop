@@ -48,6 +48,10 @@ rate limiting, or pub/sub messaging.
 <li><a href="#selector-affinity">SelectorLoop Affinity</a></li>
 <li><a href="#commands">Supported Commands</a></li>
 <li><a href="#handlers">Result Handlers</a></li>
+<li><a href="#resp3">RESP3 Protocol</a></li>
+<li><a href="#scan">Cursor-based Iteration (SCAN)</a></li>
+<li><a href="#blocking">Blocking Commands</a></li>
+<li><a href="#streams">Streams</a></li>
 <li><a href="#pubsub">Pub/Sub</a></li>
 <li><a href="#transactions">Transactions</a></li>
 <li><a href="#tls">TLS Connections</a></li>
@@ -335,9 +339,15 @@ commands, organised by data type.
 <tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
 <tr><td><code>auth(password, handler)</code></td><td>AUTH</td><td>Authenticate (Redis 5 and earlier)</td></tr>
 <tr><td><code>auth(user, password, handler)</code></td><td>AUTH</td><td>Authenticate with ACL (Redis 6+)</td></tr>
+<tr><td><code>hello(protover, handler)</code></td><td>HELLO</td><td>Negotiate RESP protocol version (Redis 6+)</td></tr>
+<tr><td><code>hello(protover, user, pass, handler)</code></td><td>HELLO</td><td>Negotiate protocol with auth</td></tr>
+<tr><td><code>clientSetName(name, handler)</code></td><td>CLIENT SETNAME</td><td>Set connection name</td></tr>
+<tr><td><code>clientGetName(handler)</code></td><td>CLIENT GETNAME</td><td>Get connection name</td></tr>
+<tr><td><code>clientId(handler)</code></td><td>CLIENT ID</td><td>Get connection ID</td></tr>
 <tr><td><code>ping(handler)</code></td><td>PING</td><td>Test connection</td></tr>
 <tr><td><code>select(index, handler)</code></td><td>SELECT</td><td>Select database</td></tr>
 <tr><td><code>echo(message, handler)</code></td><td>ECHO</td><td>Echo message</td></tr>
+<tr><td><code>reset(handler)</code></td><td>RESET</td><td>Reset connection state (Redis 6.2+)</td></tr>
 <tr><td><code>quit()</code></td><td>QUIT</td><td>Close connection</td></tr>
 </table>
 
@@ -367,6 +377,8 @@ commands, organised by data type.
 <tr><td><code>persist(key, handler)</code></td><td>PERSIST</td><td>Remove expiration</td></tr>
 <tr><td><code>keys(pattern, handler)</code></td><td>KEYS</td><td>Find keys by pattern</td></tr>
 <tr><td><code>type(key, handler)</code></td><td>TYPE</td><td>Get key type</td></tr>
+<tr><td><code>scan(cursor, handler)</code></td><td>SCAN</td><td>Iterate key space</td></tr>
+<tr><td><code>scan(cursor, match, count, handler)</code></td><td>SCAN</td><td>Iterate with MATCH/COUNT</td></tr>
 </table>
 
 <h4>Hash Commands</h4>
@@ -379,6 +391,7 @@ commands, organised by data type.
 <tr><td><code>hdel(key, handler, fields...)</code></td><td>HDEL</td><td>Delete fields</td></tr>
 <tr><td><code>hexists(key, field, handler)</code></td><td>HEXISTS</td><td>Check field exists</td></tr>
 <tr><td><code>hincrby(key, field, amount, handler)</code></td><td>HINCRBY</td><td>Increment field</td></tr>
+<tr><td><code>hscan(key, cursor, handler)</code></td><td>HSCAN</td><td>Iterate hash fields</td></tr>
 </table>
 
 <h4>List Commands</h4>
@@ -391,6 +404,9 @@ commands, organised by data type.
 <tr><td><code>rpop(key, handler)</code></td><td>RPOP</td><td>Pop from tail</td></tr>
 <tr><td><code>lrange(key, start, stop, handler)</code></td><td>LRANGE</td><td>Get range</td></tr>
 <tr><td><code>llen(key, handler)</code></td><td>LLEN</td><td>Get length</td></tr>
+<tr><td><code>blpop(timeout, handler, keys...)</code></td><td>BLPOP</td><td>Blocking pop from head</td></tr>
+<tr><td><code>brpop(timeout, handler, keys...)</code></td><td>BRPOP</td><td>Blocking pop from tail</td></tr>
+<tr><td><code>blmove(src, dest, from, to, timeout, handler)</code></td><td>BLMOVE</td><td>Blocking move between lists</td></tr>
 </table>
 
 <h4>Set Commands</h4>
@@ -402,6 +418,7 @@ commands, organised by data type.
 <tr><td><code>smembers(key, handler)</code></td><td>SMEMBERS</td><td>Get all members</td></tr>
 <tr><td><code>sismember(key, member, handler)</code></td><td>SISMEMBER</td><td>Check membership</td></tr>
 <tr><td><code>scard(key, handler)</code></td><td>SCARD</td><td>Get cardinality</td></tr>
+<tr><td><code>sscan(key, cursor, handler)</code></td><td>SSCAN</td><td>Iterate set members</td></tr>
 </table>
 
 <h4>Sorted Set Commands</h4>
@@ -414,6 +431,23 @@ commands, organised by data type.
 <tr><td><code>zscore(key, member, handler)</code></td><td>ZSCORE</td><td>Get score</td></tr>
 <tr><td><code>zrank(key, member, handler)</code></td><td>ZRANK</td><td>Get rank</td></tr>
 <tr><td><code>zincrby(key, increment, member, handler)</code></td><td>ZINCRBY</td><td>Increment score</td></tr>
+<tr><td><code>zscan(key, cursor, handler)</code></td><td>ZSCAN</td><td>Iterate sorted set members</td></tr>
+</table>
+
+<h4>Stream Commands</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Method</th><th>Redis Command</th><th>Description</th></tr>
+<tr><td><code>xadd(key, id, handler, fields...)</code></td><td>XADD</td><td>Append entry to stream</td></tr>
+<tr><td><code>xlen(key, handler)</code></td><td>XLEN</td><td>Get stream length</td></tr>
+<tr><td><code>xrange(key, start, end, handler)</code></td><td>XRANGE</td><td>Get entries in range</td></tr>
+<tr><td><code>xrevrange(key, end, start, handler)</code></td><td>XREVRANGE</td><td>Get entries in reverse</td></tr>
+<tr><td><code>xread(count, block, handler, keysAndIds...)</code></td><td>XREAD</td><td>Read from streams (optionally blocking)</td></tr>
+<tr><td><code>xtrim(key, maxLen, handler)</code></td><td>XTRIM</td><td>Trim stream to max length</td></tr>
+<tr><td><code>xack(key, group, handler, ids...)</code></td><td>XACK</td><td>Acknowledge entries for consumer group</td></tr>
+<tr><td><code>xgroupCreate(key, group, id, handler)</code></td><td>XGROUP CREATE</td><td>Create consumer group</td></tr>
+<tr><td><code>xgroupDestroy(key, group, handler)</code></td><td>XGROUP DESTROY</td><td>Delete consumer group</td></tr>
+<tr><td><code>xpending(key, group, handler)</code></td><td>XPENDING</td><td>Get pending entries for group</td></tr>
 </table>
 
 <h4>Generic Command</h4>
@@ -445,6 +479,7 @@ null (GET, HGET)</li>
 <li><code>ArrayResultHandler</code> - for commands returning arrays
 (KEYS, LRANGE, HGETALL)</li>
 <li><code>MessageHandler</code> - for Pub/Sub messages</li>
+<li><code>ScanResultHandler</code> - for SCAN family commands (cursor + elements)</li>
 </ul>
 
 <h4>BulkResultHandler Example</h4>
@@ -493,6 +528,152 @@ session.hgetall("user:1", new ArrayResultHandler() {
         // Error occurred
     }
 });
+</pre>
+
+<h3 id="resp3">RESP3 Protocol</h3>
+
+<p>
+The Redis client supports both RESP2 and RESP3 protocol versions. RESP3 is
+negotiated using the <code>HELLO</code> command (Redis 6+). RESP3 adds several
+new data types: Map (%), Set (~), Double (,), Boolean (#), Null (_), Push (&gt;),
+Verbatim String (=), Big Number ((), and Blob Error (!).
+</p>
+
+<pre>
+// Negotiate RESP3 protocol
+session.hello(3, new ArrayResultHandler() {
+    @Override
+    public void handleResult(List&lt;RESPValue&gt; array, RedisSession session) {
+        // Server properties (flattened map): server, version, proto, id, mode, role
+        for (int i = 0; i &lt; array.size(); i += 2) {
+            System.out.println(array.get(i).asString() + ": " + array.get(i + 1).asString());
+        }
+    }
+    // ...
+});
+
+// HELLO with authentication (single round-trip)
+session.hello(3, "default", "password", handler);
+</pre>
+
+<p>
+RESP3 Maps received by <code>ArrayResultHandler</code> are automatically
+flattened to alternating key/value lists for compatibility. The RESP3 Push
+type (&gt;) is used for out-of-band Pub/Sub message delivery, replacing the
+RESP2 array-based detection.
+</p>
+
+<p>
+The <code>CLIENT</code> commands are useful for connection management and
+debugging:
+</p>
+
+<pre>
+session.clientSetName("my-connection", handler);
+session.clientGetName(handler);      // returns "my-connection"
+session.clientId(handler);           // returns unique connection ID
+</pre>
+
+<p>
+The <code>RESET</code> command (Redis 6.2+) restores the connection to its
+initial state, clearing any Pub/Sub subscriptions, MULTI transactions, WATCH
+keys, and authentication:
+</p>
+
+<pre>
+session.reset(handler);  // receives "RESET"
+</pre>
+
+<h3 id="scan">Cursor-based Iteration (SCAN)</h3>
+
+<p>
+SCAN commands provide incremental iteration over key spaces and collections
+without blocking the server. Unlike <code>KEYS</code>, which scans the entire
+key space in one call, SCAN returns a small batch per invocation and uses a
+cursor to track position.
+</p>
+
+<pre>
+// Iterate all keys matching "user:*"
+session.scan("0", "user:*", 100, new ScanResultHandler() {
+    @Override
+    public void handleResult(String cursor, List&lt;RESPValue&gt; elements,
+                             RedisSession session) {
+        for (RESPValue key : elements) {
+            System.out.println("Key: " + key.asString());
+        }
+        if (!"0".equals(cursor)) {
+            // Continue iteration
+            session.scan(cursor, "user:*", 100, this);
+        }
+    }
+    // ...
+});
+</pre>
+
+<p>
+The same pattern applies to <code>hscan()</code> (hash fields),
+<code>sscan()</code> (set members), and <code>zscan()</code> (sorted set
+members with scores). Each accepts optional MATCH and COUNT parameters.
+</p>
+
+<h3 id="blocking">Blocking Commands</h3>
+
+<p>
+Blocking list commands wait until an element is available or a timeout expires.
+These are commonly used to implement job queues and message consumers.
+</p>
+
+<pre>
+// Block until an element is available on "queue" (5 second timeout)
+session.blpop(5.0, new ArrayResultHandler() {
+    @Override
+    public void handleResult(List&lt;RESPValue&gt; array, RedisSession session) {
+        // array[0] = key, array[1] = value
+        String key = array.get(0).asString();
+        String value = array.get(1).asString();
+        System.out.println("Got " + value + " from " + key);
+    }
+
+    @Override
+    public void handleNull(RedisSession session) {
+        // Timeout expired, no element available
+    }
+    // ...
+}, "queue");
+</pre>
+
+<p>
+<code>BLMOVE</code> (Redis 6.2+) atomically moves an element between lists
+with blocking:
+</p>
+
+<pre>
+session.blmove("source", "destination", "LEFT", "RIGHT", 5.0, handler);
+</pre>
+
+<h3 id="streams">Streams</h3>
+
+<p>
+Redis Streams provide an append-only log data structure with consumer groups,
+suitable for event sourcing, message brokering, and activity feeds
+(Redis 5.0+).
+</p>
+
+<pre>
+// Append an entry
+session.xadd("mystream", "*", handler, "sensor", "temperature", "value", "22.5");
+
+// Read a range of entries
+session.xrange("mystream", "-", "+", 10, handler);
+
+// Read new entries with blocking
+session.xread(10, 5000, handler,
+    "mystream", "$");  // STREAMS mystream $
+
+// Create a consumer group and acknowledge entries
+session.xgroupCreate("mystream", "mygroup", "0", handler);
+session.xack("mystream", "mygroup", handler, "1526569495631-0");
 </pre>
 
 <h3 id="pubsub">Pub/Sub</h3>

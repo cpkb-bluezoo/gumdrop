@@ -52,24 +52,36 @@ non-blocking, event-driven I/O. It supports:
         - full HTTP/3 client and server via quiche/BoringSSL
         - QPACK header compression (via quiche)
         - HTTP/3 framing/stream multiplexing (via quiche h3 module)
+        - request pseudo-header validation, 1xx informational responses
+        - Priority header (RFC 9218), GOAWAY last-stream-ID tracking
+        - configurable QUIC transport parameters
+        - WebSocket over HTTP/3 (RFC 9220) via Extended CONNECT
     - HTTP/2
         - all HTTP/2 frame types and stream multiplexing
         - HPACK header compression
+        - graceful GOAWAY, PING keep-alive, SETTINGS ACK timeout, TLS cipher validation
+        - client concurrent-stream limiting, idle timeout
     - HTTP/1.0 and 1.1
         - Chunked encoding and persistent connections
+        - idle connection timeout, graceful shutdown, Expect: 100-continue
+        - OPTIONS * and configurable TRACE method support
+    - HTTP client: Connection: close, obs-fold, Content-Length validation, header size limit, Digest SHA-256
     - authentication framework supporting:
         - Basic
-        - HTTP Digest
+        - HTTP Digest (MD5, SHA-256)
         - Bearer
-        - OAuth
+        - OAuth (token introspection + local JWT validation)
         - mTLS
     - fast async event driven callback API for microservices with examples
+    - 103 Early Hints (RFC 8297) for resource preloading across HTTP/1.1, HTTP/2, and HTTP/3
+    - unified flow control over HTTP transports
     - WebDAV file service
         - supports fast NIO based data transfer
-        - PUT and DELETE
-        - RFC 2518 distributed authoring
-            - PROPFIND, PROPPATCH for property management
-            - MKCOL, COPY, MOVE for resource operations
+        - PUT and DELETE (including recursive collection DELETE with Multi-Status)
+        - RFC 4918 distributed authoring with full If header conditional evaluation
+            - PROPFIND, PROPPATCH for live and dead property management
+            - dead property storage with xattr primary and sidecar fallback
+            - MKCOL, COPY, MOVE for resource operations (with dead property propagation)
             - LOCK, UNLOCK for write locking
     - complete, conformant Java servlet 4.0 container
         - secure classloader separation
@@ -112,8 +124,8 @@ non-blocking, event-driven I/O. It supports:
     - extensible pipeline system for processing messages and performing
       authorisation checks:
         - SPF
-        - DKIM
-        - DMARC
+        - DKIM (verification and signing, RSA-SHA256 and Ed25519-SHA256)
+        - DMARC (policy evaluation, aggregate XML reporting, forensic/failure reporting)
         - custom parsed message processing
     - simple, extensible asynchronous handler mechanism for implementations
     - CHUNKING/BDAT
@@ -126,11 +138,16 @@ non-blocking, event-driven I/O. It supports:
         - FUTURERELEASE
         - DELIVERBY
     - LIMITS support
+    - ETRN command recognition (RFC 1985)
     - SMTP client implementation for MTA forward message delivery
         - step-by-step asynchronous handler interfaces for event-driven
           client
         - supports TLS connections and STARTTLS
         - will use CHUNKING for efficiency if server supports it
+        - full EHLO capability parsing (15 extension keywords)
+        - MAIL FROM extension parameters (BODY, SMTPUTF8, RET/ENVID, REQUIRETLS, MT-PRIORITY, FUTURERELEASE, DELIVERBY)
+        - RCPT TO with DSN parameters (NOTIFY, ORCPT)
+        - VRFY and EXPN commands
     - example services for local mailbox delivery and relay
 - IMAP4rev2
     - complete IMAP4rev2 implementation (RFC 9051)
@@ -148,12 +165,23 @@ non-blocking, event-driven I/O. It supports:
         - UNSELECT - close without expunge
         - CHILDREN - mailbox hierarchy indicators
         - LIST-EXTENDED, LIST-STATUS - enhanced mailbox listing
+        - LITERAL- (RFC 7888) - non-synchronizing literals
+        - ID (RFC 2971) - server identification
+        - CONDSTORE (RFC 7162) - per-message modification sequences
+            - MODSEQ in FETCH, SEARCH, and STORE responses
+            - UNCHANGEDSINCE conditional STORE
+            - HIGHESTMODSEQ in SELECT/EXAMINE/STATUS
+        - QRESYNC (RFC 7162) - efficient mailbox resynchronization
+            - VANISHED (EARLIER) for expunged UIDs on reconnect
+            - session-wide VANISHED instead of EXPUNGE
+    - async FETCH streaming for large message bodies
     - comprehensive SEARCH command with full RFC 9051 syntax
-        - flag, date, size, header, and body searches
+        - flag, date, size, header, body, and MODSEQ searches
         - boolean operators (AND, OR, NOT)
         - sequence sets and UID sets
     - pluggable mailbox backend via standardized API
     - IMAP client with IMAPS and STARTTLS support
+        - QUOTA commands (RFC 9208) - GETQUOTA/GETQUOTAROOT
 - POP3
     - complete POP3 implementation (RFC 1939)
     - POP3S (implicit TLS on port 995)
@@ -166,6 +194,9 @@ non-blocking, event-driven I/O. It supports:
         - USER/PASS - plaintext authentication
         - CAPA - capability advertisement
         - UTF8 (RFC 6856) - internationalized mailboxes
+        - RESP-CODES (RFC 2449) - extended error response codes
+        - AUTH-RESP-CODE (RFC 3206) - authentication error codes
+        - EXPIRE, LOGIN-DELAY (RFC 2449) - policy advertisement
     - pluggable mailbox backend via standardized API
     - exclusive mailbox locking for session isolation
     - POP3 client with POP3S and STLS support
@@ -181,7 +212,11 @@ non-blocking, event-driven I/O. It supports:
         - control channel encryption
         - PBSZ/PROT commands for data channel protection
         - PROT P for encrypted data transfers
+        - data connection IP verification (RFC 4217 section 10)
         - FEAT command for capability advertisement
+    - SIZE, MDTM, MLST/MLSD machine-readable listings (RFC 3659)
+    - UTF-8 pathnames via OPTS (RFC 2640)
+    - STAT directory listing over control connection
     - full IPv6 support (RFC 2428)
         - EPRT command for extended active mode
         - EPSV command for extended passive mode
@@ -205,14 +240,34 @@ non-blocking, event-driven I/O. It supports:
 - WebSockets
     - server and client built on top of HTTP transports
     - unified socket handler interface
+    - extension negotiation framework (RFC 6455 §9) with permessage-deflate
+      compression (RFC 7692)
+    - WebSocket over HTTP/3 (RFC 9220) via Extended CONNECT with
+      `HTTP3WebSocketListener`
+    - configurable maximum message size with close code 1009 enforcement
+    - close code validation (RFC 6455 §7.4) rejecting reserved wire codes
+    - SecureRandom masking keys (RFC 6455 §5.3)
 - DNS
     - full DNS server implementation
     - DNS over DTLS for secure queries
-    - DoT: DNS over TCP with TLS support
-    - DoQ: DNS over QUIC
+    - DoT: DNS over TLS with session resumption, TCP Fast Open, SPKI pinning,
+      connection pooling
+    - DoQ: DNS over QUIC with error codes, 0-RTT, connection reuse, padding
+    - DoH: DNS over HTTPS
+    - EDNS0 support with DNS cookies (RFC 7873)
+    - DNS message compression (RFC 1035 section 4.1.4)
+    - upstream proxying with response ID validation and TCP fallback
     - caching with TTL support
-    - upstream server proxying
     - custom resolution via subclassing
+    - DNSSEC validation (RFC 4033-4035, RFC 5155)
+        - EDNS0 DO bit, AD/CD flags
+        - RRSIG signature verification (RSA-SHA256/512, ECDSA P-256/P-384,
+          Ed25519, Ed448)
+        - DS digest verification (SHA-1, SHA-256, SHA-384)
+        - chain-of-trust validation with async DNSKEY/DS fetching
+        - NSEC and NSEC3 authenticated denial-of-existence
+        - configurable trust anchors (IANA root KSK pre-loaded)
+        - all crypto CPU-bound, NIO-safe
     - supported record types:
         - A, AAAA (IPv4/IPv6 addresses)
         - CNAME (aliases)
@@ -220,13 +275,17 @@ non-blocking, event-driven I/O. It supports:
         - NS (name servers)
         - PTR (reverse DNS)
         - SOA (start of authority)
+        - SRV (service location)
         - TXT (text records)
-    - flexible client resolver
+        - DS, RRSIG, DNSKEY, NSEC, NSEC3, NSEC3PARAM (DNSSEC)
+    - flexible async client resolver
+        - UDP, TCP, DoT, DoQ, DoH transports
 - OpenTelemetry
     - native implementation (no OpenTelemetry SDK required)
     - distributed tracing with W3C Trace Context propagation
     - metrics collection (counters, histograms, gauges)
     - OTLP/HTTP export to any OpenTelemetry Collector
+    - file export for JSONL
     - built-in instrumentation for HTTP, SMTP, IMAP, POP3, FTP
     - endpoint pooling with SelectorLoop affinity
     - configurable aggregation temporality (delta/cumulative)
@@ -244,13 +303,30 @@ non-blocking, event-driven I/O. It supports:
         - DIGEST-MD5
         - SCRAM-SHA-256 (recommended!)
         - OAUTHBEARER (requires TLS)
-        - GSSAPI/Kerberos
+        - GSSAPI/Kerberos (RFC 4752) — keytab-based, event-loop safe
         - EXTERNAL for TLS client certificates
+- LDAP client and LDAPRealm
+    - fully asynchronous LDAPv3 client (RFC 4511)
+    - simple bind (RFC 4513 §5.1) and SASL bind (RFC 4513 §5.2)
+        - PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — all non-blocking
+        - GSSAPI/Kerberos — worker-thread offloaded for KDC contact
+    - LDAPS (implicit TLS) and STARTTLS
+    - search, modify, add, delete, compare, modifyDN, extended operations
+    - abandon, controls (request/response), unsolicited notifications
+    - intermediate response handling, full search filter support (~=, :=)
+    - LDAPRealm for LDAP-backed authentication across all protocols
+        - search-then-bind pattern with configurable user filter
+        - role/group membership via memberOf attribute
+        - certificate-to-user mapping (binary or subject DN mode)
+        - Active Directory compatible
 - Redis client
-    - Redis 6+ ACL auth
-    - full message subscription with pattern matching
-    - TLS support, fully async
-    - pipelining
+    - RESP2 and RESP3 protocol support (HELLO for protocol negotiation)
+    - Redis 6+ ACL auth, CLIENT SETNAME/GETNAME/ID, RESET
+    - full message subscription with pattern matching (RESP3 Push type)
+    - SCAN/HSCAN/SSCAN/ZSCAN cursor-based iteration
+    - blocking commands (BLPOP, BRPOP, BLMOVE)
+    - Redis Streams (XADD, XREAD, XRANGE, XLEN, XTRIM, XACK, XGROUP, XPENDING)
+    - TLS support, fully async, pipelining
 
 ### TLS Support
 
@@ -340,6 +416,36 @@ Gumdrop configuration is an extensible dependency injection framework that
 allows you to wire together the various components declaratively in a
 flexible fashion. The language used for the configuration description is
 XML.
+
+### GSSAPI/Kerberos Configuration
+
+To enable GSSAPI (Kerberos V5) authentication on a service, configure a
+keytab file and service principal on the listener. Each protocol requires
+its own service principal (e.g. `imap/mail.example.com`, `smtp/mail.example.com`).
+
+```java
+// Programmatic configuration
+imapListener.configureGSSAPI(
+    Path.of("/etc/krb5.keytab"),
+    "imap/mail.example.com@EXAMPLE.COM");
+```
+
+```xml
+<!-- gumdroprc configuration -->
+<service id="imap" class="org.bluezoo.gumdrop.imap.IMAPService">
+    <property name="gssapiKeytab" value="/etc/krb5.keytab"/>
+    <property name="gssapiPrincipal" value="imap/mail.example.com@EXAMPLE.COM"/>
+</service>
+```
+
+Server-side GSSAPI authentication is event-loop safe (the `acceptSecContext`
+operation is CPU-bound, using the local keytab with no KDC network I/O).
+Client-side GSSAPI (used by the LDAP client for SASL bind) may contact the
+KDC on the first call and is automatically offloaded to a worker thread.
+
+The Realm interface's `mapKerberosPrincipal()` method maps the authenticated
+Kerberos principal (e.g. `user@EXAMPLE.COM`) to a local username. The default
+implementation strips the realm portion. Override this for custom mapping.
 
 ## Building
 

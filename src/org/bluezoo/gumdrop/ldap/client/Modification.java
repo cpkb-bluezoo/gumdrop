@@ -26,20 +26,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Represents a modification to an LDAP entry attribute.
+ * Represents a modification to an LDAP entry attribute (RFC 4511 section 4.6).
  * 
  * <p>Modifications are used with the {@link LDAPSession#modify} operation
  * to change attribute values in directory entries.
  * 
  * <p>Each modification specifies:
  * <ul>
- * <li>An operation type (add, delete, or replace)</li>
+ * <li>An operation type (add, delete, or replace) — RFC 4511 section 4.6</li>
  * <li>An attribute name</li>
  * <li>Zero or more attribute values</li>
  * </ul>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see LDAPSession#modify
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.6">RFC 4511 §4.6</a>
  */
 public class Modification {
 

@@ -27,6 +27,8 @@ import java.nio.charset.StandardCharsets;
  * A parameter in a structured MIME header value such as Content-Type or
  * Content-Disposition. It consists of a name and a value.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2045#section-5.1">RFC 2045 §5.1</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2231">RFC 2231</a>
  */
 public final class Parameter {
 

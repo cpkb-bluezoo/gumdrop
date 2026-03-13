@@ -149,6 +149,11 @@ public class ParsedMessageContext implements MessageContext {
         return bodyText;
     }
 
+    @Override
+    public long getModSeq() throws IOException {
+        return mailbox.getModSeq(messageNumber);
+    }
+
     /**
      * Ensures the message has been parsed.
      */

@@ -31,9 +31,16 @@ package org.bluezoo.gumdrop.smtp.handler;
  * are expected. Various rejection methods are available with appropriate
  * SMTP response codes for different scenarios.
  * 
+ * <p>Methods map to reply codes: {@code acceptSender} → 250,
+ * {@code rejectSenderGreylist} / {@code rejectSenderRateLimit} → 450,
+ * {@code rejectSenderStorageFull} → 452, {@code rejectSenderBlockedDomain} /
+ * {@code rejectSenderInvalidDomain} → 550, {@code rejectSenderPolicy} → 553,
+ * {@code rejectSenderSpam} → 554, {@code rejectSenderSyntax} → 501.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MailFromHandler#mailFrom
  * @see RecipientHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.2">RFC 5321 §4.1.1.2</a>
  */
 public interface MailFromState {
 

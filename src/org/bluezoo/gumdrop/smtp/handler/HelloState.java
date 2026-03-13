@@ -31,9 +31,14 @@ package org.bluezoo.gumdrop.smtp.handler;
  * and transitions to the mail-from ready state. Rejecting sends an error
  * response; the client may retry or disconnect.
  * 
+ * <p>Methods map to reply codes: {@code acceptHello} → 250,
+ * {@code rejectHelloTemporary} → 421, {@code rejectHello} → 550,
+ * {@code rejectHelloAndClose} → 554.
+ * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HelloHandler#hello
  * @see MailFromHandler
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.1">RFC 5321 §4.1.1.1</a>
  */
 public interface HelloState {
 

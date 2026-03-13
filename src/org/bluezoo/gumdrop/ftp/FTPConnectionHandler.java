@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.ftp;
 
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.quota.Quota;
@@ -30,11 +28,9 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
 
 /**
  * Handler interface for FTP connection events and business logic.
- * <p>
- * This interface abstracts away all low-level FTP protocol details and allows
- * implementers to focus purely on the business logic of file operations and
- * user management. The handler receives high-level events (authentication,
- * file operations) along with rich metadata about the connection context.
+ * Provides the application-level callbacks used by {@link FTPProtocolHandler}
+ * to implement the RFC 959 command semantics (authentication per section 4.1.1,
+ * file operations per section 4.1.3).
  * <p>
  * Key benefits of this abstraction:
  * <ul>

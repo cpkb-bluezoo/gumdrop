@@ -54,35 +54,38 @@ public interface DeliveryRequirements {
 
     /**
      * Returns whether REQUIRETLS was specified for this message.
-     * 
+     *
      * <p>When true, the sender has indicated that this message must only be
      * transmitted over TLS-protected connections (RFC 8689). If the server
      * cannot guarantee TLS protection to the next hop during relay, the
      * message must be bounced rather than delivered insecurely.
-     * 
+     *
      * @return true if REQUIRETLS was specified in MAIL FROM
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689</a>
      */
     boolean isRequireTls();
 
     /**
      * Returns the message transfer priority level.
-     * 
+     *
      * <p>MT-PRIORITY (RFC 6710) allows senders to indicate the relative
      * priority of a message. Values range from -9 (lowest) to +9 (highest),
      * with 0 being normal priority.
-     * 
+     *
      * <p>MTAs may use this to prioritize message processing and queue
      * management. Higher priority messages should be processed before
      * lower priority ones when resources are constrained.
-     * 
+     *
      * @return priority level from -9 to +9, or null if not specified
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc6710">RFC 6710</a>
      */
     Integer getPriority();
 
     /**
      * Returns whether a priority level was specified.
-     * 
+     *
      * @return true if MT-PRIORITY was specified in MAIL FROM
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc6710">RFC 6710</a>
      */
     default boolean hasPriority() {
         return getPriority() != null;
@@ -90,22 +93,24 @@ public interface DeliveryRequirements {
 
     /**
      * Returns the time until which the message should be held.
-     * 
+     *
      * <p>FUTURERELEASE (RFC 4865) allows senders to request that a message
      * be held for later delivery. This returns the earliest time at which
      * the message should be released for delivery.
-     * 
+     *
      * <p>If both HOLDFOR and HOLDUNTIL were somehow specified, this method
      * returns the computed release time.
-     * 
+     *
      * @return the release time, or null if the message should be delivered immediately
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc4865">RFC 4865</a>
      */
     Instant getReleaseTime();
 
     /**
      * Returns whether the message should be held for future release.
-     * 
+     *
      * @return true if HOLDFOR or HOLDUNTIL was specified in MAIL FROM
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc4865">RFC 4865</a>
      */
     default boolean isFutureRelease() {
         return getReleaseTime() != null;
@@ -113,25 +118,27 @@ public interface DeliveryRequirements {
 
     /**
      * Returns the delivery deadline for this message.
-     * 
+     *
      * <p>DELIVERBY (RFC 2852) allows senders to specify a time limit for
      * message delivery. If the message cannot be delivered within this
      * time, action should be taken based on {@link #isDeliverByReturn()}.
-     * 
+     *
      * @return the delivery deadline, or null if no deadline was specified
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc2852">RFC 2852</a>
      */
     Instant getDeliverByDeadline();
 
     /**
      * Returns whether the message should be returned if the deadline is missed.
-     * 
+     *
      * <p>When DELIVERBY is specified with the 'R' trace modifier, the message
      * should be returned (bounced) to the sender if it cannot be delivered
      * by the deadline. When 'N' is specified, a delay DSN should be sent
      * instead.
-     * 
+     *
      * @return true for 'R' (return), false for 'N' (notify), or null if
      *         no DELIVERBY was specified
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc2852">RFC 2852</a>
      */
     Boolean isDeliverByReturn();
 
@@ -146,26 +153,28 @@ public interface DeliveryRequirements {
 
     /**
      * Returns the DSN return type preference.
-     * 
+     *
      * <p>DSN (RFC 3461) RET parameter indicates how much of the original
      * message to include in any Delivery Status Notification:
      * <ul>
      *   <li>{@link DSNReturn#FULL} - Include the entire message</li>
      *   <li>{@link DSNReturn#HDRS} - Include only the headers</li>
      * </ul>
-     * 
+     *
      * @return the DSN return type, or null if not specified
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461</a>
      */
     DSNReturn getDsnReturn();
 
     /**
      * Returns the DSN envelope identifier.
-     * 
+     *
      * <p>DSN (RFC 3461) ENVID parameter provides an opaque identifier
      * that will be included in any Delivery Status Notification, allowing
      * the original sender to correlate the DSN with the original message.
-     * 
+     *
      * @return the envelope ID, or null if not specified
+     * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461</a>
      */
     String getDsnEnvelopeId();
 

@@ -23,8 +23,8 @@ package org.bluezoo.gumdrop.ftp;
 
 /**
  * Defines the possible outcomes for FTP authentication attempts.
- * Each result corresponds to specific FTP response codes and indicates how the
- * server should respond to USER/PASS/ACCT command sequences.
+ * Each result maps to the reply codes specified in RFC 959 section 4.2 for
+ * the USER/PASS/ACCT command sequence (section 4.1.1).
  *
  * <p>This abstraction allows handler implementations to focus on authentication
  * logic without needing to know FTP protocol response codes.
@@ -33,63 +33,39 @@ package org.bluezoo.gumdrop.ftp;
  */
 public enum FTPAuthenticationResult {
 
-    /**
-     * User is successfully authenticated and logged in (230).
-     * The client now has full access based on user permissions.
-     */
+    /** User logged in, proceed. RFC 959 reply 230. */
     SUCCESS,
 
-    /**
-     * User name is okay, password is required (331).
-     * This is the normal response to a valid USER command.
-     */
+    /** User name okay, need password. RFC 959 reply 331. */
     NEED_PASSWORD,
 
-    /**
-     * User name is okay, account information is required (332).
-     * Some FTP servers require additional account information.
-     */
+    /** Need account for login. RFC 959 reply 332. */
     NEED_ACCOUNT,
 
-    /**
-     * Invalid user name (530).
-     * The specified user does not exist or is not allowed to connect.
-     */
+    /** Not logged in — invalid user. RFC 959 reply 530. */
     INVALID_USER,
 
-    /**
-     * Invalid password (530).
-     * The password provided for the user is incorrect.
-     */
+    /** Not logged in — invalid password. RFC 959 reply 530. */
     INVALID_PASSWORD,
 
-    /**
-     * Invalid account information (530).
-     * The account information provided is incorrect or insufficient.
-     */
+    /** Not logged in — invalid account. RFC 959 reply 530. */
     INVALID_ACCOUNT,
 
-    /**
-     * User account is disabled or locked (530).
-     * The user exists but is not currently allowed to log in.
-     */
+    /** Not logged in — account disabled. RFC 959 reply 530. */
     ACCOUNT_DISABLED,
 
     /**
-     * Too many login attempts (421).
-     * The client has exceeded the allowed number of authentication attempts.
+     * Service not available — too many login attempts.
+     * RFC 959 reply 421.
      */
     TOO_MANY_ATTEMPTS,
 
-    /**
-     * Anonymous login not allowed (530).
-     * The server does not accept anonymous FTP connections.
-     */
+    /** Not logged in — anonymous not allowed. RFC 959 reply 530. */
     ANONYMOUS_NOT_ALLOWED,
 
     /**
-     * Maximum concurrent users exceeded (421).
-     * The server has reached its user connection limit.
+     * Service not available — user limit exceeded.
+     * RFC 959 reply 421.
      */
     USER_LIMIT_EXCEEDED
 

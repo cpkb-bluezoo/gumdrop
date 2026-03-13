@@ -46,6 +46,11 @@ import javax.servlet.http.HttpServletRequest;
 
 /**
  * Abstract base class for HTTP authentication providers.
+ *
+ * <p>Implements the HTTP Authentication framework per RFC 9110 section 11.
+ * RFC 9110 section 11.6.1: a 401 response MUST include a WWW-Authenticate
+ * header with at least one applicable challenge. The {@link #generateChallenge()}
+ * method produces this header value.
  * 
  * <p>This class provides the common authentication logic for various HTTP
  * authentication schemes including:</p>

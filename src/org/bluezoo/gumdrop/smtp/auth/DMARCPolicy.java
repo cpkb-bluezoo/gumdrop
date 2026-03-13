@@ -23,9 +23,11 @@ package org.bluezoo.gumdrop.smtp.auth;
 
 /**
  * DMARC policy action as specified in the p= tag of a DMARC record.
+ * RFC 7489 §6.3 (p= tag).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DMARCValidator
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
 public enum DMARCPolicy {
 

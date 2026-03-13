@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.websocket;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.util.Collections;
+import java.util.List;
 import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -36,7 +38,7 @@ import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
- * Abstract base class for WebSocket connections.
+ * Abstract base class for WebSocket connections (RFC 6455).
  * Provides the lifecycle management and message handling interface
  * for WebSocket connections after a successful upgrade.
  *
@@ -45,12 +47,12 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * handles frame parsing, protocol compliance, and provides methods
  * for sending different types of messages.
  *
- * <p>Connection states follow the WebSocket lifecycle:
+ * <p>Connection states follow the WebSocket lifecycle (RFC 6455 §4, §7):
  * <ol>
- * <li><strong>CONNECTING</strong> - Handshake in progress</li>
- * <li><strong>OPEN</strong> - Connection established and ready</li>
- * <li><strong>CLOSING</strong> - Close frame sent/received</li>
- * <li><strong>CLOSED</strong> - Connection terminated</li>
+ * <li><strong>CONNECTING</strong> - Opening handshake in progress (§4.1)</li>
+ * <li><strong>OPEN</strong> - Connection established (§4.2.2)</li>
+ * <li><strong>CLOSING</strong> - Closing handshake started (§7.1.1)</li>
+ * <li><strong>CLOSED</strong> - Connection terminated (§7.1.4)</li>
  * </ol>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -61,36 +63,36 @@ public abstract class WebSocketConnection {
     private static final Logger LOGGER = Logger.getLogger(WebSocketConnection.class.getName());
 
     /**
-     * WebSocket connection states as defined in RFC 6455.
+     * RFC 6455 §4/§7 — WebSocket connection states.
      */
     public enum State {
-        /** The connection is not yet open */
+        /** RFC 6455 §4.1 — opening handshake in progress */
         CONNECTING,
-        /** The WebSocket connection is established and communication is possible */
+        /** RFC 6455 §4.2.2 — connection established, communication possible */
         OPEN,
-        /** The connection is going through the closing handshake */
+        /** RFC 6455 §7.1.1 — close frame sent or received, closing handshake in progress */
         CLOSING,
-        /** The connection has been closed or could not be opened */
+        /** RFC 6455 §7.1.4 — connection terminated */
         CLOSED
     }
 
     /**
-     * Standard WebSocket close codes as defined in RFC 6455 Section 7.4.1.
+     * RFC 6455 §7.4.1 — defined status codes for WebSocket close frames.
      */
     public static class CloseCodes {
-        /** Normal closure; the connection successfully completed whatever purpose for which it was created */
+        /** RFC 6455 §7.4.1 — 1000: normal closure */
         public static final int NORMAL_CLOSURE = 1000;
-        /** The endpoint is going away (server shutdown or browser navigating away) */
+        /** RFC 6455 §7.4.1 — 1001: endpoint going away */
         public static final int GOING_AWAY = 1001;
-        /** The endpoint is terminating the connection due to a protocol error */
+        /** RFC 6455 §7.4.1 — 1002: protocol error */
         public static final int PROTOCOL_ERROR = 1002;
-        /** The connection is being terminated because the endpoint received data inconsistent with its type */
+        /** RFC 6455 §7.4.1 — 1003: unsupported data type received */
         public static final int UNSUPPORTED_DATA = 1003;
-        /** The endpoint is terminating the connection because a message was received that is too big */
+        /** RFC 6455 §7.4.1 — 1009: message too big */
         public static final int MESSAGE_TOO_BIG = 1009;
-        /** The client is terminating the connection because it expected a particular extension */
+        /** RFC 6455 §7.4.1 — 1010: client expected extension not negotiated */
         public static final int MISSING_EXTENSION = 1010;
-        /** The server is terminating the connection because it encountered an unexpected condition */
+        /** RFC 6455 §7.4.1 — 1011: unexpected server condition */
         public static final int INTERNAL_ERROR = 1011;
     }
 
@@ -99,15 +101,23 @@ public abstract class WebSocketConnection {
     private final AtomicBoolean closeFrameSent = new AtomicBoolean(false);
     private final AtomicBoolean closeFrameReceived = new AtomicBoolean(false);
 
-    // Client mode: when true, outgoing frames are masked (RFC 6455 Section 5.1)
+    // RFC 6455 §5.1 — client MUST mask all frames sent to the server
     private boolean clientMode;
 
     // Frame assembly for fragmented messages
     private ByteBuffer messageBuffer;
     private int messageOpcode = -1;
+    private boolean messageRsv1;
+    private long messageSize;
 
     // The underlying transport mechanism (set by HTTPConnection after upgrade)
     private WebSocketTransport transport;
+
+    // RFC 6455 §9 — negotiated extensions (applied in order)
+    private List<WebSocketExtension> extensions = Collections.emptyList();
+
+    // RFC 6455 §7.4.1 — configurable maximum assembled message size (0 = unlimited)
+    private long maxMessageSize;
     
     // Telemetry support
     private static final ResourceBundle L10N = ResourceBundle.getBundle(
@@ -134,10 +144,9 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Sets whether this connection operates in client mode.
-     * In client mode, all outgoing frames are masked as required by
-     * RFC 6455 Section 5.1. Server connections leave this as false
-     * (the default).
+     * RFC 6455 §5.1 — sets whether this connection operates in client mode.
+     * In client mode, all outgoing frames are masked. Server connections
+     * leave this as false (the default).
      *
      * @param clientMode true for client connections
      */
@@ -146,11 +155,33 @@ public abstract class WebSocketConnection {
     }
 
     /**
+     * RFC 6455 §9 — sets the negotiated extensions for this connection.
+     * Extensions are applied in order: first extension in the list is
+     * applied first for encoding and last for decoding.
+     *
+     * @param extensions the negotiated extensions (must not be null)
+     */
+    public void setExtensions(List<WebSocketExtension> extensions) {
+        this.extensions = extensions != null ? extensions : Collections.emptyList();
+    }
+
+    /**
+     * RFC 6455 §7.4.1 — sets the maximum assembled message size in bytes.
+     * Messages exceeding this limit cause the connection to be closed with
+     * code 1009 (Message Too Big). A value of 0 means unlimited.
+     *
+     * @param maxMessageSize the maximum message size in bytes, or 0 for unlimited
+     */
+    public void setMaxMessageSize(long maxMessageSize) {
+        this.maxMessageSize = maxMessageSize;
+    }
+
+    /**
      * Sets optional server-level metrics for frame and message tracking.
      *
      * @param metrics the metrics instance (may be null)
      */
-    void setServerMetrics(WebSocketServerMetrics metrics) {
+    public void setServerMetrics(WebSocketServerMetrics metrics) {
         this.serverMetrics = metrics;
     }
     
@@ -276,9 +307,8 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Called when a ping frame is received.
-     * Default implementation automatically sends a pong response.
-     * Override to customize ping handling.
+     * RFC 6455 §5.5.2/§5.5.3 — called when a ping frame is received.
+     * Default implementation automatically sends a pong with the same payload.
      *
      * @param payload the ping payload (may be empty)
      */
@@ -292,8 +322,7 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Called when a pong frame is received.
-     * Override this method to handle pong frames (typically for keep-alive).
+     * RFC 6455 §5.5.3 — called when a pong frame is received.
      *
      * @param payload the pong payload (may be empty)
      */
@@ -305,7 +334,9 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Sends a text message to the peer.
+     * RFC 6455 §5.6 — sends a text message (opcode 0x1) to the peer.
+     * If extensions are active, the payload is encoded (e.g. compressed)
+     * and the appropriate RSV bits are set (§9).
      *
      * @param message the text message to send
      * @throws IOException if an I/O error occurs
@@ -313,12 +344,14 @@ public abstract class WebSocketConnection {
      */
     public final void sendText(String message) throws IOException {
         checkConnectionOpen();
-        WebSocketFrame frame = WebSocketFrame.createTextFrame(message, clientMode);
-        sendFrame(frame);
+        byte[] payload = message.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        sendDataFrame(WebSocketFrame.OPCODE_TEXT, payload);
     }
 
     /**
-     * Sends a binary message to the peer.
+     * RFC 6455 §5.6 — sends a binary message (opcode 0x2) to the peer.
+     * If extensions are active, the payload is encoded (e.g. compressed)
+     * and the appropriate RSV bits are set (§9).
      *
      * @param data the binary data to send
      * @throws IOException if an I/O error occurs
@@ -326,14 +359,29 @@ public abstract class WebSocketConnection {
      */
     public final void sendBinary(ByteBuffer data) throws IOException {
         checkConnectionOpen();
-        WebSocketFrame frame = WebSocketFrame.createBinaryFrame(data, clientMode);
+        byte[] payload = new byte[data.remaining()];
+        data.get(payload);
+        sendDataFrame(WebSocketFrame.OPCODE_BINARY, payload);
+    }
+
+    /**
+     * RFC 6455 §9 — sends a data frame, applying extension encoding.
+     */
+    private void sendDataFrame(int opcode, byte[] payload) throws IOException {
+        boolean rsv1 = false;
+        byte[] encoded = payload;
+        for (WebSocketExtension ext : extensions) {
+            encoded = ext.encode(encoded);
+            rsv1 |= ext.usesRsv1();
+        }
+        WebSocketFrame frame = new WebSocketFrame(opcode, encoded, clientMode, rsv1);
         sendFrame(frame);
     }
 
     /**
-     * Sends a ping frame to the peer.
+     * RFC 6455 §5.5.2 — sends a ping frame to the peer.
      *
-     * @param payload optional payload (may be null, max 125 bytes)
+     * @param payload optional payload (may be null, max 125 bytes per §5.5)
      * @throws IOException if an I/O error occurs
      * @throws IllegalStateException if the connection is not open
      */
@@ -347,9 +395,9 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Sends a pong frame to the peer.
+     * RFC 6455 §5.5.3 — sends a pong frame to the peer.
      *
-     * @param payload optional payload (may be null, max 125 bytes)
+     * @param payload optional payload (may be null, max 125 bytes per §5.5)
      * @throws IOException if an I/O error occurs
      */
     public final void sendPong(ByteBuffer payload) throws IOException {
@@ -365,7 +413,7 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Closes the WebSocket connection with a normal closure code.
+     * RFC 6455 §7.1 — initiates closing handshake with normal closure (1000).
      *
      * @throws IOException if an I/O error occurs
      */
@@ -374,9 +422,9 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Closes the WebSocket connection with the specified close code and reason.
+     * RFC 6455 §7.1 — initiates closing handshake with specified code and reason.
      *
-     * @param code the close code (1000-4999)
+     * @param code the close code (RFC 6455 §7.4, 1000-4999)
      * @param reason optional close reason (may be null)
      * @throws IOException if an I/O error occurs
      */
@@ -398,8 +446,7 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Processes incoming WebSocket frame data.
-     * This method is called by the HTTP connection when WebSocket data is received.
+     * RFC 6455 §5 — processes incoming WebSocket frame data from the transport.
      *
      * @param buffer the buffer containing frame data
      * @throws IOException if an I/O error occurs
@@ -422,8 +469,8 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Notifies the connection that the upgrade is complete and the connection is now open.
-     * This is called by the HTTP connection after sending the 101 response.
+     * RFC 6455 §4.2.2 — transitions from CONNECTING to OPEN after successful
+     * handshake. Called by the HTTP layer after sending the 101 response.
      */
     public final void notifyConnectionOpen() {
         if (state == State.CONNECTING) {
@@ -445,12 +492,19 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Processes a received WebSocket frame.
+     * RFC 6455 §5 — dispatches a received frame by opcode.
+     * Validates RSV bits against negotiated extensions (§5.2, §9).
      *
      * @param frame the received frame
      * @throws IOException if an I/O error occurs
      */
     private void processFrame(WebSocketFrame frame) throws IOException {
+        // RFC 6455 §5.2 — validate RSV bits against active extensions
+        if (!validateRsvBits(frame)) {
+            close(CloseCodes.PROTOCOL_ERROR, "Unexpected RSV bits");
+            return;
+        }
+
         if (serverMetrics != null) {
             serverMetrics.frameReceived(opcodeToString(frame.getOpcode()));
         }
@@ -478,41 +532,59 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Processes a data frame (text or binary).
+     * RFC 6455 §5.4/§5.6 — processes a data frame (text or binary),
+     * starting fragmentation if not FIN.
      */
     private void processDataFrame(WebSocketFrame frame) throws IOException {
         if (messageOpcode != -1) {
-            // Already in middle of fragmented message
             close(CloseCodes.PROTOCOL_ERROR, "Unexpected data frame during fragmented message");
             return;
         }
 
         byte[] payloadBytes = frame.getPayloadBytes();
+
+        // RFC 6455 §7.4.1 — enforce maximum message size
+        if (maxMessageSize > 0 && payloadBytes.length > maxMessageSize) {
+            close(CloseCodes.MESSAGE_TOO_BIG,
+                    "Message exceeds maximum size of " + maxMessageSize + " bytes");
+            return;
+        }
+
         if (frame.isFin()) {
-            // Complete message in single frame
-            deliverMessage(frame.getOpcode(), payloadBytes);
+            deliverMessage(frame.getOpcode(), payloadBytes, frame.isRsv1());
         } else {
-            // Start of fragmented message
             messageOpcode = frame.getOpcode();
+            messageRsv1 = frame.isRsv1();
+            messageSize = payloadBytes.length;
             messageBuffer = ByteBuffer.allocate(payloadBytes.length);
             messageBuffer.put(payloadBytes);
         }
     }
 
     /**
-     * Processes a continuation frame.
+     * RFC 6455 §5.4 — processes a continuation frame, assembling the
+     * fragmented message until FIN is set. Enforces the configurable
+     * maximum message size (§7.4.1, close code 1009).
      */
     private void processContinuationFrame(WebSocketFrame frame) throws IOException {
         if (messageOpcode == -1) {
-            // No message in progress
             close(CloseCodes.PROTOCOL_ERROR, "Unexpected continuation frame");
             return;
         }
 
         byte[] payloadBytes = frame.getPayloadBytes();
-        // Append to message buffer
+
+        // RFC 6455 §7.4.1 — enforce maximum assembled message size
+        messageSize += payloadBytes.length;
+        if (maxMessageSize > 0 && messageSize > maxMessageSize) {
+            messageOpcode = -1;
+            messageBuffer = null;
+            close(CloseCodes.MESSAGE_TOO_BIG,
+                    "Message exceeds maximum size of " + maxMessageSize + " bytes");
+            return;
+        }
+
         if (messageBuffer.remaining() < payloadBytes.length) {
-            // Expand buffer
             ByteBuffer newBuffer = ByteBuffer.allocate(messageBuffer.capacity() + payloadBytes.length);
             messageBuffer.flip();
             newBuffer.put(messageBuffer);
@@ -521,21 +593,22 @@ public abstract class WebSocketConnection {
         messageBuffer.put(payloadBytes);
 
         if (frame.isFin()) {
-            // Message complete
             messageBuffer.flip();
             byte[] completeMessage = new byte[messageBuffer.remaining()];
             messageBuffer.get(completeMessage);
-            
-            deliverMessage(messageOpcode, completeMessage);
-            
-            // Reset for next message
+
+            deliverMessage(messageOpcode, completeMessage, messageRsv1);
+
             messageOpcode = -1;
+            messageRsv1 = false;
             messageBuffer = null;
         }
     }
 
     /**
-     * Processes a close frame.
+     * RFC 6455 §7.1 — processes a close frame. Validates the close code
+     * against RFC 6455 §7.4 allowed ranges before echoing or completing
+     * the handshake.
      */
     private void processCloseFrame(WebSocketFrame frame) throws IOException {
         if (closeFrameReceived.compareAndSet(false, true)) {
@@ -544,32 +617,61 @@ public abstract class WebSocketConnection {
 
             if (closeCode == -1) {
                 closeCode = CloseCodes.NORMAL_CLOSURE;
+            } else if (!isValidCloseCode(closeCode)) {
+                // RFC 6455 §7.4 — invalid close code → protocol error
+                close(CloseCodes.PROTOCOL_ERROR, "Invalid close code: " + closeCode);
+                return;
             }
 
             if (!closeFrameSent.get()) {
-                // Send close response
                 close(closeCode, closeReason);
             } else {
-                // Complete closing handshake
                 completeClose(closeCode, closeReason);
             }
         }
     }
 
     /**
-     * Delivers a complete message to the application.
+     * RFC 6455 §7.4, §7.4.1, §7.4.2 — validates a received close code.
+     * Codes 1004, 1005, 1006, and 1015 are reserved and MUST NOT appear
+     * on the wire. Valid ranges are 1000–1003, 1007–1014, and 3000–4999.
      */
-    private void deliverMessage(int opcode, byte[] payload) {
-        // Track telemetry
+    private static boolean isValidCloseCode(int code) {
+        if (code >= 3000 && code <= 4999) {
+            return true;  // RFC 6455 §7.4.2 — private use / registered
+        }
+        switch (code) {
+            case 1000: case 1001: case 1002: case 1003:
+            case 1007: case 1008: case 1009: case 1010:
+            case 1011: case 1012: case 1013: case 1014:
+                return true;
+            default:
+                return false;  // 1004, 1005, 1006, 1015, or out of range
+        }
+    }
+
+    /**
+     * Delivers a complete message to the application, applying extension
+     * decoding (RFC 6455 §9) if the RSV1 bit indicates compression.
+     */
+    private void deliverMessage(int opcode, byte[] payload, boolean rsv1) {
         messagesReceived.incrementAndGet();
         bytesReceived.addAndGet(payload.length);
-        
+
         try {
+            // RFC 6455 §9 — apply extension decoding (reverse order)
+            byte[] decoded = payload;
+            if (rsv1 && !extensions.isEmpty()) {
+                for (int i = extensions.size() - 1; i >= 0; i--) {
+                    decoded = extensions.get(i).decode(decoded);
+                }
+            }
+
             if (opcode == WebSocketFrame.OPCODE_TEXT) {
-                String message = new String(payload, java.nio.charset.StandardCharsets.UTF_8);
+                String message = new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
                 textMessageReceived(message);
             } else if (opcode == WebSocketFrame.OPCODE_BINARY) {
-                binaryMessageReceived(ByteBuffer.wrap(payload));
+                binaryMessageReceived(ByteBuffer.wrap(decoded));
             }
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Error delivering WebSocket message", e);
@@ -578,7 +680,8 @@ public abstract class WebSocketConnection {
     }
 
     /**
-     * Completes the connection close process.
+     * RFC 6455 §7.1.4 — completes the closing handshake and transitions
+     * to CLOSED state.
      */
     private void completeClose(int code, String reason) {
         if (state != State.CLOSED) {
@@ -617,6 +720,11 @@ public abstract class WebSocketConnection {
                 }
             }
             
+            // Release extension resources
+            for (WebSocketExtension ext : extensions) {
+                try { ext.close(); } catch (Exception ignored) { /* best-effort */ }
+            }
+
             try {
                 if (transport != null) {
                     boolean normalClose = (code == CloseCodes.NORMAL_CLOSURE || code == CloseCodes.GOING_AWAY);
@@ -664,6 +772,25 @@ public abstract class WebSocketConnection {
         if (state != State.OPEN) {
             throw new IllegalStateException("WebSocket connection is not open: " + state);
         }
+    }
+
+    /**
+     * RFC 6455 §5.2/§9 — validates RSV bits against negotiated extensions.
+     * Returns false if any set RSV bit is not claimed by an active extension.
+     */
+    private boolean validateRsvBits(WebSocketFrame frame) {
+        boolean rsv1 = frame.isRsv1();
+        boolean rsv2 = frame.isRsv2();
+        boolean rsv3 = frame.isRsv3();
+        if (!rsv1 && !rsv2 && !rsv3) {
+            return true;
+        }
+        for (WebSocketExtension ext : extensions) {
+            if (rsv1 && ext.usesRsv1()) { rsv1 = false; }
+            if (rsv2 && ext.usesRsv2()) { rsv2 = false; }
+            if (rsv3 && ext.usesRsv3()) { rsv3 = false; }
+        }
+        return !rsv1 && !rsv2 && !rsv3;
     }
 
     private static String opcodeToString(int opcode) {

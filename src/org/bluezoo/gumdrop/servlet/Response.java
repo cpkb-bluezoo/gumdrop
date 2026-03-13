@@ -160,18 +160,17 @@ class Response implements HttpServletResponse {
     }
 
     public String encodeRedirectURL(String url) {
+        // Servlet spec: convert relative URLs to absolute
+        URI uri = URI.create(url);
+        if (!uri.isAbsolute()) {
+            URI requestUri = request.getURI();
+            uri = requestUri.resolve(uri);
+            url = uri.toString();
+        }
         if (request.sessionId != null) {
             url = encodeSessionId(url, request.sessionId);
         }
-        // TODO: Per Servlet spec, sendRedirect should convert relative URLs
-        // to absolute using the request's scheme/host/port
-        try {
-            return URLEncoder.encode(url, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            RuntimeException e2 = new RuntimeException("UTF-8 not supported");
-            e2.initCause(e);
-            throw e2;
-        }
+        return url;
     }
 
     String encodeSessionId(String url, String sessionId) {

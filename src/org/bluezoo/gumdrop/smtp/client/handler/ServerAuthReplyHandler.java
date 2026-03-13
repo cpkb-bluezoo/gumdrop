@@ -23,7 +23,8 @@ package org.bluezoo.gumdrop.smtp.client.handler;
 
 /**
  * Handler for AUTH command responses.
- * 
+ * RFC 4954 (235/334/454/504/535).
+ *
  * <p>This handler receives responses during SASL authentication, which may
  * involve multiple challenge-response rounds depending on the mechanism.
  * 

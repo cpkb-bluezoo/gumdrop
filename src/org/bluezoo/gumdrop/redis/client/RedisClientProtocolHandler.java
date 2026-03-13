@@ -41,19 +41,37 @@ import org.bluezoo.gumdrop.redis.codec.RESPException;
 import org.bluezoo.gumdrop.redis.codec.RESPValue;
 
 /**
- * Event-driven, NIO-based Redis client endpoint handler.
+ * Redis client protocol handler using RESP (Redis Serialization Protocol).
  *
  * <p>Implements {@link ProtocolHandler} and {@link RedisSession}, storing an
  * {@link Endpoint} field set in {@link #connected(Endpoint)} and delegating
  * all I/O to the endpoint.
  *
- * <p>This handler processes the Redis protocol using RESP encoding/decoding
- * and integrates with Gumdrop's asynchronous I/O framework.
+ * <p>Commands are encoded as RESP arrays of bulk strings
+ * (RESP spec — "Sending commands to a Redis server") and sent via the
+ * endpoint. Responses are decoded by {@link RESPDecoder} and dispatched
+ * to the appropriate callback in FIFO order (RESP spec — "Pipelining").
  *
- * <p>Commands are queued and matched with responses in order. Multiple
- * commands can be outstanding simultaneously (pipelining).
+ * <p>Supported RESP2 response types:
+ * <ul>
+ *   <li>Simple String ({@code +}) — dispatched to {@link StringResultHandler}</li>
+ *   <li>Error ({@code -}) — dispatched to handler's {@code handleError()}</li>
+ *   <li>Integer ({@code :}) — dispatched to {@link IntegerResultHandler} / {@link BooleanResultHandler}</li>
+ *   <li>Bulk String ({@code $}) — dispatched to {@link BulkResultHandler}</li>
+ *   <li>Array ({@code *}) — dispatched to {@link ArrayResultHandler}</li>
+ * </ul>
+ *
+ * <p>RESP3 types (Map, Set, Double, Boolean, Null, Push, Verbatim String,
+ * Big Number, Blob Error) are decoded and dispatched. RESP3 Maps received
+ * by {@link ArrayResultHandler} are flattened to alternating key/value lists.
+ * The HELLO command negotiates the RESP protocol version (RESP3).
+ *
+ * <p>Pub/Sub push messages are handled out-of-band when in Pub/Sub mode
+ * (RESP spec — "Pub/Sub" / "Push type"). In RESP3, Push (&gt;) replaces
+ * the array-based Pub/Sub detection with a dedicated type.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession {
 
@@ -102,6 +120,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         handler.handleReady(this);
     }
 
+    // RESP spec — streaming decode of RESP2 wire format
     @Override
     public void receive(ByteBuffer buf) {
         try {
@@ -143,7 +162,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession - Connection
+    // Connection management
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -163,11 +182,25 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Response processing
+    // Response processing (RESP spec — "RESP protocol description")
     // ─────────────────────────────────────────────────────────────────────────
 
+    // RESP spec — dispatch decoded response values.
+    // Pub/Sub push messages are intercepted before FIFO callback dispatch.
+    // RESP3 Push type (>) is handled as an out-of-band Pub/Sub delivery.
     private void processResponse(RESPValue response) {
-        // Check for Pub/Sub messages
+        // RESP3 Push type — server-initiated out-of-band data
+        if (response.isPush()) {
+            List<RESPValue> pushData = response.asPush();
+            if (pushData != null && !pushData.isEmpty() && messageHandler != null) {
+                String type = pushData.get(0).asString();
+                if (type != null) {
+                    handlePubSubMessage(type, pushData);
+                }
+            }
+            return;
+        }
+        // RESP2 array-based Pub/Sub messages
         if (pubSubMode && response.isArray()) {
             List<RESPValue> array = response.asArray();
             if (array != null && !array.isEmpty()) {
@@ -179,6 +212,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
                 }
             }
         }
+        
         // Regular command response
         PendingCommand pending = pendingCommands.poll();
         if (pending == null) {
@@ -191,6 +225,9 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         dispatchResponse(pending, response);
     }
 
+    // RESP spec — "Pub/Sub": push messages are 3-element arrays
+    // [type, channel, message] for message/subscribe/unsubscribe,
+    // or 4-element arrays [type, pattern, channel, message] for pmessage.
     private boolean handlePubSubMessage(String type, List<RESPValue> array) {
         if (messageHandler == null) {
             return false;
@@ -244,6 +281,9 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         return false;
     }
 
+    // Dispatch based on RESP type prefix:
+    // RESP2: + Simple String, - Error, : Integer, $ Bulk String, * Array
+    // RESP3: % Map, ~ Set, , Double, # Boolean, _ Null, = Verbatim, ( Big Number
     private void dispatchResponse(PendingCommand pending, RESPValue response) {
         Object callback = pending.callback;
         if (callback == null) {
@@ -254,6 +294,24 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         if (response.isError()) {
             String error = response.getErrorMessage();
             dispatchError(callback, error);
+            return;
+        }
+
+        // ScanResultHandler — expects 2-element array [cursor, elements]
+        if (callback instanceof ScanResultHandler) {
+            ScanResultHandler h = (ScanResultHandler) callback;
+            if (response.isNull()) {
+                h.handleError("null response", this);
+            } else {
+                List<RESPValue> result = response.asArray();
+                if (result != null && result.size() >= 2) {
+                    String cursor = result.get(0).asString();
+                    List<RESPValue> elements = result.get(1).asArray();
+                    h.handleResult(cursor, elements, this);
+                } else {
+                    h.handleError("Invalid scan response", this);
+                }
+            }
             return;
         }
 
@@ -282,15 +340,32 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             ArrayResultHandler h = (ArrayResultHandler) callback;
             if (response.isNull()) {
                 h.handleNull(this);
-            } else {
+            } else if (response.isArray()) {
                 List<RESPValue> result = response.asArray();
                 h.handleResult(result, this);
+            } else if (response.isMap()) {
+                // RESP3 Map — flatten to alternating key/value array for compatibility
+                java.util.Map<RESPValue, RESPValue> map = response.asMap();
+                List<RESPValue> flat = new java.util.ArrayList<RESPValue>(map.size() * 2);
+                for (java.util.Map.Entry<RESPValue, RESPValue> entry : map.entrySet()) {
+                    flat.add(entry.getKey());
+                    flat.add(entry.getValue());
+                }
+                h.handleResult(flat, this);
+            } else {
+                // For other RESP3 types received by ArrayResultHandler,
+                // wrap in a single-element array
+                List<RESPValue> wrapped = new java.util.ArrayList<RESPValue>(1);
+                wrapped.add(response);
+                h.handleResult(wrapped, this);
             }
         }
     }
 
     private void dispatchError(Object callback, String error) {
-        if (callback instanceof StringResultHandler) {
+        if (callback instanceof ScanResultHandler) {
+            ((ScanResultHandler) callback).handleError(error, this);
+        } else if (callback instanceof StringResultHandler) {
             ((StringResultHandler) callback).handleError(error, this);
         } else if (callback instanceof BulkResultHandler) {
             ((BulkResultHandler) callback).handleError(error, this);
@@ -304,7 +379,8 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Command sending
+    // Command sending (RESP spec — "Sending commands to a Redis server")
+    // Commands are encoded as RESP arrays of bulk strings: *N\r\n$len\r\narg\r\n...
     // ─────────────────────────────────────────────────────────────────────────
 
     private void sendCommand(Object callback, String command) {
@@ -356,17 +432,51 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Connection
+    // RedisSession — Connection commands
     // ─────────────────────────────────────────────────────────────────────────
 
+    // AUTH command — legacy password-only (Redis <= 5)
     @Override
     public void auth(String password, StringResultHandler h) {
         sendCommand(h, "AUTH", new String[] { password });
     }
 
+    // AUTH command — ACL username+password (Redis 6+)
     @Override
     public void auth(String username, String password, StringResultHandler h) {
         sendCommand(h, "AUTH", new String[] { username, password });
+    }
+
+    // RESP3 — HELLO command (Redis 6+) negotiates protocol version
+    @Override
+    public void hello(int protover, ArrayResultHandler h) {
+        sendCommand(h, "HELLO", new String[] { String.valueOf(protover) });
+    }
+
+    // RESP3 — HELLO with AUTH in a single round-trip
+    @Override
+    public void hello(int protover, String username, String password, ArrayResultHandler h) {
+        sendCommand(h, "HELLO", new String[] {
+            String.valueOf(protover), "AUTH", username, password
+        });
+    }
+
+    // Redis command reference — CLIENT SETNAME
+    @Override
+    public void clientSetName(String name, StringResultHandler h) {
+        sendCommand(h, "CLIENT", new String[] { "SETNAME", name });
+    }
+
+    // Redis command reference — CLIENT GETNAME
+    @Override
+    public void clientGetName(BulkResultHandler h) {
+        sendCommand(h, "CLIENT", new String[] { "GETNAME" });
+    }
+
+    // Redis command reference — CLIENT ID
+    @Override
+    public void clientId(IntegerResultHandler h) {
+        sendCommand(h, "CLIENT", new String[] { "ID" });
     }
 
     @Override
@@ -395,8 +505,17 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         close();
     }
 
+    // Redis command reference — RESET (Redis 6.2+)
+    // Resets connection state: Pub/Sub, MULTI, WATCH, auth
+    @Override
+    public void reset(StringResultHandler h) {
+        pubSubMode = false;
+        messageHandler = null;
+        sendCommand(h, "RESET");
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Strings
+    // RedisSession — String commands (Redis command group: Strings)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -480,7 +599,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Keys
+    // RedisSession — Key commands (Redis command group: Generic)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -549,7 +668,80 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Hashes
+    // RedisSession — SCAN commands (Redis command reference — SCAN)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Override
+    public void scan(String cursor, ScanResultHandler h) {
+        sendCommand(h, "SCAN", new String[] { cursor });
+    }
+
+    @Override
+    public void scan(String cursor, String match, int count, ScanResultHandler h) {
+        sendCommand(h, "SCAN", buildScanArgs(cursor, match, count));
+    }
+
+    @Override
+    public void hscan(String key, String cursor, ScanResultHandler h) {
+        sendCommand(h, "HSCAN", new String[] { key, cursor });
+    }
+
+    @Override
+    public void hscan(String key, String cursor, String match, int count, ScanResultHandler h) {
+        sendCommand(h, "HSCAN", buildKeyScanArgs(key, cursor, match, count));
+    }
+
+    @Override
+    public void sscan(String key, String cursor, ScanResultHandler h) {
+        sendCommand(h, "SSCAN", new String[] { key, cursor });
+    }
+
+    @Override
+    public void sscan(String key, String cursor, String match, int count, ScanResultHandler h) {
+        sendCommand(h, "SSCAN", buildKeyScanArgs(key, cursor, match, count));
+    }
+
+    @Override
+    public void zscan(String key, String cursor, ScanResultHandler h) {
+        sendCommand(h, "ZSCAN", new String[] { key, cursor });
+    }
+
+    @Override
+    public void zscan(String key, String cursor, String match, int count, ScanResultHandler h) {
+        sendCommand(h, "ZSCAN", buildKeyScanArgs(key, cursor, match, count));
+    }
+
+    private String[] buildScanArgs(String cursor, String match, int count) {
+        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        args.add(cursor);
+        if (match != null) {
+            args.add("MATCH");
+            args.add(match);
+        }
+        if (count > 0) {
+            args.add("COUNT");
+            args.add(String.valueOf(count));
+        }
+        return args.toArray(new String[0]);
+    }
+
+    private String[] buildKeyScanArgs(String key, String cursor, String match, int count) {
+        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        args.add(key);
+        args.add(cursor);
+        if (match != null) {
+            args.add("MATCH");
+            args.add(match);
+        }
+        if (count > 0) {
+            args.add("COUNT");
+            args.add(String.valueOf(count));
+        }
+        return args.toArray(new String[0]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RedisSession — Hash commands (Redis command group: Hash)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -638,7 +830,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Lists
+    // RedisSession — List commands (Redis command group: List)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -701,8 +893,35 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         sendCommand(h, "LREM", new String[] { key, String.valueOf(count), value });
     }
 
+    // Redis command reference — BLPOP
+    @Override
+    public void blpop(double timeout, ArrayResultHandler h, String... keys) {
+        String[] args = new String[keys.length + 1];
+        System.arraycopy(keys, 0, args, 0, keys.length);
+        args[keys.length] = String.valueOf(timeout);
+        sendCommand(h, "BLPOP", args);
+    }
+
+    // Redis command reference — BRPOP
+    @Override
+    public void brpop(double timeout, ArrayResultHandler h, String... keys) {
+        String[] args = new String[keys.length + 1];
+        System.arraycopy(keys, 0, args, 0, keys.length);
+        args[keys.length] = String.valueOf(timeout);
+        sendCommand(h, "BRPOP", args);
+    }
+
+    // Redis command reference — BLMOVE (Redis 6.2+)
+    @Override
+    public void blmove(String source, String destination, String whereFrom, String whereTo,
+                       double timeout, BulkResultHandler h) {
+        sendCommand(h, "BLMOVE", new String[] {
+            source, destination, whereFrom, whereTo, String.valueOf(timeout)
+        });
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Sets
+    // RedisSession — Set commands (Redis command group: Set)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -751,7 +970,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Sorted Sets
+    // RedisSession — Sorted Set commands (Redis command group: Sorted Set)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -805,7 +1024,10 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Pub/Sub
+    // RedisSession — Pub/Sub commands (RESP spec — "Pub/Sub")
+    // Once subscribed, the connection enters Pub/Sub mode and only
+    // SUBSCRIBE, PSUBSCRIBE, UNSUBSCRIBE, PUNSUBSCRIBE, PING, and
+    // RESET commands are valid.
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -851,7 +1073,9 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Transactions
+    // RedisSession — Transaction commands (MULTI/EXEC/DISCARD/WATCH)
+    // RESP spec — commands inside MULTI are queued (+QUEUED) and executed
+    // atomically by EXEC, which returns an array of results.
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -880,7 +1104,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Scripting
+    // RedisSession — Scripting commands (EVAL/EVALSHA)
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -912,7 +1136,102 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Server
+    // RedisSession — Stream commands (Redis command reference — Streams)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Redis command reference — XADD
+    @Override
+    public void xadd(String key, String id, BulkResultHandler h, String... fieldsAndValues) {
+        String[] args = new String[2 + fieldsAndValues.length];
+        args[0] = key;
+        args[1] = id;
+        System.arraycopy(fieldsAndValues, 0, args, 2, fieldsAndValues.length);
+        sendCommand(h, "XADD", args);
+    }
+
+    // Redis command reference — XLEN
+    @Override
+    public void xlen(String key, IntegerResultHandler h) {
+        sendCommand(h, "XLEN", new String[] { key });
+    }
+
+    // Redis command reference — XRANGE
+    @Override
+    public void xrange(String key, String start, String end, ArrayResultHandler h) {
+        sendCommand(h, "XRANGE", new String[] { key, start, end });
+    }
+
+    @Override
+    public void xrange(String key, String start, String end, int count, ArrayResultHandler h) {
+        sendCommand(h, "XRANGE", new String[] { key, start, end, "COUNT", String.valueOf(count) });
+    }
+
+    // Redis command reference — XREVRANGE
+    @Override
+    public void xrevrange(String key, String end, String start, ArrayResultHandler h) {
+        sendCommand(h, "XREVRANGE", new String[] { key, end, start });
+    }
+
+    @Override
+    public void xrevrange(String key, String end, String start, int count, ArrayResultHandler h) {
+        sendCommand(h, "XREVRANGE", new String[] { key, end, start, "COUNT", String.valueOf(count) });
+    }
+
+    // Redis command reference — XREAD
+    @Override
+    public void xread(int count, long blockMillis, ArrayResultHandler h, String... keysAndIds) {
+        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        if (count > 0) {
+            args.add("COUNT");
+            args.add(String.valueOf(count));
+        }
+        if (blockMillis >= 0) {
+            args.add("BLOCK");
+            args.add(String.valueOf(blockMillis));
+        }
+        args.add("STREAMS");
+        for (String kv : keysAndIds) {
+            args.add(kv);
+        }
+        sendCommand(h, "XREAD", args.toArray(new String[0]));
+    }
+
+    // Redis command reference — XTRIM
+    @Override
+    public void xtrim(String key, long maxLen, IntegerResultHandler h) {
+        sendCommand(h, "XTRIM", new String[] { key, "MAXLEN", String.valueOf(maxLen) });
+    }
+
+    // Redis command reference — XACK
+    @Override
+    public void xack(String key, String group, IntegerResultHandler h, String... ids) {
+        String[] args = new String[2 + ids.length];
+        args[0] = key;
+        args[1] = group;
+        System.arraycopy(ids, 0, args, 2, ids.length);
+        sendCommand(h, "XACK", args);
+    }
+
+    // Redis command reference — XGROUP CREATE
+    @Override
+    public void xgroupCreate(String key, String group, String id, StringResultHandler h) {
+        sendCommand(h, "XGROUP", new String[] { "CREATE", key, group, id, "MKSTREAM" });
+    }
+
+    // Redis command reference — XGROUP DESTROY
+    @Override
+    public void xgroupDestroy(String key, String group, IntegerResultHandler h) {
+        sendCommand(h, "XGROUP", new String[] { "DESTROY", key, group });
+    }
+
+    // Redis command reference — XPENDING
+    @Override
+    public void xpending(String key, String group, ArrayResultHandler h) {
+        sendCommand(h, "XPENDING", new String[] { key, group });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // RedisSession — Server commands
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -946,7 +1265,8 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // RedisSession implementation - Generic
+    // RedisSession — Generic command passthrough
+    // Allows sending arbitrary Redis commands not covered by typed methods.
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override

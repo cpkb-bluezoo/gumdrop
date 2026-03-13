@@ -24,6 +24,10 @@ package org.bluezoo.gumdrop.http;
 /**
  * Utility methods for HTTP protocol validation.
  *
+ * <p>Validation rules per RFC 9110 section 5.6.2 (tokens),
+ * RFC 9110 section 5.5 (field values), and RFC 9112 section 3
+ * (request-target).
+ *
  * <p>These methods provide efficient character-by-character validation
  * without the overhead of regular expressions.
  *
@@ -31,25 +35,23 @@ package org.bluezoo.gumdrop.http;
  */
 final class HTTPUtils {
 
-    // Lookup table for token characters (RFC 7230 section 3.2.6)
-    // token = 1*tchar
+    // RFC 9110 section 5.6.2: token = 1*tchar
     // tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
     //         "^" / "_" / "`" / "|" / "~" / DIGIT / ALPHA
     private static final boolean[] TOKEN_CHARS = new boolean[128];
 
-    // Lookup table for request-target characters
+    // RFC 9112 section 3.2.1: request-target characters
     // Includes: unreserved / pct-encoded / sub-delims / ":" / "@" / "/" / "?"
     // Plus "#" for fragment and "[" "]" for IPv6 literals
     private static final boolean[] REQUEST_TARGET_CHARS = new boolean[128];
 
-    // Lookup table for header name characters
-    // Matches: :?[a-zA-Z0-9\-_]+
-    // Optional leading colon for pseudo-headers, then alphanumeric/hyphen/underscore
+    // RFC 9110 section 5.1: field-name = token
+    // Plus optional leading colon for HTTP/2 pseudo-headers
     private static final boolean[] HEADER_NAME_CHARS = new boolean[128];
 
-    // Lookup table for header value characters  
-    // Matches: [\x20-\x7E\x80-\xFF\t]*
-    // Visible ASCII (0x20-0x7E), high bytes (0x80-0xFF), and tab
+    // RFC 9110 section 5.5: field-value = *field-content
+    // field-content = field-vchar [ 1*( SP / HTAB / field-vchar ) field-vchar ]
+    // field-vchar = VCHAR / obs-text ; obs-text = %x80-FF
     private static final boolean[] HEADER_VALUE_CHARS = new boolean[256];
 
     static {
@@ -157,9 +159,10 @@ final class HTTPUtils {
     }
 
     /**
-     * Validates an HTTP method token.
+     * Validates an HTTP method token (RFC 9110 section 9.1).
      *
-     * <p>A valid token consists of one or more of the following characters:
+     * <p>method = token (RFC 9110 section 5.6.2).
+     * A valid token consists of one or more tchar characters:
      * {@code !#$%&'*+-.^_`|~0-9a-zA-Z}
      *
      * @param method the method string to validate

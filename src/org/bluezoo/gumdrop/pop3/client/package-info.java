@@ -102,5 +102,9 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.pop3.client.POP3Client
  * @see org.bluezoo.gumdrop.pop3
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2449">RFC 2449 — POP3 Extension Mechanism</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2595">RFC 2595 — STLS for POP3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5034">RFC 5034 — SASL for POP3</a>
  */
 package org.bluezoo.gumdrop.pop3.client;

@@ -51,6 +51,10 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 /**
  * A DNS application service that resolves queries locally or proxies to
  * upstream servers.
+ * RFC 1035 section 6: name server implementation. This service operates
+ * as a caching forwarder (RFC 1035 section 7) rather than an authoritative
+ * server. It validates incoming queries (section 4.1.1) and returns
+ * appropriate error codes (FORMERR, NOTIMP, SERVFAIL, NXDOMAIN).
  *
  * <p>The default implementation proxies all queries to configured upstream
  * DNS servers. Subclasses can override {@link #resolve(DNSMessage)} to
@@ -111,7 +115,10 @@ public class DNSService implements Service {
 
     private static final int DEFAULT_PORT = 53;
     private static final int UPSTREAM_TIMEOUT_MS = 5000;
-    private static final int MAX_DNS_MESSAGE_SIZE = 512;
+    // RFC 6891 section 6.2.5: with EDNS0, the UDP payload size is
+    // negotiated via the OPT record. We use 4096 as the default.
+    private static final int MAX_DNS_MESSAGE_SIZE =
+            DNSMessage.DEFAULT_EDNS_UDP_SIZE;
 
     private final List listeners = new ArrayList();
 
@@ -120,10 +127,14 @@ public class DNSService implements Service {
     private final List upstreamServers = new ArrayList();
     private boolean useSystemResolvers = true;
     private boolean cacheEnabled = true;
+    private boolean dnssecEnabled;
     private DNSCache cache;
     private DNSServerMetrics metrics;
 
     private final AtomicInteger queryIdGenerator = new AtomicInteger(0);
+
+    /** RFC 7873: DNS cookie manager for source address verification. */
+    private final DNSCookie dnsCookie = new DNSCookie();
 
     /**
      * Creates a new DNS service.
@@ -240,6 +251,29 @@ public class DNSService implements Service {
     }
 
     /**
+     * Enables DNSSEC-aware upstream proxying.
+     * RFC 4035 section 3.2.1: when enabled, the DO bit is set in
+     * upstream queries so that DNSSEC records are returned. The AD
+     * bit on upstream responses is preserved when the upstream
+     * validated the answer. DNSSEC records are stripped from
+     * responses to clients that did not set DO.
+     *
+     * @param dnssecEnabled true to enable DNSSEC-aware proxying
+     */
+    public void setDnssecEnabled(boolean dnssecEnabled) {
+        this.dnssecEnabled = dnssecEnabled;
+    }
+
+    /**
+     * Returns true if DNSSEC-aware proxying is enabled.
+     *
+     * @return true if DNSSEC is enabled
+     */
+    public boolean isDnssecEnabled() {
+        return dnssecEnabled;
+    }
+
+    /**
      * Returns the DNS cache.
      *
      * @return the cache, or null if caching is disabled
@@ -353,6 +387,7 @@ public class DNSService implements Service {
                 metrics.queryReceived(q.getType().name(), "udp");
             }
 
+            // RFC 1035 section 4.1.1: only OPCODE_QUERY (standard query) is supported
             if (!query.isQuery()
                     || query.getOpcode() != DNSMessage.OPCODE_QUERY) {
                 DNSMessage error = query.createErrorResponse(
@@ -361,6 +396,7 @@ public class DNSService implements Service {
                 return;
             }
 
+            // RFC 1035 section 4.1.2: question section must not be empty
             if (query.getQuestions().isEmpty()) {
                 DNSMessage error = query.createErrorResponse(
                         DNSMessage.RCODE_FORMERR);
@@ -370,6 +406,13 @@ public class DNSService implements Service {
 
             long startNanos = System.nanoTime();
             DNSMessage response = processQuery(query);
+
+            // RFC 4035 section 3.2.1: strip DNSSEC records from
+            // responses when the client did not set DO.
+            if (dnssecEnabled && !query.hasDO()) {
+                response = stripDNSSECRecords(response);
+            }
+
             if (metrics != null) {
                 double durationMs =
                         (System.nanoTime() - startNanos) / 1_000_000.0;
@@ -393,6 +436,9 @@ public class DNSService implements Service {
     /**
      * Processes a DNS query through the resolution pipeline:
      * cache, custom resolve, upstream proxy.
+     * RFC 1035 section 7.1-7.4: stub/caching resolver algorithm.
+     * Pipeline: (1) cache lookup (section 7.4), (2) custom resolution,
+     * (3) upstream forwarding (section 7.2).
      *
      * <p>This method is public so that other listeners (DoT, DoQ)
      * can delegate to it.
@@ -440,7 +486,8 @@ public class DNSService implements Service {
             if (cacheEnabled && cache != null) {
                 if (upstreamResponse.getRcode()
                         == DNSMessage.RCODE_NXDOMAIN) {
-                    cache.cacheNegative(question.getName());
+                    cache.cacheNegative(question.getName(),
+                            upstreamResponse.getAuthorities());
                 } else if (!upstreamResponse.getAnswers().isEmpty()) {
                     cache.cache(question,
                             upstreamResponse.getAnswers());
@@ -473,13 +520,31 @@ public class DNSService implements Service {
         }
 
         int upstreamId = queryIdGenerator.getAndIncrement() & 0xFFFF;
+        // RFC 6891 section 6.1.1: add OPT record to advertise EDNS0
+        // support and signal our UDP payload size to the upstream.
+        List<DNSResourceRecord> additionals =
+                new ArrayList<>(query.getAdditionals());
+        boolean hasOpt = false;
+        for (DNSResourceRecord rr : additionals) {
+            if (rr.getType() == DNSType.OPT) {
+                hasOpt = true;
+                break;
+            }
+        }
+        if (!hasOpt) {
+            // RFC 4035 section 3.2.1: set DO bit to request DNSSEC records
+            int ednsFlags = dnssecEnabled
+                    ? DNSResourceRecord.EDNS_FLAG_DO : 0;
+            additionals.add(DNSResourceRecord.opt(
+                    MAX_DNS_MESSAGE_SIZE, ednsFlags, new byte[0]));
+        }
         DNSMessage upstreamQuery = new DNSMessage(
                 upstreamId,
                 query.getFlags(),
                 query.getQuestions(),
                 query.getAnswers(),
                 query.getAuthorities(),
-                query.getAdditionals()
+                additionals
         );
 
         ByteBuffer queryBytes = upstreamQuery.serialize();
@@ -515,6 +580,32 @@ public class DNSService implements Service {
                             receivePacket.getLength());
                     DNSMessage response =
                             DNSMessage.parse(responseBuffer);
+
+                    // RFC 5452: verify response ID matches the query
+                    // to prevent blind spoofing attacks.
+                    if (response.getId() != upstreamId) {
+                        if (metrics != null) {
+                            metrics.upstreamFailure();
+                        }
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString(
+                                        "warn.upstream_id_mismatch"),
+                                upstream, upstreamId,
+                                response.getId()));
+                        continue;
+                    }
+
+                    // RFC 1035 section 4.2.1: if response is truncated,
+                    // retry the same query over TCP to get the full answer.
+                    if (response.isTruncated()) {
+                        LOGGER.fine("Truncated response from "
+                                + upstream + ", retrying over TCP");
+                        DNSMessage tcpResponse = retryOverTcp(
+                                upstream, queryData, upstreamId);
+                        if (tcpResponse != null) {
+                            response = tcpResponse;
+                        }
+                    }
 
                     DNSMessage finalResponse = new DNSMessage(
                             query.getId(),
@@ -565,6 +656,98 @@ public class DNSService implements Service {
         }
 
         return null;
+    }
+
+    /**
+     * RFC 1035 section 4.2.1: retries a DNS query over TCP when the
+     * UDP response was truncated (TC bit set). Uses a synchronous
+     * TCP connection with the 2-byte length prefix framing.
+     *
+     * @param upstream the upstream server address
+     * @param queryData the query bytes (without length prefix)
+     * @param expectedId the expected response ID
+     * @return the TCP response, or null on failure
+     */
+    private DNSMessage retryOverTcp(InetSocketAddress upstream,
+                                     byte[] queryData, int expectedId) {
+        try (java.net.Socket sock = new java.net.Socket()) {
+            sock.connect(upstream, UPSTREAM_TIMEOUT_MS);
+            sock.setSoTimeout(UPSTREAM_TIMEOUT_MS);
+
+            java.io.OutputStream out = sock.getOutputStream();
+            // RFC 1035 section 4.2.2: 2-byte length prefix
+            out.write((queryData.length >> 8) & 0xFF);
+            out.write(queryData.length & 0xFF);
+            out.write(queryData);
+            out.flush();
+
+            java.io.InputStream in = sock.getInputStream();
+            int hi = in.read();
+            int lo = in.read();
+            if (hi < 0 || lo < 0) {
+                return null;
+            }
+            int respLen = (hi << 8) | lo;
+            byte[] respData = new byte[respLen];
+            int offset = 0;
+            while (offset < respLen) {
+                int n = in.read(respData, offset, respLen - offset);
+                if (n < 0) {
+                    return null;
+                }
+                offset += n;
+            }
+
+            DNSMessage response = DNSMessage.parse(
+                    ByteBuffer.wrap(respData));
+            if (response.getId() != expectedId) {
+                return null;
+            }
+            return response;
+        } catch (Exception e) {
+            LOGGER.log(Level.FINE, "TCP fallback to " + upstream
+                    + " failed", e);
+            return null;
+        }
+    }
+
+    // ── DNSSEC helpers ──
+
+    /**
+     * RFC 4035 section 3.2.1: removes DNSSEC-specific records
+     * (RRSIG, DNSKEY, DS, NSEC, NSEC3, NSEC3PARAM) from a response
+     * when the client did not set DO. Also clears the AD bit.
+     */
+    private DNSMessage stripDNSSECRecords(DNSMessage response) {
+        List<DNSResourceRecord> answers =
+                filterNonDNSSEC(response.getAnswers());
+        List<DNSResourceRecord> authorities =
+                filterNonDNSSEC(response.getAuthorities());
+        List<DNSResourceRecord> additionals =
+                filterNonDNSSEC(response.getAdditionals());
+
+        int flags = response.getFlags() & ~DNSMessage.FLAG_AD;
+
+        return new DNSMessage(response.getId(), flags,
+                response.getQuestions(), answers, authorities,
+                additionals);
+    }
+
+    private static List<DNSResourceRecord> filterNonDNSSEC(
+            List<DNSResourceRecord> records) {
+        List<DNSResourceRecord> filtered =
+                new ArrayList<>(records.size());
+        for (int i = 0; i < records.size(); i++) {
+            DNSResourceRecord rr = records.get(i);
+            DNSType type = rr.getType();
+            if (type != DNSType.RRSIG && type != DNSType.DNSKEY
+                    && type != DNSType.DS && type != DNSType.NSEC
+                    && type != DNSType.NSEC3
+                    && type != DNSType.NSEC3PARAM) {
+                filtered.add(rr);
+            }
+        }
+        return filtered;
     }
 
     // ── Internal helpers ──

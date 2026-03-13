@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -60,8 +63,7 @@ public class StandardActionElement implements JSPElement {
     private final Map<String, String> attributes;
     private final int lineNumber;
     private final int columnNumber;
-    
-    // TODO: Add support for nested jsp:param elements
+    private final List<JSPElement> children = new ArrayList<>();
     
     /**
      * Creates a new standard action element.
@@ -158,6 +160,24 @@ public class StandardActionElement implements JSPElement {
         return USE_BEAN_ACTION.equals(actionName);
     }
     
+    /**
+     * Adds a child element (e.g. nested jsp:param).
+     *
+     * @param child the child element
+     */
+    public void addChild(JSPElement child) {
+        children.add(child);
+    }
+
+    /**
+     * Returns the child elements of this action.
+     *
+     * @return an unmodifiable list of child elements
+     */
+    public List<JSPElement> getChildren() {
+        return Collections.unmodifiableList(children);
+    }
+
     @Override
     public void accept(JSPElementVisitor visitor) throws Exception {
         visitor.visitStandardAction(this);

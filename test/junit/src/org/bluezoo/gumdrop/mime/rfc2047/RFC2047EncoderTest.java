@@ -251,5 +251,104 @@ public class RFC2047EncoderTest {
 		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
+
+	// ========== RFC 2047 §2 — encoded-word length limit tests ==========
+
+	@Test
+	public void testMaxEncodedWordLengthConstant() {
+		assertEquals(75, RFC2047Encoder.MAX_ENCODED_WORD_LENGTH);
+	}
+
+	@Test
+	public void testEncodeBRespects75CharLimit() {
+		// Long non-ASCII string that would exceed 75 chars in a single encoded-word
+		String original = "日本語テスト日本語テスト日本語テスト日本語テスト";
+		byte[] data = original.getBytes(StandardCharsets.UTF_8);
+		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+
+		// Each encoded-word must be <= 75 chars
+		int idx = 0;
+		while (idx < encoded.length()) {
+			int start = encoded.indexOf("=?", idx);
+			if (start < 0) break;
+			int end = encoded.indexOf("?=", start + 2);
+			assertNotNull("Unclosed encoded-word at " + start, end >= 0 ? "" : null);
+			int wordLen = end + 2 - start;
+			assertTrue("Encoded-word length " + wordLen + " exceeds 75: " +
+					encoded.substring(start, end + 2), wordLen <= 75);
+			idx = end + 2;
+		}
+
+		// Verify round-trip
+		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		assertEquals(original, decoded);
+	}
+
+	@Test
+	public void testEncodeQRespects75CharLimit() {
+		// Long non-ASCII string
+		byte[] data = new byte[50];
+		for (int i = 0; i < data.length; i++) {
+			data[i] = (byte) (0x80 + (i % 0x40)); // high bytes
+		}
+		String encoded = RFC2047Encoder.encodeQ(data, "UTF-8");
+
+		// Each encoded-word must be <= 75 chars
+		int idx = 0;
+		while (idx < encoded.length()) {
+			int start = encoded.indexOf("=?", idx);
+			if (start < 0) break;
+			int end = encoded.indexOf("?=", start + 2);
+			assertNotNull("Unclosed encoded-word at " + start, end >= 0 ? "" : null);
+			int wordLen = end + 2 - start;
+			assertTrue("Encoded-word length " + wordLen + " exceeds 75: " +
+					encoded.substring(start, end + 2), wordLen <= 75);
+			idx = end + 2;
+		}
+	}
+
+	@Test
+	public void testEncodeBShortStringDoesNotSplit() {
+		// Short non-ASCII string should fit in a single encoded-word
+		byte[] data = "Café".getBytes(StandardCharsets.UTF_8);
+		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+
+		// Count encoded-word openers: "=?charset?B?" pattern
+		java.util.regex.Matcher m = java.util.regex.Pattern
+				.compile("=\\?[^?]+\\?[BbQq]\\?").matcher(encoded);
+		int count = 0;
+		while (m.find()) {
+			count++;
+		}
+		assertEquals("Short string should produce exactly one encoded-word", 1, count);
+	}
+
+	@Test
+	public void testEncodeBLongJapaneseRoundTrip() {
+		// A very long Japanese string that will require multiple encoded-words
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < 100; i++) {
+			sb.append("あ");
+		}
+		String original = sb.toString();
+		byte[] data = original.getBytes(StandardCharsets.UTF_8);
+		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+
+		// Verify all encoded-words are within limit
+		int idx = 0;
+		while (idx < encoded.length()) {
+			int start = encoded.indexOf("=?", idx);
+			if (start < 0) break;
+			int end = encoded.indexOf("?=", start + 2);
+			int wordLen = end + 2 - start;
+			assertTrue("Encoded-word length " + wordLen + " exceeds 75",
+					wordLen <= 75);
+			idx = end + 2;
+		}
+
+		// Verify round-trip
+		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		assertEquals(original, decoded);
+	}
 }
 

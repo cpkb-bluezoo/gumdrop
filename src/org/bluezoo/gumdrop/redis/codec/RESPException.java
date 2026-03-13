@@ -25,8 +25,9 @@ package org.bluezoo.gumdrop.redis.codec;
  * Exception thrown when RESP protocol parsing fails.
  *
  * <p>This exception indicates a malformed RESP message that cannot be decoded.
- * It may indicate a protocol violation, network corruption, or incompatible
- * Redis server version.
+ * It may indicate a protocol violation, network corruption, or an
+ * incompatible Redis server version (e.g. RESP3 types sent to a RESP2-only
+ * decoder).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

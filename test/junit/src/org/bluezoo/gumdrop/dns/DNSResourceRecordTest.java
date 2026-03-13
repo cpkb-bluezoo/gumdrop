@@ -225,5 +225,91 @@ public class DNSResourceRecordTest {
         assertTrue(str.contains("10"));
         assertTrue(str.contains("mail.example.com"));
     }
+
+    // -- SRV record tests (RFC 2782) --
+
+    @Test
+    public void testSRVRecord() {
+        DNSResourceRecord srv = DNSResourceRecord.srv(
+                "_sip._tcp.example.com", 3600, 10, 60, 5060, "sip.example.com");
+
+        assertEquals(DNSType.SRV, srv.getType());
+        assertEquals("_sip._tcp.example.com", srv.getName());
+        assertEquals(10, srv.getSRVPriority());
+        assertEquals(60, srv.getSRVWeight());
+        assertEquals(5060, srv.getSRVPort());
+        assertEquals("sip.example.com", srv.getSRVTarget());
+    }
+
+    @Test
+    public void testSRVRecordToString() {
+        DNSResourceRecord srv = DNSResourceRecord.srv(
+                "_http._tcp.example.com", 300, 0, 5, 80, "www.example.com");
+
+        String str = srv.toString();
+        assertTrue(str.contains("SRV"));
+        assertTrue(str.contains("80"));
+        assertTrue(str.contains("www.example.com"));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSRVPriorityOnNonSRV() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSRVPriority();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSRVWeightOnNonSRV() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSRVWeight();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSRVPortOnNonSRV() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSRVPort();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSRVTargetOnNonSRV() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSRVTarget();
+    }
+
+    // -- EDNS0 OPT record tests (RFC 6891) --
+
+    @Test
+    public void testOptRecord() {
+        DNSResourceRecord opt = DNSResourceRecord.opt(4096);
+
+        assertEquals(DNSType.OPT, opt.getType());
+        assertEquals("", opt.getName());
+        assertEquals(4096, opt.getUdpPayloadSize());
+        assertEquals(0, opt.getTTL());
+        assertEquals(0, opt.getRData().length);
+    }
+
+    @Test
+    public void testOptRecordWithOptionData() {
+        byte[] optionData = { 0, 10, 0, 8, 1, 2, 3, 4, 5, 6, 7, 8 };
+        DNSResourceRecord opt = DNSResourceRecord.opt(4096, optionData);
+
+        assertEquals(DNSType.OPT, opt.getType());
+        assertEquals(4096, opt.getUdpPayloadSize());
+        assertArrayEquals(optionData, opt.getRData());
+    }
+
+    @Test
+    public void testOptRecordRawClassIsPayloadSize() {
+        DNSResourceRecord opt = DNSResourceRecord.opt(1232);
+        assertEquals(1232, opt.getRawClass());
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetUdpPayloadSizeOnNonOptRecord() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord a = DNSResourceRecord.a("example.com", 300, ip);
+        a.getUdpPayloadSize();
+    }
 }
 

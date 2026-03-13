@@ -212,15 +212,15 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // bytes trace_id = 1
-            writer.writeBytesField(OTLPFieldNumbers.SPAN_TRACE_ID, span.getTrace().getTraceId());
+            writer.writeBytesField(OTLPFieldNumbers.SPAN_TRACE_ID, span.getTrace().getTraceId().getBytes());
 
             // bytes span_id = 2
-            writer.writeBytesField(OTLPFieldNumbers.SPAN_SPAN_ID, span.getSpanId());
+            writer.writeBytesField(OTLPFieldNumbers.SPAN_SPAN_ID, span.getSpanId().getBytes());
 
             // bytes parent_span_id = 4
             Span parent = span.getParent();
             if (parent != null) {
-                writer.writeBytesField(OTLPFieldNumbers.SPAN_PARENT_SPAN_ID, parent.getSpanId());
+                writer.writeBytesField(OTLPFieldNumbers.SPAN_PARENT_SPAN_ID, parent.getSpanId().getBytes());
             }
 
             // string name = 5
@@ -347,11 +347,11 @@ public class TraceSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             // bytes trace_id = 1
             writer.writeBytesField(OTLPFieldNumbers.LINK_TRACE_ID,
-                    link.getContext().getTraceId());
+                    link.getContext().getTraceId().getBytes());
 
             // bytes span_id = 2
             writer.writeBytesField(OTLPFieldNumbers.LINK_SPAN_ID,
-                    link.getContext().getSpanId());
+                    link.getContext().getSpanId().getBytes());
 
             // repeated KeyValue attributes = 4
             for (Attribute attr : link.getAttributes()) {

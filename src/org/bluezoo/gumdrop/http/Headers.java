@@ -30,6 +30,9 @@ import java.util.List;
  * A collection of HTTP headers with convenience methods for header access.
  * Headers are stored in order and support case-insensitive name lookup.
  *
+ * <p>RFC 9110 section 5.1: "Each field name ... is case-insensitive."
+ * All name-based lookups in this class use case-insensitive comparison.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Headers extends ArrayList<Header> {

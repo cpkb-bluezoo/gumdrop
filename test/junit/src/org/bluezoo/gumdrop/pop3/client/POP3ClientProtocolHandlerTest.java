@@ -934,6 +934,7 @@ public class POP3ClientProtocolHandlerTest {
         }
         @Override public void startTLS() { startTLSCalled = true; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
+        @Override public void execute(Runnable task) { task.run(); }
         @Override public TimerHandle scheduleTimer(long delayMs,
                                                    Runnable callback) {
             return new TimerHandle() {
