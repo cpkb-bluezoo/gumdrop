@@ -22,7 +22,7 @@ non-blocking, event-driven I/O. It supports:
   connections from clients
     - TCP servers with TLS support
     - UDP servers with DTLS support
-    - QUIC support via quiche/BoringSSL (TLS 1.3 always-on)
+    - QUIC support via [quiche](https://github.com/cloudflare/quiche)/BoringSSL (TLS 1.3 always-on)
     - fully transparent SSL support for all protocols
         - keystore/truststore configuration
         - client certificates
@@ -49,9 +49,9 @@ non-blocking, event-driven I/O. It supports:
         - can use I/O worker thread affinity to avoid context switching
 - HTTP
     - HTTP/3 over QUIC
-        - full HTTP/3 client and server via quiche/BoringSSL
-        - QPACK header compression (via quiche)
-        - HTTP/3 framing/stream multiplexing (via quiche h3 module)
+        - full HTTP/3 client and server via [quiche](https://github.com/cloudflare/quiche)/BoringSSL
+        - QPACK header compression (via [quiche](https://github.com/cloudflare/quiche))
+        - HTTP/3 framing/stream multiplexing (via [quiche](https://github.com/cloudflare/quiche) h3 module)
         - request pseudo-header validation, 1xx informational responses
         - Priority header (RFC 9218), GOAWAY last-stream-ID tracking
         - configurable QUIC transport parameters
@@ -338,7 +338,7 @@ receive plaintext and query `SecurityInfo` for TLS metadata. SSL
 encryption and decryption occurs inline on the worker thread, so protocol
 handlers need not be aware of the TLS layer. DTLS support applies to
 `DatagramEndpoint` via `UDPTransportFactory`. QUIC always uses TLS 1.3
-via BoringSSL (bundled with quiche).
+via BoringSSL (bundled with [quiche](https://github.com/cloudflare/quiche)).
 
 The unified `Listener` API allows configuring cipher suites and
 key exchange groups (including post-quantum hybrid groups like
@@ -378,7 +378,7 @@ and QUIC (BoringSSL with TLS 1.3).
     - pluggable authentication via Realm interface
     - pluggable storage via MailboxFactory interface
 - low external dependencies
-    - gonzalez (XML), jsonparser (JSON), quiche (QUIC/HTTP3), and J2EE APIs
+    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), [quiche](https://github.com/cloudflare/quiche) (QUIC/HTTP3), and J2EE APIs
     - self-contained implementations (protobuf, HPACK, ASN.1, OTel, etc.)
     - no dependency injection framework required
 - requires Java 17+ (LTS)
