@@ -37,7 +37,7 @@
   <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
   <property name='manager.war' location='${dist}/manager.war'/>
   <!-- External parsing library dependencies (downloaded by resolve-deps target) -->
-  <property name='gonzalez.jar' value='gonzalez-1.0.jar'/>
+  <property name='gonzalez.jar' value='gonzalez-1.1.jar'/>
   <property name='jsonparser.jar' value='jsonparser-1.2.jar'/>
   
   <!--
@@ -87,7 +87,7 @@
   <target name='resolve-deps' description='Download external dependencies'>
     <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v1.2/jsonparser-1.2.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
-    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.0/gonzalez-1.0.jar'
+    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.1/gonzalez-1.1.jar'
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
   </target>
 
