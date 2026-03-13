@@ -350,16 +350,27 @@ connection drives a client connection.
 <h4>Default Services</h4>
 
 <p>
-Each protocol includes default service implementations for common use cases:
+Gumdrop provides ready-to-use service implementations for common use cases:
 </p>
 
 <ul>
+<li><b>WebDAV</b> &ndash; <code>WebDAVService</code> serves static files over HTTP
+from a filesystem root with optional WebDAV (RFC 4918) distributed authoring support
+(PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK)</li>
+<li><b>Servlet container</b> &ndash; <code>ServletService</code> hosts JSP and
+servlet applications with full Servlet API support, clustering, and deployment</li>
+<li><b>FTP file services</b> &ndash; <code>SimpleFTPService</code> (filesystem root
+with read-only option), <code>RoleBasedFTPService</code> (role-based access control
+with quota management), and <code>AnonymousFTPService</code> (anonymous read-only
+public distribution)</li>
 <li><b>SMTP</b> &ndash; <code>LocalDeliveryService</code> for mailbox delivery,
 <code>SimpleRelayService</code> for MX forwarding</li>
 <li><b>IMAP</b> &ndash; <code>DefaultIMAPService</code> accepts all operations
 using the configured Realm and MailboxFactory</li>
 <li><b>POP3</b> &ndash; <code>DefaultPOP3Service</code> accepts all operations
 using the configured Realm and MailboxFactory</li>
+<li><b>DNS</b> &ndash; <code>DNSService</code> provides a DNS proxy with caching
+and custom resolution; subclass for custom name resolution logic</li>
 </ul>
 
 <p>
@@ -505,7 +516,7 @@ The Gumdrop logo is a gumdrop torus, generated using
 <a href="http://www.povray.org/">POV-Ray</a>. A gumdrop torus is a
 <a href="http://www.povray.org/documentation/view/3.6.1/448/#s02_07_07_02_i75">mathematical
 construct</a>—the logo is such a torus viewed from an angle that makes it
-resemble the letter G. All images were created using POV-Ray and/or GIMP and
+resemble the letter G. Images were created using POV-Ray and/or GIMP and
 are copyright 2005 Chris Burdess.
 </p>
 
