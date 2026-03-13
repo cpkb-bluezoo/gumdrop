@@ -150,34 +150,49 @@ state management.
 <img src="classes.svg" alt="Gumdrop Class Hierarchy" style="max-width:100%"/>
 </p>
 
-<h3>Servers</h3>
+<h3>Servers: Services and Listeners</h3>
 
 <p>
-The <code>Listener</code> abstract class represents a protocol server
-listening on a port. It is transport-agnostic: the <code>createTransportFactory()</code>
-hook selects the transport (TCP by default, but UDP or QUIC can be substituted).
-When the <code>AcceptSelectorLoop</code> accepts an incoming connection, it
-delegates to the server's <code>createHandler()</code> factory method to obtain
-a protocol-specific <code>ProtocolHandler</code>.
+Gumdrop separates <em>what</em> a server does from <em>where</em> it listens.
+The <code>Service</code> interface represents a transport-agnostic unit of
+application logic — the overall service being provided, such as HTTP, FTP, or
+SMTP. A service owns one or more <code>Listener</code>s, which are the
+transport endpoints that bind to ports (or UNIX sockets) and accept connections.
 </p>
 
 <p>
-Server implementations define:
+Services define protocol behaviour, authentication, and routing. Listeners
+define the transport binding: port, address, TLS configuration, and which
+transport layer to use (TCP, UDP, or QUIC via <code>createTransportFactory()</code>).
+A single service may have multiple listeners — for example, an SMTP service
+might listen on port 25 (cleartext) and port 465 (implicit TLS), or on both
+TCP and a UNIX domain socket for local delivery.
 </p>
 
-<ul>
-<li><code>getPort()</code> - the port to listen on</li>
-<li><code>createHandler()</code> - factory method returning an
-<code>ProtocolHandler</code> for the accepted endpoint</li>
-<li><code>createTransportFactory()</code> - selects the transport layer
-(defaults to <code>TCPTransportFactory</code>)</li>
-</ul>
+<p>
+Listeners can be <em>static</em> (declared in configuration) or
+<em>dynamic</em> (created at runtime). FTP illustrates dynamic listeners:
+when a client issues PASV or EPSV, the protocol handler creates a new
+listener for the data connection, registers it with the service via
+<code>addDynamicListener()</code>, and unregisters it when the transfer
+completes. The service lifecycle ensures all listeners — static and
+dynamic — are stopped on shutdown.
+</p>
 
 <p>
-TLS configuration (keystore, password, format, client authentication, ALPN) is
-set as properties on <code>Listener</code> and delegated to the
-<code>TransportFactory</code>. CIDR filtering and rate limiting are also
-configured via server properties.
+When the <code>AcceptSelectorLoop</code> accepts an incoming connection on
+a listener, it calls the listener's <code>createHandler()</code> factory to
+obtain a <code>ProtocolHandler</code>. Protocol-specific listeners (e.g.,
+<code>SMTPListener</code>, <code>FTPListener</code>) typically delegate to
+their owning service's <code>createHandler(Listener)</code> so that handler
+selection can vary by listener (e.g., different policies for submission
+vs. relay ports).
+</p>
+
+<p>
+TLS configuration (keystore, password, format, client authentication, ALPN),
+CIDR filtering, and rate limiting are set as properties on
+<code>Listener</code> and delegated to the <code>TransportFactory</code>.
 </p>
 
 <h3>Clients</h3>
@@ -202,7 +217,15 @@ the originating server endpoint. This <i>SelectorLoop affinity</i> provides:
 <li><b>Simplified state</b> - no synchronisation needed between endpoints</li>
 <li><b>Efficient relay</b> - proxies and gateways operate entirely within
 their worker thread</li>
+<li><b>Zero copy</b> - no need to make copies of data to transfer between threads</li>
 </ul>
+
+<p>
+Performing all your hot path operations on the selector thread is highly efficient
+and scalable but very sensitive to blocking operations. It is for this reason that 
+Gumdrop provides asynchronous, non-blocking clients and parsing components for all 
+the operations you are likely to need within your service implementation.
+</p>
 
 <h3>Endpoints and Handlers</h3>
 
