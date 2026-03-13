@@ -275,25 +275,40 @@ public class ClientEndpoint {
         final ProtocolHandler wrapped = wrapHandler(handler);
 
         if (hostname != null && host == null) {
+            if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                LOGGER.info("[ClientEndpoint] resolving " + hostname);
+            }
             DNSResolver resolver = DNSResolver.forLoop(selectorLoop);
             resolver.resolve(hostname, new ResolveCallback() {
                 @Override
                 public void onResolved(List<InetAddress> addresses) {
+                    if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                        LOGGER.info("[ClientEndpoint] onResolved " + addresses.get(0) + ", calling doConnect");
+                    }
                     host = addresses.get(0);
                     try {
                         doConnect(wrapped);
                     } catch (IOException e) {
+                        if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                            LOGGER.info("[ClientEndpoint] doConnect failed: " + e);
+                        }
                         wrapped.error(e);
                     }
                 }
 
                 @Override
                 public void onError(String error) {
+                    if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                        LOGGER.info("[ClientEndpoint] onError: " + error);
+                    }
                     wrapped.error(new UnknownHostException(
                             hostname + ": " + error));
                 }
             });
         } else {
+            if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                LOGGER.info("[ClientEndpoint] host already resolved, calling doConnect");
+            }
             try {
                 doConnect(wrapped);
             } catch (IOException e) {

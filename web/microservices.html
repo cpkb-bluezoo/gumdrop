@@ -1,0 +1,647 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>Building Microservices - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Building Microservices with Gumdrop</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+This guide explains <b>how to build your own</b> HTTP microservices using the
+Gumdrop framework. Unlike the <a href="servlet.html">servlet container</a>,
+<a href="webdav.html">file server</a>, or <a href="websocket.html">WebSocket
+service</a>&mdash;which are ready-to-use implementations&mdash;this page shows
+you how to create custom services from scratch using the
+<a href="http.html">HTTP Server API</a>. The examples use streaming,
+event-driven parsing with <a href="https://github.com/cpkb-bluezoo/gonzalez">Gonzalez</a>
+(XML) and <a href="https://github.com/cpkb-bluezoo/jsonparser">jsonparser</a>
+(JSON) for maximum efficiency.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#example1">Example 1: XML Microservice</a></li>
+<li><a href="#example2">Example 2: Service That Calls Another Microservice</a></li>
+<li><a href="#configuration">Configuration</a></li>
+</ul>
+
+<h3 id="overview">Overview</h3>
+
+<p>
+A Gumdrop microservice is an <code>HTTPService</code> with a custom
+<code>HTTPRequestHandlerFactory</code>. The factory creates
+<code>HTTPRequestHandler</code> instances for each request. Handlers receive
+events in sequence:
+</p>
+
+<pre>
+headers()              // request headers (:method, :path, content-type, etc.)
+startRequestBody()     // body is starting (POST, PUT, etc.)
+requestBodyContent()   // body data chunks (may be called many times)
+endRequestBody()       // body complete
+requestComplete()      // stream closed
+</pre>
+
+<p>
+For efficient parsing, feed each <code>requestBodyContent(ByteBuffer)</code>
+chunk directly into a streaming parser. Do <em>not</em> accumulate the entire
+body in memory first. Both Gonzalez (XML) and jsonparser (JSON) support
+<code>receive(ByteBuffer)</code> for incremental parsing.
+</p>
+
+<h3 id="example1">Example 1: XML Microservice</h3>
+
+<p>
+This example parses a small <code>application/xml</code> request body and
+responds with XML. It uses the Gonzalez push parser with a SAX
+<code>ContentHandler</code> to extract data as it arrives.
+</p>
+
+<h4>Step 1: Create a SAX ContentHandler</h4>
+
+<p>
+The handler receives parsing events. For a simple request like
+<code>&lt;echo&gt;Hello&lt;/echo&gt;</code>, we capture the text content:
+</p>
+
+<pre>
+import org.xml.sax.Attributes;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
+
+class EchoContentHandler extends DefaultHandler {
+    private final StringBuilder text = new StringBuilder();
+    private String rootElement;
+
+    @Override
+    public void startElement(String uri, String localName, String qName,
+                             Attributes atts) throws SAXException {
+        if (rootElement == null) {
+            rootElement = localName;
+        }
+        text.setLength(0);
+    }
+
+    @Override
+    public void characters(char[] ch, int start, int length) {
+        text.append(ch, start, length);
+    }
+
+    String getRootElement() { return rootElement; }
+    String getText() { return text.toString().trim(); }
+}
+</pre>
+
+<h4>Step 2: Create the HTTP Request Handler</h4>
+
+<p>
+The handler feeds each body chunk to the Gonzalez parser. Create the parser
+once, call <code>receive(data)</code> for each chunk, and <code>close()</code>
+when the body is complete:
+</p>
+
+<pre>
+import org.bluezoo.gonzalez.Parser;
+import org.bluezoo.gumdrop.http.*;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+class XmlEchoHandler extends DefaultHTTPRequestHandler {
+    private final Parser parser = new Parser();
+    private final EchoContentHandler contentHandler = new EchoContentHandler();
+    private boolean bodyStarted;
+
+    @Override
+    public void headers(HTTPResponseState state, Headers headers) {
+        if (!"POST".equals(headers.getMethod())) {
+            sendError(state, 405, "Method Not Allowed");
+            return;
+        }
+        String ct = headers.getValue("content-type");
+        if (ct == null || !ct.startsWith("application/xml")) {
+            sendError(state, 415, "Unsupported Media Type");
+            return;
+        }
+        bodyStarted = false;
+        parser.setContentHandler(contentHandler);
+        try {
+            parser.reset();
+        } catch (Exception e) {
+            sendError(state, 500, e.getMessage());
+        }
+    }
+
+    @Override
+    public void startRequestBody(HTTPResponseState state) {
+        bodyStarted = true;
+    }
+
+    @Override
+    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+        if (!bodyStarted) return;
+        try {
+            parser.receive(data);
+        } catch (Exception e) {
+            sendError(state, 400, "Invalid XML: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void endRequestBody(HTTPResponseState state) {
+        if (!bodyStarted) return;
+        try {
+            parser.close();
+            sendXmlResponse(state);
+        } catch (Exception e) {
+            sendError(state, 400, "Invalid XML: " + e.getMessage());
+        }
+    }
+
+    private void sendXmlResponse(HTTPResponseState state) throws IOException {
+        String root = contentHandler.getRootElement();
+        String text = contentHandler.getText();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        org.bluezoo.gonzalez.XMLWriter xml = new org.bluezoo.gonzalez.XMLWriter(baos);
+        xml.writeStartElement(root != null ? root : "response");
+        xml.writeDefaultNamespace("urn:example:echo");
+        if (text != null && !text.isEmpty()) {
+            xml.writeCharacters(text);
+        }
+        xml.writeEndElement();
+        xml.close();
+
+        Headers response = new Headers();
+        response.status(HTTPStatus.OK);
+        response.add("content-type", "application/xml");
+        state.headers(response);
+        state.startResponseBody();
+        state.responseBodyContent(ByteBuffer.wrap(baos.toByteArray()));
+        state.endResponseBody();
+        state.complete();
+    }
+
+    private void sendError(HTTPResponseState state, int code, String message) {
+        Headers response = new Headers();
+        response.status(HTTPStatus.fromCode(code));
+        response.add("content-type", "text/plain");
+        state.headers(response);
+        state.startResponseBody();
+        state.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
+        state.endResponseBody();
+        state.complete();
+    }
+}
+</pre>
+
+<h4>Step 3: Create the Service and Factory</h4>
+
+<p>
+Extend <code>HTTPService</code> and provide a handler factory. The factory
+routes requests (here, all POST requests to <code>/echo</code> get the
+XML handler):
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.http.*;
+
+public class XmlEchoService extends HTTPService {
+
+    @Override
+    protected void initService() {
+        // No resources to initialise
+    }
+
+    @Override
+    protected HTTPRequestHandlerFactory getHandlerFactory() {
+        return new XmlEchoHandlerFactory();
+    }
+
+    private static class XmlEchoHandlerFactory implements HTTPRequestHandlerFactory {
+        @Override
+        public HTTPRequestHandler createHandler(HTTPResponseState state,
+                                                Headers headers) {
+            String path = headers.getValue(":path");
+            if ("/echo".equals(path) && "POST".equals(headers.getMethod())) {
+                return new XmlEchoHandler();
+            }
+            return null;  // 404
+        }
+    }
+}
+</pre>
+
+<h4>Step 4: Wire and Start</h4>
+
+<p>
+Add the service to Gumdrop and configure a listener. See
+<a href="#configuration">Configuration</a> for XML-based setup.
+</p>
+
+<pre>
+Gumdrop gumdrop = Gumdrop.getInstance();
+XmlEchoService service = new XmlEchoService();
+HTTPListener listener = new HTTPListener();
+listener.setPort(9090);
+service.addListener(listener);
+gumdrop.addService(service);
+gumdrop.start();
+
+// Block until shutdown (Ctrl+C); JVM shutdown hook calls gumdrop.shutdown()
+try {
+    gumdrop.join();
+} catch (InterruptedException e) {
+    Thread.currentThread().interrupt();
+}
+</pre>
+
+<h3 id="example2">Example 2: Service That Calls Another Microservice</h3>
+
+<p>
+This example extends the first: the service receives a JSON request, calls a
+downstream microservice (also JSON), and returns the aggregated response. It
+demonstrates:
+</p>
+
+<ul>
+<li>Streaming JSON parsing with jsonparser's <code>JSONParser.receive(ByteBuffer)</code></li>
+<li>Using the Gumdrop HTTP client from within a request handler</li>
+<li>SelectorLoop affinity for efficient server-to-server calls</li>
+</ul>
+
+<h4>Step 1: JSON Request Handler (Streaming Parse)</h4>
+
+<p>
+Extend <code>JSONDefaultHandler</code> to capture the fields you need. The
+parser receives body chunks incrementally:
+</p>
+
+<pre>
+import org.bluezoo.json.JSONDefaultHandler;
+import org.bluezoo.json.JSONException;
+
+class LookupRequestHandler extends JSONDefaultHandler {
+    private String currentKey;
+    private String query;
+
+    @Override
+    public void key(String key) throws JSONException {
+        currentKey = key;
+    }
+
+    @Override
+    public void stringValue(String value) throws JSONException {
+        if ("query".equals(currentKey)) {
+            query = value;
+        }
+    }
+
+    @Override
+    public void endObject() throws JSONException {
+        currentKey = null;
+    }
+
+    String getQuery() { return query; }
+}
+</pre>
+
+<h4>Step 2: HTTP Handler That Calls Downstream</h4>
+
+<p>
+The handler parses the JSON request in <code>responseBodyContent</code>, then
+in <code>endRequestBody</code> initiates an outbound HTTP call. Use
+<code>state.getSelectorLoop()</code> for SelectorLoop affinity so the client
+connection shares the same I/O thread as the server connection:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.*;
+import org.bluezoo.gumdrop.http.client.*;
+import org.bluezoo.json.*;
+
+import java.nio.ByteBuffer;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+
+class LookupHandler extends DefaultHTTPRequestHandler {
+    private final String downstreamHost;
+    private final int downstreamPort;
+    private final JSONParser jsonParser = new JSONParser();
+    private final LookupRequestHandler requestHandler = new LookupRequestHandler();
+    private boolean parserInitialised;
+    private HTTPResponseState pendingState;
+
+    LookupHandler(String host, int port) {
+        this.downstreamHost = host;
+        this.downstreamPort = port;
+    }
+
+    @Override
+    public void headers(HTTPResponseState state, Headers headers) {
+        if (!"POST".equals(headers.getMethod())) {
+            sendError(state, 405, "Method Not Allowed");
+            return;
+        }
+        pendingState = state;
+        parserInitialised = false;
+        jsonParser.setContentHandler(requestHandler);
+        try {
+            jsonParser.reset();
+        } catch (Exception e) {
+            sendError(state, 500, e.getMessage());
+        }
+    }
+
+    @Override
+    public void startRequestBody(HTTPResponseState state) {
+        // Body starting
+    }
+
+    @Override
+    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+        if (!parserInitialised) {
+            jsonParser.setContentHandler(requestHandler);
+            parserInitialised = true;
+        }
+        try {
+            jsonParser.receive(data);
+        } catch (JSONException e) {
+            sendError(state, 400, "Invalid JSON: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void endRequestBody(HTTPResponseState state) {
+        try {
+            jsonParser.close();
+        } catch (JSONException e) {
+            sendError(state, 400, "Invalid JSON: " + e.getMessage());
+            return;
+        }
+
+        String query = requestHandler.getQuery();
+        if (query == null || query.isEmpty()) {
+            sendError(state, 400, "Missing 'query' field");
+            return;
+        }
+
+        callDownstream(state, query);
+    }
+
+    private void callDownstream(HTTPResponseState state, String query) {
+        SelectorLoop loop = state.getSelectorLoop();
+        HTTPClient client = (loop != null)
+            ? new HTTPClient(loop, downstreamHost, downstreamPort)
+            : new HTTPClient(downstreamHost, downstreamPort);
+
+        client.connect(new HTTPClientHandler() {
+            @Override
+            public void onConnected(Endpoint endpoint) {
+                HTTPRequest request = client.post("/lookup");
+                request.header("Content-Type", "application/json");
+                request.header("Accept", "application/json");
+
+                DefaultHTTPResponseHandler responseHandler =
+                    new DefaultHTTPResponseHandler() {
+                    private final JSONParser responseParser = new JSONParser();
+                    private final LookupResponseHandler jsonHandler =
+                        new LookupResponseHandler();
+                    private boolean parserInit;
+
+                    @Override
+                    public void ok(HTTPResponse response) {
+                        responseParser.setContentHandler(jsonHandler);
+                        try { responseParser.reset(); } catch (Exception e) { /* ignore */ }
+                        parserInit = true;
+                    }
+
+                    @Override
+                    public void responseBodyContent(ByteBuffer data) {
+                        if (parserInit) {
+                            try {
+                                responseParser.receive(data);
+                            } catch (JSONException e) {
+                                // Log and continue
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void close() {
+                        try {
+                            if (parserInit) responseParser.close();
+                        } catch (Exception e) { /* ignore */ }
+                        String result = jsonHandler.getResult();
+                        sendJsonResponse(pendingState, result);
+                    }
+
+                    @Override
+                    public void failed(Exception ex) {
+                        sendError(pendingState, 502, "Downstream error: " + ex.getMessage());
+                    }
+                };
+
+                String body = "{\"query\":\"" + escapeJson(query) + "\"}";
+                request.startRequestBody(responseHandler);
+                request.requestBodyContent(ByteBuffer.wrap(body.getBytes(UTF_8)));
+                request.endRequestBody();
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                sendError(pendingState, 502, "Connection failed: " + cause.getMessage());
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) { }
+
+            @Override
+            public void onDisconnected() { }
+        });
+    }
+
+    private void sendJsonResponse(HTTPResponseState state, String result) {
+        String json = "{\"result\":\"" + escapeJson(result != null ? result : "") + "\"}";
+        Headers response = new Headers();
+        response.status(HTTPStatus.OK);
+        response.add("content-type", "application/json");
+        state.headers(response);
+        state.startResponseBody();
+        state.responseBodyContent(ByteBuffer.wrap(json.getBytes(UTF_8)));
+        state.endResponseBody();
+        state.complete();
+    }
+
+    private void sendError(HTTPResponseState state, int code, String message) {
+        Headers response = new Headers();
+        response.status(HTTPStatus.fromCode(code));
+        response.add("content-type", "text/plain");
+        state.headers(response);
+        state.startResponseBody();
+        state.responseBodyContent(ByteBuffer.wrap(message.getBytes(UTF_8)));
+        state.endResponseBody();
+        state.complete();
+    }
+
+    private static String escapeJson(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+}
+</pre>
+
+<h4>Step 3: Response Handler for Downstream JSON</h4>
+
+<pre>
+class LookupResponseHandler extends JSONDefaultHandler {
+    private String currentKey;
+    private String result;
+
+    @Override
+    public void key(String key) throws JSONException {
+        currentKey = key;
+    }
+
+    @Override
+    public void stringValue(String value) throws JSONException {
+        if ("result".equals(currentKey)) {
+            result = value;
+        }
+    }
+
+    @Override
+    public void endObject() throws JSONException {
+        currentKey = null;
+    }
+
+    String getResult() { return result; }
+}
+</pre>
+
+<h4>Step 4: Service with Downstream Configuration</h4>
+
+<pre>
+public class LookupService extends HTTPService {
+    private String downstreamHost = "localhost";
+    private int downstreamPort = 9091;
+
+    public void setDownstreamHost(String host) { downstreamHost = host; }
+    public void setDownstreamPort(int port) { downstreamPort = port; }
+
+    @Override
+    protected HTTPRequestHandlerFactory getHandlerFactory() {
+        return (state, headers) -> {
+            if ("/lookup".equals(headers.getPath())) {
+                return new LookupHandler(downstreamHost, downstreamPort);
+            }
+            return null;
+        };
+    }
+}
+</pre>
+
+<h4>SelectorLoop Affinity</h4>
+
+<p>
+When creating the <code>HTTPClient</code>, pass <code>state.getSelectorLoop()</code>
+so the outbound connection uses the same worker thread as the inbound request.
+This avoids context switches and keeps I/O on a single thread. If
+<code>getSelectorLoop()</code> returns null (e.g. in tests), the client falls
+back to Gumdrop's default worker assignment.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<p>
+Microservices can be configured via <code>gumdroprc</code> like any other
+service. Example for the XML echo service:
+</p>
+
+<pre>
+&lt;service id="echo" class="com.example.XmlEchoService"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;9090&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+For the lookup service with downstream configuration:
+</p>
+
+<pre>
+&lt;service id="lookup" class="com.example.LookupService"&gt;
+  &lt;property name="downstream-host"&gt;api.internal&lt;/property&gt;
+  &lt;property name="downstream-port"&gt;9091&lt;/property&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;9092&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+See <a href="configuration.html">Configuration</a> for property naming
+conventions (<code>downstream-host</code> maps to <code>setDownstreamHost</code>)
+and the full dependency injection framework.
+</p>
+
+<h3>Summary</h3>
+
+<ul>
+<li>Extend <code>HTTPService</code> and implement <code>getHandlerFactory()</code></li>
+<li>Feed <code>requestBodyContent(ByteBuffer)</code> chunks directly to
+    <code>Parser.receive()</code> (Gonzalez) or <code>JSONParser.receive()</code>
+    (jsonparser) &mdash; never buffer the entire body</li>
+<li>Call <code>parser.close()</code> in <code>endRequestBody()</code> to
+    finalise parsing</li>
+<li>Use <code>state.getSelectorLoop()</code> when creating HTTP clients for
+    SelectorLoop affinity</li>
+<li>Stream response bodies with <code>state.responseBodyContent(ByteBuffer)</code>
+    and always call <code>state.complete()</code></li>
+<li>Call <code>gumdrop.join()</code> after <code>start()</code> so the main
+    thread blocks until shutdown (Ctrl+C)</li>
+</ul>
+
+<p>
+For more on the HTTP API, see <a href="http.html">HTTP Server &amp; Client</a>.
+For the HTTP client in detail, see the <a href="http.html#client">HTTP Client</a>
+section.
+</p>
+
+<p class="server-info">Gumdrop</p>
+
+</body>
+</html>

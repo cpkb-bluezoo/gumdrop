@@ -70,6 +70,118 @@ public final class HostsFile {
     }
 
     /**
+     * Parses a literal IPv4 address string without performing any network lookup.
+     * Non-blocking; suitable for use in async code paths.
+     *
+     * @param addr the address string (e.g. "127.0.0.1")
+     * @return the parsed address, or null if not a valid IPv4 literal
+     */
+    public static InetAddress parseLiteralIPv4(String addr) {
+        byte[] bytes = parseIPv4(addr);
+        if (bytes == null) {
+            return null;
+        }
+        try {
+            return InetAddress.getByAddress(bytes);
+        } catch (UnknownHostException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses a literal IPv6 address string without performing any network lookup.
+     * Non-blocking; suitable for use in async code paths.
+     * Handles common formats including ::1.
+     *
+     * @param addr the address string (e.g. "::1")
+     * @return the parsed address, or null if not a valid IPv6 literal
+     */
+    public static InetAddress parseLiteralIPv6(String addr) {
+        byte[] bytes = parseLiteralIPv6Bytes(addr);
+        if (bytes == null) {
+            return null;
+        }
+        try {
+            return InetAddress.getByAddress(bytes);
+        } catch (UnknownHostException e) {
+            return null;
+        }
+    }
+
+    private static byte[] parseLiteralIPv6Bytes(String addr) {
+        if (addr == null || addr.isEmpty()) {
+            return null;
+        }
+        addr = addr.trim();
+        if (addr.indexOf(':') < 0) {
+            return null;
+        }
+        // Handle ::1 (loopback) and :: (unspecified) as common cases
+        if ("::1".equals(addr)) {
+            byte[] bytes = new byte[16];
+            bytes[15] = 1;
+            return bytes;
+        }
+        if ("::".equals(addr)) {
+            return new byte[16];
+        }
+        // Expand and parse full IPv6 format
+        String[] parts = addr.split(":", -1);
+        if (parts.length < 2 || parts.length > 8) {
+            return null;
+        }
+        int[] groups = new int[8];
+        int groupCount = 0;
+        int emptyIndex = -1;
+        for (int i = 0; i < parts.length; i++) {
+            if (parts[i].isEmpty()) {
+                if (emptyIndex >= 0) {
+                    return null; // Multiple ::
+                }
+                emptyIndex = groupCount;
+            } else {
+                try {
+                    groups[groupCount++] = Integer.parseInt(parts[i], 16);
+                    if (groups[groupCount - 1] < 0 || groups[groupCount - 1] > 0xFFFF) {
+                        return null;
+                    }
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        if (groupCount > 8 || (emptyIndex < 0 && groupCount != 8)) {
+            return null;
+        }
+        byte[] bytes = new byte[16];
+        int fillIndex = 0;
+        if (emptyIndex >= 0) {
+            int zerosNeeded = 8 - groupCount;
+            if (zerosNeeded < 0) {
+                return null;
+            }
+            for (int i = 0; i < emptyIndex; i++) {
+                bytes[fillIndex++] = (byte) (groups[i] >> 8);
+                bytes[fillIndex++] = (byte) (groups[i] & 0xFF);
+            }
+            for (int z = 0; z < zerosNeeded; z++) {
+                bytes[fillIndex++] = 0;
+                bytes[fillIndex++] = 0;
+            }
+            for (int i = emptyIndex; i < groupCount; i++) {
+                bytes[fillIndex++] = (byte) (groups[i] >> 8);
+                bytes[fillIndex++] = (byte) (groups[i] & 0xFF);
+            }
+        } else {
+            for (int i = 0; i < 8; i++) {
+                bytes[fillIndex++] = (byte) (groups[i] >> 8);
+                bytes[fillIndex++] = (byte) (groups[i] & 0xFF);
+            }
+        }
+        return fillIndex == 16 ? bytes : null;
+    }
+
+    /**
      * Clears the cached entries, forcing a re-read on next access.
      */
     static void clear() {

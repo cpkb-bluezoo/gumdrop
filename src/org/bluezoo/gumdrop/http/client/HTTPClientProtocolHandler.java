@@ -229,8 +229,14 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             }
             // RFC 9113 section 9.1: start idle timer
             resetIdleTimeout();
+            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                LOGGER.info("[HTTPClient] connected to " + host + ":" + port + ", calling onConnected");
+            }
             if (handler != null) {
                 handler.onConnected(ep);
+            }
+            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                LOGGER.info("[HTTPClient] onConnected returned");
             }
         }
         // For secure connections, wait for securityEstablished()
@@ -287,6 +293,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
 
     @Override
     public void receive(ByteBuffer data) {
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            LOGGER.info("[HTTPClient] receive() " + data.remaining() + " bytes, parseState=" + parseState);
+        }
         // RFC 9113 section 9.1: reset idle timer on activity
         resetIdleTimeout();
         // Append to parse buffer
@@ -730,6 +739,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
     // RFC 9112 section 3.1: request-line = method SP request-target SP HTTP-version
     // RFC 9112 section 3.2 / RFC 9110 section 7.2: Host header required
     private void sendHTTP11Request(HTTPStream request, boolean hasBody) {
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            LOGGER.info("[HTTPClient] sendHTTP11Request " + request.getMethod() + " " + request.getPath());
+        }
         StringBuilder sb = new StringBuilder();
 
         // RFC 9112 section 3.1: request-line
@@ -1048,7 +1060,15 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
     private boolean parseStatusLine() {
         int lineEnd = findCRLF(parseBuffer);
         if (lineEnd < 0) {
+            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                LOGGER.info("[HTTPClient] parseStatusLine: no CRLF yet, need more data");
+            }
             return false;
+        }
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            byte[] line = new byte[lineEnd];
+            parseBuffer.duplicate().position(0).get(line, 0, lineEnd);
+            LOGGER.info("[HTTPClient] parseStatusLine: " + new String(line, StandardCharsets.UTF_8));
         }
 
         byte[] lineBytes = new byte[lineEnd];
@@ -1187,6 +1207,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 if (headRequest
                         || responseStatus == HTTPStatus.NO_CONTENT
                         || responseStatus == HTTPStatus.NOT_MODIFIED) {
+                    if (Boolean.getBoolean("gumdrop.http.debug")) {
+                        LOGGER.info("[HTTPClient] no body (HEAD/204/304), completeResponse");
+                    }
                     completeResponse();
                 } else {
                     // RFC 9112 section 6.3: body length determination precedence
@@ -1195,6 +1218,10 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                             responseHeaders.getValue("transfer-encoding");
                     String contentLengthStr =
                             responseHeaders.getValue("content-length");
+                    if (Boolean.getBoolean("gumdrop.http.debug")) {
+                        LOGGER.info("[HTTPClient] body type: transferEncoding=" + transferEncoding
+                                + " contentLength=" + contentLengthStr);
+                    }
 
                     // RFC 9112 section 6.2: a message with both
                     // Transfer-Encoding and Content-Length is potentially
@@ -1212,6 +1239,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                                     .contains("chunked")) {
                         chunkedEncoding = true;
                         parseState = ParseState.CHUNK_SIZE;
+                        if (Boolean.getBoolean("gumdrop.http.debug")) {
+                            LOGGER.info("[HTTPClient] chunked, startResponseBody");
+                        }
                         if (responseHandler != null) {
                             responseHandler.startResponseBody();
                         }
@@ -1228,6 +1258,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                             completeResponse();
                         } else if (contentLength > 0) {
                             parseState = ParseState.BODY;
+                            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                                LOGGER.info("[HTTPClient] Content-Length=" + contentLength + ", startResponseBody");
+                            }
                             if (responseHandler != null) {
                                 responseHandler.startResponseBody();
                             }
@@ -1235,11 +1268,16 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                             completeResponse();
                         }
                     } else {
-                        contentLength = -1;
-                        parseState = ParseState.BODY;
+                        // RFC 9112 section 6.3: response with body must have
+                        // Content-Length or Transfer-Encoding for HTTP/1.1
+                        String msg = "Response has a body but lacks Content-Length "
+                                + "and Transfer-Encoding headers. The server must send "
+                                + "Content-Length or Transfer-Encoding: chunked.";
+                        LOGGER.warning(msg);
                         if (responseHandler != null) {
-                            responseHandler.startResponseBody();
+                            responseHandler.failed(new IOException(msg));
                         }
+                        completeResponse();
                     }
                 }
 
@@ -1283,6 +1321,11 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             responseHandler = currentStream.getHandler();
         }
 
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            LOGGER.info("[HTTPClient] parseBody: contentLength=" + contentLength
+                    + " bytesReceived=" + bytesReceived + " remaining=" + parseBuffer.remaining());
+        }
+
         if (contentLength >= 0) {
             long remaining = contentLength - bytesReceived;
             int available = parseBuffer.remaining();
@@ -1304,6 +1347,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             }
 
             if (bytesReceived >= contentLength) {
+                if (Boolean.getBoolean("gumdrop.http.debug")) {
+                    LOGGER.info("[HTTPClient] parseBody: body complete, endResponseBody+completeResponse");
+                }
                 if (discardingBody) {
                     completeBodyDiscard();
                 } else {
@@ -1463,7 +1509,13 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 && "close".equalsIgnoreCase(responseHeaders.getValue("connection"));
 
         if (responseHandler != null) {
+            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                LOGGER.info("[HTTPClient] completeResponse calling responseHandler.close()");
+            }
             responseHandler.close();
+            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                LOGGER.info("[HTTPClient] responseHandler.close() returned");
+            }
         }
 
         Integer streamId = currentStream != null ? streamIdByRequest.remove(currentStream) : null;

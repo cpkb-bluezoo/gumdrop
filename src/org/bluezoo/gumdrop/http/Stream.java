@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.text.MessageFormat;
 import java.util.Base64;
@@ -62,8 +63,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <p>Although the concept was introduced in HTTP/2, we use the same
  * mechanism in HTTP/1. This class transparently handles
  * Transfer-Encoding: chunked in requests (RFC 9112 section 7).
- * For responses, implementations should set Content-Length
- * (RFC 9110 section 8.6).
+ * For HTTP/1.1 responses with a body, Transfer-Encoding: chunked is
+ * added automatically when Content-Length is not set.
  *
  * <p>Handles connection-level headers per RFC 9110/9112:
  * <ul>
@@ -148,6 +149,9 @@ class Stream implements HTTPResponseState {
 
     // Response body size tracking for metrics
     private long responseBodyBytes = 0L;
+
+    /** True when HTTP/1.1 response uses Transfer-Encoding: chunked (auto-added) */
+    private boolean responseChunked = false;
 
     // ─────────────────────────────────────────────────────────────────────────
     // HTTPResponseState implementation
@@ -520,7 +524,14 @@ class Stream implements HTTPResponseState {
             // the request body (if any) arrives before the protocol switch.
             HTTPRequestHandlerFactory factory = connection.getHandlerFactory();
             if (factory != null) {
+                String path = headers.getPath();
+                if (Boolean.getBoolean("gumdrop.http.debug")) {
+                    LOGGER.info("Stream: createHandler path=" + path);
+                }
                 handler = factory.createHandler(this, headers);
+                if (Boolean.getBoolean("gumdrop.http.debug")) {
+                    LOGGER.info("Stream: createHandler returned " + (handler != null ? handler.getClass().getSimpleName() : "null"));
+                }
                 if (handler != null) {
                     handler.headers(this, headers);
                 }
@@ -795,17 +806,15 @@ class Stream implements HTTPResponseState {
             headers.add("traceparent", span.getSpanContext().toTraceparent());
         }
 
-        // RFC 9110 section 8.6: warn if Content-Length is missing for responses
-        // that could carry a body (not 1xx, 204, 304, and not HEAD responses)
-        if (statusCode >= 200 && statusCode != 204 && statusCode != 304
+        // RFC 9112 section 6.3: for HTTP/1.1 responses with a body, use
+        // Transfer-Encoding: chunked when Content-Length is not set
+        if (connection.getVersion() == HTTPVersion.HTTP_1_1
+                && statusCode >= 200 && statusCode != 204 && statusCode != 304
                 && !"HEAD".equals(method)
                 && !headers.containsName("Content-Length")
                 && !headers.containsName("Transfer-Encoding")) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Response " + statusCode
-                        + " lacks Content-Length and Transfer-Encoding"
-                        + " for " + method + " " + requestTarget);
-            }
+            headers.add("Transfer-Encoding", "chunked");
+            responseChunked = true;
         }
 
         // Save status code for telemetry
@@ -893,7 +902,48 @@ class Stream implements HTTPResponseState {
             }
             return;
         }
-        connection.sendResponseBody(streamId, buf, endStream);
+        if (responseChunked) {
+            // RFC 9112 section 7.1: chunk-size CRLF chunk-data CRLF
+            ByteBuffer toSend = formatChunkedBody(buf, endStream);
+            connection.sendResponseBody(streamId, toSend, endStream);
+        } else {
+            connection.sendResponseBody(streamId, buf, endStream);
+        }
+    }
+
+    /**
+     * Formats body data as RFC 9112 section 7.1 chunked encoding.
+     * Returns a buffer containing chunk-size + chunk-data, and optionally
+     * the final 0 chunk when endStream is true.
+     */
+    private ByteBuffer formatChunkedBody(ByteBuffer buf, boolean endStream) {
+        int dataLen = (buf != null) ? buf.remaining() : 0;
+        int trailerLen = endStream ? 5 : 0;  // "0\r\n\r\n"
+        int totalLen = 0;
+        if (dataLen > 0) {
+            String sizeHex = Integer.toHexString(dataLen);
+            totalLen += sizeHex.length() + 2 + dataLen + 2;  // size CRLF data CRLF
+        }
+        totalLen += trailerLen;
+        ByteBuffer out = ByteBuffer.allocate(totalLen);
+        if (dataLen > 0) {
+            String sizeHex = Integer.toHexString(dataLen);
+            out.put(sizeHex.getBytes(StandardCharsets.US_ASCII));
+            out.put((byte) '\r');
+            out.put((byte) '\n');
+            out.put(buf);
+            out.put((byte) '\r');
+            out.put((byte) '\n');
+        }
+        if (endStream) {
+            out.put((byte) '0');
+            out.put((byte) '\r');
+            out.put((byte) '\n');
+            out.put((byte) '\r');
+            out.put((byte) '\n');
+        }
+        out.flip();
+        return out;
     }
 
     /**

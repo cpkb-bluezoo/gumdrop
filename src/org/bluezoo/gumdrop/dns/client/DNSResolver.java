@@ -553,25 +553,95 @@ public class DNSResolver {
      * @param callback the callback to receive results
      */
     public void resolve(String hostname, final ResolveCallback callback) {
+        if (Boolean.getBoolean("gumdrop.dns.debug")) {
+            LOGGER.info("[DNS] resolve(" + hostname + ")");
+        }
+        if (hostname == null || hostname.isEmpty()) {
+            callback.onError("Empty hostname");
+            return;
+        }
+        hostname = hostname.trim();
+
+        // 1. Literal IP addresses: parse without any network or file I/O (non-blocking)
+        InetAddress literalV4 = HostsFile.parseLiteralIPv4(hostname);
+        if (literalV4 != null) {
+            if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                LOGGER.info("[DNS] literal IPv4: " + literalV4);
+            }
+            deliverResolved(Collections.singletonList(literalV4), callback);
+            return;
+        }
+        InetAddress literalV6 = HostsFile.parseLiteralIPv6(hostname);
+        if (literalV6 != null) {
+            if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                LOGGER.info("[DNS] literal IPv6: " + literalV6);
+            }
+            deliverResolved(Collections.singletonList(literalV6), callback);
+            return;
+        }
+
+        // 2. Hosts file lookup (local file read, typically cached)
         List<InetAddress> hostsResult = HostsFile.lookup(hostname);
         if (hostsResult != null && !hostsResult.isEmpty()) {
-            if (selectorLoop != null) {
-                final List<InetAddress> result = hostsResult;
-                selectorLoop.invokeLater(new Runnable() {
-                    @Override
-                    public void run() {
-                        callback.onResolved(result);
-                    }
-                });
-            } else {
-                callback.onResolved(hostsResult);
+            if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                LOGGER.info("[DNS] hosts file: " + hostsResult);
             }
+            deliverResolved(hostsResult, callback);
             return;
+        }
+
+        // 3. Built-in fallback for "localhost" when hosts file has no entry
+        if ("localhost".equalsIgnoreCase(hostname) || "localhost.".equalsIgnoreCase(hostname)) {
+            List<InetAddress> localhost = new ArrayList<>(2);
+            try {
+                localhost.add(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}));
+                byte[] v6loopback = new byte[16];
+                v6loopback[15] = 1;
+                localhost.add(InetAddress.getByAddress(v6loopback));
+            } catch (UnknownHostException e) {
+                try {
+                    localhost.add(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}));
+                } catch (UnknownHostException e2) {
+                    // Fall through to DNS query
+                }
+            }
+            if (!localhost.isEmpty()) {
+                if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                    LOGGER.info("[DNS] built-in localhost: " + localhost);
+                }
+                deliverResolved(localhost, callback);
+                return;
+            }
+        }
+
+        // 4. DNS query (async)
+        if (Boolean.getBoolean("gumdrop.dns.debug")) {
+            LOGGER.info("[DNS] falling through to query A/AAAA for " + hostname);
         }
         final DualQueryCollector collector =
                 new DualQueryCollector(callback);
         queryAAAA(hostname, collector.v6Callback);
         queryA(hostname, collector.v4Callback);
+    }
+
+    private void deliverResolved(final List<InetAddress> result,
+                                 final ResolveCallback callback) {
+        if (Boolean.getBoolean("gumdrop.dns.debug")) {
+            LOGGER.info("[DNS] deliverResolved " + result + " (selectorLoop=" + (selectorLoop != null) + ")");
+        }
+        if (selectorLoop != null) {
+            selectorLoop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    if (Boolean.getBoolean("gumdrop.dns.debug")) {
+                        LOGGER.info("[DNS] invoking onResolved callback");
+                    }
+                    callback.onResolved(result);
+                }
+            });
+        } else {
+            callback.onResolved(result);
+        }
     }
 
     private void query(String name, DNSType type,

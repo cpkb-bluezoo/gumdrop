@@ -441,6 +441,10 @@ public class HTTPClient implements AltSvcListener {
      */
     public void connect(final HTTPClientHandler handler) {
         this.connectHandler = handler;
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            Logger.getLogger(HTTPClient.class.getName()).info(
+                "[HTTPClient] connect() " + (host != null ? host : hostAddress) + ":" + port);
+        }
 
         if (h3Enabled) {
             if (hostAddress != null) {
@@ -491,13 +495,24 @@ public class HTTPClient implements AltSvcListener {
         }
 
         try {
-            if (selectorLoop != null) {
-                clientEndpoint = new ClientEndpoint(
-                        transportFactory, selectorLoop,
-                        host, port);
+            if (hostAddress != null) {
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            hostAddress, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, hostAddress, port);
+                }
             } else {
-                clientEndpoint = new ClientEndpoint(
-                        transportFactory, host, port);
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            host, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, host, port);
+                }
             }
             clientEndpoint.connect(endpointHandler);
         } catch (IOException e) {
