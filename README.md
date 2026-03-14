@@ -68,20 +68,21 @@ non-blocking, event-driven I/O.
     - security hardening (rate limiting, filtering, attack prevention)
     - enterprise observability via OpenTelemetry integration
 
-### Comparison with Netty and Jetty
+### Comparison with other frameworks
 
-| Feature | Gumdrop | Netty | Jetty |
-|---------|:-------:|:-----:|:-----:|
-| Servlet container | ✓ | ✗ | ✓ |
-| Low-level async I/O framework | ✓ | ✓ | ✗ |
-| Standard NIO ByteBuffer | ✓ | ✗ (ByteBuf) | ✓ |
-| SMTP, IMAP, POP3, FTP, DNS | ✓ | ✗ | ✗ |
-| HTTP/3 & QUIC | ✓ | ✓ | ✓ |
-| Transport-level flow control | ✓ | ✓ | ✓ |
-| Built-in telemetry (no agent) | ✓ | ✗ | ✗ |
-| Unified auth realm across protocols | ✓ | ✗ | ✗ |
-| Single JAR, minimal deps | ✓ | ✗ | ✗ |
-| No DI framework required | ✓ | ✓ | ✗ |
+| Feature | Gumdrop | Netty | Jetty | Tomcat |
+|---------|:-------:|:-----:|:-----:|:------:|
+| Servlet container | ✓ | ✗ | ✓ | ✓ |
+| Low-level async I/O framework | ✓ | ✓ | ✗ | ✗ |
+| Standard NIO ByteBuffer | ✓ | ✗ (ByteBuf) | ✓ | ✓ |
+| HTTP/3 & QUIC | ✓ | ✓ | ✓ | ✗ |
+| SMTP, DNS | ✓ | (clients only) | ✗ | ✗ |
+| IMAP, POP3, FTP | ✓ | ✗ | ✗ | ✗ |
+| Transport-level flow control | ✓ | ✓ | ✗ | ✗ |
+| Built-in telemetry (no agent) | ✓ | ✗ | ✗ | ✗ |
+| Unified auth realm across protocols | ✓ | ✗ | ✗ | ✗ |
+| Single JAR, minimal deps | ✓ | ✗ | ✗ | ✗ |
+| No DI framework required | ✓ | ✓ | ✗ | ✓ |
 
 Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, and FTP, so you can add fully async mail, file transfer, or DNS services without bolting on separate stacks.
 

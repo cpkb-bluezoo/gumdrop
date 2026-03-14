@@ -49,6 +49,7 @@ configuration, and features of the servlet container.
 <li><a href="#hot-deploy">Hot Deployment</a></li>
 <li><a href="#deployment-descriptors">Deployment Descriptors</a></li>
 <li><a href="#jndi">JNDI Resources</a></li>
+<li><a href="#jaxws-jaxrs">JAX-WS and JAX-RS</a></li>
 <li><a href="#jsp">JavaServer Pages</a>
   <ul>
   <li><a href="#jsp">Compilation Architecture</a></li>
@@ -1017,6 +1018,147 @@ For injection to work, the resource must either be defined in
 <code>gumdroprc</code> (for DataSources, mail sessions, etc.) or in the
 deployment descriptor (for environment entries).
 </p>
+
+<h3 id="jaxws-jaxrs">JAX-WS and JAX-RS</h3>
+
+<p>
+Gumdrop&rsquo;s servlet container can host JAX-WS SOAP and JAX-RS REST web
+services without any container modifications or additional J2EE dependencies.
+Both are deployed as standard servlets: add an implementation to your web
+application&rsquo;s <code>WEB-INF/lib</code>, configure the servlet in
+<code>web.xml</code>, and Gumdrop dispatches requests to it like any other
+servlet.
+</p>
+
+<p>
+Gumdrop does not bundle JAX-WS or JAX-RS implementations. Applications that
+need web services include Metro, CXF, Jersey, or RESTEasy in their WAR; this
+keeps the container lean and lets you choose the implementation and version.
+</p>
+
+<h4>JAX-WS (SOAP)</h4>
+
+<h5>Metro (JAX-WS Reference Implementation)</h5>
+
+<p>
+Add Metro JARs to <code>WEB-INF/lib</code> (e.g. <code>jaxws-rt</code> and its
+transitive dependencies from Maven Central). Configure the servlet and context
+listener in <code>web.xml</code>:
+</p>
+
+<pre>
+&lt;servlet&gt;
+  &lt;servlet-name&gt;MyService&lt;/servlet-name&gt;
+  &lt;servlet-class&gt;com.sun.xml.ws.transport.http.servlet.WSServlet&lt;/servlet-class&gt;
+&lt;/servlet&gt;
+&lt;servlet-mapping&gt;
+  &lt;servlet-name&gt;MyService&lt;/servlet-name&gt;
+  &lt;url-pattern&gt;/services/*&lt;/url-pattern&gt;
+&lt;/servlet-mapping&gt;
+&lt;listener&gt;
+  &lt;listener-class&gt;com.sun.xml.ws.transport.http.servlet.WSServletContextListener&lt;/listener-class&gt;
+&lt;/listener&gt;
+</pre>
+
+<p>
+Define endpoints in <code>WEB-INF/sun-jaxws.xml</code>. Metro generates WSDL
+dynamically at runtime.
+</p>
+
+<h5>Apache CXF (JAX-WS)</h5>
+
+<p>
+Add CXF JARs to <code>WEB-INF/lib</code>. Configure the CXF servlet:
+</p>
+
+<pre>
+&lt;servlet&gt;
+  &lt;servlet-name&gt;CXFServlet&lt;/servlet-name&gt;
+  &lt;servlet-class&gt;org.apache.cxf.transport.servlet.CXFServlet&lt;/servlet-class&gt;
+&lt;/servlet&gt;
+&lt;servlet-mapping&gt;
+  &lt;servlet-name&gt;CXFServlet&lt;/servlet-name&gt;
+  &lt;url-pattern&gt;/services/*&lt;/url-pattern&gt;
+&lt;/servlet-mapping&gt;
+</pre>
+
+<p>
+Configure endpoints via CXF&rsquo;s <code>cxf.xml</code> or Spring configuration
+in <code>WEB-INF/cxf-beans.xml</code>, or use CXF&rsquo;s programmatic API.
+</p>
+
+<h4>JAX-RS (REST)</h4>
+
+<h5>Jersey (JAX-RS Reference Implementation)</h5>
+
+<p>
+Add Jersey JARs to <code>WEB-INF/lib</code> (e.g. <code>jersey-container-servlet</code>
+and its dependencies from Maven Central). Configure the servlet:
+</p>
+
+<pre>
+&lt;servlet&gt;
+  &lt;servlet-name&gt;JerseyServlet&lt;/servlet-name&gt;
+  &lt;servlet-class&gt;org.glassfish.jersey.servlet.ServletContainer&lt;/servlet-class&gt;
+  &lt;init-param&gt;
+    &lt;param-name&gt;javax.ws.rs.Application&lt;/param-name&gt;
+    &lt;param-value&gt;com.example.MyApplication&lt;/param-value&gt;
+  &lt;/init-param&gt;
+&lt;/servlet&gt;
+&lt;servlet-mapping&gt;
+  &lt;servlet-name&gt;JerseyServlet&lt;/servlet-name&gt;
+  &lt;url-pattern&gt;/api/*&lt;/url-pattern&gt;
+&lt;/servlet-mapping&gt;
+</pre>
+
+<p>
+Alternatively, use <code>jersey.config.server.provider.packages</code> to
+scan a package for <code>@Path</code> resource classes.
+</p>
+
+<h5>RESTEasy</h5>
+
+<p>
+Add RESTEasy JARs to <code>WEB-INF/lib</code>. Configure the servlet:
+</p>
+
+<pre>
+&lt;servlet&gt;
+  &lt;servlet-name&gt;ResteasyServlet&lt;/servlet-name&gt;
+  &lt;servlet-class&gt;org.jboss.resteasy.plugins.server.servlet.HttpServletDispatcher&lt;/servlet-class&gt;
+&lt;/servlet&gt;
+&lt;servlet-mapping&gt;
+  &lt;servlet-name&gt;ResteasyServlet&lt;/servlet-name&gt;
+  &lt;url-pattern&gt;/api/*&lt;/url-pattern&gt;
+&lt;/servlet-mapping&gt;
+</pre>
+
+<p>
+RESTEasy discovers resources via <code>@ApplicationPath</code> or
+<code>resteasy.servlet.mapping.prefix</code>, or configure an
+<code>Application</code> subclass.
+</p>
+
+<h5>Apache CXF (JAX-RS)</h5>
+
+<p>
+CXF also implements JAX-RS. Use the same <code>CXFServlet</code> as for JAX-WS;
+configure JAX-RS endpoints in <code>cxf.xml</code> or <code>cxf-beans.xml</code>.
+CXF can serve both SOAP and REST from the same application.
+</p>
+
+<h4>Notes</h4>
+
+<ul>
+<li>Web service requests are handled by the servlet worker pool; the
+event-driven I/O layer remains non-blocking.</li>
+<li>JAX-WS and JAX-RS work over HTTP/1.1, HTTP/2, and HTTP/3 when the servlet
+container is configured with the appropriate listeners.</li>
+<li>For client-side <code>@WebServiceRef</code> injection, the JAX-WS
+implementation in the application must provide the Service instance; Gumdrop
+parses <code>service-ref</code> metadata but does not instantiate JAX-WS
+clients.</li>
+</ul>
 
 <h3 id="jsp">JavaServer Pages</h3>
 
