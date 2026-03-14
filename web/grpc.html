@@ -1,0 +1,415 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>gRPC Client &amp; Server - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop gRPC Client &amp; Server</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides gRPC support built on top of its <a href="http.html">HTTP
+client and server</a>. gRPC runs over HTTP/2 (or HTTP/3) with
+<code>Content-Type: application/grpc</code>. The implementation uses an
+event-oriented, schema-driven approach with no generated code and no
+<code>com.google.protobuf</code> dependency.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#proto-model">Proto Model and .proto Parser</a></li>
+<li><a href="#event-oriented">Event-Oriented Message Handling</a></li>
+<li><a href="#server">gRPC Server</a></li>
+<li><a href="#client">gRPC Client</a></li>
+<li><a href="#serialization">Serialization and Parsing</a></li>
+<li><a href="#integration">Integration with HTTP Services</a></li>
+</ul>
+
+<h3 id="overview">Overview</h3>
+
+<p>
+Gumdrop&rsquo;s gRPC support lives in <code>org.bluezoo.gumdrop.grpc</code>:
+</p>
+
+<ul>
+<li><b>grpc.client</b> &ndash; <code>GrpcClient</code> composes the HTTP client,
+adds gRPC framing around request/response bodies</li>
+<li><b>grpc.server</b> &ndash; <code>GrpcHandlerFactory</code> implements
+<code>HTTPRequestHandlerFactory</code>, routes gRPC paths to <code>GrpcHandler</code></li>
+<li><b>grpc.proto</b> &ndash; .proto parser, Proto model, <code>ProtoMessageHandler</code>,
+<code>ProtoModelAdapter</code>, <code>ProtoModelSerializer</code></li>
+</ul>
+
+<p>
+The client uses the HTTP client as-is (composition, not extension). The server
+integrates via the existing <code>HTTPRequestHandlerFactory</code> pattern.
+Both HTTP/2 and HTTP/3 are supported.
+</p>
+
+<h3 id="proto-model">Proto Model and .proto Parser</h3>
+
+<p>
+Before using gRPC, you need a Proto model from your .proto file. Use
+<code>ProtoFileParser.parse(CharSequence)</code> to parse a .proto definition:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.grpc.proto.*;
+
+String protoSource = ""
+    + "syntax = \"proto3\";\n"
+    + "package example.v1;\n"
+    + "message GetUserRequest {\n"
+    + "  int32 user_id = 1;\n"
+    + "}\n"
+    + "message GetUserResponse {\n"
+    + "  string name = 1;\n"
+    + "  string email = 2;\n"
+    + "}\n"
+    + "service UserService {\n"
+    + "  rpc GetUser(GetUserRequest) returns (GetUserResponse);\n"
+    + "}\n";
+
+ProtoFile protoFile = ProtoFileParser.parse(protoSource);
+</pre>
+
+<p>
+For loading from a file, use the push-style API:
+</p>
+
+<pre>
+ProtoFileParser parser = new ProtoFileParser();
+try (FileChannel channel = FileChannel.open(Paths.get("service.proto"))) {
+    ByteBuffer buffer = ByteBuffer.allocate(8192);
+    while (channel.read(buffer) &gt; 0) {
+        buffer.flip();
+        parser.receive(buffer);
+        buffer.compact();
+    }
+}
+ProtoFile protoFile = parser.close();
+</pre>
+
+<p>
+The Proto model provides:
+</p>
+
+<ul>
+<li><code>getMessage(String fullName)</code> &ndash; lookup message by fully qualified name</li>
+<li><code>getService(String fullName)</code> &ndash; lookup service</li>
+<li><code>getRpcPath(String rpcName)</code> &ndash; get gRPC path like <code>/example.v1.UserService/GetUser</code></li>
+</ul>
+
+<h3 id="event-oriented">Event-Oriented Message Handling</h3>
+
+<p>
+Gumdrop does not use generated protobuf classes. Instead, it uses an
+event-oriented API similar to <code>JSONContentHandler</code> and
+<code>MIMEHandler</code>. Implement <code>ProtoMessageHandler</code> to receive
+semantic events:
+</p>
+
+<pre>
+public interface ProtoMessageHandler {
+    void setLocator(ProtoLocator locator);
+    void startMessage(String typeName) throws ProtoParseException;
+    void endMessage() throws ProtoParseException;
+    void field(String name, Object value) throws ProtoParseException;
+    void startField(String name, String typeName) throws ProtoParseException;
+    void endField() throws ProtoParseException;
+}
+</pre>
+
+<p>
+For a message like <code>GetUserResponse { name = "Alice"; email = "alice@example.com" }</code>,
+the event sequence is:
+</p>
+
+<pre>
+startMessage("example.v1.GetUserResponse")
+field("name", "Alice")
+field("email", "alice@example.com")
+endMessage()
+</pre>
+
+<p>
+Use <code>ProtoDefaultHandler</code> as a base if you only need to override
+some methods.
+</p>
+
+<h3 id="server">gRPC Server</h3>
+
+<p>
+Implement <code>GrpcService</code> to handle RPC calls:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.grpc.server.*;
+import java.nio.ByteBuffer;
+
+public class UserGrpcService implements GrpcService {
+
+    @Override
+    public void unaryCall(String path, ByteBuffer request, GrpcResponseSender response) {
+        if ("/example.v1.UserService/GetUser".equals(path)) {
+            // Parse request, build response, send
+            ByteBuffer responseMessage = handleGetUser(request);
+            response.send(responseMessage);
+        } else {
+            response.sendError(12, "Unimplemented");  // UNIMPLEMENTED
+        }
+    }
+}
+</pre>
+
+<p>
+<code>GrpcResponseSender</code> provides:
+</p>
+
+<ul>
+<li><code>send(ByteBuffer message)</code> &ndash; send success response (message is raw protobuf, not framed)</li>
+<li><code>sendError(int status, String message)</code> &ndash; send gRPC error (status codes: 0=OK, 1=CANCELLED, 12=UNIMPLEMENTED, 13=INTERNAL, etc.)</li>
+<li><code>sendError(Throwable cause)</code> &ndash; send INTERNAL error</li>
+</ul>
+
+<p>
+Create a <code>GrpcHandlerFactory</code> and wire it to your HTTP service.
+The factory routes requests where <code>:path</code> matches
+<code>/package.Service/Method</code> and <code>content-type</code> is
+<code>application/grpc</code>:
+</p>
+
+<pre>
+ProtoFile protoFile = ProtoFileParser.parse(protoSource);
+GrpcService service = new UserGrpcService();
+GrpcHandlerFactory grpcFactory = new GrpcHandlerFactory(protoFile, service);
+
+// Set on your HTTP service (see Integration below)
+</pre>
+
+<h3 id="client">gRPC Client</h3>
+
+<p>
+The gRPC client composes the <a href="http.html#client">HTTP client</a>. Create
+an <code>HTTPClient</code>, connect, then use <code>GrpcClient</code> for
+unary calls:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.grpc.client.*;
+import org.bluezoo.gumdrop.http.client.*;
+
+HTTPClient httpClient = new HTTPClient("localhost", 50051);
+httpClient.setSecure(true);  // TLS for production
+
+ProtoFile protoFile = ProtoFileParser.parse(protoSource);
+GrpcClient grpcClient = new GrpcClient(protoFile);
+
+httpClient.connect(new HTTPClientHandler() {
+    public void onConnected(Endpoint endpoint) {
+        // Serialize request (see Serialization below)
+        ByteBuffer requestMessage = ...;
+
+        grpcClient.unaryCall(httpClient, "/example.v1.UserService/GetUser",
+            requestMessage, new GrpcResponseHandler() {
+                public void onMessage(ByteBuffer message) {
+                    // Parse response message
+                }
+                public void onError(Exception e) {
+                    e.printStackTrace();
+                }
+            });
+    }
+    public void onSecurityEstablished(SecurityInfo info) { }
+    public void onError(Exception cause) { cause.printStackTrace(); }
+    public void onDisconnected() { }
+});
+</pre>
+
+<p>
+For high-level parsing, use the overload that takes a
+<code>ProtoMessageHandler</code>:
+</p>
+
+<pre>
+grpcClient.unaryCall(httpClient, "/example.v1.UserService/GetUser",
+    requestMessage, "example.v1.GetUserResponse", new ProtoMessageHandler() {
+        public void setLocator(ProtoLocator locator) { }
+        public void startMessage(String typeName) { }
+        public void endMessage() { }
+        public void field(String name, Object value) {
+            if ("name".equals(name)) {
+                System.out.println("User: " + value);
+            }
+        }
+        public void startField(String name, String typeName) { }
+        public void endField() { }
+    });
+</pre>
+
+<p>
+The HTTP client negotiates HTTP/2 via ALPN when <code>setSecure(true)</code>
+is used (HTTP/2 is the default for TLS). For HTTP/3, call
+<code>httpClient.setH3Enabled(true)</code> before connecting.
+</p>
+
+<h3 id="serialization">Serialization and Parsing</h3>
+
+<p>
+To serialize a request or parse a response, use the Proto model with
+<code>ProtobufWriter</code> (wire format) and <code>ProtoModelAdapter</code> /
+<code>ProtoModelSerializer</code> (schema-driven).
+</p>
+
+<h4>Serializing (request)</h4>
+
+<p>
+<code>ProtoModelSerializer</code> writes protobuf from events. Drive it with
+<code>startMessage</code>, <code>field</code>, <code>endMessage</code>:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.grpc.proto.*;
+import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+
+ByteArrayOutputStream out = new ByteArrayOutputStream();
+ProtobufWriter writer = new ProtobufWriter(out);
+ProtoModelSerializer serializer = new ProtoModelSerializer(protoFile);
+
+serializer.startMessage(writer, "example.v1.GetUserRequest");
+serializer.field(writer, "user_id", 42);
+serializer.endMessage();
+
+ByteBuffer requestMessage = ByteBuffer.wrap(out.toByteArray());
+</pre>
+
+<h4>Parsing (response)</h4>
+
+<p>
+<code>ProtoModelAdapter</code> bridges the low-level <code>ProtobufParser</code>
+to your <code>ProtoMessageHandler</code>. The gRPC client uses this internally
+when you pass a <code>ProtoMessageHandler</code>. For raw <code>ByteBuffer</code>
+responses, parse manually:
+</p>
+
+<pre>
+import org.bluezoo.gumdrop.grpc.proto.*;
+import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
+
+ProtoModelAdapter adapter = new ProtoModelAdapter(protoFile, myHandler);
+ProtobufParser parser = new ProtobufParser(adapter);
+
+adapter.startRootMessage("example.v1.GetUserResponse");
+parser.receive(messageBuffer);
+parser.close();
+adapter.endRootMessage();
+</pre>
+
+<h3 id="integration">Integration with HTTP Services</h3>
+
+<p>
+An <code>HTTPService</code> has a single <code>HTTPRequestHandlerFactory</code>.
+To serve both gRPC and other content (e.g. servlets, static files), use a
+composite factory that delegates to <code>GrpcHandlerFactory</code> first:
+</p>
+
+<pre>
+public class CompositeHandlerFactory implements HTTPRequestHandlerFactory {
+
+    private final GrpcHandlerFactory grpcFactory;
+    private final HTTPRequestHandlerFactory fallback;
+
+    public CompositeHandlerFactory(ProtoFile protoFile, GrpcService grpcService,
+                                   HTTPRequestHandlerFactory fallback) {
+        this.grpcFactory = new GrpcHandlerFactory(protoFile, grpcService);
+        this.fallback = fallback;
+    }
+
+    @Override
+    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+        HTTPRequestHandler handler = grpcFactory.createHandler(state, headers);
+        if (handler != null) {
+            return handler;
+        }
+        return fallback != null ? fallback.createHandler(state, headers) : null;
+    }
+
+    @Override
+    public Set&lt;String&gt; getSupportedMethods() {
+        return null;  // use defaults (includes POST for gRPC)
+    }
+}
+</pre>
+
+<p>
+<code>GrpcHandlerFactory.createHandler</code> returns <code>null</code> when
+the path or content-type does not match gRPC, so the fallback factory handles
+other requests.
+</p>
+
+<h4>Standalone gRPC Service</h4>
+
+<p>
+For a gRPC-only service, set the factory directly:
+</p>
+
+<pre>
+HTTPService service = new HTTPService() {
+    protected HTTPRequestHandlerFactory getHandlerFactory() {
+        return new GrpcHandlerFactory(protoFile, grpcService);
+    }
+};
+HTTPListener listener = new HTTPListener();
+listener.setPort(50051);
+listener.setSecure(true);
+listener.setKeystoreFile("keystore.p12");
+listener.setKeystorePass("changeit");
+service.addListener(listener);
+service.start();
+</pre>
+
+<p>
+gRPC requires HTTP/2. The HTTP listener negotiates HTTP/2 via ALPN when TLS is
+enabled. Ensure your keystore and TLS configuration are correct.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="microservices.html">Building Microservices</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop gRPC</p>
+
+</body>
+</html>

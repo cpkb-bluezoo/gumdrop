@@ -88,6 +88,12 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.protobuf;
     exports org.bluezoo.gumdrop.telemetry.json;
-    
+
+    // gRPC
+    exports org.bluezoo.gumdrop.grpc;
+    exports org.bluezoo.gumdrop.grpc.client;
+    exports org.bluezoo.gumdrop.grpc.server;
+    exports org.bluezoo.gumdrop.grpc.proto;
+
 }
 
