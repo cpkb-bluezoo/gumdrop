@@ -353,7 +353,7 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
     - native implementation (no OpenTelemetry SDK required)
     - distributed tracing with W3C Trace Context propagation
     - metrics collection (counters, histograms, gauges)
-    - OTLP/HTTP export to any OpenTelemetry Collector
+    - OTLP/HTTP and OTLP/gRPC export to any OpenTelemetry Collector
     - file export for JSONL
     - built-in instrumentation for HTTP, SMTP, IMAP, POP3, FTP
     - endpoint pooling with SelectorLoop affinity
@@ -396,6 +396,10 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
     - blocking commands (BLPOP, BRPOP, BLMOVE)
     - Redis Streams (XADD, XREAD, XRANGE, XLEN, XTRIM, XACK, XGROUP, XPENDING)
     - TLS support, fully async, pipelining
+- gRPC service and client
+    - efficient event based processing of .proto definitions
+    - no stubs or external dependencies required
+    - operates over HTTP/2 or HTTP/3
 
 ## Documentation
 

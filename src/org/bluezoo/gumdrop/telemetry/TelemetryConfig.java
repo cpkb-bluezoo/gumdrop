@@ -748,7 +748,11 @@ public class TelemetryConfig {
                     fileTracesPath, fileLogsPath, fileMetricsPath);
             registerShutdownHook();
         } else if (hasAnyEndpoint()) {
-            exporter = new OTLPExporter(this);
+            if ("grpc".equalsIgnoreCase(protocol)) {
+                exporter = new OTLPGrpcExporter(this);
+            } else {
+                exporter = new OTLPExporter(this);
+            }
             registerShutdownHook();
         }
         if (metricsEnabled && jmxBridgeEnabled) {
@@ -930,6 +934,8 @@ public class TelemetryConfig {
             // Force flush ensures all pending data is exported
             if (exporter instanceof OTLPExporter) {
                 ((OTLPExporter) exporter).forceFlush();
+            } else if (exporter instanceof OTLPGrpcExporter) {
+                ((OTLPGrpcExporter) exporter).forceFlush();
             }
             exporter.shutdown();
         }

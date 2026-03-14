@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.junit.Assume;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.net.DatagramPacket;
@@ -37,6 +39,17 @@ import static org.junit.Assert.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DNSServiceTest {
+
+    @Before
+    public void assumeNetworkBinding() {
+        try {
+            try (DatagramSocket s = new DatagramSocket(0, InetAddress.getByName("127.0.0.1"))) {
+                // binding succeeded
+            }
+        } catch (Exception e) {
+            Assume.assumeNoException("Network binding not permitted (e.g. sandbox): skipping", e);
+        }
+    }
 
     /**
      * RFC 5452: when the upstream server returns a response whose ID
