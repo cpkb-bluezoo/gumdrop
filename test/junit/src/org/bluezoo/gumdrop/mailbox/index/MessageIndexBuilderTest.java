@@ -352,24 +352,23 @@ public class MessageIndexBuilderTest {
 
     @Test
     public void testBuildEntryLargeHeaders() throws IOException {
+        // Build message with folded headers - real-world messages use RFC 5322
+        // folding when header values exceed 998 chars per line
         StringBuilder message = new StringBuilder();
         message.append("From: sender@example.com\r\n");
         
-        // Many recipients - keep under RFC 5322 §2.1.1 limit (998 chars/line)
-        // ~24 chars per recipient: 40 recipients ≈ 960 chars, fits on one line
-        message.append("To: ");
-        for (int i = 0; i < 40; i++) {
-            if (i > 0) {
-                message.append(", ");
-            }
-            message.append("user").append(i).append("@example.com");
+        // Many recipients with proper folding (tab continuation per RFC 5322)
+        // Same format as testBuildEntryFoldedHeaders but with 100 addresses
+        message.append("To: user0@example.com,\r\n");
+        for (int i = 1; i < 99; i++) {
+            message.append("\tuser").append(i).append("@example.com,\r\n");
         }
-        message.append("\r\n");
+        message.append("\tuser99@example.com\r\n");
         
-        // Long subject (~40 words ≈ 260 chars, under 998)
-        message.append("Subject: ");
-        for (int i = 0; i < 40; i++) {
-            message.append("word").append(i).append(" ");
+        // Long subject with folding
+        message.append("Subject: word0");
+        for (int i = 1; i < 100; i++) {
+            message.append(" word").append(i);
         }
         message.append("\r\n\r\n");
         message.append("Body.\r\n");
@@ -380,10 +379,11 @@ public class MessageIndexBuilderTest {
         MessageIndexEntry entry = builder.buildEntry(
             1L, 1, msgStr.length(), 0L, EnumSet.noneOf(Flag.class), "loc", channel);
 
-        assertTrue(entry.getTo().contains("user0@example.com"));
-        assertTrue(entry.getTo().contains("user39@example.com"));
-        assertTrue(entry.getSubject().contains("word0"));
-        assertTrue(entry.getSubject().contains("word39"));
+        assertFalse("To should not be empty", entry.getTo().isEmpty());
+        assertTrue("To should contain user0", entry.getTo().contains("user0@example.com"));
+        assertTrue("To should contain user99", entry.getTo().contains("user99@example.com"));
+        assertTrue("Subject should contain word0", entry.getSubject().contains("word0"));
+        assertTrue("Subject should contain word99", entry.getSubject().contains("word99"));
     }
 
     // ========================================================================

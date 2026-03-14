@@ -23,6 +23,9 @@ package org.bluezoo.gumdrop.mime.rfc5322;
 
 import org.junit.Test;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.Assert.*;
@@ -385,6 +388,44 @@ public class EmailAddressParserTest {
         // 65 characters should fail
         String tooLong = "a".repeat(65);
         assertNull(EmailAddressParser.parseEnvelopeAddress(tooLong + "@example.com"));
+    }
+
+    // ========== ByteBuffer parseEmailAddressList tests ==========
+
+    @Test
+    public void testParseEmailAddressListByteBufferBareAddrSpec() {
+        // Format as produced by MIMEParser for folded To header (no CRLF in value)
+        String value = " user0@example.com,\tuser1@example.com,\tuser2@example.com";
+        ByteBuffer buf = ByteBuffer.wrap(value.getBytes(StandardCharsets.US_ASCII));
+        CharsetDecoder decoder = StandardCharsets.US_ASCII.newDecoder();
+
+        List<EmailAddress> addrs = EmailAddressParser.parseEmailAddressList(buf, decoder);
+
+        assertNotNull(addrs);
+        assertEquals(3, addrs.size());
+        assertEquals("user0", addrs.get(0).getLocalPart());
+        assertEquals("user1", addrs.get(1).getLocalPart());
+        assertEquals("user2", addrs.get(2).getLocalPart());
+    }
+
+    @Test
+    public void testParseEmailAddressListByteBuffer100Addresses() {
+        // Format as produced by MIMEParser for folded To header with 100 addresses
+        StringBuilder sb = new StringBuilder();
+        sb.append(" user0@example.com,");
+        for (int i = 1; i < 99; i++) {
+            sb.append("\tuser").append(i).append("@example.com,");
+        }
+        sb.append("\tuser99@example.com");
+        ByteBuffer buf = ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.US_ASCII));
+        CharsetDecoder decoder = StandardCharsets.US_ASCII.newDecoder();
+
+        List<EmailAddress> addrs = EmailAddressParser.parseEmailAddressList(buf, decoder);
+
+        assertNotNull(addrs);
+        assertEquals(100, addrs.size());
+        assertEquals("user0", addrs.get(0).getLocalPart());
+        assertEquals("user99", addrs.get(99).getLocalPart());
     }
 }
 

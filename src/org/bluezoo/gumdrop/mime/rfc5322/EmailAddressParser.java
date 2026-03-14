@@ -104,11 +104,35 @@ public final class EmailAddressParser {
 					byte[] stopBytes = new byte[] { '<', ':', ',', ';' };
 					displayName = RFC2047Decoder.decodeDisplayName(value, decoder, false, stopBytes);
 					if (value.position() >= limit) {
+						// EOF after display phrase - may be bare addr-spec at end
+						if (displayName != null) {
+							String trimmed = displayName.trim();
+							int atIdx = trimmed.lastIndexOf('@');
+							if (atIdx > 0 && atIdx < trimmed.length() - 1
+									&& trimmed.indexOf('<') < 0 && trimmed.indexOf('>') < 0) {
+								String localPart = trimmed.substring(0, atIdx);
+								String domain = trimmed.substring(atIdx + 1);
+								addresses.add(new EmailAddress(null, localPart, domain, true));
+							}
+						}
 						break;
 					}
 					b = value.get(value.position());
 				}
 				if (b != '<') {
+					// Bare addr-spec: user@example.com (no angle brackets)
+					if (displayName != null) {
+						String trimmed = displayName.trim();
+						int atIdx = trimmed.lastIndexOf('@');
+						if (atIdx > 0 && atIdx < trimmed.length() - 1
+								&& trimmed.indexOf('<') < 0 && trimmed.indexOf('>') < 0) {
+							String localPart = trimmed.substring(0, atIdx);
+							String domain = trimmed.substring(atIdx + 1);
+							addresses.add(new EmailAddress(null, localPart, domain, true));
+							// Next iteration's skipCfws will skip the comma
+							continue;
+						}
+					}
 					break;
 				}
 				value.position(value.position() + 1);

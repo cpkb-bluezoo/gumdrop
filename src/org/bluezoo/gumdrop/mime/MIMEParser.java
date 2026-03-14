@@ -484,6 +484,8 @@ public class MIMEParser {
 		if (headerValueSink.remaining() >= required) {
 			return;
 		}
+		// Flip to read mode so compact() preserves written data (position..limit)
+		headerValueSink.flip();
 		headerValueSink.compact();
 		if (headerValueSink.remaining() < required) {
 			int newCapacity = Math.max(headerValueSink.capacity() * 2, headerValueSink.position() + required);
