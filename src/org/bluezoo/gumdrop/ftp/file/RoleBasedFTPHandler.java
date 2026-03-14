@@ -433,8 +433,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         if (LOGGER.isLoggable(Level.WARNING)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";
-            LOGGER.warning("FTP authentication failed: user=" + username + 
-                          ", from=" + clientHost + ", reason=" + reason);
+            LOGGER.warning("FTP authentication failed: from=" + clientHost + ", reason=" + reason);
         }
     }
 }

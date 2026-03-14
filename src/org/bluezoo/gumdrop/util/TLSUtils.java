@@ -90,6 +90,11 @@ public final class TLSUtils {
     /**
      * Creates {@link KeyManager}s from a keystore file.
      *
+     * <p>Cache key uses path and format only (not password) to avoid credential
+     * exposure in heap dumps. If the same keystore file is loaded with different
+     * passwords without file modification, the cache may return previously loaded
+     * managers; in practice path+format uniquely identifies a deployment's keystore.
+     *
      * @param path the keystore file
      * @param password the keystore password
      * @param format the keystore format (e.g. "PKCS12")
@@ -100,7 +105,7 @@ public final class TLSUtils {
     public static KeyManager[] loadKeyManagers(Path path, String password, String format)
             throws GeneralSecurityException, IOException {
         Path canonicalPath = path.normalize().toAbsolutePath();
-        String cacheKey = canonicalPath.toString() + "|" + format + "|" + (password != null ? password : "");
+        String cacheKey = canonicalPath.toString() + "|" + format;
         KeyManager[] cached = keyManagerCache.get(cacheKey);
         if (cached != null) {
             return cached;
@@ -117,6 +122,11 @@ public final class TLSUtils {
     /**
      * Creates {@link TrustManager}s from a truststore file.
      *
+     * <p>Cache key uses path and format only (not password) to avoid credential
+     * exposure in heap dumps. If the same truststore file is loaded with different
+     * passwords without file modification, the cache may return previously loaded
+     * managers; in practice path+format uniquely identifies a deployment's truststore.
+     *
      * @param path the truststore file
      * @param password the truststore password
      * @param format the truststore format (e.g. "PKCS12")
@@ -127,7 +137,7 @@ public final class TLSUtils {
     public static TrustManager[] loadTrustManagers(Path path, String password, String format)
             throws GeneralSecurityException, IOException {
         Path canonicalPath = path.normalize().toAbsolutePath();
-        String cacheKey = canonicalPath.toString() + "|" + format + "|" + (password != null ? password : "");
+        String cacheKey = canonicalPath.toString() + "|" + format;
         TrustManager[] cached = trustManagerCache.get(cacheKey);
         if (cached != null) {
             return cached;

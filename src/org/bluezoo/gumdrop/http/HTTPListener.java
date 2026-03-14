@@ -110,6 +110,11 @@ public class HTTPListener extends TCPListener {
      */
     private HTTPServerMetrics metrics;
 
+    /**
+     * Whether to add default security headers to responses. Default: true.
+     */
+    private boolean addSecurityHeaders = true;
+
     public String getDescription() {
         return secure ? "https" : "http";
     }
@@ -231,6 +236,21 @@ public class HTTPListener extends TCPListener {
      */
     public void setHandlerFactory(HTTPRequestHandlerFactory factory) {
         this.handlerFactory = factory;
+    }
+
+    /**
+     * Sets whether to add default security headers to responses.
+     * XML property: {@code add-security-headers}
+     */
+    public void setAddSecurityHeaders(boolean addSecurityHeaders) {
+        this.addSecurityHeaders = addSecurityHeaders;
+    }
+
+    /**
+     * Returns whether default security headers are added to responses.
+     */
+    public boolean getAddSecurityHeaders() {
+        return addSecurityHeaders;
     }
 
     /**

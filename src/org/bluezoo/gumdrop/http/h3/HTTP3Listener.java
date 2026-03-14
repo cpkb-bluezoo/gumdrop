@@ -75,6 +75,7 @@ public class HTTP3Listener extends TCPListener
     private HTTPAuthenticationProvider authenticationProvider;
     private HTTPServerMetrics metrics;
     private SelectorLoop selectorLoop;
+    private boolean addSecurityHeaders = true;
 
     private Path certFile;
     private Path keyFile;
@@ -162,6 +163,21 @@ public class HTTP3Listener extends TCPListener
     public void setAuthenticationProvider(
             HTTPAuthenticationProvider provider) {
         this.authenticationProvider = provider;
+    }
+
+    /**
+     * Sets whether to add default security headers to responses.
+     * XML property: {@code add-security-headers}
+     */
+    public void setAddSecurityHeaders(boolean addSecurityHeaders) {
+        this.addSecurityHeaders = addSecurityHeaders;
+    }
+
+    /**
+     * Returns whether default security headers are added to responses.
+     */
+    public boolean getAddSecurityHeaders() {
+        return addSecurityHeaders;
     }
 
     /**
@@ -312,7 +328,7 @@ public class HTTP3Listener extends TCPListener
     public void connectionAccepted(QuicConnection connection) {
         new HTTP3ServerHandler(connection, handlerFactory,
                 authenticationProvider, metrics,
-                getTelemetryConfig());
+                getTelemetryConfig(), addSecurityHeaders);
     }
 
     /**

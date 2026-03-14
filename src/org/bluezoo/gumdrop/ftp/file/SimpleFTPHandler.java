@@ -95,7 +95,7 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
                     LOGGER.info("User '" + username + "' authenticated via Realm from " + clientHost);
                     return FTPAuthenticationResult.SUCCESS;
                 } else {
-                    LOGGER.warning("Authentication failed for user '" + username + "' from " + clientHost);
+                    LOGGER.warning("Authentication failed from " + clientHost);
                     return FTPAuthenticationResult.INVALID_PASSWORD;
                 }
             } else {
@@ -110,7 +110,7 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
             
         } catch (Exception e) {
             LOGGER.log(java.util.logging.Level.WARNING, 
-                      "Authentication error for user '" + username + "' from " + clientHost, e);
+                      "Authentication error from " + clientHost, e);
             return FTPAuthenticationResult.INVALID_PASSWORD;
         }
     }

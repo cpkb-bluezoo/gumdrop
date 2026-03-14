@@ -377,11 +377,22 @@ public class Span {
         }
         SpanEvent event = new SpanEvent("exception");
         event.addAttribute("exception.type", exception.getClass().getName());
-        if (exception.getMessage() != null) {
-            event.addAttribute("exception.message", exception.getMessage());
+        if (trace.isIncludeExceptionDetails()) {
+            if (exception.getMessage() != null) {
+                event.addAttribute("exception.message", exception.getMessage());
+            }
+            StringBuilder sb = new StringBuilder();
+            for (StackTraceElement el : exception.getStackTrace()) {
+                sb.append(el.toString()).append("\n");
+            }
+            if (sb.length() > 0) {
+                event.addAttribute("exception.stacktrace", sb.toString());
+            }
+            setStatusError(exception.getMessage());
+        } else {
+            setStatusError(exception.getClass().getName());
         }
         addEvent(event);
-        setStatusError(exception.getMessage());
     }
 
     /**
@@ -397,8 +408,20 @@ public class Span {
         }
         SpanEvent event = new SpanEvent("exception");
         event.addAttribute("exception.type", exception.getClass().getName());
-        if (exception.getMessage() != null) {
-            event.addAttribute("exception.message", exception.getMessage());
+        if (trace.isIncludeExceptionDetails()) {
+            if (exception.getMessage() != null) {
+                event.addAttribute("exception.message", exception.getMessage());
+            }
+            StringBuilder sb = new StringBuilder();
+            for (StackTraceElement el : exception.getStackTrace()) {
+                sb.append(el.toString()).append("\n");
+            }
+            if (sb.length() > 0) {
+                event.addAttribute("exception.stacktrace", sb.toString());
+            }
+            setStatusError(exception.getMessage());
+        } else {
+            setStatusError(exception.getClass().getName());
         }
         addEvent(event);
 
@@ -406,8 +429,6 @@ public class Span {
         if (category != null) {
             addAttribute("error.category", category.getCode());
         }
-
-        setStatusError(exception.getMessage());
     }
 
     /**

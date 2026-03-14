@@ -174,7 +174,10 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
         @Override
         public void sendError(Throwable cause) {
             if (sent) return;
-            sendError(13, cause != null ? cause.getMessage() : "Internal error"); // INTERNAL
+            if (cause != null) {
+                LOGGER.log(Level.SEVERE, "gRPC internal error", cause);
+            }
+            sendError(13, "Internal error"); // INTERNAL
         }
     }
 }

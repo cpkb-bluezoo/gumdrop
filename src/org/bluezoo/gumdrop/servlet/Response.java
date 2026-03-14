@@ -38,6 +38,8 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import javax.servlet.Servlet;
 import javax.servlet.ServletOutputStream;
@@ -53,6 +55,8 @@ import javax.servlet.http.HttpSession;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class Response implements HttpServletResponse {
+
+    private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
 
     static final DateFormat dateFormat = new HTTPDateFormat();
     static final DateFormat expiresDateFormat = new SimpleDateFormat("EEEE, dd-MM-yyyy HH:mm:ss zzz");
@@ -312,13 +316,18 @@ class Response implements HttpServletResponse {
                 buf.append("</p>\r\n");
             }
             if (err != null) {
-                StringWriter sink = new StringWriter();
-                PrintWriter w = new PrintWriter(sink, true);
-                err.printStackTrace(w);
-                w.flush();
-                buf.append("\t\t<pre class='stack-trace'>\r\n");
-                buf.append(sink.toString());
-                buf.append("\r\n\t\t</pre>\r\n");
+                LOGGER.log(Level.SEVERE, "Error", err);
+                boolean showStackTraces = context != null
+                        && "true".equals(context.getInitParameter("org.bluezoo.gumdrop.show-stack-traces"));
+                if (showStackTraces) {
+                    StringWriter sink = new StringWriter();
+                    PrintWriter w = new PrintWriter(sink, true);
+                    err.printStackTrace(w);
+                    w.flush();
+                    buf.append("\t\t<pre class='stack-trace'>\r\n");
+                    buf.append(sink.toString());
+                    buf.append("\r\n\t\t</pre>\r\n");
+                }
             }
             buf.append("\t\t<p class='server-info'>");
             if (context != null) {
@@ -386,6 +395,16 @@ class Response implements HttpServletResponse {
         handler.endResponse();
     }
 
+    /**
+     * Sends a redirect response to the specified location.
+     *
+     * <p><b>Security:</b> When the location is user-controlled (e.g. from a
+     * query parameter or form input), applications must validate it before
+     * calling this method. Validate that the location is same-origin or
+     * on an allowlist to prevent open redirect vulnerabilities.
+     *
+     * @param location the redirect URL (absolute or relative)
+     */
     public void sendRedirect(String location) throws IOException {
         // Convert relative URIs to absolute
         URI uri = URI.create(location);

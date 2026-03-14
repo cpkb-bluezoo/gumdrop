@@ -99,6 +99,9 @@ public class TelemetryConfig {
     private long flushIntervalMs = 5000;
     private int maxQueueSize = 2048;
 
+    // Exception detail export (default off for security)
+    private boolean includeExceptionDetails = false;
+
     // Additional resource attributes
     private Map<String, String> resourceAttributes;
 
@@ -721,6 +724,25 @@ public class TelemetryConfig {
     }
 
     /**
+     * Returns true if span exception records include full message and stack trace.
+     * Default: false (only exception class name is exported).
+     */
+    public boolean isIncludeExceptionDetails() {
+        return includeExceptionDetails;
+    }
+
+    /**
+     * Sets whether span exception records include full message and stack trace.
+     * XML property: {@code include-exception-details}
+     *
+     * @param includeExceptionDetails true for full details (use only when
+     *        telemetry export is trusted, e.g. internal collector)
+     */
+    public void setIncludeExceptionDetails(boolean includeExceptionDetails) {
+        this.includeExceptionDetails = includeExceptionDetails;
+    }
+
+    /**
      * Returns the JMX bridge instance, or null if not registered.
      */
     public TelemetryJMXBridge getJmxBridge() {
@@ -815,6 +837,7 @@ public class TelemetryConfig {
             return null;
         }
         Trace trace = new Trace(rootSpanName, kind);
+        trace.setIncludeExceptionDetails(includeExceptionDetails);
         trace.setExporter(exporter);
         return trace;
     }
@@ -832,6 +855,7 @@ public class TelemetryConfig {
             return null;
         }
         Trace trace = Trace.fromTraceparent(traceparent, rootSpanName, kind);
+        trace.setIncludeExceptionDetails(includeExceptionDetails);
         trace.setExporter(exporter);
         return trace;
     }

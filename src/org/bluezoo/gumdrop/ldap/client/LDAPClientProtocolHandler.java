@@ -306,9 +306,10 @@ public class LDAPClientProtocolHandler
                         initialResponse, callback);
             } catch (IOException e) {
                 clearSaslClient();
+                logger.log(Level.WARNING, "LDAP bind failed", e);
                 callback.handleBindFailure(
                         new LDAPResult(LDAPResultCode.OTHER, "",
-                                e.getMessage(), null),
+                                "Operation failed", null),
                         this);
             }
         }
@@ -333,13 +334,14 @@ public class LDAPClientProtocolHandler
                         }
                     });
                 } catch (IOException e) {
+                    logger.log(Level.WARNING, "LDAP bind failed", e);
                     endpoint.execute(new Runnable() {
                         @Override
                         public void run() {
                             clearSaslClient();
                             callback.handleBindFailure(
                                     new LDAPResult(LDAPResultCode.OTHER, "",
-                                            e.getMessage(), null),
+                                            "Operation failed", null),
                                     LDAPClientProtocolHandler.this);
                         }
                     });
@@ -999,9 +1001,10 @@ public class LDAPClientProtocolHandler
                                 response, bindCallback);
                     } catch (IOException e) {
                         clearSaslClient();
+                        logger.log(Level.WARNING, "LDAP bind failed", e);
                         bindCallback.handleBindFailure(
                                 new LDAPResult(LDAPResultCode.OTHER, "",
-                                        e.getMessage(), null),
+                                        "Operation failed", null),
                                 this);
                     }
                 }
@@ -1024,9 +1027,10 @@ public class LDAPClientProtocolHandler
                     }
                 } catch (IOException e) {
                     clearSaslClient();
+                    logger.log(Level.WARNING, "LDAP bind failed", e);
                     bindCallback.handleBindFailure(
                             new LDAPResult(LDAPResultCode.OTHER, "",
-                                    e.getMessage(), null),
+                                    "Operation failed", null),
                             this);
                     return;
                 }
@@ -1241,13 +1245,12 @@ public class LDAPClientProtocolHandler
                     }
                     logger.fine("TLS upgrade initiated after STARTTLS response");
                 } catch (IOException e) {
-                    logger.warning(MessageFormat.format(L10N.getString("warn.starttls_failed"),
-                            e.getMessage()));
+                    logger.log(Level.WARNING, "LDAP STARTTLS failed", e);
                     if (startTLSCallback != null) {
                         StartTLSResultHandler callback = startTLSCallback;
                         startTLSCallback = null;
                         callback.handleStartTLSFailure(
-                                new LDAPResult(LDAPResultCode.OTHER, "", e.getMessage(), null),
+                                new LDAPResult(LDAPResultCode.OTHER, "", "Operation failed", null),
                                 this);
                     } else {
                         handler.onError(e);

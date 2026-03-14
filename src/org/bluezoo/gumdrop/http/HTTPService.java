@@ -84,6 +84,7 @@ public abstract class HTTPService implements Service {
 
     private final List listeners = new ArrayList();
     private Realm realm;
+    private boolean addSecurityHeaders = true;
 
     // ── Realm ──
 
@@ -109,6 +110,23 @@ public abstract class HTTPService implements Service {
      */
     public void setRealm(Realm realm) {
         this.realm = realm;
+    }
+
+    /**
+     * Sets whether to add default security headers (X-Frame-Options,
+     * X-Content-Type-Options) to responses. Default: true.
+     *
+     * @param addSecurityHeaders true to add headers (unless app sets them)
+     */
+    public void setAddSecurityHeaders(boolean addSecurityHeaders) {
+        this.addSecurityHeaders = addSecurityHeaders;
+    }
+
+    /**
+     * Returns whether default security headers are added to responses.
+     */
+    public boolean isAddSecurityHeaders() {
+        return addSecurityHeaders;
     }
 
     // ── Listener management ──
@@ -263,6 +281,7 @@ public abstract class HTTPService implements Service {
             HTTPListener tcp = (HTTPListener) listener;
             tcp.setHandlerFactory(factory);
             tcp.setAuthenticationProvider(authProvider);
+            tcp.setAddSecurityHeaders(addSecurityHeaders);
             if (altSvc != null) {
                 tcp.setAltSvc(altSvc);
             }
@@ -270,6 +289,7 @@ public abstract class HTTPService implements Service {
             HTTP3Listener quic = (HTTP3Listener) listener;
             quic.setHandlerFactory(factory);
             quic.setAuthenticationProvider(authProvider);
+            quic.setAddSecurityHeaders(addSecurityHeaders);
         }
     }
 

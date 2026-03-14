@@ -139,7 +139,7 @@ public class HTTP3WebSocketListener extends HTTP3Listener {
         HTTP3ServerHandler handler = new HTTP3ServerHandler(
                 connection, getHandlerFactory(),
                 getAuthenticationProvider(), getMetrics(),
-                getTelemetryConfig());
+                getTelemetryConfig(), getAddSecurityHeaders());
         handler.setWebSocketMetrics(wsMetrics);
     }
 

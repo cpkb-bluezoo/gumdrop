@@ -744,6 +744,28 @@ but disabled by default for security; set <code>trace-method-enabled</code> to
 
 <h3 id="configuration">Configuration</h3>
 
+<h4>HTTPService Properties</h4>
+
+<p>
+HTTP services (ServletService, WebDAVService, etc.) support the following
+service-level properties:
+</p>
+
+<ul>
+<li><code>add-security-headers</code> &ndash; when true (default), adds
+<code>X-Frame-Options: SAMEORIGIN</code> and
+<code>X-Content-Type-Options: nosniff</code> to responses unless the
+application has already set them. Set to <code>false</code> to disable.
+Example:
+<pre>
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+  &lt;property name="add-security-headers" value="false"/&gt;
+  ...
+&lt;/service&gt;
+</pre>
+</li>
+</ul>
+
 <h4>HTTPListener Properties</h4>
 
 <p>

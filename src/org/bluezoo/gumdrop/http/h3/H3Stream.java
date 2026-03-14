@@ -146,6 +146,15 @@ class H3Stream implements HTTPResponseState {
         return streamId;
     }
 
+    private static boolean containsHeader(List<Header> headers, String name) {
+        for (Header h : headers) {
+            if (name.equalsIgnoreCase(h.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ── Event Dispatch (called by HTTP3ServerHandler) ──
 
     /**
@@ -853,6 +862,18 @@ class H3Stream implements HTTPResponseState {
         if (pendingResponseHeaders == null
                 || pendingResponseHeaders.isEmpty()) {
             return;
+        }
+
+        // Add default security headers if enabled and not already set
+        if (connection.getAddSecurityHeaders()) {
+            if (!containsHeader(pendingResponseHeaders, "X-Frame-Options")) {
+                pendingResponseHeaders.add(
+                        new Header("X-Frame-Options", "SAMEORIGIN"));
+            }
+            if (!containsHeader(pendingResponseHeaders, "X-Content-Type-Options")) {
+                pendingResponseHeaders.add(
+                        new Header("X-Content-Type-Options", "nosniff"));
+            }
         }
 
         // Capture response status code from :status pseudo-header

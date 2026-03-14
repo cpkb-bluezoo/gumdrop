@@ -111,6 +111,7 @@ public class HTTP3ServerHandler
     private final HTTPAuthenticationProvider authenticationProvider;
     private final HTTPServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
+    private final boolean addSecurityHeaders;
 
     private long h3Config;
     private long h3Conn;
@@ -139,17 +140,20 @@ public class HTTP3ServerHandler
      * @param authProvider authentication provider (may be null)
      * @param metrics server metrics (may be null)
      * @param telemetryConfig telemetry configuration (may be null)
+     * @param addSecurityHeaders whether to add default security headers
      */
     public HTTP3ServerHandler(QuicConnection quicConnection,
                               HTTPRequestHandlerFactory handlerFactory,
                               HTTPAuthenticationProvider authProvider,
                               HTTPServerMetrics metrics,
-                              TelemetryConfig telemetryConfig) {
+                              TelemetryConfig telemetryConfig,
+                              boolean addSecurityHeaders) {
         this.quicConnection = quicConnection;
         this.handlerFactory = handlerFactory;
         this.authenticationProvider = authProvider;
         this.metrics = metrics;
         this.telemetryConfig = telemetryConfig;
+        this.addSecurityHeaders = addSecurityHeaders;
         this.bodyBuffer = ByteBuffer.allocateDirect(BODY_BUFFER_SIZE);
 
         if (metrics != null) {
@@ -501,6 +505,10 @@ public class HTTP3ServerHandler
      */
     TelemetryConfig getTelemetryConfig() {
         return telemetryConfig;
+    }
+
+    boolean getAddSecurityHeaders() {
+        return addSecurityHeaders;
     }
 
     /**

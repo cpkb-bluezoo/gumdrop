@@ -44,6 +44,7 @@ public class Trace {
 
     private final List<Span> endedSpans;
     private TelemetryExporter exporter;
+    private boolean includeExceptionDetails;
 
     /**
      * Creates a new trace with a generated trace ID and a root span.
@@ -181,6 +182,20 @@ public class Trace {
      */
     public void setExporter(TelemetryExporter exporter) {
         this.exporter = exporter;
+    }
+
+    /**
+     * Sets whether span exception records include full message and stack trace.
+     */
+    public void setIncludeExceptionDetails(boolean includeExceptionDetails) {
+        this.includeExceptionDetails = includeExceptionDetails;
+    }
+
+    /**
+     * Returns whether span exception records include full message and stack trace.
+     */
+    public boolean isIncludeExceptionDetails() {
+        return includeExceptionDetails;
     }
 
     /**

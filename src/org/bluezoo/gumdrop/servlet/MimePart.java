@@ -130,21 +130,26 @@ class MimePart implements Part {
 
 	@Override
 	public String getSubmittedFileName() {
+		String filename = null;
 		ContentDisposition cd = getContentDispositionParsed();
 		if (cd != null) {
-			String filename = cd.getParameter("filename");
-			if (filename != null) {
-				return filename;
+			// RFC 5987: filename* takes precedence over filename when present
+			filename = cd.getParameter("filename*");
+			if (filename == null) {
+				filename = cd.getParameter("filename");
 			}
 		}
-		// Fallback to Content-Type name parameter
-		if (contentType == null) {
-			String value = getHeader("Content-Type");
-			if (value != null) {
-				contentType = ContentTypeParser.parse(value);
+		if (filename == null) {
+			// Fallback to Content-Type name parameter
+			if (contentType == null) {
+				String value = getHeader("Content-Type");
+				if (value != null) {
+					contentType = ContentTypeParser.parse(value);
+				}
 			}
+			filename = (contentType != null) ? contentType.getParameter("name") : null;
 		}
-		return (contentType != null) ? contentType.getParameter("name") : null;
+		return sanitizeFileName(filename);
 	}
 
 	private ContentDisposition getContentDispositionParsed() {

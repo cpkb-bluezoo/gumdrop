@@ -161,6 +161,7 @@ metrics) can be disabled if needed.
 <tr><td><code>file-metrics-path</code></td><td>-</td><td>File path for metrics JSONL output (null = stdout)</td></tr>
 <tr><td><code>file-buffer-size</code></td><td>8192</td><td>I/O buffer size in bytes for file exporter</td></tr>
 <tr><td><code>jmx-bridge-enabled</code></td><td>true</td><td>Expose metrics via JMX MBeans for jconsole, VisualVM, Prometheus JMX exporter</td></tr>
+<tr><td><code>include-exception-details</code></td><td>false</td><td>When false, span exception records include only the exception class name (<code>exception.type</code>); when true, include full message and stack trace for observability. Set to <code>true</code> only when telemetry export is trusted (e.g. internal collector).</td></tr>
 </table>
 
 <h4>Associating Telemetry with Servers</h4>

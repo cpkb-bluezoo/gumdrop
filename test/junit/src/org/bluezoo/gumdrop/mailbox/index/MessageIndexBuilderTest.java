@@ -355,9 +355,10 @@ public class MessageIndexBuilderTest {
         StringBuilder message = new StringBuilder();
         message.append("From: sender@example.com\r\n");
         
-        // Very long To header with many recipients
+        // Many recipients - keep under RFC 5322 §2.1.1 limit (998 chars/line)
+        // ~24 chars per recipient: 40 recipients ≈ 960 chars, fits on one line
         message.append("To: ");
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 40; i++) {
             if (i > 0) {
                 message.append(", ");
             }
@@ -365,9 +366,9 @@ public class MessageIndexBuilderTest {
         }
         message.append("\r\n");
         
-        // Long subject
+        // Long subject (~40 words ≈ 260 chars, under 998)
         message.append("Subject: ");
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 40; i++) {
             message.append("word").append(i).append(" ");
         }
         message.append("\r\n\r\n");
@@ -380,9 +381,9 @@ public class MessageIndexBuilderTest {
             1L, 1, msgStr.length(), 0L, EnumSet.noneOf(Flag.class), "loc", channel);
 
         assertTrue(entry.getTo().contains("user0@example.com"));
-        assertTrue(entry.getTo().contains("user99@example.com"));
+        assertTrue(entry.getTo().contains("user39@example.com"));
         assertTrue(entry.getSubject().contains("word0"));
-        assertTrue(entry.getSubject().contains("word99"));
+        assertTrue(entry.getSubject().contains("word39"));
     }
 
     // ========================================================================

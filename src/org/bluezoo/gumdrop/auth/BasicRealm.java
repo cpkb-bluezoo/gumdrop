@@ -32,6 +32,7 @@ import java.security.SecureRandom;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -51,7 +52,18 @@ import org.xml.sax.helpers.DefaultHandler;
 /**
  * Simple realm composed of static principals declared in an XML
  * configuration resource.
- * 
+ *
+ * <p><strong>Production use:</strong> BasicRealm with plaintext passwords is
+ * intended for development and testing only. For production, use
+ * {@link LDAPRealm} or {@link OAuthRealm}. When hashed passwords are used
+ * (RFC 2307 format), only PLAIN and LOGIN SASL mechanisms are supported.
+ *
+ * <h4>Hashed Passwords (RFC 2307)</h4>
+ * <p>Passwords may use LDAP-style hashed formats for {@code passwordMatch}:
+ * {@code {SHA}}, {@code {SSHA}}, {@code {SHA256}}, {@code {SSHA256}}.
+ * Hashed users support only PLAIN and LOGIN; CRAM-MD5, SCRAM, etc. require
+ * plaintext. Values can be exported from LDAP {@code userPassword} directly.
+ *
  * <h4>XML Format</h4>
  * <p>The realm XML file supports two formats for defining groups:</p>
  * 
@@ -138,20 +150,71 @@ public class BasicRealm extends DefaultHandler implements Realm {
 
     @Override
     public boolean passwordMatch(String username, String password) {
-        String storedPassword = passwords.get(username);
-        if (storedPassword == null || password == null) {
+        String stored = passwords.get(username);
+        if (stored == null || password == null) {
             return false;
         }
+        if (isHashedPassword(stored)) {
+            return verifyHashedPassword(stored, password);
+        }
         return MessageDigest.isEqual(
-                storedPassword.getBytes(StandardCharsets.UTF_8),
+                stored.getBytes(StandardCharsets.UTF_8),
                 password.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static boolean isHashedPassword(String stored) {
+        return stored.startsWith("{SHA}") || stored.startsWith("{SSHA}")
+                || stored.startsWith("{SHA256}") || stored.startsWith("{SSHA256}");
+    }
+
+    private static boolean verifyHashedPassword(String stored, String password) {
+        try {
+            if (stored.startsWith("{SHA}")) {
+                byte[] storedDigest = Base64.getDecoder().decode(stored.substring(5));
+                MessageDigest md = MessageDigest.getInstance("SHA-1");
+                byte[] computed = md.digest(password.getBytes(StandardCharsets.UTF_8));
+                return storedDigest.length == 20 && MessageDigest.isEqual(storedDigest, computed);
+            } else if (stored.startsWith("{SHA256}")) {
+                byte[] storedDigest = Base64.getDecoder().decode(stored.substring(8));
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                byte[] computed = md.digest(password.getBytes(StandardCharsets.UTF_8));
+                return storedDigest.length == 32 && MessageDigest.isEqual(storedDigest, computed);
+            } else if (stored.startsWith("{SSHA}")) {
+                byte[] decoded = Base64.getDecoder().decode(stored.substring(6));
+                if (decoded.length < 21) return false;
+                byte[] digest = new byte[20];
+                byte[] salt = new byte[decoded.length - 20];
+                System.arraycopy(decoded, 0, digest, 0, 20);
+                System.arraycopy(decoded, 20, salt, 0, salt.length);
+                MessageDigest md = MessageDigest.getInstance("SHA-1");
+                md.update(password.getBytes(StandardCharsets.UTF_8));
+                md.update(salt);
+                byte[] computed = md.digest();
+                return MessageDigest.isEqual(digest, computed);
+            } else if (stored.startsWith("{SSHA256}")) {
+                byte[] decoded = Base64.getDecoder().decode(stored.substring(9));
+                if (decoded.length < 33) return false;
+                byte[] digest = new byte[32];
+                byte[] salt = new byte[decoded.length - 32];
+                System.arraycopy(decoded, 0, digest, 0, 32);
+                System.arraycopy(decoded, 32, salt, 0, salt.length);
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                md.update(password.getBytes(StandardCharsets.UTF_8));
+                md.update(salt);
+                byte[] computed = md.digest();
+                return MessageDigest.isEqual(digest, computed);
+            }
+        } catch (IllegalArgumentException | NoSuchAlgorithmException e) {
+            return false;
+        }
+        return false;
     }
 
     @Override
     public String getDigestHA1(String username, String realmName) {
         String password = passwords.get(username);
-        if (password == null) {
-            return null; // User doesn't exist
+        if (password == null || isHashedPassword(password)) {
+            return null; // User doesn't exist or hashed (requires plaintext)
         }
 
         try {
@@ -220,8 +283,8 @@ public class BasicRealm extends DefaultHandler implements Realm {
     @Override
     public String getCramMD5Response(String username, String challenge) {
         String password = passwords.get(username);
-        if (password == null) {
-            return null; // User doesn't exist
+        if (password == null || isHashedPassword(password)) {
+            return null; // User doesn't exist or hashed (requires plaintext)
         }
         return SASLUtils.computeCramMD5Response(password, challenge);
     }
@@ -229,8 +292,8 @@ public class BasicRealm extends DefaultHandler implements Realm {
     @Override
     public String getApopResponse(String username, String timestamp) {
         String password = passwords.get(username);
-        if (password == null) {
-            return null; // User doesn't exist
+        if (password == null || isHashedPassword(password)) {
+            return null; // User doesn't exist or hashed (requires plaintext)
         }
         // APOP uses MD5(timestamp + password)
         try {
@@ -246,8 +309,8 @@ public class BasicRealm extends DefaultHandler implements Realm {
     @Override
     public ScramCredentials getScramCredentials(String username) {
         String password = passwords.get(username);
-        if (password == null) {
-            return null; // User doesn't exist
+        if (password == null || isHashedPassword(password)) {
+            return null; // User doesn't exist or hashed (requires plaintext)
         }
         // Generate credentials on demand with a consistent salt derived from username
         // In production, credentials should be pre-computed and stored
@@ -301,6 +364,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
             
             // Resolve pending group references after parsing
             resolvePendingGroupReferences();
+            logPlaintextPasswordWarning();
             
         } catch (IOException | SAXException e) {
             RuntimeException e2 = new RuntimeException("Failed to parse realm configuration: " + href);
@@ -318,6 +382,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
             URL url = path.toUri().toURL();
             XMLParseUtils.parseURL(url, this, null);
             resolvePendingGroupReferences();
+            logPlaintextPasswordWarning();
         } catch (IOException | SAXException e) {
             RuntimeException e2 = new RuntimeException("Failed to parse realm configuration: " + path);
             e2.initCause(e);
@@ -407,6 +472,16 @@ public class BasicRealm extends DefaultHandler implements Realm {
         roles.add(roleName);
     }
     
+    private void logPlaintextPasswordWarning() {
+        for (String pwd : passwords.values()) {
+            if (pwd != null && !isHashedPassword(pwd)) {
+                LOGGER.warning("BasicRealm loaded with plaintext passwords; "
+                        + "use LDAPRealm or hashed passwords for production.");
+                return;
+            }
+        }
+    }
+
     /**
      * Resolves pending group references (IDREFS syntax: "groupId1 groupId2").
      * Looks up the group id to find the corresponding role name.

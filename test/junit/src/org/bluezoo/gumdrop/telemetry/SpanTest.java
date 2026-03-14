@@ -407,9 +407,10 @@ public class SpanTest {
         }
         assertNotNull("Should have exception event", exEvent);
         
-        // Check attributes
+        // Check attributes - with includeExceptionDetails false (default), only exception.type
         List<Attribute> attrs = exEvent.getAttributes();
-        assertTrue(attrs.size() >= 2);
+        assertTrue(attrs.size() >= 1);
+        assertTrue(attrs.stream().anyMatch(a -> "exception.type".equals(a.getKey())));
     }
 
     // ========================================================================

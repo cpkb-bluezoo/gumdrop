@@ -806,6 +806,20 @@ class Stream implements HTTPResponseState {
             headers.add(new Header("Connection", "close"));
         }
 
+        // Add default security headers if enabled and not already set
+        if (connection instanceof HTTPProtocolHandler) {
+            HTTPListener listener =
+                    ((HTTPProtocolHandler) connection).getListener();
+            if (listener != null && listener.getAddSecurityHeaders()) {
+                if (!headers.containsName("X-Frame-Options")) {
+                    headers.add(new Header("X-Frame-Options", "SAMEORIGIN"));
+                }
+                if (!headers.containsName("X-Content-Type-Options")) {
+                    headers.add(new Header("X-Content-Type-Options", "nosniff"));
+                }
+            }
+        }
+
         // Add traceparent header to response if telemetry is enabled
         if (span != null) {
             headers.add("traceparent", span.getSpanContext().toTraceparent());

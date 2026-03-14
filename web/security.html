@@ -38,6 +38,13 @@ This document covers security features available across all Gumdrop servers,
 including identity and access management, rate limiting, and transport security.
 </p>
 
+<p>
+HTTP services add default security headers (<code>X-Frame-Options</code>,
+<code>X-Content-Type-Options</code>) to responses unless the application sets
+them. See <a href="http.html#configuration">HTTP Configuration</a> for the
+<code>add-security-headers</code> property.
+</p>
+
 <h3>Contents</h3>
 <ul>
 <li><a href="#tls">Transport Layer Security</a>
@@ -440,6 +447,34 @@ containing space-separated role names. Users reference groups using the
     &lt;user name="testuser" password="testpass" roles="user"/&gt;
 &lt;/realm&gt;
 </pre>
+
+<h4>Production Use</h4>
+
+<p>
+BasicRealm with plaintext passwords is intended for development and testing
+only. For production, use <a href="#ldaprealm">LDAPRealm</a> or
+<a href="#oauthrealm">OAuthRealm</a>. A warning is logged at startup when
+plaintext passwords are loaded.
+</p>
+
+<h4>Hashed Passwords (RFC 2307)</h4>
+
+<p>
+Passwords may use LDAP-style hashed formats for improved security. Supported
+schemes: <code>{SHA}</code>, <code>{SSHA}</code>, <code>{SHA256}</code>,
+<code>{SSHA256}</code>. Values can be exported from LDAP <code>userPassword</code>
+and used directly. Hashed users support only PLAIN and LOGIN SASL mechanisms;
+CRAM-MD5, SCRAM, Digest, and APOP require plaintext and will not work.
+</p>
+
+<pre>
+&lt;user name="alice" password="{SSHA256}base64digest+salt" groups="readers"/&gt;
+</pre>
+
+<p>
+Use <code>slappasswd -h {SSHA256} -s password</code> (OpenLDAP) or equivalent
+tools to generate hashed values.
+</p>
 
 <h3 id="oauthrealm">OAuthRealm</h3>
 

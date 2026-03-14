@@ -703,6 +703,29 @@ and URL mappings</li>
 <li><code>mime-mapping</code> - content type associations</li>
 </ul>
 
+<h4>Gumdrop-Specific Context Parameters</h4>
+
+<p>
+The following context parameters control Gumdrop container behaviour:
+</p>
+
+<ul>
+<li><code>org.bluezoo.gumdrop.show-stack-traces</code> &ndash; When the default
+error page is used (no custom <code>error-page</code> configured), controls
+whether full stack traces are included in the response. Values: <code>true</code>
+or <code>false</code> (default). When <code>false</code>, stack traces are
+omitted for security; the full trace is always logged server-side. Enable
+<code>true</code> only for development.
+</li>
+</ul>
+
+<pre>
+&lt;context-param&gt;
+  &lt;param-name&gt;org.bluezoo.gumdrop.show-stack-traces&lt;/param-name&gt;
+  &lt;param-value&gt;false&lt;/param-value&gt;
+&lt;/context-param&gt;
+</pre>
+
 <h4>Security Elements</h4>
 
 <ul>
