@@ -1,3 +1,33 @@
+# Contributing to Gumdrop
+
+Thank you for your interest in contributing to Gumdrop. This document covers how to test and submit changes, as well as the coding standards we follow. For build and run instructions, see [BUILDING.md](BUILDING.md).
+
+## Testing
+
+Run the unit tests:
+
+```bash
+ant test
+```
+
+This runs the JUnit test suite. For a full test run including integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
+
+```bash
+ant test-all
+```
+
+Integration tests require TLS certificates. See the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls-certificates) for generating local development certificates with `mkcert`.
+
+## Submitting Changes
+
+1. Fork the repository and create a branch for your changes
+2. Make your changes, following the [Coding Standards](#gumdrop-coding-standards) below
+3. Ensure `ant test` passes
+4. Submit a pull request with a clear description of the change
+5. Address any review feedback
+
+---
+
 # Gumdrop Coding Standards
 
 This document defines the coding standards and conventions for the Gumdrop project. All contributions should adhere to these guidelines.

@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.ldap.asn1;
 
+import org.bluezoo.gumdrop.util.ByteBufferPool;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -84,7 +86,7 @@ public class BERDecoder {
      * @param bufferSize initial buffer capacity
      */
     public BERDecoder(int bufferSize) {
-        buffer = ByteBuffer.allocate(bufferSize);
+        buffer = ByteBufferPool.acquire(bufferSize);
         buffer.flip(); // Start empty, ready for reading
         completed = new ArrayList<ASN1Element>();
         reset();
@@ -151,9 +153,10 @@ public class BERDecoder {
         int required = buffer.remaining() + additional;
         if (required > buffer.capacity()) {
             int newCapacity = Math.max(buffer.capacity() * 2, required);
-            ByteBuffer newBuffer = ByteBuffer.allocate(newCapacity);
+            ByteBuffer newBuffer = ByteBufferPool.acquire(newCapacity);
             newBuffer.put(buffer);
             newBuffer.flip();
+            ByteBufferPool.release(buffer);
             buffer = newBuffer;
         }
     }

@@ -25,6 +25,8 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
+
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.text.MessageFormat;
@@ -161,7 +163,7 @@ public class MIMEParser {
 	private Deque<String> boundaries = new ArrayDeque<>(); // stack of boundary delimiters
 	private boolean boundarySet;
 	private String headerName;
-	private ByteBuffer headerValueSink = ByteBuffer.allocate(INITIAL_HEADER_VALUE_CAPACITY);
+	private ByteBuffer headerValueSink = ByteBufferPool.acquire(INITIAL_HEADER_VALUE_CAPACITY);
 	protected boolean stripHeaderWhitespace = true; // leading and trailing ws in field-body
 	private CharsetDecoder iso8859Decoder; // lazy, for decoding header bytes
 	private boolean allowMalformedButRecoverableMultipart = false;
@@ -448,9 +450,10 @@ public class MIMEParser {
 		headerValueSink.compact();
 		if (headerValueSink.remaining() < required) {
 			int newCapacity = Math.max(headerValueSink.capacity() * 2, headerValueSink.position() + required);
-			ByteBuffer newBuf = ByteBuffer.allocate(newCapacity);
+			ByteBuffer newBuf = ByteBufferPool.acquire(newCapacity);
 			headerValueSink.flip();
 			newBuf.put(headerValueSink);
+			ByteBufferPool.release(headerValueSink);
 			headerValueSink = newBuf;
 		}
 	}
@@ -870,7 +873,8 @@ public class MIMEParser {
 	private void flushBodyContentWithDecoding(ByteBuffer source, boolean unexpected, TransferEncoding transferEncoding, boolean isBeforeBoundary, boolean endOfStream) throws MIMEParseException {
 		// Lazy allocation of decodeBuffer - only allocate when actually needed for decoding
 		if (decodeBuffer == null || decodeBuffer.capacity() < maxBufferSize) {
-			decodeBuffer = ByteBuffer.allocate(maxBufferSize);
+			ByteBufferPool.release(decodeBuffer);
+			decodeBuffer = ByteBufferPool.acquire(maxBufferSize);
 		}
 
 		boolean hasProcessedContent = false;
@@ -992,7 +996,7 @@ public class MIMEParser {
 	 */
 	private void bufferBodyContent(ByteBuffer buffer, boolean unexpected) {
 		if (pendingBodyContent == null) {
-			pendingBodyContent = ByteBuffer.allocate(INITIAL_PENDING_BODY_CAPACITY);
+			pendingBodyContent = ByteBufferPool.acquire(INITIAL_PENDING_BODY_CAPACITY);
 		}
 		ensurePendingBodyContentCapacity(buffer.remaining());
 		pendingBodyContent.put(buffer);
@@ -1009,9 +1013,10 @@ public class MIMEParser {
 		pendingBodyContent.compact();
 		if (pendingBodyContent.remaining() < required) {
 			int newCapacity = Math.max(pendingBodyContent.capacity() * 2, pendingBodyContent.position() + required);
-			ByteBuffer newBuf = ByteBuffer.allocate(newCapacity);
+			ByteBuffer newBuf = ByteBufferPool.acquire(newCapacity);
 			pendingBodyContent.flip();
 			newBuf.put(pendingBodyContent);
+			ByteBufferPool.release(pendingBodyContent);
 			pendingBodyContent = newBuf;
 		}
 	}
@@ -1034,7 +1039,8 @@ public class MIMEParser {
 	 */
 	private void clearPendingBodyContent() {
 		if (pendingBodyContent != null) {
-			pendingBodyContent.clear();
+			ByteBufferPool.release(pendingBodyContent);
+			pendingBodyContent = null;
 		}
 	}
 
@@ -1090,7 +1096,9 @@ public class MIMEParser {
 		locator.reset();
 		state = State.INIT;
 		headerName = null;
-		headerValueSink.clear();
+		ByteBufferPool.release(headerValueSink);
+		headerValueSink = ByteBufferPool.acquire(INITIAL_HEADER_VALUE_CAPACITY);
+		ByteBufferPool.release(decodeBuffer);
 		decodeBuffer = null;
 		contentFlushed = false;
 		clearPendingBodyContent();  // Clear any pending body content

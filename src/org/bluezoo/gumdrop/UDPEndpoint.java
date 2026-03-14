@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -161,7 +162,7 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * @param dest the destination address
      */
     public void sendTo(ByteBuffer data, InetSocketAddress dest) {
-        ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+        ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
         copy.put(data);
         copy.flip();
         pendingDatagrams.add(new PendingDatagram(copy, dest));

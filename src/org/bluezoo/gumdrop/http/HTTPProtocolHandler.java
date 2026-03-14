@@ -522,14 +522,17 @@ public class HTTPProtocolHandler
                 boolean streamDependencyExclusive = false;
                 int weight = 0;
                 int padLength = framePadding;
-                buf = ByteBuffer.allocate(headerTableSize);
+                buf = ByteBufferPool.acquire(headerTableSize);
                 while (!success) {
                     try {
                         hpackEncoder.encode(buf, headers);
                         success = true;
                     } catch (BufferOverflowException e) {
-                        buf = ByteBuffer.allocate(buf.capacity() + headerTableSize);
+                        ByteBuffer oldBuf = buf;
+                        buf = ByteBufferPool.acquire(buf.capacity() + headerTableSize);
+                        ByteBufferPool.release(oldBuf);
                     } catch (ProtocolException e) {
+                        ByteBufferPool.release(buf);
                         sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
                         return;
                     }
@@ -566,20 +569,28 @@ public class HTTPProtocolHandler
                     }
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error sending headers", e);
+                } finally {
+                    ByteBufferPool.release(buf);
                 }
                 break;
             default:
-                buf = ByteBuffer.allocate(headerTableSize);
+                buf = ByteBufferPool.acquire(headerTableSize);
                 while (!success) {
                     try {
                         writeStatusLineAndHeaders(buf, statusCode, headers);
                         success = true;
                     } catch (BufferOverflowException e) {
-                        buf = ByteBuffer.allocate(buf.capacity() + headerTableSize);
+                        ByteBuffer oldBuf = buf;
+                        buf = ByteBufferPool.acquire(buf.capacity() + headerTableSize);
+                        ByteBufferPool.release(oldBuf);
                     }
                 }
                 buf.flip();
-                send(buf);
+                try {
+                    send(buf);
+                } finally {
+                    ByteBufferPool.release(buf);
+                }
         }
     }
 
@@ -667,7 +678,11 @@ public class HTTPProtocolHandler
                 h2FlowControl.consumeSendWindow(streamId, headRemaining);
                 available -= headRemaining;
                 boolean fin = pending.endStream && pending.isEmpty();
-                sendH2DataDirect(streamId, head, fin);
+                try {
+                    sendH2DataDirect(streamId, head, fin);
+                } finally {
+                    ByteBufferPool.release(head);
+                }
             } else {
                 h2FlowControl.consumeSendWindow(streamId, available);
                 int savedLimit = head.limit();
@@ -706,7 +721,7 @@ public class HTTPProtocolHandler
     // RFC 9113 section 5.4.2: stream errors are signaled with RST_STREAM
     @Override
     public void sendRstStream(int streamId, int errorCode) {
-        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + 4);
+        ByteBuffer buf = ByteBufferPool.acquire(FRAME_HEADER_LENGTH + 4);
         buf.put((byte) 0);
         buf.put((byte) 0);
         buf.put((byte) 4);
@@ -715,7 +730,11 @@ public class HTTPProtocolHandler
         buf.putInt(streamId);
         buf.putInt(errorCode);
         buf.flip();
-        send(buf);
+        try {
+            send(buf);
+        } finally {
+            ByteBufferPool.release(buf);
+        }
     }
 
     // RFC 9113 section 5.4.1: connection errors are signaled with GOAWAY
@@ -766,7 +785,7 @@ public class HTTPProtocolHandler
                 ? debugMessage.getBytes(java.nio.charset.StandardCharsets.UTF_8)
                 : new byte[0];
         int payloadLength = 8 + debugData.length;
-        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + payloadLength);
+        ByteBuffer buf = ByteBufferPool.acquire(FRAME_HEADER_LENGTH + payloadLength);
         buf.put((byte) ((payloadLength >> 16) & 0xff));
         buf.put((byte) ((payloadLength >> 8) & 0xff));
         buf.put((byte) (payloadLength & 0xff));
@@ -779,7 +798,11 @@ public class HTTPProtocolHandler
             buf.put(debugData);
         }
         buf.flip();
-        send(buf);
+        try {
+            send(buf);
+        } finally {
+            ByteBufferPool.release(buf);
+        }
     }
 
     @Override
@@ -861,12 +884,16 @@ public class HTTPProtocolHandler
             if (hpackEncoder == null) {
                 hpackEncoder = new Encoder(headerTableSize, maxHeaderListSize);
             }
-            ByteBuffer buffer = ByteBuffer.allocate(HPACK_ENCODE_BUFFER_SIZE);
-            hpackEncoder.encode(buffer, headers);
-            buffer.flip();
-            byte[] encoded = new byte[buffer.remaining()];
-            buffer.get(encoded);
-            return encoded;
+            ByteBuffer buffer = ByteBufferPool.acquire(HPACK_ENCODE_BUFFER_SIZE);
+            try {
+                hpackEncoder.encode(buffer, headers);
+                buffer.flip();
+                byte[] encoded = new byte[buffer.remaining()];
+                buffer.get(encoded);
+                return encoded;
+            } finally {
+                ByteBufferPool.release(buffer);
+            }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Failed to encode headers using HPACK", e);
             return new byte[0];
@@ -1025,7 +1052,7 @@ public class HTTPProtocolHandler
 
     // RFC 9113 section 6.7: send a PING frame (non-ACK)
     private void sendPingFrame(long opaqueData) {
-        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + 8);
+        ByteBuffer buf = ByteBufferPool.acquire(FRAME_HEADER_LENGTH + 8);
         buf.put((byte) 0);
         buf.put((byte) 0);
         buf.put((byte) 8);
@@ -1034,7 +1061,11 @@ public class HTTPProtocolHandler
         buf.putInt(0);
         buf.putLong(opaqueData);
         buf.flip();
-        send(buf);
+        try {
+            send(buf);
+        } finally {
+            ByteBufferPool.release(buf);
+        }
     }
 
     private void cancelPingKeepAlive() {
@@ -1652,7 +1683,7 @@ public class HTTPProtocolHandler
 
     private void sendSettingsFrame(boolean ack, Map<Integer, Integer> settings) {
         int payloadLength = ack ? 0 : settings.size() * 6;
-        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + payloadLength);
+        ByteBuffer buf = ByteBufferPool.acquire(FRAME_HEADER_LENGTH + payloadLength);
         buf.put((byte) ((payloadLength >> 16) & 0xff));
         buf.put((byte) ((payloadLength >> 8) & 0xff));
         buf.put((byte) (payloadLength & 0xff));
@@ -1672,7 +1703,11 @@ public class HTTPProtocolHandler
             }
         }
         buf.flip();
-        send(buf);
+        try {
+            send(buf);
+        } finally {
+            ByteBufferPool.release(buf);
+        }
     }
 
     private void sendSettingsAck() {
@@ -1703,7 +1738,7 @@ public class HTTPProtocolHandler
     }
 
     private void sendPingAck(long opaqueData) {
-        ByteBuffer buf = ByteBuffer.allocate(FRAME_HEADER_LENGTH + 8);
+        ByteBuffer buf = ByteBufferPool.acquire(FRAME_HEADER_LENGTH + 8);
         buf.put((byte) 0);
         buf.put((byte) 0);
         buf.put((byte) 8);
@@ -1712,7 +1747,11 @@ public class HTTPProtocolHandler
         buf.putInt(0);
         buf.putLong(opaqueData);
         buf.flip();
-        send(buf);
+        try {
+            send(buf);
+        } finally {
+            ByteBufferPool.release(buf);
+        }
     }
 
     private void appendHeaderValue(String l) {
@@ -2259,7 +2298,11 @@ public class HTTPProtocolHandler
                 ByteBuffer copy = ByteBufferPool.acquire(written);
                 copy.put(src);
                 copy.flip();
-                send(copy);
+                try {
+                    send(copy);
+                } finally {
+                    ByteBufferPool.release(copy);
+                }
             }
             return written;
         }

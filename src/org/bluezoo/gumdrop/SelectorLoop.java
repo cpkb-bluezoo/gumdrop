@@ -39,6 +39,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.quic.QuicEngine;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 /**
  * Worker selector loop for handling I/O events.
@@ -425,6 +426,7 @@ public class SelectorLoop implements Runnable {
                     endpoint.pendingDatagrams.addFirst(pending);
                     return;
                 }
+                ByteBufferPool.release(data);
             }
 
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);

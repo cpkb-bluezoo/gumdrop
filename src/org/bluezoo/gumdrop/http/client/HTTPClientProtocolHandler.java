@@ -311,9 +311,10 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 close();
                 return;
             }
-            ByteBuffer newBuffer = ByteBuffer.allocate(newSize);
+            ByteBuffer newBuffer = ByteBufferPool.acquire(newSize);
             parseBuffer.flip();
             newBuffer.put(parseBuffer);
+            ByteBufferPool.release(parseBuffer);
             parseBuffer = newBuffer;
         }
         parseBuffer.put(data);
@@ -934,7 +935,7 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             }
         }
 
-        ByteBuffer buffer = ByteBuffer.allocate(headerTableSize);
+        ByteBuffer buffer = ByteBufferPool.acquire(headerTableSize);
         boolean success = false;
 
         while (!success) {
@@ -943,7 +944,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 hpackEncoder.encode(buffer, headerList);
                 success = true;
             } catch (BufferOverflowException e) {
-                buffer = ByteBuffer.allocate(buffer.capacity() * 2);
+                ByteBuffer oldBuffer = buffer;
+                buffer = ByteBufferPool.acquire(buffer.capacity() * 2);
+                ByteBufferPool.release(oldBuffer);
             }
         }
 
@@ -1333,13 +1336,17 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
 
             if (toRead > 0) {
                 if (responseHandler != null) {
-                    ByteBuffer bodyData = ByteBuffer.allocate(toRead);
+                    ByteBuffer bodyData = ByteBufferPool.acquire(toRead);
                     int oldLimit = parseBuffer.limit();
                     parseBuffer.limit(parseBuffer.position() + toRead);
                     bodyData.put(parseBuffer);
                     parseBuffer.limit(oldLimit);
                     bodyData.flip();
-                    responseHandler.responseBodyContent(bodyData);
+                    try {
+                        responseHandler.responseBodyContent(bodyData);
+                    } finally {
+                        ByteBufferPool.release(bodyData);
+                    }
                 } else {
                     parseBuffer.position(parseBuffer.position() + toRead);
                 }
@@ -1361,10 +1368,14 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             }
         } else {
             if (responseHandler != null && parseBuffer.hasRemaining()) {
-                ByteBuffer bodyData = ByteBuffer.allocate(parseBuffer.remaining());
+                ByteBuffer bodyData = ByteBufferPool.acquire(parseBuffer.remaining());
                 bodyData.put(parseBuffer);
                 bodyData.flip();
-                responseHandler.responseBodyContent(bodyData);
+                try {
+                    responseHandler.responseBodyContent(bodyData);
+                } finally {
+                    ByteBufferPool.release(bodyData);
+                }
             } else if (discardingBody) {
                 parseBuffer.position(parseBuffer.limit());
             }
@@ -1422,13 +1433,17 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
 
         if (toRead > 0) {
             if (responseHandler != null) {
-                ByteBuffer bodyData = ByteBuffer.allocate(toRead);
+                ByteBuffer bodyData = ByteBufferPool.acquire(toRead);
                 int oldLimit = parseBuffer.limit();
                 parseBuffer.limit(parseBuffer.position() + toRead);
                 bodyData.put(parseBuffer);
                 parseBuffer.limit(oldLimit);
                 bodyData.flip();
-                responseHandler.responseBodyContent(bodyData);
+                try {
+                    responseHandler.responseBodyContent(bodyData);
+                } finally {
+                    ByteBufferPool.release(bodyData);
+                }
             } else {
                 parseBuffer.position(parseBuffer.position() + toRead);
             }
@@ -2445,7 +2460,7 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
 
         void enqueue(ByteBuffer data, boolean fin) {
             if (data.hasRemaining()) {
-                ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+                ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
                 copy.put(data);
                 copy.flip();
                 buffers.add(copy);
@@ -2460,7 +2475,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         }
 
         void reset() {
-            buffers.clear();
+            while (!buffers.isEmpty()) {
+                ByteBufferPool.release(buffers.poll());
+            }
             endStream = false;
         }
     }
@@ -2514,6 +2531,8 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error draining pending data", e);
                     return;
+                } finally {
+                    ByteBufferPool.release(head);
                 }
             } else {
                 h2FlowControl.consumeSendWindow(streamId, toSend);
@@ -2596,6 +2615,8 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 }
                 activeStreams.remove(streamId);
                 streamIdByRequest.remove(request);
+            } finally {
+                ByteBufferPool.release(headerBlock);
             }
         }
     }
@@ -2648,6 +2669,8 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             } catch (IOException e) {
                 String msg = endStream ? "Error ending HTTP/2 stream" : "Error sending HTTP/2 data";
                 LOGGER.log(Level.WARNING, msg, e);
+            } finally {
+                ByteBufferPool.release(data);
             }
         }
     }

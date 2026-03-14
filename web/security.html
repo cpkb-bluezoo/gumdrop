@@ -40,6 +40,13 @@ including identity and access management, rate limiting, and transport security.
 
 <h3>Contents</h3>
 <ul>
+<li><a href="#tls">Transport Layer Security</a>
+  <ul>
+  <li><a href="#tls-certificates">TLS Certificates for Local Development</a></li>
+  <li><a href="#quic-tls">QUIC / HTTP/3 Certificate Requirements</a></li>
+  <li><a href="#sni">SNI (Server Name Indication)</a></li>
+  </ul>
+</li>
 <li><a href="#iam">Identity and Access Management (IAM)</a>
   <ul>
   <li><a href="#realm">The Realm Interface</a></li>
@@ -55,14 +62,300 @@ including identity and access management, rate limiting, and transport security.
   <li><a href="#cidr">Network Filtering (CIDR)</a></li>
   </ul>
 </li>
-<li><a href="#tls">Transport Layer Security</a>
-  <ul>
-  <li><a href="#quic-tls">QUIC / HTTP/3 Certificate Requirements</a></li>
-  <li><a href="#sni">SNI (Server Name Indication)</a></li>
-  </ul>
-</li>
 <li><a href="#telemetry-security">Security Telemetry</a></li>
 </ul>
+
+<h2 id="tls">Transport Layer Security</h2>
+
+<p>
+All Gumdrop servers support TLS for encrypted connections. For TCP-based
+protocols (HTTP/1.x, HTTP/2, SMTP, IMAP, POP3, FTP), Gumdrop uses the JVM's
+built-in <code>SSLEngine</code> and standard Java keystores (PKCS#12, JKS).
+QUIC/HTTP/3 uses a separate TLS stack (BoringSSL via quiche) with different
+certificate requirements, described <a href="#quic-tls">below</a>.
+</p>
+
+<h3 id="tls-certificates">TLS Certificates for Local Development</h3>
+
+<p>
+The HTTPS listener requires a PKCS#12 keystore and the HTTP/3 (QUIC)
+listener requires PEM certificate and key files (see
+<a href="#quic-tls">QUIC / HTTP/3 Certificate Requirements</a> for details on
+why these differ). These are not checked in to the repository; you must
+generate them before running the server.
+</p>
+
+<p>
+The easiest way for local development is
+<a href="https://github.com/FiloSottile/mkcert">mkcert</a>, which creates
+certificates trusted by your browser:
+</p>
+
+<pre>
+# One-time: install the local CA into your system trust store
+mkcert -install
+
+# Generate certificate and key for localhost into etc/
+mkcert -cert-file etc/localhost+2.pem -key-file etc/localhost+2-key.pem \
+    localhost 127.0.0.1 ::1
+</pre>
+
+<p>
+This produces <code>etc/localhost+2.pem</code> and <code>etc/localhost+2-key.pem</code>.
+Then generate a PKCS#12 keystore from the same certificate for the HTTPS
+listener:
+</p>
+
+<pre>
+openssl pkcs12 -export -in etc/localhost+2.pem -inkey etc/localhost+2-key.pem \
+    -out etc/localhost+2.p12 -name localhost -passout pass:changeit
+</pre>
+
+<p>
+The configuration files in <code>etc/</code> reference these by filename (e.g.
+<code>localhost+2.p12</code>); they are not checked in to the repository.
+</p>
+
+<h3>TCP/TLS Configuration</h3>
+
+<h4>Implicit TLS</h4>
+
+<p>
+Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
+</p>
+
+<pre>
+&lt;service id="imaps" class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
+        &lt;property name="port"&gt;993&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>STARTTLS</h4>
+
+<p>
+Connection starts unencrypted and upgrades to TLS on client request:
+</p>
+
+<pre>
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+        &lt;property name="port"&gt;25&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+        &lt;!-- Advertises STARTTLS capability --&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>Client Certificate Authentication (mTLS)</h4>
+
+<p>
+Servers can require or request client certificates for mutual TLS (mTLS):
+</p>
+
+<pre>
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+        &lt;property name="need-client-auth"&gt;true&lt;/property&gt;
+        &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
+        &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4 id="sni">SNI (Server Name Indication)</h4>
+
+<p>
+SNI allows a server to present different certificates based on the hostname
+the client requests during the TLS handshake. This enables hosting multiple
+secure domains on a single IP address and port.
+</p>
+
+<pre>
+&lt;service id="https" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;property name="port"&gt;443&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;multi-domain.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+        &lt;property name="sni-hostnames"&gt;
+            &lt;map&gt;
+                &lt;entry key="example.com" value="example-cert"/&gt;
+                &lt;entry key="*.example.com" value="example-wildcard"/&gt;
+                &lt;entry key="other.com" value="other-cert"/&gt;
+            &lt;/map&gt;
+        &lt;/property&gt;
+        &lt;property name="sni-default-alias"&gt;default-cert&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+The <code>sniHostnames</code> map specifies hostname-to-certificate-alias mappings.
+Hostnames can be exact (<code>example.com</code>) or wildcard patterns
+(<code>*.example.com</code>). The keystore must contain certificates with the
+specified aliases. If no match is found, <code>sniDefaultAlias</code> is used.
+</p>
+
+<h3 id="quic-tls">QUIC / HTTP/3 Certificate Requirements</h3>
+
+<p>
+QUIC mandates TLS 1.3 &mdash; there is no unencrypted mode and no STARTTLS
+upgrade. The TLS handshake is integrated into the QUIC connection establishment,
+so every QUIC connection is encrypted from the first packet.
+</p>
+
+<p>
+Because Gumdrop's QUIC implementation uses <b>BoringSSL</b> (via the quiche
+library) rather than the JVM's <code>SSLEngine</code>, its certificate
+configuration differs from TCP-based listeners:
+</p>
+
+<table border="1" cellpadding="5">
+<tr>
+  <th></th>
+  <th>TCP/TLS (HTTP/1.x, HTTP/2, SMTP, etc.)</th>
+  <th>QUIC (HTTP/3)</th>
+</tr>
+<tr>
+  <td><b>TLS implementation</b></td>
+  <td>JVM SSLEngine</td>
+  <td>BoringSSL (via quiche)</td>
+</tr>
+<tr>
+  <td><b>Certificate format</b></td>
+  <td>Java keystore (PKCS#12, JKS)</td>
+  <td>PEM files</td>
+</tr>
+<tr>
+  <td><b>Certificate property</b></td>
+  <td><code>keystore-file</code></td>
+  <td><code>cert-file</code>, <code>key-file</code></td>
+</tr>
+<tr>
+  <td><b>Password</b></td>
+  <td><code>keystore-pass</code> (keystore password)</td>
+  <td>N/A (key file is unencrypted)</td>
+</tr>
+<tr>
+  <td><b>TLS versions</b></td>
+  <td>TLS 1.0 &ndash; 1.3 (configurable)</td>
+  <td>TLS 1.3 only (QUIC requirement)</td>
+</tr>
+</table>
+
+<h4>PEM File Format</h4>
+
+<p>
+QUIC listeners require certificates and keys in PEM format &mdash; Java keystores
+(PKCS#12, JKS) are <b>not</b> supported. The certificate file must contain the
+full certificate chain (server certificate followed by any intermediate CA
+certificates). The private key file must be unencrypted PEM (PKCS#8 or
+traditional format).
+</p>
+
+<h4>Generating PEM Certificates</h4>
+
+<p>
+For development, <a href="https://github.com/FiloSottile/mkcert">mkcert</a>
+generates locally-trusted PEM certificates. See
+<a href="#tls-certificates">TLS Certificates for Local Development</a> above for
+the complete setup including the PKCS#12 keystore required for HTTPS.
+</p>
+
+<p>
+For production, most certificate authorities (Let's Encrypt, etc.) issue PEM
+files directly. If you already have a Java keystore, you can export to PEM:
+</p>
+
+<pre>
+# Extract certificate chain
+keytool -exportcert -alias myalias -keystore keystore.p12 \
+    -storepass secret -rfc -file cert.pem
+
+# Extract private key (via PKCS#12 + OpenSSL)
+openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
+</pre>
+
+<h4>Example: Co-located HTTPS and HTTP/3 Listeners</h4>
+
+<p>
+A typical deployment shares the same port (443 or 8443) between an HTTPS
+listener on TCP and an HTTP/3 listener on UDP. Because they use different TLS
+stacks, they require separate certificate configurations:
+</p>
+
+<pre>
+&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+    &lt;property name="container" ref="#mainContainer"/&gt;
+
+    &lt;!-- HTTPS on TCP (Java SSLEngine, PKCS#12 keystore) --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;property name="port"&gt;8443&lt;/property&gt;
+        &lt;property name="secure"&gt;true&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;/listener&gt;
+
+    &lt;!-- HTTP/3 on UDP (BoringSSL, PEM files) --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+        &lt;property name="port"&gt;8443&lt;/property&gt;
+        &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
+        &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+Both listeners must present the <b>same certificate identity</b> (same
+subject/SAN) to avoid browser warnings when upgrading from HTTP/2 to HTTP/3.
+The browser discovers HTTP/3 support via the <code>Alt-Svc</code> response
+header on the initial HTTP/2 connection and will only attempt QUIC if the
+certificate matches.
+</p>
+
+<h4>Cipher Suite and Named Group Configuration</h4>
+
+<p>
+QUIC listeners support BoringSSL cipher suite and named group configuration:
+</p>
+
+<pre>
+&lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
+    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+    &lt;property name="cipher-suites"&gt;TLS_AES_256_GCM_SHA384&lt;/property&gt;
+    &lt;property name="named-groups"&gt;X25519&lt;/property&gt;
+&lt;/listener&gt;
+</pre>
+
+<p>
+The default cipher suites are BoringSSL's defaults (AES-128-GCM and
+AES-256-GCM with SHA-256/384). The default named group is X25519.
+</p>
+
+<h3 id="cert-pinning">Certificate Pinning</h3>
+
+<p>
+<code>PinnedCertTrustManager</code> wraps an <code>X509TrustManager</code> and
+validates server certificates against a set of SHA-256 fingerprints. If the
+presented certificate does not match any pinned fingerprint, the TLS handshake
+is rejected.
+</p>
+
+<p>
+All client classes support certificate pinning via
+<code>setTrustManager(X509TrustManager)</code>:
+<code>HTTPClient</code>, <code>SMTPClient</code>, <code>IMAPClient</code>,
+<code>POP3Client</code>, <code>WebSocketClient</code>, <code>RedisClient</code>,
+<code>LDAPClient</code>.
+</p>
 
 <h2 id="iam">Identity and Access Management (IAM)</h2>
 
@@ -335,6 +628,14 @@ GSSAPIServer gss = new GSSAPIServer(
 imapListener.setGSSAPIServer(gss);
 </pre>
 
+<p>gumdroprc XML configuration:</p>
+<pre>
+&lt;service id="imap" class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
+    &lt;property name="gssapiKeytab" value="/etc/krb5.keytab"/&gt;
+    &lt;property name="gssapiPrincipal" value="imap/mail.example.com@EXAMPLE.COM"/&gt;
+&lt;/service&gt;
+</pre>
+
 <p>
 After successful GSSAPI authentication, the authenticated Kerberos principal
 (e.g. <code>user@EXAMPLE.COM</code>) is mapped to a local username via the
@@ -522,270 +823,6 @@ SMTP servers support CIDR-based network filtering for allow/block lists:
 <p>
 Blocked networks are checked first, then allowed networks. If allowed networks
 are configured, only connections from those networks are accepted.
-</p>
-
-<h2 id="tls">Transport Layer Security</h2>
-
-<p>
-All Gumdrop servers support TLS for encrypted connections. For TCP-based
-protocols (HTTP/1.x, HTTP/2, SMTP, IMAP, POP3, FTP), Gumdrop uses the JVM's
-built-in <code>SSLEngine</code> and standard Java keystores (PKCS#12, JKS).
-QUIC/HTTP/3 uses a separate TLS stack (BoringSSL via quiche) with different
-certificate requirements, described <a href="#quic-tls">below</a>.
-</p>
-
-<h3>TCP/TLS Configuration</h3>
-
-<h4>Implicit TLS</h4>
-
-<p>
-Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
-</p>
-
-<pre>
-&lt;service id="imaps" class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
-        &lt;property name="port"&gt;993&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
-</pre>
-
-<h4>STARTTLS</h4>
-
-<p>
-Connection starts unencrypted and upgrades to TLS on client request:
-</p>
-
-<pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
-        &lt;property name="port"&gt;25&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-        &lt;!-- Advertises STARTTLS capability --&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
-</pre>
-
-<h4>Client Certificate Authentication</h4>
-
-<p>
-Servers can require or request client certificates:
-</p>
-
-<pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
-        &lt;property name="need-client-auth"&gt;true&lt;/property&gt;
-        &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
-        &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
-</pre>
-
-<h4 id="sni">SNI (Server Name Indication)</h4>
-
-<p>
-SNI allows a server to present different certificates based on the hostname
-the client requests during the TLS handshake. This enables hosting multiple
-secure domains on a single IP address and port.
-</p>
-
-<pre>
-&lt;service id="https" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-        &lt;property name="port"&gt;443&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;multi-domain.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-        &lt;property name="sni-hostnames"&gt;
-            &lt;map&gt;
-                &lt;entry key="example.com" value="example-cert"/&gt;
-                &lt;entry key="*.example.com" value="example-wildcard"/&gt;
-                &lt;entry key="other.com" value="other-cert"/&gt;
-            &lt;/map&gt;
-        &lt;/property&gt;
-        &lt;property name="sni-default-alias"&gt;default-cert&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
-</pre>
-
-<p>
-The <code>sniHostnames</code> map specifies hostname-to-certificate-alias mappings.
-Hostnames can be exact (<code>example.com</code>) or wildcard patterns
-(<code>*.example.com</code>). The keystore must contain certificates with the
-specified aliases. If no match is found, <code>sniDefaultAlias</code> is used.
-</p>
-
-<h3 id="quic-tls">QUIC / HTTP/3 Certificate Requirements</h3>
-
-<p>
-QUIC mandates TLS 1.3 &mdash; there is no unencrypted mode and no STARTTLS
-upgrade. The TLS handshake is integrated into the QUIC connection establishment,
-so every QUIC connection is encrypted from the first packet.
-</p>
-
-<p>
-Because Gumdrop's QUIC implementation uses <b>BoringSSL</b> (via the quiche
-library) rather than the JVM's <code>SSLEngine</code>, its certificate
-configuration differs from TCP-based listeners:
-</p>
-
-<table border="1" cellpadding="5">
-<tr>
-  <th></th>
-  <th>TCP/TLS (HTTP/1.x, HTTP/2, SMTP, etc.)</th>
-  <th>QUIC (HTTP/3)</th>
-</tr>
-<tr>
-  <td><b>TLS implementation</b></td>
-  <td>Java <code>SSLEngine</code> (JSSE)</td>
-  <td>BoringSSL (via quiche JNI)</td>
-</tr>
-<tr>
-  <td><b>Certificate format</b></td>
-  <td>Java keystore (PKCS#12, JKS)</td>
-  <td><b>PEM files only</b></td>
-</tr>
-<tr>
-  <td><b>Certificate property</b></td>
-  <td><code>keystore-file</code></td>
-  <td><code>cert-file</code></td>
-</tr>
-<tr>
-  <td><b>Private key property</b></td>
-  <td><code>keystore-pass</code> (keystore password)</td>
-  <td><code>key-file</code> (separate PEM file)</td>
-</tr>
-<tr>
-  <td><b>CA / trust store</b></td>
-  <td><code>truststore-file</code> (PKCS#12 / JKS)</td>
-  <td><code>ca-file</code> (PEM)</td>
-</tr>
-<tr>
-  <td><b>TLS versions</b></td>
-  <td>TLS 1.0 &ndash; 1.3 (configurable)</td>
-  <td>TLS 1.3 only (QUIC requirement)</td>
-</tr>
-<tr>
-  <td><b>Unencrypted mode</b></td>
-  <td>Yes (optional)</td>
-  <td>No &mdash; always encrypted</td>
-</tr>
-</table>
-
-<h4>PEM File Format</h4>
-
-<p>
-QUIC listeners require certificates and keys in PEM format &mdash; Java keystores
-(PKCS#12, JKS) are <b>not</b> supported. The certificate file must contain the
-full certificate chain (server certificate followed by any intermediate CA
-certificates). The private key file must be unencrypted PEM (PKCS#8 or
-traditional format).
-</p>
-
-<h4>Generating PEM Certificates</h4>
-
-<p>
-For development, <a href="https://github.com/FiloSottile/mkcert">mkcert</a>
-generates locally-trusted PEM certificates:
-</p>
-
-<pre>
-mkcert -install                  # one-time CA setup
-mkcert localhost 127.0.0.1 ::1   # generates localhost+2.pem and localhost+2-key.pem
-</pre>
-
-<p>
-For production, most certificate authorities (Let's Encrypt, etc.) issue PEM
-files directly. If you already have a Java keystore, you can export to PEM:
-</p>
-
-<pre>
-# Extract certificate chain
-keytool -exportcert -alias myalias -keystore keystore.p12 \
-    -storepass secret -rfc -file cert.pem
-
-# Extract private key (via PKCS#12 + OpenSSL)
-openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
-</pre>
-
-<h4>Example: Co-located HTTPS and HTTP/3 Listeners</h4>
-
-<p>
-A typical deployment shares the same port (443 or 8443) between an HTTPS
-listener on TCP and an HTTP/3 listener on UDP. Because they use different TLS
-stacks, they require separate certificate configurations:
-</p>
-
-<pre>
-&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-    &lt;property name="container" ref="#mainContainer"/&gt;
-
-    &lt;!-- HTTPS on TCP (Java SSLEngine, PKCS#12 keystore) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-        &lt;property name="port"&gt;8443&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-
-    &lt;!-- HTTP/3 on UDP (BoringSSL, PEM files) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
-        &lt;property name="port"&gt;8443&lt;/property&gt;
-        &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-        &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
-</pre>
-
-<p>
-Both listeners must present the <b>same certificate identity</b> (same
-subject/SAN) to avoid browser warnings when upgrading from HTTP/2 to HTTP/3.
-The browser discovers HTTP/3 support via the <code>Alt-Svc</code> response
-header on the initial HTTP/2 connection and will only attempt QUIC if the
-certificate matches.
-</p>
-
-<h4>Cipher Suite and Named Group Configuration</h4>
-
-<p>
-QUIC listeners support BoringSSL cipher suite and named group configuration:
-</p>
-
-<pre>
-&lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
-    &lt;property name="cipher-suites"&gt;TLS_AES_256_GCM_SHA384&lt;/property&gt;
-    &lt;property name="named-groups"&gt;X25519&lt;/property&gt;
-&lt;/listener&gt;
-</pre>
-
-<p>
-The default cipher suites are BoringSSL's defaults (AES-128-GCM and
-AES-256-GCM with SHA-256/384). The default named group is X25519.
-</p>
-
-<h3 id="cert-pinning">Certificate Pinning</h3>
-
-<p>
-<code>PinnedCertTrustManager</code> wraps an <code>X509TrustManager</code> and
-validates server certificates against a set of SHA-256 fingerprints. If the
-presented certificate does not match any pinned fingerprint, the TLS handshake
-is rejected.
-</p>
-
-<p>
-All client classes support certificate pinning via
-<code>setTrustManager(X509TrustManager)</code>:
-<code>HTTPClient</code>, <code>SMTPClient</code>, <code>IMAPClient</code>,
-<code>POP3Client</code>, <code>WebSocketClient</code>, <code>RedisClient</code>,
-<code>LDAPClient</code>.
 </p>
 
 <h2 id="telemetry-security">Security Telemetry</h2>

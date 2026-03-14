@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -336,14 +337,15 @@ class Stream implements HTTPResponseState {
     void appendHeaderBlockFragment(ByteBuffer hbf) {
         int hbfLength = hbf.remaining();
         if (headerBlock == null) {
-            headerBlock = ByteBuffer.allocate(Math.max(HEADER_BLOCK_INITIAL_SIZE, hbfLength));
+            headerBlock = ByteBufferPool.acquire(Math.max(HEADER_BLOCK_INITIAL_SIZE, hbfLength));
         } else if (headerBlock.remaining() < hbfLength) {
             // Grow by at least 2x or enough for new data
             int newCapacity = Math.max(headerBlock.capacity() * 2, 
                                        headerBlock.position() + hbfLength);
-            ByteBuffer newHeaderBlock = ByteBuffer.allocate(newCapacity);
+            ByteBuffer newHeaderBlock = ByteBufferPool.acquire(newCapacity);
             headerBlock.flip();
             newHeaderBlock.put(headerBlock);
+            ByteBufferPool.release(headerBlock);
             headerBlock = newHeaderBlock;
         }
         headerBlock.put(hbf);
@@ -377,9 +379,12 @@ class Stream implements HTTPResponseState {
                 // be treated as a connection error of type COMPRESSION_ERROR
                 LOGGER.log(Level.WARNING, 
                     "HPACK decompression error", e);
+                ByteBufferPool.release(headerBlock);
+                headerBlock = null;
                 connection.sendGoaway(H2FrameHandler.ERROR_COMPRESSION_ERROR);
                 return;
             }
+            ByteBufferPool.release(headerBlock);
             headerBlock = null;
         }
         // RFC 9113 section 8.2: validate pseudo-headers and
@@ -905,7 +910,11 @@ class Stream implements HTTPResponseState {
         if (responseChunked) {
             // RFC 9112 section 7.1: chunk-size CRLF chunk-data CRLF
             ByteBuffer toSend = formatChunkedBody(buf, endStream);
-            connection.sendResponseBody(streamId, toSend, endStream);
+            try {
+                connection.sendResponseBody(streamId, toSend, endStream);
+            } finally {
+                ByteBufferPool.release(toSend);
+            }
         } else {
             connection.sendResponseBody(streamId, buf, endStream);
         }
@@ -925,7 +934,7 @@ class Stream implements HTTPResponseState {
             totalLen += sizeHex.length() + 2 + dataLen + 2;  // size CRLF data CRLF
         }
         totalLen += trailerLen;
-        ByteBuffer out = ByteBuffer.allocate(totalLen);
+        ByteBuffer out = ByteBufferPool.acquire(totalLen);
         if (dataLen > 0) {
             String sizeHex = Integer.toHexString(dataLen);
             out.put(sizeHex.getBytes(StandardCharsets.US_ASCII));

@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.redis.codec;
 
+import org.bluezoo.gumdrop.util.ByteBufferPool;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -91,7 +93,7 @@ public class RESPDecoder {
      * @param initialCapacity the initial buffer capacity
      */
     public RESPDecoder(int initialCapacity) {
-        this.buffer = ByteBuffer.allocate(initialCapacity);
+        this.buffer = ByteBufferPool.acquire(initialCapacity);
         this.buffer.flip(); // Start in read mode with no data
         this.parsePosition = 0;
     }
@@ -117,11 +119,12 @@ public class RESPDecoder {
             while (newCapacity < needed) {
                 newCapacity = newCapacity * 2;
             }
-            ByteBuffer newBuffer = ByteBuffer.allocate(newCapacity);
+            ByteBuffer newBuffer = ByteBufferPool.acquire(newCapacity);
             // Copy unread data to new buffer
             newBuffer.put(buffer);
             newBuffer.put(data);
             newBuffer.flip();
+            ByteBufferPool.release(buffer);
             buffer = newBuffer;
             parsePosition = 0;
         } else if (buffer.position() > 0 && parsePosition > 0) {
