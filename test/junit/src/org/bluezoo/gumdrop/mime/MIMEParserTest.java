@@ -356,6 +356,22 @@ public class MIMEParserTest {
         parser.setHandler(handler);
         parse(parser, content);
     }
+
+    @Test(expected = HeaderValueTooLongException.class)
+    public void testHeaderValueTooLong() throws MIMEParseException {
+        // Folded header value exceeds maxHeaderValueSize (50 bytes)
+        MIMEParser parser = new MIMEParser();
+        parser.setMaxHeaderValueSize(50);
+        parser.setHandler(new TestHandler());
+        // First line: "X: " + 49 chars = 49-byte value; continuation adds 6 more -> 55 > 50
+        StringBuilder sb = new StringBuilder();
+        sb.append("X: ");
+        for (int i = 0; i < 49; i++) {
+            sb.append('a');
+        }
+        sb.append("\r\n aaaaa\r\n\r\n");
+        parse(parser, sb.toString());
+    }
     
     @Test
     public void testReset() throws MIMEParseException {

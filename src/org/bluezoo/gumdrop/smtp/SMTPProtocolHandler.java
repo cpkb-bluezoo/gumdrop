@@ -64,6 +64,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
+import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddressParser;
 import org.bluezoo.gumdrop.smtp.handler.AuthenticateState;
@@ -690,7 +691,9 @@ public class SMTPProtocolHandler
                 dataTransferRejected = true;
                 dataTransferRejectionMessage = (cause instanceof HeaderLineTooLongException)
                     ? L10N.getString("smtp.err.header_line_too_long")
-                    : L10N.getString("smtp.err.syntax_error");
+                    : (cause instanceof HeaderValueTooLongException)
+                        ? L10N.getString("smtp.err.header_value_too_long")
+                        : L10N.getString("smtp.err.syntax_error");
                 LOGGER.log(Level.WARNING, "Error writing to pipeline", e);
             }
         }

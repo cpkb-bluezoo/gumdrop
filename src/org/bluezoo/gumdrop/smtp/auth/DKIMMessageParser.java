@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.smtp.auth;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -33,6 +34,7 @@ import java.util.Map;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
+import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
 
@@ -355,9 +357,19 @@ public class DKIMMessageParser extends MessageParser {
 
     /**
      * Appends raw bytes from the buffer to the current header accumulator.
+     * @throws HeaderValueTooLongException if adding these bytes would exceed maxHeaderValueSize
      */
-    private void appendRawBytes(ByteBuffer buffer, int start, int end) {
+    private void appendRawBytes(ByteBuffer buffer, int start, int end) throws MIMEParseException {
         int length = end - start;
+        int currentSize = currentHeaderBytes.size();
+        if (currentSize + length > getMaxHeaderValueSize()) {
+            throw new HeaderValueTooLongException(
+                MessageFormat.format(
+                    ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N")
+                        .getString("err.header_value_too_long"),
+                    Integer.valueOf(getMaxHeaderValueSize())),
+                locator);
+        }
         byte[] bytes = new byte[length];
         int savedPos = buffer.position();
         buffer.position(start);

@@ -157,6 +157,9 @@ public class MIMEParser {
 	private static final int INITIAL_HEADER_VALUE_CAPACITY = 1024;
 	private static final int INITIAL_PENDING_BODY_CAPACITY = 4096;
 
+	/** Default max unfolded header value size (32 KB), per Gmail/Exchange practice. */
+	private static final int DEFAULT_MAX_HEADER_VALUE_SIZE = 32 * 1024;
+
 	protected MIMEHandler handler; // event sink
 	protected MIMEParserLocator locator;
 	private State state = State.INIT; // current parser state
@@ -169,6 +172,7 @@ public class MIMEParser {
 	private boolean allowMalformedButRecoverableMultipart = false;
 	private boolean allowMalformed = false; // allow malformed structures (line endings, boundaries, etc.)
 	private int maxBufferSize = 4096;
+	private int maxHeaderValueSize = DEFAULT_MAX_HEADER_VALUE_SIZE;
 	private ByteBuffer decodeBuffer;  // Lazy allocated when needed for decoding
 	private boolean contentFlushed; // manage state for content flushing
 	private ByteBuffer pendingBodyContent; // Buffer for deferred body content flushing (null until first use)
@@ -213,6 +217,27 @@ public class MIMEParser {
 			throw new IllegalArgumentException(L10N.getString("err.max_buffer_size_not_positive"));
 		}
 		this.maxBufferSize = maxBufferSize;
+	}
+
+	/**
+	 * Gets the maximum unfolded header value size in bytes.
+	 * @return the maximum size (default 32 KB)
+	 */
+	public int getMaxHeaderValueSize() {
+		return maxHeaderValueSize;
+	}
+
+	/**
+	 * Sets the maximum unfolded header value size in bytes.
+	 * Prevents unbounded buffer allocation from folded header lines.
+	 * @param maxHeaderValueSize the maximum size (must be positive)
+	 * @throws IllegalArgumentException if maxHeaderValueSize is not positive
+	 */
+	public void setMaxHeaderValueSize(int maxHeaderValueSize) {
+		if (maxHeaderValueSize <= 0) {
+			throw new IllegalArgumentException(L10N.getString("err.max_header_value_size_not_positive"));
+		}
+		this.maxHeaderValueSize = maxHeaderValueSize;
 	}
 
 	/**
@@ -447,8 +472,15 @@ public class MIMEParser {
 	/**
 	 * Ensures headerValueSink has at least {@code required} bytes remaining.
 	 * Compacts and grows the buffer if necessary.
+	 * @throws HeaderValueTooLongException if adding required bytes would exceed maxHeaderValueSize
 	 */
-	private void ensureHeaderValueSinkCapacity(int required) {
+	private void ensureHeaderValueSinkCapacity(int required) throws MIMEParseException {
+		int currentSize = headerValueSink.position();
+		if (currentSize + required > maxHeaderValueSize) {
+			throw new HeaderValueTooLongException(
+				MessageFormat.format(L10N.getString("err.header_value_too_long"),
+					Integer.valueOf(maxHeaderValueSize)), locator);
+		}
 		if (headerValueSink.remaining() >= required) {
 			return;
 		}

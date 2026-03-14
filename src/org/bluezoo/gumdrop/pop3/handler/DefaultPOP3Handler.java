@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
+import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 
 /**
  * Default POP3 handler implementation that accepts all operations.
@@ -231,10 +232,14 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to get TOP for message " + messageNumber, e);
-            String msg = (e.getCause() instanceof HeaderLineTooLongException)
+            Throwable cause = e.getCause();
+            String msg = (cause instanceof HeaderLineTooLongException)
                 ? ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N")
                     .getString("pop3.err.header_line_too_long")
-                : "Unable to get message headers";
+                : (cause instanceof HeaderValueTooLongException)
+                    ? ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N")
+                        .getString("pop3.err.header_value_too_long")
+                    : "Unable to get message headers";
             state.error(msg, this);
         }
     }

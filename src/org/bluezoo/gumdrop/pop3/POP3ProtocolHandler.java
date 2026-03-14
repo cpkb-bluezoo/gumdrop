@@ -59,6 +59,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
+import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -2159,9 +2160,12 @@ public class POP3ProtocolHandler
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to retrieve top of message " + msgNum, e);
-            String msg = (e.getCause() instanceof HeaderLineTooLongException)
+            Throwable cause = e.getCause();
+            String msg = (cause instanceof HeaderLineTooLongException)
                 ? L10N.getString("pop3.err.header_line_too_long")
-                : L10N.getString("pop3.err.cannot_retrieve");
+                : (cause instanceof HeaderValueTooLongException)
+                    ? L10N.getString("pop3.err.header_value_too_long")
+                    : L10N.getString("pop3.err.cannot_retrieve");
             sendERR(msg);
         }
     }
