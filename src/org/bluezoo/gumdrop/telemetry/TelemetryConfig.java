@@ -108,6 +108,10 @@ public class TelemetryConfig {
     // Meter registry - maps scope name to meter instance
     private final Map<String, Meter> meters = new ConcurrentHashMap<>();
 
+    // JMX bridge - exposes metrics via MBeans when enabled
+    private boolean jmxBridgeEnabled = true;
+    private TelemetryJMXBridge jmxBridge;
+
     /**
      * Creates a new telemetry configuration with default values.
      */
@@ -699,6 +703,31 @@ public class TelemetryConfig {
     // -- Lifecycle methods --
 
     /**
+     * Returns true if the JMX bridge is enabled.
+     * When enabled, OpenTelemetry metrics are exposed via MBeans under
+     * {@code org.bluezoo.gumdrop:type=Telemetry}.
+     */
+    public boolean isJmxBridgeEnabled() {
+        return jmxBridgeEnabled;
+    }
+
+    /**
+     * Enables or disables the JMX bridge.
+     *
+     * @param jmxBridgeEnabled true to expose metrics via JMX (default: true)
+     */
+    public void setJmxBridgeEnabled(boolean jmxBridgeEnabled) {
+        this.jmxBridgeEnabled = jmxBridgeEnabled;
+    }
+
+    /**
+     * Returns the JMX bridge instance, or null if not registered.
+     */
+    public TelemetryJMXBridge getJmxBridge() {
+        return jmxBridge;
+    }
+
+    /**
      * Initializes the telemetry configuration.
      * This method is called automatically by the ComponentRegistry after
      * all properties have been set via the gumdroprc configuration file.
@@ -706,6 +735,9 @@ public class TelemetryConfig {
      * <p>If the exporter type is "file", an {@link OTLPFileExporter} is created.
      * Otherwise, if any OTLP endpoints are configured, an {@link OTLPExporter}
      * is created.
+     *
+     * <p>When metrics and JMX bridge are enabled, metrics are exposed via
+     * MBeans for JMX-based monitoring tools.
      */
     public void init() {
         if (exporter != null) {
@@ -718,6 +750,10 @@ public class TelemetryConfig {
         } else if (hasAnyEndpoint()) {
             exporter = new OTLPExporter(this);
             registerShutdownHook();
+        }
+        if (metricsEnabled && jmxBridgeEnabled) {
+            jmxBridge = new TelemetryJMXBridge(this);
+            jmxBridge.register();
         }
     }
 
@@ -886,6 +922,10 @@ public class TelemetryConfig {
         }
         shuttingDown = true;
 
+        if (jmxBridge != null) {
+            jmxBridge.unregister();
+            jmxBridge = null;
+        }
         if (exporter != null) {
             // Force flush ensures all pending data is exported
             if (exporter instanceof OTLPExporter) {

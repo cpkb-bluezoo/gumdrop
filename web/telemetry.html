@@ -53,6 +53,7 @@ instrumentation for any Gumdrop-based service.
 <li><a href="#distributed">Distributed Tracing</a></li>
 <li><a href="#exporter">OTLP Exporter</a></li>
 <li><a href="#file-exporter">File Exporter (JSONL)</a></li>
+<li><a href="#jmx">JMX Bridge</a></li>
 </ul>
 
 <h3 id="overview">Overview</h3>
@@ -156,6 +157,7 @@ metrics) can be disabled if needed.
 <tr><td><code>file-logs-path</code></td><td>-</td><td>File path for logs JSONL output (null = stdout)</td></tr>
 <tr><td><code>file-metrics-path</code></td><td>-</td><td>File path for metrics JSONL output (null = stdout)</td></tr>
 <tr><td><code>file-buffer-size</code></td><td>8192</td><td>I/O buffer size in bytes for file exporter</td></tr>
+<tr><td><code>jmx-bridge-enabled</code></td><td>true</td><td>Expose metrics via JMX MBeans for jconsole, VisualVM, Prometheus JMX exporter</td></tr>
 </table>
 
 <h4>Associating Telemetry with Servers</h4>
@@ -1024,6 +1026,85 @@ cat /var/log/otel/metrics.jsonl | jq -r '
 # Tail traces in real time
 tail -f /var/log/otel/traces.jsonl | jq .
 </pre>
+
+<h3 id="jmx">JMX Bridge</h3>
+
+<p>
+When metrics are enabled, Gumdrop exposes OpenTelemetry metrics via JMX MBeans.
+This allows JMX-based monitoring tools (jconsole, VisualVM, Prometheus JMX
+exporter) to access the same metrics without requiring OTLP export. OpenTelemetry
+remains the single source of truth; the JMX bridge reads from it on each attribute
+access.
+</p>
+
+<h4>Object Name and Attributes</h4>
+
+<p>
+Metrics are exposed under the domain <code>org.bluezoo.gumdrop</code> with type
+<code>Telemetry</code>:
+</p>
+
+<pre>
+org.bluezoo.gumdrop:type=Telemetry
+</pre>
+
+<p>
+Metric names use underscores instead of dots (e.g., <code>http.server.requests</code>
+becomes <code>http_server_requests</code>). Counters and gauges appear as single
+numeric attributes. Histograms expose four attributes per metric:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Suffix</th><th>Description</th></tr>
+<tr><td><code>_count</code></td><td>Total number of recorded values</td></tr>
+<tr><td><code>_sum</code></td><td>Sum of all recorded values</td></tr>
+<tr><td><code>_min</code></td><td>Minimum recorded value</td></tr>
+<tr><td><code>_max</code></td><td>Maximum recorded value</td></tr>
+</table>
+
+<p>
+Example attributes for HTTP server metrics:
+</p>
+
+<ul>
+<li><code>http_server_requests</code> - Total requests (counter)</li>
+<li><code>http_server_active_requests</code> - Requests in progress (gauge)</li>
+<li><code>http_server_active_connections</code> - Active connections (gauge)</li>
+<li><code>http_server_request_duration_count</code>, <code>_sum</code>, <code>_min</code>, <code>_max</code> - Request duration histogram</li>
+</ul>
+
+<h4>Configuration</h4>
+
+<p>
+The JMX bridge is enabled by default when metrics are enabled. Disable it with:
+</p>
+
+<pre>
+&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
+    &lt;property name="metrics-enabled"&gt;true&lt;/property&gt;
+    &lt;property name="jmx-bridge-enabled"&gt;false&lt;/property&gt;
+&lt;/component&gt;
+</pre>
+
+<p>
+The bridge registers automatically during <code>TelemetryConfig.init()</code> and
+unregisters on shutdown. No OTLP or file exporter is required; the JMX bridge
+works with metrics alone.
+</p>
+
+<h4>Using with Monitoring Tools</h4>
+
+<p>
+<b>jconsole / VisualVM:</b> Connect to the Gumdrop process and navigate to
+<code>org.bluezoo.gumdrop</code> → <code>Telemetry</code> to view metric values.
+</p>
+
+<p>
+<b>Prometheus JMX Exporter:</b> Configure the
+<a href="https://github.com/prometheus/jmx_exporter">Prometheus JMX Exporter</a>
+to scrape the Gumdrop JVM. The exporter will discover the <code>Telemetry</code>
+MBean and expose its attributes as Prometheus metrics.
+</p>
 
 <hr/>
 

@@ -155,6 +155,14 @@
  * {@code SMTPServerMetrics}) that collects OpenTelemetry-compatible metrics automatically
  * when telemetry is enabled.
  *
+ * <h2>JMX Bridge</h2>
+ *
+ * <p>When metrics are enabled, OpenTelemetry metrics are also exposed via JMX under
+ * {@code org.bluezoo.gumdrop:type=Telemetry}. This allows JMX-based monitoring tools
+ * (jconsole, VisualVM, Prometheus JMX exporter) to access the same metrics. OpenTelemetry
+ * remains the single source of truth; the JMX bridge reads from it on each attribute access.
+ * Disable with {@code jmxBridgeEnabled=false} on TelemetryConfig.
+ *
  * <h2>Core Classes</h2>
  *
  * <ul>
@@ -165,6 +173,7 @@
  *   <li>{@link org.bluezoo.gumdrop.telemetry.SpanKind} - Categorises span role
  *   <li>{@link org.bluezoo.gumdrop.telemetry.SpanStatus} - Operation outcome
  *   <li>{@link org.bluezoo.gumdrop.telemetry.OTLPExporter} - OTLP/HTTP exporter
+ *   <li>{@link org.bluezoo.gumdrop.telemetry.TelemetryJMXBridge} - JMX exposure of metrics
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
