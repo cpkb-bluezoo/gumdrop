@@ -428,6 +428,9 @@ class LookupHandler extends DefaultHTTPRequestHandler {
             ? new HTTPClient(loop, downstreamHost, downstreamPort)
             : new HTTPClient(downstreamHost, downstreamPort);
 
+        // Propagate trace context so the distributed trace remains connected
+        client.setTrace(state.getTrace());
+
         client.connect(new HTTPClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
@@ -629,6 +632,9 @@ and the full dependency injection framework.
     finalise parsing</li>
 <li>Use <code>state.getSelectorLoop()</code> when creating HTTP clients for
     SelectorLoop affinity</li>
+<li>Call <code>client.setTrace(state.getTrace())</code> before
+    <code>connect()</code> to propagate the distributed trace to downstream
+    services (traceparent header is added automatically)</li>
 <li>Stream response bodies with <code>state.responseBodyContent(ByteBuffer)</code>
     and always call <code>state.complete()</code></li>
 <li>Call <code>gumdrop.join()</code> after <code>start()</code> so the main

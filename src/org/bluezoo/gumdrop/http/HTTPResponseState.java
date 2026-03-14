@@ -28,6 +28,7 @@ import java.security.Principal;
 import java.util.List;
 
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -171,6 +172,20 @@ public interface HTTPResponseState {
      * @return the owning SelectorLoop, or null
      */
     SelectorLoop getSelectorLoop();
+
+    /**
+     * Returns the current trace for distributed tracing, or null if none.
+     *
+     * <p>When making outbound HTTP calls to other services, pass this trace
+     * to {@link org.bluezoo.gumdrop.http.client.HTTPClient#setTrace} so that
+     * the traceparent header is automatically propagated and the distributed
+     * trace remains connected.
+     *
+     * @return the current trace, or null
+     */
+    default Trace getTrace() {
+        return null;
+    }
 
     /**
      * Returns the authenticated principal, or null if not authenticated.

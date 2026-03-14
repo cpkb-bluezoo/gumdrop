@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
  * An HTTP/3 request that sends via {@link HTTP3ClientHandler}.
@@ -52,6 +53,7 @@ public class H3Request implements HTTPRequest {
     private final String path;
     private final String authority;
     private final String scheme;
+    private final Trace traceContext;
 
     private final List<Header> headers = new ArrayList<Header>();
     private long streamId = -1;
@@ -59,12 +61,14 @@ public class H3Request implements HTTPRequest {
     private boolean cancelled;
 
     public H3Request(HTTP3ClientHandler h3Handler, String method,
-                     String path, String authority, String scheme) {
+                     String path, String authority, String scheme,
+                     Trace traceContext) {
         this.h3Handler = h3Handler;
         this.method = method;
         this.path = path;
         this.authority = authority;
         this.scheme = scheme;
+        this.traceContext = traceContext;
     }
 
     @Override
@@ -157,9 +161,25 @@ public class H3Request implements HTTPRequest {
         result.add(new Header(":scheme", scheme));
         result.add(new Header(":authority", authority));
         result.add(new Header(":path", path));
+        if (traceContext != null && !containsHeader(headers, "traceparent")) {
+            String traceparent = traceContext.getTraceparent();
+            if (traceparent != null) {
+                result.add(new Header("traceparent", traceparent));
+            }
+        }
         for (int i = 0; i < headers.size(); i++) {
             result.add(headers.get(i));
         }
         return result;
+    }
+
+    private static boolean containsHeader(List<Header> headers, String name) {
+        String lower = name.toLowerCase();
+        for (int i = 0; i < headers.size(); i++) {
+            if (headers.get(i).getName().toLowerCase().equals(lower)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

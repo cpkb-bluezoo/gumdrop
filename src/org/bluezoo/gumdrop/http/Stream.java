@@ -197,6 +197,11 @@ class Stream implements HTTPResponseState {
         return connection.getSelectorLoop();
     }
 
+    @Override
+    public Trace getTrace() {
+        return connection.getTrace();
+    }
+
     /**
      * Returns the version of the connection.
      */

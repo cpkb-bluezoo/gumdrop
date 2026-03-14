@@ -59,6 +59,7 @@ import org.bluezoo.gumdrop.http.h2.H2Writer;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
+import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 /**
@@ -171,6 +172,9 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
     private long idleTimeoutMs;
     private TimerHandle idleTimeoutHandle;
 
+    /** Trace context for automatic traceparent propagation. */
+    private Trace traceContext;
+
     // RFC 9112 section 5: maximum response header size (bytes)
     private int maxResponseHeaderSize = 1024 * 1024;
 
@@ -190,6 +194,17 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         this.port = port;
         this.secure = secure;
         this.parseBuffer = ByteBuffer.allocate(8192);
+    }
+
+    /**
+     * Sets the trace context for automatic traceparent propagation on
+     * outbound requests. When set, the traceparent header is added to
+     * each request unless the caller has already set it.
+     *
+     * @param trace the trace to propagate, or null to disable
+     */
+    void setTraceContext(Trace trace) {
+        this.traceContext = trace;
     }
 
     /**
@@ -760,6 +775,15 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         sb.append(hostHeader);
         sb.append("\r\n");
 
+        if (traceContext != null && !request.getHeaders().containsName("traceparent")) {
+            String traceparent = traceContext.getTraceparent();
+            if (traceparent != null) {
+                sb.append("traceparent: ");
+                sb.append(traceparent);
+                sb.append("\r\n");
+            }
+        }
+
         Headers headers = request.getHeaders();
         for (Header header : headers) {
             sb.append(header.getName());
@@ -921,6 +945,16 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         headerList.add(new Header(":scheme", secure ? "https" : "http"));
         headerList.add(new Header(":authority", host + ":" + port));
         headerList.add(new Header(":path", request.getPath()));
+
+        if (traceContext != null) {
+            Headers reqHeaders = request.getHeaders();
+            if (reqHeaders == null || !reqHeaders.containsName("traceparent")) {
+                String traceparent = traceContext.getTraceparent();
+                if (traceparent != null) {
+                    headerList.add(new Header("traceparent", traceparent));
+                }
+            }
+        }
 
         Headers headers = request.getHeaders();
         if (headers != null) {

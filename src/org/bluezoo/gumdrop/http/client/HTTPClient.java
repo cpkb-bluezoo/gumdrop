@@ -58,6 +58,7 @@ import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler;
+import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -148,6 +149,9 @@ public class HTTPClient implements AltSvcListener {
     private boolean verifyPeer = true;
     private long idleTimeoutMs;
     private ClientEndpointPool connectionPool;
+
+    /** Trace context for automatic traceparent propagation on outbound requests. */
+    private Trace traceContext;
     private ClientEndpointPool.PoolEntry poolEntry;
 
     // Internal transport components (created at connect time)
@@ -251,6 +255,25 @@ public class HTTPClient implements AltSvcListener {
      */
     public void setTrustManager(X509TrustManager trustManager) {
         this.trustManager = trustManager;
+    }
+
+    /**
+     * Sets the trace context for automatic propagation of the traceparent
+     * header on outbound requests.
+     *
+     * <p>When making calls from within an HTTP request handler, pass
+     * {@code state.getTrace()} so that the distributed trace remains
+     * connected across service boundaries. If telemetry is configured
+     * and a trace exists, the traceparent header is added automatically
+     * to every request; callers need not add it manually.
+     *
+     * @param trace the trace to propagate, or null to disable
+     */
+    public void setTrace(Trace trace) {
+        this.traceContext = trace;
+        if (endpointHandler != null) {
+            endpointHandler.setTraceContext(trace);
+        }
     }
 
     /**
@@ -479,6 +502,9 @@ public class HTTPClient implements AltSvcListener {
 
         endpointHandler = new HTTPClientProtocolHandler(
                 poolAwareHandler, host, port, secure);
+        if (traceContext != null) {
+            endpointHandler.setTraceContext(traceContext);
+        }
         if (altSvcEnabled) {
             endpointHandler.setAltSvcListener(this);
         }
@@ -805,7 +831,7 @@ public class HTTPClient implements AltSvcListener {
                 authority = host + ":" + port;
             }
             return new org.bluezoo.gumdrop.http.h3.H3Request(
-                    h3Handler, method, path, authority, scheme);
+                    h3Handler, method, path, authority, scheme, traceContext);
         }
         return endpointHandler.request(method, path);
     }

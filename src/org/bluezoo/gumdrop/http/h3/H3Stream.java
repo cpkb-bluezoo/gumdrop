@@ -309,6 +309,11 @@ class H3Stream implements HTTPResponseState {
     }
 
     @Override
+    public Trace getTrace() {
+        return connection.getTrace();
+    }
+
+    @Override
     public Principal getPrincipal() {
         return authenticatedPrincipal;
     }

@@ -737,18 +737,32 @@ Example: <code>00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01</code>
 <h4>Outgoing Requests</h4>
 
 <p>
-When making outbound requests to other services, propagate the trace context:
+When making outbound requests with the HTTP client, call
+<code>client.setTrace(state.getTrace())</code> before
+<code>connect()</code>. The traceparent header is then added automatically
+to every request, so the distributed trace remains connected without
+manual header handling:
 </p>
 
 <pre>
-// Get traceparent for the current span
-String traceparent = trace.getTraceparent();
-
-// Add to outbound HTTP request
-HTTPRequest request = new HTTPRequest("POST", "http://downstream/api");
-request.addHeader("traceparent", traceparent);
-client.send(request);
+HTTPClient client = new HTTPClient(loop, downstreamHost, downstreamPort);
+client.setTrace(state.getTrace());  // Propagates traceparent automatically
+client.connect(new HTTPClientHandler() {
+    public void onConnected(Endpoint endpoint) {
+        HTTPRequest request = client.post("/api");
+        request.header("Content-Type", "application/json");
+        request.send(responseHandler);
+    }
+    // ...
+});
 </pre>
+
+<p>
+If you omit <code>setTrace()</code>, no traceparent header is sent and the
+downstream service will start a new trace. You can still add the header
+manually via <code>request.header("traceparent", trace.getTraceparent())</code>
+if needed, but automatic propagation is preferred.
+</p>
 
 <p>
 This creates a connected chain of spans across services, visible in trace
