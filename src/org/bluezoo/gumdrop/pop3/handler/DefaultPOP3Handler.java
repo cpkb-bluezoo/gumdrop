@@ -21,19 +21,21 @@
 
 package org.bluezoo.gumdrop.pop3.handler;
 
+import java.io.IOException;
+import java.nio.channels.ReadableByteChannel;
+import java.security.Principal;
+import java.util.Iterator;
+import java.util.ResourceBundle;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
-
-import java.io.IOException;
-import java.nio.channels.ReadableByteChannel;
-import java.security.Principal;
-import java.util.Iterator;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 
 /**
  * Default POP3 handler implementation that accepts all operations.
@@ -229,7 +231,11 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to get TOP for message " + messageNumber, e);
-            state.error("Unable to get message headers", this);
+            String msg = (e.getCause() instanceof HeaderLineTooLongException)
+                ? ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N")
+                    .getString("pop3.err.header_line_too_long")
+                : "Unable to get message headers";
+            state.error(msg, this);
         }
     }
 

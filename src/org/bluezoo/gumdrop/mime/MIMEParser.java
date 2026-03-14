@@ -372,6 +372,11 @@ public class MIMEParser {
 		}
 
 		int length = end - start;
+		if (length > 998) {
+			throw new HeaderLineTooLongException(
+				L10N.getString("err.header_line_too_long"), locator);
+		}
+
 		byte c = buffer.get(start);
 		if (c == ' ' || c == '\t') {
 			// LWSP-char

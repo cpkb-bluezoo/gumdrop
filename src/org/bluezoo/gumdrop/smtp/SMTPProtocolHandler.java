@@ -63,6 +63,7 @@ import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddressParser;
 import org.bluezoo.gumdrop.smtp.handler.AuthenticateState;
@@ -218,6 +219,8 @@ public class SMTPProtocolHandler
     private DataState dataState = DataState.NORMAL;
     private long dataBytesReceived;
     private boolean sizeExceeded;
+    private boolean dataTransferRejected;
+    private String dataTransferRejectionMessage;
 
     private long bdatBytesRemaining;
     private boolean bdatLast;
@@ -676,13 +679,18 @@ public class SMTPProtocolHandler
                 messageBuffer.position(originalPosition);
             }
         }
-        if (currentPipeline != null) {
+        if (currentPipeline != null && !dataTransferRejected) {
             try {
                 java.nio.channels.WritableByteChannel ch = currentPipeline.getMessageChannel();
                 if (ch != null) {
                     ch.write(messageBuffer);
                 }
             } catch (IOException e) {
+                Throwable cause = e.getCause();
+                dataTransferRejected = true;
+                dataTransferRejectionMessage = (cause instanceof HeaderLineTooLongException)
+                    ? L10N.getString("smtp.err.header_line_too_long")
+                    : L10N.getString("smtp.err.syntax_error");
                 LOGGER.log(Level.WARNING, "Error writing to pipeline", e);
             }
         }
@@ -774,6 +782,8 @@ public class SMTPProtocolHandler
         dataState = DataState.NORMAL;
         dataBytesReceived = 0L;
         sizeExceeded = false;
+        dataTransferRejected = false;
+        dataTransferRejectionMessage = null;
         resetBdatState();
     }
 
@@ -848,12 +858,19 @@ public class SMTPProtocolHandler
                         long messageSize = dataBytesReceived;
                         int recipientCount = recipients != null ? recipients.size() : 0;
                         boolean exceeded = sizeExceeded;
+                        boolean rejected = dataTransferRejected;
+                        String rejectionMsg = dataTransferRejectionMessage;
                         long maxSize = server.getMaxMessageSize();
                         resetDataState();
                         state = SMTPState.READY;
                         if (exceeded) {
                             addSessionEvent("DATA rejected (size exceeded)");
                             reply(552, "5.3.4 Message size exceeds maximum (" + maxSize + " bytes)");
+                            return;
+                        }
+                        if (rejected) {
+                            addSessionEvent("DATA rejected (parse error)");
+                            reply(554, rejectionMsg);
                             return;
                         }
                         addSessionEvent("DATA complete");
@@ -922,6 +939,12 @@ public class SMTPProtocolHandler
             long messageSize = dataBytesReceived;
             int recipientCount = recipients != null ? recipients.size() : 0;
             addSessionEvent("BDAT LAST complete");
+            if (dataTransferRejected) {
+                resetDataState();
+                state = SMTPState.READY;
+                reply(554, dataTransferRejectionMessage);
+                return;
+            }
             SMTPServerMetrics metrics = getServerMetrics();
             if (metrics != null) {
                 metrics.messageReceived(messageSize, recipientCount);

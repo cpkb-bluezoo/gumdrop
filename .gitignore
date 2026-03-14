@@ -16,6 +16,7 @@ doc/
 
 test/integration/classes/
 test/junit/classes/
+test/junit/results/
 build/
 build-bootstrap/
 dist/

@@ -339,6 +339,23 @@ public class MIMEParserTest {
         assertNotNull(handler.contentType);
         assertEquals("utf-8", handler.contentType.getParameter("charset"));
     }
+
+    @Test(expected = HeaderLineTooLongException.class)
+    public void testHeaderLineTooLong() throws MIMEParseException {
+        // RFC 5322 §2.1.1: lines MUST be no more than 998 characters excluding CRLF
+        StringBuilder sb = new StringBuilder();
+        sb.append("X: ");
+        while (sb.length() < 999) {
+            sb.append('a');
+        }
+        sb.append("\r\n\r\n");
+        String content = sb.toString();
+
+        TestHandler handler = new TestHandler();
+        MIMEParser parser = new MIMEParser();
+        parser.setHandler(handler);
+        parse(parser, content);
+    }
     
     @Test
     public void testReset() throws MIMEParseException {

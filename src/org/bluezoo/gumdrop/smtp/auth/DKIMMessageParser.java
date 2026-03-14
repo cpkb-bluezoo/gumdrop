@@ -30,7 +30,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 
+import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
 
@@ -287,6 +289,12 @@ public class DKIMMessageParser extends MessageParser {
 
         // Check if this is an empty line (end of headers)
         int length = end - start;
+        if (length > 998) {
+            throw new HeaderLineTooLongException(
+                ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N")
+                    .getString("err.header_line_too_long"),
+                locator);
+        }
         boolean isEmpty = isEmptyLine(buffer, start, length);
         
         if (isEmpty) {

@@ -68,6 +68,7 @@ import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.imap.handler.AppendDataHandler;
 import org.bluezoo.gumdrop.imap.handler.AppendState;
 import org.bluezoo.gumdrop.imap.handler.AuthenticatedHandler;
@@ -688,7 +689,10 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 LOGGER.log(Level.WARNING, "Failed to complete APPEND", e);
                 addSessionEvent("APPEND_FAILED");
                 recordSessionException(e);
-                sendTaggedNo(appendTag, L10N.getString("imap.err.append_failed"));
+                String msg = (e.getCause() instanceof HeaderLineTooLongException)
+                    ? L10N.getString("imap.err.header_line_too_long")
+                    : L10N.getString("imap.err.append_failed");
+                sendTaggedNo(appendTag, msg);
             } finally {
                 appendTag = null;
                 appendMailbox = null;
