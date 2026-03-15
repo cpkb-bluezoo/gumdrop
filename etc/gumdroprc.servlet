@@ -5,8 +5,8 @@
 		<property name="href" path="realm-servlet.xml"/>
 	</realm>
 	
-	<!-- Servlet container with contexts and realms -->
-	<container id="mainContainer">
+	<!-- Servlet container service with contexts, realms, and listeners -->
+	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
 		<property name="hot-deploy" value="true"/>
 		
 		<!-- Map of named realms available to contexts -->
@@ -17,20 +17,9 @@
 			</map>
 		</property>
 		
-		<!-- List of web application contexts -->
-		<property name="contexts">
-			<list>
-				<!-- Main web application -->
-				<context path="" root="../web" distributable="true"/>
-				<!-- Manager web application -->
-				<context path="/manager" root="../dist/manager.war"/>
-			</list>
-		</property>
-	</container>
-	
-	<!-- Servlet container service with HTTP, HTTPS, and HTTP/3 listeners -->
-	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
-		<property name="container" ref="#mainContainer"/>
+		<!-- Web application contexts -->
+		<context path="" root="../web" distributable="true"/>
+		<context path="/manager" root="../dist/manager.war"/>
 
 		<!-- HTTP listener on port 8080 -->
 		<listener class="org.bluezoo.gumdrop.http.HTTPListener">

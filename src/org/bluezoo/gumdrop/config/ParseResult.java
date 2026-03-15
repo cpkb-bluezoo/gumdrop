@@ -19,7 +19,10 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop;
+package org.bluezoo.gumdrop.config;
+
+import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.TCPListener;
 
 import java.util.Collection;
 

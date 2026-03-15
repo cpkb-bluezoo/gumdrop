@@ -50,16 +50,18 @@
  *       TLS/DTLS/QUIC handshake</li>
  *   <li>{@link org.bluezoo.gumdrop.SelectorLoop} - The central event loop
  *       handling all non-blocking I/O operations</li>
- *   <li>{@link org.bluezoo.gumdrop.ComponentRegistry} - Dependency injection
- *       container for wiring components</li>
+ *   <li>{@link org.bluezoo.gumdrop.GumdropConfigurator} - SPI for pluggable
+ *       configuration and dependency injection</li>
  * </ul>
  *
  * <h2>Configuration</h2>
  *
  * <p>Servers are configured via XML files (typically {@code gumdroprc}) which
- * define components, their properties, and dependencies. The
- * {@link org.bluezoo.gumdrop.ConfigurationParser} reads these files and
- * populates the {@link org.bluezoo.gumdrop.ComponentRegistry}.
+ * define components, their properties, and dependencies. The default
+ * configurator in the {@code org.bluezoo.gumdrop.config} package reads
+ * these files and wires components using a built-in DI container.
+ * Alternative DI frameworks (Guice, Spring, CDI) can be plugged in via
+ * the {@link org.bluezoo.gumdrop.GumdropConfigurator} SPI.
  *
  * <h3>Example Configuration</h3>
  *

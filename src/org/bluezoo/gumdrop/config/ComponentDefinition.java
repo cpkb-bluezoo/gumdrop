@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop;
+package org.bluezoo.gumdrop.config;
 
 import java.util.ArrayList;
 import java.util.List;

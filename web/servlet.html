@@ -444,33 +444,23 @@ to determine which specific resource was requested.
 
 <h3 id="configuration">Container and Context Configuration</h3>
 
-<h4>Container Properties</h4>
-
-<p>
-A <code>container</code> element in <code>gumdroprc</code> groups web
-application contexts and their shared resources:
-</p>
-
-<ul>
-<li><code>hotDeploy</code> - enable automatic redeployment when files
-change (default: <code>true</code>)</li>
-<li><code>clusterPort</code> - UDP port for session replication multicast</li>
-<li><code>clusterGroupAddress</code> - multicast group address for clustering</li>
-<li><code>clusterSecretKey</code> - shared secret key for cluster encryption
-(base64-encoded, 256 bits)</li>
-<li><code>realms</code> - map of named realms available to contexts</li>
-<li><code>contexts</code> - list of web application contexts</li>
-</ul>
-
-<h4>Servlet Server Properties</h4>
+<h4>Service Properties</h4>
 
 <p>
 <code>org.bluezoo.gumdrop.servlet.ServletService</code> is the HTTP
-application service for the servlet container:
+application service for the servlet container. Container properties,
+contexts, and listeners are all configured directly on the
+<code>&lt;service&gt;</code> element:
 </p>
 
 <ul>
-<li><code>container</code> - reference to the Container with contexts</li>
+<li><code>hot-deploy</code> - enable automatic redeployment when files
+change (default: <code>true</code>)</li>
+<li><code>cluster-port</code> - UDP port for session replication multicast</li>
+<li><code>cluster-group-address</code> - multicast group address for clustering</li>
+<li><code>cluster-key</code> - shared secret key for cluster encryption
+(hex-encoded, 256 bits)</li>
+<li><code>realms</code> - map of named realms available to contexts</li>
 <li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
 <li><code>bufferSize</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
@@ -496,7 +486,7 @@ HTTP/3 for servlet applications:
 
 <pre>
 &lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-  &lt;property name="container" ref="#container"/&gt;
+  &lt;context path="" root="web"/&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -532,16 +522,18 @@ HTTP implementation.
 <h4>Context Configuration</h4>
 
 <p>
-Within the container's contexts list, define web applications:
+Define web applications as <code>&lt;context&gt;</code> elements directly
+inside the <code>&lt;service&gt;</code>:
 </p>
 
 <pre>
-&lt;contexts&gt;
-  &lt;list&gt;
-    &lt;context path="" root="web"/&gt;
-    &lt;context path="/app" root="myapp.war" distributable="true"/&gt;
-  &lt;/list&gt;
-&lt;/contexts&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+  &lt;context path="" root="web"/&gt;
+  &lt;context path="/app" root="myapp.war" distributable="true"/&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;8080&lt;/property&gt;
+  &lt;/listener&gt;
+&lt;/service&gt;
 </pre>
 
 <ul>
@@ -554,7 +546,7 @@ Within the container's contexts list, define web applications:
 
 <p>
 Realms provide authentication and authorisation for protected resources.
-Configure realms at the container level and reference them in web
+Configure realms on the service and reference them in web
 application <code>login-config</code> elements:
 </p>
 
@@ -563,14 +555,15 @@ application <code>login-config</code> elements:
   &lt;property name="href"&gt;myRealm.xml&lt;/property&gt;
 &lt;/realm&gt;
 
-&lt;container id="container"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
   &lt;property name="realms"&gt;
     &lt;map&gt;
       &lt;entry key="myRealm" ref="#myRealm"/&gt;
     &lt;/map&gt;
   &lt;/property&gt;
+  &lt;context path="" root="web"/&gt;
   ...
-&lt;/container&gt;
+&lt;/service&gt;
 </pre>
 
 <p>
@@ -630,7 +623,7 @@ webapp's classloader. Known gadget classes are explicitly blocked.</li>
 Multicast traffic respects network boundaries but relies on proper network
 segmentation. Cluster nodes should be deployed on an isolated network
 segment or VLAN. The shared secret key must be distributed securely to all
-nodes via the <code>clusterSecretKey</code> container property.
+nodes via the <code>cluster-key</code> service property.
 </p>
 
 <h4>Telemetry</h4>

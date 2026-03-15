@@ -204,11 +204,11 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
     /**
      * No-arg constructor for dependency injection.
-     * After construction, call {@link #setContainer(Container)}, {@link #setPath(String)},
-     * {@link #setRoot(File)}, then {@link #load()}.
+     * After construction, set {@link #setPath(String)} and {@link #setRoot(File)}.
+     * The container, load, and init lifecycle is handled by
+     * {@link Container#initContexts()} during service startup.
      */
     public Context() {
-        // Defer initialization - setContainer, setPath, setRoot must be called before load()
     }
 
     /**

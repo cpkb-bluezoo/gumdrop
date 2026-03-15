@@ -27,8 +27,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.ResourceBundle;
+import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -112,6 +114,9 @@ public class Gumdrop {
     private final AtomicInteger nextWorker;
     private ScheduledTimer scheduledTimer;
 
+    // Configurator (manages DI lifecycle)
+    private GumdropConfigurator configurator;
+
     // State
     private volatile boolean started;
     private volatile boolean acceptLoopRunning;
@@ -141,8 +146,10 @@ public class Gumdrop {
     /**
      * Returns the singleton Gumdrop instance, creating it if necessary.
      *
-     * <p>If a configuration file is provided, it is parsed and the instance
-     * is configured with the specified server listeners and worker count.
+     * <p>If a configuration file is provided, a {@link GumdropConfigurator}
+     * is discovered via {@link ServiceLoader} and used to parse and wire
+     * the configuration. The default implementation uses the built-in
+     * gumdroprc XML parser and dependency injection container.
      *
      * <p>If the configuration file is null, a minimal client-only instance
      * is created with 1 worker thread.
@@ -154,49 +161,50 @@ public class Gumdrop {
         synchronized (Gumdrop.class) {
             if (instance == null) {
                 int workerCount;
-                Collection initialServices = null;
-                Collection initialListeners = null;
-
                 if (gumdroprc != null && gumdroprc.exists()) {
-                    // Server mode with configuration
                     workerCount = Integer.getInteger("gumdrop.workers",
                             SERVER_MODE_WORKERS);
-                    try {
-                        ParseResult parseResult =
-                                new ConfigurationParser().parse(gumdroprc);
-                        initialServices =
-                                parseResult.getServices();
-                        initialListeners =
-                                parseResult.getListeners();
-                    } catch (Exception e) {
-                        LOGGER.log(Level.SEVERE,
-                                "Failed to parse configuration: "
-                                        + gumdroprc, e);
-                        workerCount = SERVER_MODE_WORKERS;
-                    }
                 } else {
-                    // Client-only mode
                     workerCount = CLIENT_MODE_WORKERS;
                 }
 
                 instance = new Gumdrop(workerCount);
 
-                // Add services from configuration
-                if (initialServices != null) {
-                    for (Object svc : initialServices) {
-                        instance.addService((Service) svc);
-                    }
-                }
-
-                // Add standalone server listeners from configuration
-                if (initialListeners != null) {
-                    for (Object server : initialListeners) {
-                        instance.addListener(
-                                (TCPListener) server);
+                if (gumdroprc != null && gumdroprc.exists()) {
+                    GumdropConfigurator configurator = loadConfigurator();
+                    try {
+                        configurator.configure(instance, gumdroprc);
+                        instance.configurator = configurator;
+                    } catch (Exception e) {
+                        String message = MessageFormat.format(
+                                L10N.getString("err.parse_configuration"),
+                                gumdroprc);
+                        LOGGER.log(Level.SEVERE, message, e);
                     }
                 }
             }
             return instance;
+        }
+    }
+
+    /**
+     * Discovers a {@link GumdropConfigurator} via {@link ServiceLoader},
+     * falling back to the default implementation if none is found.
+     */
+    private static GumdropConfigurator loadConfigurator() {
+        ServiceLoader<GumdropConfigurator> loader =
+                ServiceLoader.load(GumdropConfigurator.class);
+        Iterator<GumdropConfigurator> it = loader.iterator();
+        if (it.hasNext()) {
+            return it.next();
+        }
+        try {
+            return (GumdropConfigurator) Class.forName(
+                    "org.bluezoo.gumdrop.config.DefaultConfigurator")
+                    .getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "No GumdropConfigurator found on classpath", e);
         }
     }
 
@@ -536,16 +544,32 @@ public class Gumdrop {
             registerServiceListeners(service);
         }
 
-        // Start AcceptSelectorLoop if we have server listeners
-        if (!serverListeners.isEmpty()) {
-            ensureAcceptLoop();
+        // Start AcceptSelectorLoop if we have TCP listeners
+        boolean hasTcpListeners = false;
+        for (TCPListener listener : serverListeners) {
+            if (listener.requiresTcpAccept()) {
+                hasTcpListeners = true;
+                break;
+            }
         }
 
-        long t2 = System.currentTimeMillis();
-        if (LOGGER.isLoggable(Level.INFO)) {
-            String message = L10N.getString("info.started_gumdrop");
-            message = MessageFormat.format(message, (t2 - t1));
-            LOGGER.info(message);
+        if (hasTcpListeners) {
+            ensureAcceptLoop();
+            acceptLoop.onReady(() -> {
+                long t2 = System.currentTimeMillis();
+                if (LOGGER.isLoggable(Level.INFO)) {
+                    String message = L10N.getString("info.started_gumdrop");
+                    message = MessageFormat.format(message, (t2 - t1));
+                    LOGGER.info(message);
+                }
+            });
+        } else {
+            long t2 = System.currentTimeMillis();
+            if (LOGGER.isLoggable(Level.INFO)) {
+                String message = L10N.getString("info.started_gumdrop");
+                message = MessageFormat.format(message, (t2 - t1));
+                LOGGER.info(message);
+            }
         }
     }
 
@@ -635,6 +659,12 @@ public class Gumdrop {
 
         // Stop scheduled timer
         scheduledTimer.shutdown();
+
+        // Shutdown configurator (destroy singleton components)
+        if (configurator != null) {
+            configurator.shutdown();
+            configurator = null;
+        }
 
         started = false;
 

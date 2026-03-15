@@ -27,6 +27,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Pluggable DI via `GumdropConfigurator` SPI**: Configuration parsing and
+  dependency injection have been extracted into a new `org.bluezoo.gumdrop.config`
+  package and are now behind a `GumdropConfigurator` service provider interface.
+  The default implementation is discovered via `java.util.ServiceLoader`. External
+  DI frameworks (Guice, Spring, CDI) can be plugged in by providing an alternative
+  `META-INF/services/org.bluezoo.gumdrop.GumdropConfigurator` on the classpath.
+  Gumdrop instances can also be configured entirely programmatically without any
+  DI framework.
+
+- **Removed `<container>` element from gumdroprc** (breaking): The standalone
+  `<container>` configuration element has been removed. Container properties
+  (`hot-deploy`, `realms`, `resources`, cluster settings) are now set directly
+  on the `<service>` element for `ServletService`. The `<context>` element is
+  now a direct child of `<service>`, following the same pattern as `<listener>`.
+  `ServletService` creates its `Container` internally.
+
+  Before:
+  ```xml
+  <container id="mainContainer">
+      <property name="hot-deploy" value="true"/>
+      <context path="" root="../web"/>
+  </container>
+  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+      <property name="container" ref="#mainContainer"/>
+      <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+          <property name="port" value="8080"/>
+      </listener>
+  </service>
+  ```
+
+  After:
+  ```xml
+  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+      <property name="hot-deploy" value="true"/>
+      <context path="" root="../web"/>
+      <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+          <property name="port" value="8080"/>
+      </listener>
+  </service>
+  ```
+
+- **Config/DI classes moved to `org.bluezoo.gumdrop.config`** (breaking):
+  `ComponentRegistry`, `ConfigurationParser`, `ParseResult`,
+  `ComponentDefinition`, `PropertyDefinition`, `ComponentReference`,
+  `ListValue`, and `MapValue` have been moved from `org.bluezoo.gumdrop`
+  to `org.bluezoo.gumdrop.config`. Code that imports these classes directly
+  will need to update its import statements.
+
 - **Minimum Java version raised to 17 (LTS)**: Gumdrop v2 requires Java 17 or
   later. This enables native UNIX domain socket support (JEP 380) without
   JNI or third-party libraries. The build now uses `--release 17` exclusively;

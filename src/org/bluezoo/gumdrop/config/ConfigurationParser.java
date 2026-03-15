@@ -19,8 +19,9 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop;
+package org.bluezoo.gumdrop.config;
 
+import org.bluezoo.gumdrop.Service;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.Locator;
@@ -63,7 +64,6 @@ public class ConfigurationParser extends DefaultHandler {
     static {
         Map<String, String> map = new LinkedHashMap<String, String>();
         map.put("realm", "org.bluezoo.gumdrop.auth.BasicRealm");
-        map.put("container", "org.bluezoo.gumdrop.servlet.Container");
         map.put("context", "org.bluezoo.gumdrop.servlet.Context");
         map.put("data-source", "org.bluezoo.gumdrop.servlet.jndi.DataSourceDef");
         map.put("mail-session", "org.bluezoo.gumdrop.servlet.jndi.MailSession");
@@ -89,9 +89,6 @@ public class ConfigurationParser extends DefaultHandler {
     
     // Base directory of the configuration file, for resolving path attributes
     private Path baseDir;
-    
-    // Track singleton components (only one allowed per configuration)
-    private boolean containerDeclared = false;
     
     /**
      * Parse a configuration file and return the result.
@@ -134,9 +131,8 @@ public class ConfigurationParser extends DefaultHandler {
             contextStack.push(new RootContext());
         } else if (isComponentElement(name)) {
             startComponent(name, atts);
-        } else if (isInlineContextElement(name)) {
-            // Special handling for Context which requires constructor args
-            startInlineContext(atts);
+        } else if ("context".equals(name)) {
+            startContextElement(atts);
         } else if ("listener".equals(name)) {
             startListenElement(atts);
         } else if ("property".equals(name)) {
@@ -175,8 +171,8 @@ public class ConfigurationParser extends DefaultHandler {
             contextStack.pop();
         } else if (isComponentElement(name)) {
             endComponent();
-        } else if (isInlineContextElement(name)) {
-            endInlineContext();
+        } else if ("context".equals(name)) {
+            endContextElement();
         } else if ("listener".equals(name)) {
             endListenElement();
         } else if ("property".equals(name)) {
@@ -192,8 +188,7 @@ public class ConfigurationParser extends DefaultHandler {
     
     private boolean isComponentElement(String name) {
         return "service".equals(name) ||
-               "realm".equals(name) || 
-               "container".equals(name) ||
+               "realm".equals(name) ||
                "component".equals(name) ||
                "data-source".equals(name) ||
                "mail-session".equals(name) ||
@@ -205,24 +200,9 @@ public class ConfigurationParser extends DefaultHandler {
                "ftp-handler-factory".equals(name);
     }
     
-    private boolean isInlineContextElement(String name) {
-        return "context".equals(name);
-    }
-    
     private void startComponent(String type, Attributes atts) throws SAXException {
         String id = atts.getValue("id");
         String className = atts.getValue("class");
-        
-        // Enforce singleton container per Servlet specification
-        if ("container".equals(type)) {
-            if (containerDeclared) {
-                throw new SAXParseException(
-                    "Only one <container> element is allowed per configuration. " +
-                    "The Servlet specification defines one container per JVM.",
-                    locator);
-            }
-            containerDeclared = true;
-        }
         
         // <service> requires an explicit class attribute
         if ("service".equals(type) && className == null) {
@@ -391,93 +371,99 @@ public class ConfigurationParser extends DefaultHandler {
         return null;
     }
     
-    private void startInlineContext(Attributes atts) throws SAXException {
-        // Context needs special handling because it requires constructor args
-        // and must call load() after creation
-        String path = atts.getValue("path");
-        String root = atts.getValue("root");
-        
-        if (root == null || root.isEmpty()) {
-            throw new SAXParseException("Context requires 'root' attribute at line " + 
-                                       locator.getLineNumber(), locator);
-        }
-        
-        if (path == null) {
-            path = "";
-        }
-        
-        // Expand ~ in root path
-        if (root.length() > 0 && root.charAt(0) == '~') {
-            root = System.getProperty("user.home") + root.substring(1);
-        }
-        
-        // Get parent container
+    private void startContextElement(Attributes atts) throws SAXException {
+        // <context> must appear inside a <service>
         ComponentDefinition parentComponent = getParentComponent();
-        if (parentComponent == null || 
-            !org.bluezoo.gumdrop.servlet.Container.class.isAssignableFrom(parentComponent.getComponentClass())) {
-            throw new SAXParseException("Context must be defined within a Container at line " + 
-                                       locator.getLineNumber(), locator);
+        if (parentComponent == null
+                || !Service.class.isAssignableFrom(
+                        parentComponent.getComponentClass())) {
+            throw new SAXParseException(
+                    "<context> must be inside a <service> element at line "
+                            + locator.getLineNumber(), locator);
         }
-        
+
+        String root = atts.getValue("root");
+        if (root == null || root.isEmpty()) {
+            throw new SAXParseException(
+                    "<context> requires a 'root' attribute at line "
+                            + locator.getLineNumber(), locator);
+        }
+
+        String className = atts.getValue("class");
+        if (className == null) {
+            className = getDefaultClassName("context");
+        }
+
         try {
-            // Store context creation info for later
-            InlineContextInfo contextInfo = new InlineContextInfo(path, baseDir.resolve(root).normalize().toFile());
-            
-            // Process other attributes (like distributable)
+            Class<?> clazz = Class.forName(className);
+            ComponentDefinition contextDef =
+                    new ComponentDefinition(null, clazz);
+
             for (int i = 0; i < atts.getLength(); i++) {
                 String attrName = getAttributeName(atts, i);
-                if (!"path".equals(attrName) && !"root".equals(attrName)) {
-                    String attrValue = atts.getValue(i);
-                    contextInfo.addProperty(attrName, attrValue);
+                if ("class".equals(attrName)) {
+                    continue;
+                }
+                String attrValue = atts.getValue(i);
+                if ("root".equals(attrName)) {
+                    // Expand ~ and resolve relative to config file directory
+                    if (attrValue.length() > 0 && attrValue.charAt(0) == '~') {
+                        attrValue = System.getProperty("user.home")
+                                + attrValue.substring(1);
+                    }
+                    contextDef.addProperty(new PropertyDefinition(
+                            attrName,
+                            baseDir.resolve(attrValue).normalize()));
+                } else {
+                    contextDef.addProperty(new PropertyDefinition(
+                            attrName, attrValue));
                 }
             }
-            
-            contextStack.push(new InlineContextContext(contextInfo));
-        } catch (Exception e) {
-            throw new SAXParseException("Failed to create context at line " + 
-                                       locator.getLineNumber(), locator, e);
+
+            currentComponent = contextDef;
+            contextStack.push(new ComponentContext(contextDef));
+        } catch (ClassNotFoundException e) {
+            throw new SAXParseException(
+                    "Class not found: " + className + " at line "
+                            + locator.getLineNumber(), locator, e);
         }
     }
-    
-    private void endInlineContext() {
-        InlineContextContext ctx = (InlineContextContext) contextStack.pop();
-        InlineContextInfo contextInfo = ctx.contextInfo;
-        
-        // Add to current property value or parent component
-        ParseContext parent = contextStack.isEmpty() ? null : contextStack.peek();
-        if (parent instanceof ListContext) {
-            ((ListContext) parent).value.addItem(contextInfo);
-        } else if (parent instanceof PropertyContext) {
-            currentPropertyValue = contextInfo;
-        } else if (parent instanceof ComponentContext) {
-            // Context is directly inside a container element (not in a property)
-            // Add it to the container's "contexts" property
-            ComponentContext compCtx = (ComponentContext) parent;
-            ComponentDefinition component = compCtx.component;
-            
-            // Find or create the "contexts" property
+
+    private void endContextElement() {
+        ComponentContext ctx = (ComponentContext) contextStack.pop();
+        currentComponent = getParentComponent();
+        ComponentDefinition contextDef = ctx.component;
+
+        ParseContext parent = contextStack.isEmpty()
+                ? null : contextStack.peek();
+        if (parent instanceof ComponentContext) {
+            ComponentDefinition parentDef =
+                    ((ComponentContext) parent).component;
+
             PropertyDefinition contextsProp = null;
-            for (PropertyDefinition prop : component.getProperties()) {
+            for (int i = 0; i < parentDef.getProperties().size(); i++) {
+                PropertyDefinition prop = parentDef.getProperties().get(i);
                 if ("contexts".equals(prop.getName())) {
                     contextsProp = prop;
                     break;
                 }
             }
-            
+
             if (contextsProp == null) {
-                // Create a new list property for contexts
                 ListValue contextsList = new ListValue();
-                contextsList.addItem(contextInfo);
-                contextsProp = new PropertyDefinition("contexts", contextsList);
-                component.addProperty(contextsProp);
+                contextsList.addItem(contextDef);
+                contextsProp = new PropertyDefinition(
+                        "contexts", contextsList);
+                parentDef.addProperty(contextsProp);
             } else {
-                // Add to existing list
-                Object existingValue = contextsProp.getValue();
-                if (existingValue instanceof ListValue) {
-                    ((ListValue) existingValue).addItem(contextInfo);
+                Object existing = contextsProp.getValue();
+                if (existing instanceof ListValue) {
+                    ((ListValue) existing).addItem(contextDef);
                 }
             }
         }
+
+        currentComponent = getParentComponent();
     }
     
     private void startProperty(Attributes atts) {
@@ -635,43 +621,5 @@ public class ConfigurationParser extends DefaultHandler {
         }
     }
     
-    private static class InlineContextContext extends ParseContext {
-        final InlineContextInfo contextInfo;
-        InlineContextContext(InlineContextInfo contextInfo) {
-            this.contextInfo = contextInfo;
-        }
-    }
-    
-    /**
-     * Information for creating a Context inline.
-     * Context requires special handling because it needs constructor arguments
-     * and must call load() after creation.
-     */
-    public static class InlineContextInfo {
-        private final String path;
-        private final java.io.File root;
-        private final Map<String, String> properties = new java.util.LinkedHashMap<>();
-        
-        public InlineContextInfo(String path, java.io.File root) {
-            this.path = path;
-            this.root = root;
-        }
-        
-        public void addProperty(String name, String value) {
-            properties.put(name, value);
-        }
-        
-        public String getPath() {
-            return path;
-        }
-        
-        public java.io.File getRoot() {
-            return root;
-        }
-        
-        public Map<String, String> getProperties() {
-            return properties;
-        }
-    }
 }
 

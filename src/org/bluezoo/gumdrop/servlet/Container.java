@@ -180,6 +180,15 @@ public class Container implements ManagerContainerService, ClusterContainer {
                 Context.LOGGER.log(Level.SEVERE, message, e);
             }
             for (Context context : contexts) {
+                context.setContainer(this);
+                try {
+                    context.load();
+                } catch (Exception e) {
+                    String message = MessageFormat.format(
+                            Context.L10N.getString("err.load_context"),
+                            context.contextPath);
+                    Context.LOGGER.log(Level.SEVERE, message, e);
+                }
                 context.init();
                 distributable = distributable || context.distributable;
             }

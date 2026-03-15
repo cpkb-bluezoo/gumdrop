@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop;
+package org.bluezoo.gumdrop.config;
 
 import java.lang.reflect.Method;
 import java.nio.file.Path;
@@ -184,12 +184,14 @@ public class ComponentRegistry {
     private Object createComponent(ComponentDefinition def) {
         String id = def.getId();
         
-        // Circular dependency detection
+        // Circular dependency detection (only for named components)
         Set<String> currentlyConstructing = constructing.get();
-        if (currentlyConstructing.contains(id)) {
-            throw new IllegalStateException("Circular dependency detected: " + id);
+        if (id != null) {
+            if (currentlyConstructing.contains(id)) {
+                throw new IllegalStateException("Circular dependency detected: " + id);
+            }
+            currentlyConstructing.add(id);
         }
-        currentlyConstructing.add(id);
         
         try {
             // Create instance
@@ -205,59 +207,46 @@ public class ComponentRegistry {
                 injectProperty(instance, prop);
             }
             
-            // Call lifecycle init method if present
-            invokeLifecycleMethod(instance, "init");
+            // Call lifecycle init only for named (registered) components.
+            // Anonymous inline components are owned by their parent and
+            // have their lifecycle managed by the parent, not the DI layer.
+            if (id != null) {
+                invokeLifecycleMethod(instance, "init");
+            }
             
             return instance;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create component: " + id, e);
         } finally {
-            currentlyConstructing.remove(id);
+            if (id != null) {
+                currentlyConstructing.remove(id);
+            }
         }
     }
     
     private void injectProperty(Object target, PropertyDefinition prop) throws Exception {
         String propertyName = prop.getName();
+        Object value = resolveValue(prop.getValue());
         
-        // Special handling for Container's contexts property
-        boolean isContainerContexts = 
-            target.getClass().getName().equals("org.bluezoo.gumdrop.servlet.Container") &&
-            "contexts".equals(propertyName);
+        // Find setter method
+        String methodName = "set" + Character.toUpperCase(propertyName.charAt(0)) 
+                          + propertyName.substring(1);
         
-        if (isContainerContexts) {
-            // Store the container in thread-local so Context creation can access it
-            currentContainer.set(target);
-        }
+        // Handle hyphenated property names (e.g., "keystore-file" -> "setKeystoreFile")
+        methodName = toCamelCase(methodName);
         
-        try {
-            Object value = resolveValue(prop.getValue());
+        Method setter = findSetter(target.getClass(), methodName, value);
+        if (setter != null) {
+            Object convertedValue = convertValue(value, setter.getParameterTypes()[0]);
+            setter.invoke(target, convertedValue);
             
-            // Find setter method
-            String methodName = "set" + Character.toUpperCase(propertyName.charAt(0)) 
-                              + propertyName.substring(1);
-            
-            // Handle hyphenated property names (e.g., "keystore-file" -> "setKeystoreFile")
-            methodName = toCamelCase(methodName);
-            
-            Method setter = findSetter(target.getClass(), methodName, value);
-            if (setter != null) {
-                // Convert value to match parameter type if needed
-                Object convertedValue = convertValue(value, setter.getParameterTypes()[0]);
-                setter.invoke(target, convertedValue);
-                
-                if (LOGGER.isLoggable(Level.FINEST)) {
-                    LOGGER.finest("Injected property " + propertyName + " on " + 
-                                 target.getClass().getSimpleName());
-                }
-            } else {
-                LOGGER.warning("No setter found for property: " + propertyName + 
-                              " on " + target.getClass().getName());
+            if (LOGGER.isLoggable(Level.FINEST)) {
+                LOGGER.finest("Injected property " + propertyName + " on " + 
+                             target.getClass().getSimpleName());
             }
-        } finally {
-            // Always clear container reference if it was set
-            if (isContainerContexts) {
-                currentContainer.remove();
-            }
+        } else {
+            LOGGER.warning("No setter found for property: " + propertyName + 
+                          " on " + target.getClass().getName());
         }
     }
     
@@ -306,11 +295,7 @@ public class ComponentRegistry {
             ComponentReference ref = (ComponentReference) value;
             return getComponent(ref.getRefId());
         } else if (value instanceof ComponentDefinition) {
-            // Inline anonymous component
             return createComponent((ComponentDefinition) value);
-        } else if (value instanceof ConfigurationParser.InlineContextInfo) {
-            // Special handling for Context which needs constructor args
-            return createContext((ConfigurationParser.InlineContextInfo) value);
         } else if (value instanceof ListValue) {
             ListValue list = (ListValue) value;
             List<Object> result = new ArrayList<>();
@@ -328,63 +313,6 @@ public class ComponentRegistry {
         }
         return value;
     }
-    
-    private Object createContext(ConfigurationParser.InlineContextInfo contextInfo) {
-        try {
-            // Get the parent Container from the thread-local
-            Object container = currentContainer.get();
-            if (container == null) {
-                throw new RuntimeException("Cannot create Context without parent Container");
-            }
-            
-            // Create Context using no-arg constructor and setters
-            Class<?> contextClass = Class.forName("org.bluezoo.gumdrop.servlet.Context");
-            Object context = contextClass.getDeclaredConstructor().newInstance();
-            
-            // Set required properties: container, path, root
-            Method setContainer = contextClass.getMethod("setContainer", 
-                Class.forName("org.bluezoo.gumdrop.servlet.Container"));
-            setContainer.invoke(context, container);
-            
-            Method setPath = contextClass.getMethod("setPath", String.class);
-            setPath.invoke(context, contextInfo.getPath());
-            
-            Method setRoot = contextClass.getMethod("setRoot", java.io.File.class);
-            setRoot.invoke(context, contextInfo.getRoot());
-            
-            // Set additional properties (e.g., distributable)
-            for (Map.Entry<String, String> prop : contextInfo.getProperties().entrySet()) {
-                String methodName = "set" + Character.toUpperCase(prop.getKey().charAt(0)) + 
-                                   prop.getKey().substring(1);
-                methodName = toCamelCase(methodName);
-                
-                Method setter = findSetter(context.getClass(), methodName, prop.getValue());
-                if (setter != null) {
-                    Object convertedValue = convertValue(prop.getValue(), setter.getParameterTypes()[0]);
-                    setter.invoke(context, convertedValue);
-                }
-            }
-            
-            // Call load() method - this will also call initializeInternal() if needed
-            Method loadMethod = contextClass.getMethod("load");
-            loadMethod.invoke(context);
-            
-            // Add the context to the container
-            Method addContextMethod = container.getClass().getMethod("addContext", contextClass);
-            addContextMethod.invoke(container, context);
-            
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Created Context: " + contextInfo.getPath() + " -> " + contextInfo.getRoot());
-            }
-            
-            return context;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create Context", e);
-        }
-    }
-    
-    // Thread-local to store the current container being created
-    private final ThreadLocal<Object> currentContainer = new ThreadLocal<>();
     
     private Object convertValue(Object value, Class<?> targetType) {
         if (value == null) {

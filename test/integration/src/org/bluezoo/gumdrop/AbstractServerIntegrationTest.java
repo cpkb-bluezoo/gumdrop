@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.config.ComponentRegistry;
+import org.bluezoo.gumdrop.config.ConfigurationParser;
+import org.bluezoo.gumdrop.config.ParseResult;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;

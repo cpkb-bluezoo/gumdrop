@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.Executors;
@@ -35,9 +36,11 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPService;
+import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.util.MessageFormatter;
 
 /**
@@ -84,6 +87,8 @@ public class ServletService extends HTTPService {
     private int bufferSize = DEFAULT_BUFFER_SIZE;
 
     public ServletService() {
+        this.container = new Container();
+        this.handlerFactory = new ServletHandlerFactory(this, container);
         workerThreadPool = new ThreadPoolExecutor(
                 0, Integer.MAX_VALUE,
                 0L, TimeUnit.MILLISECONDS,
@@ -124,9 +129,49 @@ public class ServletService extends HTTPService {
         return container;
     }
 
+    /**
+     * Replaces the internal container with an externally-created one.
+     * Provided for backward compatibility and programmatic use.
+     *
+     * @param container the container to use
+     */
     public void setContainer(Container container) {
         this.container = container;
         this.handlerFactory = new ServletHandlerFactory(this, container);
+    }
+
+    // ── Container delegation setters ──
+
+    public void setHotDeploy(boolean flag) {
+        container.setHotDeploy(flag);
+    }
+
+    public void setRealms(Map<String, Realm> realms) {
+        container.setRealms(realms);
+    }
+
+    public void setResources(List<Resource> resources) {
+        container.setResources(resources);
+    }
+
+    public void addContext(Context context) {
+        container.addContext(context);
+    }
+
+    public void setContexts(List<Context> contexts) {
+        container.setContexts(contexts);
+    }
+
+    public void setClusterPort(int port) {
+        container.setClusterPort(port);
+    }
+
+    public void setClusterGroupAddress(String address) {
+        container.setClusterGroupAddress(address);
+    }
+
+    public void setClusterKey(String key) {
+        container.setClusterKey(key);
     }
 
     /**
@@ -268,6 +313,7 @@ public class ServletService extends HTTPService {
      */
     @Override
     protected void initService() {
+        container.init();
         container.initContexts();
         asyncTimeoutScheduler.start();
     }

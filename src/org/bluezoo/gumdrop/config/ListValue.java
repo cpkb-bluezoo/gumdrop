@@ -1,5 +1,5 @@
 /*
- * MapValue.java
+ * ListValue.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,43 +19,42 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop;
+package org.bluezoo.gumdrop.config;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Represents a map value in component configuration.
- * Values can be simple strings, component references, or inline components.
+ * Represents a list value in component configuration.
+ * Items can be simple values, component references, or inline components.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MapValue {
+public class ListValue {
     
-    private final Map<Object, Object> entries = new LinkedHashMap<>();
+    private final List<Object> items = new ArrayList<>();
     
     /**
-     * Adds an entry to the map.
+     * Adds an item to the list.
      * 
-     * @param key the key (typically a String)
-     * @param value the value (String, ComponentReference, or ComponentDefinition)
+     * @param item the item (String, ComponentReference, or ComponentDefinition)
      */
-    public void put(Object key, Object value) {
-        entries.put(key, value);
+    public void addItem(Object item) {
+        items.add(item);
     }
     
     /**
-     * Returns all entries in the map.
+     * Returns all items in the list.
      * 
-     * @return the map entries
+     * @return the list of items
      */
-    public Map<Object, Object> getEntries() {
-        return entries;
+    public List<Object> getItems() {
+        return items;
     }
     
     @Override
     public String toString() {
-        return "MapValue{entries=" + entries.size() + "}";
+        return "ListValue{items=" + items.size() + "}";
     }
 }
 

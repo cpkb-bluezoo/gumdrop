@@ -36,7 +36,13 @@ module org.bluezoo.gumdrop {
     
     // Core server framework
     exports org.bluezoo.gumdrop;
+    exports org.bluezoo.gumdrop.config;
     exports org.bluezoo.gumdrop.util;
+    
+    // Pluggable DI via ServiceLoader
+    uses org.bluezoo.gumdrop.GumdropConfigurator;
+    provides org.bluezoo.gumdrop.GumdropConfigurator
+        with org.bluezoo.gumdrop.config.DefaultConfigurator;
     
     // Protocol implementations
     exports org.bluezoo.gumdrop.http;

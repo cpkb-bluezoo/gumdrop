@@ -67,6 +67,7 @@ public class AcceptSelectorLoop implements Runnable {
     private Selector selector;
     private volatile boolean active;
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
+    private volatile Runnable readyCallback;
 
     AcceptSelectorLoop(Gumdrop gumdrop) {
         this.gumdrop = gumdrop;
@@ -100,7 +101,7 @@ public class AcceptSelectorLoop implements Runnable {
         try {
             selector = Selector.open();
 
-            // Process any listeners queued before the selector was open
+            // Bind all listeners queued before the selector was open
             processPendingRegistrations();
 
             // Main accept loop
@@ -108,6 +109,13 @@ public class AcceptSelectorLoop implements Runnable {
                 try {
                     // Process any pending server registrations
                     processPendingRegistrations();
+
+                    // Fire the ready callback once after initial registrations are bound
+                    Runnable cb = readyCallback;
+                    if (cb != null) {
+                        readyCallback = null;
+                        cb.run();
+                    }
 
                     selector.select();
 
@@ -167,6 +175,19 @@ public class AcceptSelectorLoop implements Runnable {
             this.listener = null;
             this.rawHandler = handler;
             this.channel = channel;
+        }
+    }
+
+    /**
+     * Sets a callback to be invoked once on the accept loop thread after
+     * the initial batch of pending listener registrations has been processed.
+     *
+     * @param callback the callback to invoke when all listeners are bound
+     */
+    void onReady(Runnable callback) {
+        this.readyCallback = callback;
+        if (selector != null) {
+            selector.wakeup();
         }
     }
 

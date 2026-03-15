@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop;
+package org.bluezoo.gumdrop.config;
 
 import org.junit.Before;
 import org.junit.After;
@@ -290,21 +290,6 @@ public class ConfigurationParserTest {
         ParseResult result = parser.parse(file);
 
         assertTrue(result.getRegistry().hasComponent("realm1"));
-    }
-
-    @Test
-    public void testContainerComponent() throws Exception {
-        String config = "<?xml version=\"1.0\"?>\n" +
-            "<gumdrop>\n" +
-            "  <container id=\"myContainer\">\n" +
-            "  </container>\n" +
-            "</gumdrop>";
-        File file = createConfigFile(config);
-
-        ConfigurationParser parser = new ConfigurationParser();
-        ParseResult result = parser.parse(file);
-
-        assertTrue(result.getRegistry().hasComponent("myContainer"));
     }
 
     @Test

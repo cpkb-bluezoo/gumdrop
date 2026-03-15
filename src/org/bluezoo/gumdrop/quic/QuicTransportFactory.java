@@ -30,6 +30,8 @@ import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.nio.channels.DatagramChannel;
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -73,6 +75,8 @@ public class QuicTransportFactory extends TransportFactory {
 
     private static final Logger LOGGER =
             Logger.getLogger(QuicTransportFactory.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
 
     /** QUIC version 1 (RFC 9000 section 15). */
     static final int QUICHE_PROTOCOL_VERSION_1 = 0x00000001;
@@ -474,7 +478,10 @@ public class QuicTransportFactory extends TransportFactory {
                 : StandardProtocolFamily.INET;
         DatagramChannel dc = DatagramChannel.open(family);
         dc.configureBlocking(false);
+
+        long t1 = System.currentTimeMillis();
         dc.bind(new InetSocketAddress(bindAddress, port));
+        long t2 = System.currentTimeMillis();
 
         QuicEngine engine = new QuicEngine(this, true);
         engine.init(dc);
@@ -482,9 +489,11 @@ public class QuicTransportFactory extends TransportFactory {
 
         loop.registerDatagram(dc, engine);
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("QUIC server listening on "
-                    + bindAddress.getHostAddress() + ":" + port);
+        if (LOGGER.isLoggable(Level.FINE)) {
+            String message = L10N.getString("info.bound_server");
+            message = MessageFormat.format(message,
+                    "QUIC", port, bindAddress, (t2 - t1));
+            LOGGER.fine(message);
         }
 
         return engine;
@@ -513,7 +522,10 @@ public class QuicTransportFactory extends TransportFactory {
                 : StandardProtocolFamily.INET;
         DatagramChannel dc = DatagramChannel.open(family);
         dc.configureBlocking(false);
+
+        long t1 = System.currentTimeMillis();
         dc.bind(new InetSocketAddress(bindAddress, port));
+        long t2 = System.currentTimeMillis();
 
         QuicEngine engine = new QuicEngine(this, true);
         engine.init(dc);
@@ -521,9 +533,11 @@ public class QuicTransportFactory extends TransportFactory {
 
         loop.registerDatagram(dc, engine);
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("QUIC server listening on "
-                    + bindAddress.getHostAddress() + ":" + port);
+        if (LOGGER.isLoggable(Level.FINE)) {
+            String message = L10N.getString("info.bound_server");
+            message = MessageFormat.format(message,
+                    "QUIC", port, bindAddress, (t2 - t1));
+            LOGGER.fine(message);
         }
 
         return engine;
