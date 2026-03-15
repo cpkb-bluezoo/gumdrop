@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.ContainerClassLoader;
+import org.bluezoo.gumdrop.DependencyClassLoader;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
@@ -179,9 +180,6 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
     Map<String,? extends ServletRegistration> servletRegistrations = new LinkedHashMap<>();
 
-    // JSP configuration
-    JspConfigDescriptor jspConfig;
-    
     // JSP parser factory
     private JSPParserFactory jspParserFactory;
     
@@ -2362,6 +2360,16 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         if (jspCompiler == null) {
             ClassLoader parentLoader = contextClassLoader != null ? contextClassLoader : getClass().getClassLoader();
             jspCompiler = new InMemoryJavaCompiler(parentLoader);
+            
+            // Build compilation classpath from dependency jars (servlet API, JSP API, etc.)
+            ClassLoader cl = parentLoader.getParent();
+            if (cl instanceof DependencyClassLoader) {
+                try {
+                    jspCompiler.setClasspath(((DependencyClassLoader) cl).getClasspathFiles());
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to build JSP compilation classpath", e);
+                }
+            }
         }
         
         if (jspDependencyTracker == null) {

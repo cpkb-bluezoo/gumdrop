@@ -167,6 +167,13 @@ public class ContainerClassLoader extends DependencyClassLoader {
         return new IteratorEnumeration<URL>(acc.iterator());
     }
 
+    @Override public List<File> getClasspathFiles() throws IOException {
+        List<File> result = new ArrayList<>();
+        result.add(getFile(containerUrl));
+        result.addAll(super.getClasspathFiles());
+        return result;
+    }
+
     @Override protected boolean urlValid(URL url) {
         return containerUrl.equals(url) || urls.contains(url);
     }

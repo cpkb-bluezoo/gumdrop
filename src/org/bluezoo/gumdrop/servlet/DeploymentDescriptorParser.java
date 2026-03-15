@@ -501,7 +501,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
     }
 
     public void startElement(String uri, String localName, String qName, Attributes atts) throws SAXException {
-        String name = (localName == null) ? qName : localName;
+        String name = localName != null && !localName.isEmpty() ? localName : qName;
         State parentState = peekState();
         State state = STATE_LOOKUP.get(name);
         if (state == null) {
@@ -1241,7 +1241,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
     }
 
     public void endElement(String uri, String localName, String qName) throws SAXException {
-        String name = (localName == null) ? qName : localName;
+        String name = localName != null && !localName.isEmpty() ? localName : qName;
         State state = popState();
         State parentState = peekState();
 

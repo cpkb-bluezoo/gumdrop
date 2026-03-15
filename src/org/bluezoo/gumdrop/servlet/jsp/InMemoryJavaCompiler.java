@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet.jsp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
@@ -47,6 +48,7 @@ import javax.tools.JavaFileManager;
 import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 import javax.tools.StandardJavaFileManager;
+import javax.tools.StandardLocation;
 import javax.tools.ToolProvider;
 
 /**
@@ -84,6 +86,7 @@ public class InMemoryJavaCompiler {
     private final JavaCompiler compiler;
     private final ClassLoader parentClassLoader;
     private final List<String> compilerOptions;
+    private List<File> classpathEntries;
     
     /**
      * Creates a new in-memory compiler with the specified parent classloader.
@@ -112,6 +115,17 @@ public class InMemoryJavaCompiler {
      */
     public InMemoryJavaCompiler() {
         this(Thread.currentThread().getContextClassLoader());
+    }
+    
+    /**
+     * Sets the classpath entries for compilation. These files (typically
+     * jar files) will be added to the compiler's classpath so that
+     * generated code can reference classes they contain.
+     * 
+     * @param entries list of jar files or class directories
+     */
+    public void setClasspath(List<File> entries) {
+        this.classpathEntries = entries;
     }
     
     /**
@@ -144,6 +158,15 @@ public class InMemoryJavaCompiler {
         // Create file manager that stores output in memory
         StandardJavaFileManager standardFileManager = 
             compiler.getStandardFileManager(diagnostics, null, null);
+        
+        if (classpathEntries != null && !classpathEntries.isEmpty()) {
+            try {
+                standardFileManager.setLocation(StandardLocation.CLASS_PATH, classpathEntries);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("compiler.classpath_error"), e);
+            }
+        }
+        
         InMemoryFileManager fileManager = 
             new InMemoryFileManager(standardFileManager, parentClassLoader);
         

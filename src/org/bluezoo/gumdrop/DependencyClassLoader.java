@@ -284,6 +284,19 @@ public class DependencyClassLoader extends ClassLoader {
     }
 
     /**
+     * Returns all dependency jar files as extracted File objects.
+     * Each URL is resolved to a local file (extracting from nested jars
+     * to temporary files if necessary).
+     */
+    public List<File> getClasspathFiles() throws IOException {
+        List<File> result = new ArrayList<>();
+        for (URL url : urls) {
+            result.add(getFile(url));
+        }
+        return result;
+    }
+
+    /**
      * Returns the temporary file being used to store the jar file at the
      * specified URL.
      */

@@ -65,27 +65,27 @@
             
             <h3>1. XML Document Declaration and JSP Root</h3>
             <div class="code-block">
-&lt;?xml version="1.0" encoding="UTF-8"?&gt;<br/>
-&lt;jsp:root xmlns:jsp="http://java.sun.com/JSP/Page" version="2.0"&gt;<br/>
-&#160;&#160;&#160;&#160;&lt;jsp:directive.page contentType="text/html; charset=UTF-8"/&gt;<br/>
-&#160;&#160;&#160;&#160;&lt;jsp:directive.page import="java.util.Date"/&gt;
+&amp;lt;?xml version="1.0" encoding="UTF-8"?&amp;gt;<br/>
+&amp;lt;jsp:root xmlns:jsp="http://java.sun.com/JSP/Page" version="2.0"&amp;gt;<br/>
+&#160;&#160;&#160;&#160;&amp;lt;jsp:directive.page contentType="text/html; charset=UTF-8"/&amp;gt;<br/>
+&#160;&#160;&#160;&#160;&amp;lt;jsp:directive.page import="java.util.Date"/&amp;gt;
             </div>
             
             <h3>2. XML Declaration Element</h3>
             <div class="code-block">
-&lt;jsp:declaration&gt;<br/>
+&amp;lt;jsp:declaration&amp;gt;<br/>
 &#160;&#160;&#160;&#160;private int visitCount = 0;<br/>
 &#160;&#160;&#160;&#160;<br/>
 &#160;&#160;&#160;&#160;private String formatDate(Date date) {<br/>
 &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");<br/>
 &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;return sdf.format(date);<br/>
 &#160;&#160;&#160;&#160;}<br/>
-&lt;/jsp:declaration&gt;
+&amp;lt;/jsp:declaration&amp;gt;
             </div>
             
             <h3>3. XML Scriptlet Element</h3>
             <div class="code-block">
-&lt;jsp:scriptlet&gt;<br/>
+&amp;lt;jsp:scriptlet&amp;gt;<br/>
 &#160;&#160;&#160;&#160;visitCount++;<br/>
 &#160;&#160;&#160;&#160;Date currentTime = new Date();<br/>
 &#160;&#160;&#160;&#160;String greeting;<br/>
@@ -98,14 +98,14 @@
 &#160;&#160;&#160;&#160;} else {<br/>
 &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;greeting = "Good evening";<br/>
 &#160;&#160;&#160;&#160;}<br/>
-&lt;/jsp:scriptlet&gt;
+&amp;lt;/jsp:scriptlet&amp;gt;
             </div>
             
             <h3>4. XML Expression Elements</h3>
             <div class="code-block">
-&lt;p&gt;&lt;jsp:expression&gt;greeting&lt;/jsp:expression&gt;! Welcome to Gumdrop XML JSP.&lt;/p&gt;<br/>
-&lt;p&gt;Current time: &lt;jsp:expression&gt;formatDate(currentTime)&lt;/jsp:expression&gt;&lt;/p&gt;<br/>
-&lt;p&gt;This page has been visited &lt;jsp:expression&gt;visitCount&lt;/jsp:expression&gt; time(s).&lt;/p&gt;
+&amp;lt;p&amp;gt;&amp;lt;jsp:expression&amp;gt;greeting&amp;lt;/jsp:expression&amp;gt;! Welcome to Gumdrop XML JSP.&amp;lt;/p&amp;gt;<br/>
+&amp;lt;p&amp;gt;Current time: &amp;lt;jsp:expression&amp;gt;formatDate(currentTime)&amp;lt;/jsp:expression&amp;gt;&amp;lt;/p&amp;gt;<br/>
+&amp;lt;p&amp;gt;This page has been visited &amp;lt;jsp:expression&amp;gt;visitCount&amp;lt;/jsp:expression&amp;gt; time(s).&amp;lt;/p&amp;gt;
             </div>
             
             <h2>Generated Output</h2>
@@ -141,23 +141,23 @@
                 </tr>
                 <tr style="border: 1px solid #dee2e6;">
                     <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Page Directive</strong></td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;%@ page ... %&gt;</td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:directive.page .../&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;%@ page ... %&amp;gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;jsp:directive.page .../&amp;gt;</td>
                 </tr>
                 <tr style="border: 1px solid #dee2e6;">
                     <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Declaration</strong></td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;%! ... %&gt;</td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:declaration&gt;...&lt;/jsp:declaration&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;%! ... %&amp;gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;jsp:declaration&amp;gt;...&amp;lt;/jsp:declaration&amp;gt;</td>
                 </tr>
                 <tr style="border: 1px solid #dee2e6;">
                     <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Scriptlet</strong></td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;% ... %&gt;</td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:scriptlet&gt;...&lt;/jsp:scriptlet&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;% ... %&amp;gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;jsp:scriptlet&amp;gt;...&amp;lt;/jsp:scriptlet&amp;gt;</td>
                 </tr>
                 <tr style="border: 1px solid #dee2e6;">
                     <td style="padding: 8px; border: 1px solid #dee2e6;"><strong>Expression</strong></td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;%= ... %&gt;</td>
-                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&lt;jsp:expression&gt;...&lt;/jsp:expression&gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;%= ... %&amp;gt;</td>
+                    <td style="padding: 8px; border: 1px solid #dee2e6; font-family: monospace;">&amp;lt;jsp:expression&amp;gt;...&amp;lt;/jsp:expression&amp;gt;</td>
                 </tr>
             </table>
             
@@ -187,8 +187,8 @@
             
             <p>Gumdrop supports both formats seamlessly:</p>
             <ul>
-                <li><strong>TraditionalJSPParser:</strong> Handles classic &lt;% %&gt; syntax</li>
-                <li><strong>XMLJSPParser:</strong> SAX-based processing for &lt;jsp:* /&gt; elements</li>
+                <li><strong>TraditionalJSPParser:</strong> Handles classic &amp;lt;% %&amp;gt; syntax</li>
+                <li><strong>XMLJSPParser:</strong> SAX-based processing for &amp;lt;jsp:* /&amp;gt; elements</li>
                 <li><strong>Automatic Detection:</strong> No configuration needed - format detected at runtime</li>
                 <li><strong>Unified Processing:</strong> Both parsers create identical AST representations</li>
                 <li><strong>Same Configuration:</strong> JSP property groups apply to both formats equally</li>
