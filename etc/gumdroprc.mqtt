@@ -1,0 +1,34 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+
+	<!--
+	  MQTT broker service.
+	  Listens on port 1883 (plaintext) and optionally 8883 (TLS).
+	-->
+
+	<!-- Optional: authentication realm for MQTT CONNECT credentials -->
+	<!--
+	<realm id="mqttRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-mqtt.xml"/>
+	</realm>
+	-->
+
+	<service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTService">
+		<!-- <property name="realm" ref="#mqttRealm"/> -->
+		<!-- <property name="max-packet-size">268435455</property> -->
+
+		<!-- MQTT plaintext listener -->
+		<listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+				name="mqtt" port="1883"/>
+
+		<!-- MQTT over TLS listener (uncomment to enable) -->
+		<!--
+		<listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+				name="mqtts" port="8883" secure="true">
+			<property name="keystore-file" path="server.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+		-->
+	</service>
+
+</gumdrop>

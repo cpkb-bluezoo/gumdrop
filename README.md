@@ -64,7 +64,7 @@ non-blocking, event-driven I/O.
     - optional client certificate authentication built-in
     - rate limiting, quotas, IAM
 - production ready
-    - comprehensive protocol implementations
+    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT)
     - security hardening (rate limiting, filtering, attack prevention)
     - enterprise observability via OpenTelemetry integration
 
@@ -77,6 +77,7 @@ non-blocking, event-driven I/O.
 | Standard NIO ByteBuffer | ✓ | ✗ (ByteBuf) | ✓ | ✓ |
 | HTTP/3 & QUIC | ✓ | ✓ | ✓ | ✗ |
 | SMTP, DNS | ✓ | (clients only) | ✗ | ✗ |
+| MQTT broker &amp; client | ✓ | ✗ | ✗ | ✗ |
 | IMAP, POP3, FTP | ✓ | ✗ | ✗ | ✗ |
 | Transport-level flow control | ✓ | ✓ | ✗ | ✗ |
 | Built-in telemetry (no agent) | ✓ | ✗ | ✗ | ✗ |
@@ -84,7 +85,7 @@ non-blocking, event-driven I/O.
 | Single JAR, minimal deps | ✓ | ✗ | ✗ | ✗ |
 | No DI framework required | ✓ | ✓ | ✗ | ✓ |
 
-Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, and FTP, so you can add fully async mail, file transfer, or DNS services without bolting on separate stacks.
+Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, and FTP, so you can add fully async mail, messaging, file transfer, or DNS services without bolting on separate stacks.
 
 ## Full feature list
 
@@ -317,6 +318,37 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
     - configurable maximum message size with close code 1009 enforcement
     - close code validation (RFC 6455 §7.4) rejecting reserved wire codes
     - SecureRandom masking keys (RFC 6455 §5.3)
+- MQTT
+    - full MQTT message broker and client
+    - MQTT 3.1.1 and MQTT 5.0 (simultaneous version negotiation)
+    - all packet types and QoS levels (0, 1, 2)
+    - MQTTS (MQTT over TLS on port 8883)
+    - MQTT over WebSocket for browser-based clients
+    - SAX-style incremental parser — streams PUBLISH payloads up to 256 MB
+      without buffering entire packets in memory
+    - pluggable NIO channel-based message store for payload persistence
+        - default in-memory store with fast path for small messages
+        - override for file-backed or distributed storage
+    - horizontal fan-out: payload chunks read once and broadcast to all
+      subscribers, minimising I/O for high fan-out topics
+    - topic wildcard matching (`+` single-level, `#` multi-level) via trie-based TopicTree
+    - retained messages, Last Will and Testament
+    - clean session management
+    - MQTT 5.0 properties (user properties, content type, message expiry,
+      authentication method/data, reason codes)
+    - staged handler pattern for async connection, publish, and subscribe
+      authorization
+    - default service accepts all connections (with optional realm authentication)
+    - broker components: SubscriptionManager, RetainedMessageStore, WillManager, QoSManager
+    - fully asynchronous MQTT client with SelectorLoop affinity
+        - TLS support
+        - QoS 0, 1, 2 publish and subscribe
+        - Last Will and Testament
+        - MQTT 5.0 version negotiation
+        - MQTTMessageContent delivery for streaming large received payloads
+    - OpenTelemetry instrumentation (connections, publishes, subscribes,
+      authentication, session duration, payload size)
+    - localized log and error messages (English, French, Spanish, German)
 - DNS
     - full DNS server implementation
     - DNS over DTLS for secure queries
@@ -356,7 +388,7 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
     - metrics collection (counters, histograms, gauges)
     - OTLP/HTTP and OTLP/gRPC export to any OpenTelemetry Collector
     - file export for JSONL
-    - built-in instrumentation for HTTP, SMTP, IMAP, POP3, FTP
+    - built-in instrumentation for HTTP, SMTP, IMAP, POP3, FTP, MQTT
     - endpoint pooling with SelectorLoop affinity
     - configurable aggregation temporality (delta/cumulative)
     - custom instrumentation API for application-level tracing

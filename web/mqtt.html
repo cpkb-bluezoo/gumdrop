@@ -1,0 +1,954 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>MQTT Server &amp; Client - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop MQTT Server &amp; Client</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a complete MQTT message broker and client implementation
+supporting both MQTT 3.1.1 (RFC&nbsp;specification OASIS Standard, 29 October 2014)
+and MQTT 5.0 (OASIS Standard, 7 March 2019). The broker integrates with
+Gumdrop's event-driven, non-blocking I/O architecture to deliver high-throughput
+publish/subscribe messaging with minimal resource consumption. MQTT over
+WebSocket is also supported, enabling browser-based clients to connect through
+the same service.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#protocol">Protocol Support</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#handlers">Handler Interfaces</a></li>
+<li><a href="#default-service">Default Service</a></li>
+<li><a href="#broker">Broker Components</a></li>
+<li><a href="#streaming">Streaming Payloads &amp; Message Store</a></li>
+<li><a href="#websocket">MQTT over WebSocket</a></li>
+<li><a href="#qos">Quality of Service</a></li>
+<li><a href="#mqtt5">MQTT 5.0 Features</a></li>
+<li><a href="#client">Client API</a></li>
+<li><a href="#telemetry">Telemetry</a></li>
+<li><a href="#examples">Examples</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The MQTT implementation follows Gumdrop's standard service/listener/handler
+architecture. An <code>MQTTService</code> owns one or more
+<code>MQTTListener</code>s that accept TCP connections. Each connection is
+handled by an <code>MQTTProtocolHandler</code> which parses the MQTT wire
+protocol using a SAX-style event-driven parser (<code>MQTTFrameParser</code>)
+and delegates application-level decisions to pluggable handler interfaces.
+</p>
+
+<h4>Core Components</h4>
+
+<ul>
+<li><code>org.bluezoo.gumdrop.mqtt.MQTTService</code> &mdash; abstract base
+class providing broker infrastructure; subclass to customise connection,
+publish, and subscribe behaviour</li>
+<li><code>org.bluezoo.gumdrop.mqtt.MQTTListener</code> &mdash; TCP listener
+for MQTT connections (port 1883 cleartext, port 8883 TLS)</li>
+<li><code>org.bluezoo.gumdrop.mqtt.MQTTProtocolHandler</code> &mdash;
+per-connection protocol handler implementing the MQTT state machine</li>
+<li><code>org.bluezoo.gumdrop.mqtt.codec.MQTTFrameParser</code> &mdash;
+incremental, SAX-style parser that delivers protocol events via
+<code>MQTTEventHandler</code> callbacks without buffering entire packets</li>
+<li><code>org.bluezoo.gumdrop.mqtt.codec.MQTTPacketEncoder</code> &mdash;
+stateless encoder producing <code>ByteBuffer</code>s for all packet types</li>
+<li><code>org.bluezoo.gumdrop.mqtt.MQTTWebSocketHandler</code> &mdash;
+bridges MQTT over WebSocket connections to the protocol handler</li>
+</ul>
+
+<h4>Event-Driven Parsing</h4>
+
+<p>
+Unlike implementations that buffer complete MQTT packets before processing,
+Gumdrop uses an incremental, SAX-style event model. The
+<code>MQTTFrameParser</code> invokes methods on the
+<code>MQTTEventHandler</code> interface as each protocol element is decoded.
+PUBLISH payloads &mdash; which can be up to 256&nbsp;MB &mdash; are streamed
+in chunks via <code>publishData(ByteBuffer)</code> callbacks between
+<code>startPublish()</code> and <code>endPublish()</code> events. SUBSCRIBE
+and UNSUBSCRIBE topic filters are similarly delivered incrementally. This
+design keeps memory usage bounded regardless of message size.
+</p>
+
+<h4>Message Routing</h4>
+
+<p>
+When a PUBLISH message is received, the protocol handler consults the
+<code>SubscriptionManager</code> which uses a <code>TopicTree</code> to
+resolve matching subscribers (including wildcard patterns <code>+</code> and
+<code>#</code>). For large payloads, the broker performs <b>horizontal
+fan-out</b>: each chunk of the payload is read once from storage and then
+broadcast to all matching subscribers before the next chunk is read. This
+minimises I/O and memory pressure compared to reading the full payload once
+per subscriber.
+</p>
+
+<h3 id="protocol">Protocol Support</h3>
+
+<h4>MQTT 3.1.1</h4>
+
+<p>
+Full support for the MQTT 3.1.1 specification (OASIS Standard):
+</p>
+
+<ul>
+<li>All packet types: CONNECT, CONNACK, PUBLISH, PUBACK, PUBREC, PUBREL,
+PUBCOMP, SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK, PINGREQ, PINGRESP,
+DISCONNECT</li>
+<li>Quality of Service levels 0, 1, and 2</li>
+<li>Retained messages</li>
+<li>Last Will and Testament</li>
+<li>Clean session management</li>
+<li>Topic wildcards (<code>+</code> single-level, <code>#</code> multi-level)</li>
+<li>Keep-alive with PINGREQ/PINGRESP</li>
+<li>Client identifier validation</li>
+</ul>
+
+<h4>MQTT 5.0</h4>
+
+<p>
+Full support for MQTT 5.0 (OASIS Standard), which adds:
+</p>
+
+<ul>
+<li>Properties on all packet types via <code>MQTTProperties</code></li>
+<li>Reason codes for all acknowledgements</li>
+<li>AUTH packet for enhanced authentication</li>
+<li>User properties (key-value pairs on any packet)</li>
+<li>Content type and payload format indicator</li>
+<li>Message expiry interval</li>
+<li>Topic aliases</li>
+<li>Server-side disconnect with reason code</li>
+</ul>
+
+<p>
+The protocol version is negotiated during the CONNECT handshake. MQTT 3.1.1
+clients (protocol level 4) and MQTT 5.0 clients (protocol level 5) can
+connect to the same listener simultaneously.
+</p>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>Basic Configuration</h4>
+
+<pre>
+&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+            port="1883"/&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>TLS Configuration (MQTTS)</h4>
+
+<pre>
+&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTService"&gt;
+    &lt;!-- Cleartext MQTT --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+            port="1883"/&gt;
+    &lt;!-- MQTT over TLS --&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+            port="8883" secure="true"&gt;
+        &lt;property name="keystore-file" path="keystore.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>With Authentication</h4>
+
+<pre>
+&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTService"&gt;
+    &lt;property name="realm" ref="#realm"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+            port="1883"/&gt;
+&lt;/service&gt;
+
+&lt;bean id="realm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
+    &lt;!-- realm configuration --&gt;
+&lt;/bean&gt;
+</pre>
+
+<h4>MQTTService Properties</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
+<td>none</td><td>Authentication realm for client connections</td></tr>
+<tr><td><code>max-packet-size</code></td><td><code>setMaxPacketSize(int)</code></td>
+<td>268,435,455</td><td>Maximum MQTT packet size in bytes (256&nbsp;MB)</td></tr>
+</table>
+
+<h4>MQTTListener Properties</h4>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>port</code></td><td><code>setPort(int)</code></td>
+<td>1883</td><td>Listening port (8883 for MQTTS)</td></tr>
+<tr><td><code>max-packet-size</code></td><td><code>setMaxPacketSize(int)</code></td>
+<td>268,435,455</td><td>Maximum packet size for this listener</td></tr>
+<tr><td><code>default-keep-alive</code></td><td><code>setDefaultKeepAlive(int)</code></td>
+<td>60</td><td>Default keep-alive interval in seconds</td></tr>
+<tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
+<td>from service</td><td>Per-listener authentication realm override</td></tr>
+</table>
+
+<p>
+TLS properties (<code>keystore-file</code>, <code>keystore-pass</code>,
+<code>secure</code>, <code>need-client-auth</code>) and lifecycle properties
+(<code>idle-timeout</code>, <code>read-timeout</code>,
+<code>connection-timeout</code>) are inherited from <code>TCPListener</code>
+and work identically to other protocols.
+</p>
+
+<h3 id="handlers">Handler Interfaces</h3>
+
+<p>
+The MQTT service uses Gumdrop's <b>staged handler pattern</b> for application
+logic. Three handler interfaces let you control connection authorization,
+publish authorization, and subscribe authorization. Each handler receives a
+<b>state</b> object that represents the valid responses &mdash; you call a method
+on the state to accept or reject the request. This continuation-passing style
+is fully asynchronous: you can defer the response (e.g. to perform a database
+lookup or remote service call) and invoke the state callback later, on any
+thread.
+</p>
+
+<h4>ConnectHandler</h4>
+
+<p>
+Called when a client sends a CONNECT packet. Use this to authorize connections
+based on credentials, client ID, or network origin.
+</p>
+
+<pre>
+public interface ConnectHandler {
+    void handleConnect(ConnectState state, ConnectPacket packet, Endpoint endpoint);
+    void disconnected();
+}
+</pre>
+
+<p>
+The <code>ConnectState</code> provides:
+</p>
+
+<ul>
+<li><code>acceptConnection()</code> &mdash; send CONNACK with success</li>
+<li><code>rejectBadCredentials()</code> &mdash; reject with bad username/password</li>
+<li><code>rejectNotAuthorized()</code> &mdash; reject as not authorized</li>
+<li><code>reject(int returnCode)</code> &mdash; reject with any CONNACK return code</li>
+</ul>
+
+<h4>PublishHandler</h4>
+
+<p>
+Called when a client publishes a message. Use this for topic-level access
+control, content filtering, or audit logging.
+</p>
+
+<pre>
+public interface PublishHandler {
+    void authorizePublish(PublishState state, String clientId,
+                          String topicName, int qos, boolean retain);
+}
+</pre>
+
+<p>
+The <code>PublishState</code> provides:
+</p>
+
+<ul>
+<li><code>allowPublish()</code> &mdash; route the message to subscribers</li>
+<li><code>rejectPublish()</code> &mdash; discard the message</li>
+</ul>
+
+<h4>SubscribeHandler</h4>
+
+<p>
+Called for each topic filter in a SUBSCRIBE request. Use this for topic-level
+access control or to downgrade the granted QoS level.
+</p>
+
+<pre>
+public interface SubscribeHandler {
+    void authorizeSubscription(SubscribeState state, String clientId,
+                               String topicFilter, QoS requestedQoS);
+}
+</pre>
+
+<p>
+The <code>SubscribeState</code> provides:
+</p>
+
+<ul>
+<li><code>grantSubscription(QoS grantedQoS)</code> &mdash; accept with a
+(possibly downgraded) QoS level</li>
+<li><code>rejectSubscription()</code> &mdash; deny the subscription</li>
+</ul>
+
+<h4>Implementing Custom Handlers</h4>
+
+<p>
+Override the factory methods in your <code>MQTTService</code> subclass to
+supply custom handlers:
+</p>
+
+<pre>
+public class MyMQTTService extends MQTTService {
+
+    @Override
+    protected ConnectHandler createConnectHandler(TCPListener listener) {
+        return new ConnectHandler() {
+            @Override
+            public void handleConnect(ConnectState state,
+                                      ConnectPacket packet,
+                                      Endpoint endpoint) {
+                String username = packet.getUsername();
+                byte[] password = packet.getPassword();
+
+                if (username != null &amp;&amp; authenticate(username, password)) {
+                    state.acceptConnection();
+                } else {
+                    state.rejectBadCredentials();
+                }
+            }
+
+            @Override
+            public void disconnected() {
+                // Clean up resources
+            }
+        };
+    }
+
+    @Override
+    protected PublishHandler createPublishHandler(TCPListener listener) {
+        return (state, clientId, topic, qos, retain) -&gt; {
+            if (topic.startsWith("restricted/") &amp;&amp; !isAdmin(clientId)) {
+                state.rejectPublish();
+            } else {
+                state.allowPublish();
+            }
+        };
+    }
+
+    @Override
+    protected SubscribeHandler createSubscribeHandler(TCPListener listener) {
+        return (state, clientId, topicFilter, requestedQoS) -&gt; {
+            if (topicFilter.startsWith("$SYS/")) {
+                state.rejectSubscription();
+            } else {
+                state.grantSubscription(requestedQoS);
+            }
+        };
+    }
+}
+</pre>
+
+<h3 id="default-service">Default Service</h3>
+
+<p>
+<code>DefaultMQTTService</code> provides a ready-to-use broker that accepts all
+connections, allows all publishes, and grants all subscriptions at the requested
+QoS level. It requires no handler implementation &mdash; just configure listeners
+and optionally a realm:
+</p>
+
+<pre>
+&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTService"&gt;
+    &lt;property name="realm" ref="#realm"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener" port="1883"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener" port="8883" secure="true"&gt;
+        &lt;property name="keystore-file" path="keystore.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+When a realm is configured, the broker validates username/password credentials
+from the CONNECT packet against the realm. Without a realm, all clients are
+accepted. This is typically sufficient for development, internal messaging,
+and IoT deployments where network-level security is adequate.
+</p>
+
+<h3 id="broker">Broker Components</h3>
+
+<p>
+The broker is composed of several collaborating components managed by the
+service. These are created automatically and available to custom service
+implementations.
+</p>
+
+<h4>SubscriptionManager</h4>
+
+<p>
+Tracks all active client subscriptions and maps topic names to subscribers.
+Uses a <code>TopicTree</code> for efficient wildcard matching.
+</p>
+
+<ul>
+<li><code>subscribe(clientId, topicFilter, qos)</code> &mdash; register a
+subscription</li>
+<li><code>unsubscribe(clientId, topicFilter)</code> &mdash; remove a
+subscription</li>
+<li><code>resolveSubscribers(topicName)</code> &mdash; returns a
+<code>Map&lt;String,&nbsp;QoS&gt;</code> of matching client IDs and their
+effective QoS levels</li>
+<li><code>getSessionCount()</code> &mdash; number of active sessions</li>
+</ul>
+
+<h4>TopicTree</h4>
+
+<p>
+A trie-based data structure that supports MQTT topic wildcard matching.
+Topic filters containing <code>+</code> (single-level wildcard) and
+<code>#</code> (multi-level wildcard) are stored in the tree and matched
+against concrete topic names during publish routing. The
+<code>matchWithMaxQoS(topicName)</code> method returns the highest QoS
+level per client across all matching subscriptions.
+</p>
+
+<h4>RetainedMessageStore</h4>
+
+<p>
+Stores the most recent retained message for each topic. When a client
+subscribes to a topic filter, any matching retained messages are delivered
+immediately. Setting a retained message with an empty payload clears the
+retained entry.
+</p>
+
+<h4>WillManager</h4>
+
+<p>
+Stores Last Will and Testament messages registered during CONNECT. If a client
+disconnects unexpectedly (without sending DISCONNECT), its will message is
+published to the specified topic. Will messages are stored as
+<code>MQTTMessageContent</code> and participate in the streaming payload
+pipeline.
+</p>
+
+<h4>QoSManager</h4>
+
+<p>
+Tracks in-flight messages for QoS 1 and QoS 2 delivery. Manages packet ID
+allocation, outbound message tracking, and the QoS 2 four-phase handshake
+(PUBLISH&nbsp;&rarr; PUBREC&nbsp;&rarr; PUBREL&nbsp;&rarr; PUBCOMP). In-flight
+messages reference <code>MQTTMessageContent</code> for zero-copy redelivery.
+</p>
+
+<h3 id="streaming">Streaming Payloads &amp; Message Store</h3>
+
+<p>
+MQTT PUBLISH payloads can be up to 256&nbsp;MB. To avoid buffering entire
+payloads in memory, Gumdrop provides a pluggable message store abstraction
+based on NIO channels. Both the broker and the client use this abstraction:
+the broker streams payloads to subscribers, and the client delivers
+<code>MQTTMessageContent</code> to <code>MQTTMessageListener</code> so
+applications can stream large received messages via
+<code>content.openChannel()</code> instead of materialising them as
+<code>byte[]</code>.
+</p>
+
+<h4>Store Interfaces</h4>
+
+<p>
+Three interfaces in <code>org.bluezoo.gumdrop.mqtt.store</code> form the
+abstraction:
+</p>
+
+<ul>
+<li><code>MQTTMessageStore</code> &mdash; factory that creates writers for
+incoming payloads</li>
+<li><code>MQTTMessageWriter</code> &mdash; extends
+<code>WritableByteChannel</code>; accumulates payload data and produces a
+readable handle on <code>commit()</code></li>
+<li><code>MQTTMessageContent</code> &mdash; readable handle for stored
+payload data; provides <code>size()</code>, <code>isBuffered()</code>,
+<code>asByteArray()</code>, <code>openChannel()</code>, and
+<code>release()</code></li>
+</ul>
+
+<h4>Payload Lifecycle</h4>
+
+<ol>
+<li><b>Accumulate</b> &mdash; as <code>publishData()</code> events arrive from
+the parser, the protocol handler writes chunks into an
+<code>MQTTMessageWriter</code></li>
+<li><b>Commit</b> &mdash; on <code>endPublish()</code>, the writer is committed
+to produce an <code>MQTTMessageContent</code></li>
+<li><b>Route</b> &mdash; the content is passed through authorization and then to
+the routing pipeline</li>
+<li><b>Deliver</b> &mdash; for each subscriber, the content is read via
+<code>openChannel()</code> and streamed to the endpoint</li>
+<li><b>Release</b> &mdash; when no longer referenced (not retained, all QoS
+handshakes complete), <code>release()</code> frees resources</li>
+</ol>
+
+<h4>Horizontal Fan-Out</h4>
+
+<p>
+When delivering a large payload to multiple subscribers, the broker reads
+each chunk from the <code>MQTTMessageContent</code> channel once and then
+sends it to all matching subscribers before reading the next chunk:
+</p>
+
+<pre>
+// Pseudocode for the horizontal fan-out strategy
+for (Subscriber s : subscribers) {
+    s.sendHeader(encodePublishHeader(s));
+}
+while (channel.read(buf) &gt; 0) {
+    for (Subscriber s : subscribers) {
+        s.sendChunk(buf.duplicate());
+        buf.rewind();
+    }
+}
+</pre>
+
+<p>
+This ensures the payload is read only once regardless of subscriber count,
+minimising I/O and memory pressure.
+</p>
+
+<h4>In-Memory Store (Default)</h4>
+
+<p>
+The default <code>InMemoryMessageStore</code> buffers payloads as byte arrays.
+For small messages (the common case in IoT), <code>isBuffered()</code> returns
+<code>true</code> and the broker uses a fast path that encodes the entire
+PUBLISH packet in a single <code>ByteBuffer</code>, avoiding the streaming
+overhead entirely.
+</p>
+
+<h4>Custom Store Implementations</h4>
+
+<p>
+Override <code>createMessageStore()</code> in your <code>MQTTService</code>
+subclass to provide a persistent, file-backed, or distributed store:
+</p>
+
+<pre>
+public class PersistentMQTTService extends MQTTService {
+
+    @Override
+    protected MQTTMessageStore createMessageStore() {
+        return new FileBackedMessageStore(Path.of("/var/mqtt/payloads"));
+    }
+}
+</pre>
+
+<p>
+A file-backed implementation would write incoming payload chunks to temporary
+files and return an <code>MQTTMessageContent</code> whose
+<code>openChannel()</code> opens a <code>FileChannel</code> for zero-copy
+reads. This allows the broker to handle arbitrarily large payloads without
+proportional memory allocation.
+</p>
+
+<h3 id="websocket">MQTT over WebSocket</h3>
+
+<p>
+The <code>MQTTWebSocketHandler</code> bridges WebSocket connections to the
+MQTT protocol handler, enabling browser-based MQTT clients (such as
+<a href="https://www.eclipse.org/paho/index.php?page=clients/js/index.php">Eclipse Paho
+JavaScript</a> or MQTT.js) to connect to the broker. Binary WebSocket frames
+are fed directly into the <code>MQTTFrameParser</code>.
+</p>
+
+<p>
+To enable MQTT over WebSocket, configure a WebSocket listener on the HTTP
+service that delegates to the MQTT service's WebSocket handler. The WebSocket
+subprotocol <code>mqtt</code> should be negotiated during the upgrade
+handshake.
+</p>
+
+<h3 id="qos">Quality of Service</h3>
+
+<p>
+The broker implements all three MQTT QoS levels:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Level</th><th>Name</th><th>Delivery Guarantee</th><th>Handshake</th></tr>
+<tr><td>0</td><td>At most once</td><td>Fire and forget</td>
+<td>PUBLISH only</td></tr>
+<tr><td>1</td><td>At least once</td><td>Acknowledged delivery</td>
+<td>PUBLISH &rarr; PUBACK</td></tr>
+<tr><td>2</td><td>Exactly once</td><td>Assured delivery</td>
+<td>PUBLISH &rarr; PUBREC &rarr; PUBREL &rarr; PUBCOMP</td></tr>
+</table>
+
+<p>
+The effective QoS for a delivered message is the <b>minimum</b> of the
+publisher's QoS and the subscriber's granted QoS, as required by the MQTT
+specification. The <code>QoSManager</code> tracks all in-flight messages and
+manages packet ID allocation for both inbound and outbound message flows.
+</p>
+
+<h3 id="mqtt5">MQTT 5.0 Features</h3>
+
+<p>
+MQTT 5.0 introduces a property mechanism carried by all packet types. The
+<code>MQTTProperties</code> class provides type-safe access to all standard
+properties:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>ID</th><th>Type</th><th>Used In</th></tr>
+<tr><td>Payload Format Indicator</td><td>0x01</td><td>Integer</td>
+<td>PUBLISH</td></tr>
+<tr><td>Message Expiry Interval</td><td>0x02</td><td>Integer</td>
+<td>PUBLISH</td></tr>
+<tr><td>Content Type</td><td>0x03</td><td>String</td>
+<td>PUBLISH</td></tr>
+<tr><td>Response Topic</td><td>0x08</td><td>String</td>
+<td>PUBLISH</td></tr>
+<tr><td>Correlation Data</td><td>0x09</td><td>Binary</td>
+<td>PUBLISH</td></tr>
+<tr><td>Session Expiry Interval</td><td>0x11</td><td>Integer</td>
+<td>CONNECT, CONNACK, DISCONNECT</td></tr>
+<tr><td>Authentication Method</td><td>0x15</td><td>String</td>
+<td>CONNECT, CONNACK, AUTH</td></tr>
+<tr><td>Authentication Data</td><td>0x16</td><td>Binary</td>
+<td>CONNECT, CONNACK, AUTH</td></tr>
+<tr><td>User Property</td><td>0x26</td><td>String pair</td>
+<td>All packets</td></tr>
+</table>
+
+<p>
+Properties are accessed via <code>getIntegerProperty(id)</code>,
+<code>getStringProperty(id)</code>, <code>getBinaryProperty(id)</code>, and
+<code>getUserProperties()</code>. For MQTT 3.1.1 connections, a shared
+<code>MQTTProperties.EMPTY</code> instance is used throughout.
+</p>
+
+<h3 id="client">Client API</h3>
+
+<p>
+<code>MQTTClient</code> provides a fully asynchronous MQTT client that
+integrates with Gumdrop's event-driven architecture. Like all Gumdrop clients,
+it supports SelectorLoop affinity for use within server implementations.
+</p>
+
+<h4>Connecting</h4>
+
+<pre>
+MQTTClient client = new MQTTClient("broker.example.com", 1883);
+client.setClientId("sensor-001");
+client.setCleanSession(true);
+client.setKeepAlive(30);
+client.setCredentials("user", "password");
+
+client.connect(new MQTTClientCallback() {
+    @Override
+    public void connected() {
+        System.out.println("Connected to broker");
+    }
+
+    @Override
+    public void connectionLost() {
+        System.err.println("Connection lost");
+    }
+
+    @Override
+    public void subscribeAcknowledged(int packetId) {
+        System.out.println("Subscription confirmed");
+    }
+
+    @Override
+    public void publishComplete(int packetId) {
+        System.out.println("Publish acknowledged");
+    }
+}, new MQTTMessageListener() {
+    @Override
+    public void messageReceived(String topic, MQTTMessageContent content,
+                                int qos, boolean retain) {
+        byte[] data = content.asByteArray();
+        try {
+            System.out.println(topic + ": " + new String(data, UTF_8));
+        } finally {
+            content.release();
+        }
+    }
+});
+</pre>
+
+<p>
+The listener receives <code>MQTTMessageContent</code> instead of
+<code>ByteBuffer</code>. Ownership transfers to the listener, which must call
+<code>content.release()</code> when done. For small messages, use
+<code>content.asByteArray()</code>. For large payloads, stream via
+<code>content.openChannel()</code> to avoid loading the entire message into
+memory:
+</p>
+
+<pre>
+public void messageReceived(String topic, MQTTMessageContent content,
+                            int qos, boolean retain) {
+    try (ReadableByteChannel ch = content.openChannel()) {
+        Files.copy(Channels.newInputStream(ch), Path.of("received.dat"));
+    } catch (IOException e) {
+        // handle
+    } finally {
+        content.release();
+    }
+}
+</pre>
+
+<h4>Publishing</h4>
+
+<pre>
+// QoS 0 - fire and forget
+client.publish("sensors/temperature", "22.5", QoS.AT_MOST_ONCE);
+
+// QoS 1 - at least once delivery
+client.publish("sensors/humidity", payload, QoS.AT_LEAST_ONCE, false);
+
+// QoS 2 - exactly once delivery
+int packetId = client.publish("commands/reboot", payload, QoS.EXACTLY_ONCE, false);
+</pre>
+
+<h4>Subscribing</h4>
+
+<pre>
+// Single topic
+client.subscribe("sensors/#", QoS.AT_LEAST_ONCE);
+
+// Multiple topics
+client.subscribe(
+    new String[]{"sensors/+/temperature", "commands/#"},
+    new QoS[]{QoS.AT_LEAST_ONCE, QoS.EXACTLY_ONCE}
+);
+</pre>
+
+<h4>TLS Connections</h4>
+
+<pre>
+MQTTClient client = new MQTTClient("broker.example.com", 8883);
+client.setSecure(true);
+client.setKeystoreFile(Path.of("truststore.p12"));
+client.setKeystorePass("password");
+client.connect(callback, listener);
+</pre>
+
+<h4>Last Will and Testament</h4>
+
+<pre>
+client.setWill("devices/sensor-001/status", "offline".getBytes(UTF_8),
+               QoS.AT_LEAST_ONCE, true);
+client.connect(callback, listener);
+</pre>
+
+<h4>SelectorLoop Affinity</h4>
+
+<p>
+When using the MQTT client from within a Gumdrop server, pass the endpoint's
+<code>SelectorLoop</code> to the constructor. This ensures all MQTT callbacks
+execute on the same thread as your server connection, eliminating
+synchronisation overhead:
+</p>
+
+<pre>
+SelectorLoop loop = endpoint.getSelectorLoop();
+MQTTClient mqtt = new MQTTClient(loop, "broker.internal", 1883);
+mqtt.connect(callback, listener);
+</pre>
+
+<h4>MQTT 5.0 Client</h4>
+
+<pre>
+client.setVersion(MQTTVersion.V5_0);
+client.connect(callback, listener);
+</pre>
+
+<h3 id="telemetry">Telemetry</h3>
+
+<p>
+When a <code>TelemetryConfig</code> is set on the service,
+<code>MQTTServerMetrics</code> records the following OpenTelemetry metrics:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Metric</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>mqtt.server.connections</code></td><td>Counter</td>
+<td>Total MQTT connections accepted</td></tr>
+<tr><td><code>mqtt.server.active_connections</code></td><td>UpDownCounter</td>
+<td>Currently active connections</td></tr>
+<tr><td><code>mqtt.server.session.duration</code></td><td>Histogram</td>
+<td>Session duration in milliseconds</td></tr>
+<tr><td><code>mqtt.server.publishes</code></td><td>Counter</td>
+<td>PUBLISH messages received (by QoS level)</td></tr>
+<tr><td><code>mqtt.server.publish.size</code></td><td>Histogram</td>
+<td>Publish payload size in bytes</td></tr>
+<tr><td><code>mqtt.server.subscribes</code></td><td>Counter</td>
+<td>SUBSCRIBE operations received</td></tr>
+<tr><td><code>mqtt.server.unsubscribes</code></td><td>Counter</td>
+<td>UNSUBSCRIBE operations received</td></tr>
+<tr><td><code>mqtt.server.authentications</code></td><td>Counter</td>
+<td>Authentication attempts</td></tr>
+<tr><td><code>mqtt.server.authentications.success</code></td><td>Counter</td>
+<td>Successful authentications</td></tr>
+<tr><td><code>mqtt.server.authentications.failure</code></td><td>Counter</td>
+<td>Failed authentications</td></tr>
+</table>
+
+<p>
+Metrics are exported to any OpenTelemetry Collector via the framework's OTLP
+exporter. See the <a href="telemetry.html">Telemetry documentation</a> for
+configuration details.
+</p>
+
+<h3 id="examples">Examples</h3>
+
+<h4>IoT Sensor Gateway</h4>
+
+<p>
+A service that accepts sensor data over MQTT and stores it in a time-series
+database:
+</p>
+
+<pre>
+public class SensorGatewayService extends MQTTService {
+
+    private TimeSeriesDB db;
+
+    public void setDatabase(TimeSeriesDB db) {
+        this.db = db;
+    }
+
+    @Override
+    protected ConnectHandler createConnectHandler(TCPListener listener) {
+        return new ConnectHandler() {
+            @Override
+            public void handleConnect(ConnectState state,
+                                      ConnectPacket packet,
+                                      Endpoint endpoint) {
+                Realm realm = getRealm();
+                if (realm != null) {
+                    String user = packet.getUsername();
+                    byte[] pass = packet.getPassword();
+                    if (realm.authenticate(user, new String(pass))) {
+                        state.acceptConnection();
+                    } else {
+                        state.rejectBadCredentials();
+                    }
+                } else {
+                    state.acceptConnection();
+                }
+            }
+
+            @Override
+            public void disconnected() { }
+        };
+    }
+
+    @Override
+    protected PublishHandler createPublishHandler(TCPListener listener) {
+        return (state, clientId, topic, qos, retain) -&gt; {
+            // Only allow publishing to sensor topics
+            if (topic.startsWith("sensors/")) {
+                state.allowPublish();
+            } else {
+                state.rejectPublish();
+            }
+        };
+    }
+
+    @Override
+    protected SubscribeHandler createSubscribeHandler(TCPListener listener) {
+        return (state, clientId, topicFilter, requestedQoS) -&gt; {
+            // Dashboards subscribe, sensors publish
+            state.grantSubscription(requestedQoS);
+        };
+    }
+}
+</pre>
+
+<h4>Minimal Configuration</h4>
+
+<pre>
+&lt;service id="mqtt" class="com.example.SensorGatewayService"&gt;
+    &lt;property name="realm" ref="#deviceRealm"/&gt;
+    &lt;property name="database" ref="#tsdb"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener" port="1883"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.mqtt.MQTTListener"
+            port="8883" secure="true"&gt;
+        &lt;property name="keystore-file" path="mqtt.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>Using MQTT Client within an HTTP Microservice</h4>
+
+<p>
+Publish sensor data received via HTTP REST to an MQTT topic for distribution
+to subscribers:
+</p>
+
+<pre>
+public class SensorAPIHandler implements HTTPRequestHandler {
+
+    private MQTTClient mqttClient;
+
+    @Override
+    public void handleRequest(Request request, Response response) {
+        String sensorId = request.getPathInfo().substring(1);
+        byte[] data = request.getBody();
+
+        mqttClient.publish("sensors/" + sensorId + "/data", data,
+                           QoS.AT_LEAST_ONCE, false);
+
+        response.setStatus(202);
+        response.setContentType("text/plain");
+        response.getWriter().write("Accepted");
+    }
+}
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="http.html">HTTP Server &amp; Client</a> |
+<a href="websocket.html">WebSocket</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop MQTT Server &amp; Client</p>
+
+</body>
+</html>

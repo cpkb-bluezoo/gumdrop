@@ -39,7 +39,7 @@ Congratulations, you've installed Gumdrop!
 Gumdrop is a multipurpose Java server framework using asynchronous,
 non-blocking, event-driven I/O. It provides a generic, extensible server
 architecture with transparent TLS support, and includes implementations for
-HTTP, SMTP, IMAP, POP3, FTP, and DNS protocols.
+HTTP, SMTP, IMAP, POP3, FTP, DNS, and MQTT protocols.
 </p>
 
 <h3>Documentation</h3>
@@ -63,6 +63,8 @@ NAMESPACE, MOVE, QUOTA, and SASL authentication</li>
 SASL authentication, and UTF-8 support</li>
 <li><a href="ftp.html"><strong>FTP Server</strong></a> - FTP with TLS,
 role-based access control, and quota management</li>
+<li><a href="mqtt.html"><strong>MQTT Server &amp; Client</strong></a> - MQTT 3.1.1 and 5.0
+message broker with streaming payloads and WebSocket support</li>
 <li><a href="dns.html"><strong>DNS Server</strong></a> - DNS proxy with caching,
 custom resolution, and DTLS support</li>
 <li><a href="mailbox.html"><strong>Mailbox API</strong></a> - storage abstraction
@@ -375,6 +377,9 @@ using the configured Realm and MailboxFactory</li>
 using the configured Realm and MailboxFactory</li>
 <li><b>DNS</b> &ndash; <code>DNSService</code> provides a DNS proxy with caching
 and custom resolution; subclass for custom name resolution logic</li>
+<li><b>MQTT</b> &ndash; <code>DefaultMQTTService</code> provides a complete
+MQTT 3.1.1/5.0 message broker; accepts all connections, publishes, and
+subscriptions using the configured Realm</li>
 </ul>
 
 <p>
