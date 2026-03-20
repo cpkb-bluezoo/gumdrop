@@ -64,7 +64,7 @@ non-blocking, event-driven I/O.
     - optional client certificate authentication built-in
     - rate limiting, quotas, IAM
 - production ready
-    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT)
+    - comprehensive protocol implementations (HTTP, SMTP, IMAP, POP3, FTP, DNS, MQTT, SOCKS)
     - security hardening (rate limiting, filtering, attack prevention)
     - enterprise observability via OpenTelemetry integration
 
@@ -76,16 +76,16 @@ non-blocking, event-driven I/O.
 | Low-level async I/O framework | ✓ | ✓ | ✗ | ✗ |
 | Standard NIO ByteBuffer | ✓ | ✗ (ByteBuf) | ✓ | ✓ |
 | HTTP/3 & QUIC | ✓ | ✓ | ✓ | ✗ |
-| SMTP, DNS | ✓ | (clients only) | ✗ | ✗ |
+| SMTP, DNS | ✓ | (clients only, partial) | ✗ | ✗ |
 | MQTT broker &amp; client | ✓ | ✗ | ✗ | ✗ |
-| IMAP, POP3, FTP | ✓ | ✗ | ✗ | ✗ |
+| IMAP, POP3, FTP, SOCKS | ✓ | ✗ | ✗ | ✗ |
 | Transport-level flow control | ✓ | ✓ | ✗ | ✗ |
 | Built-in telemetry (no agent) | ✓ | ✗ | ✗ | ✗ |
 | Unified auth realm across protocols | ✓ | ✗ | ✗ | ✗ |
 | Single JAR, minimal deps | ✓ | ✗ | ✗ | ✗ |
 | No DI framework required | ✓ | ✓ | ✗ | ✓ |
 
-Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, and FTP, so you can add fully async mail, messaging, file transfer, or DNS services without bolting on separate stacks.
+Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, FTP, and SOCKS, so you can add fully async mail, messaging, file transfer, DNS, or proxy services without bolting on separate stacks.
 
 ## Full feature list
 
@@ -382,6 +382,26 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
         - DS, RRSIG, DNSKEY, NSEC, NSEC3, NSEC3PARAM (DNSSEC)
     - flexible async client resolver
         - UDP, TCP, DoT, DoQ, DoH transports
+- SOCKS proxy
+    - SOCKS4, SOCKS4a, and SOCKS5 (RFC 1928) protocol support
+    - auto-detection of SOCKS version from first byte
+    - SOCKS5 authentication methods:
+        - no authentication
+        - username/password (RFC 1929)
+        - GSSAPI/Kerberos (RFC 1961) via existing SASL infrastructure
+    - pluggable realm authentication via standardized mechanism
+    - async connect authorization handler for custom policies
+    - CIDR-based destination allow/block filtering
+    - bidirectional TCP relay with transport-level backpressure
+    - SelectorLoop affinity — upstream connections share the client's
+      event loop thread for lock-free relaying
+    - configurable max concurrent relays and idle relay timeout
+    - fully async, non-blocking — DNS resolution, upstream connect, and
+      TLS handshake all handled asynchronously
+    - abstract SOCKSService for custom implementations
+    - DefaultSOCKSService for zero-config operation
+    - composable SOCKS client handler for tunneling any protocol through
+      a SOCKS proxy (HTTP, SMTP, IMAP, MQTT, Redis, LDAP, etc.)
 - OpenTelemetry
     - native implementation (no OpenTelemetry SDK required)
     - distributed tracing with W3C Trace Context propagation

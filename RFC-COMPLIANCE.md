@@ -1954,3 +1954,188 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 | Client credential authentication to introspection endpoint | RFC 7662 §2.1 | **Compliant** | Basic auth with client_id / client_secret |
 | Local JWT validation | RFC 7519 | **Compliant** | `OAuthRealm.validateJWT()` — HS256, RS256, ES256; exp/nbf/iss/aud claims |
 | Token expiration check | RFC 7662 §2.2 (exp field) | **Compliant** | `TokenValidationResult.isExpired()` checks exp timestamp |
+
+---
+
+## SOCKS Proxy
+
+### Applicable RFCs
+
+| RFC | Title | Status |
+|-----|-------|--------|
+| RFC 1928 | SOCKS Protocol Version 5 | Core |
+| RFC 1929 | Username/Password Authentication for SOCKS V5 | Implemented |
+| RFC 1961 | GSS-API Authentication Method for SOCKS Version 5 | Implemented |
+| — | SOCKS4 Protocol (de facto standard) | Implemented |
+| — | SOCKS4a Extension (de facto standard) | Implemented |
+
+---
+
+### RFC 1928 — SOCKS Protocol Version 5
+
+#### Section 3 — Procedure for TCP-based Clients (Method Negotiation)
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Client sends VER + NMETHODS + METHODS | §3 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5MethodNegotiation()` parses client greeting; `SOCKSClientHandler.sendSOCKS5MethodRequest()` sends it |
+| Server selects one method and responds VER + METHOD | §3 | **Compliant** | `SOCKSProtocolHandler.sendSOCKS5MethodSelection()` |
+| VER must be 0x05 | §3 | **Compliant** | `handleVersionDetect()` checks first byte |
+| Method 0x00 — NO AUTHENTICATION REQUIRED | §3 | **Compliant** | `SOCKS5_AUTH_NONE` accepted when no Realm configured |
+| Method 0x01 — GSSAPI | §3 | **Compliant** | `SOCKS5_AUTH_GSSAPI` selected when GSSAPIServer available; see RFC 1961 |
+| Method 0x02 — USERNAME/PASSWORD | §3 | **Compliant** | `SOCKS5_AUTH_USERNAME_PASSWORD` selected when Realm configured; see RFC 1929 |
+| Method 0xFF — NO ACCEPTABLE METHODS | §3 | **Compliant** | Sent when no client-offered methods are supported |
+| Method selection priority | §3 | **Compliant** | GSSAPI > USERNAME/PASSWORD > NONE (mirrors server security preference) |
+
+#### Section 4 — Requests
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Request format: VER + CMD + RSV + ATYP + DST.ADDR + DST.PORT | §4 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5Request()` parses full request; `SOCKSClientHandler.sendSOCKS5ConnectRequest()` constructs it |
+| CMD 0x01 CONNECT | §4 | **Compliant** | Full CONNECT flow: resolve → filter → upstream connect → relay |
+| CMD 0x02 BIND | §4 | **Compliant** | `SOCKSProtocolHandler.handleBind()` creates `SOCKSBindRelay` for single-use accept; see BIND procedure below |
+| CMD 0x03 UDP ASSOCIATE | §4, §7 | **Compliant** | `SOCKSProtocolHandler.handleUDPAssociate()` creates `SOCKSUDPRelay` with per-association UDP ports; see §7 below |
+| RSV byte MUST be 0x00 | §4 | **Compliant** | Consumed and ignored on parse; set to 0x00 on send |
+| Reply after CONNECT success: relay data bidirectionally | §4 | **Compliant** | `SOCKSRelay` handles bidirectional forwarding after success reply |
+
+#### Section 4 — BIND procedure
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| BIND request uses same format as CONNECT (VER + CMD + RSV + ATYP + DST.ADDR + DST.PORT) | §4 | **Compliant** | Parsed by the same `handleSOCKS5Request()` / `handleSOCKS4Request()` code paths |
+| DST.ADDR and DST.PORT used to evaluate the BIND request | §4 | **Compliant** | DST.ADDR used for incoming peer IP validation; custom `BindHandler` receives the full request |
+| First reply: BND.ADDR/BND.PORT of the listen socket | §4 | **Compliant** | `SOCKSBindRelay.start()` binds ephemeral port; reply sent via `sendSOCKS5ReplyWithPort` / `sendSOCKS4ReplyWithAddr` |
+| Second reply: BND.ADDR/BND.PORT of the connecting peer | §4 | **Compliant** | Sent in `onBindAccepted()` with the accepted peer's address and port |
+| After second reply: bidirectional relay | §4 | **Compliant** | Standard `SOCKSRelay` handles data forwarding with backpressure and metrics |
+| Server validates incoming peer IP against DST.ADDR | §4 | **Compliant** | `SOCKSBindRelay.accepted()` validates source IP unless DST.ADDR was 0.0.0.0 |
+
+#### Section 5 — Addressing
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| ATYP 0x01 — IPv4 (4 octets) | §5 | **Compliant** | Server and client both handle IPv4 addresses |
+| ATYP 0x03 — DOMAINNAME (1-octet length + FQDN) | §5 | **Compliant** | Server resolves via async `DNSResolver`; client sends for proxy-side resolution |
+| ATYP 0x04 — IPv6 (16 octets) | §5 | **Compliant** | Server and client both handle IPv6 addresses |
+| Unrecognized ATYP | §5 | **Compliant** | Server replies REP=0x08 (address type not supported); client reports error |
+
+#### Section 6 — Replies
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Reply format: VER + REP + RSV + ATYP + BND.ADDR + BND.PORT | §6 | **Compliant** | `SOCKSProtocolHandler.sendSOCKS5Reply()` constructs full reply |
+| REP 0x00 — succeeded | §6 | **Compliant** | Sent after upstream connection established |
+| REP 0x01 — general SOCKS server failure | §6 | **Compliant** | Used when max relays exceeded or upstream I/O error |
+| REP 0x02 — connection not allowed by ruleset | §6 | **Compliant** | Used when CIDR destination filter blocks the request |
+| REP 0x03 — network unreachable | §6 | **Defined** | Constant defined in `SOCKSConstants` |
+| REP 0x04 — host unreachable | §6 | **Compliant** | Used when DNS resolution fails |
+| REP 0x05 — connection refused | §6 | **Compliant** | Used when upstream connect fails |
+| REP 0x06 — TTL expired | §6 | **Defined** | Constant defined in `SOCKSConstants` |
+| REP 0x07 — command not supported | §6 | **Compliant** | Used for unrecognized command values |
+| REP 0x08 — address type not supported | §6 | **Compliant** | Used for unrecognized ATYP values |
+| BND.ADDR + BND.PORT in success reply | §6 | **Compliant** | Server-bound address and port included in reply |
+
+#### Section 7 — Procedure for UDP-based clients
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| UDP ASSOCIATE reply contains BND.ADDR + BND.PORT for client-facing UDP | §7 | **Compliant** | `SOCKSProtocolHandler.handleUDPAssociate()` replies with the ephemeral port from `SOCKSUDPRelay` |
+| UDP request header: RSV (2) + FRAG (1) + ATYP (1) + DST.ADDR (variable) + DST.PORT (2) + DATA | §7 | **Compliant** | `SOCKSUDPHeader.parse()` and `SOCKSUDPHeader.encode()` implement the full header codec |
+| ATYP 0x01 (IPv4), 0x03 (DOMAINNAME), 0x04 (IPv6) in UDP header | §7 | **Compliant** | All three address types parsed and encoded |
+| FRAG field: implementations not supporting fragmentation MUST drop datagrams with FRAG != 0x00 | §7 | **Compliant** | `SOCKSUDPRelay` silently drops fragmented datagrams per spec |
+| Server MUST know expected source IP and drop datagrams from unexpected sources | §7 | **Compliant** | Source IP validated against DST.ADDR from request (or TCP remote address if 0.0.0.0) |
+| Association terminates when TCP control connection terminates | §7 | **Compliant** | `SOCKSProtocolHandler.disconnected()` closes the `SOCKSUDPRelay` when TCP closes |
+| Response datagrams encapsulated with UDP request header (source host as DST.ADDR/DST.PORT) | §7 | **Compliant** | `SOCKSUDPRelay.UpstreamHandler` encapsulates responses via `SOCKSUDPHeader.encode()` |
+| Server relays datagrams silently, dropping those it cannot or will not relay | §7 | **Compliant** | Blocked destinations and DNS failures result in silent drop |
+| DOMAINNAME resolution for UDP destinations | §7 | **Compliant** | Async resolution via `DNSResolver.forLoop()` |
+
+---
+
+### RFC 1929 — Username/Password Authentication for SOCKS V5
+
+#### Section 2 — Sub-negotiation
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Sub-negotiation version 0x01 | §2 | **Compliant** | `SOCKS5_AUTH_USERPASS_VERSION = 0x01` |
+| Client sends VER + ULEN + UNAME + PLEN + PASSWD | §2 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5UsernamePassword()` parses; `SOCKSClientHandler.sendUsernamePassword()` sends |
+| ULEN: 1–255 octets | §2 | **Compliant** | Length read as unsigned byte |
+| PLEN: 1–255 octets | §2 | **Compliant** | Length read as unsigned byte |
+| Server responds VER + STATUS | §2 | **Compliant** | `SOCKSProtocolHandler.sendSOCKS5AuthResult()` |
+| STATUS 0x00 = success | §2 | **Compliant** | Proceeds to SOCKS5 request phase |
+| STATUS != 0x00 = failure, MUST close connection | §2 | **Compliant** | Server sends failure status and closes; client detects and reports error |
+| Credentials verified against Realm | §2 | **Compliant** | `Realm.passwordMatch()` validates credentials |
+
+---
+
+### RFC 1961 — GSS-API Authentication Method for SOCKS Version 5
+
+#### Section 3 — GSS-API Authentication Message Format
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Frame format: VER(0x01) + MTYP + LEN(2) + TOKEN(var) | §3 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5GSSAPI()` parses; `sendSOCKS5GSSAPIToken()` constructs |
+| MTYP 0x01 — authentication message | §3 | **Compliant** | `SOCKS5_GSSAPI_MSG_AUTH = 0x01` |
+| MTYP 0x02 — per-message encapsulation | §3, §5 | **Defined** | Constant defined for completeness; per-message encapsulation intentionally unsupported (see §5 below) |
+
+#### Section 4 — Security Context Establishment
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Multi-round-trip token exchange | §4 | **Compliant** | Loop in `handleSOCKS5GSSAPI()` continues until `isContextEstablished()` |
+| Server sends final token when context established | §4 | **Compliant** | Server token sent before transitioning to request phase |
+| Failure indicated by 0xFF status | §4 | **Compliant** | `sendSOCKS5GSSAPIFailure()` sends VER + 0xFF + LEN=0 |
+| Principal extracted after context establishment | §4 | **Compliant** | `Realm.mapKerberosPrincipal()` maps GSS principal to local user |
+
+#### Section 5 — Per-message Encapsulation
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Per-message integrity/confidentiality protection | §5 | **Intentionally unsupported** | Server negotiates `SECURITY_LAYER_NONE` during GSSAPI setup (RFC 4752 §3.1); confidentiality and integrity are provided by TLS at the transport layer. Constant `SOCKS5_GSSAPI_MSG_ENCAPSULATION` defined for completeness. |
+
+---
+
+### SOCKS4 Protocol (de facto standard)
+
+#### Request Format
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Request: VER(0x04) + CD + DSTPORT(2) + DSTIP(4) + USERID + NULL | §Request | **Compliant** | `SOCKSProtocolHandler.handleSOCKS4Request()` parses; `SOCKSClientHandler.sendSOCKS4Connect()` constructs |
+| CD=1 CONNECT | §Request | **Compliant** | Full CONNECT flow supported |
+| CD=2 BIND | §Request | **Compliant** | `SOCKSProtocolHandler.handleBind()` creates `SOCKSBindRelay` with `RawAcceptHandler`; two-reply flow with peer validation |
+| USERID null-terminated | §Request | **Compliant** | `readNullTerminatedString()` in ISO 8859-1 encoding |
+| USERID passed through in `SOCKSRequest` | §Request | **Compliant** | Available to `ConnectHandler` for custom authorization |
+
+#### Reply Format
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Reply: VN(0x00) + CD + DSTPORT(2) + DSTIP(4) | §Reply | **Compliant** | `SOCKSProtocolHandler.sendSOCKS4Reply()` |
+| CD=0x5a (90) — request granted | §Reply | **Compliant** | Sent after successful upstream connection |
+| CD=0x5b (91) — request rejected or failed | §Reply | **Compliant** | Used for all error cases |
+| CD=0x5c (92) — identd not reachable | §Reply | **Defined** | Constant defined in `SOCKSConstants`; not sent (no identd integration) |
+| CD=0x5d (93) — identd userid mismatch | §Reply | **Defined** | Constant defined in `SOCKSConstants`; not sent (no identd integration) |
+
+---
+
+### SOCKS4a Extension (de facto standard)
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| DSTIP = 0.0.0.x (x != 0) triggers server-side DNS | — | **Compliant** | `handleSOCKS4Request()` detects magic IP; hostname follows after userid NULL |
+| Hostname appended after USERID NULL terminator | — | **Compliant** | `readNullTerminatedString()` reads hostname |
+| Server resolves hostname before connecting | — | **Compliant** | Async resolution via `DNSResolver.forLoop()` |
+| Client sends 0.0.0.1 + hostname for domain targets | — | **Compliant** | `SOCKSClientHandler.sendSOCKS4Connect()` uses SOCKS4a for unresolvable/IPv6 destinations |
+
+---
+
+### SOCKS Client (RFC 1928, RFC 1929, SOCKS4/4a)
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Client method negotiation (SOCKS5) | RFC 1928 §3 | **Compliant** | `SOCKSClientHandler.sendSOCKS5MethodRequest()` offers NO_AUTH and/or USERNAME_PASSWORD |
+| Client username/password auth (SOCKS5) | RFC 1929 §2 | **Compliant** | `SOCKSClientHandler.sendUsernamePassword()` sends sub-negotiation |
+| Client CONNECT request (SOCKS5) | RFC 1928 §4 | **Compliant** | `SOCKSClientHandler.sendSOCKS5ConnectRequest()` with IPv4/IPv6/DOMAINNAME |
+| Client reply parsing (SOCKS5) | RFC 1928 §6 | **Compliant** | `SOCKSClientHandler.handleSOCKS5Reply()` handles all ATYP variants |
+| Client CONNECT request (SOCKS4/4a) | SOCKS4 §Request | **Compliant** | `SOCKSClientHandler.sendSOCKS4Connect()` with SOCKS4a fallback |
+| Client reply parsing (SOCKS4) | SOCKS4 §Reply | **Compliant** | `SOCKSClientHandler.handleSOCKS4Reply()` checks CD=0x5a |
+| Composable handler wrapping | — | **Compliant** | `SOCKSClientHandler` wraps any `ProtocolHandler` for transparent tunneling |

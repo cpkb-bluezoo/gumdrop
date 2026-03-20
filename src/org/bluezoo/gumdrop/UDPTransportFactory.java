@@ -111,6 +111,29 @@ public class UDPTransportFactory extends TransportFactory {
                                                   int port,
                                                   ProtocolHandler handler)
             throws IOException {
+        return createServerEndpoint(bindAddress, port, handler, null);
+    }
+
+    /**
+     * Creates a server-side UDPEndpoint bound to a local port,
+     * registered with the given SelectorLoop.
+     *
+     * <p>When {@code loop} is non-null, the endpoint's I/O runs on
+     * that SelectorLoop (e.g. for affinity with an existing service
+     * connection). When null, a worker loop is obtained from Gumdrop.
+     *
+     * @param bindAddress the local address to bind to, or null for wildcard
+     * @param port the local port
+     * @param handler the protocol handler
+     * @param loop the SelectorLoop to register with, or null
+     * @return the new endpoint
+     * @throws IOException if the channel cannot be opened or bound
+     */
+    public UDPEndpoint createServerEndpoint(InetAddress bindAddress,
+                                                  int port,
+                                                  ProtocolHandler handler,
+                                                  SelectorLoop loop)
+            throws IOException {
         UDPEndpoint endpoint = new UDPEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);
@@ -128,7 +151,8 @@ public class UDPTransportFactory extends TransportFactory {
         endpoint.init();
 
         Gumdrop gumdrop = Gumdrop.getInstance();
-        SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
+        SelectorLoop workerLoop =
+                (loop != null) ? loop : gumdrop.nextWorkerLoop();
         workerLoop.registerDatagram(channel, endpoint);
         gumdrop.addChannelHandler(endpoint);
 
