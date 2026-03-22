@@ -47,6 +47,8 @@ Other example configurations are available:
 | `etc/gumdroprc.smtp.localdelivery` | SMTP local delivery |
 | `etc/gumdroprc.smtp.simplerelay` | SMTP relay (authenticated) |
 | `etc/gumdroprc.dns` | DNS caching proxy (UDP, DoT, DoQ) |
+| `etc/gumdroprc.mqtt` | MQTT broker (plaintext and optional TLS) |
+| `etc/gumdroprc.socks` | SOCKS proxy (SOCKS4/4a/5) |
 
 You can configure any of these to serve your own application and run it
 immediately.

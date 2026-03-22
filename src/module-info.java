@@ -2,8 +2,9 @@
  * Gumdrop multipurpose Java server module.
  *
  * <p>Gumdrop is an event-driven, non-blocking server framework that provides
- * implementations for multiple protocols including HTTP/1.1, HTTP/2, WebSocket,
- * SMTP, POP3, IMAP, FTP, and DNS. It also includes a Servlet 4.0 container
+ * implementations for multiple protocols including HTTP/1.1, HTTP/2, HTTP/3,
+ * WebSocket, SMTP, POP3, IMAP, FTP, DNS, MQTT, and SOCKS. It also includes a
+ * Servlet 4.0 container
  * for hosting Java web applications.
  *
  * <p>The core architecture is based on Java NIO with a single-threaded
@@ -49,7 +50,9 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.http.client;
     exports org.bluezoo.gumdrop.webdav;
     exports org.bluezoo.gumdrop.websocket;
+    exports org.bluezoo.gumdrop.websocket.client;
     exports org.bluezoo.gumdrop.http.h2;
+    exports org.bluezoo.gumdrop.http.h3;
     exports org.bluezoo.gumdrop.http.hpack;
     exports org.bluezoo.gumdrop.smtp;
     exports org.bluezoo.gumdrop.smtp.client;
@@ -57,11 +60,29 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.smtp.auth;
     exports org.bluezoo.gumdrop.pop3;
     exports org.bluezoo.gumdrop.pop3.handler;
+    exports org.bluezoo.gumdrop.pop3.client;
+    exports org.bluezoo.gumdrop.pop3.client.handler;
     exports org.bluezoo.gumdrop.imap;
     exports org.bluezoo.gumdrop.imap.handler;
+    exports org.bluezoo.gumdrop.imap.client;
+    exports org.bluezoo.gumdrop.imap.client.handler;
     exports org.bluezoo.gumdrop.ftp;
     exports org.bluezoo.gumdrop.ftp.file;
     exports org.bluezoo.gumdrop.dns;
+    exports org.bluezoo.gumdrop.dns.client;
+
+    exports org.bluezoo.gumdrop.mqtt;
+    exports org.bluezoo.gumdrop.mqtt.broker;
+    exports org.bluezoo.gumdrop.mqtt.client;
+    exports org.bluezoo.gumdrop.mqtt.codec;
+    exports org.bluezoo.gumdrop.mqtt.handler;
+    exports org.bluezoo.gumdrop.mqtt.store;
+
+    exports org.bluezoo.gumdrop.socks;
+    exports org.bluezoo.gumdrop.socks.client;
+    exports org.bluezoo.gumdrop.socks.handler;
+
+    exports org.bluezoo.gumdrop.quic;
     
     // Servlet container
     exports org.bluezoo.gumdrop.servlet;

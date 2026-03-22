@@ -96,17 +96,10 @@ For a pure async microservice without servlets:
 ```xml
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
-	<container id="mainContainer">
-		<property name="hot-deploy" value="true"/>
-		<property name="contexts">
-			<list>
-				<context path="" root="myservice.war" distributable="true"/>
-			</list>
-		</property>
-	</container>
-
 	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
 		<property name="container" ref="#mainContainer"/>
+		<property name="hot-deploy" value="true"/>
+		<context path="" root="myservice.war" distributable="true"/>
 		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
 			<property name="port" value="443"/>
 			<property name="secure" value="true"/>

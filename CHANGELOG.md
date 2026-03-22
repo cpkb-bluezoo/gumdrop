@@ -2,10 +2,9 @@
 
 All notable changes to Gumdrop will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0] - 2026-03-22
 
 ### Added
 
@@ -17,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     client certificates and SNI for alternate-host Alt-Svc targets
   - `HTTPClient` CLI (`main()`) for debugging HTTP connections across all
     protocol versions (HTTP/1.1, HTTP/2, HTTP/3), similar to curl
+
+- **MQTT broker and client**: MQTT 3.1.1 and MQTT 5.0 over TCP and WebSocket,
+  including `MQTTListener` / `DefaultMQTTService` (broker), subscription and
+  retained-message handling, and the `MQTTClient` API.
+
+- **SOCKS proxy**: SOCKS protocol server and client implementation.
 
 ### Fixed
 

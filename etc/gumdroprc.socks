@@ -1,0 +1,42 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+
+	<!--
+	  SOCKS proxy service (SOCKS4, SOCKS4a, SOCKS5 per RFC 1928).
+	  Default listener: port 1080 (plaintext), 1081 when secure="true".
+	-->
+
+	<!-- Optional: realm for SOCKS5 username/password (RFC 1929) -->
+	<!--
+	<realm id="socksRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="realm-socks.xml"/>
+	</realm>
+	-->
+
+	<service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService">
+		<!-- <property name="realm" ref="#socksRealm"/> -->
+
+		<!-- Block loopback by default when exposing the proxy; adjust as needed -->
+		<property name="blocked-destinations" value="127.0.0.0/8,::1/128"/>
+
+		<!-- Optional: cap concurrent relays (0 = unlimited) -->
+		<!-- <property name="max-relays" value="1000"/> -->
+
+		<!-- Optional: close idle relays after 5 minutes (default if omitted) -->
+		<!-- <property name="relay-idle-timeout" value="5m"/> -->
+
+		<!-- SOCKS plaintext listener -->
+		<listener class="org.bluezoo.gumdrop.socks.SOCKSListener"
+				name="socks" port="1080"/>
+
+		<!-- SOCKS over TLS (uncomment to enable) -->
+		<!--
+		<listener class="org.bluezoo.gumdrop.socks.SOCKSListener"
+				name="sockss" port="1081" secure="true">
+			<property name="keystore-file" path="localhost+2.p12"/>
+			<property name="keystore-pass" value="changeit"/>
+		</listener>
+		-->
+	</service>
+
+</gumdrop>

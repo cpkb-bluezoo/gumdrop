@@ -346,7 +346,11 @@
         <text x="148" y="20" class="subtitle-text" opacity="0.4">•</text>
         <text x="158" y="20" class="protocol-text">DNS</text>
         <text x="182" y="20" class="subtitle-text" opacity="0.4">•</text>
-        <text x="192" y="20" class="protocol-text">Redis</text>
+        <text x="194" y="20" class="protocol-text">MQTT</text>
+        <text x="222" y="20" class="subtitle-text" opacity="0.4">•</text>
+        <text x="232" y="20" class="protocol-text">SOCKS</text>
+        <text x="267" y="20" class="subtitle-text" opacity="0.4">•</text>
+        <text x="277" y="20" class="protocol-text">Redis</text>
       </g>
       <g class="fade-slide" style="animation-delay: 4s;">
         <text x="0" y="40" class="protocol-text">TLS</text>

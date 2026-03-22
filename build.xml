@@ -21,7 +21,7 @@
 <project name='gumdrop' default='dist'>
 
   <!-- Project version -->
-  <property name='version' value='2.0-SNAPSHOT'/>
+  <property name='version' value='2.0'/>
 
   <!-- Import environment variables (for QUICHE_DIR, JAVA_HOME) -->
   <property environment='env'/>

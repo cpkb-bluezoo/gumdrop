@@ -1,0 +1,281 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>SOCKS Proxy Server &amp; Client - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop SOCKS Proxy Server &amp; Client</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a SOCKS proxy server and a composable SOCKS client for
+tunneling other protocol handlers through a proxy. The server supports
+SOCKS4, SOCKS4a, and SOCKS5 (RFC&nbsp;1928), including username/password
+authentication (RFC&nbsp;1929) and GSS-API authentication (RFC&nbsp;1961).
+CONNECT, BIND, and UDP ASSOCIATE are implemented with asynchronous relaying
+consistent with the rest of the framework.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#configuration">Configuration</a></li>
+<li><a href="#service-properties"><code>SOCKSService</code> properties</a></li>
+<li><a href="#listener-properties"><code>SOCKSListener</code> properties</a></li>
+<li><a href="#listener-common">Common listener options</a></li>
+<li><a href="#custom-handlers">Custom authorization</a></li>
+<li><a href="#client">Client API</a></li>
+<li><a href="#telemetry">Telemetry</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+A <code>SOCKSService</code> owns one or more <code>SOCKSListener</code>
+instances. Each accepted connection is handled by
+<code>SOCKSProtocolHandler</code>, which negotiates the SOCKS version,
+performs optional authentication, and establishes relays via
+<code>SOCKSRelay</code>, <code>SOCKSBindRelay</code>, or
+<code>SOCKSUDPRelay</code> as appropriate. Subclasses of
+<code>SOCKSService</code> may supply <code>ConnectHandler</code> and
+<code>BindHandler</code> implementations for application-level authorization.
+</p>
+
+<ul>
+<li><code>org.bluezoo.gumdrop.socks.SOCKSService</code> &mdash; abstract base;
+destination filtering, relay limits, idle timeout</li>
+<li><code>org.bluezoo.gumdrop.socks.DefaultSOCKSService</code> &mdash; default
+proxy (accept CONNECT/BIND that pass filtering; optional realm for SOCKS5)</li>
+<li><code>org.bluezoo.gumdrop.socks.SOCKSListener</code> &mdash; TCP listener;
+defaults to port 1080 (plaintext) or 1081 (TLS)</li>
+<li><code>org.bluezoo.gumdrop.socks.client.SOCKSClientHandler</code> &mdash;
+wraps another <code>ProtocolHandler</code> and tunnels it through a SOCKS
+proxy</li>
+<li><code>org.bluezoo.gumdrop.socks.client.SOCKSClientConfig</code> &mdash;
+version preference, credentials, handshake timeout</li>
+</ul>
+
+<h3 id="configuration">Configuration</h3>
+
+<h4>Minimal proxy (no authentication)</h4>
+
+<pre>
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener" port="1080"/&gt;
+&lt;/service&gt;
+</pre>
+
+<h4>With realm (SOCKS5 username/password)</h4>
+
+<pre>
+&lt;realm id="socksRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
+    &lt;property name="href" path="realm-socks.xml"/&gt;
+&lt;/realm&gt;
+
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
+    &lt;property name="realm" ref="#socksRealm"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener" port="1080"/&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+When a <code>realm</code> is set on the service, it is applied to each
+<code>SOCKSListener</code> that does not already define its own
+<code>realm</code>. SOCKS5 clients must complete RFC&nbsp;1929
+username/password authentication. SOCKS4 carries an unauthenticated userid
+field in the request only.
+</p>
+
+<h4>TLS (<code>sockss</code>)</h4>
+
+<pre>
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener"
+            port="1081" secure="true"&gt;
+        &lt;property name="keystore-file" path="keystore.p12"/&gt;
+        &lt;property name="keystore-pass" value="secret"/&gt;
+    &lt;/listener&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+If no <code>port</code> is set, the listener uses 1080 for cleartext and
+1081 when <code>secure="true"</code>.
+</p>
+
+<h4>Destination filtering and relay limits</h4>
+
+<pre>
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
+    &lt;property name="allowed-destinations"&gt;203.0.113.0/24,2001:db8::/32&lt;/property&gt;
+    &lt;property name="blocked-destinations"&gt;127.0.0.0/8,::1/128&lt;/property&gt;
+    &lt;property name="max-relays" value="1000"/&gt;
+    &lt;property name="relay-idle-timeout" value="5m"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener" port="1080"/&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+<code>blocked-destinations</code> is evaluated first; then, if
+<code>allowed-destinations</code> is set, the destination must match an
+allow rule. <code>max-relays</code> caps concurrent relay sessions
+(<code>0</code> = unlimited). <code>relay-idle-timeout</code> accepts
+suffixes <code>ms</code>, <code>s</code>, <code>m</code>, <code>h</code>
+(alternatively set <code>relay-idle-timeout-ms</code> as a long value in
+milliseconds).
+</p>
+
+<h3 id="service-properties"><code>SOCKSService</code> properties</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
+<td>none</td><td>Optional authentication realm for SOCKS5
+(username/password and GSS-API)</td></tr>
+<tr><td><code>allowed-destinations</code></td><td><code>setAllowedDestinations(String)</code></td>
+<td>none</td><td>Comma-separated CIDR list; if set, only these networks
+may be reached</td></tr>
+<tr><td><code>blocked-destinations</code></td><td><code>setBlockedDestinations(String)</code></td>
+<td>none</td><td>Comma-separated CIDR list; matching destinations are denied</td></tr>
+<tr><td><code>max-relays</code></td><td><code>setMaxRelays(int)</code></td>
+<td><code>0</code></td><td>Maximum concurrent relays; <code>0</code> =
+unlimited</td></tr>
+<tr><td><code>relay-idle-timeout</code></td><td><code>setRelayIdleTimeout(String)</code></td>
+<td>5m</td><td>Idle time before a relay is closed (duration string)</td></tr>
+<tr><td><code>relay-idle-timeout-ms</code></td><td><code>setRelayIdleTimeoutMs(long)</code></td>
+<td>300000</td><td>Same as above, in milliseconds</td></tr>
+</table>
+
+<h3 id="listener-properties"><code>SOCKSListener</code> properties</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>port</code></td><td><code>setPort(int)</code></td>
+<td>1080 / 1081</td><td>TCP port (1080 cleartext, 1081 when
+<code>secure="true"</code> if unset)</td></tr>
+<tr><td><code>path</code></td><td><code>setPath(String)</code></td>
+<td>none</td><td>UNIX domain socket path (mutually exclusive with
+<code>port</code>)</td></tr>
+<tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
+<td>from service</td><td>Per-listener realm override</td></tr>
+<tr><td><code>gssapi-server</code></td><td><code>setGSSAPIServer(GSSAPIServer)</code></td>
+<td>none</td><td>Optional GSS-API server for Kerberos (RFC&nbsp;1961); may be
+supplied as a configured bean reference</td></tr>
+</table>
+
+<p>
+To configure Kerberos from code, use
+<code>SOCKSListener.configureGSSAPI(Path&nbsp;keytabPath,
+String&nbsp;servicePrincipal)</code>, which constructs a
+<code>GSSAPIServer</code> for that listener.
+</p>
+
+<h3 id="listener-common">Common listener options</h3>
+
+<p>
+TLS and transport settings (<code>secure</code>,
+<code>keystore-file</code>, <code>keystore-pass</code>,
+<code>need-client-auth</code>, <code>cipher-suites</code>,
+<code>named-groups</code>), timeouts (<code>idle-timeout</code>,
+<code>read-timeout</code>, <code>connection-timeout</code>), bind addresses
+(<code>addresses</code>), rate limiting (<code>rate-limit</code>,
+<code>max-connections-per-ip</code>, <code>max-auth-failures</code>,
+<code>auth-lockout-time</code>), CIDR access control
+(<code>allowed-networks</code>, <code>blocked-networks</code>), and
+<code>max-net-in-size</code> are inherited from <code>Listener</code> /
+<code>TCPListener</code> and behave like other TCP-based services. See
+<a href="security.html">Security</a> and <a href="index.html">main
+documentation</a> (UNIX domain sockets, TLS).
+</p>
+
+<h3 id="custom-handlers">Custom authorization</h3>
+
+<p>
+Subclass <code>SOCKSService</code> and override
+<code>createConnectHandler(TCPListener)</code> and/or
+<code>createBindHandler(TCPListener)</code> to install
+<code>ConnectHandler</code> / <code>BindHandler</code> callbacks that approve
+or reject individual requests using <code>ConnectState</code> and
+<code>BindState</code> (see <code>org.bluezoo.gumdrop.socks.handler</code>).
+Returning <code>null</code> keeps the default behaviour (accept after
+filtering and relay limits).
+</p>
+
+<h3 id="client">Client API</h3>
+
+<p>
+Use <code>SOCKSClientHandler</code> as the outer handler when connecting
+with <code>ClientEndpoint</code> to the proxy; it performs the SOCKS
+handshake then delegates to your inner protocol handler (for example SMTP or
+HTTP client handlers).
+</p>
+
+<pre>
+// Connect to smtp.example.com:587 via SOCKS proxy at proxy:1080
+ClientEndpoint client = new ClientEndpoint(factory, "proxy", 1080);
+client.connect(new SOCKSClientHandler(
+    "smtp.example.com", 587,
+    new SMTPClientProtocolHandler(callback)));
+
+// With SOCKS5 username/password
+SOCKSClientConfig config = new SOCKSClientConfig("user", "pass");
+client.connect(new SOCKSClientHandler(
+    "smtp.example.com", 587, config,
+    new SMTPClientProtocolHandler(callback)));
+</pre>
+
+<p>
+<code>SOCKSClientConfig</code> exposes <code>version</code> (AUTO, SOCKS4,
+SOCKS5), <code>username</code> / <code>password</code>, and
+<code>handshake-timeout-ms</code> (default 30&nbsp;s).
+</p>
+
+<h3 id="telemetry">Telemetry</h3>
+
+<p>
+When a <code>TelemetryConfig</code> is attached to the listener, 
+<code>SOCKSServerMetrics</code> records counters and histograms for
+connections, CONNECT/BIND/UDP ASSOCIATE requests, relays, bytes, 
+authentication outcomes, and blocked destinations. See
+<a href="telemetry.html">Telemetry</a> for OTLP setup.
+</p>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="mqtt.html">MQTT</a> |
+<a href="security.html">Security</a> |
+<a href="telemetry.html">Telemetry</a>
+</p>
+
+<p class='server-info'>Gumdrop SOCKS Proxy Server &amp; Client</p>
+
+</body>
+</html>
