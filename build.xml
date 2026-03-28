@@ -1,6 +1,6 @@
 <?xml version='1.0' standalone='yes'?>
 <!--
-  Copyright (C) 2005, 2025 Chris Burdess
+  Copyright (C) 2005, 2025, 2026 Chris Burdess
 
   This file is part of gumdrop.
 
@@ -195,57 +195,84 @@
     </condition>
   </target>
 
-  <target name='native' depends='native-check,jar' if='quiche.available'
-          description='Compile JNI native library'>
-    <mkdir dir='${dist}'/>
-    <!-- Locate the BoringSSL static libraries built by cargo/boring-sys -->
-    <first id='boringssl.libssl.ref'>
-      <fileset dir='${env.QUICHE_DIR}/target/release/build'
-               includes='boring-sys-*/out/build/libssl.a'/>
+  <target name="check-os">
+    <condition property="is.mac">
+      <os family="mac"/>
+    </condition>
+    <condition property="is.linux">
+      <and>
+        <os family="unix"/>
+        <not><os family="mac"/></not>
+      </and>
+    </condition>
+  </target>
+
+  <target name="get-macos-version" depends="check-os" if="is.mac">
+    <exec executable="sw_vers" outputproperty="macos.version" failonerror="false">
+      <arg value="-productVersion"/>
+    </exec>
+  </target>
+
+  <target name="set-linux-version" depends="check-os" if="is.linux">
+    <property name="macos.version" value="N/A"/>
+  </target>
+
+  <target name="native" depends="native-check,jar,check-os,get-macos-version,set-linux-version" 
+        if="quiche.available"
+        description="Compile JNI native library">
+    
+    <mkdir dir="${dist}"/>
+    
+    <first id="boringssl.libssl.ref">
+      <fileset dir="${env.QUICHE_DIR}/target/release/build" includes="boring-sys-*/out/build/libssl.a"/>
     </first>
-    <pathconvert property='boringssl.libssl' refid='boringssl.libssl.ref'/>
-    <first id='boringssl.libcrypto.ref'>
-      <fileset dir='${env.QUICHE_DIR}/target/release/build'
-               includes='boring-sys-*/out/build/libcrypto.a'/>
+    <pathconvert property="boringssl.libssl" refid="boringssl.libssl.ref"/>
+    <first id="boringssl.libcrypto.ref">
+      <fileset dir="${env.QUICHE_DIR}/target/release/build" includes="boring-sys-*/out/build/libcrypto.a"/>
     </first>
-    <pathconvert property='boringssl.libcrypto' refid='boringssl.libcrypto.ref'/>
-    <!-- Get macOS version for deployment target (avoids ld warnings when linking
-         against BoringSSL static libs built by cargo with a different default) -->
-    <exec executable='sw_vers' outputproperty='macos.version' failonerror='false'>
-      <arg value='-productVersion'/>
+    <pathconvert property="boringssl.libcrypto" refid="boringssl.libcrypto.ref"/>
+
+    <exec executable="cc" failonerror="true">
+      <env key="MACOSX_DEPLOYMENT_TARGET" value="${macos.version}"/>
+      <arg value="-shared"/>
+      <arg value="-fPIC"/>
+      <arg value="-o"/>
+      <arg value="${dist}/${native.lib.name}"/>
+      <arg value="-I${jni.home}/include"/>
+      <arg value="-I${jni.home}/include/${os.jni.subdir}"/>
+      <arg value="-I${env.QUICHE_DIR}/quiche/include"/>
+      <arg value="-I${env.QUICHE_DIR}/quiche/deps/boringssl/src/include"/>
+      <arg value="-L${env.QUICHE_DIR}/target/release"/>
+      <arg value="-lquiche"/>
+      <arg value="-Wl,-rpath,${is.mac ? '@loader_path' : '$ORIGIN'}"/>
+      <arg value="${boringssl.libssl}"/>
+      <arg value="${boringssl.libcrypto}"/>
+      <arg value="-lresolv"/>
+      <arg value="${src}/org/bluezoo/gumdrop/jni/quiche_jni.c"/>
+      <arg value="${src}/org/bluezoo/gumdrop/jni/ssl_ctx_jni.c"/>
+      <arg value="${src}/org/bluezoo/gumdrop/jni/h3_jni.c"/>
+      <arg value="${src}/org/bluezoo/gumdrop/jni/dns_jni.c"/>
     </exec>
-    <exec executable='cc' failonerror='true'>
-      <env key='MACOSX_DEPLOYMENT_TARGET' value='${macos.version}'/>
-      <arg value='-shared'/>
-      <arg value='-fPIC'/>
-      <arg value='-o'/>
-      <arg value='${dist}/${native.lib.name}'/>
-      <arg value='-I${jni.home}/include'/>
-      <arg value='-I${jni.home}/include/${os.jni.subdir}'/>
-      <arg value='-I${env.QUICHE_DIR}/quiche/include'/>
-      <arg value='-I${env.QUICHE_DIR}/quiche/deps/boringssl/src/include'/>
-      <arg value='-L${env.QUICHE_DIR}/target/release'/>
-      <arg value='-lquiche'/>
-      <arg value='-Wl,-rpath,@loader_path'/>
-      <arg value='${boringssl.libssl}'/>
-      <arg value='${boringssl.libcrypto}'/>
-      <arg value='-lresolv'/>
-      <arg value='${src}/org/bluezoo/gumdrop/jni/quiche_jni.c'/>
-      <arg value='${src}/org/bluezoo/gumdrop/jni/ssl_ctx_jni.c'/>
-      <arg value='${src}/org/bluezoo/gumdrop/jni/h3_jni.c'/>
-      <arg value='${src}/org/bluezoo/gumdrop/jni/dns_jni.c'/>
+
+    <antcall target="fix-mac-install-names"/>
+
+    <condition property="quiche.lib.actual" value="libquiche.dylib" else="libquiche.so">
+      <os family="mac"/>
+    </condition>
+
+    <copy file="${env.QUICHE_DIR}/target/release/${quiche.lib.actual}"
+        todir="${dist}" overwrite="true"/>
+    
+    <echo message="Built native library: ${dist}/${native.lib.name}"/>
+  </target>
+
+  <target name="fix-mac-install-names" if="is.mac">
+    <exec executable="install_name_tool" failonerror="true">
+      <arg value="-change"/>
+      <arg value="/usr/local/lib/libquiche.0.25.0.dylib"/>
+      <arg value="@loader_path/libquiche.dylib"/>
+      <arg value="${dist}/${native.lib.name}"/>
     </exec>
-    <!-- Fix quiche install name so the dynamic linker finds it next to our dylib -->
-    <exec executable='install_name_tool' failonerror='true'>
-      <arg value='-change'/>
-      <arg value='/usr/local/lib/libquiche.0.25.0.dylib'/>
-      <arg value='@loader_path/libquiche.dylib'/>
-      <arg value='${dist}/${native.lib.name}'/>
-    </exec>
-    <!-- Copy quiche dylib alongside ours so @loader_path resolves -->
-    <copy file='${env.QUICHE_DIR}/target/release/libquiche.dylib'
-          todir='${dist}' overwrite='true'/>
-    <echo message='Built native library: ${dist}/${native.lib.name}'/>
   </target>
 
   <target name='native-skip' depends='native-check' unless='quiche.available'>
