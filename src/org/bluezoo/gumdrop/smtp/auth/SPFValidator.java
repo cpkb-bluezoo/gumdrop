@@ -1,6 +1,6 @@
 /*
  * SPFValidator.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -205,8 +205,50 @@ public class SPFValidator {
         String record = spfRecord.substring(7); // Skip "v=spf1 "
         String[] parts = splitOnSpaces(record);
 
-        // Start evaluation from the beginning
+        if (!parseModifiers(ctx, domain, parts)) {
+            return;
+        }
+
         evaluateMechanisms(ctx, domain, parts, 0);
+    }
+
+    /**
+     * Pre-scans an SPF record for global modifiers.
+     * RFC 7208 §6 — redirect and exp are position-independent; each may appear once.
+     *
+     * @return false if a permanent error was delivered to the callback
+     */
+    private boolean parseModifiers(CheckContext ctx, String domain, String[] parts) {
+        String redirect = null;
+        String explanation = null;
+
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i].trim();
+            if (part.isEmpty()) {
+                continue;
+            }
+
+            if (part.startsWith("redirect=")) {
+                if (redirect != null) {
+                    ctx.callback.spfResult(SPFResult.PERMERROR, "Duplicate redirect modifier");
+                    return false;
+                }
+                redirect = expandMacros(part.substring(9), ctx, domain);
+                continue;
+            }
+
+            if (part.startsWith("exp=")) {
+                if (explanation != null) {
+                    ctx.callback.spfResult(SPFResult.PERMERROR, "Duplicate exp modifier");
+                    return false;
+                }
+                explanation = part.substring(4);
+            }
+        }
+
+        ctx.redirect = redirect;
+        ctx.explanation = explanation;
+        return true;
     }
 
     /**
@@ -216,21 +258,14 @@ public class SPFValidator {
      */
     private void evaluateMechanisms(CheckContext ctx, String domain, 
                                      String[] parts, int startIndex) {
-        String redirect = null;
-
         for (int i = startIndex; i < parts.length; i++) {
             String part = parts[i].trim();
             if (part.isEmpty()) {
                 continue;
             }
 
-            // Check for modifiers (these don't affect mechanism order)
-            if (part.startsWith("redirect=")) {
-                redirect = expandMacros(part.substring(9), ctx, domain);
-                continue;
-            }
-            if (part.startsWith("exp=")) {
-                ctx.explanation = part.substring(4);
+            // Modifiers are global and parsed in parseModifiers()
+            if (part.startsWith("redirect=") || part.startsWith("exp=")) {
                 continue;
             }
 
@@ -282,8 +317,8 @@ public class SPFValidator {
         }
 
         // No mechanisms matched, check for redirect
-        if (redirect != null) {
-            lookupSPF(ctx, redirect);
+        if (ctx.redirect != null) {
+            lookupSPF(ctx, ctx.redirect);
             return;
         }
 
@@ -509,7 +544,10 @@ public class SPFValidator {
                                                    ctx.sender, ctx.heloHost, includeCallback);
         includeCtx.dnsLookups = ctx.dnsLookups;
         includeCtx.voidLookups = ctx.voidLookups;
-        includeCtx.explanation = ctx.explanation;
+
+        if (!parseModifiers(includeCtx, includeDomain, includeParts)) {
+            return;
+        }
 
         evaluateMechanisms(includeCtx, includeDomain, includeParts, 0);
 
@@ -1362,6 +1400,7 @@ public class SPFValidator {
 
         int dnsLookups;
         int voidLookups;
+        String redirect;    // redirect= modifier value
         String explanation; // exp= modifier value
 
         CheckContext(String domain, InetAddress clientIP, EmailAddress sender,
