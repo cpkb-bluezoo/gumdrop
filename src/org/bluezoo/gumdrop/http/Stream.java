@@ -341,6 +341,11 @@ class Stream implements HTTPResponseState {
 
     void appendHeaderBlockFragment(ByteBuffer hbf) {
         int hbfLength = hbf.remaining();
+        int currentSize = headerBlock == null ? 0 : headerBlock.position();
+        if (currentSize + hbfLength > connection.getMaxHeaderListSize()) {
+            connection.sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+            return;
+        }
         if (headerBlock == null) {
             headerBlock = ByteBufferPool.acquire(Math.max(HEADER_BLOCK_INITIAL_SIZE, hbfLength));
         } else if (headerBlock.remaining() < hbfLength) {
@@ -454,11 +459,22 @@ class Stream implements HTTPResponseState {
                         } catch (NumberFormatException e) {
                             contentLength = -1L;
                         }
-                    } else if ("Transfer-Encoding".equalsIgnoreCase(name) && "chunked".equals(value)) {
+                    } else if ("Transfer-Encoding".equalsIgnoreCase(name)) {
+                        if (HTTPUtils.isChunkedTransferEncoding(value)) {
                         // RFC 9112 section 6.3: Transfer-Encoding overrides Content-Length
                         contentLength = Integer.MAX_VALUE;
                         chunked = true;
                         i.remove(); // do not pass this on to stream implementation
+                        } else {
+                            try {
+                                sendError(400);
+                            } catch (ProtocolException e) {
+                                LOGGER.warning(MessageFormat.format(
+                                        L10N.getString("warn.invalid_transfer_encoding"),
+                                        value));
+                            }
+                            return;
+                        }
                     } else if ("Upgrade".equalsIgnoreCase(name)) {
                         // RFC 9110 section 7.8: Upgrade header field
                         if (upgradeProtocols == null) {

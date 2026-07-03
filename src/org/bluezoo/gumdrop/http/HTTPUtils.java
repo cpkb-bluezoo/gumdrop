@@ -336,5 +336,27 @@ final class HTTPUtils {
         return true;
     }
 
+    /**
+     * Returns true if the Transfer-Encoding header lists chunked as the
+     * final coding (RFC 9110 section 7.7).
+     */
+    public static boolean isChunkedTransferEncoding(String value) {
+        if (value == null) {
+            return false;
+        }
+        int start = 0;
+        int len = value.length();
+        String lastToken = null;
+        while (start <= len) {
+            int end = value.indexOf(',', start);
+            if (end < 0) {
+                end = len;
+            }
+            lastToken = value.substring(start, end).trim();
+            start = end + 1;
+        }
+        return lastToken != null && "chunked".equalsIgnoreCase(lastToken);
+    }
+
 }
 

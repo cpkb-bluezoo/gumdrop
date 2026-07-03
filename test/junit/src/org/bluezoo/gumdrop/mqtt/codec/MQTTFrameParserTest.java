@@ -45,6 +45,22 @@ public class MQTTFrameParserTest {
     // -- CONNECT --
 
     @Test
+    public void testDefaultMaxPacketSize() {
+        assertEquals(MQTTFrameParser.DEFAULT_MAX_PACKET_SIZE, parser.getMaxPacketSize());
+    }
+
+    @Test
+    public void testOversizedConnectRejected() {
+        parser.setMaxPacketSize(256);
+        ByteBuffer buf = ByteBuffer.allocate(8);
+        buf.put((byte) 0x10);
+        VariableLengthEncoding.encode(buf, 500);
+        buf.flip();
+        parser.receive(buf);
+        assertNotNull(handler.lastError);
+    }
+
+    @Test
     public void testParseConnect311() {
         ConnectPacket src = new ConnectPacket();
         src.setVersion(MQTTVersion.V3_1_1);

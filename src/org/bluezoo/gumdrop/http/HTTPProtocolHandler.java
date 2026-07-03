@@ -187,6 +187,15 @@ public class HTTPProtocolHandler
     private final HTTPListener server;
     private final int framePadding;
     private final int serverMaxConcurrentStreams;
+    private final int serverMaxHeaderListSize;
+
+    private static final int DEFAULT_MAX_HEADER_LIST_SIZE = 8192;
+    private static final int MAX_CONTINUATION_FRAMES_PER_BLOCK = 512;
+    private static final int MAX_RST_STREAMS_PER_SECOND = 200;
+
+    private int continuationFramesInBlock;
+    private int rstStreamCount;
+    private long rstStreamWindowStartMs;
 
     private HTTPAuthenticationProvider authenticationProvider;
     private HTTPRequestHandlerFactory handlerFactory;
@@ -208,7 +217,7 @@ public class HTTPProtocolHandler
     int maxConcurrentStreams = Integer.MAX_VALUE;
     int initialWindowSize = DEFAULT_INITIAL_WINDOW_SIZE;
     int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
-    int maxHeaderListSize = Integer.MAX_VALUE;
+    int maxHeaderListSize = DEFAULT_MAX_HEADER_LIST_SIZE;
 
     Decoder hpackDecoder;
     Encoder hpackEncoder;
@@ -257,7 +266,7 @@ public class HTTPProtocolHandler
      * @param server the HTTP server configuration
      */
     public HTTPProtocolHandler(HTTPListener server) {
-        this(server, 0, 100);
+        this(server, 0, 100, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
     }
 
     /**
@@ -267,7 +276,7 @@ public class HTTPProtocolHandler
      * @param framePadding HTTP/2 frame padding (0-255)
      */
     public HTTPProtocolHandler(HTTPListener server, int framePadding) {
-        this(server, framePadding, 100);
+        this(server, framePadding, 100, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
     }
 
     /**
@@ -280,9 +289,20 @@ public class HTTPProtocolHandler
      */
     public HTTPProtocolHandler(HTTPListener server, int framePadding,
             int serverMaxConcurrentStreams) {
+        this(server, framePadding, serverMaxConcurrentStreams,
+                server.getMaxHeaderListSize());
+    }
+
+    /**
+     * Creates a new HTTP endpoint handler with HTTP/2 limits.
+     */
+    public HTTPProtocolHandler(HTTPListener server, int framePadding,
+            int serverMaxConcurrentStreams, int serverMaxHeaderListSize) {
         this.server = server;
         this.framePadding = framePadding;
         this.serverMaxConcurrentStreams = serverMaxConcurrentStreams;
+        this.serverMaxHeaderListSize = serverMaxHeaderListSize;
+        this.maxHeaderListSize = serverMaxHeaderListSize;
         this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH);
         this.authenticationProvider = server.getAuthenticationProvider();
         this.handlerFactory = server.getHandlerFactory();
@@ -404,6 +424,8 @@ public class HTTPProtocolHandler
             Map<Integer, Integer> initialSettings = new LinkedHashMap<Integer, Integer>();
             initialSettings.put(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS,
                     serverMaxConcurrentStreams);
+            initialSettings.put(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE,
+                    serverMaxHeaderListSize);
             sendSettingsFrame(false, initialSettings);
             startSettingsTimeout();
         }
@@ -830,6 +852,36 @@ public class HTTPProtocolHandler
     }
 
     @Override
+    public int getMaxHeaderListSize() {
+        return maxHeaderListSize;
+    }
+
+    private void checkContinuationLimit() {
+        continuationFramesInBlock++;
+        if (continuationFramesInBlock > MAX_CONTINUATION_FRAMES_PER_BLOCK) {
+            sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+            closeEndpoint();
+        }
+    }
+
+    private void resetContinuationLimit() {
+        continuationFramesInBlock = 0;
+    }
+
+    private void checkRstStreamRate() {
+        long now = System.currentTimeMillis();
+        if (now - rstStreamWindowStartMs > 1000L) {
+            rstStreamWindowStartMs = now;
+            rstStreamCount = 0;
+        }
+        rstStreamCount++;
+        if (rstStreamCount > MAX_RST_STREAMS_PER_SECOND) {
+            sendGoaway(H2FrameHandler.ERROR_ENHANCE_YOUR_CALM);
+            closeEndpoint();
+        }
+    }
+
+    @Override
     public TelemetryConfig getTelemetryConfig() {
         return endpoint != null ? endpoint.getTelemetryConfig() : null;
     }
@@ -1202,6 +1254,8 @@ public class HTTPProtocolHandler
         }
     }
 
+    private static final int MAX_CHUNK_SIZE = 10 * 1024 * 1024;
+
     // RFC 9112 section 3: request-line = method SP request-target SP HTTP-version
     private void processRequestLine(ByteBuffer line) {
         Stream stream = getStream(clientStreamId);
@@ -1226,6 +1280,13 @@ public class HTTPProtocolHandler
             charBuffer.limit(len - CRLF_LENGTH);
         }
         String lineStr = charBuffer.toString();
+        for (int i = 0; i < lineStr.length(); i++) {
+            char c = lineStr.charAt(i);
+            if (c < 32 && c != '\t') {
+                sendStreamError(stream, 400);
+                return;
+            }
+        }
         // RFC 9112 section 3: method SP request-target SP HTTP-version
         int mi = lineStr.indexOf(' ', 1);
         int ui = (mi > 0) ? lineStr.indexOf(' ', mi + 2) : -1;
@@ -1445,9 +1506,17 @@ public class HTTPProtocolHandler
         // RFC 9112 section 7.1.1: chunk-ext = *( BWS ";" BWS chunk-ext-name [ ... ] )
         int semi = lineStr.indexOf(';');
         String sizeStr = (semi > 0) ? lineStr.substring(0, semi) : lineStr;
+        if (semi > 0 && lineStr.indexOf('"', semi) >= 0) {
+            sendStreamError(stream, 400);
+            return;
+        }
         try {
-            // RFC 9112 section 7.1: chunk-size = 1*HEXDIG
-            currentChunkSize = Integer.parseInt(sizeStr.trim(), 16);
+            long chunkSize = Long.parseLong(sizeStr.trim(), 16);
+            if (chunkSize < 0 || chunkSize > MAX_CHUNK_SIZE) {
+                sendStreamError(stream, 400);
+                return;
+            }
+            currentChunkSize = (int) chunkSize;
             chunkBytesRemaining = currentChunkSize;
         } catch (NumberFormatException e) {
             sendStreamError(stream, 400);
@@ -1581,6 +1650,8 @@ public class HTTPProtocolHandler
         Map<Integer, Integer> initialSettings = new LinkedHashMap<Integer, Integer>();
         initialSettings.put(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS,
                 serverMaxConcurrentStreams);
+        initialSettings.put(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE,
+                serverMaxHeaderListSize);
         sendSettingsFrame(false, initialSettings);
         startSettingsTimeout();
     }
@@ -1949,9 +2020,12 @@ public class HTTPProtocolHandler
             sendRstStream(streamId, H2FrameHandler.ERROR_REFUSED_STREAM);
             return;
         }
+        resetContinuationLimit();
+        checkContinuationLimit();
         Stream stream = getStream(streamId);
         stream.appendHeaderBlockFragment(headerBlockFragment);
         if (endHeaders) {
+            resetContinuationLimit();
             stream.streamEndHeaders();
             if (endStream) {
                 stream.streamEndRequest();
@@ -1983,6 +2057,7 @@ public class HTTPProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
+        checkRstStreamRate();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("RST_STREAM received: stream=" + streamId
                     + ", error="
@@ -2036,13 +2111,16 @@ public class HTTPProtocolHandler
                             break;
                         case H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE:
                             maxHeaderListSize = value;
+                            if (hpackDecoder != null) {
+                                hpackDecoder.setMaxHeaderListSize(maxHeaderListSize);
+                            }
                             break;
                     }
                 }
                 // RFC 7541 section 4: initialize HPACK encoder/decoder
                 // with peer's SETTINGS_HEADER_TABLE_SIZE
                 if (hpackDecoder == null) {
-                    hpackDecoder = new Decoder(headerTableSize);
+                    hpackDecoder = new Decoder(headerTableSize, maxHeaderListSize);
                 }
                 if (hpackEncoder == null) {
                     hpackEncoder = new Encoder(headerTableSize,
@@ -2095,6 +2173,9 @@ public class HTTPProtocolHandler
                         break;
                     case H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE:
                         maxHeaderListSize = value;
+                        if (hpackDecoder != null) {
+                            hpackDecoder.setMaxHeaderListSize(maxHeaderListSize);
+                        }
                         break;
                 }
             }
@@ -2120,6 +2201,7 @@ public class HTTPProtocolHandler
         stream.setPushPromise();
         stream.appendHeaderBlockFragment(headerBlockFragment);
         if (endHeaders) {
+            resetContinuationLimit();
             stream.streamEndHeaders();
             stream.streamEndRequest();
         } else {
@@ -2185,9 +2267,11 @@ public class HTTPProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
+        checkContinuationLimit();
         Stream stream = getStream(streamId);
         stream.appendHeaderBlockFragment(headerBlockFragment);
         if (endHeaders) {
+            resetContinuationLimit();
             stream.streamEndHeaders();
             state = State.HTTP2;
             continuationStream = 0;

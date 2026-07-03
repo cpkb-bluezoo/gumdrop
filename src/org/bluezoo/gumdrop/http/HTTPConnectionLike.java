@@ -66,6 +66,7 @@ interface HTTPConnectionLike {
     void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
     Stream createPushedStream(int streamId, String method, String uri, Headers headers);
     SelectorLoop getSelectorLoop();
+    int getMaxHeaderListSize();
 
     /**
      * Registers a one-shot callback invoked when the transport is ready

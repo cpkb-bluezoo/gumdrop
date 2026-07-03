@@ -446,6 +446,7 @@ public class TCPTransportFactory extends TransportFactory {
         engine.setUseClientMode(true);
         SSLParameters params = engine.getSSLParameters();
         params.setProtocols(SECURE_PROTOCOLS);
+        params.setEndpointIdentificationAlgorithm("HTTPS");
         engine.setSSLParameters(params);
         applyCipherConfig(engine);
     }

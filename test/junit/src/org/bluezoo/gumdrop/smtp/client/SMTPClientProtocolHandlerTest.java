@@ -279,6 +279,14 @@ public class SMTPClientProtocolHandlerTest {
         assertTrue(lastCmd.contains(" ORCPT=rfc822;rcpt@example.com"));
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void testRcptToRejectsCrlfInjection() {
+        setupConnectedState();
+        EmailAddress malicious = new EmailAddress(null, "user",
+                "evil.com\r\nMAIL FROM:<attacker@evil>", true);
+        handler.rcptTo(malicious, new TestRcptToHandler());
+    }
+
     @Test
     public void testRcptToWithoutDsn() {
         // Without DSN advertised, params should not appear

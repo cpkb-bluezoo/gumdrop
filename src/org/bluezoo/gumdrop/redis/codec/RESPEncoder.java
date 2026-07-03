@@ -147,13 +147,25 @@ public class RESPEncoder {
         if (obj == null) {
             return new byte[0];
         }
+        byte[] bytes;
         if (obj instanceof byte[]) {
-            return (byte[]) obj;
+            bytes = (byte[]) obj;
+        } else if (obj instanceof String) {
+            bytes = ((String) obj).getBytes(UTF_8);
+        } else {
+            bytes = obj.toString().getBytes(UTF_8);
         }
-        if (obj instanceof String) {
-            return ((String) obj).getBytes(UTF_8);
+        validateBulkBytes(bytes);
+        return bytes;
+    }
+
+    private static void validateBulkBytes(byte[] bytes) {
+        for (int i = 0; i < bytes.length - 1; i++) {
+            if (bytes[i] == '\r' && bytes[i + 1] == '\n') {
+                throw new IllegalArgumentException(
+                        "RESP bulk string must not contain CRLF");
+            }
         }
-        return obj.toString().getBytes(UTF_8);
     }
 
     /**

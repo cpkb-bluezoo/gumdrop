@@ -67,8 +67,8 @@ public class MQTTFrameParser {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
-    /** Default maximum packet size: 256 MB. */
-    public static final int DEFAULT_MAX_PACKET_SIZE = 268_435_455;
+    /** Default maximum packet size: 1 MB. */
+    public static final int DEFAULT_MAX_PACKET_SIZE = 1_048_576;
 
     private final MQTTEventHandler handler;
     private int maxPacketSize = DEFAULT_MAX_PACKET_SIZE;

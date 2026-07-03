@@ -65,6 +65,7 @@ public class PerMessageDeflateExtension implements WebSocketExtension {
     private static final int DEFAULT_WINDOW_BITS = 15;
     private static final int MIN_WINDOW_BITS = 8;
     private static final int BUFFER_SIZE = 1024;
+    private static final int MAX_DECOMPRESSED_SIZE = 4 * 1024 * 1024;
 
     private boolean serverNoContextTakeover;
     private boolean clientNoContextTakeover;
@@ -247,6 +248,10 @@ public class PerMessageDeflateExtension implements WebSocketExtension {
             while (!inflater.finished() && !inflater.needsInput()) {
                 int len = inflater.inflate(buf);
                 if (len > 0) {
+                    if (out.size() + len > MAX_DECOMPRESSED_SIZE) {
+                        throw new WebSocketProtocolException(
+                                "permessage-deflate: decompressed size limit exceeded");
+                    }
                     out.write(buf, 0, len);
                 }
             }

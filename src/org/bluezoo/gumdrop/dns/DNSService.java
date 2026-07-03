@@ -39,7 +39,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.StringTokenizer;
-import java.util.concurrent.atomic.AtomicInteger;
+import org.bluezoo.gumdrop.dns.DNSQueryIdGenerator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -131,9 +131,6 @@ public class DNSService implements Service {
     private DNSCache cache;
     private DNSServerMetrics metrics;
 
-    private final AtomicInteger queryIdGenerator = new AtomicInteger(0);
-
-    /** RFC 7873: DNS cookie manager for source address verification. */
     private final DNSCookie dnsCookie = new DNSCookie();
 
     /**
@@ -519,7 +516,7 @@ public class DNSService implements Service {
             return null;
         }
 
-        int upstreamId = queryIdGenerator.getAndIncrement() & 0xFFFF;
+        int upstreamId = DNSQueryIdGenerator.allocateSynthetic();
         // RFC 6891 section 6.1.1: add OPT record to advertise EDNS0
         // support and signal our UDP payload size to the upstream.
         List<DNSResourceRecord> additionals =

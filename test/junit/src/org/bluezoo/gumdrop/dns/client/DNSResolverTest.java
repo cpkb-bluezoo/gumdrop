@@ -421,6 +421,38 @@ public class DNSResolverTest {
         resolver.close();
     }
 
+    @Test
+    public void testQueryIdsAreNotSequential() throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.open();
+
+        resolver.query("a.example.com", DNSType.A, noopCallback());
+        int id1 = extractId(mockTransport.lastSentData);
+
+        resolver.query("b.example.com", DNSType.A, noopCallback());
+        int id2 = extractId(mockTransport.lastSentData);
+
+        assertNotEquals("Second query should not reuse first ID", id1, id2);
+        assertFalse("IDs should not start at predictable 0,1",
+                (id1 == 0 && id2 == 1) || (id1 == 1 && id2 == 2));
+        resolver.close();
+    }
+
+    private static DNSQueryCallback noopCallback() {
+        return new DNSQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response) {
+            }
+
+            @Override
+            public void onError(String err) {
+            }
+        };
+    }
+
     // -- Helpers --
 
     private static int extractId(ByteBuffer data) {
