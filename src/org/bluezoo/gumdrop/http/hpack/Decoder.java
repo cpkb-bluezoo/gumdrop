@@ -53,7 +53,7 @@ public class Decoder extends HPACKConstants {
     /**
      * The dynamic table.
      */
-    private List<Header> dynamicTable = new ArrayList<>();
+    private final DynamicTable dynamicTable = new DynamicTable();
 
     /**
      * The negotiated maximum size of the dynamic table.
@@ -135,14 +135,10 @@ public class Decoder extends HPACKConstants {
             } else if ((b & 0x40) != 0) { // RFC 7541 section 6.2.1: literal with incremental indexing
                 //System.err.println(" literal header field");
                 header = getLiteralHeaderField(buf, b, 6, dynamicTable, this);
-                // evict entries: RFC 7541 section 4.4
-                int newEntrySize = headerSize(header);
-                while (tableSize(dynamicTable) > (maxSize - newEntrySize)) {
-                    dynamicTable.remove(dynamicTable.size() - 1);
-                }
-                // The header field is added to the beginning of the dynamic
-                // table, see sections 3.2, 2.3.2
-                dynamicTable.add(0, header);
+                // Evict older entries as needed and prepend (RFC 7541 sections
+                // 4.4, 3.2, 2.3.2). DynamicTable tracks its own running size, so
+                // this is O(entries-evicted) rather than O(entries^2).
+                dynamicTable.insert(header, maxSize);
             } else if ((b & 0x20) != 0) { // RFC 7541 section 6.3: dynamic table size update
                 int maxSize = decodeInteger(buf, b, 5);
                 //System.err.println(" dynamic table size update, maxSize="+maxSize);
@@ -150,9 +146,7 @@ public class Decoder extends HPACKConstants {
                     throw new ProtocolException("dynamic table size update "+ maxSize + " larger than SETTINGS_HEADER_TABLE_SIZE "+headerTableSize);
                 }
                 // evict entries: RFC 7541 section 4.3
-                while (tableSize(dynamicTable) > maxSize) {
-                    dynamicTable.remove(dynamicTable.size() - 1);
-                }
+                dynamicTable.evictToFit(maxSize);
                 this.maxSize = maxSize;
                 continue;
             } else { // RFC 7541 section 6.2.2/6.2.3: literal without indexing / never indexed
@@ -172,7 +166,7 @@ public class Decoder extends HPACKConstants {
     }
 
     private static Header getLiteralHeaderField(ByteBuffer buf, byte opcode, int nbits,
-            List<Header> dynamicTable, Decoder decoder) throws IOException {
+            DynamicTable dynamicTable, Decoder decoder) throws IOException {
         //System.err.println("  getLiteralHeaderField opcode="+String.format("%02x",opcode)+" nbits="+nbits);
         int index = decodeInteger(buf, opcode, nbits);
         //System.err.println("   index="+index);

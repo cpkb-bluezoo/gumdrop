@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.http.hpack;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -53,7 +52,7 @@ public class Encoder extends HPACKConstants {
     /**
      * The dynamic table for this encoder.
      */
-    private List<Header> dynamicTable = new ArrayList<>();
+    private final DynamicTable dynamicTable = new DynamicTable();
 
     /**
      * The SETTINGS_HEADER_TABLE_SIZE value from the SETTINGS frame.
@@ -139,15 +138,10 @@ public class Encoder extends HPACKConstants {
         if (totalSize > maxHeaderListSize) {
             throw new ProtocolException("Total header size " + totalSize + " exceeds maximum header list size " + maxHeaderListSize);
         }
-        int dynamicTableSize = tableSize(dynamicTable);
-        if (dynamicTableSize > headerTableSize) {
-            // Send dynamic table size update
+        if (dynamicTable.byteSize() > headerTableSize) {
+            // Send dynamic table size update and evict entries until we comply.
             encodeInteger(buf, (byte) 0x20, headerTableSize, 5); // opcode
-            // Evict entries until we comply
-            while (dynamicTableSize > headerTableSize) {
-                Header header = dynamicTable.remove(dynamicTable.size() - 1);
-                dynamicTableSize -= headerSize(header);
-            }
+            dynamicTable.evictToFit(headerTableSize);
         }
         for (Header header : headers) {
             // Determine which type of representation to use
@@ -165,12 +159,12 @@ public class Encoder extends HPACKConstants {
                 String value = header.getValue();
                 index = indexOfName(STATIC_TABLE, name);
                 if (index == -1) {
-                    index = indexOfName(dynamicTable, name);
+                    index = dynamicTable.indexOfName(name);
                     if (index != -1) {
                         index += STATIC_TABLE_SIZE;
                     }
                 }
-                boolean indexed = !noIndexing && (tableSize(dynamicTable) + headerSize(header) <= headerTableSize);
+                boolean indexed = !noIndexing && (dynamicTable.byteSize() + headerSize(header) <= headerTableSize);
                 if (index > 0) { // literal header field indexed
                     if (indexed) { // with incremental indexing
                         encodeInteger(buf, (byte) 0x40, index, 6); // opcode
@@ -201,8 +195,9 @@ public class Encoder extends HPACKConstants {
                 encodeInteger(buf, hbit, valueLength, 7);
                 buf.put(useHuffman ? hvalue : rvalue);
                 if (indexed) {
-                    // add to dynamic table
-                    dynamicTable.add(0, header);
+                    // add to dynamic table; the guard above ensured it fits, so
+                    // insert() prepends without evicting.
+                    dynamicTable.insert(header, headerTableSize);
                 }
             }
         }

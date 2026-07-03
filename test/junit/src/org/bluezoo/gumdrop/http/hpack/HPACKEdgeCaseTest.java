@@ -28,6 +28,7 @@ import static org.junit.Assert.*;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
@@ -163,6 +164,81 @@ public class HPACKEdgeCaseTest {
         assertEquals("custom-value", headers.get(0).getValue());
     }
     
+    private static List<Header> decodeAll(Decoder decoder, byte[] encoded) throws IOException {
+        final List<Header> headers = new ArrayList<Header>();
+        decoder.decode(ByteBuffer.wrap(encoded), new HeaderHandler() {
+            public void header(Header header) {
+                headers.add(header);
+            }
+        });
+        return headers;
+    }
+
+    @Test
+    public void testInsertLargerThanMaxSizeEmptiesTable() throws IOException {
+        // RFC 7541 section 4.4: an entry larger than the maximum table size
+        // empties the table and is not added (but is still emitted). Regression
+        // guard for the ring-buffer rewrite: the previous ArrayList eviction
+        // loop indexed past the end of an emptied list here (attacker-reachable
+        // via a size-update followed by an oversized literal).
+        Decoder decoder = new Decoder(4096);
+        byte[] encoded = new byte[] {
+            0x40, 0x01, 'a', 0x01, 'b', // literal + incremental indexing "a"="b"
+            0x20,                       // dynamic table size update to 0 (evicts "a")
+            0x40, 0x01, 'c', 0x01, 'd'  // literal + incremental indexing "c"="d" (34 > 0)
+        };
+
+        List<Header> headers = decodeAll(decoder, encoded);
+        assertEquals("Both literals should be emitted", 2, headers.size());
+        assertEquals("a", headers.get(0).getName());
+        assertEquals("c", headers.get(1).getName());
+
+        // Neither entry may remain: referencing dynamic index 62 must fail.
+        try {
+            decodeAll(decoder, new byte[] { (byte) 0xBE });
+            fail("Expected ProtocolException: dynamic table should be empty");
+        } catch (java.net.ProtocolException expected) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testTableSizeShrinkEvictsBothSides() throws IOException {
+        // Populate the table, then shrink the encoder table to 0. The next
+        // encode must emit a size update that drives the decoder to evict, and
+        // the round trip must still reproduce every header. Exercises the
+        // evictToFit() path on both encoder and decoder.
+        Encoder enc = new Encoder(4096, Integer.MAX_VALUE);
+        Decoder dec = new Decoder(4096);
+
+        List<Header> req = Arrays.asList(
+                new Header("x-alpha", "1"),
+                new Header("x-beta", "2"));
+
+        ByteBuffer b1 = ByteBuffer.allocate(4096);
+        enc.encode(b1, req);
+        b1.flip();
+        assertEquals(2, decodeAll(dec, toBytes(b1)).size());
+
+        enc.setHeaderTableSize(0);
+        ByteBuffer b2 = ByteBuffer.allocate(4096);
+        enc.encode(b2, req);
+        b2.flip();
+
+        List<Header> out = decodeAll(dec, toBytes(b2));
+        assertEquals(2, out.size());
+        assertEquals("x-alpha", out.get(0).getName());
+        assertEquals("1", out.get(0).getValue());
+        assertEquals("x-beta", out.get(1).getName());
+        assertEquals("2", out.get(1).getValue());
+    }
+
+    private static byte[] toBytes(ByteBuffer buf) {
+        byte[] b = new byte[buf.remaining()];
+        buf.get(b);
+        return b;
+    }
+
     @Test
     public void testDynamicTableEviction() throws IOException {
         // Create decoder with small table size
