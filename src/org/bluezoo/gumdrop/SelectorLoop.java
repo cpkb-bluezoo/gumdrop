@@ -289,10 +289,16 @@ public class SelectorLoop implements Runnable {
 
     private void doTcpEndpointWrite(SelectionKey key, TCPEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
-        ByteBuffer netOut = endpoint.getNetOut();
 
         try {
             synchronized (endpoint.netOutLock) {
+                // Fetch netOut inside the lock: a concurrent appendToNetOut()
+                // may have grown (replaced) it, and a concurrent close may
+                // have released and nulled it.
+                ByteBuffer netOut = endpoint.getNetOut();
+                if (netOut == null) {
+                    return;
+                }
                 netOut.flip();
 
                 if (netOut.hasRemaining()) {

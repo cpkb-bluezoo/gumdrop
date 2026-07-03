@@ -31,6 +31,8 @@ import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
 
+import org.bluezoo.gumdrop.util.DirectByteBufferPool;
+
 /**
  * Manages SSL wrap/unwrap operations for a TCP connection.
  * All methods run on the SelectorLoop thread, no synchronization needed.
@@ -208,8 +210,13 @@ final class SSLState {
             LOGGER.log(Level.SEVERE, "SSL unwrap error", e);
             handleClosed("unwrap");
         } finally {
-            // Compact netIn for next append (preserves any partial TLS records)
-            netIn().compact();
+            // Compact netIn for next append (preserves any partial TLS records).
+            // netIn is null if the connection was closed during processing
+            // (handleClosed -> onClosed -> doClose releases the buffers).
+            ByteBuffer in = netIn();
+            if (in != null) {
+                in.compact();
+            }
         }
     }
 
@@ -224,6 +231,11 @@ final class SSLState {
 
         try {
             synchronized (netOutLock()) {
+                if (netOut() == null) {
+                    // Connection closed concurrently (doClose released the
+                    // buffer under netOutLock); drop the outbound data.
+                    return;
+                }
                 // Wrap application data into encrypted output
                 boolean done = false;
                 while (!done && data.hasRemaining()) {
@@ -282,9 +294,10 @@ final class SSLState {
     private void growNetOut(int additional) {
         ByteBuffer out = netOut();
         int newSize = out.position() + additional + DEFAULT_BUFFER_SIZE;
-        ByteBuffer newBuf = ByteBuffer.allocate(newSize);
+        ByteBuffer newBuf = DirectByteBufferPool.acquire(newSize);
         out.flip();
         newBuf.put(out);
+        DirectByteBufferPool.release(out);
         setNetOut(newBuf);
     }
 
@@ -304,6 +317,10 @@ final class SSLState {
             // Generate close_notify into netOut
             // Synchronize on netOutLock to prevent race with application thread calling wrap()
             synchronized (netOutLock()) {
+                if (netOut() == null) {
+                    // Connection already torn down; nothing to send into.
+                    return;
+                }
                 ensureNetOutCapacity(session.getPacketBufferSize());
                 ByteBuffer empty = ByteBuffer.allocate(0);
                 engine.wrap(empty, netOut());

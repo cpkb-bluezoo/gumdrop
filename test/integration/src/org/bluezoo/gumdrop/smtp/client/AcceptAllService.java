@@ -321,5 +321,15 @@ public class AcceptAllService extends SMTPService {
             currentRecipients.clear();
             currentMessageData.reset();
         }
+
+        @Override
+        public boolean wantsPause() {
+            return false;
+        }
+
+        @Override
+        public void setResumeCallback(Runnable callback) {
+            // This handler buffers eagerly and never pauses.
+        }
     }
 }

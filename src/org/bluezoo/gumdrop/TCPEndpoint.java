@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
 import java.io.IOException;
 import java.net.Socket;
@@ -173,8 +174,8 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     public void init() throws IOException {
         if (channel == null) {
             bufferSize = DEFAULT_BUFFER_SIZE;
-            netIn = ByteBuffer.allocate(bufferSize);
-            netOut = ByteBuffer.allocate(bufferSize);
+            netIn = DirectByteBufferPool.acquire(bufferSize);
+            netOut = DirectByteBufferPool.acquire(bufferSize);
             initialized = true;
             timestampConnected = System.currentTimeMillis();
             return;
@@ -195,8 +196,8 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
             bufferSize = sslState.getBufferSize();
         }
 
-        netIn = ByteBuffer.allocate(bufferSize);
-        netOut = ByteBuffer.allocate(bufferSize);
+        netIn = DirectByteBufferPool.acquire(bufferSize);
+        netOut = DirectByteBufferPool.acquire(bufferSize);
 
         initialized = true;
         updateLastActivity();
@@ -471,9 +472,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
             desiredCapacity = maxSize;
         }
         if (desiredCapacity > netIn.capacity()) {
-            ByteBuffer newBuf = ByteBuffer.allocate(desiredCapacity);
+            ByteBuffer newBuf = DirectByteBufferPool.acquire(desiredCapacity);
             netIn.flip();
             newBuf.put(netIn);
+            DirectByteBufferPool.release(netIn);
             netIn = newBuf;
         }
         if (netIn.remaining() == 0) {
@@ -485,14 +487,21 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     final void appendToNetOut(ByteBuffer data) {
         synchronized (netOutLock) {
+            if (netOut == null) {
+                // Connection is closing/closed; drop outbound data. The
+                // buffer has already been released to the pool by doClose().
+                return;
+            }
             int needed = data.remaining();
             int available = netOut.remaining();
 
             if (needed > available) {
-                int newSize = netOut.position() + needed + DEFAULT_BUFFER_SIZE;
-                ByteBuffer newBuf = ByteBuffer.allocate(newSize);
+                int required = netOut.position() + needed;
+                int desired = Math.max(netOut.capacity() * 2, required);
+                ByteBuffer newBuf = DirectByteBufferPool.acquire(desired);
                 netOut.flip();
                 newBuf.put(netOut);
+                DirectByteBufferPool.release(netOut);
                 netOut = newBuf;
             }
             netOut.put(data);
@@ -627,10 +636,33 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         if (key != null) {
             key.cancel();
         }
+        releaseBuffers();
         if (clientMode) {
             Gumdrop gumdrop = Gumdrop.getInstance();
             if (gumdrop != null) {
                 gumdrop.removeChannelHandler(this);
+            }
+        }
+    }
+
+    /**
+     * Returns the pooled direct network buffers. Idempotent: the fields are
+     * nulled so a second close (which can happen via multiple error paths)
+     * does not release a buffer twice. netOut is released under netOutLock so
+     * it cannot race with a concurrent {@link #appendToNetOut} or
+     * {@link SSLState#wrap} on another thread.
+     */
+    private void releaseBuffers() {
+        ByteBuffer in = netIn;
+        if (in != null) {
+            netIn = null;
+            DirectByteBufferPool.release(in);
+        }
+        synchronized (netOutLock) {
+            ByteBuffer out = netOut;
+            if (out != null) {
+                netOut = null;
+                DirectByteBufferPool.release(out);
             }
         }
     }
