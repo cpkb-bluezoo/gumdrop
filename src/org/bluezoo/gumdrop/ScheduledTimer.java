@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop;
 
 import java.util.PriorityQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -55,9 +56,25 @@ final class ScheduledTimer implements Runnable {
 
     private static final AtomicLong TIMER_ID_GENERATOR = new AtomicLong(0);
 
+    /**
+     * Number of accumulated cancellations that must build up before the timer
+     * thread sweeps cancelled entries out of the middle of the queue. Cancelling
+     * a timer is O(1) and leaves a tombstone behind; this bounds the number of
+     * tombstones that can accumulate between sweeps.
+     */
+    private static final int PURGE_THRESHOLD = 64;
+
     private final PriorityQueue<TimerEntry> queue;
     private final Lock lock;
     private final Condition condition;
+
+    /**
+     * Approximate count of cancelled-but-still-queued entries since the last
+     * sweep. Maintained lock-free so that {@link TimerHandle#cancel()} does not
+     * contend on the timer lock; used only as a heuristic to trigger a sweep.
+     */
+    private final AtomicInteger deadCount = new AtomicInteger();
+
     private Thread thread;
     private volatile boolean active;
 
@@ -96,6 +113,11 @@ final class ScheduledTimer implements Runnable {
         while (active) {
             lock.lock();
             try {
+                // Reclaim cancelled entries buried in the queue. This keeps the
+                // queue bounded to roughly the number of live timers even when
+                // callers cancel-and-reschedule on every request/connection.
+                purgeCancelledIfNeeded();
+
                 // Wait for next timer or new entry
                 while (active && queue.isEmpty()) {
                     condition.await();
@@ -105,8 +127,13 @@ final class ScheduledTimer implements Runnable {
                     break;
                 }
 
-                // Get next timer
+                // Drop any cancelled entries at the head so we neither wait on
+                // them nor hold their memory until their original fire time.
                 TimerEntry next = queue.peek();
+                while (next != null && next.cancelled) {
+                    queue.poll();
+                    next = queue.peek();
+                }
                 if (next == null) {
                     continue;
                 }
@@ -162,6 +189,7 @@ final class ScheduledTimer implements Runnable {
     TimerHandle schedule(ChannelHandler handler, long delayMs, Runnable callback) {
         long fireTime = System.currentTimeMillis() + delayMs;
         TimerEntry entry = new TimerEntry(
+                this,
                 TIMER_ID_GENERATOR.incrementAndGet(),
                 fireTime,
                 handler,
@@ -185,10 +213,50 @@ final class ScheduledTimer implements Runnable {
      * @param handle the timer handle returned from schedule()
      */
     void cancel(TimerHandle handle) {
-        if (handle instanceof TimerEntry) {
-            ((TimerEntry) handle).cancelled = true;
-            // Note: We don't remove from queue immediately for simplicity.
-            // It will be skipped when it fires.
+        if (handle != null) {
+            handle.cancel();
+        }
+    }
+
+    /**
+     * Called (lock-free) when an entry is cancelled. Wakes the timer thread to
+     * sweep tombstones once enough have accumulated so that cancelled timers do
+     * not linger in the queue until their original fire time.
+     */
+    private void onEntryCancelled() {
+        if (deadCount.incrementAndGet() == PURGE_THRESHOLD) {
+            lock.lock();
+            try {
+                condition.signal();
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
+
+    /**
+     * Sweeps cancelled entries out of the queue when enough have accumulated.
+     * Must be called with {@link #lock} held.
+     */
+    private void purgeCancelledIfNeeded() {
+        if (deadCount.get() >= PURGE_THRESHOLD) {
+            queue.removeIf(TimerEntry::isCancelled);
+            deadCount.set(0);
+        }
+    }
+
+    /**
+     * Returns the number of entries currently held in the queue, including any
+     * cancelled entries not yet swept. Intended for diagnostics and tests.
+     *
+     * @return the current queue depth
+     */
+    int pendingCount() {
+        lock.lock();
+        try {
+            return queue.size();
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -220,13 +288,15 @@ final class ScheduledTimer implements Runnable {
      * Timer entry in the priority queue.
      */
     static final class TimerEntry implements TimerHandle, Comparable<TimerEntry> {
+        private final ScheduledTimer owner;
         final long id;
         final long fireTime;
         final ChannelHandler handler;
         final Runnable callback;
         volatile boolean cancelled;
 
-        TimerEntry(long id, long fireTime, ChannelHandler handler, Runnable callback) {
+        TimerEntry(ScheduledTimer owner, long id, long fireTime, ChannelHandler handler, Runnable callback) {
+            this.owner = owner;
             this.id = id;
             this.fireTime = fireTime;
             this.handler = handler;
@@ -244,7 +314,15 @@ final class ScheduledTimer implements Runnable {
 
         @Override
         public void cancel() {
-            cancelled = true;
+            // Guard against the benign double-cancel race over-counting; the
+            // queue itself is swept by the timer thread, so cancel() stays O(1)
+            // and lock-free.
+            if (!cancelled) {
+                cancelled = true;
+                if (owner != null) {
+                    owner.onEntryCancelled();
+                }
+            }
         }
 
         @Override
