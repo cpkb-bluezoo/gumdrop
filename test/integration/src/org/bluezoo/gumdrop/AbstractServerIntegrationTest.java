@@ -174,29 +174,29 @@ public abstract class AbstractServerIntegrationTest {
         // Parse configuration
         ParseResult result = new ConfigurationParser().parse(configFile);
         registry = result.getRegistry();
-        servers = result.getListeners();
-        
-        // Verify we have servers
-        if (servers == null || servers.isEmpty()) {
+
+        // A configuration may declare standalone listeners (top-level
+        // <component> endpoints) and/or services that own their listeners.
+        Collection<TCPListener> standaloneListeners = result.getListeners();
+        Collection<Service> configuredServices = result.getServices();
+
+        // Verify we have something to start
+        if (standaloneListeners.isEmpty() && configuredServices.isEmpty()) {
             String msg = "No servers configured in: " + configFile;
             testContext.logEvent("CONFIG_ERROR", msg);
             throw new IllegalStateException(msg);
         }
         
-        // Log server details
-        for (TCPListener server : servers) {
-            String addr = "127.0.0.1:" + server.getPort();
-            serverAddresses.add(addr);
-            testContext.logEvent("SERVER_CONFIG", server.getClass().getSimpleName() + " on " + addr);
-        }
-        
         // Set worker count for testing before getting the singleton
         System.setProperty("gumdrop.workers", "2");
         
-        // Get the Gumdrop singleton and add servers
+        // Get the Gumdrop singleton and add standalone listeners and services.
         gumdrop = Gumdrop.getInstance();
-        for (TCPListener server : servers) {
+        for (TCPListener server : standaloneListeners) {
             gumdrop.addListener(server);
+        }
+        for (Service service : configuredServices) {
+            gumdrop.addService(service);
         }
         
         try {
@@ -205,6 +205,17 @@ public abstract class AbstractServerIntegrationTest {
         } catch (Exception e) {
             testContext.logEvent("SERVER_START_ERROR", "Failed to start: " + e.getMessage(), e);
             throw e;
+        }
+
+        // After start(), collect all bound TCP listeners (standalone plus
+        // service-owned) for readiness checks and test lookups.
+        servers = gumdrop.getListeners();
+
+        // Log server details
+        for (TCPListener server : servers) {
+            String addr = "127.0.0.1:" + server.getPort();
+            serverAddresses.add(addr);
+            testContext.logEvent("SERVER_CONFIG", server.getClass().getSimpleName() + " on " + addr);
         }
         
         // Wait for server to be ready

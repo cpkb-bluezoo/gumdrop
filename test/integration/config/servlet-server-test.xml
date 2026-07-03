@@ -9,15 +9,9 @@
     <!-- Servlet container -->
     <service id="testServlet" class="org.bluezoo.gumdrop.servlet.ServletService">
         <property name="bufferSize">8192</property>
-        
-        <!-- Container configuration -->
-        <property name="container">
-            <container class="org.bluezoo.gumdrop.servlet.Container">
-                <!-- Test web application context -->
-                <context path="" root="test/integration/webapp" distributable="false">
-                </context>
-            </container>
-        </property>
+
+        <!-- Test web application context (root resolved relative to this file) -->
+        <context path="" root="../webapp" distributable="false"/>
 
         <!-- TCP listener -->
         <listener class="org.bluezoo.gumdrop.http.HTTPListener">
@@ -26,4 +20,3 @@
         </listener>
     </service>
 </gumdrop>
-

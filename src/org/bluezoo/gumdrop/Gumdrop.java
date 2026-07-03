@@ -511,6 +511,14 @@ public class Gumdrop {
         long t1 = System.currentTimeMillis();
         started = true;
 
+        // Snapshot the standalone listeners added via addListener() before
+        // start(). registerServiceListeners() below appends service-owned
+        // listeners to serverListeners, so we capture the standalone ones now
+        // to register them exactly once (and avoid double-registering the
+        // service listeners, which register themselves).
+        List<TCPListener> standaloneListeners =
+                new ArrayList<TCPListener>(serverListeners);
+
         // Create or recreate scheduled timer
         if (scheduledTimer == null || !scheduledTimer.isRunning()) {
             scheduledTimer = new ScheduledTimer();
@@ -555,6 +563,15 @@ public class Gumdrop {
 
         if (hasTcpListeners) {
             ensureAcceptLoop();
+            // Register standalone listeners added before start(). Listeners
+            // added after start() are registered directly by addListener(),
+            // and service-owned listeners were registered by
+            // registerServiceListeners() above.
+            for (TCPListener listener : standaloneListeners) {
+                if (listener.requiresTcpAccept()) {
+                    acceptLoop.registerListener(listener);
+                }
+            }
             acceptLoop.onReady(() -> {
                 long t2 = System.currentTimeMillis();
                 if (LOGGER.isLoggable(Level.INFO)) {

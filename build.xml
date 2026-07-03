@@ -515,14 +515,14 @@
     </sequential>
   </macrodef>
 
-  <!-- Run HTTP integration tests -->
-  <target name='integration-test-http' depends='integration-build'
+  <!-- Run HTTP integration tests (needs TLS keystore for HTTPS) -->
+  <target name='integration-test-http' depends='integration-setup'
           description='Run HTTP server integration tests'>
     <integration-junit includes='**/http/*IntegrationTest.java'/>
   </target>
 
-  <!-- Run SMTP integration tests -->
-  <target name='integration-test-smtp' depends='integration-build'
+  <!-- Run SMTP integration tests (needs TLS keystore for SMTPS/STARTTLS) -->
+  <target name='integration-test-smtp' depends='integration-setup'
           description='Run SMTP server integration tests'>
     <integration-junit includes='**/smtp/**/*IntegrationTest.java'/>
   </target>
@@ -566,8 +566,8 @@
     <integration-junit includes='**/telemetry/*IntegrationTest.java'/>
   </target>
 
-  <!-- Run buffer handling integration tests -->
-  <target name='integration-test-buffer' depends='integration-build'
+  <!-- Run buffer handling integration tests (needs TLS keystore for secure variant) -->
+  <target name='integration-test-buffer' depends='integration-setup'
           description='Run buffer handling integration tests'>
     <integration-junit includes='**/buffer/*IntegrationTest.java'/>
   </target>

@@ -17,20 +17,19 @@
     <component id="echoHandlerFactory" class="org.bluezoo.gumdrop.http.client.EchoHandlerFactory"/>
     
     <!-- HTTP (plaintext) server on port 18090 for h2c upgrade testing -->
-    <server id="testHttpPlaintext" class="org.bluezoo.gumdrop.http.HTTPListener">
+    <component id="testHttpPlaintext" class="org.bluezoo.gumdrop.http.HTTPListener">
         <property name="port">18090</property>
         <property name="addresses">127.0.0.1</property>
         <property name="handler-factory" ref="#echoHandlerFactory"/>
-    </server>
+    </component>
     
     <!-- HTTPS server on port 18444 for h2 (HTTP/2 over TLS) testing -->
-    <server id="testHttps" class="org.bluezoo.gumdrop.http.HTTPListener">
+    <component id="testHttps" class="org.bluezoo.gumdrop.http.HTTPListener">
         <property name="port">18444</property>
         <property name="addresses">127.0.0.1</property>
         <property name="secure">true</property>
         <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
         <property name="keystore-pass">testpass</property>
         <property name="handler-factory" ref="#echoHandlerFactory"/>
-    </server>
+    </component>
 </gumdrop>
-
