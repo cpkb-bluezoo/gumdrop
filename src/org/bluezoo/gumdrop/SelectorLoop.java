@@ -62,10 +62,6 @@ public class SelectorLoop implements Runnable {
     private Selector selector;
     private volatile boolean active;
 
-    // Reusable read buffer (per selector loop)
-    // Sized for max UDP datagram (65507) plus some headroom
-    private final ByteBuffer readBuffer;
-
     // Queue for registrations (cross-thread)
     private final ConcurrentLinkedQueue<PendingRegistration> pendingRegistrations;
 
@@ -82,7 +78,6 @@ public class SelectorLoop implements Runnable {
      */
     public SelectorLoop(int index) {
         this.index = index;
-        this.readBuffer = ByteBuffer.allocate(65536);
         this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
         this.pendingTimers = new ConcurrentLinkedQueue<ScheduledTimer.TimerEntry>();
         this.pendingTasks = new ConcurrentLinkedQueue<Runnable>();
@@ -266,16 +261,17 @@ public class SelectorLoop implements Runnable {
 
     private void doTcpEndpointRead(SelectionKey key, TCPEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
-        readBuffer.clear();
 
         try {
-            int len = sc.read(readBuffer);
+            // Read straight into the endpoint's netIn buffer. This avoids
+            // copying through a shared scratch buffer on every read. The
+            // returned buffer is in write mode with room to read into.
+            ByteBuffer netIn = endpoint.prepareNetInForRead();
+            int len = sc.read(netIn);
 
             if (len == -1) {
                 endpoint.handleEOF();
             } else if (len > 0) {
-                readBuffer.flip();
-
                 if (LOGGER.isLoggable(Level.FINEST)) {
                     Object sa = sc.socket().getRemoteSocketAddress();
                     String message = Gumdrop.L10N.getString("info.received");
@@ -283,8 +279,7 @@ public class SelectorLoop implements Runnable {
                     LOGGER.finest(message);
                 }
 
-                endpoint.appendToNetIn(readBuffer);
-                endpoint.netIn.flip();
+                netIn.flip();
                 endpoint.processInbound();
             }
         } catch (IOException e) {

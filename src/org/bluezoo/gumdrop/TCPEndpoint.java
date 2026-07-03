@@ -28,7 +28,6 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import java.io.IOException;
 import java.net.Socket;
 import java.net.SocketAddress;
-import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
@@ -449,24 +448,39 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     }
 
     /**
-     * Appends data to the netIn buffer, growing if necessary.
+     * Prepares {@link #netIn} for a direct read from the socket channel,
+     * avoiding an intermediate scratch buffer and the extra copy it implies.
+     *
+     * <p>The buffer is returned in write mode. When it is nearly full because
+     * the handler has not yet consumed everything, it is grown (doubling,
+     * bounded by the configured {@code maxNetInSize}) so a single read can
+     * still pull a useful chunk. If the buffer is full and cannot grow within
+     * that limit, an {@link IOException} is thrown so the connection is closed
+     * gracefully instead of spinning on zero-length reads.
+     *
+     * @return {@link #netIn}, in write mode, with room to read into
+     * @throws IOException if the input buffer would exceed its maximum size
      */
-    final void appendToNetIn(ByteBuffer data) {
-        int needed = data.remaining();
-        int available = netIn.remaining();
-
-        if (needed > available) {
-            int newSize = netIn.position() + needed + DEFAULT_BUFFER_SIZE;
-            int maxSize = factory != null ? factory.getMaxNetInSize() : 0;
-            if (maxSize > 0 && newSize > maxSize) {
-                throw new BufferOverflowException();
-            }
-            ByteBuffer newBuf = ByteBuffer.allocate(newSize);
+    final ByteBuffer prepareNetInForRead() throws IOException {
+        if (netIn.remaining() >= DEFAULT_BUFFER_SIZE) {
+            return netIn;
+        }
+        int maxSize = factory != null ? factory.getMaxNetInSize() : 0;
+        int desiredCapacity = netIn.capacity() * 2;
+        if (maxSize > 0 && desiredCapacity > maxSize) {
+            desiredCapacity = maxSize;
+        }
+        if (desiredCapacity > netIn.capacity()) {
+            ByteBuffer newBuf = ByteBuffer.allocate(desiredCapacity);
             netIn.flip();
             newBuf.put(netIn);
             netIn = newBuf;
         }
-        netIn.put(data);
+        if (netIn.remaining() == 0) {
+            throw new IOException("Network input buffer exceeded maximum size ("
+                    + maxSize + " bytes)");
+        }
+        return netIn;
     }
 
     final void appendToNetOut(ByteBuffer data) {
