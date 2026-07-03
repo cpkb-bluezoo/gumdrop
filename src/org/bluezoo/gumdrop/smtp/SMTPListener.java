@@ -369,6 +369,6 @@ public class SMTPListener extends TCPListener {
      * @return true if STARTTLS is supported, false otherwise
      */
     protected boolean isSTARTTLSAvailable() {
-        return context != null;
+        return isTLSConfigured();
     }
 }

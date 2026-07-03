@@ -218,6 +218,24 @@ public abstract class Listener {
         return context;
     }
 
+    /**
+     * Indicates whether this listener has TLS material configured, either
+     * an explicitly injected {@link SSLContext} or a keystore from which the
+     * transport factory builds one at start time.
+     *
+     * <p>This is the correct basis for STARTTLS/STLS availability on a
+     * cleartext listener. The SSLContext used for an in-band TLS upgrade is
+     * created by the transport factory from the configured keystore, so
+     * checking {@link #context} alone (which is populated only via
+     * {@link #setSSLContext}) would miss the common keystore-configured case.
+     *
+     * @return true if this listener can provide TLS
+     */
+    protected boolean isTLSConfigured() {
+        return context != null
+                || (keystoreFile != null && keystorePass != null);
+    }
+
     public void setSniHostnames(Map<String, String> hostnames) {
         this.sniHostnameToAlias = hostnames != null
                 ? new LinkedHashMap<String, String>(hostnames)

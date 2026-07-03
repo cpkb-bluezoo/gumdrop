@@ -233,7 +233,11 @@ public class TestCertificateManager {
             "-validity", String.valueOf(validDays),
             "-ext", "ku=digitalSignature,keyEncipherment",
             "-ext", "eku=serverAuth",
-            "-ext", "san=dns:" + hostname
+            // Include both the DNS name and the loopback IP. Gumdrop's own TLS
+            // client enforces RFC 6125 endpoint identification against the
+            // address it dialed (tests connect to 127.0.0.1), so the cert must
+            // carry an iPAddress SAN in addition to the dNSName.
+            "-ext", "san=dns:" + hostname + ",ip:127.0.0.1"
         );
         
         // Export CA cert for import

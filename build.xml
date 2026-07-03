@@ -500,6 +500,9 @@
       <junit printsummary='yes' haltonfailure='no' fork='yes'
              showoutput='true' logfailedtests='true'>
         <classpath refid='integration.classpath'/>
+        <!-- Locate the native libgumdrop (QUIC/DNS) built into dist by the
+             'native' target, so client-side tests that use it can load it. -->
+        <jvmarg value='-Djava.library.path=${dist}'/>
         <batchtest fork='yes' todir='${test}/integration/results/xml'>
           <fileset dir='${test}/integration/src'>
             <include name='@{includes}'/>

@@ -296,6 +296,14 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         handshakeStartTime = System.currentTimeMillis();
         sslState = new SSLState(engine, this);
         bufferSize = sslState.getBufferSize();
+        // For an in-band upgrade (STARTTLS/STLS) the client must drive the
+        // handshake by emitting the ClientHello. At OP_CONNECT time sslState
+        // did not yet exist, so SelectorLoop's initiateClientTLSHandshake()
+        // was a no-op; kick it off now. Servers wait for the ClientHello to
+        // arrive via the normal read path.
+        if (clientMode) {
+            sslState.startClientHandshake();
+        }
     }
 
     @Override

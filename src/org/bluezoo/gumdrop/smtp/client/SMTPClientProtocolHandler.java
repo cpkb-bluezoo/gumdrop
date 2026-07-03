@@ -832,6 +832,11 @@ public class SMTPClientProtocolHandler
             state = SMTPState.CONNECTED;
             boolean esmtp =
                     message.toUpperCase().indexOf("ESMTP") >= 0;
+            // Notify the handler that the connection is established before
+            // delivering the greeting, mirroring the POP3/IMAP/LDAP clients.
+            // For implicit TLS (SMTPS) the 220 greeting only arrives after the
+            // handshake, so the endpoint is already secure at this point.
+            handler.onConnected(endpoint);
             handler.handleGreeting(this, message, esmtp);
         } else {
             state = SMTPState.ERROR;
