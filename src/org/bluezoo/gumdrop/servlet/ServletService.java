@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -78,6 +79,22 @@ public class ServletService extends HTTPService {
 
     private static final int DEFAULT_BUFFER_SIZE = 8192;
 
+    // Worker thread pool defaults.
+    //
+    // The pool keeps a warm core of threads sized to the host, grows up to
+    // a bounded maximum under load, and buffers a bounded backlog. A bounded
+    // queue is essential: with an unbounded queue a ThreadPoolExecutor never
+    // grows past the core size (so maximumPoolSize would be ignored) and an
+    // overload would grow the backlog without limit until the JVM runs out of
+    // memory. When the pool and its queue are both saturated, submission is
+    // rejected and the request is shed with a 503 (see serviceRequest()).
+    private static final int DEFAULT_WORKER_CORE_POOL_SIZE =
+            Math.max(10, Runtime.getRuntime().availableProcessors() * 2);
+    private static final int DEFAULT_WORKER_MAXIMUM_POOL_SIZE =
+            Math.max(200, DEFAULT_WORKER_CORE_POOL_SIZE * 4);
+    private static final int DEFAULT_WORKER_QUEUE_CAPACITY = 1000;
+    private static final long DEFAULT_WORKER_KEEP_ALIVE_SECONDS = 60L;
+
     private Container container;
     private ServletHandlerFactory handlerFactory;
     private HTTPAuthenticationProvider authenticationProvider;
@@ -90,9 +107,10 @@ public class ServletService extends HTTPService {
         this.container = new Container();
         this.handlerFactory = new ServletHandlerFactory(this, container);
         workerThreadPool = new ThreadPoolExecutor(
-                0, Integer.MAX_VALUE,
-                0L, TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue(),
+                DEFAULT_WORKER_CORE_POOL_SIZE,
+                DEFAULT_WORKER_MAXIMUM_POOL_SIZE,
+                DEFAULT_WORKER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<Runnable>(DEFAULT_WORKER_QUEUE_CAPACITY),
                 new WorkerThreadFactory());
         asyncTimeoutScheduler = new AsyncTimeoutScheduler();
     }
@@ -340,11 +358,27 @@ public class ServletService extends HTTPService {
 
     /**
      * A handler is ready to service a request.
+     *
+     * <p>The request is dispatched to the worker pool. If the pool and its
+     * bounded queue are both saturated, the task is rejected and the request
+     * is shed with a 503 rather than queued without bound. This method runs
+     * on the SelectorLoop thread, so the rejection path must not block.
      */
     void serviceRequest(ServletHandler servletHandler) {
         RequestHandler handler =
                 new RequestHandler(servletHandler, this);
-        workerThreadPool.submit(handler);
+        try {
+            workerThreadPool.execute(handler);
+        } catch (RejectedExecutionException e) {
+            if (Context.LOGGER.isLoggable(Level.WARNING)) {
+                Context.LOGGER.warning(
+                        "Worker pool saturated (active="
+                        + workerThreadPool.getActiveCount()
+                        + ", queued=" + workerThreadPool.getQueue().size()
+                        + "); rejecting request with 503");
+            }
+            servletHandler.serviceUnavailable();
+        }
     }
 
     /**

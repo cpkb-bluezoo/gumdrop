@@ -324,6 +324,17 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         return state.pushPromise(pushHeaders);
     }
 
+    /**
+     * Sheds this request with a 503 Service Unavailable response.
+     *
+     * <p>Called by {@link ServletService#serviceRequest} on the SelectorLoop
+     * thread when the worker pool and its bounded queue are both saturated,
+     * providing backpressure instead of unbounded queueing.
+     */
+    void serviceUnavailable() {
+        sendError(HTTPStatus.SERVICE_UNAVAILABLE);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private methods
     // ─────────────────────────────────────────────────────────────────────────

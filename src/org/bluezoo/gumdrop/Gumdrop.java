@@ -700,7 +700,10 @@ public class Gumdrop {
      * @return the next SelectorLoop in round-robin order
      */
     public SelectorLoop nextWorkerLoop() {
-        int idx = nextWorker.getAndIncrement() % workerLoops.length;
+        // Math.floorMod keeps the index non-negative once the counter wraps
+        // past Integer.MAX_VALUE; a plain % would yield a negative index and
+        // an ArrayIndexOutOfBoundsException after ~2.1 billion assignments.
+        int idx = Math.floorMod(nextWorker.getAndIncrement(), workerLoops.length);
         return workerLoops[idx];
     }
 
