@@ -33,13 +33,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.dns.DNSBailiwick;
 import org.bluezoo.gumdrop.dns.DNSCache;
+import org.bluezoo.gumdrop.dns.DNSQueryIdGenerator;
 import org.bluezoo.gumdrop.dns.DNSClass;
 import org.bluezoo.gumdrop.dns.DNSCookie;
 import org.bluezoo.gumdrop.dns.DNSFormatException;
@@ -207,7 +208,6 @@ public class DNSResolver {
 
     private final List<InetSocketAddress> servers;
     private final Map<Integer, PendingQuery> pendingQueries;
-    private final AtomicInteger queryIdGenerator;
     private final List<DNSClientTransport> transports;
 
     private DNSClientTransport transportPrototype;
@@ -231,7 +231,6 @@ public class DNSResolver {
     public DNSResolver() {
         this.servers = new ArrayList<>();
         this.pendingQueries = new ConcurrentHashMap<>();
-        this.queryIdGenerator = new AtomicInteger(0);
         this.transports = new ArrayList<>();
         this.timeoutMs = DEFAULT_TIMEOUT_MS;
         this.opened = false;
@@ -667,7 +666,7 @@ public class DNSResolver {
                 return;
             }
         }
-        int queryId = queryIdGenerator.getAndIncrement() & 0xFFFF;
+        int queryId = DNSQueryIdGenerator.allocate(pendingQueries.keySet());
         List<DNSQuestion> questions = new ArrayList<>();
         questions.add(question);
         // RFC 6891 section 6.1.1: include OPT pseudo-record to signal
@@ -707,7 +706,7 @@ public class DNSResolver {
     private void deliverCachedResponse(final String name, final DNSType type,
                                        final List<DNSResourceRecord> records,
                                        final DNSQueryCallback callback) {
-        int syntheticId = queryIdGenerator.getAndIncrement() & 0xFFFF;
+        int syntheticId = DNSQueryIdGenerator.allocateSynthetic();
         List<DNSQuestion> questions = new ArrayList<>();
         questions.add(new DNSQuestion(name, type, DNSClass.IN));
         int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
@@ -730,7 +729,7 @@ public class DNSResolver {
 
     private void deliverCachedNxdomain(final String name, final DNSType type,
                                        final DNSQueryCallback callback) {
-        int syntheticId = queryIdGenerator.getAndIncrement() & 0xFFFF;
+        int syntheticId = DNSQueryIdGenerator.allocateSynthetic();
         List<DNSQuestion> questions = new ArrayList<>();
         questions.add(new DNSQuestion(name, type, DNSClass.IN));
         int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA
@@ -764,10 +763,12 @@ public class DNSResolver {
         }
         DNSQuestion question = questions.get(0);
         if (response.getRcode() == DNSMessage.RCODE_NXDOMAIN) {
-            cache.cacheNegative(question.getName(),
-                    response.getAuthorities());
+            List<DNSResourceRecord> authorities = DNSBailiwick.filterAuthoritiesInBailiwick(
+                    question.getName(), response.getAuthorities());
+            cache.cacheNegative(question.getName(), authorities);
         } else if (response.getRcode() == DNSMessage.RCODE_NOERROR) {
-            List<DNSResourceRecord> answers = response.getAnswers();
+            List<DNSResourceRecord> answers = DNSBailiwick.filterAnswersInBailiwick(
+                    question.getName(), response.getAnswers());
             if (!answers.isEmpty()) {
                 cache.cache(question, answers);
             }
@@ -794,9 +795,10 @@ public class DNSResolver {
         return hasCname && !hasRequestedType;
     }
 
-    private String extractCname(DNSMessage response) {
+    private String extractCname(PendingQuery pending, DNSMessage response) {
         for (DNSResourceRecord rr : response.getAnswers()) {
-            if (rr.getType() == DNSType.CNAME) {
+            if (rr.getType() == DNSType.CNAME
+                    && DNSBailiwick.namesEqual(rr.getName(), pending.name)) {
                 return rr.getTargetName();
             }
         }
@@ -882,7 +884,7 @@ public class DNSResolver {
     private void deliverResponse(PendingQuery pending, DNSMessage response) {
         cacheResponse(response);
         if (shouldChaseCname(pending, response)) {
-            String cname = extractCname(response);
+            String cname = extractCname(pending, response);
             if (cname != null && pending.cnameDepth < MAX_CNAME_DEPTH) {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(

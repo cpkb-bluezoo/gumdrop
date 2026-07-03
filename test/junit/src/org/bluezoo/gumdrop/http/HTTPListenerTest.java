@@ -76,6 +76,26 @@ public class HTTPListenerTest {
         assertEquals(200, listener.getMaxConcurrentStreams());
     }
 
+    @Test
+    public void testDefaultMaxHeaderListSize() {
+        HTTPListener listener = new HTTPListener();
+        assertEquals(HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE,
+                listener.getMaxHeaderListSize());
+    }
+
+    @Test
+    public void testSetMaxHeaderListSize() {
+        HTTPListener listener = new HTTPListener();
+        listener.setMaxHeaderListSize(16384);
+        assertEquals(16384, listener.getMaxHeaderListSize());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testMaxHeaderListSizeRejectsZero() {
+        HTTPListener listener = new HTTPListener();
+        listener.setMaxHeaderListSize(0);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testMaxConcurrentStreamsRejectsZero() {
         HTTPListener listener = new HTTPListener();

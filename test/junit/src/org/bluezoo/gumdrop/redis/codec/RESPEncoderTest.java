@@ -276,5 +276,10 @@ public class RESPEncoderTest {
         }
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void testBulkStringRejectsEmbeddedCrlf() {
+        encoder.encode("SET", "key", "value\r\nINJECT");
+    }
+
 }
 

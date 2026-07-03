@@ -47,11 +47,19 @@ public class RESP3DecoderTest {
         return ByteBuffer.wrap(data.getBytes(StandardCharsets.UTF_8));
     }
 
+    private void recv(String data) {
+        try {
+            decoder.receive(wrap(data));
+        } catch (RESPException e) {
+            throw new AssertionError(e);
+        }
+    }
+
     // Map type
 
     @Test
     public void testDecodeMap() throws RESPException {
-        decoder.receive(wrap("%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n"));
+        recv("%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -62,7 +70,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeEmptyMap() throws RESPException {
-        decoder.receive(wrap("%0\r\n"));
+        recv("%0\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -74,7 +82,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeSet() throws RESPException {
-        decoder.receive(wrap("~3\r\n+a\r\n+b\r\n+c\r\n"));
+        recv("~3\r\n+a\r\n+b\r\n+c\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -87,7 +95,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeDouble() throws RESPException {
-        decoder.receive(wrap(",3.14\r\n"));
+        recv(",3.14\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -97,7 +105,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeDoubleInfinity() throws RESPException {
-        decoder.receive(wrap(",inf\r\n"));
+        recv(",inf\r\n");
         RESPValue value = decoder.next();
 
         assertTrue(Double.isInfinite(value.asDouble()));
@@ -106,7 +114,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeDoubleNegativeInfinity() throws RESPException {
-        decoder.receive(wrap(",-inf\r\n"));
+        recv(",-inf\r\n");
         RESPValue value = decoder.next();
 
         assertTrue(Double.isInfinite(value.asDouble()));
@@ -115,7 +123,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeDoubleNaN() throws RESPException {
-        decoder.receive(wrap(",nan\r\n"));
+        recv(",nan\r\n");
         RESPValue value = decoder.next();
 
         assertTrue(Double.isNaN(value.asDouble()));
@@ -125,7 +133,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeBooleanTrue() throws RESPException {
-        decoder.receive(wrap("#t\r\n"));
+        recv("#t\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -135,7 +143,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeBooleanFalse() throws RESPException {
-        decoder.receive(wrap("#f\r\n"));
+        recv("#f\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -147,7 +155,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeNull() throws RESPException {
-        decoder.receive(wrap("_\r\n"));
+        recv("_\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -159,7 +167,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodePush() throws RESPException {
-        decoder.receive(wrap(">3\r\n+message\r\n+channel\r\n$5\r\nhello\r\n"));
+        recv(">3\r\n+message\r\n+channel\r\n$5\r\nhello\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -174,7 +182,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeVerbatimString() throws RESPException {
-        decoder.receive(wrap("=15\r\ntxt:Some string\r\n"));
+        recv("=15\r\ntxt:Some string\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -187,7 +195,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeBigNumber() throws RESPException {
-        decoder.receive(wrap("(3492890328409238509324850943850943825024385\r\n"));
+        recv("(3492890328409238509324850943850943825024385\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -199,7 +207,7 @@ public class RESP3DecoderTest {
 
     @Test
     public void testDecodeBlobError() throws RESPException {
-        decoder.receive(wrap("!11\r\nERR unknown\r\n"));
+        recv("!11\r\nERR unknown\r\n");
         RESPValue value = decoder.next();
 
         assertNotNull(value);
@@ -227,13 +235,13 @@ public class RESP3DecoderTest {
 
     @Test
     public void testIncompleteMapReturnsNull() throws RESPException {
-        decoder.receive(wrap("%2\r\n+first\r\n"));
+        recv("%2\r\n+first\r\n");
         assertNull(decoder.next());
     }
 
     @Test
     public void testIncompleteDoubleReturnsNull() throws RESPException {
-        decoder.receive(wrap(",3.14"));
+        recv(",3.14");
         assertNull(decoder.next());
     }
 
@@ -246,6 +254,14 @@ public class RESP3DecoderTest {
         assertEquals("#f", RESPValue.booleanValue(false).toString());
         assertEquals("_", RESPValue.resp3Null().toString());
         assertEquals("(12345", RESPValue.bigNumber("12345").toString());
+    }
+
+    @Test(expected = RESPException.class)
+    public void testHugeMapCountRejected() throws RESPException {
+        StringBuilder sb = new StringBuilder();
+        sb.append('%').append(RESPDecoder.MAX_COLLECTION_ELEMENTS + 1).append("\r\n");
+        recv(sb.toString());
+        decoder.next();
     }
 
 }

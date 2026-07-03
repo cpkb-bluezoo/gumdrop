@@ -622,11 +622,18 @@ public class SMTPClientProtocolHandler
 
     // ── Command sending ──
 
+    private static void rejectCrlf(String text) {
+        if (text != null && (text.indexOf('\r') >= 0 || text.indexOf('\n') >= 0)) {
+            throw new IllegalArgumentException("SMTP command must not contain CRLF");
+        }
+    }
+
     private void sendCommand(String command, SMTPState newState) {
         if (!isConnected()) {
             handler.onError(new SMTPException("Not connected"));
             return;
         }
+        rejectCrlf(command);
 
         this.state = newState;
 
@@ -649,6 +656,7 @@ public class SMTPClientProtocolHandler
             handler.onError(new SMTPException("Not connected"));
             return;
         }
+        rejectCrlf(line);
 
         this.state = newState;
 

@@ -50,7 +50,7 @@ public class MQTTListener extends TCPListener {
     public static final int MQTTS_DEFAULT_PORT = 8883;
 
     private int port = -1;
-    private int maxPacketSize = 268_435_455; // ~256 MB default
+    private int maxPacketSize = 1_048_576; // 1 MB default
     private int defaultKeepAlive = 60;
     private Realm realm;
 

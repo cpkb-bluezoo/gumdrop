@@ -60,6 +60,13 @@ public class HTTPListener extends TCPListener {
      */
     private int maxConcurrentStreams = 100;
 
+    public static final int DEFAULT_MAX_HEADER_LIST_SIZE = 8192;
+
+    /**
+     * RFC 9113 section 6.5.2: maximum header list size advertised to clients.
+     */
+    private int maxHeaderListSize = DEFAULT_MAX_HEADER_LIST_SIZE;
+
     /**
      * Authentication provider for HTTP connections created by this endpoint.
      */
@@ -195,6 +202,27 @@ public class HTTPListener extends TCPListener {
                             + maxConcurrentStreams);
         }
         this.maxConcurrentStreams = maxConcurrentStreams;
+    }
+
+    /**
+     * Returns the maximum HTTP/2 header list size per connection.
+     */
+    public int getMaxHeaderListSize() {
+        return maxHeaderListSize;
+    }
+
+    /**
+     * Sets the maximum HTTP/2 header list size advertised via
+     * SETTINGS_MAX_HEADER_LIST_SIZE.
+     * XML property name: {@code max-header-list-size}
+     */
+    public void setMaxHeaderListSize(int maxHeaderListSize) {
+        if (maxHeaderListSize < 1) {
+            throw new IllegalArgumentException(
+                    "maxHeaderListSize must be positive, got: "
+                            + maxHeaderListSize);
+        }
+        this.maxHeaderListSize = maxHeaderListSize;
     }
 
     public void setFramePadding(int framePadding) {
@@ -351,7 +379,8 @@ public class HTTPListener extends TCPListener {
 
     @Override
     protected ProtocolHandler createHandler() {
-        return new HTTPProtocolHandler(this, framePadding, maxConcurrentStreams);
+        return new HTTPProtocolHandler(this, framePadding, maxConcurrentStreams,
+                maxHeaderListSize);
     }
 
     // RFC 9113 section 3.2: HTTP/2 over TLS uses ALPN (RFC 7301)

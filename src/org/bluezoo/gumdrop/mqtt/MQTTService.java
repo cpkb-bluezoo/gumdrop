@@ -77,7 +77,7 @@ public abstract class MQTTService implements Service {
 
     private MQTTMessageStore messageStore;
     private Realm realm;
-    private int maxPacketSize = 268_435_455;
+    private int maxPacketSize = 1_048_576;
 
     // ── Listener management ──
 

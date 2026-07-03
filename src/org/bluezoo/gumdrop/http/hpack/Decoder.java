@@ -68,13 +68,33 @@ public class Decoder extends HPACKConstants {
      */
     private int maxSize = Integer.MAX_VALUE;
 
+    /** RFC 9113 SETTINGS_MAX_HEADER_LIST_SIZE. */
+    private int maxHeaderListSize = Integer.MAX_VALUE;
+
+    /** Maximum single HPACK string literal length. */
+    private static final int MAX_FIELD_LENGTH = 65536;
+
+    private int decodedHeaderListSize;
+
     /**
      * Constructor.
      * @param headerTableSize the negotiated maximum size in bytes that the
      * dynamic table is allowed to reach
      */
     public Decoder(int headerTableSize) {
+        this(headerTableSize, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Constructor with header list size limit.
+     */
+    public Decoder(int headerTableSize, int maxHeaderListSize) {
         this.headerTableSize = headerTableSize;
+        this.maxHeaderListSize = maxHeaderListSize;
+    }
+
+    public void setMaxHeaderListSize(int size) {
+        maxHeaderListSize = size;
     }
 
     /**
@@ -89,6 +109,7 @@ public class Decoder extends HPACKConstants {
      * @param buf the header block
      */
     public void decode(ByteBuffer buf, HeaderHandler handler) throws IOException {
+        decodedHeaderListSize = 0;
         while (buf.hasRemaining()) {
             byte b = buf.get();
             Header header;
@@ -113,7 +134,7 @@ public class Decoder extends HPACKConstants {
                 }
             } else if ((b & 0x40) != 0) { // RFC 7541 section 6.2.1: literal with incremental indexing
                 //System.err.println(" literal header field");
-                header = getLiteralHeaderField(buf, b, 6, dynamicTable);
+                header = getLiteralHeaderField(buf, b, 6, dynamicTable, this);
                 // evict entries: RFC 7541 section 4.4
                 int newEntrySize = headerSize(header);
                 while (tableSize(dynamicTable) > (maxSize - newEntrySize)) {
@@ -136,7 +157,7 @@ public class Decoder extends HPACKConstants {
                 continue;
             } else { // RFC 7541 section 6.2.2/6.2.3: literal without indexing / never indexed
                 //System.err.println(" literal header field without indexing");
-                header = getLiteralHeaderField(buf, b, 4, dynamicTable);
+                header = getLiteralHeaderField(buf, b, 4, dynamicTable, this);
                 // do not add to dynamicTable
             }
             //System.err.println("  header="+header);
@@ -144,7 +165,14 @@ public class Decoder extends HPACKConstants {
         }
     }
 
-    private static Header getLiteralHeaderField(ByteBuffer buf, byte opcode, int nbits, List<Header> dynamicTable) throws IOException {
+    private static void checkFieldLength(int length, int remaining) throws ProtocolException {
+        if (length < 0 || length > remaining || length > MAX_FIELD_LENGTH) {
+            throw new ProtocolException("Invalid HPACK string length: " + length);
+        }
+    }
+
+    private static Header getLiteralHeaderField(ByteBuffer buf, byte opcode, int nbits,
+            List<Header> dynamicTable, Decoder decoder) throws IOException {
         //System.err.println("  getLiteralHeaderField opcode="+String.format("%02x",opcode)+" nbits="+nbits);
         int index = decodeInteger(buf, opcode, nbits);
         //System.err.println("   index="+index);
@@ -155,6 +183,7 @@ public class Decoder extends HPACKConstants {
             boolean huffman = (b & 0x80) != 0;
             int nameLength = decodeInteger(buf, b, 7);
             //System.err.println("   new name nameLength="+nameLength+" huffman="+huffman);
+            checkFieldLength(nameLength, buf.remaining());
             byte[] s = new byte[nameLength];
             buf.get(s);
             if (huffman) {
@@ -180,6 +209,7 @@ public class Decoder extends HPACKConstants {
         boolean huffman = (b & 0x80) != 0;
         int valueLength = decodeInteger(buf, b, 7);
         //System.err.println("   valueLength="+valueLength+" huffman="+huffman);
+        checkFieldLength(valueLength, buf.remaining());
         byte[] s = new byte[valueLength];
         buf.get(s);
         if (huffman) {
@@ -187,7 +217,15 @@ public class Decoder extends HPACKConstants {
         }
         value = new String(s, "US-ASCII");
         //System.err.println("   value="+value);
+        decoder.addToHeaderListSize(name.length() + value.length() + 32);
         return new Header(name, value);
+    }
+
+    private void addToHeaderListSize(int added) throws ProtocolException {
+        decodedHeaderListSize += added;
+        if (decodedHeaderListSize > maxHeaderListSize) {
+            throw new ProtocolException("Header list size exceeds limit");
+        }
     }
 
     /**
