@@ -39,6 +39,13 @@ import java.util.*;
  * <li>ANSI C asctime: {@code Sun Nov  6 08:49:37 1994}</li>
  * </ul>
  *
+ * <p>Instances are thread-safe: {@link #format} and {@link #parse} operate on a
+ * per-thread {@link Calendar} rather than the mutable {@link Calendar} inherited
+ * from {@link DateFormat}. This matters because a single instance is routinely
+ * shared as a {@code static} field and invoked concurrently from worker and
+ * selector-loop threads (for example the RFC 9110 {@code Date} header emitted on
+ * every HTTP response).
+ *
  * @author <a href="mailto:dog@gnu.org">Chris Burdess</a>
  */
 public class HTTPDateFormat extends DateFormat {
@@ -50,7 +57,16 @@ public class HTTPDateFormat extends DateFormat {
         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
     };
 
+    /**
+     * Per-thread working calendar. Each {@link #format}/{@link #parse} call fully
+     * resets it, so a single instance shared across threads never races.
+     */
+    private static final ThreadLocal<Calendar> CALENDAR =
+        ThreadLocal.withInitial(() -> new GregorianCalendar(TimeZone.getTimeZone("GMT")));
+
     public HTTPDateFormat() {
+        // Satisfy DateFormat's contract (getCalendar/clone/equals); the hot
+        // format/parse paths use the per-thread CALENDAR above instead.
         calendar = new GregorianCalendar(TimeZone.getTimeZone("GMT"));
         numberFormat = new DecimalFormat();
     }
@@ -65,6 +81,7 @@ public class HTTPDateFormat extends DateFormat {
      * @return the modified buffer
      */
     public StringBuffer format(Date date, StringBuffer buf, FieldPosition field) {
+        Calendar calendar = CALENDAR.get();
         calendar.clear();
         calendar.setTime(date);
         buf.setLength(0);
@@ -130,6 +147,7 @@ public class HTTPDateFormat extends DateFormat {
      * @param pos the current parse position
      */
     public Date parse(String text, ParsePosition pos) {
+        Calendar calendar = CALENDAR.get();
         int date, month, year, hour, minute, second;
         String monthText;
         int start = 0, end = -1;

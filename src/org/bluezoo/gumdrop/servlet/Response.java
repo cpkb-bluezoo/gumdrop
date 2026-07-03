@@ -33,9 +33,10 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
-import java.nio.charset.CharsetEncoder;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -58,9 +59,14 @@ class Response implements HttpServletResponse {
 
     private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
 
+    // HTTPDateFormat is thread-safe; these formatters are shared across worker
+    // threads. expiresDateFormat is an immutable java.time formatter, and UTF-8
+    // encoding uses a fresh (thread-safe) encoder per call, so none of the
+    // request-path formatting shares mutable state.
     static final DateFormat dateFormat = new HTTPDateFormat();
-    static final DateFormat expiresDateFormat = new SimpleDateFormat("EEEE, dd-MM-yyyy HH:mm:ss zzz");
-    static final CharsetEncoder utf8Encoder = Charset.forName("UTF-8").newEncoder();
+    static final DateTimeFormatter expiresDateFormat =
+            DateTimeFormatter.ofPattern("EEEE, dd-MM-yyyy HH:mm:ss zzz")
+                    .withZone(ZoneId.systemDefault());
 
     /**
      * For these header names, it is permitted to have multiple headers of
@@ -125,7 +131,7 @@ class Response implements HttpServletResponse {
             cal.add(Calendar.SECOND, maxAge);
             Date expires = cal.getTime();
             buf.append("; expires=");
-            buf.append(expiresDateFormat.format(expires));
+            buf.append(expiresDateFormat.format(expires.toInstant()));
         }
         if (path != null) {
             buf.append("; path=");
@@ -340,7 +346,7 @@ class Response implements HttpServletResponse {
 
             CharBuffer charBuf = CharBuffer.wrap(buf);
             setContentType("text/html; charset=UTF-8");
-            ByteBuffer byteBuf = utf8Encoder.encode(charBuf);
+            ByteBuffer byteBuf = StandardCharsets.UTF_8.encode(charBuf);
             setContentLength(byteBuf.remaining());
             commit();
             writeBody(byteBuf);

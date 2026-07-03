@@ -24,9 +24,9 @@ package org.bluezoo.gumdrop.servlet;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.channels.ClosedChannelException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.logging.Level;
 
@@ -43,9 +43,14 @@ import javax.servlet.http.HttpSession;
 class RequestHandler implements Runnable {
 
     /**
-     * Date format for common log format.
+     * Date format for common log format. Immutable and thread-safe; a single
+     * instance is shared across all servlet worker threads. The {@code [ ]}
+     * literals are quoted because they are section markers in
+     * {@link DateTimeFormatter} patterns.
      */
-    static final DateFormat df = new SimpleDateFormat("[dd/MMM/yyyy:HH:mm:ss Z]");
+    static final DateTimeFormatter df =
+            DateTimeFormatter.ofPattern("'['dd/MMM/yyyy:HH:mm:ss Z']'")
+                    .withZone(ZoneId.systemDefault());
 
     final ServletHandler handler;
     final ServletService service;
@@ -140,7 +145,7 @@ class RequestHandler implements Runnable {
         if (authuser == null) {
             authuser = "-";
         }
-        String date = df.format(new Date(time));
+        String date = df.format(Instant.ofEpochMilli(time));
         String requestLine = request.toString();
         String status = response.toString();
         String bytes = Integer.toString(response.getContentLength());
