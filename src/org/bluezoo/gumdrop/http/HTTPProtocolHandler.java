@@ -1130,6 +1130,10 @@ public class HTTPProtocolHandler
     // RFC 9110 section 9.3.7: OPTIONS * targets the server itself.
     // Responds with 200 and Allow header listing supported methods.
     private void handleOptionsAsterisk(Stream stream) {
+        // This shortcut bypasses streamEndHeaders()/streamEndRequest(), so
+        // advance the (bodyless, fully-received) stream out of IDLE and carry
+        // over the client's Connection: close intent before committing.
+        markInternalRequestReceived(stream);
         try {
             Headers headers = new Headers();
             headers.add("Allow", getAllowedMethods());
@@ -1142,6 +1146,17 @@ public class HTTPProtocolHandler
         clientStreamId += 2;
     }
 
+    // Prepares a stream answered by an internally generated response (OPTIONS *,
+    // TRACE) that bypasses the normal streamEndHeaders()/streamEndRequest() path.
+    // RFC 9112 section 9.6: a request with Connection: close ends the connection.
+    private void markInternalRequestReceived(Stream stream) {
+        String conn = stream.getHeaders().getValue("Connection");
+        if (conn != null && conn.toLowerCase().contains("close")) {
+            stream.closeConnection = true;
+        }
+        stream.markInternalRequestComplete();
+    }
+
     // RFC 9110 section 9.3.8: TRACE echoes the request back.
     // Disabled by default for security; responds 405 when disabled.
     private void handleTrace(Stream stream) {
@@ -1149,6 +1164,9 @@ public class HTTPProtocolHandler
             sendStreamError(stream, 405);
             return;
         }
+        // Same as OPTIONS *: advance the bodyless stream out of IDLE since the
+        // TRACE shortcut bypasses streamEndHeaders()/streamEndRequest().
+        markInternalRequestReceived(stream);
         try {
             // Echo the request message as message/http
             StringBuilder echo = new StringBuilder();

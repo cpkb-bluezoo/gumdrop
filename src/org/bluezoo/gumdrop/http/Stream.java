@@ -780,6 +780,22 @@ class Stream implements HTTPResponseState {
         buf.position(buf.limit());
     }
 
+    /**
+     * Marks a fully-received, bodyless request as complete for an internally
+     * generated response (RFC 9110 section 9.3.7 OPTIONS *, section 9.3.8
+     * TRACE). These are answered directly by the protocol handler and bypass
+     * the normal {@link #streamEndHeaders}/{@link #streamEndRequest} dispatch,
+     * which would otherwise leave the stream in {@link State#IDLE} and cause
+     * {@link #sendResponseHeaders} to reject the response. Transitions IDLE to
+     * HALF_CLOSED_REMOTE so the response can be committed and, when
+     * {@code endStream} is set, {@code Connection: close} honoured.
+     */
+    void markInternalRequestComplete() {
+        if (state == State.IDLE) {
+            state = State.HALF_CLOSED_REMOTE;
+        }
+    }
+
     void streamEndRequest() {
         state = State.HALF_CLOSED_REMOTE;
         
