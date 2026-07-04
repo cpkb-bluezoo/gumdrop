@@ -402,12 +402,17 @@ class Response implements HttpServletResponse {
     }
 
     /**
-     * Sends a redirect response to the specified location.
+     * Sends a temporary redirect (302) to the specified location, resolving a
+     * relative location against the current request URI.
      *
-     * <p><b>Security:</b> When the location is user-controlled (e.g. from a
-     * query parameter or form input), applications must validate it before
-     * calling this method. Validate that the location is same-origin or
-     * on an allowlist to prevent open redirect vulnerabilities.
+     * <p><b>Security:</b> this method does <em>not</em> restrict the redirect
+     * target to the current origin. When the location is derived from
+     * user-controlled input (e.g. a query parameter or form field), the
+     * application is responsible for validating it - for example, confirming
+     * it is same-origin or matches an allowlist - to prevent open-redirect
+     * attacks. Note that header values containing CR or LF are rejected by the
+     * container, which prevents response splitting via the {@code Location}
+     * header.
      *
      * @param location the redirect URL (absolute or relative)
      */
@@ -450,7 +455,16 @@ class Response implements HttpServletResponse {
         if (!MULTIPLE_VALUE.contains(name.toLowerCase())) {
             removeHeaders(name);
         }
-        headers.add(new Header(name, value));
+        try {
+            headers.add(new Header(name, value));
+        } catch (IllegalArgumentException e) {
+            // Reject headers with invalid names or values (e.g. embedded
+            // CR/LF) rather than propagating the exception to the servlet.
+            // This prevents HTTP response splitting/header injection via
+            // unsanitized header values.
+            LOGGER.warning("Ignoring invalid HTTP header '" + name + "': "
+                    + e.getMessage());
+        }
     }
 
     public String getHeader(String name) {

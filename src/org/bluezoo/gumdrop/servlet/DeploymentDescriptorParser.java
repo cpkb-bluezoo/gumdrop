@@ -1727,7 +1727,14 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case AUTH_CONSTRAINT:
                         String authConstraint = ((SecurityRole) popTarget()).roleName;
-                        ((SecurityConstraint) peekTarget()).addAuthConstraint(authConstraint);
+                        if (authConstraint != null) {
+                            ((SecurityConstraint) peekTarget()).addAuthConstraint(authConstraint);
+                        } else {
+                            // An empty <auth-constraint/> denies access to the
+                            // matched resources for all users (Servlet spec).
+                            ((SecurityConstraint) peekTarget()).emptyRoleSemantic =
+                                    ServletSecurity.EmptyRoleSemantic.DENY;
+                        }
                         break;
                 }
                 break;

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gonzalez.Parser;
+import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
@@ -104,6 +105,8 @@ class WebDAVRequestParser extends DefaultHandler {
     WebDAVRequestParser() {
         this.parser = new Parser();
         this.parser.setContentHandler(this);
+        // Block external entity resolution (XXE) for untrusted request bodies.
+        this.parser.setEntityResolver(XMLParseUtils.DENY_EXTERNAL_ENTITIES);
         try {
             this.parser.setFeature("http://xml.org/sax/features/namespaces", true);
         } catch (Exception e) {

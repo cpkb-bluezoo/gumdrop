@@ -31,6 +31,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.Collections;
@@ -41,6 +42,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
+
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
@@ -58,11 +62,21 @@ import org.xml.sax.helpers.DefaultHandler;
  * {@link LDAPRealm} or {@link OAuthRealm}. When hashed passwords are used
  * (RFC 2307 format), only PLAIN and LOGIN SASL mechanisms are supported.
  *
- * <h4>Hashed Passwords (RFC 2307)</h4>
- * <p>Passwords may use LDAP-style hashed formats for {@code passwordMatch}:
- * {@code {SHA}}, {@code {SSHA}}, {@code {SHA256}}, {@code {SSHA256}}.
- * Hashed users support only PLAIN and LOGIN; CRAM-MD5, SCRAM, etc. require
- * plaintext. Values can be exported from LDAP {@code userPassword} directly.
+ * <h4>Hashed Passwords</h4>
+ * <p>The recommended storage format is {@code {PBKDF2}}, a salted, iterated
+ * hash ({@code PBKDF2WithHmacSHA256}) generated with
+ * {@link #createPbkdf2Hash(String)}. The encoding is
+ * {@code {PBKDF2}<iterations>$<base64-salt>$<base64-hash>}.
+ *
+ * <p>The LDAP-style RFC 2307 formats {@code {SHA}}, {@code {SSHA}},
+ * {@code {SHA256}} and {@code {SSHA256}} are also accepted for backward
+ * compatibility (values can be exported from LDAP {@code userPassword}
+ * directly), but are <strong>weak</strong>: {@code {SHA}}/{@code {SHA256}}
+ * are unsalted and all four are single-iteration fast hashes vulnerable to
+ * offline brute-force and rainbow-table attacks. Prefer {@code {PBKDF2}}.
+ *
+ * <p>Hashed users support only PLAIN and LOGIN; CRAM-MD5, SCRAM, etc. require
+ * plaintext.
  *
  * <h4>XML Format</h4>
  * <p>The realm XML file supports two formats for defining groups:</p>
@@ -106,6 +120,9 @@ public class BasicRealm extends DefaultHandler implements Realm {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
     static final Logger LOGGER = Logger.getLogger(BasicRealm.class.getName());
+
+    /** Source of cryptographically strong randomness for salt generation. */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     /**
      * Users and their passwords.
@@ -162,14 +179,20 @@ public class BasicRealm extends DefaultHandler implements Realm {
                 password.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Default PBKDF2 iteration count for newly generated hashes. */
+    private static final int PBKDF2_DEFAULT_ITERATIONS = 210000;
+
     private static boolean isHashedPassword(String stored) {
-        return stored.startsWith("{SHA}") || stored.startsWith("{SSHA}")
-                || stored.startsWith("{SHA256}") || stored.startsWith("{SSHA256}");
+        return stored.startsWith("{PBKDF2}") || stored.startsWith("{SHA}")
+                || stored.startsWith("{SSHA}") || stored.startsWith("{SHA256}")
+                || stored.startsWith("{SSHA256}");
     }
 
     private static boolean verifyHashedPassword(String stored, String password) {
         try {
-            if (stored.startsWith("{SHA}")) {
+            if (stored.startsWith("{PBKDF2}")) {
+                return verifyPbkdf2(stored.substring(8), password);
+            } else if (stored.startsWith("{SHA}")) {
                 byte[] storedDigest = Base64.getDecoder().decode(stored.substring(5));
                 MessageDigest md = MessageDigest.getInstance("SHA-1");
                 byte[] computed = md.digest(password.getBytes(StandardCharsets.UTF_8));
@@ -208,6 +231,76 @@ public class BasicRealm extends DefaultHandler implements Realm {
             return false;
         }
         return false;
+    }
+
+    /**
+     * Verifies a password against a {@code {PBKDF2}} hash.
+     *
+     * <p>The encoded specification (without the {@code {PBKDF2}} prefix) has
+     * the form {@code <iterations>$<base64-salt>$<base64-hash>} using
+     * {@code PBKDF2WithHmacSHA256}.
+     *
+     * @param spec the encoded specification (prefix already stripped)
+     * @param password the plaintext password to verify
+     * @return true if the password matches
+     */
+    private static boolean verifyPbkdf2(String spec, String password) {
+        try {
+            int i1 = spec.indexOf('$');
+            int i2 = spec.indexOf('$', i1 + 1);
+            if (i1 < 0 || i2 < 0) {
+                return false;
+            }
+            int iterations = Integer.parseInt(spec.substring(0, i1));
+            if (iterations < 1) {
+                return false;
+            }
+            byte[] salt = Base64.getDecoder().decode(spec.substring(i1 + 1, i2));
+            byte[] expected = Base64.getDecoder().decode(spec.substring(i2 + 1));
+            byte[] computed = pbkdf2(password, salt, iterations, expected.length * 8);
+            return MessageDigest.isEqual(expected, computed);
+        } catch (IllegalArgumentException | NoSuchAlgorithmException
+                | InvalidKeySpecException e) {
+            return false;
+        }
+    }
+
+    private static byte[] pbkdf2(String password, byte[] salt, int iterations,
+            int keyLengthBits) throws NoSuchAlgorithmException, InvalidKeySpecException {
+        PBEKeySpec keySpec = new PBEKeySpec(
+                password.toCharArray(), salt, iterations, keyLengthBits);
+        try {
+            SecretKeyFactory skf =
+                    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+            return skf.generateSecret(keySpec).getEncoded();
+        } finally {
+            keySpec.clearPassword();
+        }
+    }
+
+    /**
+     * Produces a salted PBKDF2 password hash in the {@code {PBKDF2}} format
+     * understood by {@link #passwordMatch}. This is the recommended format
+     * for storing passwords in a realm configuration.
+     *
+     * @param password the plaintext password
+     * @return the encoded {@code {PBKDF2}} hash string
+     */
+    public static String createPbkdf2Hash(String password) {
+        byte[] salt = new byte[16];
+        SECURE_RANDOM.nextBytes(salt);
+        return createPbkdf2Hash(password, salt, PBKDF2_DEFAULT_ITERATIONS);
+    }
+
+    static String createPbkdf2Hash(String password, byte[] salt, int iterations) {
+        try {
+            byte[] hash = pbkdf2(password, salt, iterations, 256);
+            Base64.Encoder enc = Base64.getEncoder();
+            return "{PBKDF2}" + iterations + "$" + enc.encodeToString(salt)
+                    + "$" + enc.encodeToString(hash);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new RuntimeException("PBKDF2WithHmacSHA256 not available", e);
+        }
     }
 
     @Override
@@ -312,10 +405,12 @@ public class BasicRealm extends DefaultHandler implements Realm {
         if (password == null || isHashedPassword(password)) {
             return null; // User doesn't exist or hashed (requires plaintext)
         }
-        // Generate credentials on demand with a consistent salt derived from username
-        // In production, credentials should be pre-computed and stored
+        // Generate credentials on demand with a fresh random salt. SCRAM sends
+        // the salt to the client during each exchange (RFC 5802), so the salt
+        // need not be stable across exchanges, but it must be unpredictable.
+        // In production, credentials should be pre-computed and stored.
         byte[] salt = new byte[16];
-        new SecureRandom(username.getBytes(StandardCharsets.UTF_8)).nextBytes(salt);
+        SECURE_RANDOM.nextBytes(salt);
         return ScramCredentials.derive(password, salt, 4096, "SHA-256");
     }
 

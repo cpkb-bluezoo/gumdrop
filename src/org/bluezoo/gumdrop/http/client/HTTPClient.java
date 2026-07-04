@@ -1003,7 +1003,8 @@ public class HTTPClient implements AltSvcListener {
                         + " (prior knowledge / ALPN)\n"
                 + "  --http3           Force HTTP/3 (QUIC)\n"
                 + "  -E <cert>:<key>   PEM client certificate and key\n"
-                + "  -k                Skip peer certificate verification\n"
+                + "  -k                Skip TLS peer certificate verification"
+                        + " (INSECURE; debugging only)\n"
                 + "  -v                Verbose (print response headers)\n"
                 + "  -I                HEAD request (headers only)\n"
                 + "\n"
@@ -1304,6 +1305,22 @@ public class HTTPClient implements AltSvcListener {
         }
     }
 
+    /**
+     * Builds the SSL context for the command-line client.
+     *
+     * <p>By default ({@code skipVerify == false}) the JDK's default trust
+     * managers are used, so server certificates are fully validated. When the
+     * {@code -k} flag is given ({@code skipVerify == true}) certificate
+     * verification is disabled using a trust-all trust manager. This is
+     * <strong>insecure</strong> and intended only for local debugging against
+     * self-signed certificates; it must never be enabled in production. A
+     * warning is logged whenever it is active.
+     *
+     * @param pemCert optional PEM client certificate path
+     * @param pemKey optional PEM client key path
+     * @param skipVerify whether to disable server certificate verification
+     * @return the configured SSL context
+     */
     private static SSLContext createClientSSLContext(
             String pemCert, String pemKey, boolean skipVerify)
             throws Exception {

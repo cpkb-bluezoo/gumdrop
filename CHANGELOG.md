@@ -4,6 +4,67 @@ All notable changes to Gumdrop will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Fixed servlet role authorization bypass (High)**: In
+  `ContextRequestDispatcher.authorize()`, an authenticated user who lacked a
+  required role was re-authenticated (which succeeds for any valid
+  credentials) instead of being denied, so `<auth-constraint>` role checks
+  were never enforced. Any authenticated user could reach role-protected
+  resources, including the `manager` admin application. Authorization now:
+  - denies with `403 Forbidden` when the user is authenticated but not in a
+    permitted role (it no longer re-invokes authentication);
+  - honors an empty `<auth-constraint/>` as deny-all (the deployment
+    descriptor parser now marks it with `EmptyRoleSemantic.DENY`);
+  - treats the special role names `*` and `**` as "any authenticated user"
+    per Servlet 3.1.
+
+- **SCRAM salt is now random (Medium)**: `BasicRealm.getScramCredentials()`
+  previously derived the salt deterministically from the username
+  (`new SecureRandom(username.getBytes(...))`). It now uses a fresh,
+  unpredictable random salt for each call.
+
+- **PBKDF2 password hashing added (Medium)**: `BasicRealm` now supports a
+  salted, iterated `{PBKDF2}` (`PBKDF2WithHmacSHA256`) password format via
+  `BasicRealm.createPbkdf2Hash()`, and this is the recommended storage
+  format. The legacy `{SHA}`, `{SSHA}`, `{SHA256}` and `{SSHA256}` formats
+  are still accepted for backward compatibility but are documented as weak.
+
+- **Digest authentication nonce hardened (Medium)**: HTTP Digest nonce
+  generation in `HTTPAuthenticationProvider` no longer uses
+  `Math.random()`; it now mixes the current time with `SecureRandom` bytes so
+  nonces are unpredictable.
+
+- **WebDAV XML parsing hardened against XXE/DoS (Low)**: `WebDAVRequestParser`
+  and `DeadPropertyParser` now explicitly install a deny-external-entities
+  resolver (`XMLParseUtils.DENY_EXTERNAL_ENTITIES`) rather than relying on the
+  parser default. WebDAV request bodies are additionally capped in size
+  (rejecting oversized bodies with `413`) to bound XML parser work and
+  mitigate entity-expansion ("billion laughs") attacks.
+
+- **FTP symlink containment (Low)**:
+  `BasicFTPFileSystem.resolveSecurePath()` now performs a `toRealPath()`
+  containment check (as the WebDAV file handler does) so symbolic links
+  inside the FTP root cannot be used to escape the root directory.
+
+- **Invalid HTTP response headers handled gracefully (Low)**:
+  `Response.addHeader()` now catches invalid header names/values (e.g. those
+  containing CR/LF) and drops the header with a warning instead of
+  propagating an exception, preventing HTTP response splitting from becoming
+  a server error. The `Header` constructor already rejects CR/LF via
+  `HTTPUtils.isValidHeaderValue`; a regression test was added.
+
+- **Clarified `sendRedirect` open-redirect documentation (Low)**:
+  `Response.sendRedirect()` javadoc now accurately states that the method does
+  not restrict the redirect target and that same-origin/allowlist validation
+  is the application's responsibility.
+
+- **Clarified HTTP client `-k` flag (Low)**: The command-line `HTTPClient`
+  `-k` (skip TLS certificate verification) flag is documented as insecure and
+  debugging-only; certificate verification remains enabled by default.
+
 ## [2.0] - 2026-03-22
 
 ### Added

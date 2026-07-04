@@ -122,4 +122,28 @@ public class HeaderTest {
         Header header = new Header("X-Custom", "value\twith\ttabs");
         assertEquals("value\twith\ttabs", header.getValue());
     }
+
+    // ===== CR/LF header injection (HTTP response splitting) =====
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testCarriageReturnInValueRejected() {
+        new Header("X-Header", "value\rinjected");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testLineFeedInValueRejected() {
+        new Header("X-Header", "value\ninjected");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testCrlfHeaderSplittingRejected() {
+        // Classic response-splitting payload.
+        new Header("Location",
+                "http://example.com/\r\nSet-Cookie: sid=attacker");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testTrailingCrlfRejected() {
+        new Header("X-Header", "value\r\n");
+    }
 }

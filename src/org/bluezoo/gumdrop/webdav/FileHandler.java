@@ -133,6 +133,16 @@ class FileHandler extends DefaultHTTPRequestHandler {
     private WebDAVRequestParser webdavParser;
     private Headers requestHeaders;
 
+    /**
+     * Maximum size, in bytes, of a WebDAV request body (PROPFIND/PROPPATCH/
+     * LOCK). These are small control documents; a cap bounds the work done by
+     * the XML parser and mitigates entity-expansion ("billion laughs") and
+     * oversized-body denial-of-service attempts.
+     */
+    private static final long MAX_WEBDAV_REQUEST_BODY = 1L << 20; // 1 MiB
+    private long webdavBytesReceived = 0;
+    private boolean webdavBodyTooLarge = false;
+
     FileHandler(Path rootPath, boolean allowWrite, boolean webdavEnabled,
                 String allowedOptions, String[] welcomeFiles,
                 Map<String, String> contentTypes, WebDAVLockManager lockManager,
@@ -211,6 +221,18 @@ class FileHandler extends DefaultHTTPRequestHandler {
     public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
         // Handle WebDAV request body (PROPFIND, PROPPATCH, LOCK)
         if (webdavParser != null) {
+            webdavBytesReceived += data.remaining();
+            if (webdavBytesReceived > MAX_WEBDAV_REQUEST_BODY) {
+                // Stop feeding the parser; the request is rejected with 413 in
+                // endRequestBody. This bounds parser work regardless of the
+                // declared Content-Length or transfer encoding.
+                if (!webdavBodyTooLarge) {
+                    webdavBodyTooLarge = true;
+                    LOGGER.warning("WebDAV request body exceeds maximum of "
+                            + MAX_WEBDAV_REQUEST_BODY + " bytes; rejecting");
+                }
+                return;
+            }
             try {
                 webdavParser.receive(data.duplicate());
             } catch (IOException e) {
@@ -269,6 +291,10 @@ class FileHandler extends DefaultHTTPRequestHandler {
     public void endRequestBody(HTTPResponseState state) {
         // Finalize WebDAV request
         if (webdavParser != null) {
+            if (webdavBodyTooLarge) {
+                sendError(state, HTTPStatus.PAYLOAD_TOO_LARGE);
+                return;
+            }
             try {
                 webdavParser.close();
                 finalizeWebDAVRequest(state);

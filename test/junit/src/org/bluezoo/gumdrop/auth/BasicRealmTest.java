@@ -164,6 +164,52 @@ public class BasicRealmTest {
         assertTrue(realm.userExists("certuser"));
     }
 
+    // ===== PBKDF2 hashed passwords =====
+
+    @Test
+    public void testPbkdf2HashRoundTrip() {
+        String hash = BasicRealm.createPbkdf2Hash("hunter2");
+        assertTrue(hash.startsWith("{PBKDF2}"));
+        realm.passwords.put("carol", hash);
+        assertTrue(realm.passwordMatch("carol", "hunter2"));
+        assertFalse(realm.passwordMatch("carol", "wrong"));
+        assertFalse(realm.passwordMatch("carol", null));
+    }
+
+    @Test
+    public void testPbkdf2HashUsesRandomSalt() {
+        // Two hashes of the same password must differ (random salt).
+        String h1 = BasicRealm.createPbkdf2Hash("samePassword");
+        String h2 = BasicRealm.createPbkdf2Hash("samePassword");
+        assertNotEquals(h1, h2);
+    }
+
+    @Test
+    public void testPbkdf2KnownVector() {
+        // Deterministic salt/iterations for a stable verification vector.
+        byte[] salt = new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+        String hash = BasicRealm.createPbkdf2Hash("correct horse", salt, 1000);
+        realm.passwords.put("dave", hash);
+        assertTrue(realm.passwordMatch("dave", "correct horse"));
+        assertFalse(realm.passwordMatch("dave", "battery staple"));
+    }
+
+    @Test
+    public void testMalformedPbkdf2HashRejected() {
+        realm.passwords.put("eve", "{PBKDF2}not-a-valid-spec");
+        assertFalse(realm.passwordMatch("eve", "anything"));
+    }
+
+    @Test
+    public void testScramSaltIsNotDeterministic() {
+        // Regression: SCRAM salt must not be derived from the username.
+        Realm.ScramCredentials c1 = realm.getScramCredentials("alice");
+        Realm.ScramCredentials c2 = realm.getScramCredentials("alice");
+        assertNotNull(c1);
+        assertNotNull(c2);
+        assertNotEquals("SCRAM salt must be random per call", c1.salt, c2.salt);
+    }
+
     @Test
     public void testForSelectorLoopReturnsSelf() {
         assertSame(realm, realm.forSelectorLoop(null));

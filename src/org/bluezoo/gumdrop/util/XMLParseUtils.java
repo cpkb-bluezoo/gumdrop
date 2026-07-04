@@ -90,8 +90,12 @@ public final class XMLParseUtils {
      * EntityResolver that blocks all external entity resolution to
      * prevent XXE attacks. Returns an empty InputSource for any
      * external entity request.
+     *
+     * <p>This is exposed for reuse by callers that construct their own
+     * {@link Parser} instances (e.g. the WebDAV request parsers) so they can
+     * apply the same protection via {@link Parser#setEntityResolver}.
      */
-    private static final EntityResolver DENY_EXTERNAL_ENTITIES =
+    public static final EntityResolver DENY_EXTERNAL_ENTITIES =
             (String publicId, String systemId) ->
                     new InputSource(new StringReader(""));
 

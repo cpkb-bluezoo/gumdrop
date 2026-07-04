@@ -317,55 +317,121 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         // constraints matching path
         securityConstraints.addAll(context.securityConstraints);
 
-        // Authorize if necessary
+        // Authorize if necessary. For every security constraint that matches
+        // this request, enforce the transport guarantee and the authorization
+        // (role) constraint. Access is denied with 403 when the authenticated
+        // user is not a member of a permitted role, or when a deny-all
+        // constraint (an empty auth-constraint) applies.
         for (SecurityConstraint sc : securityConstraints) {
-            if (sc.matches(request.getMethod(), path)) {
-                // Check if HTTPS is required
-                if (sc.transportGuarantee != ServletSecurity.TransportGuarantee.NONE && !request.isSecure()) {
-                    // Redirect to the secure host and port
-                    if (context.secureHost == null) {
-                        String message = Context.L10N.getString("http.no_secure_host");
-                        response.sendError(500, message);
-                        return false;
-                    }
-                    String url = request.getRequestURI();
-                    String urlQueryString = request.getQueryString();
-                    if (urlQueryString != null) {
-                        url = url + "?" + urlQueryString;
-                    }
-                    url = "https://" + context.secureHost + url;
-                    response.sendRedirect(url);
-                    return false;
-                }
-                // Need authentication
-                if (!authenticated && !request.authenticate(response)) {
-                    return false;
-                }
-                authenticated = true;
+            if (!sc.matches(request.getMethod(), path)) {
+                continue;
+            }
 
-                // Discover all roles
-                Set roles = new LinkedHashSet();
-                boolean authorized = false;
-                for (Iterator j = sc.authConstraints.iterator(); j.hasNext(); ) {
-                    String roleName = (String) j.next();
-                    roles.add(roleName);
+            // Check if HTTPS is required
+            if (sc.transportGuarantee != ServletSecurity.TransportGuarantee.NONE && !request.isSecure()) {
+                // Redirect to the secure host and port
+                if (context.secureHost == null) {
+                    String message = Context.L10N.getString("http.no_secure_host");
+                    response.sendError(500, message);
+                    return false;
                 }
-                for (Iterator j = roles.iterator(); j.hasNext(); ) {
-                    String roleName = (String) j.next();
-                    if (request.isUserInRole(roleName)) {
-                        authorized = true;
-                        break;
-                    }
+                String url = request.getRequestURI();
+                String urlQueryString = request.getQueryString();
+                if (urlQueryString != null) {
+                    url = url + "?" + urlQueryString;
                 }
-                if (!authorized) {
-                    // User did not match any roles, request reauthentication
-                    if (!request.authenticate(response)) {
-                        return false;
-                    }
-                }
+                url = "https://" + context.secureHost + url;
+                response.sendRedirect(url);
+                return false;
+            }
+
+            ConstraintRequirement requirement = requirementOf(sc);
+            if (requirement == ConstraintRequirement.NONE) {
+                // No role restriction imposed by this constraint.
+                continue;
+            }
+            if (requirement == ConstraintRequirement.DENY_ALL) {
+                // An empty auth-constraint denies all access.
+                response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                return false;
+            }
+
+            // A role constraint applies: the user must be authenticated.
+            if (!authenticated && !request.authenticate(response)) {
+                return false; // challenge already sent by authenticate()
+            }
+            authenticated = true;
+
+            // The user must be a member of at least one permitted role.
+            if (!isRoleAuthorized(sc.authConstraints, request::isUserInRole)) {
+                // Authenticated but not authorized for this resource.
+                response.sendError(HttpServletResponse.SC_FORBIDDEN);
+                return false;
             }
         }
         return true;
+    }
+
+    /**
+     * The effective authorization requirement of a single matched security
+     * constraint, independent of any request I/O.
+     */
+    enum ConstraintRequirement {
+        /** The constraint imposes no role restriction (access permitted). */
+        NONE,
+        /** The constraint denies access to all users (empty auth-constraint). */
+        DENY_ALL,
+        /** The user must be a member of one of the permitted roles. */
+        ROLE
+    }
+
+    /**
+     * Determines the authorization requirement of a security constraint.
+     *
+     * <p>A constraint with at least one non-empty role requires role
+     * membership. A constraint with no permitted roles denies all access when
+     * its empty-role semantic is {@code DENY} (an empty {@code
+     * <auth-constraint/>}), otherwise it imposes no restriction (the default
+     * when no auth-constraint element is present).
+     *
+     * @param sc the security constraint
+     * @return the requirement
+     */
+    static ConstraintRequirement requirementOf(SecurityConstraint sc) {
+        for (String roleName : sc.authConstraints) {
+            if (roleName != null && !roleName.isEmpty()) {
+                return ConstraintRequirement.ROLE;
+            }
+        }
+        return (sc.emptyRoleSemantic == ServletSecurity.EmptyRoleSemantic.DENY)
+                ? ConstraintRequirement.DENY_ALL
+                : ConstraintRequirement.NONE;
+    }
+
+    /**
+     * Returns whether an authenticated user is authorized by an
+     * auth-constraint listing the given roles.
+     *
+     * <p>The special role names {@code "*"} and {@code "**"} match any
+     * authenticated user (Servlet 3.1 section 13.8). Null and empty role names
+     * are ignored.
+     *
+     * @param allowedRoles the roles permitted by the constraint
+     * @param roleTester tests whether the current user is in a named role
+     * @return true if the user is authorized
+     */
+    static boolean isRoleAuthorized(Iterable<String> allowedRoles,
+            java.util.function.Predicate<String> roleTester) {
+        for (String roleName : allowedRoles) {
+            if (roleName == null || roleName.isEmpty()) {
+                continue;
+            }
+            if ("*".equals(roleName) || "**".equals(roleName)
+                    || roleTester.test(roleName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public String toString() {

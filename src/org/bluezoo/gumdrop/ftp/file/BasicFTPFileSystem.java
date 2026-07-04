@@ -137,12 +137,48 @@ public class BasicFTPFileSystem implements FTPFileSystem {
         // Convert to platform-specific path and resolve
         Path resolved = rootPath.resolve(normalizedPath).normalize();
         
-        // Security check: ensure the resolved path is still within the root
+        // Lexical containment check: defends against ../ traversal.
         if (!resolved.startsWith(rootPath)) {
+            throw new SecurityException("Path traversal attempt detected: " + ftpPath);
+        }
+
+        // Symlink containment check: ensure the real (canonical) location
+        // stays within the root so that symbolic links inside the root cannot
+        // be used to escape it.
+        if (!isWithinRoot(resolved)) {
             throw new SecurityException("Path traversal attempt detected: " + ftpPath);
         }
         
         return resolved;
+    }
+
+    /**
+     * Verifies that a resolved path is contained within the root directory
+     * even after resolving symbolic links. For existing paths the canonical
+     * ({@link Path#toRealPath}) location is checked; for paths that do not yet
+     * exist (e.g. an upload target), the nearest existing ancestor is checked.
+     *
+     * @param path the already lexically-normalized candidate path
+     * @return true if the path is safely contained within the root
+     */
+    private boolean isWithinRoot(Path path) {
+        try {
+            Path canonicalRoot = rootPath.toRealPath();
+            if (Files.exists(path)) {
+                return path.toRealPath().startsWith(canonicalRoot);
+            }
+            Path parent = path.getParent();
+            while (parent != null && !Files.exists(parent)) {
+                parent = parent.getParent();
+            }
+            if (parent != null) {
+                return parent.toRealPath().startsWith(canonicalRoot);
+            }
+            return path.normalize().startsWith(rootPath);
+        } catch (IOException e) {
+            // Fail closed on any I/O error resolving the real path.
+            return false;
+        }
     }
     
     /**

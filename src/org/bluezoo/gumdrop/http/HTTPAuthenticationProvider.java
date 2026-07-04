@@ -30,6 +30,7 @@ import java.io.ObjectOutputStream;
 import java.net.ProtocolException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.util.Base64;
 import java.text.MessageFormat;
 import java.util.HashMap;
@@ -97,6 +98,9 @@ public abstract class HTTPAuthenticationProvider {
 
     private static final Logger LOGGER = Logger.getLogger(HTTPAuthenticationProvider.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
+
+    /** Cryptographically strong randomness for Digest nonce generation. */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final byte COLON = 0x3a;
 
     // Nonce management for Digest authentication
@@ -716,17 +720,21 @@ public abstract class HTTPAuthenticationProvider {
      */
     private String generateNonce() throws NoSuchAlgorithmException {
         MessageDigest md = MessageDigest.getInstance("MD5");
+        // Mix the current time with cryptographically strong random bytes so
+        // the nonce is unpredictable (RFC 7616 section 3.3 recommends nonce
+        // values that cannot be guessed by an attacker).
+        byte[] randomBytes = new byte[16];
+        SECURE_RANDOM.nextBytes(randomBytes);
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         try {
             ObjectOutputStream oo = new ObjectOutputStream(bo);
             oo.writeLong(System.currentTimeMillis());
-            md.update(bo.toByteArray());
-            bo.reset();
-            oo.writeDouble(Math.random());
+            oo.flush();
             md.update(bo.toByteArray());
         } catch (IOException e) {
             throw new RuntimeException(e); // Should not happen
         }
+        md.update(randomBytes);
 
         String nonce = ByteArrays.toHexString(Base64.getEncoder().encode(md.digest()));
         newNonce(nonce);
