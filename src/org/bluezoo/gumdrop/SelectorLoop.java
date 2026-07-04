@@ -59,7 +59,9 @@ public class SelectorLoop implements Runnable {
 
     private final int index;
     private Thread thread;
-    private Selector selector;
+    // volatile so cross-thread producers reliably observe a non-null selector
+    // and their wakeup() takes effect (the loop no longer polls on a timeout).
+    private volatile Selector selector;
     private volatile boolean active;
 
     // Queue for registrations (cross-thread)
@@ -121,8 +123,11 @@ public class SelectorLoop implements Runnable {
                     // Process any pending tasks
                     processPendingTasks();
 
-                    // Select with timeout to check registrations periodically
-                    selector.select(100);
+                    // Block until an I/O event, a wakeup(), or shutdown. Every
+                    // path that enqueues a registration, timer, or task calls
+                    // wakeup() (whose effect is sticky), so there is no need for
+                    // a periodic timeout poll and its baseline CPU wakeups.
+                    selector.select();
 
                     Set<SelectionKey> keys = selector.selectedKeys();
                     for (Iterator<SelectionKey> i = keys.iterator(); i.hasNext(); ) {
