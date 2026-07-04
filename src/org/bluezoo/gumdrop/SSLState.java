@@ -46,8 +46,10 @@ import org.bluezoo.gumdrop.util.DirectByteBufferPool;
  * <li>{@code netIn} - encrypted bytes from socket (owned by TCPEndpoint)</li>
  * <li>{@code netOut} - encrypted bytes to socket (owned by TCPEndpoint)</li>
  * <li>{@code appIn} - decrypted bytes for receive() (owned by SSLState)</li>
- * <li>{@code appOut} - plaintext bytes waiting to wrap (owned by SSLState)</li>
  * </ul>
+ *
+ * <p>The wrap path encrypts directly from the caller's buffer, so no
+ * application-side staging buffer is retained.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -88,9 +90,8 @@ final class SSLState {
     private final TCPEndpoint tcpEndpoint;
     final SSLSession session;
 
-    // Application data buffers (owned by SSLState)
+    // Application data buffer (owned by SSLState)
     ByteBuffer appIn;   // Decrypted input for receive()
-    ByteBuffer appOut;  // Plaintext waiting to be wrapped
 
     boolean handshakeStarted;
     boolean closed;
@@ -109,7 +110,6 @@ final class SSLState {
         int appSize = Math.max(DEFAULT_BUFFER_SIZE, session.getApplicationBufferSize());
 
         appIn = ByteBuffer.allocate(appSize);
-        appOut = ByteBuffer.allocate(appSize);
     }
 
     private ByteBuffer netIn() {
