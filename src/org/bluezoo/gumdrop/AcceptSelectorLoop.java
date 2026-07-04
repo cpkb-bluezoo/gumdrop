@@ -54,6 +54,15 @@ public class AcceptSelectorLoop implements Runnable {
     private static final Logger LOGGER = Logger.getLogger(AcceptSelectorLoop.class.getName());
 
     /**
+     * How long to pause the accept thread after a file-descriptor exhaustion
+     * (EMFILE/ENFILE). Accepting again immediately would spin hot because the
+     * pending connection keeps the selector readable, producing a CPU and log
+     * storm. The accept thread's only job is accepting, so a brief pause while
+     * descriptors free up is harmless.
+     */
+    private static final long ACCEPT_BACKOFF_MS = 1000L;
+
+    /**
      * Handler for raw socket channel accepts.
      * Used by subsystems like FTP data that need the raw channel
      * without the endpoint/connection infrastructure.
@@ -307,8 +316,12 @@ public class AcceptSelectorLoop implements Runnable {
             ssc.configureBlocking(false);
             ServerSocket ss = ssc.socket();
 
-            InetSocketAddress socketAddress =
-                    new InetSocketAddress(address, port);
+            // For the wildcard/any-local address, bind without an explicit
+            // address so the JDK creates a single (dual-stack where the OS
+            // allows) wildcard socket rather than an IPv4-only 0.0.0.0 bind.
+            InetSocketAddress socketAddress = address.isAnyLocalAddress()
+                    ? new InetSocketAddress(port)
+                    : new InetSocketAddress(address, port);
             long t1 = System.currentTimeMillis();
             ss.bind(socketAddress);
             long t2 = System.currentTimeMillis();
@@ -357,7 +370,37 @@ public class AcceptSelectorLoop implements Runnable {
                 }
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error accepting connection", e);
+            if (isFileDescriptorExhausted(e)) {
+                // Out of file descriptors: back off so we don't spin on a
+                // permanently-readable accept selector until FDs free up.
+                LOGGER.log(Level.SEVERE,
+                        "Out of file descriptors accepting connections; "
+                        + "backing off " + ACCEPT_BACKOFF_MS + "ms", e);
+                backoffAfterAcceptFailure();
+            } else {
+                LOGGER.log(Level.WARNING, "Error accepting connection", e);
+            }
+        }
+    }
+
+    /**
+     * Returns whether the given exception indicates file-descriptor
+     * exhaustion (EMFILE/ENFILE), which the JDK surfaces as a
+     * "Too many open files" message.
+     */
+    private static boolean isFileDescriptorExhausted(IOException e) {
+        String msg = e.getMessage();
+        return msg != null && msg.contains("Too many open files");
+    }
+
+    /**
+     * Pauses the accept thread briefly after a resource-exhaustion failure.
+     */
+    private void backoffAfterAcceptFailure() {
+        try {
+            Thread.sleep(ACCEPT_BACKOFF_MS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -372,6 +415,11 @@ public class AcceptSelectorLoop implements Runnable {
         sc.configureBlocking(false);
         SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
         TCPEndpoint endpoint = server.newEndpoint(sc, workerLoop);
+        // Record admission: increments the listener's connection counters and
+        // consumes a rate-limit token. The endpoint releases this accounting
+        // exactly once when it closes.
+        server.connectionOpened(remoteAddress);
+        endpoint.setListener(server, remoteAddress);
         endpoint.connected();
         workerLoop.register(sc, endpoint);
 

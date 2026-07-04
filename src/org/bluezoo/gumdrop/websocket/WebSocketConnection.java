@@ -116,8 +116,16 @@ public abstract class WebSocketConnection {
     // RFC 6455 §9 — negotiated extensions (applied in order)
     private List<WebSocketExtension> extensions = Collections.emptyList();
 
+    /**
+     * Default maximum assembled message size: 64 MB. Bounds the fragment
+     * reassembly buffer so a peer cannot drive it to OutOfMemoryError with an
+     * endless stream of continuation frames. Deployments can raise this or set
+     * 0 (unlimited) via {@link #setMaxMessageSize(long)}.
+     */
+    public static final long DEFAULT_MAX_MESSAGE_SIZE = 64L * 1024 * 1024;
+
     // RFC 6455 §7.4.1 — configurable maximum assembled message size (0 = unlimited)
-    private long maxMessageSize;
+    private long maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
     
     // Telemetry support
     private static final ResourceBundle L10N = ResourceBundle.getBundle(

@@ -265,25 +265,40 @@ public class HTTP3Listener extends TCPListener
 
     @Override
     public void start() {
-        super.start();
         if (port <= 0) {
             port = HTTP3_DEFAULT_PORT;
         }
-        if (isMetricsEnabled()) {
-            metrics = new HTTPServerMetrics(getTelemetryConfig());
-        }
-        if (selectorLoop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            if (gumdrop != null) {
-                selectorLoop = gumdrop.nextWorkerLoop();
+        // HTTP/3 depends on the native libgumdrop (quiche/BoringSSL) JNI
+        // library. If it is not available on this platform/image, the first
+        // touch of native code throws a LinkageError (ExceptionInInitializerError
+        // on first reference, NoClassDefFoundError thereafter, or a bare
+        // UnsatisfiedLinkError). Catch it and disable just the H3 listener so
+        // the rest of the server (HTTP/1.1, HTTP/2, other protocols) still
+        // starts — mirroring the graceful native-DNS fallback in DNSResolver.
+        try {
+            super.start();
+            if (isMetricsEnabled()) {
+                metrics = new HTTPServerMetrics(getTelemetryConfig());
             }
+            if (selectorLoop == null) {
+                Gumdrop gumdrop = Gumdrop.getInstance();
+                if (gumdrop != null) {
+                    selectorLoop = gumdrop.nextWorkerLoop();
+                }
+            }
+            if (selectorLoop == null) {
+                throw new IllegalStateException(
+                        "SelectorLoop must be set before starting "
+                                + "HTTP3Listener");
+            }
+            bindEngines();
+        } catch (LinkageError e) {
+            LOGGER.log(Level.WARNING,
+                    "Native QUIC library (libgumdrop) unavailable; HTTP/3"
+                            + " listener on port " + port + " disabled. Set"
+                            + " java.library.path or remove the h3 listener to"
+                            + " silence this. Cause: " + e, e);
         }
-        if (selectorLoop == null) {
-            throw new IllegalStateException(
-                    "SelectorLoop must be set before starting "
-                            + "HTTP3Listener");
-        }
-        bindEngines();
     }
 
     /**

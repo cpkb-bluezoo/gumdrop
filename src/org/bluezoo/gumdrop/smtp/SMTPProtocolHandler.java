@@ -323,9 +323,9 @@ public class SMTPProtocolHandler
             if (connectedHandler != null) {
                 connectedHandler.disconnected();
             }
-            if (endpoint != null && endpoint.getRemoteAddress() != null) {
-                server.connectionClosed((InetSocketAddress) endpoint.getRemoteAddress());
-            }
+            // Connection admission (rate-limit / per-IP / global count) is
+            // released centrally by TCPEndpoint when the endpoint closes, so
+            // no per-handler connectionClosed call is needed here.
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.WARNING)) {
                 LOGGER.log(Level.WARNING, "Error in disconnected handler", e);

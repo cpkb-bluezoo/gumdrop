@@ -1,18 +1,59 @@
 #!/bin/bash
-java=java
-LOGGING_PROPERTIES=logging.properties
-if [[ -n "$LOGGING_PROPERTIES" ]]; then
+#
+# Gumdrop launcher.
+#
+# Works on macOS and Linux, and is container-friendly:
+#   * picks the right dynamic-linker path variable for the OS
+#     (DYLD_LIBRARY_PATH on macOS, LD_LIBRARY_PATH on Linux) so the native
+#     QUIC/HTTP-3 library (libgumdrop) is found;
+#   * sizes the heap from the (cgroup-aware) container memory limit via
+#     -XX:MaxRAMPercentage rather than a fixed -Xmx;
+#   * logs to the console (12-factor) unless a logging config is supplied;
+#   * exec's the JVM so it receives SIGTERM directly for graceful shutdown.
+#
+# Overridable via environment:
+#   JAVA               java binary (default: java)
+#   GUMDROP_JAR        server jar   (default: ./dist/gumdrop-container.jar)
+#   GUMDROP_CONFIG     config path  (also honoured by the server itself)
+#   LOGGING_PROPERTIES java.util.logging config file (default: logging.properties)
+#   NATIVE_LIB_PATH    extra native library dir(s), colon-separated
+#   QUICHE_DIR         quiche checkout for dev builds (default: ../quiche)
+#   JAVA_OPTS          extra JVM options (appended last, so they win)
+#   MAX_RAM_PERCENTAGE heap as % of available RAM (default: 75.0)
+
+java="${JAVA:-java}"
+GUMDROP_JAR="${GUMDROP_JAR:-./dist/gumdrop-container.jar}"
+LOGGING_PROPERTIES="${LOGGING_PROPERTIES:-logging.properties}"
+MAX_RAM_PERCENTAGE="${MAX_RAM_PERCENTAGE:-75.0}"
+
+logging=
+if [[ -n "$LOGGING_PROPERTIES" && -f "$LOGGING_PROPERTIES" ]]; then
 	logging=-Djava.util.logging.config.file=$LOGGING_PROPERTIES
 fi
-GUMDROP_JAR=./dist/gumdrop-container.jar
 
-# Native library path for JNI (libgumdrop_quic + libquiche)
-NATIVE_LIB_PATH=./dist
+# Native library path for JNI (libgumdrop + quiche/BoringSSL).
+native_path="${NATIVE_LIB_PATH:-./dist}"
 QUICHE_DIR="${QUICHE_DIR:-../quiche}"
 if [[ -d "$QUICHE_DIR/target/release" ]]; then
-	NATIVE_LIB_PATH="$NATIVE_LIB_PATH:$QUICHE_DIR/target/release"
+	native_path="$native_path:$QUICHE_DIR/target/release"
 fi
 
-export DYLD_LIBRARY_PATH="$NATIVE_LIB_PATH${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+# Export the dynamic-linker search path under the name this OS understands.
+case "$(uname -s)" in
+	Darwin)
+		export DYLD_LIBRARY_PATH="$native_path${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+		;;
+	*)
+		export LD_LIBRARY_PATH="$native_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+		;;
+esac
 
-$java $logging -Djava.library.path="$NATIVE_LIB_PATH" -jar $GUMDROP_JAR $*
+# Container-aware heap sizing. UseContainerSupport is on by default on modern
+# JDKs; MaxRAMPercentage raises the default 25% cap so the server actually uses
+# the memory the container was given.
+jvm_opts="-XX:+UseContainerSupport -XX:MaxRAMPercentage=$MAX_RAM_PERCENTAGE"
+
+exec "$java" $jvm_opts $logging \
+	-Djava.library.path="$native_path" \
+	$JAVA_OPTS \
+	-jar "$GUMDROP_JAR" "$@"

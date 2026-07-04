@@ -382,10 +382,15 @@ public class DNSResolver {
                     }
                 }
             }
-        } catch (UnsatisfiedLinkError e) {
+        } catch (LinkageError e) {
+            // Native lib absent/unloadable: the first touch throws
+            // UnsatisfiedLinkError (surfaced as ExceptionInInitializerError),
+            // and every later touch throws NoClassDefFoundError. All are
+            // LinkageErrors; degrade gracefully to public resolvers instead of
+            // failing the caller when QUIC/native support is not present.
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("Native nameserver discovery "
-                        + "unavailable: " + e.getMessage());
+                        + "unavailable: " + e);
             }
         }
         if (servers.isEmpty()) {

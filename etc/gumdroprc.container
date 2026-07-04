@@ -1,0 +1,92 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Example Gumdrop configuration tuned for ephemeral cloud containers
+  (Docker / Kubernetes).
+
+  Highlights:
+    * All environment-specific values are pulled from environment variables
+      via ${ENV:NAME:default} interpolation, so a single immutable image can
+      be reconfigured per deployment (12-factor style).
+    * A built-in health/readiness endpoint (HealthService) exposes /livez and
+      /readyz for container orchestrators.
+    * Per-instance resource safety: global connection cap, per-IP cap,
+      handshake/read timeouts, and a bounded outbound buffer.
+    * Hot deploy is disabled (no inotify/WatchService on immutable or overlay
+      filesystems).
+
+  Point the server at this file with:
+    GUMDROP_CONFIG=/etc/gumdrop/gumdroprc.container
+  and tune the graceful drain window with:
+    GUMDROP_DRAIN_TIMEOUT_MS=30000
+-->
+<gumdrop>
+	<!-- Authentication realm (path overridable per environment) -->
+	<realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm">
+		<property name="href" path="${ENV:GUMDROP_REALM_FILE:realm-servlet.xml}"/>
+	</realm>
+
+	<!-- Liveness/readiness endpoint for orchestrator probes -->
+	<service class="org.bluezoo.gumdrop.health.HealthService">
+		<property name="port" value="${ENV:GUMDROP_HEALTH_PORT:8081}"/>
+		<property name="addresses" value="0.0.0.0"/>
+	</service>
+
+	<!-- Servlet container service -->
+	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+		<!-- Disabled for immutable container filesystems -->
+		<property name="hot-deploy" value="${ENV:GUMDROP_HOT_DEPLOY:false}"/>
+
+		<property name="realms">
+			<map>
+				<entry key="myRealm" ref="#myRealm"/>
+				<entry key="Gumdrop Manager" ref="#myRealm"/>
+			</map>
+		</property>
+
+		<!-- Web application root overridable via env -->
+		<context path="" root="${ENV:GUMDROP_WEBAPP_ROOT:../web}" distributable="true"/>
+
+		<!-- HTTP listener -->
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port" value="${ENV:HTTP_PORT:8080}"/>
+			<!-- Bind a single wildcard socket rather than enumerating NICs -->
+			<property name="wildcard" value="true"/>
+			<!-- Per-instance admission control and timeouts -->
+			<property name="max-connections" value="${ENV:GUMDROP_MAX_CONNECTIONS:10000}"/>
+			<property name="max-connections-per-ip" value="${ENV:GUMDROP_MAX_CONNECTIONS_PER_IP:0}"/>
+			<property name="connection-timeout" value="${ENV:GUMDROP_CONNECTION_TIMEOUT:60s}"/>
+			<property name="read-timeout" value="${ENV:GUMDROP_READ_TIMEOUT:30s}"/>
+			<property name="idle-timeout" value="${ENV:GUMDROP_IDLE_TIMEOUT:60s}"/>
+			<property name="max-net-out-size" value="${ENV:GUMDROP_MAX_NET_OUT_SIZE:4194304}"/>
+		</listener>
+
+		<!--
+		  HTTPS listener. Keystore path and password come from mounted
+		  secrets / environment. Enabled only when GUMDROP_TLS_ENABLED=true
+		  is honoured by your deployment (leave commented out otherwise).
+
+		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+			<property name="port" value="${ENV:HTTPS_PORT:8443}"/>
+			<property name="secure" value="true"/>
+			<property name="keystore-file" path="${ENV:GUMDROP_KEYSTORE_FILE:/etc/gumdrop/tls/keystore.p12}"/>
+			<property name="keystore-pass" value="${ENV:GUMDROP_KEYSTORE_PASS:changeit}"/>
+			<property name="max-connections" value="${ENV:GUMDROP_MAX_CONNECTIONS:10000}"/>
+			<property name="connection-timeout" value="${ENV:GUMDROP_CONNECTION_TIMEOUT:60s}"/>
+			<property name="read-timeout" value="${ENV:GUMDROP_READ_TIMEOUT:30s}"/>
+			<property name="max-net-out-size" value="${ENV:GUMDROP_MAX_NET_OUT_SIZE:4194304}"/>
+		</listener>
+		-->
+
+		<!--
+		  HTTP/3 (QUIC) listener. Requires the native libgumdrop library on
+		  the dynamic linker path; if it is absent the listener is skipped
+		  with a warning and the rest of the server still starts.
+
+		<listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener">
+			<property name="port" value="${ENV:HTTPS_PORT:8443}"/>
+			<property name="cert-file" path="${ENV:GUMDROP_TLS_CERT:/etc/gumdrop/tls/cert.pem}"/>
+			<property name="key-file" path="${ENV:GUMDROP_TLS_KEY:/etc/gumdrop/tls/key.pem}"/>
+		</listener>
+		-->
+	</service>
+</gumdrop>

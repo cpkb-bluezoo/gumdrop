@@ -51,8 +51,12 @@ public class DNSCache {
     private static final int DEFAULT_NEGATIVE_TTL = 300;
 
     private final Map<CacheKey, CacheEntry> cache;
+    // The priority queue is not thread-safe; all mutations of it (and the
+    // paired eviction index that must stay consistent with it) are guarded by
+    // expiryLock so eviction stays correct across DNS worker loops.
     private final PriorityQueue<EvictionEntry> expiryQueue;
     private final Map<CacheKey, EvictionEntry> keyToEvictionEntry;
+    private final Object expiryLock = new Object();
     private final int maxEntries;
     private final int negativeTTL;
 
@@ -248,8 +252,10 @@ public class DNSCache {
      */
     public void clear() {
         cache.clear();
-        expiryQueue.clear();
-        keyToEvictionEntry.clear();
+        synchronized (expiryLock) {
+            expiryQueue.clear();
+            keyToEvictionEntry.clear();
+        }
     }
 
     /**
@@ -286,12 +292,16 @@ public class DNSCache {
             if (cache.size() >= maxEntries) {
                 int toRemove = maxEntries / 10;
                 int removed = 0;
-                EvictionEntry evictionEntry;
-                while (removed < toRemove
-                        && (evictionEntry = expiryQueue.poll()) != null) {
-                    if (cache.remove(evictionEntry.key) != null) {
-                        keyToEvictionEntry.remove(evictionEntry.key);
-                        removed++;
+                synchronized (expiryLock) {
+                    EvictionEntry evictionEntry;
+                    while (removed < toRemove
+                            && (evictionEntry = expiryQueue.poll()) != null) {
+                        // Only drop the index mapping if it still points at the
+                        // entry we polled (it may have been refreshed since).
+                        keyToEvictionEntry.remove(evictionEntry.key, evictionEntry);
+                        if (cache.remove(evictionEntry.key) != null) {
+                            removed++;
+                        }
                     }
                 }
             }
@@ -301,15 +311,24 @@ public class DNSCache {
     private void addToCache(CacheKey key, CacheEntry entry) {
         EvictionEntry evictionEntry = new EvictionEntry(key, entry);
         cache.put(key, entry);
-        expiryQueue.add(evictionEntry);
-        keyToEvictionEntry.put(key, evictionEntry);
+        synchronized (expiryLock) {
+            // Drop any prior eviction entry for this key (e.g. a TTL refresh)
+            // so the queue does not accumulate stale duplicates.
+            EvictionEntry prev = keyToEvictionEntry.put(key, evictionEntry);
+            if (prev != null) {
+                expiryQueue.remove(prev);
+            }
+            expiryQueue.add(evictionEntry);
+        }
     }
 
     private void removeFromCache(CacheKey key) {
         if (cache.remove(key) != null) {
-            EvictionEntry evictionEntry = keyToEvictionEntry.remove(key);
-            if (evictionEntry != null) {
-                expiryQueue.remove(evictionEntry);
+            synchronized (expiryLock) {
+                EvictionEntry evictionEntry = keyToEvictionEntry.remove(key);
+                if (evictionEntry != null) {
+                    expiryQueue.remove(evictionEntry);
+                }
             }
         }
     }

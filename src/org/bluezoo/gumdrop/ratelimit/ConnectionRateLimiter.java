@@ -32,6 +32,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -103,6 +104,16 @@ public class ConnectionRateLimiter {
     // Background cleanup
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> cleanupTask;
+
+    /**
+     * Timestamp of the last opportunistic cleanup. Cleanup runs inline from
+     * the accept path at most once per {@link #CLEANUP_INTERVAL_MS} so that
+     * per-source-IP entries are reclaimed even when no external
+     * {@link #setScheduler scheduler} has been wired in. This removes the
+     * unbounded-growth leak without spawning a thread per listener.
+     */
+    private final AtomicLong lastCleanup =
+            new AtomicLong(System.currentTimeMillis());
 
     /**
      * Creates a new connection rate limiter with default settings.
@@ -233,6 +244,10 @@ public class ConnectionRateLimiter {
      * @return {@code true} if the connection should be allowed
      */
     public boolean allowConnection(InetAddress ip) {
+        // Opportunistically reclaim stale per-IP entries so the tracking maps
+        // stay bounded regardless of whether a background scheduler was set.
+        maybeCleanup();
+
         if (ip == null) {
             return true;
         }
@@ -383,6 +398,27 @@ public class ConnectionRateLimiter {
     public void setScheduler(ScheduledExecutorService scheduler) {
         this.scheduler = scheduler;
         scheduleCleanup();
+    }
+
+    /**
+     * Runs {@link #cleanup()} inline at most once per
+     * {@link #CLEANUP_INTERVAL_MS}. Safe to call on the hot accept path: the
+     * CAS gate ensures the O(n) scan happens rarely and only one caller runs
+     * it at a time. This is the fallback that keeps the maps bounded when no
+     * external {@link #setScheduler scheduler} has been provided.
+     */
+    private void maybeCleanup() {
+        long now = System.currentTimeMillis();
+        long last = lastCleanup.get();
+        if (now - last >= CLEANUP_INTERVAL_MS
+                && lastCleanup.compareAndSet(last, now)) {
+            try {
+                cleanup();
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("ratelimit.err.cleanup_failed"), e);
+            }
+        }
     }
 
     /**

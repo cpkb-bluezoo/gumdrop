@@ -75,6 +75,15 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     private SelectionKey key;
     private SelectorLoop selectorLoop;
 
+    // -- Admission accounting (server endpoints only) --
+    // Set at accept time so the listener's connection counters and per-IP
+    // rate limiter are released exactly once when this endpoint closes,
+    // regardless of which close path fires.
+    private Listener listener;
+    private SocketAddress admissionAddress;
+    private boolean admissionReleased;
+    private final Object admissionLock = new Object();
+
     // -- Network I/O buffers --
 
     ByteBuffer netIn;
@@ -96,6 +105,15 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     private final SSLEngine engine;
     private SSLState sslState;
     private long handshakeStartTime;
+
+    // -- Transport-level establishment timeouts (server endpoints only) --
+    // handshakeTimeout bounds TLS handshake completion; firstByteTimeout
+    // bounds how long an established connection may stay silent before the
+    // first inbound application data. Both defend every protocol against
+    // slowloris / connect-and-stall file-descriptor exhaustion without the
+    // protocol handler having to opt in.
+    private TimerHandle handshakeTimeoutHandle;
+    private TimerHandle firstByteTimeoutHandle;
 
     // -- Lifecycle --
 
@@ -164,6 +182,20 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      */
     void setClientMode(boolean clientMode) {
         this.clientMode = clientMode;
+    }
+
+    /**
+     * Associates this server endpoint with the listener that accepted it, so
+     * that {@link Listener#connectionClosed(SocketAddress)} is invoked exactly
+     * once when the connection closes. The remote address is captured here
+     * because it is no longer retrievable once the channel has been closed.
+     *
+     * @param listener the accepting listener
+     * @param remoteAddress the remote address at accept time
+     */
+    void setListener(Listener listener, SocketAddress remoteAddress) {
+        this.listener = listener;
+        this.admissionAddress = remoteAddress;
     }
 
     /**
@@ -304,6 +336,8 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         if (clientMode) {
             sslState.startClientHandshake();
         }
+        // Bound the in-band upgrade handshake the same way as implicit TLS.
+        armHandshakeTimeout();
     }
 
     @Override
@@ -444,6 +478,9 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         if (sslState != null) {
             sslState.unwrap();
         } else {
+            // First plaintext bytes have arrived: the connection is no longer
+            // silent, so release the first-byte establishment timeout.
+            cancelFirstByteTimeout();
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String message = Gumdrop.L10N.getString("info.received_plaintext");
                 message = MessageFormat.format(message,
@@ -494,6 +531,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     }
 
     final void appendToNetOut(ByteBuffer data) {
+        boolean overflow = false;
         synchronized (netOutLock) {
             if (netOut == null) {
                 // Connection is closing/closed; drop outbound data. The
@@ -505,18 +543,58 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
             if (needed > available) {
                 int required = netOut.position() + needed;
-                int desired = Math.max(netOut.capacity() * 2, required);
-                ByteBuffer newBuf = DirectByteBufferPool.acquire(desired);
-                netOut.flip();
-                newBuf.put(netOut);
-                DirectByteBufferPool.release(netOut);
-                netOut = newBuf;
+                int cap = getMaxNetOutSize();
+                if (cap > 0 && required > cap) {
+                    // The peer is not draining and we would have to buffer more
+                    // than the configured ceiling off-heap. Refuse and close
+                    // rather than growing without bound toward OOM.
+                    overflow = true;
+                } else {
+                    int desired = Math.max(netOut.capacity() * 2, required);
+                    if (cap > 0 && desired > cap) {
+                        desired = cap;
+                    }
+                    ByteBuffer newBuf = DirectByteBufferPool.acquire(desired);
+                    netOut.flip();
+                    newBuf.put(netOut);
+                    DirectByteBufferPool.release(netOut);
+                    netOut = newBuf;
+                }
             }
-            netOut.put(data);
+            if (!overflow) {
+                netOut.put(data);
+            }
+        }
+        if (overflow) {
+            handleNetOutOverflow();
+            return;
         }
         if (selectorLoop != null) {
             selectorLoop.requestWrite(this);
         }
+    }
+
+    /**
+     * Returns the configured maximum outbound buffer size, or 0 if unlimited.
+     * Package-private so {@link SSLState} can enforce the same ceiling on the
+     * encrypted output path.
+     */
+    int getMaxNetOutSize() {
+        return factory != null ? factory.getMaxNetOutSize() : 0;
+    }
+
+    /**
+     * Handles an outbound-buffer overflow: the peer is not reading fast enough
+     * to keep the pending write buffer under its ceiling. Logs and closes the
+     * connection. Called outside {@link #netOutLock}.
+     */
+    private void handleNetOutOverflow() {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning("Outbound buffer exceeded maximum size ("
+                    + getMaxNetOutSize() + " bytes) for " + getRemoteAddress()
+                    + "; closing connection (peer not reading)");
+        }
+        close();
     }
 
     void handleEOF() {
@@ -620,7 +698,76 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      * Called by SelectorLoop when OP_CONNECT completes.
      */
     void connected() {
+        // Arm establishment timeouts for server endpoints. Secure endpoints
+        // first bound the handshake; plaintext endpoints bound the wait for
+        // the first inbound bytes. Client endpoints (listener == null) manage
+        // their own timeouts.
+        if (secure) {
+            armHandshakeTimeout();
+        } else {
+            armFirstByteTimeout();
+        }
         handler.connected(this);
+    }
+
+    private void armHandshakeTimeout() {
+        if (listener == null) {
+            return;
+        }
+        long t = listener.getConnectionTimeoutMs();
+        if (t > 0 && handshakeTimeoutHandle == null) {
+            handshakeTimeoutHandle = scheduleTimer(t, this::onHandshakeTimeout);
+        }
+    }
+
+    private void armFirstByteTimeout() {
+        if (listener == null) {
+            return;
+        }
+        long t = listener.getReadTimeoutMs();
+        if (t > 0 && firstByteTimeoutHandle == null) {
+            firstByteTimeoutHandle = scheduleTimer(t, this::onFirstByteTimeout);
+        }
+    }
+
+    private void cancelHandshakeTimeout() {
+        TimerHandle h = handshakeTimeoutHandle;
+        if (h != null) {
+            handshakeTimeoutHandle = null;
+            h.cancel();
+        }
+    }
+
+    private void cancelFirstByteTimeout() {
+        TimerHandle h = firstByteTimeoutHandle;
+        if (h != null) {
+            firstByteTimeoutHandle = null;
+            h.cancel();
+        }
+    }
+
+    private void onHandshakeTimeout() {
+        if (closing) {
+            return;
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("TLS handshake timeout after "
+                    + (listener != null ? listener.getConnectionTimeoutMs() : 0)
+                    + "ms; closing " + getRemoteAddress());
+        }
+        close();
+    }
+
+    private void onFirstByteTimeout() {
+        if (closing) {
+            return;
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Read timeout waiting for first data after "
+                    + (listener != null ? listener.getReadTimeoutMs() : 0)
+                    + "ms; closing " + getRemoteAddress());
+        }
+        close();
     }
 
     /**
@@ -644,13 +791,36 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         if (key != null) {
             key.cancel();
         }
+        cancelHandshakeTimeout();
+        cancelFirstByteTimeout();
         releaseBuffers();
+        releaseAdmission();
         if (clientMode) {
             Gumdrop gumdrop = Gumdrop.getInstance();
             if (gumdrop != null) {
                 gumdrop.removeChannelHandler(this);
             }
         }
+    }
+
+    /**
+     * Releases this endpoint's admission accounting on the accepting listener.
+     * Idempotent and thread-safe: only the first call notifies the listener,
+     * so the connection counters stay balanced even though {@link #doClose}
+     * may run more than once via distinct error paths.
+     */
+    private void releaseAdmission() {
+        Listener l;
+        SocketAddress addr;
+        synchronized (admissionLock) {
+            if (admissionReleased || listener == null) {
+                return;
+            }
+            admissionReleased = true;
+            l = listener;
+            addr = admissionAddress;
+        }
+        l.connectionClosed(addr);
     }
 
     /**
@@ -689,6 +859,9 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     @Override
     public final void onApplicationData(ByteBuffer data) {
+        // First decrypted application data: release the post-handshake
+        // first-byte establishment timeout.
+        cancelFirstByteTimeout();
         handler.receive(data);
     }
 
@@ -697,6 +870,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         if (timestampConnected == 0) {
             timestampConnected = System.currentTimeMillis();
         }
+        // Handshake finished within its bound; now bound the wait for the
+        // first application data over the established secure channel.
+        cancelHandshakeTimeout();
+        armFirstByteTimeout();
         SecurityInfo info = new JSSESecurityInfo(engine, handshakeStartTime);
         handler.securityEstablished(info);
     }

@@ -60,8 +60,18 @@ public class Container implements ManagerContainerService, ClusterContainer {
     final List<Resource> resources = new ArrayList<>();
     boolean started = false;
 
-    boolean hotDeploy = true;
+    // Hot deploy is off by default: it uses a WatchService (inotify) that is
+    // pointless and sometimes unsupported on immutable/overlay container
+    // filesystems. It can be turned on explicitly in configuration
+    // (hot-deploy="true") or, when not set in config, via the
+    // GUMDROP_HOT_DEPLOY environment variable.
+    boolean hotDeploy = defaultHotDeploy();
     Thread hotDeploymentThread;
+
+    private static boolean defaultHotDeploy() {
+        String env = System.getenv("GUMDROP_HOT_DEPLOY");
+        return env != null && Boolean.parseBoolean(env.trim());
+    }
 
     // Distributed session management
     byte[] clusterKey;

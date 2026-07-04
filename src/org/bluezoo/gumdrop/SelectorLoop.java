@@ -73,6 +73,11 @@ public class SelectorLoop implements Runnable {
     // Queue for general tasks (cross-thread, from invokeLater)
     private final ConcurrentLinkedQueue<Runnable> pendingTasks;
 
+    // Per-loop timer, so timer scheduling/cancellation for this loop's handlers
+    // does not contend on a single process-wide timer lock. Callbacks are still
+    // dispatched back onto this loop's thread.
+    private final ScheduledTimer timer;
+
     /**
      * Creates a new SelectorLoop with the given index (1-based for display).
      *
@@ -83,6 +88,17 @@ public class SelectorLoop implements Runnable {
         this.pendingRegistrations = new ConcurrentLinkedQueue<PendingRegistration>();
         this.pendingTimers = new ConcurrentLinkedQueue<ScheduledTimer.TimerEntry>();
         this.pendingTasks = new ConcurrentLinkedQueue<Runnable>();
+        this.timer = new ScheduledTimer("SelectorLoop-" + index + "-timer");
+    }
+
+    /**
+     * Returns this loop's dedicated timer. Timer callbacks scheduled here are
+     * dispatched back onto this loop's thread.
+     *
+     * @return the per-loop scheduled timer
+     */
+    ScheduledTimer getTimer() {
+        return timer;
     }
 
     /**
@@ -93,6 +109,7 @@ public class SelectorLoop implements Runnable {
         if (thread != null && thread.isAlive()) {
             return; // Already running
         }
+        timer.start();
         thread = new Thread(this, "SelectorLoop-" + index);
         thread.start();
     }
@@ -634,6 +651,7 @@ public class SelectorLoop implements Runnable {
      */
     public void shutdown() {
         active = false;
+        timer.shutdown();
         if (selector != null) {
             selector.wakeup();
         }
@@ -648,6 +666,29 @@ public class SelectorLoop implements Runnable {
         if (thread != null) {
             thread.join();
         }
+    }
+
+    /**
+     * Waits up to {@code timeoutMs} for this loop's thread to finish after
+     * {@link #shutdown()} has been signalled, letting it flush any in-flight
+     * writes and exit cleanly rather than being abandoned. Returns immediately
+     * if the loop is not running or if called from this loop's own thread
+     * (a thread cannot usefully wait for itself).
+     *
+     * @param timeoutMs the maximum time to wait, in milliseconds
+     * @return true if the loop thread has terminated
+     */
+    public boolean awaitQuiesce(long timeoutMs) {
+        Thread t = thread;
+        if (t == null || t == Thread.currentThread()) {
+            return t == null || !t.isAlive();
+        }
+        try {
+            t.join(Math.max(1L, timeoutMs));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return !t.isAlive();
     }
 
     /**

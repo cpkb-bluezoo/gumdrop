@@ -89,6 +89,20 @@ public class Gumdrop {
     /** Default worker count for server mode (with configuration). */
     private static final int SERVER_MODE_WORKERS = Runtime.getRuntime().availableProcessors() * 2;
 
+    /**
+     * Default graceful-drain timeout in milliseconds. On shutdown, the server
+     * stops accepting new connections and waits up to this long for in-flight
+     * connections to finish before force-closing. Sized below the typical
+     * orchestrator grace period (Kubernetes defaults to 30s).
+     */
+    private static final long DEFAULT_DRAIN_TIMEOUT_MS = 25_000L;
+
+    /** Poll interval while waiting for in-flight connections to drain. */
+    private static final long DRAIN_POLL_INTERVAL_MS = 100L;
+
+    /** Maximum time to wait for each worker loop to exit after shutdown. */
+    private static final long LOOP_QUIESCE_TIMEOUT_MS = 5_000L;
+
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
     static final Logger LOGGER = Logger.getLogger(Gumdrop.class.getName());
 
@@ -121,6 +135,17 @@ public class Gumdrop {
     // State
     private volatile boolean started;
     private volatile boolean acceptLoopRunning;
+    private volatile boolean draining;
+    private volatile boolean ready;
+
+    /**
+     * Graceful-drain timeout in milliseconds. Overridable via the
+     * {@code gumdrop.drainTimeoutMs} system property (and, from
+     * {@link #main}, the {@code GUMDROP_DRAIN_TIMEOUT_MS} environment
+     * variable). 0 disables draining (immediate force-close on shutdown).
+     */
+    private volatile long drainTimeoutMs =
+            Long.getLong("gumdrop.drainTimeoutMs", DEFAULT_DRAIN_TIMEOUT_MS);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Singleton access
@@ -511,6 +536,8 @@ public class Gumdrop {
 
         long t1 = System.currentTimeMillis();
         started = true;
+        ready = false;
+        draining = false;
 
         // Snapshot the standalone listeners added via addListener() before
         // start(). registerServiceListeners() below appends service-owned
@@ -581,6 +608,7 @@ public class Gumdrop {
                 }
             }
             acceptLoop.onReady(() -> {
+                ready = true;
                 long t2 = System.currentTimeMillis();
                 if (LOGGER.isLoggable(Level.INFO)) {
                     String message = L10N.getString("info.started_gumdrop");
@@ -589,6 +617,7 @@ public class Gumdrop {
                 }
             });
         } else {
+            ready = true;
             long t2 = System.currentTimeMillis();
             if (LOGGER.isLoggable(Level.INFO)) {
                 String message = L10N.getString("info.started_gumdrop");
@@ -636,6 +665,19 @@ public class Gumdrop {
     /**
      * Shuts down the Gumdrop infrastructure gracefully.
      *
+     * <p>Shutdown proceeds in three phases so that in-flight work is not cut
+     * off (important for rolling deploys and scale-down in orchestrators):
+     * <ol>
+     *   <li><b>Stop accepting</b> — the accept loop is stopped and all server
+     *       channels are closed, so no new connections are admitted, while the
+     *       listener objects are retained to observe their in-flight counts.</li>
+     *   <li><b>Drain</b> — wait up to {@link #getDrainTimeoutMs()} for the
+     *       currently-open connections to finish naturally while the worker
+     *       loops keep running.</li>
+     *   <li><b>Force stop</b> — stop services, clear state, and shut down the
+     *       worker loops, scheduled timer, storage pool, and configurator.</li>
+     * </ol>
+     *
      * <p>After shutdown, {@link #start()} can be called again to restart.
      */
     public void shutdown() {
@@ -647,12 +689,31 @@ public class Gumdrop {
             LOGGER.info(L10N.getString("info.closing_servers"));
         }
 
-        // Stop accepting new TCP connections
+        // No longer ready: fail readiness immediately so load balancers stop
+        // routing new work before we begin draining.
+        ready = false;
+        draining = true;
+
+        // ── Phase 1: stop accepting new connections ──
         if (acceptLoopRunning) {
             acceptLoop.shutdown();
             acceptLoopRunning = false;
         }
+        // Close server channels now so no new connections are admitted, but
+        // keep the listener objects so their in-flight counts can be observed
+        // during the drain phase below.
+        for (TCPListener server :
+                new ArrayList<TCPListener>(serverListeners)) {
+            server.closeServerChannels();
+        }
 
+        // ── Phase 2: drain in-flight connections (bounded) ──
+        long drainTimeout = drainTimeoutMs;
+        if (drainTimeout > 0) {
+            awaitConnectionsDrained(drainTimeout);
+        }
+
+        // ── Phase 3: force stop ──
         // Stop all services (services stop their own listeners)
         for (int i = 0; i < services.size(); i++) {
             Service service = (Service) services.get(i);
@@ -677,9 +738,12 @@ public class Gumdrop {
             DNSResolver.removeForLoop(loop);
         }
 
-        // Stop worker loops
+        // Stop worker loops, then wait briefly for each to flush and exit.
         for (SelectorLoop loop : workerLoops) {
             loop.shutdown();
+        }
+        for (SelectorLoop loop : workerLoops) {
+            loop.awaitQuiesce(LOOP_QUIESCE_TIMEOUT_MS);
         }
 
         // Stop scheduled timer
@@ -698,9 +762,101 @@ public class Gumdrop {
         }
 
         started = false;
+        draining = false;
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Gumdrop shutdown complete");
+        }
+    }
+
+    /**
+     * Returns whether Gumdrop is currently draining in-flight connections as
+     * part of a graceful shutdown. Intended for readiness/health reporting so
+     * orchestrators can observe the draining state.
+     *
+     * @return true while a graceful shutdown drain is in progress
+     */
+    public boolean isDraining() {
+        return draining;
+    }
+
+    /**
+     * Returns whether Gumdrop is fully started and ready to serve traffic
+     * (all listeners bound and not draining). Intended for readiness probes:
+     * it becomes true only once the accept loop has bound the listeners, and
+     * flips back to false at the start of {@link #shutdown()}.
+     *
+     * @return true when the server is ready to accept work
+     */
+    public boolean isReady() {
+        return started && ready && !draining;
+    }
+
+    /**
+     * Returns the graceful-drain timeout in milliseconds.
+     *
+     * @return the drain timeout, or 0 if draining is disabled
+     */
+    public long getDrainTimeoutMs() {
+        return drainTimeoutMs;
+    }
+
+    /**
+     * Sets the graceful-drain timeout in milliseconds. 0 disables draining
+     * (shutdown force-closes connections immediately).
+     *
+     * @param drainTimeoutMs the drain timeout in milliseconds
+     */
+    public void setDrainTimeoutMs(long drainTimeoutMs) {
+        this.drainTimeoutMs = drainTimeoutMs;
+    }
+
+    /**
+     * Returns the total number of in-flight connections currently open across
+     * all TCP server listeners.
+     */
+    private int activeServerConnectionCount() {
+        int total = 0;
+        for (TCPListener listener :
+                new ArrayList<TCPListener>(serverListeners)) {
+            total += listener.getActiveConnectionCount();
+        }
+        return total;
+    }
+
+    /**
+     * Waits up to {@code timeoutMs} for in-flight server connections to finish,
+     * polling their aggregate count. Returns immediately when nothing is in
+     * flight (e.g. client-only auto-shutdown). Runs on the caller's thread
+     * (the shutdown-hook thread on SIGTERM), so the blocking wait here does
+     * not stall the worker loops that are draining the connections.
+     */
+    private void awaitConnectionsDrained(long timeoutMs) {
+        int remaining = activeServerConnectionCount();
+        if (remaining == 0) {
+            return;
+        }
+        if (LOGGER.isLoggable(Level.INFO)) {
+            LOGGER.info("Draining " + remaining
+                    + " in-flight connection(s), up to " + timeoutMs + "ms");
+        }
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (remaining > 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(DRAIN_POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            remaining = activeServerConnectionCount();
+        }
+        if (remaining > 0) {
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning("Drain timeout reached with " + remaining
+                        + " connection(s) still active; forcing close");
+            }
+        } else if (LOGGER.isLoggable(Level.INFO)) {
+            LOGGER.info("All in-flight connections drained");
         }
     }
 
@@ -760,6 +916,19 @@ public class Gumdrop {
      * @return a handle that can be used to cancel the timer
      */
     public TimerHandle scheduleTimer(ChannelHandler handler, long delayMs, Runnable callback) {
+        // Prefer the handler's own SelectorLoop timer to avoid contending on a
+        // single process-wide timer lock under high connection churn. The
+        // callback fires on that loop's thread either way. Fall back to the
+        // shared timer for handlers not yet assigned to a loop.
+        if (handler != null) {
+            SelectorLoop loop = handler.getSelectorLoop();
+            if (loop != null) {
+                ScheduledTimer loopTimer = loop.getTimer();
+                if (loopTimer != null && loopTimer.isRunning()) {
+                    return loopTimer.schedule(handler, delayMs, callback);
+                }
+            }
+        }
         return scheduledTimer.schedule(handler, delayMs, callback);
     }
 
@@ -804,12 +973,22 @@ public class Gumdrop {
      * @param args command line arguments (optional: path to gumdroprc)
      */
     public static void main(String[] args) {
-        // Determine configuration file location
-        File gumdroprc;
+        // Determine configuration file location. Search order:
+        //   1. explicit command-line argument
+        //   2. GUMDROP_CONFIG environment variable (12-factor / container)
+        //   3. ~/.gumdroprc
+        //   4. /etc/gumdroprc
+        File gumdroprc = null;
         if (args.length > 0) {
             gumdroprc = new File(args[0]);
         } else {
-            gumdroprc = new File(System.getProperty("user.home") + File.separator + ".gumdroprc");
+            String envConfig = System.getenv("GUMDROP_CONFIG");
+            if (envConfig != null && !envConfig.isEmpty()) {
+                gumdroprc = new File(envConfig);
+            } else {
+                gumdroprc = new File(System.getProperty("user.home")
+                        + File.separator + ".gumdroprc");
+            }
         }
         if (!gumdroprc.exists()) {
             gumdroprc = new File("/etc/gumdroprc");
@@ -823,6 +1002,16 @@ public class Gumdrop {
 
         // Get instance with configuration
         Gumdrop gumdrop = getInstance(gumdroprc);
+
+        // Allow the graceful-drain timeout to be tuned per environment.
+        String drainEnv = System.getenv("GUMDROP_DRAIN_TIMEOUT_MS");
+        if (drainEnv != null && !drainEnv.isEmpty()) {
+            try {
+                gumdrop.setDrainTimeoutMs(Long.parseLong(drainEnv.trim()));
+            } catch (NumberFormatException e) {
+                LOGGER.warning("Invalid GUMDROP_DRAIN_TIMEOUT_MS: " + drainEnv);
+            }
+        }
 
         // Start
         gumdrop.start();

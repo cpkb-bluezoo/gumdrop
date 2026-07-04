@@ -58,6 +58,9 @@ public abstract class TransportFactory {
     /** Default maximum network input buffer size: 1 MB */
     public static final int DEFAULT_MAX_NET_IN_SIZE = 1024 * 1024;
 
+    /** Default maximum network output buffer size: 4 MB */
+    public static final int DEFAULT_MAX_NET_OUT_SIZE = 4 * 1024 * 1024;
+
     // -- Security configuration --
 
     protected boolean secure;
@@ -123,6 +126,7 @@ public abstract class TransportFactory {
     // -- Buffer limits --
 
     private int maxNetInSize = DEFAULT_MAX_NET_IN_SIZE;
+    private int maxNetOutSize = DEFAULT_MAX_NET_OUT_SIZE;
 
     protected TransportFactory() {
     }
@@ -395,6 +399,27 @@ public abstract class TransportFactory {
      */
     public void setMaxNetInSize(int size) {
         this.maxNetInSize = size;
+    }
+
+    /**
+     * Returns the maximum outbound network buffer size in bytes. When a
+     * connection's pending write buffer would exceed this size (because the
+     * peer is not draining), the connection is closed instead of buffering
+     * unbounded data off-heap. 0 disables the limit.
+     *
+     * @return the maximum outbound buffer size in bytes, or 0 for unlimited
+     */
+    public int getMaxNetOutSize() {
+        return maxNetOutSize;
+    }
+
+    /**
+     * Sets the maximum outbound network buffer size in bytes.
+     *
+     * @param size the maximum buffer size in bytes, or 0 for unlimited
+     */
+    public void setMaxNetOutSize(int size) {
+        this.maxNetOutSize = size;
     }
 
     // -- Lifecycle --

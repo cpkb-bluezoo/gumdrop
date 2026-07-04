@@ -38,6 +38,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SAX-based parser for the gumdroprc configuration file.
@@ -58,6 +60,16 @@ import java.util.logging.Logger;
 public class ConfigurationParser extends DefaultHandler {
     
     private static final Logger LOGGER = Logger.getLogger(ConfigurationParser.class.getName());
+
+    /**
+     * Matches {@code ${ENV:NAME}} and {@code ${ENV:NAME:default}} placeholders
+     * in configuration string values, allowing ports, hostnames, certificate
+     * paths, and secrets (e.g. keystore passwords) to be supplied from the
+     * environment (Kubernetes Secrets/ConfigMaps) instead of being hardcoded in
+     * the XML. This is the key enabler for immutable, per-environment images.
+     */
+    private static final Pattern ENV_PATTERN = Pattern.compile(
+            "\\$\\{ENV:([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\\}");
 
     /** Default class names for configuration element types. */
     private static final Map<String, String> DEFAULT_CLASS_NAMES;
@@ -224,7 +236,7 @@ public class ConfigurationParser extends DefaultHandler {
             for (int i = 0; i < atts.getLength(); i++) {
                 String attrName = getAttributeName(atts, i);
                 if (!"id".equals(attrName) && !"class".equals(attrName)) {
-                    String attrValue = atts.getValue(i);
+                    String attrValue = interpolate(atts.getValue(i));
                     currentComponent.addProperty(
                         new PropertyDefinition(attrName, attrValue));
                 }
@@ -253,7 +265,8 @@ public class ConfigurationParser extends DefaultHandler {
                 String attrName = getAttributeName(atts, i);
                 if (!"class".equals(attrName)) {
                     inlineComponent.addProperty(
-                        new PropertyDefinition(attrName, atts.getValue(i)));
+                        new PropertyDefinition(attrName,
+                                interpolate(atts.getValue(i))));
                 }
             }
             
@@ -309,7 +322,8 @@ public class ConfigurationParser extends DefaultHandler {
                 if (!"class".equals(attrName)) {
                     listenerDef.addProperty(
                             new PropertyDefinition(
-                                    attrName, atts.getValue(i)));
+                                    attrName,
+                                    interpolate(atts.getValue(i))));
                 }
             }
 
@@ -404,7 +418,7 @@ public class ConfigurationParser extends DefaultHandler {
                 if ("class".equals(attrName)) {
                     continue;
                 }
-                String attrValue = atts.getValue(i);
+                String attrValue = interpolate(atts.getValue(i));
                 if ("root".equals(attrName)) {
                     // Expand ~ and resolve relative to config file directory
                     if (attrValue.length() > 0 && attrValue.charAt(0) == '~') {
@@ -475,9 +489,10 @@ public class ConfigurationParser extends DefaultHandler {
         if (refAttr != null) {
             currentPropertyValue = parseReference(refAttr);
         } else if (pathAttr != null) {
-            currentPropertyValue = baseDir.resolve(pathAttr).normalize();
+            currentPropertyValue =
+                    baseDir.resolve(interpolate(pathAttr)).normalize();
         } else if (valueAttr != null) {
-            currentPropertyValue = valueAttr;
+            currentPropertyValue = interpolate(valueAttr);
         } else {
             currentPropertyValue = null;
         }
@@ -490,7 +505,7 @@ public class ConfigurationParser extends DefaultHandler {
         
         // If no value set by child elements, use text content
         if (currentPropertyValue == null) {
-            String text = textContent.toString().trim();
+            String text = interpolate(textContent.toString().trim());
             if (!text.isEmpty()) {
                 currentPropertyValue = text;
             }
@@ -567,13 +582,51 @@ public class ConfigurationParser extends DefaultHandler {
             mapContext.value.put(key, ref);
         } else if (valueAttr != null) {
             // Simple string value from attribute
-            mapContext.value.put(key, valueAttr);
+            mapContext.value.put(key, interpolate(valueAttr));
         } else {
             // Value will come from child elements or text
             mapContext.pendingKey = key;
         }
     }
     
+    /**
+     * Substitutes {@code ${ENV:NAME}} / {@code ${ENV:NAME:default}} placeholders
+     * with the corresponding environment variable value. When the variable is
+     * unset the default is used if present, otherwise an empty string is
+     * substituted and a warning is logged.
+     *
+     * @param value the raw configuration value (may be null)
+     * @return the value with environment placeholders resolved
+     */
+    static String interpolate(String value) {
+        if (value == null || value.indexOf("${ENV:") < 0) {
+            return value;
+        }
+        Matcher m = ENV_PATTERN.matcher(value);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String name = m.group(1);
+            String def = m.group(2);
+            String env = System.getenv(name);
+            String replacement;
+            if (env != null) {
+                replacement = env;
+            } else if (def != null) {
+                replacement = def;
+            } else {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning("Environment variable " + name
+                            + " referenced in configuration is not set;"
+                            + " substituting empty string");
+                }
+                replacement = "";
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     private String getDefaultClassName(String elementName) {
         String className = DEFAULT_CLASS_NAMES.get(elementName);
         if (className == null) {

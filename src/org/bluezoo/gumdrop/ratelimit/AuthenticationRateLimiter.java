@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -108,6 +109,15 @@ public class AuthenticationRateLimiter {
     // Background cleanup
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> cleanupTask;
+
+    /**
+     * Timestamp of the last opportunistic cleanup. Cleanup runs inline at most
+     * once per {@link #CLEANUP_INTERVAL_MS} so expired trackers are reclaimed
+     * even when no external {@link #setScheduler scheduler} has been wired in,
+     * removing the unbounded-growth leak without a per-listener thread.
+     */
+    private final AtomicLong lastCleanup =
+            new AtomicLong(System.currentTimeMillis());
 
     /**
      * Tracks authentication failures for a single key (IP or username).
@@ -289,6 +299,10 @@ public class AuthenticationRateLimiter {
      * @return {@code true} if the key is locked out
      */
     public boolean isLocked(String key) {
+        // Opportunistically reclaim expired trackers so the map stays bounded
+        // regardless of whether a background scheduler was wired in.
+        maybeCleanup();
+
         if (key == null) {
             return false;
         }
@@ -451,6 +465,26 @@ public class AuthenticationRateLimiter {
     public void setScheduler(ScheduledExecutorService scheduler) {
         this.scheduler = scheduler;
         scheduleCleanup();
+    }
+
+    /**
+     * Runs {@link #cleanup()} inline at most once per
+     * {@link #CLEANUP_INTERVAL_MS}. The CAS gate ensures the O(n) scan runs
+     * rarely and by only one caller at a time, keeping the tracker map bounded
+     * without relying on an external scheduler.
+     */
+    private void maybeCleanup() {
+        long now = System.currentTimeMillis();
+        long last = lastCleanup.get();
+        if (now - last >= CLEANUP_INTERVAL_MS
+                && lastCleanup.compareAndSet(last, now)) {
+            try {
+                cleanup();
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("ratelimit.err.cleanup_failed"), e);
+            }
+        }
     }
 
     /**

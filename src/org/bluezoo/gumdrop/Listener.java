@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -71,6 +72,9 @@ public abstract class Listener {
     /** Default maximum network input buffer size: 1 MB */
     public static final int DEFAULT_MAX_NET_IN_SIZE = 1024 * 1024;
 
+    /** Default maximum network output buffer size: 4 MB */
+    public static final int DEFAULT_MAX_NET_OUT_SIZE = 4 * 1024 * 1024;
+
     /** Default connection idle timeout: 5 minutes */
     public static final long DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -97,10 +101,12 @@ public abstract class Listener {
     private Map<String, String> sniHostnameToAlias;
     private String sniDefaultAlias;
     private int maxNetInSize = DEFAULT_MAX_NET_IN_SIZE;
+    private int maxNetOutSize = DEFAULT_MAX_NET_OUT_SIZE;
 
     // ── Server-level configuration ──
 
     private Set<InetAddress> addresses = null;
+    private boolean wildcard = false;
     protected boolean needClientAuth = false;
     private long idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
     private long readTimeoutMs = DEFAULT_READ_TIMEOUT_MS;
@@ -109,6 +115,21 @@ public abstract class Listener {
     private AuthenticationRateLimiter authRateLimiter;
     private List<CIDRNetwork> allowedNetworks;
     private List<CIDRNetwork> blockedNetworks;
+
+    /**
+     * Global (per-listener) cap on the number of simultaneously accepted
+     * connections. 0 disables the limit. This is the hard admission-control
+     * backstop that protects a single instance from file-descriptor and
+     * memory exhaustion regardless of source IP.
+     */
+    private int maxConnections = 0;
+
+    /**
+     * Number of currently open connections accepted by this listener.
+     * Incremented on the accept thread and decremented (from worker threads)
+     * when an endpoint closes, so it must be atomic.
+     */
+    private final AtomicInteger activeConnectionCount = new AtomicInteger();
 
     // ── Transport factory (created at start) ──
 
@@ -163,6 +184,14 @@ public abstract class Listener {
 
     public void setMaxNetInSize(int size) {
         this.maxNetInSize = size;
+    }
+
+    public int getMaxNetOutSize() {
+        return maxNetOutSize;
+    }
+
+    public void setMaxNetOutSize(int size) {
+        this.maxNetOutSize = size;
     }
 
     public boolean isSecure() {
@@ -264,17 +293,55 @@ public abstract class Listener {
             StringTokenizer st = new StringTokenizer(value, ", ");
             while (st.hasMoreTokens()) {
                 String token = st.nextToken().trim();
-                if (!token.isEmpty()) {
-                    try {
-                        addresses.add(InetAddress.getByName(token));
-                    } catch (UnknownHostException e) {
-                        LOGGER.warning(MessageFormat.format(
-                                Gumdrop.L10N.getString("err.unknown_host"),
-                                token));
-                    }
+                if (token.isEmpty()) {
+                    continue;
+                }
+                if (isWildcardToken(token)) {
+                    // Bind a single wildcard socket rather than enumerating
+                    // individual NIC addresses (container-friendly).
+                    wildcard = true;
+                    continue;
+                }
+                try {
+                    addresses.add(InetAddress.getByName(token));
+                } catch (UnknownHostException e) {
+                    LOGGER.warning(MessageFormat.format(
+                            Gumdrop.L10N.getString("err.unknown_host"),
+                            token));
                 }
             }
+            if (addresses.isEmpty()) {
+                addresses = null;
+            }
         }
+    }
+
+    private static boolean isWildcardToken(String token) {
+        return "*".equals(token)
+                || "0.0.0.0".equals(token)
+                || "::".equals(token)
+                || "[::]".equals(token);
+    }
+
+    /**
+     * Enables or disables binding to a single wildcard socket
+     * ({@code 0.0.0.0} / {@code ::}) instead of enumerating every local
+     * NIC address. Recommended for container deployments, where per-NIC
+     * enumeration is brittle. Defaults to false.
+     *
+     * @param wildcard true to bind the wildcard address
+     */
+    public void setWildcard(boolean wildcard) {
+        this.wildcard = wildcard;
+    }
+
+    /**
+     * Returns whether this listener binds the wildcard address.
+     *
+     * @return true if wildcard binding is enabled
+     */
+    public boolean isWildcard() {
+        return wildcard;
     }
 
     public void setNeedClientAuth(boolean flag) {
@@ -323,28 +390,79 @@ public abstract class Listener {
     }
 
     /**
-     * Notifies the connection rate limiter that a connection has closed.
+     * Returns the global maximum number of simultaneous connections
+     * accepted by this listener, or 0 if unlimited.
      *
-     * @param remoteAddress the remote address of the closed connection
+     * @return the connection cap, or 0 for unlimited
      */
-    public void connectionClosed(InetSocketAddress remoteAddress) {
-        if (connectionRateLimiter != null && remoteAddress != null) {
-            connectionRateLimiter.connectionClosed(remoteAddress.getAddress());
+    public int getMaxConnections() {
+        return maxConnections;
+    }
+
+    /**
+     * Sets a global cap on the number of simultaneously accepted connections
+     * for this listener. When the cap is reached, new connections are
+     * rejected at accept time. This is the hard backstop against
+     * file-descriptor and memory exhaustion; per-IP limits still apply
+     * independently.
+     *
+     * @param max the maximum concurrent connections (0 to disable)
+     */
+    public void setMaxConnections(int max) {
+        this.maxConnections = max;
+    }
+
+    /**
+     * Returns the number of connections currently open on this listener.
+     *
+     * @return the active connection count
+     */
+    public int getActiveConnectionCount() {
+        return activeConnectionCount.get();
+    }
+
+    /**
+     * Records that a connection has been admitted and is now open. Called on
+     * the accept path once {@link #acceptConnection} has returned {@code true}
+     * and the endpoint has been created. Increments the global connection
+     * counter and consumes a rate-limit token, and (for IP connections)
+     * updates per-IP concurrency tracking.
+     *
+     * @param remoteAddress the remote address of the accepted connection
+     */
+    public void connectionOpened(SocketAddress remoteAddress) {
+        activeConnectionCount.incrementAndGet();
+        if (connectionRateLimiter != null
+                && remoteAddress instanceof InetSocketAddress) {
+            connectionRateLimiter.connectionOpened(
+                    ((InetSocketAddress) remoteAddress).getAddress());
         }
     }
 
     /**
-     * Notifies the connection rate limiter that a connection has closed.
-     * Delegates to {@link #connectionClosed(InetSocketAddress)} for TCP
-     * connections; no-op for UNIX domain socket connections (no IP to
-     * track).
+     * Notifies the listener that a connection has closed, releasing its
+     * admission accounting. Decrements the global connection counter and
+     * (for IP connections) the per-IP concurrency tracking. Must be called
+     * exactly once per {@link #connectionOpened} call.
      *
      * @param remoteAddress the remote address of the closed connection
      */
     public void connectionClosed(SocketAddress remoteAddress) {
-        if (remoteAddress instanceof InetSocketAddress) {
-            connectionClosed((InetSocketAddress) remoteAddress);
+        activeConnectionCount.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        if (connectionRateLimiter != null
+                && remoteAddress instanceof InetSocketAddress) {
+            connectionRateLimiter.connectionClosed(
+                    ((InetSocketAddress) remoteAddress).getAddress());
         }
+    }
+
+    /**
+     * Convenience overload for callers holding an {@link InetSocketAddress}.
+     *
+     * @param remoteAddress the remote address of the closed connection
+     */
+    public void connectionClosed(InetSocketAddress remoteAddress) {
+        connectionClosed((SocketAddress) remoteAddress);
     }
 
     public void setRateLimit(String rateLimit) {
@@ -464,6 +582,7 @@ public abstract class Listener {
             factory.setNamedGroups(namedGroups);
         }
         factory.setMaxNetInSize(maxNetInSize);
+        factory.setMaxNetOutSize(maxNetOutSize);
 
         if (factory instanceof TCPTransportFactory) {
             TCPTransportFactory tcpFactory = (TCPTransportFactory) factory;
@@ -504,6 +623,13 @@ public abstract class Listener {
         if (getPath() != null) {
             return Collections.emptySet();
         }
+        if (wildcard) {
+            // Any-local address; the accept path binds this as a single
+            // (dual-stack where supported) wildcard socket.
+            Set<InetAddress> wild = new LinkedHashSet<InetAddress>();
+            wild.add(new InetSocketAddress(0).getAddress());
+            return wild;
+        }
         if (addresses != null) {
             return addresses;
         }
@@ -533,6 +659,18 @@ public abstract class Listener {
      * @return true if the connection should be accepted
      */
     public boolean acceptConnection(SocketAddress remoteAddress) {
+        // Global admission backstop: reject once the hard connection cap is
+        // reached, before any per-IP checks. Safe to check-then-admit without
+        // locking because accepts are serialised on the single accept thread.
+        if (maxConnections > 0
+                && activeConnectionCount.get() >= maxConnections) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Connection cap reached (" + maxConnections
+                        + "); rejecting " + remoteAddress);
+            }
+            return false;
+        }
+
         if (!(remoteAddress instanceof InetSocketAddress)) {
             return true;
         }

@@ -284,14 +284,18 @@ final class SSLState {
                 }
             }
         } catch (SSLException e) {
+            // Includes outbound-buffer-overflow aborts from growNetOut. Tear
+            // the connection down rather than leaving it half-broken. The
+            // catch runs outside netOutLock, so it is safe to close here.
             LOGGER.log(Level.SEVERE, "SSL wrap error", e);
+            handleClosed("wrap");
         }
     }
     
     /**
      * Ensures netOut has at least the specified capacity remaining.
      */
-    private void ensureNetOutCapacity(int needed) {
+    private void ensureNetOutCapacity(int needed) throws SSLException {
         if (netOut().remaining() < needed) {
             growNetOut(needed);
         }
@@ -299,10 +303,23 @@ final class SSLState {
     
     /**
      * Grows the netOut buffer to accommodate more data.
+     *
+     * <p>Enforces the transport's outbound buffer ceiling: if the peer is not
+     * draining and the encrypted output buffer would exceed
+     * {@link TCPEndpoint#getMaxNetOutSize()}, an {@link SSLException} is thrown
+     * so the surrounding handshake/wrap logic tears the connection down instead
+     * of buffering without bound.
+     *
+     * @throws SSLException if the buffer would exceed the configured maximum
      */
-    private void growNetOut(int additional) {
+    private void growNetOut(int additional) throws SSLException {
         ByteBuffer out = netOut();
         int newSize = out.position() + additional + DEFAULT_BUFFER_SIZE;
+        int cap = tcpEndpoint.getMaxNetOutSize();
+        if (cap > 0 && newSize > cap) {
+            throw new SSLException("Outbound TLS buffer exceeded maximum size ("
+                    + cap + " bytes); peer not reading");
+        }
         ByteBuffer newBuf = DirectByteBufferPool.acquire(newSize);
         out.flip();
         newBuf.put(out);

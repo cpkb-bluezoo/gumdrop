@@ -77,8 +77,14 @@ final class ScheduledTimer implements Runnable {
 
     private Thread thread;
     private volatile boolean active;
+    private final String name;
 
     ScheduledTimer() {
+        this("ScheduledTimer");
+    }
+
+    ScheduledTimer(String name) {
+        this.name = name;
         this.queue = new PriorityQueue<TimerEntry>();
         this.lock = new ReentrantLock();
         this.condition = lock.newCondition();
@@ -92,7 +98,7 @@ final class ScheduledTimer implements Runnable {
         if (thread != null && thread.isAlive()) {
             return; // Already running
         }
-        thread = new Thread(this, "ScheduledTimer");
+        thread = new Thread(this, name);
         thread.setDaemon(true);
         thread.start();
     }

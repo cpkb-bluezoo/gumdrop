@@ -97,6 +97,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.mailbox.index;
     
     // Supporting services
+    exports org.bluezoo.gumdrop.health;
     exports org.bluezoo.gumdrop.auth;
     exports org.bluezoo.gumdrop.mime;
     exports org.bluezoo.gumdrop.mime.rfc2047;
