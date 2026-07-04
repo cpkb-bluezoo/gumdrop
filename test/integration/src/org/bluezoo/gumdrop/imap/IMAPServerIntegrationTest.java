@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -39,8 +40,6 @@ import org.junit.rules.Timeout;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -73,7 +72,10 @@ public class IMAPServerIntegrationTest {
     
     private Gumdrop gumdrop;
     private IMAPListener imapServer;
-    
+
+    /** Private temporary copy of the mbox fixture (deleted in teardown). */
+    private Path mboxRoot;
+
     private Logger rootLogger;
     private Level originalLogLevel;
     
@@ -84,8 +86,10 @@ public class IMAPServerIntegrationTest {
         originalLogLevel = rootLogger.getLevel();
         rootLogger.setLevel(Level.WARNING);
         
-        // Get mailbox paths (reuse POP3 test mailboxes)
-        Path mboxRoot = Paths.get("test/integration/mailbox/mbox").toAbsolutePath();
+        // Operate on a private copy of the read-only mbox fixture: APPEND and
+        // even plain reads mutate the store (new .mbox files, .gidx sidecars),
+        // so the source tree must never be used directly.
+        mboxRoot = MailboxFixtures.copy("mbox");
         
         // Create test realm
         TestRealm realm = new TestRealm();
@@ -117,6 +121,7 @@ public class IMAPServerIntegrationTest {
             }
             Thread.sleep(1500); // Allow ports to be released
         } finally {
+            MailboxFixtures.delete(mboxRoot);
             if (rootLogger != null && originalLogLevel != null) {
                 rootLogger.setLevel(originalLogLevel);
             }
@@ -506,6 +511,155 @@ public class IMAPServerIntegrationTest {
             }
             assertTrue("Should have BYE untagged response", hasBye);
         }
+    }
+    
+    // ==================== APPEND Tests ====================
+    
+    @Test
+    public void testAppendSynchronizingLiteral() throws Exception {
+        // Append to a dedicated mailbox (auto-created by the store) so the
+        // shared INBOX fixture is not mutated; the file is removed afterwards.
+        String mailbox = "AppendSyncTest";
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+            assertTrue("LOGIN should succeed",
+                IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
+
+            IMAPClientHelper.IMAPResponse created = session.sendCommand("CREATE " + mailbox);
+            assertTrue("CREATE should succeed: " + created, created.ok);
+
+            String message = "Subject: Append Sync Test\r\n"
+                    + "From: sender@example.com\r\n"
+                    + "\r\n"
+                    + "Body of a synchronizing-literal APPEND.\r\n";
+            int size = message.getBytes(java.nio.charset.StandardCharsets.US_ASCII).length;
+
+            String tag = "X100";
+            session.sendRaw(tag + " APPEND " + mailbox + " {" + size + "}");
+            IMAPClientHelper.IMAPResponse cont = session.readResponse(tag);
+            assertFalse("Server should request continuation, not tag yet",
+                    cont.ok || cont.no || cont.bad);
+
+            session.sendRawNoNewline(message);
+            IMAPClientHelper.IMAPResponse result = session.readResponse(tag);
+            assertTrue("APPEND should succeed: " + result, result.ok);
+        } finally {
+            deleteMbox(mailbox);
+        }
+    }
+
+    @Test
+    public void testAppendNonSynchronizingLiteral() throws Exception {
+        String mailbox = "AppendLiteralPlusTest";
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+            assertTrue("LOGIN should succeed",
+                IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
+
+            IMAPClientHelper.IMAPResponse created = session.sendCommand("CREATE " + mailbox);
+            assertTrue("CREATE should succeed: " + created, created.ok);
+
+            String message = "Subject: Append Literal+ Test\r\n"
+                    + "From: sender@example.com\r\n"
+                    + "\r\n"
+                    + "Body of a non-synchronizing (LITERAL+) APPEND.\r\n";
+            int size = message.getBytes(java.nio.charset.StandardCharsets.US_ASCII).length;
+
+            // LITERAL+: command line and literal are pipelined together, so the
+            // literal lands in the connection buffer while the mailbox is still
+            // opening off-loop, exercising the buffering path.
+            String tag = "X200";
+            session.sendRawNoNewline(
+                    tag + " APPEND " + mailbox + " {" + size + "+}\r\n" + message);
+            IMAPClientHelper.IMAPResponse result = session.readResponse(tag);
+            assertTrue("LITERAL+ APPEND should succeed: " + result, result.ok);
+        } finally {
+            deleteMbox(mailbox);
+        }
+    }
+
+    // ==================== COPY / MOVE Tests ====================
+    //
+    // The built-in mbox/maildir stores do not implement copyMessages/
+    // moveMessages (the Mailbox default throws UnsupportedOperationException),
+    // so a successful COPY/MOVE cannot be exercised here. These tests instead
+    // verify that the offloaded COPY/MOVE path delivers the correct tagged NO
+    // on the loop thread end-to-end (i.e. it does not hang and reports the
+    // unsupported operation), which validates the async offload plumbing.
+
+    @Test
+    public void testCopyUnsupportedReportsNo() throws Exception {
+        String source = "CopySource";
+        String target = "CopyTarget";
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+            assertTrue("LOGIN should succeed",
+                IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
+            assertTrue("CREATE source", session.sendCommand("CREATE " + source).ok);
+            assertTrue("CREATE target", session.sendCommand("CREATE " + target).ok);
+
+            appendMessage(session, source,
+                    "Subject: Copy Me\r\nFrom: a@example.com\r\n\r\nCopy body.\r\n");
+
+            assertTrue("SELECT source", session.sendCommand("SELECT " + source).ok);
+
+            IMAPClientHelper.IMAPResponse copy = session.sendCommand("COPY 1 " + target);
+            assertTrue("COPY should return NO (unsupported): " + copy, copy.no);
+            assertTrue("COPY NO should carry TRYCREATE: " + copy,
+                    copy.statusMessage.contains("TRYCREATE"));
+        } finally {
+            deleteMbox(source);
+            deleteMbox(target);
+        }
+    }
+
+    @Test
+    public void testMoveUnsupportedReportsNo() throws Exception {
+        String source = "MoveSource";
+        String target = "MoveTarget";
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+            assertTrue("LOGIN should succeed",
+                IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
+            assertTrue("CREATE source", session.sendCommand("CREATE " + source).ok);
+            assertTrue("CREATE target", session.sendCommand("CREATE " + target).ok);
+
+            appendMessage(session, source,
+                    "Subject: Move Me\r\nFrom: a@example.com\r\n\r\nMove body.\r\n");
+
+            assertTrue("SELECT source", session.sendCommand("SELECT " + source).ok);
+
+            IMAPClientHelper.IMAPResponse move = session.sendCommand("MOVE 1 " + target);
+            assertTrue("MOVE should return NO (unsupported): " + move, move.no);
+            assertTrue("MOVE NO should carry TRYCREATE: " + move,
+                    move.statusMessage.contains("TRYCREATE"));
+        } finally {
+            deleteMbox(source);
+            deleteMbox(target);
+        }
+    }
+
+    /**
+     * Appends a single message to an existing mailbox using a synchronizing
+     * literal, asserting success. Used to set up COPY/MOVE source state.
+     */
+    private void appendMessage(IMAPClientHelper.IMAPSession session,
+            String mailbox, String message) throws Exception {
+        int size = message.getBytes(java.nio.charset.StandardCharsets.US_ASCII).length;
+        String tag = "P001";
+        session.sendRaw(tag + " APPEND " + mailbox + " {" + size + "}");
+        IMAPClientHelper.IMAPResponse cont = session.readResponse(tag);
+        assertFalse("Server should request continuation",
+                cont.ok || cont.no || cont.bad);
+        session.sendRawNoNewline(message);
+        IMAPClientHelper.IMAPResponse result = session.readResponse(tag);
+        assertTrue("Setup APPEND should succeed: " + result, result.ok);
+    }
+
+    /**
+     * Removes an mbox file created by an APPEND test from the editor's mail
+     * directory, so tests do not leave state behind.
+     */
+    private void deleteMbox(String mailbox) throws Exception {
+        Path editor = mboxRoot.resolve("editor");
+        java.nio.file.Files.deleteIfExists(editor.resolve(mailbox + ".mbox"));
+        java.nio.file.Files.deleteIfExists(editor.resolve(mailbox + ".mbox.gidx"));
     }
     
     /**

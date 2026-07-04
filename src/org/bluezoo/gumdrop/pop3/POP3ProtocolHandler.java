@@ -46,11 +46,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.StringTokenizer;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -608,7 +611,7 @@ public class POP3ProtocolHandler
                 }
 
                 if (realm.passwordMatch(passUsername, args)) {
-                    if (openMailbox(passUsername)) {
+                    openMailboxAsync(passUsername, () -> {
                         state = POP3State.TRANSACTION;
                         if (LOGGER.isLoggable(Level.INFO)) {
                             LOGGER.info(
@@ -616,8 +619,13 @@ public class POP3ProtocolHandler
                                             + passUsername);
                         }
                         recordAuthenticationSuccess("USER/PASS");
-                        sendOK(L10N.getString("pop3.mailbox_opened"));
-                    }
+                        try {
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING,
+                                    "Failed to send PASS success", e);
+                        }
+                    });
                 } else {
                     failedAuthAttempts++;
                     lastFailedAuthTime = System.currentTimeMillis();
@@ -673,7 +681,7 @@ public class POP3ProtocolHandler
                             && expected.equalsIgnoreCase(
                                     clientDigest)) {
                         username = user;
-                        if (openMailbox(username)) {
+                        openMailboxAsync(username, () -> {
                             state = POP3State.TRANSACTION;
                             if (LOGGER.isLoggable(Level.INFO)) {
                                 LOGGER.info(
@@ -681,9 +689,14 @@ public class POP3ProtocolHandler
                                                 + user);
                             }
                             recordAuthenticationSuccess("APOP");
-                            sendOK(L10N.getString(
-                                    "pop3.mailbox_opened"));
-                        }
+                            try {
+                                sendOK(L10N.getString(
+                                        "pop3.mailbox_opened"));
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING,
+                                        "Failed to send APOP success", e);
+                            }
+                        });
                         return;
                     }
 
@@ -1010,15 +1023,18 @@ public class POP3ProtocolHandler
                     localUser = localUser.substring(0, atIndex);
                 }
             }
-            if (openMailbox(localUser)) {
-                username = localUser;
+            final String gssUser = localUser;
+            openMailboxAsync(gssUser, () -> {
+                username = gssUser;
                 state = POP3State.TRANSACTION;
                 recordAuthenticationSuccess("AUTH GSSAPI");
-                sendOK(L10N.getString("pop3.mailbox_opened"));
-            } else {
-                recordAuthenticationFailure("AUTH GSSAPI", localUser);
-                sendERR(L10N.getString("pop3.err.auth_failed"));
-            }
+                try {
+                    sendOK(L10N.getString("pop3.mailbox_opened"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send AUTH success", e);
+                }
+            });
         } catch (IOException e) {
             LOGGER.log(Level.FINE, "GSSAPI security layer failed", e);
             sendERR(L10N.getString("pop3.err.auth_failed"));
@@ -1056,16 +1072,18 @@ public class POP3ProtocolHandler
             return;
         }
 
-        if (openMailbox(result.username)) {
-            username = result.username;
+        final String extUser = result.username;
+        openMailboxAsync(extUser, () -> {
+            username = extUser;
             state = POP3State.TRANSACTION;
             recordAuthenticationSuccess("AUTH EXTERNAL");
-            sendOK(L10N.getString("pop3.mailbox_opened"));
-        } else {
-            recordAuthenticationFailure("AUTH EXTERNAL",
-                    result.username);
-            sendERR(L10N.getString("pop3.err.auth_failed"));
-        }
+            try {
+                sendOK(L10N.getString("pop3.mailbox_opened"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send AUTH success", e);
+            }
+        });
     }
 
     // ── SASL continuation (RFC 5034 section 4 — "+" continuation) ──
@@ -1211,14 +1229,18 @@ public class POP3ProtocolHandler
                         realm.getCramMD5Response(user, authChallenge);
                 if (expected != null
                         && expected.equalsIgnoreCase(clientDigest)) {
-                    if (openMailbox(user)) {
+                    openMailboxAsync(user, () -> {
                         username = user;
                         state = POP3State.TRANSACTION;
                         recordAuthenticationSuccess("AUTH CRAM-MD5");
-                        sendOK(L10N.getString("pop3.mailbox_opened"));
-                        resetAuthState();
-                        return;
-                    }
+                        try {
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING,
+                                    "Failed to send AUTH success", e);
+                        }
+                    });
+                    return;
                 }
             } catch (UnsupportedOperationException e) {
                 sendERR(L10N.getString(
@@ -1264,16 +1286,19 @@ public class POP3ProtocolHandler
                 }
                 if (result != null && result.valid
                         && user.equals(result.username)) {
-                    if (openMailbox(user)) {
+                    openMailboxAsync(user, () -> {
                         username = user;
                         state = POP3State.TRANSACTION;
                         recordAuthenticationSuccess(
                                 "AUTH OAUTHBEARER");
-                        sendOK(L10N.getString(
-                                "pop3.mailbox_opened"));
-                        resetAuthState();
-                        return;
-                    }
+                        try {
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING,
+                                    "Failed to send AUTH success", e);
+                        }
+                    });
+                    return;
                 }
             }
 
@@ -1306,16 +1331,20 @@ public class POP3ProtocolHandler
                     String ha1 = realm.getDigestHA1(
                             digestUsername, hostname);
                     if (ha1 != null) {
-                        if (openMailbox(digestUsername)) {
+                        openMailboxAsync(digestUsername, () -> {
                             username = digestUsername;
                             state = POP3State.TRANSACTION;
                             recordAuthenticationSuccess(
                                     "AUTH DIGEST-MD5");
-                            sendOK(L10N.getString(
-                                    "pop3.mailbox_opened"));
-                            resetAuthState();
-                            return;
-                        }
+                            try {
+                                sendOK(L10N.getString(
+                                        "pop3.mailbox_opened"));
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING,
+                                        "Failed to send AUTH success", e);
+                            }
+                        });
+                        return;
                     }
                 }
             }
@@ -1408,16 +1437,24 @@ public class POP3ProtocolHandler
                                 realm.getScramCredentials(
                                         pendingAuthUsername);
                         if (creds != null) {
-                            if (openMailbox(pendingAuthUsername)) {
-                                username = pendingAuthUsername;
+                            // Capture into a local: the finally below resets
+                            // pendingAuthUsername before the async continuation
+                            // runs.
+                            final String scramUser = pendingAuthUsername;
+                            openMailboxAsync(scramUser, () -> {
+                                username = scramUser;
                                 state = POP3State.TRANSACTION;
                                 recordAuthenticationSuccess(
                                         "AUTH SCRAM-SHA-256");
-                                sendOK(L10N.getString(
-                                        "pop3.mailbox_opened"));
-                                resetAuthState();
-                                return;
-                            }
+                                try {
+                                    sendOK(L10N.getString(
+                                            "pop3.mailbox_opened"));
+                                } catch (IOException e) {
+                                    LOGGER.log(Level.WARNING,
+                                            "Failed to send AUTH success", e);
+                                }
+                            });
+                            return;
                         }
                     } catch (UnsupportedOperationException e) {
                         sendERR(L10N.getString(
@@ -1455,15 +1492,21 @@ public class POP3ProtocolHandler
                 }
 
                 if (realm.passwordMatch(user, password)) {
-                    if (openMailbox(user)) {
+                    // Password verified; open the mailbox off-loop. On open
+                    // failure openMailboxAsync sends -ERR itself.
+                    openMailboxAsync(user, () -> {
                         username = user;
                         state = POP3State.TRANSACTION;
                         recordAuthenticationSuccess(
                                 "AUTH " + mechanism);
-                        sendOK(L10N.getString(
-                                "pop3.mailbox_opened"));
-                        return;
-                    }
+                        try {
+                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING,
+                                    "Failed to send AUTH success", e);
+                        }
+                    });
+                    return;
                 }
 
                 failedAuthAttempts++;
@@ -2380,6 +2423,121 @@ public class POP3ProtocolHandler
                     "pop3.err.cannot_open_mailbox"));
             return false;
         }
+    }
+
+    /**
+     * Holds the store/mailbox opened off the loop by {@link #openMailboxAsync}.
+     */
+    private static final class MailboxOpenResult {
+        final MailboxStore store;
+        final Mailbox mailbox;
+        MailboxOpenResult(MailboxStore store, Mailbox mailbox) {
+            this.store = store;
+            this.mailbox = mailbox;
+        }
+    }
+
+    /**
+     * Non-blocking equivalent of {@link #openMailbox(String)}: opening a store
+     * and scanning its mailbox is blocking disk I/O (a full maildir/mbox scan)
+     * and must not run on the SelectorLoop thread. This runs that work on the
+     * shared {@link StorageExecutor} and invokes {@code onSuccess} on the loop
+     * thread once the mailbox is open. On failure it sends {@code -ERR} exactly
+     * as {@link #openMailbox} did and does not call {@code onSuccess} (mirroring
+     * the {@code if (openMailbox(user)) &#123; ... &#125;} pattern).
+     *
+     * <p>Reads are paused while the open is in flight so a pipelined command
+     * cannot race the mailbox becoming available.
+     *
+     * @param user the authenticated user whose mailbox to open
+     * @param onSuccess success continuation, run on the loop thread
+     * @throws IOException if the synchronous authorization-handler path fails
+     */
+    private void openMailboxAsync(String user, Runnable onSuccess)
+            throws IOException {
+        MailboxFactory factory = server.getMailboxFactory();
+        if (factory == null) {
+            sendERR(L10N.getString("pop3.err.mailbox_not_configured"));
+            return;
+        }
+
+        if (authorizationHandler != null) {
+            // Pluggable authorization path: preserve the existing synchronous
+            // behaviour (the handler is a deployer extension point).
+            final String finalUser = user;
+            Principal principal = new Principal() {
+                @Override
+                public String getName() {
+                    return finalUser;
+                }
+
+                @Override
+                public String toString() {
+                    return "POP3Principal[" + finalUser + "]";
+                }
+            };
+            authorizationHandler.authenticate(this, principal, factory);
+            if (state == POP3State.TRANSACTION) {
+                onSuccess.run();
+            }
+            return;
+        }
+
+        final MailboxFactory finalFactory = factory;
+        final String finalUser = user;
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            // No pool available (e.g. server not started in a harness): fall
+            // back to the synchronous open.
+            if (openMailbox(user)) {
+                onSuccess.run();
+            }
+            return;
+        }
+
+        endpoint.pauseRead();
+        exec.submit(endpoint, new Callable<MailboxOpenResult>() {
+            @Override
+            public MailboxOpenResult call() throws IOException {
+                MailboxStore s = finalFactory.createStore();
+                try {
+                    s.open(finalUser);
+                    Mailbox m = s.openMailbox("INBOX", false);
+                    return new MailboxOpenResult(s, m);
+                } catch (IOException e) {
+                    try {
+                        s.close();
+                    } catch (IOException ce) {
+                        LOGGER.log(Level.FINE,
+                                "Error closing store after failure", ce);
+                    }
+                    throw e;
+                }
+            }
+        }, new StorageExecutor.Callback<MailboxOpenResult>() {
+            @Override
+            public void completed(MailboxOpenResult result) {
+                endpoint.resumeRead();
+                store = result.store;
+                mailbox = result.mailbox;
+                onSuccess.run();
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                endpoint.resumeRead();
+                LOGGER.log(Level.WARNING,
+                        "Failed to open mailbox for user: " + finalUser, error);
+                try {
+                    sendERR(L10N.getString("pop3.err.cannot_open_mailbox"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send mailbox-open error", e);
+                }
+            }
+        });
     }
 
     private int parseMessageNumber(String str) {

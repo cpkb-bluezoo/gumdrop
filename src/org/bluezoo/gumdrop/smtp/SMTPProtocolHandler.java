@@ -223,6 +223,15 @@ public class SMTPProtocolHandler
     private boolean dataTransferRejected;
     private String dataTransferRejectionMessage;
 
+    // Set while a message data handler is completing delivery asynchronously
+    // (it returned from messageComplete() without synchronously calling
+    // acceptMessageDelivery/rejectMessage*). While pending, any further input
+    // is retained rather than processed, so the (possibly pipelined) next
+    // command is not handled in a stale DATA/BDAT state. The retained bytes
+    // are re-driven once the async delivery reply is sent.
+    private boolean deliveryPending;
+    private ByteBuffer retainedInput;
+
     private long bdatBytesRemaining;
     private boolean bdatLast;
     private boolean bdatStarted;
@@ -262,6 +271,13 @@ public class SMTPProtocolHandler
     /** RFC 5321 §2.3.8 — line-oriented command processing; DATA/BDAT binary. */
     @Override
     public void receive(ByteBuffer buf) {
+        if (deliveryPending) {
+            // An async message delivery is in flight; do not process further
+            // input (which may be a pipelined next command) until the reply
+            // is sent. The bytes are re-driven from the delivery callback.
+            retainInput(buf);
+            return;
+        }
         try {
             if (state == SMTPState.BDAT) {
                 handleBdatContent(buf);
@@ -796,6 +812,57 @@ public class SMTPProtocolHandler
         bdatStarted = false;
     }
 
+    /**
+     * Marks the start of an asynchronous message delivery. Called immediately
+     * before {@link MessageDataHandler#messageComplete}. If the handler
+     * completes synchronously (calls acceptMessageDelivery/rejectMessage*
+     * before returning) the flag is cleared inside that call; otherwise
+     * subsequent input is retained until the async reply arrives.
+     */
+    private void beginDelivery() {
+        deliveryPending = true;
+    }
+
+    /**
+     * Called from the delivery reply methods once the async (or synchronous)
+     * delivery has produced its response. Clears the pending flag and
+     * re-drives any input retained while the delivery was in flight.
+     */
+    private void endDelivery() {
+        if (!deliveryPending) {
+            return;
+        }
+        deliveryPending = false;
+        ByteBuffer pending = retainedInput;
+        retainedInput = null;
+        if (pending != null && pending.hasRemaining()) {
+            receive(pending);
+        }
+    }
+
+    /**
+     * Appends the remaining bytes of {@code buf} to the retained-input buffer
+     * so they can be re-driven once an in-flight async delivery completes.
+     */
+    private void retainInput(ByteBuffer buf) {
+        if (buf == null || !buf.hasRemaining()) {
+            return;
+        }
+        if (retainedInput == null || !retainedInput.hasRemaining()) {
+            ByteBuffer copy = ByteBuffer.allocate(buf.remaining());
+            copy.put(buf);
+            copy.flip();
+            retainedInput = copy;
+        } else {
+            ByteBuffer merged = ByteBuffer.allocate(
+                    retainedInput.remaining() + buf.remaining());
+            merged.put(retainedInput);
+            merged.put(buf);
+            merged.flip();
+            retainedInput = merged;
+        }
+    }
+
     private void handleDataContent(ByteBuffer buf) throws IOException {
         if (controlBuffer.position() > 0) {
             handleControlSequenceWithNewData(buf);
@@ -807,6 +874,10 @@ public class SMTPProtocolHandler
             }
         }
         processDataBuffer(buf);
+        if (deliveryPending) {
+            retainInput(buf);
+            return;
+        }
         if (state != SMTPState.DATA && buf.hasRemaining()) {
             handlePipelinedCommands(buf);
         }
@@ -882,6 +953,7 @@ public class SMTPProtocolHandler
                             metrics.messageReceived(messageSize, recipientCount);
                         }
                         if (messageHandler != null) {
+                            beginDelivery();
                             messageHandler.messageComplete(this);
                             return;
                         }
@@ -931,6 +1003,10 @@ public class SMTPProtocolHandler
         }
         if (bdatBytesRemaining == 0) {
             handleBdatChunkComplete();
+            if (deliveryPending) {
+                retainInput(buf);
+                return;
+            }
             if (buf.hasRemaining() && state != SMTPState.BDAT) {
                 handlePipelinedCommands(buf);
             }
@@ -956,6 +1032,7 @@ public class SMTPProtocolHandler
                 currentPipeline.endData();
             }
             if (messageHandler != null) {
+                beginDelivery();
                 messageHandler.messageComplete(this);
                 return;
             }
@@ -3218,6 +3295,7 @@ public class SMTPProtocolHandler
             LOGGER.log(Level.SEVERE, "Error sending acceptance", e);
             closeEndpoint();
         }
+        endDelivery();
     }
 
     @Override
@@ -3229,6 +3307,7 @@ public class SMTPProtocolHandler
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error sending rejection", e);
         }
+        endDelivery();
     }
 
     @Override
@@ -3240,6 +3319,7 @@ public class SMTPProtocolHandler
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error sending rejection", e);
         }
+        endDelivery();
     }
 
     @Override
@@ -3251,6 +3331,7 @@ public class SMTPProtocolHandler
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE, "Error sending rejection", e);
         }
+        endDelivery();
     }
 
     // ── ResetState implementation (RFC 5321 §4.1.1.5) ──

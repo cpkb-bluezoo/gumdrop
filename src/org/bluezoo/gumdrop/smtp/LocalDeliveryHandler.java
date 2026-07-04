@@ -29,10 +29,16 @@ import java.security.Principal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.smtp.handler.*;
@@ -88,9 +94,25 @@ public class LocalDeliveryHandler
     private List<String> recipients;  // Local-parts of recipients
     private ByteArrayOutputStream messageBuffer;
 
-    // Async append state (used when openAsyncAppend is available)
+    // Async append state. Opening the per-recipient async writers is blocking
+    // disk I/O (store scan + file lock / temp-file create), so it is offloaded
+    // to the StorageExecutor while the DATA state transition (354) is sent
+    // synchronously. Content that arrives before the writers are ready is
+    // accumulated in messageBuffer and flushed once they open; if async append
+    // is unavailable (e.g. mbox) the whole message is buffered and delivered
+    // at messageComplete.
     private List<AsyncAppendTarget> asyncTargets;
+    // True while the async writers are being opened off-loop.
+    private boolean targetsOpening;
+    // Non-null if end-of-message arrived before the writers finished opening;
+    // the completion is run once onTargetsOpened() fires.
+    private MessageEndState deferredEndState;
     private Runnable resumeCallback;
+
+    // Endpoint for this connection, captured in connected(). Used to offload
+    // blocking mailbox opens/deliveries to the shared StorageExecutor and
+    // marshal the result back to this connection's loop thread.
+    private Endpoint endpoint;
 
     /**
      * Creates a new local delivery handler.
@@ -129,6 +151,7 @@ public class LocalDeliveryHandler
 
     @Override
     public void connected(ConnectedState state, Endpoint endpoint) {
+        this.endpoint = endpoint;
         state.acceptConnection(hostname + " ESMTP Service ready", this);
     }
 
@@ -214,43 +237,118 @@ public class LocalDeliveryHandler
             return;
         }
 
-        // Try to open async writers for all recipients
-        asyncTargets = new ArrayList<>();
-        boolean allAsync = true;
-        for (String username : recipients) {
+        // The DATA state transition (354) MUST be sent synchronously: the
+        // protocol handler only switches to data-collection mode once
+        // acceptMessage() returns, and a pipelining client may already have
+        // the message body buffered behind the DATA command. Deferring the
+        // 354 would let that body be mis-parsed as SMTP commands and lost.
+        //
+        // Opening each recipient's store/mailbox and async writer is blocking
+        // disk I/O, so it is offloaded WITHOUT pausing reads. Content that
+        // arrives before the writers are ready is accumulated in messageBuffer
+        // and flushed to the writers once they open (streaming thereafter); if
+        // async append is unavailable, the whole message stays buffered and is
+        // delivered at messageComplete.
+        asyncTargets = null;
+        targetsOpening = true;
+        deferredEndState = null;
+        if (messageBuffer == null) {
+            messageBuffer = new ByteArrayOutputStream();
+        }
+        state.acceptMessage(this);
+
+        final List<String> recips = new ArrayList<String>(recipients);
+        offload(new Callable<List<AsyncAppendTarget>>() {
+            @Override
+            public List<AsyncAppendTarget> call() {
+                return openAsyncTargets(recips);
+            }
+        }, new Consumer<List<AsyncAppendTarget>>() {
+            @Override
+            public void accept(List<AsyncAppendTarget> targets) {
+                onTargetsOpened(targets);
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.FINE,
+                        "Async append unavailable; buffering", error);
+                onTargetsOpened(null);
+            }
+        });
+    }
+
+    /**
+     * Invoked on the loop thread when the async writers have finished opening
+     * (or failed). Switches to streaming mode if writers are available,
+     * flushing any content buffered while they were opening, and runs a
+     * deferred end-of-message if one arrived in the meantime.
+     */
+    private void onTargetsOpened(List<AsyncAppendTarget> targets) {
+        targetsOpening = false;
+        if (targets != null && !targets.isEmpty()) {
+            asyncTargets = targets;
+            if (messageBuffer != null && messageBuffer.size() > 0) {
+                writeToTargets(messageBuffer.toByteArray());
+            }
+            messageBuffer = null;
+        }
+        // else: buffered fallback — messageBuffer keeps accumulating content.
+
+        if (deferredEndState != null) {
+            MessageEndState s = deferredEndState;
+            deferredEndState = null;
+            finishMessage(s);
+        }
+    }
+
+    /**
+     * Opens async-append writers for every recipient. Returns the list of
+     * targets, or {@code null} if async append is unavailable for any
+     * recipient (in which case all partially-opened targets are aborted and
+     * the caller falls back to buffered delivery). Runs off the loop thread.
+     */
+    private List<AsyncAppendTarget> openAsyncTargets(List<String> recips) {
+        List<AsyncAppendTarget> targets = new ArrayList<AsyncAppendTarget>();
+        for (String username : recips) {
+            MailboxStore store = null;
             try {
-                MailboxStore store = mailboxFactory.createStore();
+                store = mailboxFactory.createStore();
                 store.open(username);
                 Mailbox mailbox = store.openMailbox("INBOX", false);
                 AsyncMessageWriter writer =
                         mailbox.openAsyncAppend(null, null);
                 if (writer != null) {
-                    asyncTargets.add(new AsyncAppendTarget(
+                    targets.add(new AsyncAppendTarget(
                             username, store, mailbox, writer));
                 } else {
                     mailbox.close(false);
                     store.close();
-                    allAsync = false;
-                    break;
+                    abortAll(targets);
+                    return null;
                 }
             } catch (IOException e) {
                 LOGGER.log(Level.FINE,
                         "Async append unavailable for " + username, e);
-                allAsync = false;
-                break;
+                if (store != null) {
+                    try {
+                        store.close();
+                    } catch (IOException ce) {
+                        LOGGER.log(Level.FINE,
+                                "Error closing store after failure", ce);
+                    }
+                }
+                abortAll(targets);
+                return null;
             }
         }
+        return targets;
+    }
 
-        if (!allAsync) {
-            // Close any async targets we opened and fall back to buffered
-            for (AsyncAppendTarget target : asyncTargets) {
-                target.abort();
-            }
-            asyncTargets = null;
-            messageBuffer = new ByteArrayOutputStream();
+    private static void abortAll(List<AsyncAppendTarget> targets) {
+        for (AsyncAppendTarget target : targets) {
+            target.abort();
         }
-
-        state.acceptMessage(this);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -259,32 +357,17 @@ public class LocalDeliveryHandler
 
     @Override
     public void messageContent(ByteBuffer content) {
+        byte[] bytes = new byte[content.remaining()];
+        content.get(bytes);
         if (asyncTargets != null && !asyncTargets.isEmpty()) {
-            // Write to all async targets
-            byte[] data = new byte[content.remaining()];
-            content.get(data);
-            for (AsyncAppendTarget target : asyncTargets) {
-                ByteBuffer copy = ByteBuffer.wrap(data.clone());
-                target.writer.write(copy,
-                        new CompletionHandler<Integer, ByteBuffer>() {
-                    @Override
-                    public void completed(Integer result,
-                            ByteBuffer attachment) {
-                        // Chunk written successfully
-                    }
-
-                    @Override
-                    public void failed(Throwable exc,
-                            ByteBuffer attachment) {
-                        LOGGER.log(Level.WARNING,
-                                "Async write failed for "
-                                        + target.username, exc);
-                    }
-                });
+            // Streaming mode: writers are open.
+            writeToTargets(bytes);
+        } else {
+            // Buffering: writers are still opening, or the buffered fallback
+            // is in effect (async append unavailable).
+            if (messageBuffer == null) {
+                messageBuffer = new ByteArrayOutputStream();
             }
-        } else if (messageBuffer != null) {
-            byte[] bytes = new byte[content.remaining()];
-            content.get(bytes);
             try {
                 messageBuffer.write(bytes);
             } catch (IOException e) {
@@ -294,21 +377,117 @@ public class LocalDeliveryHandler
         }
     }
 
+    /**
+     * Streams a chunk of content to every open async writer. Runs on the loop
+     * thread; the writers persist the data asynchronously.
+     */
+    private void writeToTargets(byte[] data) {
+        for (final AsyncAppendTarget target : asyncTargets) {
+            ByteBuffer copy = ByteBuffer.wrap(data.clone());
+            target.writer.write(copy,
+                    new CompletionHandler<Integer, ByteBuffer>() {
+                @Override
+                public void completed(Integer result, ByteBuffer attachment) {
+                    // Chunk written successfully
+                }
+
+                @Override
+                public void failed(Throwable exc, ByteBuffer attachment) {
+                    LOGGER.log(Level.WARNING,
+                            "Async write failed for " + target.username, exc);
+                }
+            });
+        }
+    }
+
     @Override
     public void messageComplete(MessageEndState state) {
+        if (targetsOpening) {
+            // Writers are still being opened off-loop; run the completion
+            // once they are ready (or the buffered fallback is chosen). No
+            // reply is sent until then — the client is waiting for the 250.
+            deferredEndState = state;
+            return;
+        }
+        finishMessage(state);
+    }
+
+    /**
+     * Finalizes the message once the writers' open state is known: either
+     * finishing the open async writers or delivering the buffered fallback.
+     * All blocking work is offloaded; the 250/4xx reply is sent on the loop.
+     */
+    private void finishMessage(final MessageEndState state) {
         if (asyncTargets != null && !asyncTargets.isEmpty()) {
-            completeAsyncDelivery(state);
+            final List<AsyncAppendTarget> targets = asyncTargets;
+            asyncTargets = null;
+            offload(new Callable<String>() {
+                @Override
+                public String call() {
+                    return finalizeTargets(targets);
+                }
+            }, new Consumer<String>() {
+                @Override
+                public void accept(String errorMessage) {
+                    resetMessageState();
+                    if (errorMessage == null) {
+                        state.acceptMessageDelivery(null,
+                                LocalDeliveryHandler.this);
+                    } else {
+                        state.rejectMessageTemporary(errorMessage,
+                                LocalDeliveryHandler.this);
+                    }
+                }
+            }, new Consumer<Throwable>() {
+                @Override
+                public void accept(Throwable error) {
+                    resetMessageState();
+                    state.rejectMessageTemporary(
+                            error.getMessage(), LocalDeliveryHandler.this);
+                }
+            });
             return;
         }
 
-        // Buffered path (fallback)
-        byte[] messageData = messageBuffer != null
+        // Buffered path (fallback): delivering to each mailbox is blocking
+        // disk I/O (store scan + file lock + append), so offload it.
+        final byte[] messageData = messageBuffer != null
                 ? messageBuffer.toByteArray() : new byte[0];
-        boolean allDelivered = true;
-        String errorMessage = null;
+        final List<String> recips = new ArrayList<String>(recipients);
+        offload(new Callable<String>() {
+            @Override
+            public String call() {
+                return deliverBuffered(recips, messageData);
+            }
+        }, new Consumer<String>() {
+            @Override
+            public void accept(String errorMessage) {
+                resetMessageState();
+                if (errorMessage == null) {
+                    state.acceptMessageDelivery(null, LocalDeliveryHandler.this);
+                } else {
+                    state.rejectMessageTemporary(errorMessage,
+                            LocalDeliveryHandler.this);
+                }
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                resetMessageState();
+                state.rejectMessageTemporary(
+                        error.getMessage(), LocalDeliveryHandler.this);
+            }
+        });
+    }
 
-        for (int i = 0; i < recipients.size(); i++) {
-            String username = recipients.get(i);
+    /**
+     * Delivers buffered message data to every recipient's mailbox. Returns
+     * {@code null} if all deliveries succeeded, or the first error message if
+     * any failed (other recipients are still attempted). Runs off the loop.
+     */
+    private String deliverBuffered(List<String> recips, byte[] messageData) {
+        String errorMessage = null;
+        for (String username : recips) {
             try {
                 deliverToMailbox(username, messageData);
                 LOGGER.log(Level.FINE, "Delivered message to {0}@{1}",
@@ -316,53 +495,84 @@ public class LocalDeliveryHandler
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed to deliver to " + username, e);
-                allDelivered = false;
                 if (errorMessage == null) {
                     errorMessage = e.getMessage();
                 }
             }
         }
-
-        resetMessageState();
-        if (allDelivered) {
-            state.acceptMessageDelivery(null, this);
-        } else {
-            state.rejectMessageTemporary(errorMessage, this);
-        }
+        return errorMessage;
     }
 
-    private void completeAsyncDelivery(MessageEndState state) {
-        boolean allDelivered = true;
-        String errorMessage = null;
-
-        for (AsyncAppendTarget target : asyncTargets) {
+    /**
+     * Runs a blocking storage operation on the shared {@link StorageExecutor}
+     * and delivers the outcome on this connection's loop thread. Reads are NOT
+     * paused: the SMTP DATA flow relies on synchronous state transitions, and
+     * pausing would neither stop the already-buffered input nor be needed
+     * (clients wait for the 354/250 replies these callbacks send). If no
+     * executor/endpoint is available (e.g. a unit-test harness), the operation
+     * runs inline.
+     */
+    private <T> void offload(Callable<T> op, final Consumer<T> onDone,
+            final Consumer<Throwable> onError) {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null || endpoint == null) {
+            T result;
             try {
-                // Finish synchronously by using a blocking approach
-                final boolean[] done = { false };
+                result = op.call();
+            } catch (Throwable t) {
+                onError.accept(t);
+                return;
+            }
+            onDone.accept(result);
+            return;
+        }
+
+        exec.submit(endpoint, op, new StorageExecutor.Callback<T>() {
+            @Override
+            public void completed(T result) {
+                onDone.accept(result);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                onError.accept(error);
+            }
+        });
+    }
+
+    /**
+     * Finalizes the async writers (off the loop). For each target, calls
+     * {@link AsyncMessageWriter#finish} and waits for completion, then closes
+     * the store/mailbox. Returns {@code null} if all succeeded, or the first
+     * error message otherwise.
+     */
+    private String finalizeTargets(List<AsyncAppendTarget> targets) {
+        String errorMessage = null;
+        for (AsyncAppendTarget target : targets) {
+            try {
                 final Throwable[] error = { null };
-                target.writer.finish(
-                        new CompletionHandler<Long, Void>() {
+                final CountDownLatch latch = new CountDownLatch(1);
+                target.writer.finish(new CompletionHandler<Long, Void>() {
                     @Override
                     public void completed(Long uid, Void att) {
                         LOGGER.log(Level.FINE,
                                 "Async delivered to {0}@{1} uid={2}",
                                 new Object[] { target.username,
                                         localDomain, uid });
-                        done[0] = true;
+                        latch.countDown();
                     }
 
                     @Override
                     public void failed(Throwable exc, Void att) {
                         error[0] = exc;
-                        done[0] = true;
+                        latch.countDown();
                     }
                 });
-
-                // For Maildir, finish() completes immediately
-                if (!done[0]) {
-                    LOGGER.log(Level.WARNING,
-                            "Async finish did not complete "
-                                    + "synchronously for "
+                if (!latch.await(30, TimeUnit.SECONDS)) {
+                    throw new IOException(
+                            "Timed out finalizing delivery for "
                                     + target.username);
                 }
                 if (error[0] != null) {
@@ -370,11 +580,15 @@ public class LocalDeliveryHandler
                             "Delivery failed: " + error[0].getMessage(),
                             error[0]);
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (errorMessage == null) {
+                    errorMessage = "Interrupted during delivery";
+                }
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed async delivery to " + target.username,
                         e);
-                allDelivered = false;
                 if (errorMessage == null) {
                     errorMessage = e.getMessage();
                 }
@@ -382,18 +596,13 @@ public class LocalDeliveryHandler
                 target.closeStoreAndMailbox();
             }
         }
-
-        asyncTargets = null;
-        resetMessageState();
-        if (allDelivered) {
-            state.acceptMessageDelivery(null, this);
-        } else {
-            state.rejectMessageTemporary(errorMessage, this);
-        }
+        return errorMessage;
     }
 
     @Override
     public void messageAborted() {
+        deferredEndState = null;
+        targetsOpening = false;
         if (asyncTargets != null) {
             for (AsyncAppendTarget target : asyncTargets) {
                 target.abort();
@@ -467,6 +676,9 @@ public class LocalDeliveryHandler
         recipients.clear();
         messageBuffer = null;
         resumeCallback = null;
+        asyncTargets = null;
+        targetsOpening = false;
+        deferredEndState = null;
     }
 
     /**

@@ -1294,13 +1294,38 @@ public class FTPProtocolHandler
                     metadata
                 );
 
-            dataCoordinator.startTransfer(transfer);
-
-            reply(226, L10N.getString("ftp.transfer_complete"));
+            dataCoordinator.startAsyncUpload(
+                    endpoint, transfer, new StouTransferCallback());
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "STOU failed", e);
             reply(550, L10N.getString("ftp.err.file_system_error"));
+        }
+    }
+
+    /**
+     * Completion callback for STOU async upload.
+     */
+    private class StouTransferCallback
+            implements FTPDataConnectionCoordinator.TransferCallback {
+        @Override
+        public void transferComplete(long bytesTransferred) {
+            recordFileTransfer("STOU", "");
+            try {
+                reply(226, L10N.getString("ftp.transfer_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send STOU completion", e);
+            }
+        }
+
+        @Override
+        public void transferFailed(IOException cause) {
+            try {
+                reply(550, L10N.getString("ftp.err.file_system_error"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send STOU error", e);
+            }
         }
     }
 
@@ -1339,16 +1364,45 @@ public class FTPProtocolHandler
                     metadata
                 );
 
-            dataCoordinator.startTransfer(transfer);
-
-            recordFileTransfer("APPE", filePath);
-
-            reply(226, L10N.getString("ftp.transfer_complete"));
+            dataCoordinator.startAsyncUpload(
+                    endpoint, transfer, new AppeTransferCallback(filePath));
 
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "APPE failed for " + filePath, e);
             recordSessionException(e);
             reply(550, L10N.getString("ftp.err.file_system_error"));
+        }
+    }
+
+    /**
+     * Completion callback for APPE async upload.
+     */
+    private class AppeTransferCallback
+            implements FTPDataConnectionCoordinator.TransferCallback {
+        private final String filePath;
+
+        AppeTransferCallback(String filePath) {
+            this.filePath = filePath;
+        }
+
+        @Override
+        public void transferComplete(long bytesTransferred) {
+            recordFileTransfer("APPE", filePath);
+            try {
+                reply(226, L10N.getString("ftp.transfer_complete"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send APPE completion", e);
+            }
+        }
+
+        @Override
+        public void transferFailed(IOException cause) {
+            try {
+                reply(550, L10N.getString("ftp.err.file_system_error"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send APPE error", e);
+            }
         }
     }
 

@@ -553,6 +553,43 @@ public class BasicFTPFileSystem implements FTPFileSystem {
         }
     }
     
+    // The local file system supports AsynchronousFileChannel, so we resolve
+    // real paths here. This lets the data-transfer coordinator stream file
+    // bytes off the selector loop (via the JDK async file thread pool) instead
+    // of doing blocking per-chunk FileChannel reads/writes on the loop. Only
+    // the path resolution (a cheap in-memory security check) runs on the loop;
+    // existence, read-only and directory checks are enforced by the subsequent
+    // channel open (which falls back to the synchronous openFor* path on
+    // failure), so behaviour is preserved.
+
+    @Override
+    public Path resolvePathForAsyncRead(String path, long restartOffset,
+            FTPConnectionMetadata metadata) {
+        try {
+            return resolveSecurePath(path);
+        } catch (SecurityException e) {
+            LOGGER.log(Level.WARNING,
+                    "Security violation in resolvePathForAsyncRead: " + path, e);
+            return null;
+        }
+    }
+
+    @Override
+    public Path resolvePathForAsyncWrite(String path, boolean append,
+            FTPConnectionMetadata metadata) {
+        if (readOnly) {
+            // Fall back to the synchronous path, which denies the write.
+            return null;
+        }
+        try {
+            return resolveSecurePath(path);
+        } catch (SecurityException e) {
+            LOGGER.log(Level.WARNING,
+                    "Security violation in resolvePathForAsyncWrite: " + path, e);
+            return null;
+        }
+    }
+
     @Override
     public UniqueNameResult generateUniqueName(String basePath, String suggestedName, 
                                              FTPConnectionMetadata metadata) {

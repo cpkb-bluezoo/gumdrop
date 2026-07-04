@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gonzalez.XMLWriter;
 import org.bluezoo.util.ByteArrays;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.http.HTTPDateFormat;
@@ -61,6 +63,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -319,61 +324,174 @@ class FileHandler extends DefaultHTTPRequestHandler {
         }
     }
 
-    /** RFC 9110 §9.3.1 (GET), §9.3.2 (HEAD), §13.1.3 (If-Modified-Since). */
-    private void handleGetOrHead(HTTPResponseState state) throws IOException {
-        if (path == null || !Files.exists(path)) {
-            sendError(state, HTTPStatus.NOT_FOUND);
-            return;
-        }
-
-        if (DeadPropertyStore.isSidecarFile(path)) {
-            sendError(state, HTTPStatus.NOT_FOUND);
-            return;
-        }
-
-        if (Files.isDirectory(path)) {
-            Path indexFile = findIndexFile(path);
-            if (indexFile != null) {
-                path = indexFile;
-            } else {
-                generateDirectoryListing(path, requestPath, state);
+    /**
+     * Runs a blocking filesystem operation on the shared {@link StorageExecutor}
+     * and delivers the outcome back on this request's SelectorLoop thread (via
+     * {@link HTTPResponseState#execute}), so the {@code onDone}/{@code onError}
+     * continuation may safely touch the {@link HTTPResponseState}.
+     *
+     * <p>Handlers must call this instead of blocking the loop with
+     * {@code java.nio.file.Files} metadata/tree operations, which would stall
+     * every other connection multiplexed on the same loop.
+     *
+     * <p>If no executor is available (e.g. a unit-test harness with no running
+     * server), the operation runs inline; callers therefore observe identical
+     * behaviour whether or not the pool is present.
+     *
+     * @param <T> the result type of the blocking operation
+     * @param state the response state used to marshal the callback to the loop
+     * @param op the blocking work to run off the loop
+     * @param onDone invoked on the loop with the operation's result
+     * @param onError invoked on the loop if the operation threw or was rejected
+     */
+    private <T> void offload(final HTTPResponseState state,
+            final Callable<T> op, final Consumer<T> onDone,
+            final Consumer<Throwable> onError) {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            T result;
+            try {
+                result = op.call();
+            } catch (Throwable t) {
+                onError.accept(t);
                 return;
             }
-        }
-        
-        if (!Files.isReadable(path)) {
-            sendError(state, HTTPStatus.FORBIDDEN);
+            onDone.accept(result);
             return;
         }
-        
-        // Get file info
-        long size = Files.size(path);
-        long lastModified = Files.getLastModifiedTime(path).toMillis();
-        
-        // Check If-Modified-Since
-        if (lastModified <= ifModifiedSince) {
+        exec.submit(new Executor() {
+            @Override
+            public void execute(Runnable command) {
+                state.execute(command);
+            }
+        }, op, new StorageExecutor.Callback<T>() {
+            @Override
+            public void completed(T result) {
+                onDone.accept(result);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                onError.accept(error);
+            }
+        });
+    }
+
+    /**
+     * Plan for a GET/HEAD response, computed off the loop by
+     * {@link #computeGetPlan()} so the emitting stage never blocks.
+     */
+    private static final class GetPlan {
+        HTTPStatus error;       // if set: send this error status
+        boolean notModified;    // 304 Not Modified
+        long lastModified;      // for 200/304 Last-Modified header
+        byte[] listingHtml;     // directory-listing body, if a directory
+        Path file;              // file to serve (200 with body)
+        long size;              // file size
+        String contentType;     // file content type
+    }
+
+    /** RFC 9110 §9.3.1 (GET), §9.3.2 (HEAD), §13.1.3 (If-Modified-Since). */
+    private void handleGetOrHead(HTTPResponseState state) {
+        offload(state, new Callable<GetPlan>() {
+            @Override
+            public GetPlan call() throws IOException {
+                return computeGetPlan();
+            }
+        }, new Consumer<GetPlan>() {
+            @Override
+            public void accept(GetPlan plan) {
+                emitGetPlan(state, plan);
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.SEVERE, "Error processing GET/HEAD", error);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
+    }
+
+    /** Gathers all metadata for a GET/HEAD off the loop (blocking). */
+    private GetPlan computeGetPlan() throws IOException {
+        GetPlan plan = new GetPlan();
+        if (path == null || !Files.exists(path)
+                || DeadPropertyStore.isSidecarFile(path)) {
+            plan.error = HTTPStatus.NOT_FOUND;
+            return plan;
+        }
+
+        Path target = path;
+        if (Files.isDirectory(target)) {
+            Path indexFile = findIndexFile(target);
+            if (indexFile != null) {
+                target = indexFile;
+            } else {
+                plan.listingHtml =
+                        buildDirectoryListing(target, requestPath);
+                return plan;
+            }
+        }
+
+        if (!Files.isReadable(target)) {
+            plan.error = HTTPStatus.FORBIDDEN;
+            return plan;
+        }
+
+        plan.file = target;
+        plan.size = Files.size(target);
+        plan.lastModified = Files.getLastModifiedTime(target).toMillis();
+        plan.contentType = getContentType(target);
+        if (plan.lastModified <= ifModifiedSince) {
+            plan.notModified = true;
+        }
+        return plan;
+    }
+
+    /** Emits a {@link GetPlan} on the loop thread. */
+    private void emitGetPlan(HTTPResponseState state, GetPlan plan) {
+        if (plan.error != null) {
+            sendError(state, plan.error);
+            return;
+        }
+
+        if (plan.listingHtml != null) {
+            Headers response = new Headers();
+            response.status(HTTPStatus.OK);
+            response.add("Content-Type", "text/html; charset=utf-8");
+            response.add("Content-Length",
+                    String.valueOf(plan.listingHtml.length));
+            state.headers(response);
+            state.startResponseBody();
+            state.responseBodyContent(ByteBuffer.wrap(plan.listingHtml));
+            state.endResponseBody();
+            state.complete();
+            return;
+        }
+
+        if (plan.notModified) {
             Headers response = new Headers();
             response.status(HTTPStatus.NOT_MODIFIED);
-            response.add("Last-Modified", dateFormat.format(lastModified));
+            response.add("Last-Modified", dateFormat.format(plan.lastModified));
             state.headers(response);
             state.complete();
             return;
         }
-        
-        // Send response headers
+
         Headers response = new Headers();
         response.status(HTTPStatus.OK);
-        response.add("Last-Modified", dateFormat.format(lastModified));
-        response.add("Content-Type", getContentType(path));
-        response.add("Content-Length", Long.toString(size));
+        response.add("Last-Modified", dateFormat.format(plan.lastModified));
+        response.add("Content-Type", plan.contentType);
+        response.add("Content-Length", Long.toString(plan.size));
         state.headers(response);
-        
-        // Send body for GET (not HEAD)
+
         if ("GET".equals(method)) {
-            if (size > 0) {
+            if (plan.size > 0) {
                 state.startResponseBody();
-                sendFileContent(path, state);
-                // endResponseBody() and complete() called from sendFileContent on EOF
+                sendFileContent(plan.file, state);
+                // endResponseBody()/complete() invoked from sendFileContent
             } else {
                 state.complete();
             }
@@ -464,57 +582,109 @@ class FileHandler extends DefaultHTTPRequestHandler {
      * depth-first. If any individual deletion fails, a 207 Multi-Status
      * response is returned listing the failed resources.
      */
-    private void handleDelete(HTTPResponseState state) throws IOException {
+    private void handleDelete(HTTPResponseState state) {
         if (!allowWrite) {
             sendError(state, HTTPStatus.METHOD_NOT_ALLOWED);
             return;
         }
-        
-        if (path == null) {
-            sendError(state, HTTPStatus.BAD_REQUEST);
-            return;
-        }
-        
-        if (!Files.exists(path)) {
-            sendError(state, HTTPStatus.NOT_FOUND);
-            return;
-        }
-        
-        if (!checkLockToken(path)) {
-            sendError(state, HTTPStatus.LOCKED);
-            return;
-        }
-        
-        if (Files.isDirectory(path)) {
-            handleCollectionDelete(state);
-        } else {
-            try {
-                Files.delete(path);
-                if (deadPropertyStore != null) {
-                    deadPropertyStore.deleteProperties(path);
-                }
-                Headers response = new Headers();
-                response.status(HTTPStatus.NO_CONTENT);
-                state.headers(response);
-                state.complete();
-                LOGGER.info("Deleted file: " + path);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to delete file: " + path, e);
-                sendError(state, HTTPStatus.FORBIDDEN);
+
+        offload(state, new Callable<DeletePlan>() {
+            @Override
+            public DeletePlan call() throws IOException {
+                return computeDeletePlan();
             }
+        }, new Consumer<DeletePlan>() {
+            @Override
+            public void accept(DeletePlan plan) {
+                emitDeletePlan(state, plan);
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.SEVERE, "Error processing DELETE", error);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
+    }
+
+    /**
+     * Outcome of a DELETE, computed off the loop: either a single status or,
+     * for a partially failed collection DELETE, a 207 Multi-Status error list.
+     */
+    private static final class DeletePlan {
+        HTTPStatus status;
+        List<String[]> multiStatus;
+    }
+
+    /** Performs the blocking DELETE work off the loop. */
+    private DeletePlan computeDeletePlan() throws IOException {
+        DeletePlan plan = new DeletePlan();
+        if (path == null) {
+            plan.status = HTTPStatus.BAD_REQUEST;
+            return plan;
+        }
+        if (!Files.exists(path)) {
+            plan.status = HTTPStatus.NOT_FOUND;
+            return plan;
+        }
+        if (!checkLockToken(path)) {
+            plan.status = HTTPStatus.LOCKED;
+            return plan;
+        }
+
+        if (Files.isDirectory(path)) {
+            List<String[]> errors = collectionDelete();
+            if (errors.isEmpty()) {
+                plan.status = HTTPStatus.NO_CONTENT;
+                LOGGER.info("Deleted collection: " + path);
+            } else {
+                plan.multiStatus = errors;
+            }
+            return plan;
+        }
+
+        try {
+            Files.delete(path);
+            if (deadPropertyStore != null) {
+                deadPropertyStore.deleteProperties(path);
+            }
+            plan.status = HTTPStatus.NO_CONTENT;
+            LOGGER.info("Deleted file: " + path);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to delete file: " + path, e);
+            plan.status = HTTPStatus.FORBIDDEN;
+        }
+        return plan;
+    }
+
+    /** Emits a {@link DeletePlan} on the loop thread. */
+    private void emitDeletePlan(HTTPResponseState state, DeletePlan plan) {
+        if (plan.multiStatus != null) {
+            try {
+                sendDeleteMultiStatus(state, plan.multiStatus);
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE, "DELETE multi-status error", e);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+            return;
+        }
+        if (plan.status == HTTPStatus.NO_CONTENT) {
+            Headers response = new Headers();
+            response.status(HTTPStatus.NO_CONTENT);
+            state.headers(response);
+            state.complete();
+        } else {
+            sendError(state, plan.status);
         }
     }
 
     /**
-     * RFC 4918 §9.6.1 — collection DELETE with Multi-Status.
-     *
-     * <p>Recursively deletes all member resources depth-first. Files are
-     * deleted first, then empty directories. If any deletion fails, a 207
-     * Multi-Status response is returned with per-resource error entries.
-     * If all deletions succeed, 204 No Content is returned.
+     * RFC 4918 §9.6.1 — recursively deletes a collection depth-first (files
+     * first, then empty directories, then the collection root), returning the
+     * list of per-resource failures (empty if fully successful). Runs off the
+     * loop as it walks the whole tree.
      */
-    private void handleCollectionDelete(HTTPResponseState state) throws IOException {
+    private List<String[]> collectionDelete() throws IOException {
         final List<String[]> errors = new ArrayList<>();
 
         // Walk the tree depth-first: delete files first, then directories
@@ -557,16 +727,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
             }
         }
 
-        if (errors.isEmpty()) {
-            Headers response = new Headers();
-            response.status(HTTPStatus.NO_CONTENT);
-            state.headers(response);
-            state.complete();
-            LOGGER.info("Deleted collection: " + path);
-        } else {
-            // RFC 4918 §9.6.1 — 207 Multi-Status with per-resource errors
-            sendDeleteMultiStatus(state, errors);
-        }
+        return errors;
     }
 
     /**
@@ -748,84 +909,122 @@ class FileHandler extends DefaultHTTPRequestHandler {
         }
     }
 
+    /**
+     * Emits the response for a body-less write method (MKCOL/COPY/MOVE): a
+     * bare success status (201/204/200) or, for any other status, an error.
+     */
+    private void emitWriteResult(HTTPResponseState state, HTTPStatus status) {
+        if (status == HTTPStatus.CREATED || status == HTTPStatus.NO_CONTENT
+                || status == HTTPStatus.OK) {
+            Headers response = new Headers();
+            response.status(status);
+            state.headers(response);
+            state.complete();
+        } else {
+            sendError(state, status);
+        }
+    }
+
     /** RFC 4918 §9.3 — MKCOL (create collection). */
-    private void handleMkcol(HTTPResponseState state) throws IOException {
+    private void handleMkcol(HTTPResponseState state) {
         if (!allowWrite) {
             sendError(state, HTTPStatus.FORBIDDEN);
             return;
         }
-        
+
+        offload(state, new Callable<HTTPStatus>() {
+            @Override
+            public HTTPStatus call() {
+                return computeMkcol();
+            }
+        }, new Consumer<HTTPStatus>() {
+            @Override
+            public void accept(HTTPStatus status) {
+                emitWriteResult(state, status);
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.SEVERE, "Error processing MKCOL", error);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
+    }
+
+    /** Performs the blocking MKCOL work off the loop. */
+    private HTTPStatus computeMkcol() {
         if (path == null) {
-            sendError(state, HTTPStatus.BAD_REQUEST);
-            return;
+            return HTTPStatus.BAD_REQUEST;
         }
-        
         if (Files.exists(path)) {
-            sendError(state, HTTPStatus.METHOD_NOT_ALLOWED);
-            return;
+            return HTTPStatus.METHOD_NOT_ALLOWED;
         }
-        
         // Parent must exist
         Path parent = path.getParent();
         if (parent != null && !Files.exists(parent)) {
-            sendError(state, HTTPStatus.CONFLICT);
-            return;
+            return HTTPStatus.CONFLICT;
         }
-        
         // MKCOL must not have a body
         if (requestContentLength > 0) {
-            sendError(state, HTTPStatus.UNSUPPORTED_MEDIA_TYPE);
-            return;
+            return HTTPStatus.UNSUPPORTED_MEDIA_TYPE;
         }
-        
         try {
             Files.createDirectory(path);
-            Headers response = new Headers();
-            response.status(HTTPStatus.CREATED);
-            state.headers(response);
-            state.complete();
             LOGGER.info("Created collection: " + path);
+            return HTTPStatus.CREATED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to create collection: " + path, e);
-            sendError(state, HTTPStatus.FORBIDDEN);
+            return HTTPStatus.FORBIDDEN;
         }
     }
 
     /** RFC 4918 §9.8 — COPY with Destination, Overwrite, Depth. */
-    private void handleCopy(HTTPResponseState state) throws IOException {
+    private void handleCopy(HTTPResponseState state) {
         if (!allowWrite) {
             sendError(state, HTTPStatus.FORBIDDEN);
             return;
         }
-        
+
+        offload(state, new Callable<HTTPStatus>() {
+            @Override
+            public HTTPStatus call() throws IOException {
+                return computeCopy();
+            }
+        }, new Consumer<HTTPStatus>() {
+            @Override
+            public void accept(HTTPStatus status) {
+                emitWriteResult(state, status);
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.SEVERE, "Error processing COPY", error);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
+    }
+
+    /** Performs the blocking COPY work (incl. recursive copy) off the loop. */
+    private HTTPStatus computeCopy() throws IOException {
         if (path == null || !Files.exists(path)) {
-            sendError(state, HTTPStatus.NOT_FOUND);
-            return;
+            return HTTPStatus.NOT_FOUND;
         }
-        
         if (destination == null) {
-            sendError(state, HTTPStatus.BAD_REQUEST);
-            return;
+            return HTTPStatus.BAD_REQUEST;
         }
-        
         Path destPath = resolveDestination(destination);
         if (destPath == null) {
-            sendError(state, HTTPStatus.BAD_REQUEST);
-            return;
+            return HTTPStatus.BAD_REQUEST;
         }
-        
         // Check destination lock
         if (!checkLockToken(destPath)) {
-            sendError(state, HTTPStatus.LOCKED);
-            return;
+            return HTTPStatus.LOCKED;
         }
-        
         boolean destExists = Files.exists(destPath);
         if (destExists && !overwrite) {
-            sendError(state, HTTPStatus.PRECONDITION_FAILED);
-            return;
+            return HTTPStatus.PRECONDITION_FAILED;
         }
-        
+
         try {
             if (Files.isDirectory(path)) {
                 copyDirectory(path, destPath, depth);
@@ -840,61 +1039,65 @@ class FileHandler extends DefaultHTTPRequestHandler {
                     deadPropertyStore.copyProperties(path, destPath);
                 }
             }
-
-            Headers response = new Headers();
-            response.status(destExists
-                    ? HTTPStatus.NO_CONTENT : HTTPStatus.CREATED);
-            state.headers(response);
-            state.complete();
             LOGGER.info("Copied " + path + " to " + destPath);
+            return destExists ? HTTPStatus.NO_CONTENT : HTTPStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to copy: " + path, e);
-            sendError(state, HTTPStatus.FORBIDDEN);
+            LOGGER.log(Level.WARNING, "Failed to copy: " + path, e);
+            return HTTPStatus.FORBIDDEN;
         }
     }
 
     /** RFC 4918 §9.9 — MOVE with Destination, Overwrite, lock checks. */
-    private void handleMove(HTTPResponseState state) throws IOException {
+    private void handleMove(HTTPResponseState state) {
         if (!allowWrite) {
             sendError(state, HTTPStatus.FORBIDDEN);
             return;
         }
-        
+
+        offload(state, new Callable<HTTPStatus>() {
+            @Override
+            public HTTPStatus call() throws IOException {
+                return computeMove();
+            }
+        }, new Consumer<HTTPStatus>() {
+            @Override
+            public void accept(HTTPStatus status) {
+                emitWriteResult(state, status);
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.SEVERE, "Error processing MOVE", error);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
+    }
+
+    /** Performs the blocking MOVE work (incl. recursive delete) off the loop. */
+    private HTTPStatus computeMove() throws IOException {
         if (path == null || !Files.exists(path)) {
-            sendError(state, HTTPStatus.NOT_FOUND);
-            return;
+            return HTTPStatus.NOT_FOUND;
         }
-        
         if (destination == null) {
-            sendError(state, HTTPStatus.BAD_REQUEST);
-            return;
+            return HTTPStatus.BAD_REQUEST;
         }
-        
         // Check source lock
         if (!checkLockToken(path)) {
-            sendError(state, HTTPStatus.LOCKED);
-            return;
+            return HTTPStatus.LOCKED;
         }
-        
         Path destPath = resolveDestination(destination);
         if (destPath == null) {
-            sendError(state, HTTPStatus.BAD_REQUEST);
-            return;
+            return HTTPStatus.BAD_REQUEST;
         }
-        
         // Check destination lock
         if (!checkLockToken(destPath)) {
-            sendError(state, HTTPStatus.LOCKED);
-            return;
+            return HTTPStatus.LOCKED;
         }
-        
         boolean destExists = Files.exists(destPath);
         if (destExists && !overwrite) {
-            sendError(state, HTTPStatus.PRECONDITION_FAILED);
-            return;
+            return HTTPStatus.PRECONDITION_FAILED;
         }
-        
+
         try {
             if (overwrite && destExists) {
                 if (Files.isDirectory(destPath)) {
@@ -922,21 +1125,15 @@ class FileHandler extends DefaultHTTPRequestHandler {
                     Files.move(srcSidecar, dstSidecar,
                             StandardCopyOption.REPLACE_EXISTING);
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE,
-                            "Sidecar move failed", e);
+                    LOGGER.log(Level.FINE, "Sidecar move failed", e);
                 }
             }
 
-            Headers response = new Headers();
-            response.status(destExists
-                    ? HTTPStatus.NO_CONTENT : HTTPStatus.CREATED);
-            state.headers(response);
-            state.complete();
             LOGGER.info("Moved " + path + " to " + destPath);
+            return destExists ? HTTPStatus.NO_CONTENT : HTTPStatus.CREATED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to move: " + path, e);
-            sendError(state, HTTPStatus.FORBIDDEN);
+            LOGGER.log(Level.WARNING, "Failed to move: " + path, e);
+            return HTTPStatus.FORBIDDEN;
         }
     }
 
@@ -1040,23 +1237,73 @@ class FileHandler extends DefaultHTTPRequestHandler {
     private void sendPropfindResponse(final HTTPResponseState state,
             final WebDAVRequestParser.PropfindType type,
             final List<WebDAVRequestParser.PropertyRef> requestedProps,
-            final List<WebDAVRequestParser.PropertyRef> include)
-            throws IOException {
+            final List<WebDAVRequestParser.PropertyRef> include) {
 
-        final List<Path> resources = collectResources(path, depth);
+        offload(state, new Callable<PropfindData>() {
+            @Override
+            public PropfindData call() throws IOException {
+                return gatherPropfindData();
+            }
+        }, new Consumer<PropfindData>() {
+            @Override
+            public void accept(PropfindData data) {
+                if (deadPropertyStore != null
+                        && deadPropertyStore.getMode()
+                                != DeadPropertyStore.Mode.NONE) {
+                    loadDeadPropertiesChain(data.resources, 0,
+                            new HashMap<Path, Map<String, DeadProperty>>(),
+                            state, type, requestedProps, data.attrs);
+                } else {
+                    buildPropfindResponse(state, data.resources, type,
+                            requestedProps,
+                            new HashMap<Path, Map<String, DeadProperty>>(),
+                            data.attrs);
+                }
+            }
+        }, new Consumer<Throwable>() {
+            @Override
+            public void accept(Throwable error) {
+                LOGGER.log(Level.SEVERE, "PROPFIND enumeration error", error);
+                sendError(state, HTTPStatus.INTERNAL_SERVER_ERROR);
+            }
+        });
+    }
 
-        if (deadPropertyStore != null
-                && deadPropertyStore.getMode()
-                        != DeadPropertyStore.Mode.NONE) {
-            final Map<Path, Map<String, DeadProperty>> allDeadProps =
-                    new HashMap<Path, Map<String, DeadProperty>>();
-            loadDeadPropertiesChain(resources, 0, allDeadProps,
-                    state, type, requestedProps);
-        } else {
-            buildPropfindResponse(state, resources, type,
-                    requestedProps,
-                    new HashMap<Path, Map<String, DeadProperty>>());
+    /**
+     * Enumerated PROPFIND resources plus their pre-fetched attributes, gathered
+     * off the loop so the XML response can be built without per-resource stats.
+     */
+    private static final class PropfindData {
+        List<Path> resources;
+        Map<Path, BasicFileAttributes> attrs;
+    }
+
+    /**
+     * Performs the blocking PROPFIND enumeration off the loop: walks the tree
+     * (bounded by Depth) and reads each resource's attributes up front.
+     * Resources that vanish or become unreadable mid-walk are dropped rather
+     * than aborting the whole Multi-Status.
+     */
+    private PropfindData gatherPropfindData() throws IOException {
+        List<Path> resources = collectResources(path, depth);
+        Map<Path, BasicFileAttributes> attrs =
+                new HashMap<Path, BasicFileAttributes>();
+        List<Path> usable = new ArrayList<Path>(resources.size());
+        for (int i = 0; i < resources.size(); i++) {
+            Path resource = resources.get(i);
+            try {
+                attrs.put(resource, Files.readAttributes(resource,
+                        BasicFileAttributes.class));
+                usable.add(resource);
+            } catch (IOException e) {
+                LOGGER.log(Level.FINE,
+                        "Skipping unreadable PROPFIND resource: " + resource, e);
+            }
         }
+        PropfindData data = new PropfindData();
+        data.resources = usable;
+        data.attrs = attrs;
+        return data;
     }
 
     /**
@@ -1067,10 +1314,11 @@ class FileHandler extends DefaultHTTPRequestHandler {
             final Map<Path, Map<String, DeadProperty>> allDeadProps,
             final HTTPResponseState state,
             final WebDAVRequestParser.PropfindType type,
-            final List<WebDAVRequestParser.PropertyRef> requestedProps) {
+            final List<WebDAVRequestParser.PropertyRef> requestedProps,
+            final Map<Path, BasicFileAttributes> attrsMap) {
         if (index >= resources.size()) {
             buildPropfindResponse(state, resources, type,
-                    requestedProps, allDeadProps);
+                    requestedProps, allDeadProps, attrsMap);
             return;
         }
         final Path resource = resources.get(index);
@@ -1084,14 +1332,14 @@ class FileHandler extends DefaultHTTPRequestHandler {
                         }
                         loadDeadPropertiesChain(resources, index + 1,
                                 allDeadProps, state, type,
-                                requestedProps);
+                                requestedProps, attrsMap);
                     }
 
                     @Override
                     public void onError(String error) {
                         loadDeadPropertiesChain(resources, index + 1,
                                 allDeadProps, state, type,
-                                requestedProps);
+                                requestedProps, attrsMap);
                     }
                 });
     }
@@ -1100,7 +1348,8 @@ class FileHandler extends DefaultHTTPRequestHandler {
             List<Path> resources,
             WebDAVRequestParser.PropfindType type,
             List<WebDAVRequestParser.PropertyRef> requestedProps,
-            Map<Path, Map<String, DeadProperty>> allDeadProps) {
+            Map<Path, Map<String, DeadProperty>> allDeadProps,
+            Map<Path, BasicFileAttributes> attrsMap) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             XMLWriter xml = new XMLWriter(baos);
@@ -1114,7 +1363,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 Map<String, DeadProperty> deadProps =
                         allDeadProps.get(resource);
                 writeResourceResponse(xml, resource, type,
-                        requestedProps, deadProps);
+                        requestedProps, deadProps, attrsMap);
             }
 
             davEnd(xml, DAVConstants.ELEM_MULTISTATUS);
@@ -1140,13 +1389,17 @@ class FileHandler extends DefaultHTTPRequestHandler {
     private void writeResourceResponse(XMLWriter xml, Path resource,
             WebDAVRequestParser.PropfindType type,
             List<WebDAVRequestParser.PropertyRef> requestedProps,
-            Map<String, DeadProperty> deadProps)
+            Map<String, DeadProperty> deadProps,
+            Map<Path, BasicFileAttributes> attrsMap)
             throws IOException {
+
+        BasicFileAttributes attrs = attrsMap.get(resource);
+        boolean isDir = attrs != null && attrs.isDirectory();
 
         davStart(xml, DAVConstants.ELEM_RESPONSE);
 
         davStart(xml, DAVConstants.ELEM_HREF);
-        davText(xml, getHref(resource));
+        davText(xml, getHref(resource, isDir));
         davEnd(xml, DAVConstants.ELEM_HREF);
 
         davStart(xml, DAVConstants.ELEM_PROPSTAT);
@@ -1157,9 +1410,9 @@ class FileHandler extends DefaultHTTPRequestHandler {
         } else if (type == WebDAVRequestParser.PropfindType.PROP
                 && requestedProps != null) {
             writeRequestedProperties(xml, resource, requestedProps,
-                    deadProps);
+                    deadProps, attrs);
         } else {
-            writeAllProperties(xml, resource, deadProps);
+            writeAllProperties(xml, resource, deadProps, attrs);
         }
 
         davEnd(xml, DAVConstants.ELEM_PROP);
@@ -1190,10 +1443,10 @@ class FileHandler extends DefaultHTTPRequestHandler {
 
     /** RFC 4918 section 15 -- write all live + dead properties. */
     private void writeAllProperties(XMLWriter xml, Path resource,
-            Map<String, DeadProperty> deadProps)
+            Map<String, DeadProperty> deadProps,
+            BasicFileAttributes attrs)
             throws IOException {
-        BasicFileAttributes attrs = Files.readAttributes(
-                resource, BasicFileAttributes.class);
+        boolean isDir = attrs.isDirectory();
 
         davStartText(xml, DAVConstants.PROP_CREATIONDATE,
                 formatISO8601(attrs.creationTime().toMillis()));
@@ -1202,13 +1455,13 @@ class FileHandler extends DefaultHTTPRequestHandler {
         davStartText(xml, DAVConstants.PROP_DISPLAYNAME,
                 fileName != null ? fileName.toString() : "");
 
-        if (!Files.isDirectory(resource)) {
+        if (!isDir) {
             davStartText(xml, DAVConstants.PROP_GETCONTENTLENGTH,
                     String.valueOf(attrs.size()));
         }
 
         davStartText(xml, DAVConstants.PROP_GETCONTENTTYPE,
-                Files.isDirectory(resource)
+                isDir
                         ? "httpd/unix-directory"
                         : getContentType(resource));
 
@@ -1224,7 +1477,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
         davEnd(xml, DAVConstants.PROP_LOCKDISCOVERY);
 
         davStart(xml, DAVConstants.PROP_RESOURCETYPE);
-        if (Files.isDirectory(resource)) {
+        if (isDir) {
             davEmpty(xml, DAVConstants.ELEM_COLLECTION);
         }
         davEnd(xml, DAVConstants.PROP_RESOURCETYPE);
@@ -1243,9 +1496,10 @@ class FileHandler extends DefaultHTTPRequestHandler {
 
     private void writeRequestedProperties(XMLWriter xml, Path resource,
             List<WebDAVRequestParser.PropertyRef> props,
-            Map<String, DeadProperty> deadProps)
+            Map<String, DeadProperty> deadProps,
+            BasicFileAttributes attrs)
             throws IOException {
-        BasicFileAttributes attrs = null;
+        boolean isDir = attrs != null && attrs.isDirectory();
 
         for (int i = 0; i < props.size(); i++) {
             WebDAVRequestParser.PropertyRef prop = props.get(i);
@@ -1253,11 +1507,6 @@ class FileHandler extends DefaultHTTPRequestHandler {
             String name = prop.localName;
 
             if (DAVConstants.NAMESPACE.equals(ns)) {
-                if (attrs == null) {
-                    attrs = Files.readAttributes(resource,
-                            BasicFileAttributes.class);
-                }
-
                 if (DAVConstants.PROP_CREATIONDATE.equals(name)) {
                     davStartText(xml, name,
                             formatISO8601(
@@ -1270,14 +1519,14 @@ class FileHandler extends DefaultHTTPRequestHandler {
                                     ? fileName.toString() : "");
                 } else if (DAVConstants.PROP_GETCONTENTLENGTH
                         .equals(name)) {
-                    if (!Files.isDirectory(resource)) {
+                    if (!isDir) {
                         davStartText(xml, name,
                                 String.valueOf(attrs.size()));
                     }
                 } else if (DAVConstants.PROP_GETCONTENTTYPE
                         .equals(name)) {
                     davStartText(xml, name,
-                            Files.isDirectory(resource)
+                            isDir
                                     ? "httpd/unix-directory"
                                     : getContentType(resource));
                 } else if (DAVConstants.PROP_GETETAG.equals(name)) {
@@ -1298,7 +1547,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 } else if (DAVConstants.PROP_RESOURCETYPE
                         .equals(name)) {
                     davStart(xml, name);
-                    if (Files.isDirectory(resource)) {
+                    if (isDir) {
                         davEmpty(xml,
                                 DAVConstants.ELEM_COLLECTION);
                     }
@@ -1782,6 +2031,15 @@ class FileHandler extends DefaultHTTPRequestHandler {
     }
 
     private String getHref(Path resource) {
+        return getHref(resource, Files.isDirectory(resource));
+    }
+
+    /**
+     * As {@link #getHref(Path)} but with the directory flag supplied by the
+     * caller, avoiding a blocking {@code Files.isDirectory} stat when the
+     * attribute is already known (e.g. pre-fetched during PROPFIND).
+     */
+    private String getHref(Path resource, boolean isDir) {
         Path relative = rootPath.relativize(resource);
         StringBuilder href = new StringBuilder("/");
         for (int i = 0; i < relative.getNameCount(); i++) {
@@ -1790,7 +2048,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
             }
             href.append(encodeURIComponent(relative.getName(i).toString()));
         }
-        if (Files.isDirectory(resource) && href.length() > 1) {
+        if (isDir && href.length() > 1) {
             href.append("/");
         }
         return href.toString();
@@ -2176,8 +2434,12 @@ class FileHandler extends DefaultHTTPRequestHandler {
         return "application/octet-stream";
     }
 
-    private void generateDirectoryListing(Path directory, String requestPath, HTTPResponseState state) 
-            throws IOException {
+    /**
+     * Renders an HTML directory listing to UTF-8 bytes. This performs the
+     * blocking directory enumeration ({@code listFiles}, per-entry
+     * {@code isDirectory}/{@code length}) and must therefore run off the loop.
+     */
+    private byte[] buildDirectoryListing(Path directory, String requestPath) {
         String displayPath = requestPath;
         if (displayPath == null || displayPath.isEmpty()) {
             displayPath = "/";
@@ -2246,17 +2508,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
         html.append("<address>gumdrop Server</address>\n");
         html.append("</body></html>\n");
         
-        byte[] htmlBytes = html.toString().getBytes(StandardCharsets.UTF_8);
-        
-        Headers response = new Headers();
-        response.status(HTTPStatus.OK);
-        response.add("Content-Type", "text/html; charset=utf-8");
-        response.add("Content-Length", String.valueOf(htmlBytes.length));
-        state.headers(response);
-        state.startResponseBody();
-        state.responseBodyContent(ByteBuffer.wrap(htmlBytes));
-        state.endResponseBody();
-        state.complete();
+        return html.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     private String escapeHtml(String text) {

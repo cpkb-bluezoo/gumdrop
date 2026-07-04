@@ -125,6 +125,15 @@ public class IMAPClientHelper {
             writer.print(data + "\r\n");
             writer.flush();
         }
+
+        /**
+         * Sends raw text with no appended CRLF, for sending exact literal
+         * payloads (the caller controls every byte). US-ASCII only.
+         */
+        public void sendRawNoNewline(String data) throws IOException {
+            writer.print(data);
+            writer.flush();
+        }
         
         /**
          * Reads IMAP responses until we get the tagged response.

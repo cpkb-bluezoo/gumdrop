@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.smtp;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
@@ -32,6 +33,7 @@ import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -39,6 +41,7 @@ import org.junit.rules.Timeout;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
@@ -78,36 +81,54 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             .build();
 
     private Path mailboxDir;
+    private File tempConfigFile;
     private MboxMailboxFactory mailboxFactory;
 
     @Override
     protected File getTestConfigFile() {
-        return new File("test/integration/config/local-delivery-test.xml");
+        // Local delivery populates mailboxes at runtime, so it must never write
+        // into the source tree. Deliver to a throwaway directory and rewrite the
+        // template config to point the server at it. This runs (via the base
+        // class) before setUpMailbox(), so mailboxDir is ready for verification.
+        try {
+            mailboxDir = MailboxFixtures.newEmptyRoot();
+            String template = new String(Files.readAllBytes(Paths.get(
+                    "test/integration/config/local-delivery-test.xml")),
+                    StandardCharsets.UTF_8);
+            String config = template.replace(
+                    "test/integration/mailbox/local-delivery",
+                    mailboxDir.toString());
+            Path tmp = Files.createTempFile("local-delivery-test-", ".xml");
+            Files.write(tmp, config.getBytes(StandardCharsets.UTF_8));
+            tempConfigFile = tmp.toFile();
+            return tempConfigFile;
+        } catch (IOException e) {
+            throw new RuntimeException(
+                    "Failed to prepare local-delivery test config", e);
+        }
     }
 
     @Before
     public void setUpMailbox() throws Exception {
-        // Ensure mailbox directory exists
-        mailboxDir = Paths.get("test/integration/mailbox/local-delivery").toAbsolutePath();
-        Files.createDirectories(mailboxDir);
-
-        // Create user directories
+        // mailboxDir was created by getTestConfigFile() (invoked by the base
+        // class before this method); build the verification factory against the
+        // same throwaway directory the server delivers into.
         createUserDirectory(TEST_USER);
         createUserDirectory(TEST_USER2);
-
-        // Create mailbox factory for verification
         mailboxFactory = new MboxMailboxFactory(mailboxDir.toFile());
+    }
+
+    @After
+    public void tearDownMailbox() {
+        MailboxFixtures.delete(mailboxDir);
+        if (tempConfigFile != null) {
+            tempConfigFile.delete();
+        }
     }
 
     private void createUserDirectory(String user) throws Exception {
         Path userDir = mailboxDir.resolve(user);
         Files.createDirectories(userDir);
-
-        // Delete any existing mailbox file from previous test runs
-        Path inboxPath = userDir.resolve("INBOX.mbox");
-        Files.deleteIfExists(inboxPath);
-        Path indexPath = userDir.resolve("INBOX.mbox.gidx");
-        Files.deleteIfExists(indexPath);
     }
 
     // ============== End-to-End Delivery Tests ==============

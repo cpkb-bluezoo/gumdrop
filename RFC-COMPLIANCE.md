@@ -288,7 +288,7 @@
 | MODE S (Stream, default) MUST be accepted | 3.4.1 | Compliant | Default in `FTPConnectionMetadata` |
 | MODE B (Block) — optional | 3.4.2 | Not implemented | 504 correct |
 | MODE C (Compressed) — optional | 3.4.3 | Not implemented | 504 correct |
-| ASCII transfer CRLF line endings | 3.1.1.1 | Compliant | `convertToNetworkFormat()` in `FTPDataConnectionCoordinator` |
+| ASCII transfer CRLF line endings | 3.1.1.1 | Compliant | `FTPAsciiLineEndings`: bare LF expanded to CRLF on download, CR stripped on upload; wired into the async download/upload handlers |
 | Stream mode EOF by closing connection | 3.4.1 | Compliant | Data connection closed after transfer |
 
 #### Section 4.1.1 — Access Control Commands
@@ -353,7 +353,7 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Active mode (server connects to client) | 3.2 | Compliant | `FTPDataConnectionCoordinator.establishActiveConnection()` |
+| Active mode (server connects to client) | 3.2 | Compliant | `FTPDataConnectionCoordinator.connectActiveModeAsync()` (blocking connect offloaded to the storage pool, never the selector loop) |
 | Passive mode (server listens) | 3.2 | Compliant | `FTPDataConnectionCoordinator.setupPassiveMode()` |
 | Connection opened per transfer | 3.3 | Compliant | `cleanup()` called after each transfer |
 | Default port 21 | 5.2 | Compliant | `FTPListener.FTP_DEFAULT_PORT` |

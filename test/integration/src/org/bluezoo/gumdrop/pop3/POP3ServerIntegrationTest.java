@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -40,8 +41,9 @@ import org.junit.rules.Timeout;
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -80,7 +82,11 @@ public class POP3ServerIntegrationTest {
     private Gumdrop gumdrop;
     private POP3Listener mboxServer;
     private POP3Listener maildirServer;
-    
+
+    /** Private temporary copies of the read-only fixtures (deleted in teardown). */
+    private Path mboxRoot;
+    private Path maildirRoot;
+
     private Logger rootLogger;
     private Level originalLogLevel;
     
@@ -91,10 +97,11 @@ public class POP3ServerIntegrationTest {
         originalLogLevel = rootLogger.getLevel();
         rootLogger.setLevel(Level.WARNING);
         
-        // Get mailbox paths
-        Path testMailboxRoot = Paths.get("test/integration/mailbox").toAbsolutePath();
-        Path mboxRoot = testMailboxRoot.resolve("mbox");
-        Path maildirRoot = testMailboxRoot.resolve("maildir");
+        // Operate on private copies of the read-only fixtures: opening an
+        // mbox/Maildir mailbox (even just to read) can create .gidx sidecars,
+        // so the source tree must never be used directly.
+        mboxRoot = MailboxFixtures.copy("mbox");
+        maildirRoot = MailboxFixtures.copy("maildir");
         
         // Create test realm
         TestRealm realm = new TestRealm();
@@ -136,6 +143,8 @@ public class POP3ServerIntegrationTest {
             }
             Thread.sleep(1500); // Allow ports to be released
         } finally {
+            MailboxFixtures.delete(mboxRoot);
+            MailboxFixtures.delete(maildirRoot);
             if (rootLogger != null && originalLogLevel != null) {
                 rootLogger.setLevel(originalLogLevel);
             }
@@ -407,6 +416,49 @@ public class POP3ServerIntegrationTest {
             POP3ClientHelper.POP3Response response = session.sendCommand("INVALID");
             
             assertFalse("Unknown command should fail", response.ok);
+        }
+    }
+
+    // ==================== SASL AUTH Tests ====================
+
+    @Test
+    public void testAuthPlain() throws Exception {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+            // RFC 4616: authzid \0 authcid \0 password (empty authzid).
+            String creds = "\u0000" + TEST_USER + "\u0000" + TEST_PASS;
+            String b64 = Base64.getEncoder().encodeToString(
+                    creds.getBytes(StandardCharsets.US_ASCII));
+
+            POP3ClientHelper.POP3Response auth =
+                    session.sendCommand("AUTH PLAIN " + b64);
+            assertTrue("AUTH PLAIN should succeed: " + auth, auth.ok);
+
+            // Mailbox opened off-loop; confirm we are in TRANSACTION state.
+            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            assertTrue("STAT after AUTH PLAIN should succeed: " + stat, stat.ok);
+        }
+    }
+
+    @Test
+    public void testAuthLogin() throws Exception {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+            POP3ClientHelper.POP3Response start = session.sendCommand("AUTH LOGIN");
+            assertTrue("AUTH LOGIN should prompt for username: " + start,
+                    start.lines.get(0).startsWith("+ "));
+
+            String userB64 = Base64.getEncoder().encodeToString(
+                    TEST_USER.getBytes(StandardCharsets.US_ASCII));
+            POP3ClientHelper.POP3Response userResp = session.sendCommand(userB64);
+            assertTrue("AUTH LOGIN should prompt for password: " + userResp,
+                    userResp.lines.get(0).startsWith("+ "));
+
+            String passB64 = Base64.getEncoder().encodeToString(
+                    TEST_PASS.getBytes(StandardCharsets.US_ASCII));
+            POP3ClientHelper.POP3Response passResp = session.sendCommand(passB64);
+            assertTrue("AUTH LOGIN should succeed: " + passResp, passResp.ok);
+
+            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            assertTrue("STAT after AUTH LOGIN should succeed: " + stat, stat.ok);
         }
     }
     

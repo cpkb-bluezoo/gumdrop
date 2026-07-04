@@ -55,10 +55,13 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -248,6 +251,16 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private long appendLiteralRemaining = 0;
     private String appendMailboxName = null;
     private long appendMessageSize = 0;
+
+    // APPEND async-open buffering: opening the target mailbox is blocking disk
+    // I/O (file lock + index scan), so it is offloaded. While it is in flight
+    // {@code appendMailboxOpening} is true and literal bytes read off the wire
+    // are buffered in {@code appendPendingData}, then flushed once the mailbox
+    // is ready. If the open fails, {@code appendDiscarding} drains the client's
+    // remaining literal so the protocol stays in sync before the NO is sent.
+    private boolean appendMailboxOpening = false;
+    private boolean appendDiscarding = false;
+    private ByteArrayOutputStream appendPendingData = null;
 
     // General-purpose command literal state (RFC 7888 LITERAL-)
     private StringBuilder pendingCommand;
@@ -650,7 +663,15 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             ByteBuffer slice = buffer.slice();
             slice.limit(toConsume);
 
-            if (appendDataHandler != null) {
+            if (appendDiscarding) {
+                // The mailbox open (or a buffered write) failed; drain the
+                // client's literal into the void to stay in protocol sync.
+            } else if (appendMailboxOpening) {
+                // Mailbox still opening off-loop; buffer until it is ready.
+                byte[] tmp = new byte[toConsume];
+                slice.get(tmp);
+                appendPendingData.write(tmp, 0, tmp.length);
+            } else if (appendDataHandler != null) {
                 appendDataHandler.appendData(appendMailbox, slice);
             } else {
                 appendMailbox.appendMessageContent(slice);
@@ -659,7 +680,8 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             buffer.position(buffer.position() + toConsume);
             appendLiteralRemaining -= toConsume;
 
-            if (appendDataHandler != null
+            if (!appendMailboxOpening && !appendDiscarding
+                    && appendDataHandler != null
                     && appendDataHandler.wantsPause()
                     && appendLiteralRemaining > 0) {
                 appendDataHandler.setResumeCallback(
@@ -670,38 +692,16 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
 
         if (appendLiteralRemaining == 0) {
-            try {
-                long uid = appendMailbox.endAppendMessage();
-                appendMailbox.close(false);
-
-                QuotaManager quotaManager = server.getQuotaManager();
-                if (quotaManager != null) {
-                    quotaManager.recordMessageAdded(authenticatedUser,
-                            appendMessageSize);
-                }
-
-                addSessionEvent("APPEND_COMPLETE");
-                addSessionAttribute("imap.append.uid", uid);
-
-                sendTaggedOk(appendTag, "[APPENDUID "
-                        + appendMailbox.getUidValidity() + " " + uid + "] "
-                        + L10N.getString("imap.append_complete"));
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to complete APPEND", e);
-                addSessionEvent("APPEND_FAILED");
-                recordSessionException(e);
-                Throwable cause = e.getCause();
-                String msg = (cause instanceof HeaderLineTooLongException)
-                    ? L10N.getString("imap.err.header_line_too_long")
-                    : (cause instanceof HeaderValueTooLongException)
-                        ? L10N.getString("imap.err.header_value_too_long")
-                        : L10N.getString("imap.err.append_failed");
-                sendTaggedNo(appendTag, msg);
-            } finally {
-                appendTag = null;
-                appendMailbox = null;
-                appendMailboxName = null;
-                appendMessageSize = 0;
+            if (appendDiscarding) {
+                // Finished draining a failed APPEND; report it now.
+                sendAppendFailure();
+                resetAppendState();
+            } else if (appendMailboxOpening) {
+                // All literal buffered but the mailbox is still opening; the
+                // async-open completion callback will flush and finalise.
+                return;
+            } else {
+                finishAppend();
             }
 
             if (buffer.hasRemaining()) {
@@ -1231,10 +1231,21 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             return;
         }
 
-        openMailStore(username);
-        sendTaggedOk(tag, "[CAPABILITY "
-                + server.getCapabilities(true, endpoint.isSecure()) + "] "
-                + L10N.getString("imap.login_complete"));
+        // Opening the mail store is blocking disk I/O; offload it and send the
+        // completion reply on the loop thread once the store is open.
+        openMailStoreAsync(username, "PASSWORD", tag, new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    sendTaggedOk(tag, "[CAPABILITY "
+                            + server.getCapabilities(true, endpoint.isSecure())
+                            + "] " + L10N.getString("imap.login_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send LOGIN completion", e);
+                }
+            }
+        });
     }
 
     // RFC 9051 section 6.2.2 — AUTHENTICATE command (SASL, RFC 4422)
@@ -1832,6 +1843,70 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         }
     }
 
+    /**
+     * Non-blocking counterpart of
+     * {@link #openMailStore(String, String, String)} for the default (no
+     * pluggable {@code NotAuthenticatedHandler}) path. Opening the mail store
+     * touches disk (directory creation and subscription loading) and must not
+     * run on the SelectorLoop thread, so the open is offloaded to the storage
+     * pool and {@code onSuccess} is invoked on the loop thread once the store
+     * is open. On failure a tagged NO is sent and {@code onSuccess} is not run.
+     *
+     * @param username the authenticated user
+     * @param mechanism the SASL mechanism / auth type used
+     * @param tag the command tag to reply on
+     * @param onSuccess success continuation, run on the loop thread
+     */
+    private void openMailStoreAsync(final String username,
+            final String mechanism, final String tag,
+            final Runnable onSuccess) throws IOException {
+        authenticatedUser = username;
+
+        if (notAuthenticatedHandler != null) {
+            Principal principal = createPrincipal(username);
+            String responseTag = (tag != null) ? tag : pendingAuthTag;
+            notAuthenticatedHandler.authenticate(
+                    new AuthenticateStateImpl(responseTag, mechanism),
+                    principal, server.getMailboxFactory());
+            return;
+        }
+
+        final MailboxFactory factory = server.getMailboxFactory();
+        if (factory == null) {
+            state = IMAPState.AUTHENTICATED;
+            startAuthenticatedSpan(username, mechanism);
+            onSuccess.run();
+            return;
+        }
+
+        submitStorage(new Callable<MailboxStore>() {
+            @Override
+            public MailboxStore call() throws IOException {
+                MailboxStore s = factory.createStore();
+                s.open(username);
+                return s;
+            }
+        }, new StorageExecutor.Callback<MailboxStore>() {
+            @Override
+            public void completed(MailboxStore s) {
+                store = s;
+                state = IMAPState.AUTHENTICATED;
+                startAuthenticatedSpan(username, mechanism);
+                onSuccess.run();
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to open mail store for user: " + username,
+                        error);
+                recordSessionException(error);
+                authenticatedUser = null;
+                sendTaggedNoQuietly(tag, "imap.err.internal_error");
+            }
+        });
+    }
+
     private Principal createPrincipal(final String username) {
         return new Principal() {
             @Override
@@ -1844,6 +1919,76 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 return "IMAPPrincipal[" + username + "]";
             }
         };
+    }
+
+    /**
+     * Runs a blocking storage operation off the SelectorLoop thread on the
+     * shared {@link StorageExecutor}, delivering the result (or failure) to
+     * {@code callback} back on the loop thread. Opening/scanning a mailbox is
+     * blocking disk I/O (a full maildir/mbox scan) and must never run on the
+     * loop thread, where it would stall every other multiplexed connection.
+     *
+     * <p>Reads are paused while the operation is in flight so a pipelined
+     * command cannot race the result, and resumed before the callback runs.
+     *
+     * <p>When no pool is available (e.g. a unit-test harness where the server
+     * was not started) the operation runs inline to preserve behaviour; in
+     * that case reads are neither paused nor resumed.
+     *
+     * @param op the blocking operation to run off-loop
+     * @param callback the continuation, always invoked on the loop thread
+     */
+    private <T> void submitStorage(final Callable<T> op,
+            final StorageExecutor.Callback<T> callback) {
+        submitStorage(op, callback, true);
+    }
+
+    /**
+     * As {@link #submitStorage(Callable, StorageExecutor.Callback)} but with
+     * control over read flow. Most commands pause reads while the operation is
+     * in flight; APPEND does not, because it must keep reading the client's
+     * literal (buffering it) while the target mailbox opens off-loop.
+     *
+     * @param pauseReads whether to pause reads for the duration of the op
+     */
+    private <T> void submitStorage(final Callable<T> op,
+            final StorageExecutor.Callback<T> callback,
+            final boolean pauseReads) {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            T result;
+            try {
+                result = op.call();
+            } catch (Throwable t) {
+                callback.failed(t);
+                return;
+            }
+            callback.completed(result);
+            return;
+        }
+
+        if (pauseReads) {
+            endpoint.pauseRead();
+        }
+        exec.submit(endpoint, op, new StorageExecutor.Callback<T>() {
+            @Override
+            public void completed(T result) {
+                if (pauseReads) {
+                    endpoint.resumeRead();
+                }
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (pauseReads) {
+                    endpoint.resumeRead();
+                }
+                callback.failed(error);
+            }
+        });
     }
 
     // ── AUTHENTICATED state commands (RFC 9051 section 6.3) ──
@@ -1957,60 +2102,119 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             return;
         }
 
-        try {
-            if (selectedMailbox != null) {
-                selectedMailbox.close(!selectedReadOnly);
-                selectedMailbox = null;
+        // Closing the previously selected mailbox and opening the new one are
+        // blocking disk operations (a full maildir/mbox scan); offload them to
+        // the storage pool. The response below reads only in-memory state that
+        // the scan populated, so it runs on the loop thread in the callback.
+        final Mailbox previous = selectedMailbox;
+        final boolean previousReadOnly = selectedReadOnly;
+        final MailboxStore currentStore = store;
+        final String selMailbox = mailboxName;
+        final boolean selReadOnly = readOnly;
+        final long selQresyncUidValidity = qresyncUidValidity;
+        final long selQresyncModSeq = qresyncModSeq;
+        final String selQresyncKnownUids = qresyncKnownUids;
+        selectedMailbox = null;
+
+        submitStorage(new Callable<Mailbox>() {
+            @Override
+            public Mailbox call() throws IOException {
+                if (previous != null) {
+                    previous.close(!previousReadOnly);
+                }
+                return currentStore.openMailbox(selMailbox, selReadOnly);
             }
+        }, new StorageExecutor.Callback<Mailbox>() {
+            @Override
+            public void completed(Mailbox mbox) {
+                try {
+                    selectedMailbox = mbox;
+                    selectedReadOnly = selReadOnly;
+                    state = IMAPState.SELECTED;
 
-            selectedMailbox = store.openMailbox(mailboxName, readOnly);
-            selectedReadOnly = readOnly;
-            state = IMAPState.SELECTED;
+                    addSessionAttribute("imap.mailbox", selMailbox);
+                    addSessionAttribute("imap.mailbox.readonly", selReadOnly);
+                    addSessionEvent(selReadOnly ? "EXAMINE" : "SELECT");
 
-            addSessionAttribute("imap.mailbox", mailboxName);
-            addSessionAttribute("imap.mailbox.readonly", readOnly);
-            addSessionEvent(readOnly ? "EXAMINE" : "SELECT");
+                    int count = selectedMailbox.getMessageCount();
+                    lastReportedExists = count;
+                    lastReportedUIDs = snapshotUIDs(selectedMailbox, count);
+                    sendUntagged(count + " EXISTS");
+                    sendUntagged("0 RECENT");
+                    sendUntagged("FLAGS ("
+                            + formatFlags(selectedMailbox.getPermanentFlags())
+                            + ")");
+                    sendUntagged("OK [PERMANENTFLAGS ("
+                            + formatFlags(selectedMailbox.getPermanentFlags())
+                            + " \\*)]");
+                    sendUntagged("OK [UIDVALIDITY "
+                            + selectedMailbox.getUidValidity() + "]");
+                    sendUntagged("OK [UIDNEXT "
+                            + selectedMailbox.getUidNext() + "]");
 
-            int count = selectedMailbox.getMessageCount();
-            lastReportedExists = count;
-            lastReportedUIDs = snapshotUIDs(selectedMailbox, count);
-            sendUntagged(count + " EXISTS");
-            sendUntagged("0 RECENT");
-            sendUntagged("FLAGS ("
-                    + formatFlags(selectedMailbox.getPermanentFlags()) + ")");
-            sendUntagged("OK [PERMANENTFLAGS ("
-                    + formatFlags(selectedMailbox.getPermanentFlags())
-                    + " \\*)]");
-            sendUntagged("OK [UIDVALIDITY "
-                    + selectedMailbox.getUidValidity() + "]");
-            sendUntagged("OK [UIDNEXT " + selectedMailbox.getUidNext() + "]");
+                    // CONDSTORE: HIGHESTMODSEQ in SELECT/EXAMINE response
+                    if (condstoreEnabled) {
+                        long highestModSeq =
+                                selectedMailbox.getHighestModSeq();
+                        if (highestModSeq > 0) {
+                            sendUntagged("OK [HIGHESTMODSEQ "
+                                    + highestModSeq + "]");
+                        }
+                    }
 
-            // CONDSTORE: HIGHESTMODSEQ in SELECT/EXAMINE response
-            if (condstoreEnabled) {
-                long highestModSeq =
-                        selectedMailbox.getHighestModSeq();
-                if (highestModSeq > 0) {
-                    sendUntagged("OK [HIGHESTMODSEQ "
-                            + highestModSeq + "]");
+                    // QRESYNC: VANISHED (EARLIER) and unsolicited FETCH
+                    if (selQresyncUidValidity >= 0 && selQresyncModSeq >= 0
+                            && selectedMailbox.getUidValidity()
+                                    == selQresyncUidValidity) {
+                        sendQresyncData(selQresyncModSeq, selQresyncKnownUids);
+                    }
+
+                    String accessMode =
+                            selReadOnly ? "[READ-ONLY]" : "[READ-WRITE]";
+                    sendTaggedOk(tag, accessMode + " "
+                            + L10N.getString("imap.select_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to complete SELECT for: " + selMailbox, e);
+                    recordSessionException(e);
+                    sendTaggedNoQuietly(tag, "imap.err.mailbox_not_found");
                 }
             }
 
-            // QRESYNC: VANISHED (EARLIER) and unsolicited FETCH
-            if (qresyncUidValidity >= 0 && qresyncModSeq >= 0
-                    && selectedMailbox.getUidValidity()
-                            == qresyncUidValidity) {
-                sendQresyncData(qresyncModSeq, qresyncKnownUids);
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "Failed to open mailbox: "
+                        + selMailbox, error);
+                recordSessionException(error);
+                sendTaggedNoQuietly(tag, "imap.err.mailbox_not_found");
             }
+        });
+    }
 
-            String accessMode = readOnly ? "[READ-ONLY]" : "[READ-WRITE]";
-            sendTaggedOk(tag, accessMode + " "
-                    + L10N.getString("imap.select_complete"));
-
+    /**
+     * Sends a tagged NO with the message for {@code messageKey}, swallowing any
+     * I/O error raised while writing the reply. Used from storage-offload
+     * callbacks, whose {@code failed} continuation cannot propagate a checked
+     * {@link IOException}.
+     */
+    private void sendTaggedNoQuietly(String tag, String messageKey) {
+        try {
+            sendTaggedNo(tag, L10N.getString(messageKey));
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to open mailbox: "
-                    + mailboxName, e);
-            recordSessionException(e);
-            sendTaggedNo(tag, L10N.getString("imap.err.mailbox_not_found"));
+            LOGGER.log(Level.WARNING, "Failed to send tagged NO", e);
+        }
+    }
+
+    /**
+     * As {@link #sendTaggedNoQuietly(String, String)} but with a response-code
+     * prefix such as {@code "[TRYCREATE] "}.
+     */
+    private void sendTaggedNoQuietly(String tag, String prefix,
+            String messageKey) {
+        try {
+            sendTaggedNo(tag, prefix + L10N.getString(messageKey));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send tagged NO", e);
         }
     }
 
@@ -2367,68 +2571,99 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     private void executeStatus(String tag, String mailboxName, String[] attrs)
             throws IOException {
-        try {
-            Mailbox mailbox = store.openMailbox(mailboxName, true);
-            StringBuilder response = new StringBuilder();
-            String quotedName = quoteMailboxName(mailboxName);
-            response.append("STATUS ");
-            response.append(quotedName);
-            response.append(" (");
+        // Opening the mailbox is a blocking scan; the per-attribute reads and
+        // the closing write are blocking too. Run the whole response build off
+        // the loop and only send the finished string back on the loop thread.
+        final MailboxStore currentStore = store;
+        final String mbxName = mailboxName;
+        final String[] statusAttrs = attrs;
+        final String quotedName = quoteMailboxName(mailboxName);
 
-            boolean first = true;
-            for (String attr : attrs) {
-                if (!first) {
-                    response.append(' ');
-                }
-                first = false;
+        submitStorage(new Callable<String>() {
+            @Override
+            public String call() throws IOException {
+                Mailbox mailbox = currentStore.openMailbox(mbxName, true);
+                try {
+                    StringBuilder response = new StringBuilder();
+                    response.append("STATUS ");
+                    response.append(quotedName);
+                    response.append(" (");
 
-                String upper = attr.toUpperCase(Locale.ROOT);
-                switch (upper) {
-                    case "MESSAGES":
-                        int msgCount = mailbox.getMessageCount();
-                        response.append("MESSAGES ");
-                        response.append(msgCount);
-                        break;
-                    case "UIDNEXT":
-                        long uidNext = mailbox.getUidNext();
-                        response.append("UIDNEXT ");
-                        response.append(uidNext);
-                        break;
-                    case "UIDVALIDITY":
-                        long uidValidity = mailbox.getUidValidity();
-                        response.append("UIDVALIDITY ");
-                        response.append(uidValidity);
-                        break;
-                    case "UNSEEN":
-                        response.append("UNSEEN 0");
-                        break;
-                    case "RECENT":
-                        response.append("RECENT 0");
-                        break;
-                    case "SIZE":
-                        long size = mailbox.getMailboxSize();
-                        response.append("SIZE ");
-                        response.append(size);
-                        break;
-                    case "HIGHESTMODSEQ":
-                        long hms = mailbox.getHighestModSeq();
-                        response.append("HIGHESTMODSEQ ");
-                        response.append(hms);
-                        break;
-                    default:
-                        break;
+                    boolean first = true;
+                    for (String attr : statusAttrs) {
+                        if (!first) {
+                            response.append(' ');
+                        }
+                        first = false;
+
+                        String upper = attr.toUpperCase(Locale.ROOT);
+                        switch (upper) {
+                            case "MESSAGES":
+                                int msgCount = mailbox.getMessageCount();
+                                response.append("MESSAGES ");
+                                response.append(msgCount);
+                                break;
+                            case "UIDNEXT":
+                                long uidNext = mailbox.getUidNext();
+                                response.append("UIDNEXT ");
+                                response.append(uidNext);
+                                break;
+                            case "UIDVALIDITY":
+                                long uidValidity = mailbox.getUidValidity();
+                                response.append("UIDVALIDITY ");
+                                response.append(uidValidity);
+                                break;
+                            case "UNSEEN":
+                                response.append("UNSEEN 0");
+                                break;
+                            case "RECENT":
+                                response.append("RECENT 0");
+                                break;
+                            case "SIZE":
+                                long size = mailbox.getMailboxSize();
+                                response.append("SIZE ");
+                                response.append(size);
+                                break;
+                            case "HIGHESTMODSEQ":
+                                long hms = mailbox.getHighestModSeq();
+                                response.append("HIGHESTMODSEQ ");
+                                response.append(hms);
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                    response.append(')');
+                    return response.toString();
+                } finally {
+                    mailbox.close(false);
                 }
             }
-            response.append(')');
+        }, new StorageExecutor.Callback<String>() {
+            @Override
+            public void completed(String statusResponse) {
+                try {
+                    sendUntagged(statusResponse);
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.status_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send STATUS response", e);
+                }
+            }
 
-            mailbox.close(false);
-            String statusResponse = response.toString();
-            sendUntagged(statusResponse);
-            sendTaggedOk(tag, L10N.getString("imap.status_complete"));
-
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.status_failed"));
-        }
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.FINE, "STATUS failed for: " + mbxName, error);
+                try {
+                    sendTaggedNo(tag,
+                            L10N.getString("imap.err.status_failed"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send STATUS error", e);
+                }
+            }
+        });
     }
 
     // RFC 9051 section 6.3.12 — APPEND command
@@ -2558,29 +2793,165 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private void executeAppendDirect(String tag, String mailboxName,
             Set<Flag> flags, OffsetDateTime internalDate,
             long literalSize, boolean nonSync) throws IOException {
-        try {
-            appendMailbox = store.openMailbox(mailboxName, false);
-            appendMailbox.startAppendMessage(flags, internalDate);
-            appendTag = tag;
-            appendLiteralRemaining = literalSize;
-            appendMailboxName = mailboxName;
-            appendMessageSize = literalSize;
+        // Opening the target mailbox is blocking disk I/O (file lock + full
+        // index scan) and must not run on the loop. Set up the literal state
+        // synchronously so the receive()/LineParser flow is unchanged, then
+        // open the mailbox off-loop. Literal bytes arriving while the open is
+        // in flight are buffered by receiveLiteralData() and flushed on
+        // completion; reads are NOT paused so pipelined LITERAL+ data is never
+        // stranded in the connection buffer.
+        appendTag = tag;
+        appendLiteralRemaining = literalSize;
+        appendMailboxName = mailboxName;
+        appendMessageSize = literalSize;
+        appendMailbox = null;
+        appendMailboxOpening = true;
+        appendDiscarding = false;
+        appendPendingData = new ByteArrayOutputStream();
 
-            addSessionEvent("APPEND_START");
-            addSessionAttribute("imap.append.mailbox", mailboxName);
-            addSessionAttribute("imap.append.size", literalSize);
+        addSessionEvent("APPEND_START");
+        addSessionAttribute("imap.append.mailbox", mailboxName);
+        addSessionAttribute("imap.append.size", literalSize);
 
-            if (!nonSync) {
-                sendContinuation(L10N.getString("imap.ready_for_literal"));
+        if (!nonSync) {
+            sendContinuation(L10N.getString("imap.ready_for_literal"));
+        }
+
+        final String mbxName = mailboxName;
+        final Set<Flag> appendFlags = flags;
+        final OffsetDateTime date = internalDate;
+        final MailboxStore currentStore = store;
+
+        submitStorage(new Callable<Mailbox>() {
+            @Override
+            public Mailbox call() throws IOException {
+                Mailbox m = currentStore.openMailbox(mbxName, false);
+                m.startAppendMessage(appendFlags, date);
+                return m;
+            }
+        }, new StorageExecutor.Callback<Mailbox>() {
+            @Override
+            public void completed(Mailbox m) {
+                appendMailbox = m;
+                appendMailboxOpening = false;
+                try {
+                    flushPendingAppendData();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed writing buffered APPEND data", e);
+                    recordSessionException(e);
+                    appendPendingData = null;
+                    if (appendLiteralRemaining > 0) {
+                        appendDiscarding = true;
+                    } else {
+                        sendAppendFailure();
+                        resetAppendState();
+                    }
+                    return;
+                }
+                if (appendLiteralRemaining == 0) {
+                    finishAppend();
+                }
             }
 
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to start APPEND to "
-                    + mailboxName, e);
-            recordSessionException(e);
-            sendTaggedNo(tag, "[TRYCREATE] "
-                    + L10N.getString("imap.err.append_failed"));
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "Failed to start APPEND to "
+                        + mbxName, error);
+                recordSessionException(error);
+                appendMailbox = null;
+                appendMailboxOpening = false;
+                appendPendingData = null;
+                // The client is (or will be) sending the literal; drain it so
+                // the protocol stays in sync, then report the failure.
+                if (appendLiteralRemaining > 0) {
+                    appendDiscarding = true;
+                } else {
+                    sendAppendFailure();
+                    resetAppendState();
+                }
+            }
+        }, false);
+    }
+
+    /**
+     * Flushes any literal bytes buffered while the APPEND target mailbox was
+     * opening into the now-open mailbox.
+     */
+    private void flushPendingAppendData() throws IOException {
+        if (appendPendingData == null) {
+            return;
         }
+        byte[] data = appendPendingData.toByteArray();
+        appendPendingData = null;
+        if (data.length > 0) {
+            appendMailbox.appendMessageContent(ByteBuffer.wrap(data));
+        }
+    }
+
+    /**
+     * Finalises a completed APPEND: closes the message, records quota, and
+     * sends the tagged OK (or NO on error). Never throws; used from both the
+     * literal-read path and the async-open completion callback.
+     */
+    private void finishAppend() {
+        try {
+            long uid = appendMailbox.endAppendMessage();
+            appendMailbox.close(false);
+
+            QuotaManager quotaManager = server.getQuotaManager();
+            if (quotaManager != null) {
+                quotaManager.recordMessageAdded(authenticatedUser,
+                        appendMessageSize);
+            }
+
+            addSessionEvent("APPEND_COMPLETE");
+            addSessionAttribute("imap.append.uid", uid);
+
+            sendTaggedOk(appendTag, "[APPENDUID "
+                    + appendMailbox.getUidValidity() + " " + uid + "] "
+                    + L10N.getString("imap.append_complete"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to complete APPEND", e);
+            addSessionEvent("APPEND_FAILED");
+            recordSessionException(e);
+            Throwable cause = e.getCause();
+            String msg = (cause instanceof HeaderLineTooLongException)
+                ? L10N.getString("imap.err.header_line_too_long")
+                : (cause instanceof HeaderValueTooLongException)
+                    ? L10N.getString("imap.err.header_value_too_long")
+                    : L10N.getString("imap.err.append_failed");
+            try {
+                sendTaggedNo(appendTag, msg);
+            } catch (IOException e2) {
+                LOGGER.log(Level.WARNING, "Failed to send APPEND error", e2);
+            }
+        } finally {
+            resetAppendState();
+        }
+    }
+
+    /**
+     * Sends the tagged NO for a failed APPEND (mailbox could not be opened or
+     * written), swallowing any I/O error while writing the reply.
+     */
+    private void sendAppendFailure() {
+        try {
+            sendTaggedNo(appendTag, "[TRYCREATE] "
+                    + L10N.getString("imap.err.append_failed"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send APPEND error", e);
+        }
+    }
+
+    private void resetAppendState() {
+        appendTag = null;
+        appendMailbox = null;
+        appendMailboxName = null;
+        appendMessageSize = 0;
+        appendMailboxOpening = false;
+        appendDiscarding = false;
+        appendPendingData = null;
     }
 
     // RFC 9051 section 6.3.12: IMAP date-time format
@@ -3109,43 +3480,71 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     private void executeSearchWithCriteria(String tag,
             SearchCriteria criteria, boolean uid) throws IOException {
-        try {
-            List<Integer> results = selectedMailbox.search(criteria);
+        // The mailbox scan performed by search() is blocking disk I/O; offload
+        // it. Formatting the result set below reads only in-memory UID/MODSEQ
+        // maps, so it runs on the loop thread in the callback.
+        final Mailbox mbox = selectedMailbox;
+        final SearchCriteria crit = criteria;
+        final boolean uidMode = uid;
 
-            StringBuilder response = new StringBuilder("SEARCH");
-            long highestModSeq = 0;
-            for (Integer msgNum : results) {
-                if (uid) {
-                    String uidStr = selectedMailbox.getUniqueId(msgNum);
-                    response.append(' ');
-                    response.append(uidStr);
-                } else {
-                    response.append(' ');
-                    response.append(msgNum);
-                }
-                if (condstoreEnabled) {
-                    long ms = selectedMailbox.getModSeq(msgNum);
-                    if (ms > highestModSeq) {
-                        highestModSeq = ms;
+        submitStorage(new Callable<List<Integer>>() {
+            @Override
+            public List<Integer> call() throws IOException {
+                return mbox.search(crit);
+            }
+        }, new StorageExecutor.Callback<List<Integer>>() {
+            @Override
+            public void completed(List<Integer> results) {
+                try {
+                    StringBuilder response = new StringBuilder("SEARCH");
+                    long highestModSeq = 0;
+                    for (Integer msgNum : results) {
+                        if (uidMode) {
+                            String uidStr = mbox.getUniqueId(msgNum);
+                            response.append(' ');
+                            response.append(uidStr);
+                        } else {
+                            response.append(' ');
+                            response.append(msgNum);
+                        }
+                        if (condstoreEnabled) {
+                            long ms = mbox.getModSeq(msgNum);
+                            if (ms > highestModSeq) {
+                                highestModSeq = ms;
+                            }
+                        }
                     }
+
+                    // RFC 7162: include MODSEQ in SEARCH response
+                    if (condstoreEnabled && highestModSeq > 0
+                            && !results.isEmpty()) {
+                        response.append(" (MODSEQ ");
+                        response.append(highestModSeq);
+                        response.append(')');
+                    }
+
+                    String searchResponse = response.toString();
+                    sendUntagged(searchResponse);
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.search_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send SEARCH response", e);
                 }
             }
 
-            // RFC 7162: include MODSEQ in SEARCH response
-            if (condstoreEnabled && highestModSeq > 0
-                    && !results.isEmpty()) {
-                response.append(" (MODSEQ ");
-                response.append(highestModSeq);
-                response.append(')');
+            @Override
+            public void failed(Throwable error) {
+                if (error instanceof UnsupportedOperationException) {
+                    sendTaggedNoQuietly(tag,
+                            "imap.err.search_not_supported");
+                } else {
+                    LOGGER.log(Level.WARNING, "SEARCH failed", error);
+                    recordSessionException(error);
+                    sendTaggedNoQuietly(tag, "imap.err.internal_error");
+                }
             }
-
-            String searchResponse = response.toString();
-            sendUntagged(searchResponse);
-            sendTaggedOk(tag, L10N.getString("imap.search_complete"));
-
-        } catch (UnsupportedOperationException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.search_not_supported"));
-        }
+        });
     }
 
     // RFC 9051 section 6.4.9 — UID command prefix
@@ -4228,131 +4627,186 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     // ── COPY execution ──
 
-    private void executeCopy(String tag, Mailbox mailbox,
-            MessageSet seqSet, String targetMailboxName, boolean uid)
+    private void executeCopy(final String tag, final Mailbox mailbox,
+            MessageSet seqSet, final String targetMailboxName, boolean uid)
             throws IOException {
-        List<Integer> matching = resolveMatchingMessages(mailbox,
+        // resolveMatchingMessages reads in-memory sequence state, so it stays
+        // on the loop. The copy itself (reading source message bodies, opening
+        // and writing the target) is blocking disk I/O and is offloaded.
+        final List<Integer> matching = resolveMatchingMessages(mailbox,
                 seqSet, uid);
+        final MailboxStore currentStore = store;
 
-        try {
-            Map<Integer, Long> uidMap = mailbox.copyMessages(matching,
-                    targetMailboxName);
-
-            if (uidMap != null && !uidMap.isEmpty()) {
-                Mailbox target = store.openMailbox(
-                        targetMailboxName, true);
-                long uidValidity = target.getUidValidity();
-                target.close(false);
-
-                StringBuilder srcUids = new StringBuilder();
-                StringBuilder destUids = new StringBuilder();
-                boolean first = true;
-                for (Map.Entry<Integer, Long> entry
-                        : uidMap.entrySet()) {
-                    if (!first) {
-                        srcUids.append(',');
-                        destUids.append(',');
+        submitStorage(new Callable<CopyResult>() {
+            @Override
+            public CopyResult call() throws IOException {
+                Map<Integer, Long> uidMap = mailbox.copyMessages(matching,
+                        targetMailboxName);
+                long uidValidity = 0;
+                if (uidMap != null && !uidMap.isEmpty()) {
+                    Mailbox target = currentStore.openMailbox(
+                            targetMailboxName, true);
+                    try {
+                        uidValidity = target.getUidValidity();
+                    } finally {
+                        target.close(false);
                     }
-                    first = false;
-                    long srcUid = resolveUid(mailbox,
-                            entry.getKey().intValue());
-                    srcUids.append(srcUid);
-                    destUids.append(entry.getValue());
                 }
-
-                sendTaggedOk(tag, "[COPYUID " + uidValidity + " "
-                        + srcUids + " " + destUids + "] "
-                        + L10N.getString("imap.copy_complete"));
-            } else {
-                sendTaggedOk(tag,
-                        L10N.getString("imap.copy_complete"));
+                return new CopyResult(uidMap, uidValidity);
             }
-        } catch (UnsupportedOperationException e) {
-            sendTaggedNo(tag, "[TRYCREATE] "
-                    + L10N.getString("imap.err.mailbox_not_found"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "COPY failed", e);
-            sendTaggedNo(tag, "[TRYCREATE] "
-                    + L10N.getString("imap.err.mailbox_not_found"));
+        }, new StorageExecutor.Callback<CopyResult>() {
+            @Override
+            public void completed(CopyResult result) {
+                try {
+                    if (result.uidMap != null && !result.uidMap.isEmpty()) {
+                        String[] uids = buildCopyUidLists(mailbox,
+                                result.uidMap);
+                        sendTaggedOk(tag, "[COPYUID " + result.uidValidity
+                                + " " + uids[0] + " " + uids[1] + "] "
+                                + L10N.getString("imap.copy_complete"));
+                    } else {
+                        sendTaggedOk(tag,
+                                L10N.getString("imap.copy_complete"));
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send COPY reply", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (!(error instanceof UnsupportedOperationException)) {
+                    LOGGER.log(Level.WARNING, "COPY failed", error);
+                }
+                sendTaggedNoQuietly(tag, "[TRYCREATE] ",
+                        "imap.err.mailbox_not_found");
+            }
+        });
+    }
+
+    /**
+     * Holds the outcome of an offloaded COPY/MOVE: the source→target UID map
+     * and the target mailbox's UIDVALIDITY (for the COPYUID response code).
+     */
+    private static final class CopyResult {
+        final Map<Integer, Long> uidMap;
+        final long uidValidity;
+
+        CopyResult(Map<Integer, Long> uidMap, long uidValidity) {
+            this.uidMap = uidMap;
+            this.uidValidity = uidValidity;
         }
+    }
+
+    /**
+     * Builds the source and destination UID lists for a COPYUID response from
+     * a copy/move UID map. Reads in-memory source UIDs, so must run on the loop.
+     *
+     * @return a two-element array: {@code [sourceUids, destUids]}
+     */
+    private String[] buildCopyUidLists(Mailbox mailbox,
+            Map<Integer, Long> uidMap) throws IOException {
+        StringBuilder srcUids = new StringBuilder();
+        StringBuilder destUids = new StringBuilder();
+        boolean first = true;
+        for (Map.Entry<Integer, Long> entry : uidMap.entrySet()) {
+            if (!first) {
+                srcUids.append(',');
+                destUids.append(',');
+            }
+            first = false;
+            long srcUid = resolveUid(mailbox, entry.getKey().intValue());
+            srcUids.append(srcUid);
+            destUids.append(entry.getValue());
+        }
+        return new String[] { srcUids.toString(), destUids.toString() };
     }
 
     // ── MOVE execution ──
 
-    private void executeMove(String tag, Mailbox mailbox,
-            MessageSet seqSet, String targetMailboxName, boolean uid)
+    private void executeMove(final String tag, final Mailbox mailbox,
+            MessageSet seqSet, final String targetMailboxName, boolean uid)
             throws IOException {
-        List<Integer> matching = resolveMatchingMessages(mailbox,
+        final List<Integer> matching = resolveMatchingMessages(mailbox,
                 seqSet, uid);
 
-        try {
-            // Resolve UIDs before move (needed for QRESYNC VANISHED)
-            List<Long> movedUids = null;
-            if (qresyncEnabled) {
-                movedUids = new ArrayList<>();
-                for (int i = 0; i < matching.size(); i++) {
-                    movedUids.add(resolveUid(mailbox,
-                            matching.get(i).intValue()));
-                }
+        // Resolve UIDs before the move (needed for QRESYNC VANISHED); this
+        // reads in-memory state and must happen on the loop before the source
+        // messages are removed off-loop.
+        final List<Long> movedUids;
+        if (qresyncEnabled) {
+            movedUids = new ArrayList<Long>();
+            for (int i = 0; i < matching.size(); i++) {
+                movedUids.add(resolveUid(mailbox,
+                        matching.get(i).intValue()));
             }
-
-            Map<Integer, Long> uidMap = mailbox.moveMessages(matching,
-                    targetMailboxName);
-
-            if (qresyncEnabled && movedUids != null
-                    && !movedUids.isEmpty()) {
-                StringBuilder sb = new StringBuilder("VANISHED ");
-                for (int i = 0; i < movedUids.size(); i++) {
-                    if (i > 0) {
-                        sb.append(',');
-                    }
-                    sb.append(movedUids.get(i));
-                }
-                sendUntagged(sb.toString());
-            } else if (!qresyncEnabled) {
-                for (int i = matching.size() - 1; i >= 0; i--) {
-                    int msgNum = matching.get(i).intValue();
-                    sendUntagged(msgNum + " EXPUNGE");
-                }
-            }
-
-            if (uidMap != null && !uidMap.isEmpty()) {
-                Mailbox target = store.openMailbox(
-                        targetMailboxName, true);
-                long uidValidity = target.getUidValidity();
-                target.close(false);
-
-                StringBuilder srcUids = new StringBuilder();
-                StringBuilder destUids = new StringBuilder();
-                boolean first = true;
-                for (Map.Entry<Integer, Long> entry
-                        : uidMap.entrySet()) {
-                    if (!first) {
-                        srcUids.append(',');
-                        destUids.append(',');
-                    }
-                    first = false;
-                    long srcUid = resolveUid(mailbox,
-                            entry.getKey().intValue());
-                    srcUids.append(srcUid);
-                    destUids.append(entry.getValue());
-                }
-
-                sendTaggedOk(tag, "[COPYUID " + uidValidity + " "
-                        + srcUids + " " + destUids + "] "
-                        + L10N.getString("imap.move_complete"));
-            } else {
-                sendTaggedOk(tag,
-                        L10N.getString("imap.move_complete"));
-            }
-        } catch (UnsupportedOperationException e) {
-            sendTaggedNo(tag, "[TRYCREATE] "
-                    + L10N.getString("imap.err.mailbox_not_found"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "MOVE failed", e);
-            sendTaggedNo(tag, "[TRYCREATE] "
-                    + L10N.getString("imap.err.mailbox_not_found"));
+        } else {
+            movedUids = null;
         }
+        final MailboxStore currentStore = store;
+
+        submitStorage(new Callable<CopyResult>() {
+            @Override
+            public CopyResult call() throws IOException {
+                Map<Integer, Long> uidMap = mailbox.moveMessages(matching,
+                        targetMailboxName);
+                long uidValidity = 0;
+                if (uidMap != null && !uidMap.isEmpty()) {
+                    Mailbox target = currentStore.openMailbox(
+                            targetMailboxName, true);
+                    try {
+                        uidValidity = target.getUidValidity();
+                    } finally {
+                        target.close(false);
+                    }
+                }
+                return new CopyResult(uidMap, uidValidity);
+            }
+        }, new StorageExecutor.Callback<CopyResult>() {
+            @Override
+            public void completed(CopyResult result) {
+                try {
+                    if (qresyncEnabled && movedUids != null
+                            && !movedUids.isEmpty()) {
+                        StringBuilder sb = new StringBuilder("VANISHED ");
+                        for (int i = 0; i < movedUids.size(); i++) {
+                            if (i > 0) {
+                                sb.append(',');
+                            }
+                            sb.append(movedUids.get(i));
+                        }
+                        sendUntagged(sb.toString());
+                    } else if (!qresyncEnabled) {
+                        for (int i = matching.size() - 1; i >= 0; i--) {
+                            int msgNum = matching.get(i).intValue();
+                            sendUntagged(msgNum + " EXPUNGE");
+                        }
+                    }
+
+                    if (result.uidMap != null && !result.uidMap.isEmpty()) {
+                        String[] uids = buildCopyUidLists(mailbox,
+                                result.uidMap);
+                        sendTaggedOk(tag, "[COPYUID " + result.uidValidity
+                                + " " + uids[0] + " " + uids[1] + "] "
+                                + L10N.getString("imap.move_complete"));
+                    } else {
+                        sendTaggedOk(tag,
+                                L10N.getString("imap.move_complete"));
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send MOVE reply", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                if (!(error instanceof UnsupportedOperationException)) {
+                    LOGGER.log(Level.WARNING, "MOVE failed", error);
+                }
+                sendTaggedNoQuietly(tag, "[TRYCREATE] ",
+                        "imap.err.mailbox_not_found");
+            }
+        });
     }
 
     // ── FETCH/STORE/COPY/MOVE helpers ──

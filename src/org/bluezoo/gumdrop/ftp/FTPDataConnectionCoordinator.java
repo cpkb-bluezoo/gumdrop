@@ -37,17 +37,20 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPEndpoint;
+import org.bluezoo.gumdrop.TimerHandle;
 
 /**
  * Coordinates FTP data connections as specified in RFC 959 sections 3.2–3.3.
@@ -148,6 +151,23 @@ public class FTPDataConnectionCoordinator {
     private FTPDataConnection activeDataConnection;
     private long transferStartTime;
     private long totalBytesTransferred;
+
+    // Async data-connection acquisition state (guarded by 'this'). When a
+    // transfer is requested in passive mode before the client's data
+    // connection has arrived, the continuation is parked here rather than
+    // blocking the selector-loop thread, and a timeout timer is armed on the
+    // control endpoint so a client that never connects cannot stall the loop.
+    private DataConnectionReady waitingContinuation;
+    private TransferCallback waitingCallback;
+    private Endpoint waitingControlEndpoint;
+    private TimerHandle connectionTimeout;
+
+    /**
+     * How long the server waits for the client to open the data connection
+     * before failing the transfer. RFC 959 mandates no fixed value; 30s
+     * matches the previous (blocking) behaviour.
+     */
+    private static final long DATA_CONNECTION_TIMEOUT_MS = 30_000L;
     
     // TLS protection state (RFC 4217)
     private boolean dataProtection = false;
@@ -268,10 +288,6 @@ public class FTPDataConnectionCoordinator {
                     return;
                 }
             }
-            incomingDataConnections.offer(dataConnection);
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Data connection accepted in passive mode");
-            }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error accepting data connection", e);
             try {
@@ -279,297 +295,44 @@ public class FTPDataConnectionCoordinator {
             } catch (Exception closeEx) {
                 // Ignore close errors
             }
+            return;
         }
-    }
-    
-    /**
-     * Starts a data transfer operation.
-     * This handles both passive and active mode coordination.
-     *
-     * @param transfer the transfer details
-     * @throws IOException if transfer setup fails
-     */
-    public synchronized void startTransfer(PendingTransfer transfer) throws IOException {
-        if (mode == DataConnectionMode.NONE) {
-            throw new IOException("No data connection mode configured (need PORT or PASV first)");
-        }
-        
-        this.pendingTransfer = transfer;
-        this.transferStartTime = System.currentTimeMillis();
-        this.totalBytesTransferred = 0;
-        
-        // Establish data connection based on mode
-        switch (mode) {
-            case PASSIVE:
-                waitForPassiveConnection();
-                break;
-            case ACTIVE:
-                establishActiveConnection();
-                break;
-            default:
-                throw new IOException("Invalid data connection mode: " + mode);
-        }
-        
-        // Start the actual transfer
-        performTransfer();
-    }
-    
-    /**
-     * Waits for client to connect in passive mode.
-     */
-    private void waitForPassiveConnection() throws IOException {
-        try {
-            // Wait for client connection (with timeout)
-            activeDataConnection = incomingDataConnections.poll(30, TimeUnit.SECONDS);
-            if (activeDataConnection == null) {
-                throw new IOException("Timeout waiting for client data connection");
-            }
-            
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Client connected to passive data port");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Interrupted waiting for data connection", e);
-        }
-    }
-    
-    /**
-     * Establishes connection to client in active mode.
-     * RFC 959 section 3.2: server-DTP initiates connection to user-DTP.
-     */
-    private void establishActiveConnection() throws IOException {
-        try {
-            SocketChannel channel = SocketChannel.open();
-            channel.connect(new InetSocketAddress(activeHost, activePort));
 
-            activeDataConnection = new FTPDataConnection(channel, this);
+        // This runs on the accept-selector thread. If a transfer is already
+        // waiting for its data connection, hand the connection to it on the
+        // control connection's loop thread; otherwise queue it (the connection
+        // arrived before the transfer command, which is legal). The poll in
+        // acquireDataConnection() and this hand-off are mutually exclusive on
+        // 'this', so there is no lost-wakeup race.
+        Endpoint controlEndpoint;
+        TransferCallback callback;
+        DataConnectionReady continuation;
+        synchronized (this) {
+            if (waitingContinuation == null) {
+                incomingDataConnections.offer(dataConnection);
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Data connection queued (arrived before command)");
+                }
+                return;
+            }
+            controlEndpoint = waitingControlEndpoint;
+            callback = waitingCallback;
+            continuation = waitingContinuation;
+            waitingControlEndpoint = null;
+            waitingCallback = null;
+            waitingContinuation = null;
+        }
 
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Connected to client data port " + activeHost + ":" + activePort);
+        final Endpoint ep = controlEndpoint;
+        final TransferCallback cb = callback;
+        final DataConnectionReady cont = continuation;
+        ep.execute(new Runnable() {
+            @Override
+            public void run() {
+                cancelConnectionTimeout();
+                deliverDataConnection(ep, cb, cont, dataConnection);
             }
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to connect to client data port", e);
-            throw e;
-        }
-    }
-    
-    /**
-     * Performs the actual data transfer based on transfer type.
-     */
-    private void performTransfer() throws IOException {
-        if (pendingTransfer == null || activeDataConnection == null) {
-            throw new IOException("Transfer not properly initialized");
-        }
-        
-        try {
-            // Notify handler that transfer is starting
-            if (pendingTransfer.getHandler() != null) {
-                boolean isUpload = (pendingTransfer.getType() == TransferType.UPLOAD);
-                pendingTransfer.getHandler().transferStarting(
-                    pendingTransfer.getPath(), 
-                    isUpload, 
-                    -1, // size unknown initially
-                    pendingTransfer.getMetadata()
-                );
-            }
-            
-            // Perform transfer based on type
-            switch (pendingTransfer.getType()) {
-                case DOWNLOAD:
-                    performDownload();
-                    break;
-                case UPLOAD:
-                    performUpload();
-                    break;
-                case LISTING:
-                case NAME_LIST:
-                case MACHINE_LISTING:
-                    performListing();
-                    break;
-                default:
-                    throw new IOException("Unsupported transfer type: " + pendingTransfer.getType());
-            }
-            
-            // Notify handler of completion
-            if (pendingTransfer.getHandler() != null) {
-                boolean isUpload = (pendingTransfer.getType() == TransferType.UPLOAD);
-                pendingTransfer.getHandler().transferCompleted(
-                    pendingTransfer.getPath(), 
-                    isUpload, 
-                    totalBytesTransferred, 
-                    true, // success
-                    pendingTransfer.getMetadata()
-                );
-            }
-            
-        } catch (IOException e) {
-            // Notify handler of failure
-            if (pendingTransfer.getHandler() != null) {
-                boolean isUpload = (pendingTransfer.getType() == TransferType.UPLOAD);
-                pendingTransfer.getHandler().transferCompleted(
-                    pendingTransfer.getPath(), 
-                    isUpload, 
-                    totalBytesTransferred, 
-                    false, // failure
-                    pendingTransfer.getMetadata()
-                );
-            }
-            throw e;
-        } finally {
-            // Clean up data connection
-            cleanup();
-        }
-    }
-    
-    /**
-     * Handles file download (RETR command) using high-performance NIO channels.
-     */
-    private void performDownload() throws IOException {
-        FTPFileSystem fs = pendingTransfer.getHandler().getFileSystem(pendingTransfer.getMetadata());
-        if (fs == null) {
-            throw new IOException("No file system available for download");
-        }
-        
-        // Open file for reading using NIO channel
-        ReadableByteChannel fileChannel = fs.openForReading(
-            pendingTransfer.getPath(), 
-            pendingTransfer.getRestartOffset(), 
-            pendingTransfer.getMetadata()
-        );
-        
-        if (fileChannel == null) {
-            throw new IOException("Failed to open file for reading: " + pendingTransfer.getPath());
-        }
-        
-        try {
-            // Get data connection channel
-            WritableByteChannel dataChannel = activeDataConnection.getChannel();
-            
-            // Stream data from file to network using channels
-            streamChannelData(fileChannel, dataChannel, pendingTransfer.getMetadata());
-            
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Channel download completed: " + totalBytesTransferred + " bytes");
-            }
-            
-        } finally {
-            try {
-                fileChannel.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing file channel", e);
-            }
-        }
-    }
-    
-    /**
-     * Handles file upload (STOR/APPE/STOU commands) using high-performance NIO channels.
-     */
-    private void performUpload() throws IOException {
-        FTPFileSystem fs = pendingTransfer.getHandler().getFileSystem(pendingTransfer.getMetadata());
-        if (fs == null) {
-            throw new IOException("No file system available for upload");
-        }
-        
-        String targetPath = pendingTransfer.getPath();
-        
-        // Handle STOU (Store Unique) - generate unique filename
-        if (pendingTransfer.getType() == TransferType.UPLOAD && targetPath.isEmpty()) {
-            FTPFileSystem.UniqueNameResult uniqueResult = fs.generateUniqueName(
-                "/", null, pendingTransfer.getMetadata());
-            if (uniqueResult.getResult() != FTPFileOperationResult.SUCCESS) {
-                throw new IOException("Failed to generate unique filename");
-            }
-            targetPath = uniqueResult.getUniquePath();
-        }
-        
-        // Open file for writing using NIO channel
-        WritableByteChannel fileChannel = fs.openForWriting(
-            targetPath, 
-            pendingTransfer.isAppend(), 
-            pendingTransfer.getMetadata()
-        );
-        
-        if (fileChannel == null) {
-            throw new IOException("Failed to open file for writing: " + targetPath);
-        }
-        
-        try {
-            // Get data connection channel
-            ReadableByteChannel dataChannel = activeDataConnection.getChannel();
-            
-            // Stream data from network to file using channels
-            streamChannelData(dataChannel, fileChannel, pendingTransfer.getMetadata());
-            
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Channel upload completed: " + totalBytesTransferred + " bytes");
-            }
-            
-        } finally {
-            try {
-                fileChannel.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error closing file channel", e);
-            }
-        }
-    }
-    
-    /**
-     * Handles directory listing (LIST/NLST commands).
-     */
-    private void performListing() throws IOException {
-        FTPFileSystem fs = pendingTransfer.getHandler().getFileSystem(pendingTransfer.getMetadata());
-        if (fs == null) {
-            throw new IOException("No file system available for listing");
-        }
-        
-        // Get directory listing
-        List<FTPFileInfo> files = fs.listDirectory(
-            pendingTransfer.getPath(), 
-            pendingTransfer.getMetadata()
-        );
-        
-        if (files == null) {
-            throw new IOException("Failed to list directory: " + pendingTransfer.getPath());
-        }
-        
-        try {
-            // Get data connection channel
-            WritableByteChannel dataChannel = activeDataConnection.getChannel();
-            
-            // Format and send listing data
-            StringBuilder listing = new StringBuilder();
-            TransferType type = pendingTransfer.getType();
-            for (FTPFileInfo file : files) {
-                if (type == TransferType.NAME_LIST) {
-                    listing.append(file.getName());
-                } else if (type == TransferType.MACHINE_LISTING) {
-                    // RFC 3659 section 7: machine-readable format
-                    listing.append(file.formatAsMLSEntry());
-                } else {
-                    listing.append(file.formatAsListingLine());
-                }
-                listing.append("\r\n");
-            }
-            
-            // Convert to bytes and send via channel
-            byte[] listingBytes = listing.toString().getBytes(StandardCharsets.UTF_8);
-            ByteBuffer listingBuffer = ByteBuffer.wrap(listingBytes);
-            
-            while (listingBuffer.hasRemaining()) {
-                int written = dataChannel.write(listingBuffer);
-                if (written == 0) {
-                    Thread.yield(); // Handle non-blocking channels
-                }
-            }
-            
-            // Update transfer statistics
-            totalBytesTransferred = listingBytes.length;
-            
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending directory listing", e);
-            throw e;
-        }
+        });
     }
     
     /**
@@ -677,125 +440,6 @@ public class FTPDataConnectionCoordinator {
     public boolean hasActiveDataConnection() {
         return activeDataConnection != null;
     }
-    
-    /**
-     * Streams data between channels with progress tracking and mode conversion.
-     * Implements RFC 959 section 3.4.1 stream mode transfer: data sent as a
-     * continuous stream, EOF signalled by closing the data connection.
-     *
-     * <p>For ASCII type (RFC 959 section 3.1.1.1), line endings are converted
-     * to the NVT-ASCII CRLF convention for network transmission.
-     * 
-     * @param input source channel
-     * @param output destination channel
-     * @param metadata connection metadata for transfer type information
-     * @throws IOException if transfer fails
-     */
-    private void streamChannelData(ReadableByteChannel input, WritableByteChannel output, 
-                                 FTPConnectionMetadata metadata) throws IOException {
-        
-        ByteBuffer buffer = ByteBuffer.allocateDirect(TRANSFER_BUFFER_SIZE);
-        long nextProgressNotify = PROGRESS_NOTIFY_INTERVAL;
-        
-        FTPConnectionMetadata.FTPTransferType transferType = metadata.getTransferType();
-        boolean isAsciiMode = (transferType == FTPConnectionMetadata.FTPTransferType.ASCII);
-        
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Starting channel data transfer in " + transferType + " mode");
-        }
-        
-        try {
-            while (input.read(buffer) != -1) {
-                buffer.flip();
-                
-                if (isAsciiMode) {
-                    // ASCII mode: Convert line endings from file system to network format
-                    byte[] data = new byte[buffer.remaining()];
-                    buffer.get(data);
-                    ByteBuffer converted = convertToNetworkFormat(data);
-                    try {
-                        while (converted.hasRemaining()) {
-                            int written = output.write(converted);
-                            if (written == 0) {
-                                // Channel may be non-blocking, but we need to write all data
-                                Thread.yield();
-                            }
-                        }
-                        totalBytesTransferred += converted.position();
-                    } finally {
-                        ByteBufferPool.release(converted);
-                    }
-                } else {
-                    // Binary mode: Direct transfer
-                    while (buffer.hasRemaining()) {
-                        int written = output.write(buffer);
-                        if (written == 0) {
-                            // Channel may be non-blocking, but we need to write all data
-                            Thread.yield();
-                        }
-                        totalBytesTransferred += written;
-                    }
-                }
-                
-                buffer.clear();
-                
-                // Progress notification
-                if (totalBytesTransferred >= nextProgressNotify) {
-                    notifyProgress();
-                    nextProgressNotify = totalBytesTransferred + PROGRESS_NOTIFY_INTERVAL;
-                }
-            }
-            
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Channel transfer completed: " + totalBytesTransferred + " bytes");
-            }
-            
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Channel transfer failed after " + totalBytesTransferred + " bytes", e);
-            throw e;
-        }
-    }
-    
-    /**
-     * Converts data from local format to NVT-ASCII network format per
-     * RFC 959 section 3.1.1.1: line endings MUST be CRLF.
-     * Single-pass conversion: LF without preceding CR becomes CRLF.
-     *
-     * @param data input data
-     * @return converted data with proper line endings (caller must release via ByteBufferPool)
-     */
-    private ByteBuffer convertToNetworkFormat(byte[] data) {
-        ByteBuffer result = ByteBufferPool.acquire(data.length * 2);
-        for (int i = 0; i < data.length; i++) {
-            byte b = data[i];
-            if (b == '\n' && (i == 0 || data[i - 1] != '\r')) {
-                result.put((byte) '\r');
-            }
-            result.put(b);
-        }
-        result.flip();
-        return result;
-    }
-    
-    /**
-     * Notifies handler of transfer progress.
-     */
-    private void notifyProgress() {
-        if (pendingTransfer != null && pendingTransfer.getHandler() != null) {
-            try {
-                boolean isUpload = (pendingTransfer.getType() == TransferType.UPLOAD);
-                pendingTransfer.getHandler().transferProgress(
-                    pendingTransfer.getPath(),
-                    isUpload,
-                    null, // no specific data chunk for periodic progress updates
-                    totalBytesTransferred,
-                    pendingTransfer.getMetadata()
-                );
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error notifying transfer progress", e);
-            }
-        }
-    }
 
     // ── Event-driven data transfer ──
 
@@ -805,6 +449,187 @@ public class FTPDataConnectionCoordinator {
     public interface TransferCallback {
         void transferComplete(long bytesTransferred);
         void transferFailed(IOException cause);
+    }
+
+    /**
+     * Continuation run (on the control connection's loop thread) once a data
+     * connection is available. Implementations perform the post-connection
+     * transfer setup that used to follow the blocking wait for the data
+     * connection.
+     */
+    private interface DataConnectionReady {
+        void ready(FTPDataConnection connection) throws IOException;
+    }
+
+    /**
+     * Obtains the data connection <em>without blocking the selector loop</em>
+     * and then runs {@code continuation} on the control loop once it is
+     * available.
+     *
+     * <ul>
+     * <li>Passive mode: if the client has already connected, the queued
+     *     connection is used immediately; otherwise the continuation is parked
+     *     and a timeout timer is armed. When the client connects,
+     *     {@link #acceptDataConnection} resumes the continuation on the loop.
+     *     Previously this blocked the loop thread for up to 30s in a
+     *     {@code poll()} — a trivial denial of service.</li>
+     * <li>Active mode: the outbound connect (which blocks) is offloaded to the
+     *     shared {@link StorageExecutor} rather than run on the loop, and the
+     *     continuation resumes on the loop when the connect completes.</li>
+     * </ul>
+     *
+     * @param controlEndpoint the control connection endpoint (for its loop and
+     *        timer scheduling)
+     * @param callback the transfer completion/failure callback
+     * @param continuation the post-connection setup, run on the loop thread
+     */
+    private void acquireDataConnection(Endpoint controlEndpoint,
+            TransferCallback callback, DataConnectionReady continuation) {
+        switch (mode) {
+            case PASSIVE: {
+                FTPDataConnection existing;
+                synchronized (this) {
+                    existing = incomingDataConnections.poll();
+                    if (existing == null) {
+                        // Park until the client connects (or we time out).
+                        waitingControlEndpoint = controlEndpoint;
+                        waitingCallback = callback;
+                        waitingContinuation = continuation;
+                        connectionTimeout = controlEndpoint.scheduleTimer(
+                                DATA_CONNECTION_TIMEOUT_MS,
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        onDataConnectionTimeout();
+                                    }
+                                });
+                    }
+                }
+                if (existing != null) {
+                    deliverDataConnection(controlEndpoint, callback,
+                            continuation, existing);
+                }
+                break;
+            }
+            case ACTIVE:
+                connectActiveModeAsync(controlEndpoint, callback, continuation);
+                break;
+            default:
+                failTransfer(controlEndpoint, callback,
+                        new IOException("No data connection mode configured"));
+        }
+    }
+
+    /**
+     * Runs the post-connection continuation on the loop thread, recording the
+     * active data connection first so the existing transfer-setup code can find
+     * it. On setup failure the transfer is cleaned up and reported as failed.
+     */
+    private void deliverDataConnection(Endpoint controlEndpoint,
+            TransferCallback callback, DataConnectionReady continuation,
+            FTPDataConnection connection) {
+        activeDataConnection = connection;
+        try {
+            continuation.ready(connection);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "FTP data transfer setup failed", e);
+            cleanup();
+            callback.transferFailed(e);
+        }
+    }
+
+    /**
+     * Opens the active-mode data connection on the shared storage pool (a
+     * blocking connect must never run on the loop), then resumes on the loop.
+     */
+    private void connectActiveModeAsync(final Endpoint controlEndpoint,
+            final TransferCallback callback,
+            final DataConnectionReady continuation) {
+        final String host = activeHost;
+        final int port = activePort;
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            failTransfer(controlEndpoint, callback, new IOException(
+                    "Server not started; cannot open active data connection"));
+            return;
+        }
+        exec.submit(controlEndpoint, new Callable<FTPDataConnection>() {
+            @Override
+            public FTPDataConnection call() throws IOException {
+                SocketChannel channel = SocketChannel.open();
+                channel.socket().connect(new InetSocketAddress(host, port),
+                        (int) DATA_CONNECTION_TIMEOUT_MS);
+                return new FTPDataConnection(channel,
+                        FTPDataConnectionCoordinator.this);
+            }
+        }, new StorageExecutor.Callback<FTPDataConnection>() {
+            @Override
+            public void completed(FTPDataConnection connection) {
+                deliverDataConnection(controlEndpoint, callback,
+                        continuation, connection);
+            }
+            @Override
+            public void failed(Throwable error) {
+                IOException e = (error instanceof IOException)
+                        ? (IOException) error
+                        : new IOException("Active data connection failed",
+                                error);
+                cleanup();
+                callback.transferFailed(e);
+            }
+        });
+    }
+
+    /**
+     * Fails a transfer on the control loop (used when acquisition cannot even
+     * begin). Cleans up and notifies the callback.
+     */
+    private void failTransfer(final Endpoint controlEndpoint,
+            final TransferCallback callback, final IOException error) {
+        controlEndpoint.execute(new Runnable() {
+            @Override
+            public void run() {
+                cleanup();
+                callback.transferFailed(error);
+            }
+        });
+    }
+
+    /**
+     * Fires (on the loop) when no data connection arrived within
+     * {@link #DATA_CONNECTION_TIMEOUT_MS}. If the transfer is still waiting it
+     * is failed; otherwise the connection already arrived and this is a no-op.
+     */
+    private void onDataConnectionTimeout() {
+        Endpoint controlEndpoint;
+        TransferCallback callback;
+        synchronized (this) {
+            if (waitingContinuation == null) {
+                return; // connection already delivered
+            }
+            controlEndpoint = waitingControlEndpoint;
+            callback = waitingCallback;
+            waitingControlEndpoint = null;
+            waitingCallback = null;
+            waitingContinuation = null;
+            connectionTimeout = null;
+        }
+        LOGGER.warning("Timeout waiting for FTP client data connection");
+        cleanup();
+        callback.transferFailed(
+                new IOException("Timeout waiting for client data connection"));
+    }
+
+    /**
+     * Cancels the data-connection timeout timer, if armed.
+     */
+    private synchronized void cancelConnectionTimeout() {
+        if (connectionTimeout != null) {
+            connectionTimeout.cancel();
+            connectionTimeout = null;
+        }
     }
 
     /**
@@ -831,17 +656,19 @@ public class FTPDataConnectionCoordinator {
         this.transferStartTime = System.currentTimeMillis();
         this.totalBytesTransferred = 0;
 
-        switch (mode) {
-            case PASSIVE:
-                waitForPassiveConnection();
-                break;
-            case ACTIVE:
-                establishActiveConnection();
-                break;
-            default:
-                throw new IOException("Invalid data connection mode");
-        }
+        acquireDataConnection(controlEndpoint, callback,
+                new DataConnectionReady() {
+                    @Override
+                    public void ready(FTPDataConnection connection)
+                            throws IOException {
+                        beginDownload(controlEndpoint, transfer, callback);
+                    }
+                });
+    }
 
+    private void beginDownload(Endpoint controlEndpoint,
+            PendingTransfer transfer, TransferCallback callback)
+            throws IOException {
         FTPFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
@@ -914,17 +741,19 @@ public class FTPDataConnectionCoordinator {
         this.transferStartTime = System.currentTimeMillis();
         this.totalBytesTransferred = 0;
 
-        switch (mode) {
-            case PASSIVE:
-                waitForPassiveConnection();
-                break;
-            case ACTIVE:
-                establishActiveConnection();
-                break;
-            default:
-                throw new IOException("Invalid data connection mode");
-        }
+        acquireDataConnection(controlEndpoint, callback,
+                new DataConnectionReady() {
+                    @Override
+                    public void ready(FTPDataConnection connection)
+                            throws IOException {
+                        beginListing(controlEndpoint, transfer, callback);
+                    }
+                });
+    }
 
+    private void beginListing(Endpoint controlEndpoint,
+            PendingTransfer transfer, TransferCallback callback)
+            throws IOException {
         FTPFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
@@ -990,17 +819,19 @@ public class FTPDataConnectionCoordinator {
         this.transferStartTime = System.currentTimeMillis();
         this.totalBytesTransferred = 0;
 
-        switch (mode) {
-            case PASSIVE:
-                waitForPassiveConnection();
-                break;
-            case ACTIVE:
-                establishActiveConnection();
-                break;
-            default:
-                throw new IOException("Invalid data connection mode");
-        }
+        acquireDataConnection(controlEndpoint, callback,
+                new DataConnectionReady() {
+                    @Override
+                    public void ready(FTPDataConnection connection)
+                            throws IOException {
+                        beginUpload(controlEndpoint, transfer, callback);
+                    }
+                });
+    }
 
+    private void beginUpload(Endpoint controlEndpoint,
+            PendingTransfer transfer, TransferCallback callback)
+            throws IOException {
         FTPFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
@@ -1161,6 +992,7 @@ public class FTPDataConnectionCoordinator {
         private final PendingTransfer transfer;
         private final TransferCallback callback;
         private final ByteBuffer readBuf;
+        private final FTPAsciiLineEndings asciiCodec;
         private long filePosition;
         private Endpoint dataEndpoint;
 
@@ -1173,6 +1005,8 @@ public class FTPDataConnectionCoordinator {
             this.transfer = transfer;
             this.callback = callback;
             this.readBuf = ByteBuffer.allocate(TRANSFER_BUFFER_SIZE);
+            this.asciiCodec = isAsciiType(transfer)
+                    ? new FTPAsciiLineEndings() : null;
             this.filePosition = transfer.getRestartOffset();
         }
 
@@ -1211,7 +1045,14 @@ public class FTPDataConnectionCoordinator {
                             buf.flip();
                             dataEndpoint.execute(() -> {
                                 try {
-                                    dataEndpoint.send(buf);
+                                    if (asciiCodec != null) {
+                                        ByteBuffer encoded =
+                                                asciiCodec.encode(buf);
+                                        dataEndpoint.send(encoded);
+                                        ByteBufferPool.release(encoded);
+                                    } else {
+                                        dataEndpoint.send(buf);
+                                    }
                                     ByteBufferPool.release(buf);
                                     dataEndpoint.onWriteReady(
                                             DownloadTransferHandler.this);
@@ -1244,7 +1085,13 @@ public class FTPDataConnectionCoordinator {
 
                 readBuf.flip();
                 totalBytesTransferred += bytesRead;
-                dataEndpoint.send(readBuf);
+                if (asciiCodec != null) {
+                    ByteBuffer encoded = asciiCodec.encode(readBuf);
+                    dataEndpoint.send(encoded);
+                    ByteBufferPool.release(encoded);
+                } else {
+                    dataEndpoint.send(readBuf);
+                }
                 dataEndpoint.onWriteReady(this);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
@@ -1346,6 +1193,7 @@ public class FTPDataConnectionCoordinator {
         private long filePosition;
         private boolean writeInFlight;
         private boolean finished;
+        private final boolean asciiMode;
         private final Queue<ByteBuffer> pendingWrites = new ArrayDeque<>();
         private Endpoint dataEndpoint;
 
@@ -1358,6 +1206,7 @@ public class FTPDataConnectionCoordinator {
             this.fallbackChannel = fallbackChannel;
             this.transfer = transfer;
             this.callback = callback;
+            this.asciiMode = isAsciiType(transfer);
             this.filePosition = initialPosition;
         }
 
@@ -1383,9 +1232,19 @@ public class FTPDataConnectionCoordinator {
             if (data.remaining() == 0) {
                 return;
             }
-            ByteBuffer buf = ByteBufferPool.acquire(data.remaining());
-            buf.put(data);
-            buf.flip();
+            ByteBuffer buf;
+            if (asciiMode) {
+                buf = FTPAsciiLineEndings.decode(data);
+                if (!buf.hasRemaining()) {
+                    // Chunk was only CR bytes; nothing to write.
+                    ByteBufferPool.release(buf);
+                    return;
+                }
+            } else {
+                buf = ByteBufferPool.acquire(data.remaining());
+                buf.put(data);
+                buf.flip();
+            }
             pendingWrites.add(buf);
             drainPendingWrites();
         }
@@ -1445,11 +1304,19 @@ public class FTPDataConnectionCoordinator {
 
         private void receiveSync(ByteBuffer data) {
             try {
-                int written = 0;
-                while (data.hasRemaining()) {
-                    written += fallbackChannel.write(data);
+                ByteBuffer out = asciiMode
+                        ? FTPAsciiLineEndings.decode(data) : data;
+                try {
+                    int written = 0;
+                    while (out.hasRemaining()) {
+                        written += fallbackChannel.write(out);
+                    }
+                    totalBytesTransferred += written;
+                } finally {
+                    if (asciiMode) {
+                        ByteBufferPool.release(out);
+                    }
                 }
-                totalBytesTransferred += written;
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Error writing upload data", e);
@@ -1527,5 +1394,14 @@ public class FTPDataConnectionCoordinator {
                     success,
                     pendingTransfer.getMetadata());
         }
+    }
+
+    /**
+     * Returns whether the transfer uses TYPE A (ASCII), which requires
+     * NVT-ASCII line-ending conversion per RFC 959 section 3.1.1.1.
+     */
+    private static boolean isAsciiType(PendingTransfer transfer) {
+        return transfer.getMetadata().getTransferType()
+                == FTPConnectionMetadata.FTPTransferType.ASCII;
     }
 }

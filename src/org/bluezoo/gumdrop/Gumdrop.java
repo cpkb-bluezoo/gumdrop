@@ -113,6 +113,7 @@ public class Gumdrop {
     private final int workerCount;
     private final AtomicInteger nextWorker;
     private ScheduledTimer scheduledTimer;
+    private StorageExecutor storageExecutor;
 
     // Configurator (manages DI lifecycle)
     private GumdropConfigurator configurator;
@@ -525,6 +526,13 @@ public class Gumdrop {
         }
         scheduledTimer.start();
 
+        // Create the shared storage I/O worker pool. Blocking filesystem work
+        // (mailbox scans, directory listing, rename/delete, expunge, mbox
+        // reads, ...) is offloaded here so it never stalls a SelectorLoop.
+        if (storageExecutor == null) {
+            storageExecutor = StorageExecutor.createDefault();
+        }
+
         // Create or recreate worker loops (1-based naming for humans)
         if (workerLoops == null) {
             workerLoops = new SelectorLoop[workerCount];
@@ -677,6 +685,12 @@ public class Gumdrop {
         // Stop scheduled timer
         scheduledTimer.shutdown();
 
+        // Stop the storage I/O worker pool
+        if (storageExecutor != null) {
+            storageExecutor.shutdown();
+            storageExecutor = null;
+        }
+
         // Shutdown configurator (destroy singleton components)
         if (configurator != null) {
             configurator.shutdown();
@@ -747,6 +761,22 @@ public class Gumdrop {
      */
     public TimerHandle scheduleTimer(ChannelHandler handler, long delayMs, Runnable callback) {
         return scheduledTimer.schedule(handler, delayMs, callback);
+    }
+
+    /**
+     * Returns the shared storage I/O worker pool used to run blocking
+     * filesystem operations off the SelectorLoop threads.
+     *
+     * <p>Available after {@link #start()}. Protocol handlers that would
+     * otherwise perform blocking disk I/O (mailbox scans, directory listing,
+     * rename/delete, expunge, whole-message reads, ...) should submit that
+     * work here and resume on their loop via the callback.
+     *
+     * @return the storage executor, or null if the server has not been started
+     * @see StorageExecutor#submit
+     */
+    public StorageExecutor getStorageExecutor() {
+        return storageExecutor;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
