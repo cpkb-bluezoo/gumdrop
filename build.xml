@@ -524,6 +524,13 @@
     <integration-junit includes='**/http/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run HTTP client integration tests (needs TLS keystore for h2 over TLS;
+       HTTP/3 cases self-skip when the native QUIC library is unavailable) -->
+  <target name='integration-test-http-client' depends='integration-setup'
+          description='Run HTTP client integration tests (h1.1, h2, h3)'>
+    <integration-junit includes='**/http/client/*IntegrationTest.java'/>
+  </target>
+
   <!-- Run SMTP integration tests (needs TLS keystore for SMTPS/STARTTLS) -->
   <target name='integration-test-smtp' depends='integration-setup'
           description='Run SMTP server integration tests'>
@@ -596,7 +603,7 @@
 
   <!-- Run all integration tests -->
   <target name='integration-test' 
-          depends='integration-test-http,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls'
+          depends='integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls'
           description='Run all integration tests'>
   </target>
 

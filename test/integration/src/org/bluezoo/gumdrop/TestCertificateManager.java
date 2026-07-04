@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.KeyPair;
@@ -40,6 +41,7 @@ import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
 
@@ -317,6 +319,63 @@ public class TestCertificateManager {
         
         try (FileOutputStream fos = new FileOutputStream(file)) {
             keyStore.store(fos, password.toCharArray());
+        }
+    }
+
+    /**
+     * Exports the server certificate chain and private key as PEM files.
+     *
+     * <p>Unlike {@link #saveServerKeystore(File, String)}, which produces a
+     * PKCS#12 keystore for JSSE, this writes the plain PEM files that
+     * BoringSSL-backed transports require. The QUIC/HTTP3 stack
+     * ({@link org.bluezoo.gumdrop.http.h3.HTTP3Listener#setCertFile} /
+     * {@code setKeyFile}) loads its cert and key from PEM, not from a
+     * keystore, so h3 integration tests need this form.
+     *
+     * <p>The certificate file contains the server certificate followed by
+     * the CA certificate (leaf-first chain). The key file contains the
+     * private key in unencrypted PKCS#8 form ({@code -----BEGIN PRIVATE
+     * KEY-----}).
+     *
+     * @param certChainFile the output PEM file for the certificate chain
+     * @param keyFile the output PEM file for the private key
+     * @throws GeneralSecurityException if certificate encoding fails
+     * @throws IOException if file writing fails
+     * @throws IllegalStateException if the server certificate has not been
+     *         generated
+     */
+    public void saveServerPem(File certChainFile, File keyFile)
+            throws GeneralSecurityException, IOException {
+        if (serverCertificate == null || serverKeyPair == null) {
+            throw new IllegalStateException("Server certificate must be generated first");
+        }
+
+        StringBuilder chain = new StringBuilder();
+        appendPem(chain, "CERTIFICATE", serverCertificate.getEncoded());
+        if (caCertificate != null) {
+            appendPem(chain, "CERTIFICATE", caCertificate.getEncoded());
+        }
+        writeAscii(certChainFile, chain.toString());
+
+        StringBuilder key = new StringBuilder();
+        // PrivateKey.getEncoded() returns the key in PKCS#8 DER, which maps
+        // to the "PRIVATE KEY" PEM label that BoringSSL understands.
+        appendPem(key, "PRIVATE KEY", serverKeyPair.getPrivate().getEncoded());
+        writeAscii(keyFile, key.toString());
+    }
+
+    private static void appendPem(StringBuilder sb, String type, byte[] der) {
+        String b64 = Base64.getEncoder().encodeToString(der);
+        sb.append("-----BEGIN ").append(type).append("-----\n");
+        for (int i = 0; i < b64.length(); i += 64) {
+            sb.append(b64, i, Math.min(i + 64, b64.length())).append('\n');
+        }
+        sb.append("-----END ").append(type).append("-----\n");
+    }
+
+    private static void writeAscii(File file, String contents) throws IOException {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            fos.write(contents.getBytes(StandardCharsets.US_ASCII));
         }
     }
 

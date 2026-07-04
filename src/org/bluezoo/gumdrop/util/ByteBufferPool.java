@@ -99,7 +99,7 @@ public final class ByteBufferPool {
         if (buf == null || buf.isDirect()) {
             return;
         }
-        int idx = bucketIndex(buf.capacity());
+        int idx = releaseBucketIndex(buf.capacity());
         if (idx >= 0) {
             ArrayDeque<ByteBuffer> bucket = POOL.get()[idx];
             if (bucket.size() < MAX_PER_BUCKET) {
@@ -108,6 +108,10 @@ public final class ByteBufferPool {
         }
     }
 
+    /**
+     * Bucket for an {@code acquire(minCapacity)} request: the smallest
+     * bucket whose power-of-two size is {@code >= minCapacity} (round up).
+     */
     private static int bucketIndex(int capacity) {
         if (capacity <= 0) {
             return 0;
@@ -118,6 +122,40 @@ public final class ByteBufferPool {
         }
         if (shift > MAX_BUCKET_SHIFT) {
             return -1;
+        }
+        return shift - MIN_BUCKET_SHIFT;
+    }
+
+    /**
+     * Bucket for a released buffer: the largest bucket whose power-of-two
+     * size is {@code <= capacity} (round down). This is deliberately
+     * different from {@link #bucketIndex(int)}, which rounds up.
+     *
+     * <p>{@code acquire(min)} routes to the smallest bucket with size
+     * {@code >= min} and returns whatever buffer that bucket holds without
+     * re-checking its capacity. For that to be sound, every buffer parked
+     * in bucket {@code i} must have capacity {@code >= 1 << (i + MIN_BUCKET_SHIFT)}.
+     * Rounding a released buffer's capacity <em>down</em> guarantees this.
+     * Rounding up (as when selecting an acquire bucket) would file an
+     * under-sized buffer -- e.g. a 1500-byte buffer into the 2048 bucket --
+     * so a later {@code acquire(2048)} would hand back only 1500 usable
+     * bytes and the caller's {@code put()} would throw
+     * {@link java.nio.BufferOverflowException}. Pool-allocated buffers are
+     * always exact powers of two and so land in their own bucket either
+     * way; the round-down only matters for externally-sized buffers passed
+     * to {@link #release(ByteBuffer)} (which the contract explicitly allows).
+     *
+     * @param capacity the buffer capacity
+     * @return the target bucket index, or -1 if the buffer is smaller than
+     *         the smallest bucket and must not be pooled
+     */
+    private static int releaseBucketIndex(int capacity) {
+        if (capacity < (1 << MIN_BUCKET_SHIFT)) {
+            return -1;
+        }
+        int shift = 31 - Integer.numberOfLeadingZeros(capacity);
+        if (shift > MAX_BUCKET_SHIFT) {
+            shift = MAX_BUCKET_SHIFT;
         }
         return shift - MIN_BUCKET_SHIFT;
     }

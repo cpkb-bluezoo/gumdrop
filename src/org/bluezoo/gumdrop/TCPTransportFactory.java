@@ -447,6 +447,16 @@ public class TCPTransportFactory extends TransportFactory {
         SSLParameters params = engine.getSSLParameters();
         params.setProtocols(SECURE_PROTOCOLS);
         params.setEndpointIdentificationAlgorithm("HTTPS");
+
+        // RFC 7301 / RFC 9113 section 3.2: advertise ALPN protocols (e.g.
+        // "h2") in the ClientHello so an h2-capable server can negotiate
+        // HTTP/2. Mirrors configureServerSSLEngine(); without this the
+        // client offers no protocols and every TLS connection falls back
+        // to HTTP/1.1 regardless of setApplicationProtocols().
+        if (applicationProtocols != null && applicationProtocols.length > 0) {
+            params.setApplicationProtocols(applicationProtocols.clone());
+        }
+
         engine.setSSLParameters(params);
         applyCipherConfig(engine);
     }

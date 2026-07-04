@@ -495,6 +495,16 @@ public class HTTPClient implements AltSvcListener {
         if (keystoreFormat != null) {
             transportFactory.setKeystoreFormat(keystoreFormat);
         }
+        // RFC 9113 section 3.2 / RFC 7301: advertise HTTP/2 via ALPN on TLS so
+        // the server can negotiate "h2". Without this the ClientHello carries
+        // no ALPN protocols and the connection always falls back to HTTP/1.1,
+        // even against an h2-capable server. "http/1.1" is offered as the
+        // mandatory fallback token. HTTPClientProtocolHandler.securityEstablished()
+        // adopts whichever protocol the server selects. (h2c prior knowledge is
+        // a cleartext path and does not use ALPN.)
+        if (secure && h2Enabled && !h2WithPriorKnowledge) {
+            transportFactory.setApplicationProtocols("h2", "http/1.1");
+        }
         transportFactory.start();
 
         HTTPClientHandler poolAwareHandler = connectionPool != null
