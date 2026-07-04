@@ -1663,6 +1663,17 @@ public class HTTPProtocolHandler
         h2Parser.setMaxFrameSize(maxFrameSize);
         h2Writer = new H2Writer(new EndpointChannel());
         h2FlowControl = new H2FlowControl();
+        // Over cleartext, streams may already have been created before
+        // h2FlowControl existed: the "PRI * HTTP/2.0" preface line is parsed
+        // as a request (creating a placeholder stream 1) for prior-knowledge,
+        // and the upgraded request occupies stream 1 for h2c upgrade. Because
+        // getStream() only registers flow control when h2FlowControl is
+        // non-null, those streams would otherwise have no send window and any
+        // response DATA would be queued forever (RFC 9113 section 5.2).
+        // Back-fill their flow-control state now that the tracker exists.
+        for (Integer existingStreamId : streams.keySet()) {
+            h2FlowControl.openStream(existingStreamId.intValue());
+        }
         state = State.PRI_SETTINGS;
         // RFC 9113 section 3.4: server connection preface is a SETTINGS frame
         Map<Integer, Integer> initialSettings = new LinkedHashMap<Integer, Integer>();
