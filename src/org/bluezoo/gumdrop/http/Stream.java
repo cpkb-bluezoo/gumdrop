@@ -797,6 +797,21 @@ class Stream implements HTTPResponseState {
     }
 
     void streamEndRequest() {
+        // RFC 9112 section 9.6: when the complete response was already
+        // committed while the request body was still outstanding, the stream
+        // sits in HALF_CLOSED_LOCAL and sendResponseHeaders/sendResponseBody
+        // could not honour Connection: close yet (the request was not fully
+        // received). This is the common case for internally generated
+        // bodyless responses such as the default 404 for a handler-less
+        // listener, which are sent from streamEndHeaders() before this method
+        // marks the request complete. Now that the request has finished, close
+        // the connection as promised; otherwise a client that sent
+        // "Connection: close" and reads until EOF (as it is entitled to) hangs
+        // until the idle/drain timeout and the connection slot leaks.
+        boolean closeAfterResponse = state == State.HALF_CLOSED_LOCAL
+                && closeConnection
+                && connection.getVersion() != HTTPVersion.HTTP_2_0;
+
         state = State.HALF_CLOSED_REMOTE;
         
         // Dispatch to handler if present
@@ -807,6 +822,12 @@ class Stream implements HTTPResponseState {
                 handler.endRequestBody(this);
             }
             handler.requestComplete(this);
+        }
+
+        if (closeAfterResponse) {
+            state = State.CLOSED;
+            timestampCompleted = System.currentTimeMillis();
+            connection.send(null);
         }
     }
 
