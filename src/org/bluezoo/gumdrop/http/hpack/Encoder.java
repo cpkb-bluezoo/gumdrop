@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http.hpack;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -47,7 +48,7 @@ import org.bluezoo.gumdrop.http.Header;
  */
 public class Encoder extends HPACKConstants {
 
-    private static final Charset US_ASCII = Charset.forName("US-ASCII");
+    private static final Charset US_ASCII = StandardCharsets.US_ASCII;
 
     /**
      * The dynamic table for this encoder.

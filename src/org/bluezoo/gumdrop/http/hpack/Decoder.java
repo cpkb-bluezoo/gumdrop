@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.http.hpack;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.net.ProtocolException;
 import java.util.ArrayList;
 import java.util.List;
@@ -183,7 +183,7 @@ public class Decoder extends HPACKConstants {
             if (huffman) {
                 s = Huffman.decode(s);
             }
-            name = new String(s, "US-ASCII");
+            name = new String(s, StandardCharsets.US_ASCII);
             //System.err.println("   name="+name);
         } else { // indexed name
             if (index < STATIC_TABLE_SIZE) {
@@ -209,7 +209,7 @@ public class Decoder extends HPACKConstants {
         if (huffman) {
             s = Huffman.decode(s);
         }
-        value = new String(s, "US-ASCII");
+        value = new String(s, StandardCharsets.US_ASCII);
         //System.err.println("   value="+value);
         decoder.addToHeaderListSize(name.length() + value.length() + 32);
         return new Header(name, value);
