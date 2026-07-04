@@ -61,6 +61,15 @@ final class SSLState {
     private static final int DEFAULT_BUFFER_SIZE = 8192;
 
     /**
+     * Shared empty source buffer for wrap() calls that only flush pending
+     * network output (handshake/close). It has zero remaining bytes, so the
+     * engine never consumes or mutates it, making it safe to share across all
+     * connections and threads.
+     */
+    private static final ByteBuffer EMPTY_BUFFER =
+            ByteBuffer.allocate(0).asReadOnlyBuffer();
+
+    /**
      * Callback interface for SSLState to communicate with TCPEndpoint.
      */
     interface Callback {
@@ -322,8 +331,7 @@ final class SSLState {
                     return;
                 }
                 ensureNetOutCapacity(session.getPacketBufferSize());
-                ByteBuffer empty = ByteBuffer.allocate(0);
-                engine.wrap(empty, netOut());
+                engine.wrap(EMPTY_BUFFER, netOut());
             }
 
         } catch (SSLException e) {
@@ -368,8 +376,7 @@ final class SSLState {
                     // This prevents race with application thread calling wrap()
                     synchronized (netOutLock()) {
                         ensureNetOutCapacity(session.getPacketBufferSize());
-                        ByteBuffer empty = ByteBuffer.allocate(0);
-                        result = engine.wrap(empty, netOut());
+                        result = engine.wrap(EMPTY_BUFFER, netOut());
 
                         switch (result.getStatus()) {
                             case OK:
@@ -513,8 +520,7 @@ final class SSLState {
                 // Synchronize on netOutLock to prevent race with application thread calling wrap()
                 synchronized (netOutLock()) {
                     ensureNetOutCapacity(session.getPacketBufferSize());
-                    ByteBuffer empty = ByteBuffer.allocate(0);
-                    engine.wrap(empty, netOut());
+                    engine.wrap(EMPTY_BUFFER, netOut());
                     if (netOut().position() > 0) {
                         requestWrite();
                     }
