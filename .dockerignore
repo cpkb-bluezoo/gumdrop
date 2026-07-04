@@ -1,0 +1,25 @@
+# Build outputs (rebuilt inside the image)
+build/
+build-bootstrap/
+dist/
+doc/
+
+# Native/dev toolchain artifacts
+*.so
+*.dylib
+*.o
+
+# Tests and their artifacts
+test/
+integrationtest/
+*.properties.tmp
+junit*.properties
+junitvmwatcher*.properties
+
+# VCS / IDE / OS cruft
+.git/
+.gitignore
+.vscode/
+.idea/
+*.iml
+.DS_Store
