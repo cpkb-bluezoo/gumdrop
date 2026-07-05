@@ -1572,6 +1572,7 @@ public class POP3ProtocolHandler
         authNonce = null;
         authClientNonce = null;
         authSalt = null;
+        authIterations = 4096;
         if (gssapiExchange != null) {
             gssapiExchange.dispose();
             gssapiExchange = null;
