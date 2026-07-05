@@ -960,9 +960,10 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         if (headers != null) {
             for (Header header : headers) {
                 String name = header.getName().toLowerCase();
-                // RFC 9113 section 8.2.2: strip connection-specific headers
+                // RFC 9113 section 8.2.2: strip HTTP/1 framing headers
                 if ("connection".equals(name) || "transfer-encoding".equals(name)
-                        || "upgrade".equals(name) || "host".equals(name)) {
+                        || "upgrade".equals(name) || "host".equals(name)
+                        || "content-length".equals(name)) {
                     continue;
                 }
                 headerList.add(new Header(name, header.getValue()));
