@@ -75,6 +75,9 @@ public class WebSocketFrame {
     /** RFC 6455 §5.5.3 — pong frame opcode */
     public static final int OPCODE_PONG = 0xA;
 
+    /** RFC 6455 §5.5 — maximum control-frame payload length in bytes. */
+    public static final int CONTROL_FRAME_MAX_PAYLOAD = 125;
+
     // Frame components
     private final boolean fin;
     private final boolean rsv1;
@@ -218,7 +221,8 @@ public class WebSocketFrame {
     }
 
     /**
-     * Parses a WebSocket frame from the given ByteBuffer.
+     * Parses a WebSocket frame from the given ByteBuffer with no data-frame
+     * payload limit (except {@link Integer#MAX_VALUE}).
      * Returns null if there's insufficient data for a complete frame.
      * The buffer position will be unchanged if parsing fails.
      *
@@ -226,8 +230,24 @@ public class WebSocketFrame {
      * @return the parsed frame, or null if insufficient data
      * @throws WebSocketProtocolException if the frame is malformed
      */
-    /** RFC 6455 §5.2 — parse base framing protocol from wire bytes. */
     public static WebSocketFrame parse(ByteBuffer buffer) throws WebSocketProtocolException {
+        return parse(buffer, Long.MAX_VALUE);
+    }
+
+    /**
+     * RFC 6455 §5.2 — parse base framing protocol from wire bytes.
+     * Returns null if there's insufficient data for a complete frame.
+     * The buffer position will be unchanged if parsing fails.
+     *
+     * @param buffer the buffer containing frame data
+     * @param maxPayloadLength maximum data-frame payload bytes permitted
+     *        ({@link Long#MAX_VALUE} = no limit except {@link Integer#MAX_VALUE})
+     * @return the parsed frame, or null if insufficient data
+     * @throws WebSocketProtocolException if the frame is malformed or exceeds
+     *         size limits
+     */
+    public static WebSocketFrame parse(ByteBuffer buffer, long maxPayloadLength)
+            throws WebSocketProtocolException {
         if (buffer.remaining() < 2) {
             return null; // Need at least 2 bytes for basic header
         }
@@ -272,6 +292,22 @@ public class WebSocketFrame {
                 throw new WebSocketProtocolException("Payload too large: " + extendedPayloadLength);
             }
             int actualPayloadLength = (int) extendedPayloadLength;
+
+            if (opcode >= OPCODE_CLOSE) {
+                if (!fin) {
+                    throw new WebSocketProtocolException(
+                            L10N.getString("err.control_frame_fragmented"));
+                }
+                if (actualPayloadLength > CONTROL_FRAME_MAX_PAYLOAD) {
+                    throw new WebSocketProtocolException(MessageFormat.format(
+                            L10N.getString("err.control_frame_too_large"),
+                            actualPayloadLength));
+                }
+            } else if (actualPayloadLength > maxPayloadLength) {
+                throw new WebSocketMessageTooBigException(MessageFormat.format(
+                        L10N.getString("err.frame_payload_too_large"),
+                        actualPayloadLength, maxPayloadLength));
+            }
 
             // Masking key
             byte[] maskingKey = null;
@@ -407,7 +443,7 @@ public class WebSocketFrame {
             if (!fin) {
                 throw new WebSocketProtocolException(L10N.getString("err.control_frame_fragmented"));
             }
-            if (payload.length > 125) {
+            if (payload.length > CONTROL_FRAME_MAX_PAYLOAD) {
                 throw new WebSocketProtocolException(
                     MessageFormat.format(L10N.getString("err.control_frame_too_large"), payload.length));
             }

@@ -201,4 +201,33 @@ public class WebSocketFrameTest {
         buf.flip();
         assertNull(WebSocketFrame.parse(buf));
     }
+
+    @Test(expected = WebSocketMessageTooBigException.class)
+    public void testParseRejectsOversizedDeclaredPayloadBeforeAllocation() throws Exception {
+        ByteBuffer buf = ByteBuffer.allocate(4);
+        buf.put((byte) 0x81); // FIN + text
+        buf.put((byte) 126); // 16-bit extended length
+        buf.putShort((short) 4096);
+        buf.flip();
+        WebSocketFrame.parse(buf, 1024);
+    }
+
+    @Test(expected = WebSocketProtocolException.class)
+    public void testParseRejectsOversizedControlFrameDeclaredLength() throws Exception {
+        ByteBuffer buf = ByteBuffer.allocate(4);
+        buf.put((byte) 0x89); // FIN + ping
+        buf.put((byte) 126); // 16-bit extended length
+        buf.putShort((short) 200);
+        buf.flip();
+        WebSocketFrame.parse(buf);
+    }
+
+    @Test(expected = WebSocketProtocolException.class)
+    public void testParseRejectsFragmentedControlFrame() throws Exception {
+        ByteBuffer buf = ByteBuffer.allocate(2);
+        buf.put((byte) 0x09); // not FIN + ping
+        buf.put((byte) 0x04);
+        buf.flip();
+        WebSocketFrame.parse(buf);
+    }
 }
