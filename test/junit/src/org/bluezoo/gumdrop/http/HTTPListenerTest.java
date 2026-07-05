@@ -116,4 +116,31 @@ public class HTTPListenerTest {
         listener.setPingIntervalMs(30000);
         assertEquals(30000, listener.getPingIntervalMs());
     }
+
+    @Test
+    public void testDefaultMaxRequestBodySize() {
+        HTTPListener listener = new HTTPListener();
+        assertEquals(HTTPListener.DEFAULT_MAX_REQUEST_BODY_SIZE,
+                listener.getMaxRequestBodySize());
+    }
+
+    @Test
+    public void testSetMaxRequestBodySize() {
+        HTTPListener listener = new HTTPListener();
+        listener.setMaxRequestBodySize(1024);
+        assertEquals(1024, listener.getMaxRequestBodySize());
+    }
+
+    @Test
+    public void testZeroMaxRequestBodySizeMeansUnlimited() {
+        HTTPListener listener = new HTTPListener();
+        listener.setMaxRequestBodySize(0);
+        assertEquals(0, listener.getMaxRequestBodySize());
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testMaxRequestBodySizeRejectsNegative() {
+        HTTPListener listener = new HTTPListener();
+        listener.setMaxRequestBodySize(-1);
+    }
 }

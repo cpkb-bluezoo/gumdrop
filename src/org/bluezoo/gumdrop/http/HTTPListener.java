@@ -63,9 +63,22 @@ public class HTTPListener extends TCPListener {
     public static final int DEFAULT_MAX_HEADER_LIST_SIZE = 8192;
 
     /**
+     * Default maximum request body size: 64 MB. Bounds memory and handler
+     * exposure to oversized uploads. Deployments can raise this or set
+     * {@code 0} (unlimited) via {@link #setMaxRequestBodySize(long)}.
+     */
+    public static final long DEFAULT_MAX_REQUEST_BODY_SIZE = 64L * 1024 * 1024;
+
+    /**
      * RFC 9113 section 6.5.2: maximum header list size advertised to clients.
      */
     private int maxHeaderListSize = DEFAULT_MAX_HEADER_LIST_SIZE;
+
+    /**
+     * RFC 9110 section 15.5.14: maximum request body size in bytes.
+     * {@code 0} means unlimited.
+     */
+    private long maxRequestBodySize = DEFAULT_MAX_REQUEST_BODY_SIZE;
 
     /**
      * Authentication provider for HTTP connections created by this endpoint.
@@ -223,6 +236,29 @@ public class HTTPListener extends TCPListener {
                             + maxHeaderListSize);
         }
         this.maxHeaderListSize = maxHeaderListSize;
+    }
+
+    /**
+     * Returns the maximum request body size in bytes ({@code 0} = unlimited).
+     */
+    public long getMaxRequestBodySize() {
+        return maxRequestBodySize;
+    }
+
+    /**
+     * Sets the maximum request body size enforced for HTTP/1 and HTTP/2
+     * requests. Requests exceeding this limit receive status 413.
+     * XML property name: {@code max-request-body-size}
+     *
+     * @param maxRequestBodySize the limit in bytes, or {@code 0} for unlimited
+     */
+    public void setMaxRequestBodySize(long maxRequestBodySize) {
+        if (maxRequestBodySize < 0) {
+            throw new IllegalArgumentException(
+                    "maxRequestBodySize must not be negative, got: "
+                            + maxRequestBodySize);
+        }
+        this.maxRequestBodySize = maxRequestBodySize;
     }
 
     public void setFramePadding(int framePadding) {

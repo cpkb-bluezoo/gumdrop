@@ -177,6 +177,7 @@ class Stream implements HTTPResponseState {
     // Request body state tracking for handler dispatch
     private boolean handlerBodyStarted = false;
     private boolean handlerBodyEnded = false;
+    private boolean requestBodyRejected = false;
 
     /** Reusable header handler for HPACK decoding. */
     private final HeaderHandler hpackHandler = new HeaderHandler() {
@@ -319,6 +320,10 @@ class Stream implements HTTPResponseState {
 
     long getRequestBodyBytesNeeded() {
         return contentLength - requestBodyBytesReceived;
+    }
+
+    long getRequestBodyBytesReceived() {
+        return requestBodyBytesReceived;
     }
 
     Headers getHeaders() {
@@ -538,6 +543,27 @@ class Stream implements HTTPResponseState {
         if (connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
             HTTPVersion.stripHttp1FramingHeaders(headers);
         }
+        long maxBody = connection.getMaxRequestBodySize();
+        if (maxBody > 0) {
+            if (!chunked && contentLength > maxBody) {
+                rejectRequestBodyTooLarge();
+                return;
+            }
+            if (connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
+                String cl = headers.getValue("Content-Length");
+                if (cl != null) {
+                    try {
+                        long clValue = Long.parseLong(cl.trim());
+                        if (clValue > maxBody) {
+                            rejectRequestBodyTooLarge();
+                            return;
+                        }
+                    } catch (NumberFormatException ignored) {
+                        // Malformed Content-Length is handled elsewhere
+                    }
+                }
+            }
+        }
         // RFC 9110 section 10.1.1: Expect: 100-continue
         if (connection.getVersion() != HTTPVersion.HTTP_2_0
                 && headers != null && contentLength != 0) {
@@ -723,7 +749,6 @@ class Stream implements HTTPResponseState {
     void appendRequestBody(ByteBuffer buf) {
         byte[] bytes = new byte[buf.remaining()];
         buf.get(bytes);
-        requestBodyBytesReceived += bytes.length;
         receiveRequestBody(ByteBuffer.wrap(bytes));
     }
 
@@ -731,7 +756,6 @@ class Stream implements HTTPResponseState {
      * Receive request body data from the specified frame data (HTTP/2).
      */
     void appendRequestBody(byte[] bytes) {
-        requestBodyBytesReceived += bytes.length;
         receiveRequestBody(ByteBuffer.wrap(bytes));
     }
 
@@ -744,11 +768,6 @@ class Stream implements HTTPResponseState {
      * <p>This method consumes all data in the buffer (advances position to limit).
      */
     void receiveRequestBody(ByteBuffer buf) {
-        // Track bytes received
-        int bytesToConsume = buf.remaining();
-        requestBodyBytesReceived += bytesToConsume;
-        
-        // If WebSocket mode, delegate to WebSocket processing
         if (webSocketAdapter != null) {
             try {
                 webSocketAdapter.processIncomingData(buf);
@@ -757,11 +776,25 @@ class Stream implements HTTPResponseState {
                     LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
                 }
             }
-            // Consume any remaining data
             buf.position(buf.limit());
             return;
         }
-        
+
+        if (requestBodyRejected) {
+            buf.position(buf.limit());
+            return;
+        }
+
+        int bytesToConsume = buf.remaining();
+        long maxBody = connection.getMaxRequestBodySize();
+        if (maxBody > 0 && requestBodyBytesReceived + bytesToConsume > maxBody) {
+            buf.position(buf.limit());
+            rejectRequestBodyTooLarge();
+            return;
+        }
+
+        requestBodyBytesReceived += bytesToConsume;
+
         // Dispatch to handler if present
         if (handler != null) {
             if (!handlerBodyStarted) {
@@ -770,9 +803,22 @@ class Stream implements HTTPResponseState {
             }
             handler.requestBodyContent(this, buf);
         }
-        
+
         // Consume any remaining data (handler may not have consumed it)
         buf.position(buf.limit());
+    }
+
+    private void rejectRequestBodyTooLarge() {
+        if (requestBodyRejected) {
+            return;
+        }
+        requestBodyRejected = true;
+        try {
+            sendError(413);
+        } catch (ProtocolException e) {
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.request_body_too_large"), e.getMessage()));
+        }
     }
 
     /**
