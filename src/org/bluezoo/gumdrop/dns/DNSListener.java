@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns;
 
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -128,7 +129,22 @@ public class DNSListener extends UDPListener {
             }
             InetSocketAddress source =
                     (InetSocketAddress) getEndpoint().getRemoteAddress();
-            service.handleDatagram(DNSListener.this, data, source);
+            if (!acceptConnection(source)) {
+                logRejection(source);
+                return;
+            }
+            connectionOpened(source);
+            try {
+                service.handleDatagram(DNSListener.this, data, source);
+            } finally {
+                connectionClosed(source);
+            }
+        }
+
+        private void logRejection(SocketAddress remoteAddress) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Connection rejected from " + remoteAddress);
+            }
         }
 
         @Override

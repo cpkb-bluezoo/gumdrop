@@ -35,6 +35,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -401,6 +402,31 @@ public class DNSService implements Service {
                 return;
             }
 
+            // RFC 7873: when a client cookie is present but the server
+            // cookie is missing or invalid, return a cookie-only response
+            // instead of resolving the query (anti-amplification).
+            byte[] requestCookie = findRequestCookie(query);
+            if (requestCookie != null) {
+                if (requestCookie.length < DNSCookie.CLIENT_COOKIE_LENGTH) {
+                    sendResponse(origin, query.createErrorResponse(
+                            DNSMessage.RCODE_FORMERR), source);
+                    return;
+                }
+                byte[] clientCookie = Arrays.copyOf(requestCookie,
+                        DNSCookie.CLIENT_COOKIE_LENGTH);
+                if (requestCookie.length == DNSCookie.CLIENT_COOKIE_LENGTH
+                        || !dnsCookie.validateServerCookie(
+                                source.getAddress().getAddress(),
+                                clientCookie,
+                                Arrays.copyOfRange(requestCookie,
+                                        DNSCookie.CLIENT_COOKIE_LENGTH,
+                                        requestCookie.length))) {
+                    sendResponse(origin, createCookieOnlyResponse(query,
+                            source, clientCookie), source);
+                    return;
+                }
+            }
+
             long startNanos = System.nanoTime();
             DNSMessage response = processQuery(query);
 
@@ -408,6 +434,13 @@ public class DNSService implements Service {
             // responses when the client did not set DO.
             if (dnssecEnabled && !query.hasDO()) {
                 response = stripDNSSECRecords(response);
+            }
+
+            if (requestCookie != null) {
+                byte[] clientCookie = Arrays.copyOf(requestCookie,
+                        DNSCookie.CLIENT_COOKIE_LENGTH);
+                response = attachResponseCookie(response, query, source,
+                        clientCookie);
             }
 
             if (metrics != null) {
@@ -759,6 +792,85 @@ public class DNSService implements Service {
             case DNSMessage.RCODE_REFUSED:  return "REFUSED";
             default:                        return String.valueOf(rcode);
         }
+    }
+
+    /**
+     * Returns the EDNS cookie option from a query, or null if absent.
+     */
+    private static byte[] findRequestCookie(DNSMessage query) {
+        List additionals = query.getAdditionals();
+        for (int i = 0; i < additionals.size(); i++) {
+            DNSResourceRecord rr = (DNSResourceRecord) additionals.get(i);
+            if (rr.getType() == DNSType.OPT) {
+                return DNSCookie.findEdnsOption(rr.getRData(),
+                        DNSCookie.EDNS_OPTION_COOKIE);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * RFC 7873 section 5.2.3: cookie-only response with no answer data.
+     */
+    private DNSMessage createCookieOnlyResponse(DNSMessage query,
+            InetSocketAddress source, byte[] clientCookie) {
+        byte[] serverCookie = dnsCookie.generateServerCookie(
+                source.getAddress().getAddress(), clientCookie);
+        byte[] cookieOption = buildCookieOptionBytes(
+                clientCookie, serverCookie);
+        List additionals = Collections.singletonList(
+                DNSResourceRecord.opt(DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+                        cookieOption));
+        return query.createResponse(Collections.emptyList(),
+                Collections.emptyList(), additionals);
+    }
+
+    /**
+     * RFC 7873 section 5.2: echo client and server cookies on responses.
+     */
+    private DNSMessage attachResponseCookie(DNSMessage response,
+            DNSMessage query, InetSocketAddress source,
+            byte[] clientCookie) {
+        byte[] serverCookie = dnsCookie.generateServerCookie(
+                source.getAddress().getAddress(), clientCookie);
+        byte[] cookieOption = buildCookieOptionBytes(
+                clientCookie, serverCookie);
+        List additionals = mergeCookieIntoAdditionals(
+                response.getAdditionals(), cookieOption);
+        return query.createResponse(response.getAnswers(),
+                response.getAuthorities(), additionals);
+    }
+
+    private static byte[] buildCookieOptionBytes(byte[] clientCookie,
+            byte[] serverCookie) {
+        int dataLen = clientCookie.length + serverCookie.length;
+        ByteBuffer buf = ByteBuffer.allocate(4 + dataLen);
+        buf.putShort((short) DNSCookie.EDNS_OPTION_COOKIE);
+        buf.putShort((short) dataLen);
+        buf.put(clientCookie);
+        buf.put(serverCookie);
+        return buf.array();
+    }
+
+    private static List mergeCookieIntoAdditionals(
+            List existing, byte[] cookieOption) {
+        List result = new ArrayList(existing);
+        for (int i = 0; i < result.size(); i++) {
+            DNSResourceRecord rr = (DNSResourceRecord) result.get(i);
+            if (rr.getType() == DNSType.OPT) {
+                byte[] rdata = rr.getRData();
+                byte[] merged = new byte[rdata.length + cookieOption.length];
+                System.arraycopy(rdata, 0, merged, 0, rdata.length);
+                System.arraycopy(cookieOption, 0, merged, rdata.length,
+                        cookieOption.length);
+                result.set(i, DNSResourceRecord.opt(
+                        rr.getUdpPayloadSize(), rr.getEDNSFlags(), merged));
+                return result;
+            }
+        }
+        result.add(DNSResourceRecord.opt(
+                DNSMessage.DEFAULT_EDNS_UDP_SIZE, cookieOption));
+        return result;
     }
 
     private void sendResponse(DNSListener origin,
