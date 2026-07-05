@@ -460,6 +460,10 @@ change (default: <code>true</code>)</li>
 <li><code>cluster-group-address</code> - multicast group address for clustering</li>
 <li><code>cluster-key</code> - shared secret key for cluster encryption
 (hex-encoded, 256 bits)</li>
+<li><code>replication-allowed-classes</code> - comma-separated fully qualified
+class names permitted in Java-serialized replicated session attributes, in
+addition to the built-in JDK allowlist (webapp class loaders are never
+blanket-allowed)</li>
 <li><code>realms</code> - map of named realms available to contexts</li>
 <li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
 <li><code>bufferSize</code> - I/O buffer size for request/response streams in bytes

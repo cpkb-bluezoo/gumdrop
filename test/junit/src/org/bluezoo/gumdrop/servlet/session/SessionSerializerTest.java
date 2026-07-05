@@ -22,12 +22,15 @@
 package org.bluezoo.gumdrop.servlet.session;
 
 import org.bluezoo.util.ByteArrays;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.net.URL;
 import java.nio.ByteBuffer;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -54,6 +57,11 @@ public class SessionSerializerTest {
     public void setUp() {
         context = new MockSessionContext();
         context.setSessionTimeout(1800);
+    }
+
+    @After
+    public void tearDown() {
+        SessionSerializer.configureAllowedClasses(null);
     }
 
     // ===== Hex Utility Method Tests =====
@@ -349,10 +357,61 @@ public class SessionSerializerTest {
         ByteBuffer buf = original.serialize();
         Session deserialized = Session.deserialize(context, buf);
 
-        TestSerializableObject result = (TestSerializableObject) deserialized.getAttribute("object");
+        // Arbitrary application types are not permitted without explicit allowlisting
+        assertNull(deserialized.getAttribute("object"));
+    }
+
+    @Test
+    public void testSerializeDeserializeWithAllowedConfiguredClass() throws IOException {
+        Set<String> allowed = new HashSet<String>();
+        allowed.add(TestSerializableObject.class.getName());
+        SessionSerializer.configureAllowedClasses(allowed);
+
+        Session original = new Session(context, TEST_SESSION_ID);
+        TestSerializableObject obj = new TestSerializableObject("test", 42);
+        original.setAttribute("object", obj);
+
+        ByteBuffer buf = original.serialize();
+        Session deserialized = Session.deserialize(context, buf);
+
+        TestSerializableObject result =
+                (TestSerializableObject) deserialized.getAttribute("object");
         assertNotNull(result);
         assertEquals("test", result.name);
         assertEquals(42, result.value);
+    }
+
+    @Test
+    public void testSerializeDeserializeWithJavaSerializedHashMap() throws IOException {
+        Session original = new Session(context, TEST_SESSION_ID);
+        HashMap<String, String> map = new HashMap<String, String>();
+        map.put("key", "value");
+        original.setAttribute("map", map);
+
+        ByteBuffer buf = original.serialize();
+        Session deserialized = Session.deserialize(context, buf);
+
+        @SuppressWarnings("unchecked")
+        HashMap<String, String> result =
+                (HashMap<String, String>) deserialized.getAttribute("map");
+        assertNotNull(result);
+        assertEquals("value", result.get("key"));
+    }
+
+    @Test
+    public void testRejectsJavaNetUrlClass() {
+        assertFalse(SessionSerializer.isAllowedDeserializationClass(URL.class));
+    }
+
+    @Test
+    public void testRejectsArbitraryApplicationClass() {
+        assertFalse(SessionSerializer.isAllowedDeserializationClass(
+                TestSerializableObject.class));
+    }
+
+    @Test
+    public void testAllowsPrimitiveByteArray() {
+        assertTrue(SessionSerializer.isAllowedDeserializationClass(byte[].class));
     }
 
     // ===== Delta Serialization Tests =====

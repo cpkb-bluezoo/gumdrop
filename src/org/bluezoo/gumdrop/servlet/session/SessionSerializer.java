@@ -37,11 +37,13 @@ import java.io.ObjectOutputStream;
 
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -51,8 +53,9 @@ import java.util.logging.Logger;
  * <p>This provides a more secure and efficient alternative to Java object
  * serialization for cluster session replication. Primitive types (String,
  * Boolean, Long, Double) are encoded directly in protobuf format. Complex
- * objects fall back to Java serialization with a strict deserialization
- * filter that only allows classes from the webapp's classloader.
+ * objects fall back to Java serialization with a strict class allowlist.
+ * Arbitrary webapp classes are not permitted unless explicitly named via
+ * {@link #configureAllowedClasses(Set)}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -375,21 +378,130 @@ class SessionSerializer {
         }
     }
 
-    // Safe JDK packages commonly used in session attributes
-    private static final Set<String> ALLOWED_PACKAGES;
+    // Explicitly allowed classes for Java-serialized session attributes
+    private static final Set<String> ALLOWED_CLASSES;
     static {
         Set<String> allowed = new HashSet<>();
-        allowed.add("java.lang.");
-        allowed.add("java.util.");
-        allowed.add("java.math.");
-        allowed.add("java.time.");
-        allowed.add("java.io.Serializable");
-        allowed.add("java.net.URI");
-        allowed.add("java.net.URL");
-        ALLOWED_PACKAGES = allowed;
+        allowed.add("java.lang.String");
+        allowed.add("java.lang.Boolean");
+        allowed.add("java.lang.Byte");
+        allowed.add("java.lang.Character");
+        allowed.add("java.lang.Short");
+        allowed.add("java.lang.Integer");
+        allowed.add("java.lang.Long");
+        allowed.add("java.lang.Float");
+        allowed.add("java.lang.Double");
+        allowed.add("java.math.BigInteger");
+        allowed.add("java.math.BigDecimal");
+        allowed.add("java.util.ArrayList");
+        allowed.add("java.util.LinkedList");
+        allowed.add("java.util.Vector");
+        allowed.add("java.util.HashMap");
+        allowed.add("java.util.LinkedHashMap");
+        allowed.add("java.util.TreeMap");
+        allowed.add("java.util.Hashtable");
+        allowed.add("java.util.Properties");
+        allowed.add("java.util.HashSet");
+        allowed.add("java.util.LinkedHashSet");
+        allowed.add("java.util.TreeSet");
+        allowed.add("java.util.Date");
+        allowed.add("java.util.UUID");
+        allowed.add("java.util.Locale");
+        allowed.add("java.util.Currency");
+        allowed.add("java.time.Instant");
+        allowed.add("java.time.Duration");
+        allowed.add("java.time.Period");
+        allowed.add("java.time.LocalDate");
+        allowed.add("java.time.LocalTime");
+        allowed.add("java.time.LocalDateTime");
+        allowed.add("java.time.ZonedDateTime");
+        allowed.add("java.time.OffsetDateTime");
+        allowed.add("java.time.OffsetTime");
+        allowed.add("java.time.Year");
+        allowed.add("java.time.YearMonth");
+        allowed.add("java.time.MonthDay");
+        allowed.add("java.time.ZoneId");
+        allowed.add("java.time.ZoneOffset");
+        ALLOWED_CLASSES = Collections.unmodifiableSet(allowed);
     }
 
-    // Explicitly denied classes (known gadget classes)
+    /** Optional deployment-specific classes (fully qualified names). */
+    private static final AtomicReference<Set<String>> CONFIGURED_ALLOWED_CLASSES =
+            new AtomicReference<Set<String>>(Collections.<String>emptySet());
+
+    /**
+     * Configures additional fully qualified class names permitted during
+     * Java-serialized attribute deserialization. Use only for known-safe
+     * application types required in replicated sessions.
+     *
+     * @param classNames allowed class names, or null/empty to clear extras
+     */
+    static void configureAllowedClasses(Set<String> classNames) {
+        if (classNames == null || classNames.isEmpty()) {
+            CONFIGURED_ALLOWED_CLASSES.set(Collections.<String>emptySet());
+            return;
+        }
+        CONFIGURED_ALLOWED_CLASSES.set(Collections.unmodifiableSet(
+                new HashSet<String>(classNames)));
+    }
+
+    /**
+     * Returns whether a class may be deserialized as a session attribute.
+     * Package-visible for unit tests.
+     */
+    static boolean isAllowedDeserializationClass(Class<?> clazz) {
+        if (clazz == null) {
+            return true;
+        }
+        if (clazz.isPrimitive()) {
+            return true;
+        }
+        if (clazz.isArray()) {
+            return isAllowedDeserializationClass(clazz.getComponentType());
+        }
+        if (clazz.isEnum()) {
+            Package pkg = clazz.getPackage();
+            if (pkg != null) {
+                String pkgName = pkg.getName();
+                if ("java.lang".equals(pkgName) || "java.util".equals(pkgName)
+                        || "java.math".equals(pkgName)
+                        || pkgName.startsWith("java.time")) {
+                    return true;
+                }
+            }
+            return CONFIGURED_ALLOWED_CLASSES.get().contains(clazz.getName());
+        }
+        String className = clazz.getName();
+        if (ALLOWED_CLASSES.contains(className)
+                || CONFIGURED_ALLOWED_CLASSES.get().contains(className)) {
+            return true;
+        }
+        return isAllowedJdkInternalClass(className);
+    }
+
+    private static boolean isAllowedJdkCollectionImpl(String className) {
+        return className.startsWith("java.util.Collections$")
+                || className.startsWith("java.util.ImmutableCollections$")
+                || className.startsWith("java.util.Arrays$");
+    }
+
+    /** JDK collection implementation types reached during readObject. */
+    private static boolean isAllowedJdkInternalClass(String className) {
+        if (isAllowedJdkCollectionImpl(className)) {
+            return true;
+        }
+        return className.startsWith("java.util.HashMap$")
+                || className.startsWith("java.util.HashSet$")
+                || className.startsWith("java.util.LinkedHashMap$")
+                || className.startsWith("java.util.LinkedHashSet$")
+                || className.startsWith("java.util.TreeMap$")
+                || className.startsWith("java.util.TreeSet$")
+                || className.startsWith("java.util.ArrayList$")
+                || className.startsWith("java.util.Vector$")
+                || "java.util.Map$Entry".equals(className);
+    }
+
+    // Known gadget class prefixes (defense in depth atop the allowlist)
     private static final Set<String> DENIED_CLASSES;
     static {
         Set<String> denied = new HashSet<>();
@@ -403,13 +515,13 @@ class SessionSerializer {
         denied.add("com.sun.rowset.JdbcRowSetImpl");
         denied.add("java.rmi.server.UnicastRemoteObject");
         denied.add("javax.management.");
-        DENIED_CLASSES = denied;
+        denied.add("java.net.URL");
+        DENIED_CLASSES = Collections.unmodifiableSet(denied);
     }
 
     /**
-     * ObjectInputFilter that restricts deserialization to safe classes.
-     * Rejects known gadget classes, allows standard JDK packages and
-     * webapp-loaded classes, and rejects everything else.
+     * ObjectInputFilter that restricts deserialization to {@link #ALLOWED_CLASSES}
+     * plus any names configured via {@link #configureAllowedClasses(Set)}.
      */
     private static final java.io.ObjectInputFilter SESSION_DESERIALIZATION_FILTER =
             filterInfo -> {
@@ -421,7 +533,7 @@ class SessionSerializer {
         String className = clazz.getName();
 
         for (String denied : DENIED_CLASSES) {
-            if (className.startsWith(denied)) {
+            if (className.startsWith(denied) || className.equals(denied)) {
                 String message = L10N.getString("warn.blocked_class");
                 message = MessageFormat.format(message, className);
                 LOGGER.warning(message);
@@ -429,30 +541,8 @@ class SessionSerializer {
             }
         }
 
-        for (String allowed : ALLOWED_PACKAGES) {
-            if (className.startsWith(allowed)) {
-                return java.io.ObjectInputFilter.Status.ALLOWED;
-            }
-        }
-
-        if (clazz.isPrimitive() || clazz.isArray() || clazz.isEnum()) {
+        if (isAllowedDeserializationClass(clazz)) {
             return java.io.ObjectInputFilter.Status.ALLOWED;
-        }
-
-        ClassLoader classLoader = clazz.getClassLoader();
-        ClassLoader contextClassLoader =
-                Thread.currentThread().getContextClassLoader();
-
-        if (classLoader == contextClassLoader) {
-            return java.io.ObjectInputFilter.Status.ALLOWED;
-        }
-
-        ClassLoader parent = contextClassLoader;
-        while (parent != null) {
-            if (classLoader == parent) {
-                return java.io.ObjectInputFilter.Status.ALLOWED;
-            }
-            parent = parent.getParent();
         }
 
         String message = L10N.getString("warn.rejected_class");
