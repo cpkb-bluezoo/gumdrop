@@ -481,7 +481,8 @@ class Request implements HttpServletRequest {
         // Create an authentication provider for this context and use it directly
         ServletAuthenticationProvider authProvider = new ServletAuthenticationProvider(context);
         String authHeader = getHeader("Authorization");
-        HTTPAuthenticationProvider.AuthenticationResult result = authProvider.authenticate(authHeader);
+        HTTPAuthenticationProvider.AuthenticationResult result = authProvider.authenticate(
+                authHeader, getMethod(), getRequestURI());
 
         if (!result.success) {
             // Generate the authentication challenge

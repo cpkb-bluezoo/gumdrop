@@ -279,6 +279,23 @@ public abstract class HTTPAuthenticationProvider {
      * @return an {@link AuthenticationResult} indicating success or failure with details
      */
     public final AuthenticationResult authenticate(String authorizationHeader) {
+        return authenticate(authorizationHeader, null, null);
+    }
+
+    /**
+     * Authenticates a request using the Authorization header and request target.
+     *
+     * <p>For Digest authentication, {@code requestMethod} and {@code digestUri}
+     * must be the effective HTTP method and request URI so the response can be
+     * bound to the request per RFC 7616.</p>
+     *
+     * @param authorizationHeader the Authorization header value
+     * @param requestMethod the HTTP request method, or {@code null} for non-Digest schemes
+     * @param digestUri the request URI used in Digest H(A2), or {@code null} for non-Digest schemes
+     * @return an {@link AuthenticationResult} indicating success or failure with details
+     */
+    public final AuthenticationResult authenticate(String authorizationHeader,
+            String requestMethod, String digestUri) {
         String authMethod = getAuthMethod();
         if (authMethod == null) {
             return AuthenticationResult.failure(L10N.getString("auth.err.no_method_configured"));
@@ -306,7 +323,7 @@ public abstract class HTTPAuthenticationProvider {
                     break;
                 case HttpServletRequest.DIGEST_AUTH:
                     if ("Digest".equalsIgnoreCase(scheme)) {
-                        return authenticateDigest(credentials);
+                        return authenticateDigest(credentials, requestMethod, digestUri);
                     }
                     break;
                 case HTTPAuthenticationMethods.BEARER_AUTH:
@@ -490,12 +507,17 @@ public abstract class HTTPAuthenticationProvider {
      * @param credentials the Digest challenge response parameters
      * @return the authentication result
      */
-    private AuthenticationResult authenticateDigest(String credentials) {
+    private AuthenticationResult authenticateDigest(String credentials,
+            String requestMethod, String digestUri) {
         // Check if the Realm supports Digest authentication
         if (!supportsDigestAuth()) {
             LOGGER.severe(L10N.getString("auth.err.digest_not_supported_by_realm"));
             return AuthenticationResult.failure("Digest", getRealmName(),
                 L10N.getString("auth.err.digest_not_supported_by_realm"));
+        }
+
+        if (requestMethod == null || digestUri == null) {
+            return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
         }
 
         try {
@@ -515,8 +537,13 @@ public abstract class HTTPAuthenticationProvider {
             String algorithm = digestResponse.get("algorithm");
             String cnonce = digestResponse.get("cnonce");
             String nc = digestResponse.get("nc");
+            String responseUri = digestResponse.get("uri");
 
             if (username == null || realm == null || requestDigest == null || nonce == null || cnonce == null || nc == null) {
+                return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
+            }
+
+            if (responseUri != null && !responseUri.equals(digestUri)) {
                 return AuthenticationResult.failure(L10N.getString("auth.err.invalid_digest_format"));
             }
 
@@ -524,7 +551,8 @@ public abstract class HTTPAuthenticationProvider {
             try {
                 int clientNonceCount = Integer.parseInt(nc, 16); // hexadecimal
                 int serverNonceCount = getNonceCount(nonce);
-                if (clientNonceCount != serverNonceCount || serverNonceCount < 1 || seenCnonce(cnonce + nc)) {
+                if (clientNonceCount != serverNonceCount || serverNonceCount < 1
+                        || !seenCnonce(cnonce + nc)) {
                     return AuthenticationResult.failure(L10N.getString("auth.err.nonce_invalid"));
                 }
             } catch (Exception e) {
@@ -536,7 +564,8 @@ public abstract class HTTPAuthenticationProvider {
             }
 
             // Verify digest response
-            if (verifyDigestResponse(ha1Hex, algorithm, nonce, qop, nc, cnonce, "GET", "/", requestDigest)) {
+            if (verifyDigestResponse(ha1Hex, algorithm, nonce, qop, nc, cnonce,
+                    requestMethod, digestUri, requestDigest)) {
                 return AuthenticationResult.success(username, realm, "Digest");
             } else {
                 LOGGER.warning(MessageFormat.format(L10N.getString("auth.warn.digest_verification_failed"), username));
