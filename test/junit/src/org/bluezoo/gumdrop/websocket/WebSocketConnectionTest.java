@@ -207,6 +207,43 @@ public class WebSocketConnectionTest {
     // ── #97: Maximum Message Size (RFC 6455 §7.4.1, code 1009) ──
 
     @Test
+    public void testOversizedDeclaredLengthClosesWith1009() throws IOException {
+        TestConnection conn = createOpenConnection();
+        conn.setMaxMessageSize(10);
+
+        // Header only: claims 4096-byte payload without sending body bytes
+        ByteBuffer buf = ByteBuffer.allocate(4);
+        buf.put((byte) 0x81); // FIN + text
+        buf.put((byte) 126);
+        buf.putShort((short) 4096);
+        buf.flip();
+
+        conn.processIncomingData(buf);
+
+        assertNull(conn.lastTextMessage);
+        assertTrue(conn.sentFrames.size() > 0);
+        WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
+        assertEquals(1009, closeFrame.getCloseCode());
+    }
+
+    @Test
+    public void testOversizedPingClosesWithProtocolError() throws IOException {
+        TestConnection conn = createOpenConnection();
+
+        ByteBuffer buf = ByteBuffer.allocate(4);
+        buf.put((byte) 0x89); // FIN + ping
+        buf.put((byte) 126);
+        buf.putShort((short) 200);
+        buf.flip();
+
+        conn.processIncomingData(buf);
+
+        assertTrue(conn.sentFrames.size() > 0);
+        WebSocketFrame closeFrame = WebSocketFrame.parse(conn.sentFrames.get(0));
+        assertEquals(1002, closeFrame.getCloseCode());
+    }
+
+    @Test
     public void testSingleFrameExceedsMaxSize() throws IOException {
         TestConnection conn = createOpenConnection();
         conn.setMaxMessageSize(10);

@@ -185,6 +185,20 @@ public abstract class WebSocketConnection {
     }
 
     /**
+     * Returns the maximum payload length permitted for the next frame parse.
+     * During fragmented-message assembly, subtracts bytes already buffered.
+     */
+    private long maxPayloadLengthForNextFrame() {
+        if (maxMessageSize <= 0) {
+            return Long.MAX_VALUE;
+        }
+        if (messageOpcode != -1) {
+            return Math.max(0L, maxMessageSize - messageSize);
+        }
+        return maxMessageSize;
+    }
+
+    /**
      * Sets optional server-level metrics for frame and message tracking.
      *
      * @param metrics the metrics instance (may be null)
@@ -462,12 +476,19 @@ public abstract class WebSocketConnection {
     public final void processIncomingData(ByteBuffer buffer) throws IOException {
         try {
             while (buffer.hasRemaining()) {
-                WebSocketFrame frame = WebSocketFrame.parse(buffer);
+                WebSocketFrame frame = WebSocketFrame.parse(buffer,
+                        maxPayloadLengthForNextFrame());
                 if (frame == null) {
                     break; // Insufficient data for complete frame
                 }
                 processFrame(frame);
             }
+        } catch (WebSocketMessageTooBigException e) {
+            LOGGER.log(Level.WARNING, "WebSocket message too big", e);
+            recordTelemetryError(e);
+            close(CloseCodes.MESSAGE_TOO_BIG,
+                    "Message exceeds maximum size of " + maxMessageSize + " bytes");
+            error(e);
         } catch (WebSocketProtocolException e) {
             LOGGER.log(Level.WARNING, "WebSocket protocol error", e);
             recordTelemetryError(e);
