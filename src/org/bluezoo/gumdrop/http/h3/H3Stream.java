@@ -200,7 +200,7 @@ class H3Stream implements HTTPResponseState {
                 if (authHeader != null) {
                     HTTPAuthenticationProvider.AuthenticationResult
                             result = authProvider.authenticate(
-                                    authHeader);
+                                    authHeader, method, requestTarget);
                     if (result.success) {
                         authenticatedPrincipal =
                                 new HTTPPrincipal(result.username);
