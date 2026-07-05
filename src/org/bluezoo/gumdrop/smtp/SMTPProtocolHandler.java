@@ -1592,8 +1592,13 @@ public class SMTPProtocolHandler
             authMechanism = "OAUTHBEARER";
             return;
         }
-        String username = (user != null && !user.isEmpty()) ? user : result.username;
-        notifyAuthenticationSuccess(username, "OAUTHBEARER");
+        if (user != null && !user.isEmpty()
+                && !user.equals(result.username)) {
+            reply(535, "5.7.8 Authentication credentials invalid");
+            resetAuthState();
+            return;
+        }
+        notifyAuthenticationSuccess(result.username, "OAUTHBEARER");
         resetAuthState();
     }
 
