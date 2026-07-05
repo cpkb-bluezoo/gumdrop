@@ -218,6 +218,7 @@ public class HTTPProtocolHandler
     int initialWindowSize = DEFAULT_INITIAL_WINDOW_SIZE;
     int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
     int maxHeaderListSize = DEFAULT_MAX_HEADER_LIST_SIZE;
+    long maxRequestBodySize = HTTPListener.DEFAULT_MAX_REQUEST_BODY_SIZE;
 
     Decoder hpackDecoder;
     Encoder hpackEncoder;
@@ -303,6 +304,7 @@ public class HTTPProtocolHandler
         this.serverMaxConcurrentStreams = serverMaxConcurrentStreams;
         this.serverMaxHeaderListSize = serverMaxHeaderListSize;
         this.maxHeaderListSize = serverMaxHeaderListSize;
+        this.maxRequestBodySize = server.getMaxRequestBodySize();
         this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH);
         this.authenticationProvider = server.getAuthenticationProvider();
         this.handlerFactory = server.getHandlerFactory();
@@ -854,6 +856,11 @@ public class HTTPProtocolHandler
     @Override
     public int getMaxHeaderListSize() {
         return maxHeaderListSize;
+    }
+
+    @Override
+    public long getMaxRequestBodySize() {
+        return maxRequestBodySize;
     }
 
     private void checkContinuationLimit() {
@@ -1536,6 +1543,12 @@ public class HTTPProtocolHandler
             }
             currentChunkSize = (int) chunkSize;
             chunkBytesRemaining = currentChunkSize;
+            long maxBody = server.getMaxRequestBodySize();
+            if (maxBody > 0
+                    && stream.getRequestBodyBytesReceived() + currentChunkSize > maxBody) {
+                sendStreamError(stream, 413);
+                return;
+            }
         } catch (NumberFormatException e) {
             sendStreamError(stream, 400);
             return;
