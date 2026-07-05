@@ -81,6 +81,10 @@
  *   <li>Implicit FTPS on port 990</li>
  *   <li>Explicit FTPS via AUTH TLS command</li>
  *   <li>Data channel protection via PROT command</li>
+ *   <li>RFC 4217 section 10 data-connection IP verification in both
+ *       passive and active modes (override with
+ *       {@link org.bluezoo.gumdrop.ftp.FTPListener#setAllowActiveModeBounce}
+ *       only when required)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

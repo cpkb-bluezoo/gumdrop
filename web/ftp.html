@@ -145,9 +145,18 @@ Use <code>requireTLSForData="true"</code> to mandate encrypted data transfers.
 <h4>Data Connection Security (RFC 4217 section 10)</h4>
 
 <p>
-In passive mode, the server verifies that the IP address of each incoming data
-connection matches the control connection&rsquo;s client IP. Connections from
-mismatched addresses are rejected to prevent data connection hijacking.
+The server verifies that each data connection uses the same client IP as the
+control connection. In <b>passive mode</b>, incoming data connections from a
+mismatched address are rejected. In <b>active mode</b> (PORT/EPRT), the server
+refuses to connect to a client-supplied address that does not match the control
+client, blocking FTP bounce and port-scanning abuse.
+</p>
+
+<p>
+To restore legacy active-mode behaviour (server connects to any address given
+in PORT/EPRT), set the listener property
+<code>allow-active-mode-bounce</code> to <code>true</code>. This should be used
+only in explicitly trusted deployments.
 </p>
 
 <h3 id="authentication">Authentication</h3>
@@ -283,6 +292,9 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
 <li><code>keystore-file</code> - keystore for TLS</li>
 <li><code>keystore-pass</code> - keystore password</li>
 <li><code>require-tls-for-data</code> - mandate TLS for data connections</li>
+<li><code>allow-active-mode-bounce</code> - permit PORT/EPRT data addresses
+    other than the control client IP (default: false; enables legacy FTP bounce
+    when true)</li>
 </ul>
 
 <h4>RoleBasedFTPService Properties</h4>

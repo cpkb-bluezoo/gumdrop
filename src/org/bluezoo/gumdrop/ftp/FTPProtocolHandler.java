@@ -814,7 +814,10 @@ public class FTPProtocolHandler
                 clientPort |= f;
             }
 
-            dataCoordinator.setupActiveMode(clientHost, clientPort);
+            if (!dataCoordinator.setupActiveMode(clientHost, clientPort)) {
+                reply(501, L10N.getString("ftp.err.active_mode_address_mismatch"));
+                return;
+            }
             reply(200, L10N.getString("ftp.command_ok"));
         } catch (NumberFormatException e) {
             String message = L10N.getString("ftp.err.invalid_port_arguments");
@@ -918,7 +921,10 @@ public class FTPProtocolHandler
                 return;
             }
 
-            dataCoordinator.setupActiveMode(addr.getHostAddress(), port);
+            if (!dataCoordinator.setupActiveMode(addr.getHostAddress(), port)) {
+                reply(501, L10N.getString("ftp.err.active_mode_address_mismatch"));
+                return;
+            }
             reply(200, L10N.getString("ftp.eprt_ok"));
 
         } catch (NumberFormatException e) {

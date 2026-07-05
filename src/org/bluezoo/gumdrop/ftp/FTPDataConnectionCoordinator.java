@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.ftp;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
@@ -242,10 +243,31 @@ public class FTPDataConnectionCoordinator {
      * Configures active mode data connection (RFC 959 section 4.1.2 PORT).
      * Stores the client's address for a later outbound connection.
      *
+     * <p>RFC 4217 section 10: unless {@link FTPListener#isAllowActiveModeBounce()}
+     * is enabled, the data address must match the control connection client IP.
+     *
      * @param host client's host address
      * @param port client's port number
+     * @return true if active mode was configured, false if rejected
      */
-    public synchronized void setupActiveMode(String host, int port) {
+    public synchronized boolean setupActiveMode(String host, int port) {
+        try {
+            InetAddress dataAddress = InetAddress.getByName(host);
+            if (!isActiveDataAddressAllowed(dataAddress)) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning("Active mode data address " + dataAddress
+                            + " does not match control connection from "
+                            + controlClientAddress + "; rejecting");
+                }
+                return false;
+            }
+        } catch (UnknownHostException e) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Active mode rejected: unknown host " + host);
+            }
+            return false;
+        }
+
         cleanup(); // Clean up any existing setup
         
         this.activeHost = host;
@@ -255,6 +277,22 @@ public class FTPDataConnectionCoordinator {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Active mode configured to " + host + ":" + port);
         }
+        return true;
+    }
+
+    /**
+     * RFC 4217 section 10: active-mode data address must match the control
+     * client's IP unless the listener explicitly allows FTP bounce.
+     */
+    private boolean isActiveDataAddressAllowed(InetAddress dataAddress) {
+        FTPListener server = controlConnection.getServer();
+        if (server != null && server.isAllowActiveModeBounce()) {
+            return true;
+        }
+        if (controlClientAddress == null) {
+            return false;
+        }
+        return controlClientAddress.equals(dataAddress);
     }
     
     /**
@@ -547,6 +585,18 @@ public class FTPDataConnectionCoordinator {
             final DataConnectionReady continuation) {
         final String host = activeHost;
         final int port = activePort;
+        try {
+            InetAddress dataAddress = InetAddress.getByName(host);
+            if (!isActiveDataAddressAllowed(dataAddress)) {
+                failTransfer(controlEndpoint, callback, new IOException(
+                        "Active mode data address does not match control client"));
+                return;
+            }
+        } catch (UnknownHostException e) {
+            failTransfer(controlEndpoint, callback, new IOException(
+                    "Active mode data address is unknown: " + host, e));
+            return;
+        }
         Gumdrop gumdrop = Gumdrop.getInstance();
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;

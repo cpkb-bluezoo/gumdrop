@@ -46,6 +46,22 @@ import org.bluezoo.gumdrop.auth.Realm;
  *       servers or embedded usage without a full service lifecycle.</li>
  * </ol>
  *
+ * <h2>Configuration</h2>
+ *
+ * <p>Listener properties (XML {@code name} attributes map to
+ * {@code setXxx} bean setters):
+ * <ul>
+ *   <li>{@code port} &ndash; control port (default 21, or 990 for
+ *       implicit FTPS)</li>
+ *   <li>{@code secure} &ndash; implicit TLS (FTPS)</li>
+ *   <li>{@code require-tls-for-data} &ndash; reject data transfers
+ *       unless PROT P has been issued</li>
+ *   <li>{@code allow-active-mode-bounce} &ndash; when {@code true},
+ *       permit PORT/EPRT to specify a data address other than the
+ *       control client's IP (default {@code false}; see RFC 4217
+ *       section 10)</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class FTPListener extends TCPListener {
@@ -72,6 +88,7 @@ public class FTPListener extends TCPListener {
     private boolean portExplicitlySet = false;
     protected FTPConnectionHandlerFactory handlerFactory;
     private boolean requireTLSForData = false;
+    private boolean allowActiveModeBounce = false;
     private Realm realm;
 
     // Back-reference to the owning service (null when used standalone)
@@ -128,6 +145,31 @@ public class FTPListener extends TCPListener {
      */
     public boolean isRequireTLSForData() {
         return requireTLSForData;
+    }
+
+    /**
+     * Sets whether active-mode (PORT/EPRT) may connect to an address
+     * other than the control connection's client IP.
+     *
+     * <p>When false (the default), RFC 4217 section 10 data-connection
+     * verification is applied to active mode as well as passive mode,
+     * preventing FTP bounce and port-scanning abuse. Set to true only
+     * for explicitly trusted deployments.
+     *
+     * @param allow true to permit client-supplied foreign data addresses
+     */
+    public void setAllowActiveModeBounce(boolean allow) {
+        this.allowActiveModeBounce = allow;
+    }
+
+    /**
+     * Returns whether active-mode data connections may target addresses
+     * other than the control client's IP.
+     *
+     * @return true if FTP bounce is permitted
+     */
+    public boolean isAllowActiveModeBounce() {
+        return allowActiveModeBounce;
     }
 
     /**
