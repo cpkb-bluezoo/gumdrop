@@ -1810,19 +1810,8 @@ public class SMTPProtocolHandler
         String response = new String(Base64.getDecoder().decode(encodedData), UTF_8);
         Map<String, String> params = SASLUtils.parseDigestParams(response);
         String username = params.get("username");
-        String clientNonce = params.get("nonce");
-        String nc = params.get("nc");
-        String cnonce = params.get("cnonce");
-        String qop = params.get("qop");
-        String digestUri = params.get("digest-uri");
-        String clientResponse = params.get("response");
 
-        if (username == null || clientNonce == null || clientResponse == null) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            return;
-        }
-        if (!authNonce.equals(clientNonce)) {
+        if (username == null) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             return;
@@ -1832,29 +1821,10 @@ public class SMTPProtocolHandler
             realmName = endpoint.getLocalAddress().toString();
         }
         String ha1 = getRealm().getDigestHA1(username, realmName);
-        if (ha1 == null) {
-            notifyAuthenticationFailure(username, "DIGEST-MD5");
-            resetAuthState();
-            return;
-        }
-        // RFC 2831: HA1 for md5-sess = H(H(username:realm:password):nonce:cnonce)
-        String a1Input = ha1 + ":" + authNonce + ":" + cnonce;
-        String sessionHA1 = SASLUtils.md5Hex(a1Input.getBytes(UTF_8));
-        String a2 = "AUTHENTICATE:" + digestUri;
-        String ha2 = SASLUtils.md5Hex(a2.getBytes(UTF_8));
-        String expectedInput = sessionHA1 + ":" + authNonce + ":" + nc + ":"
-                + cnonce + ":" + qop + ":" + ha2;
-        String expected = SASLUtils.md5Hex(expectedInput.getBytes(UTF_8));
+        String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+                ha1, authNonce, params);
 
-        if (java.security.MessageDigest.isEqual(
-                expected.getBytes(US_ASCII),
-                clientResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
-            // RFC 2831 §2.1.3 — rspauth in response-value
-            String rspA2 = ":" + digestUri;
-            String rspHA2 = SASLUtils.md5Hex(rspA2.getBytes(UTF_8));
-            String rspInput = sessionHA1 + ":" + authNonce + ":" + nc + ":"
-                    + cnonce + ":" + qop + ":" + rspHA2;
-            String rspAuth = SASLUtils.md5Hex(rspInput.getBytes(UTF_8));
+        if (rspAuth != null) {
             String rspEncoded = Base64.getEncoder()
                     .encodeToString(("rspauth=" + rspAuth).getBytes(US_ASCII));
             reply(334, rspEncoded);
