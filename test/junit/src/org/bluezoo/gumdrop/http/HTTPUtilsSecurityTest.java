@@ -17,4 +17,19 @@ public class HTTPUtilsSecurityTest {
         assertFalse(HTTPUtils.isChunkedTransferEncoding("chunked, gzip"));
         assertFalse(HTTPUtils.isChunkedTransferEncoding("xchunked"));
     }
+
+    @Test
+    public void testValidateContentLengthSimple() {
+        assertEquals(100, HTTPUtils.validateContentLength("100"));
+    }
+
+    @Test
+    public void testValidateContentLengthMultipleDifferent() {
+        assertEquals(-1, HTTPUtils.validateContentLength("100, 200"));
+    }
+
+    @Test
+    public void testValidateContentLengthMultipleEqual() {
+        assertEquals(200, HTTPUtils.validateContentLength("200, 200"));
+    }
 }

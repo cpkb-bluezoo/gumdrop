@@ -452,12 +452,29 @@ class Stream implements HTTPResponseState {
                             }
                         }
                     } else if ("Content-Length".equalsIgnoreCase(name)) {
-                        // RFC 9112 section 6.2: Content-Length
-                        try {
-                            contentLength = Long.parseLong(value);
+                        if (chunked) {
+                            LOGGER.fine("Ignoring Content-Length; chunked "
+                                    + "encoding already set");
+                            i.remove();
+                        } else {
+                        // RFC 9112 section 6.2 / RFC 9110 section 8.6
+                        long parsed = HTTPUtils.validateContentLength(value);
+                        if (parsed < 0) {
+                            LOGGER.fine(MessageFormat.format(
+                                    "Ignoring invalid Content-Length: {0}",
+                                    value));
+                            i.remove();
+                        } else if (hasExplicitContentLength
+                                && parsed != contentLength) {
+                            LOGGER.warning(MessageFormat.format(
+                                    "Ignoring conflicting Content-Length: {0} "
+                                            + "(using {1})",
+                                    parsed, contentLength));
+                            i.remove();
+                        } else {
+                            contentLength = parsed;
                             hasExplicitContentLength = true;
-                        } catch (NumberFormatException e) {
-                            contentLength = -1L;
+                        }
                         }
                     } else if ("Transfer-Encoding".equalsIgnoreCase(name)) {
                         if (HTTPUtils.isChunkedTransferEncoding(value)) {
@@ -511,16 +528,15 @@ class Stream implements HTTPResponseState {
                 this.h2cSettings = http2Settings;
             }
         }
-        // RFC 9112 section 6.3: a message with both Transfer-Encoding and
-        // Content-Length indicates a possible request smuggling attempt.
-        if (chunked && hasExplicitContentLength) {
-            try {
-                sendError(400);
-            } catch (ProtocolException e) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.te_cl_conflict"), e.getMessage()));
-            }
-            return;
+        // RFC 9112 section 6.3: chunked Transfer-Encoding overrides Content-Length
+        if (chunked && hasExplicitContentLength && headers != null) {
+            LOGGER.fine("Ignoring Content-Length; chunked encoding takes "
+                    + "precedence");
+            hasExplicitContentLength = false;
+            headers.removeAll("Content-Length");
+        }
+        if (connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
+            HTTPVersion.stripHttp1FramingHeaders(headers);
         }
         // RFC 9110 section 10.1.1: Expect: 100-continue
         if (connection.getVersion() != HTTPVersion.HTTP_2_0
@@ -682,27 +698,6 @@ class Stream implements HTTPResponseState {
                 }
             } else {
                 pastPseudo = true;
-                String lower = name.toLowerCase();
-                // RFC 9113 section 8.2.2: connection-specific headers
-                // MUST NOT appear in HTTP/2
-                if ("connection".equals(lower) || "keep-alive".equals(lower)
-                        || "proxy-connection".equals(lower)
-                        || "upgrade".equals(lower)) {
-                    LOGGER.warning("Connection-specific header in HTTP/2: " + name);
-                    return false;
-                }
-                // RFC 9113 section 8.2.2: Transfer-Encoding MUST NOT
-                // appear in HTTP/2
-                if ("transfer-encoding".equals(lower)) {
-                    LOGGER.warning("Transfer-Encoding in HTTP/2 request");
-                    return false;
-                }
-                // RFC 9113 section 8.2.2: TE header is allowed only
-                // with value "trailers"
-                if ("te".equals(lower) && !"trailers".equals(header.getValue())) {
-                    LOGGER.warning("TE header with value other than 'trailers'");
-                    return false;
-                }
             }
         }
 

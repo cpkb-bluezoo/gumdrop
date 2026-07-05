@@ -358,5 +358,33 @@ final class HTTPUtils {
         return lastToken != null && "chunked".equalsIgnoreCase(lastToken);
     }
 
+    /**
+     * RFC 9110 section 8.6: Content-Length must be a non-negative integer;
+     * if multiple values appear, they MUST all be equal or the message
+     * is invalid. Returns the parsed value, or {@code -1} if invalid.
+     */
+    static long validateContentLength(String value) {
+        if (value == null) {
+            return -1;
+        }
+        value = value.trim();
+        if (value.indexOf(',') >= 0) {
+            String[] parts = value.split(",");
+            String first = parts[0].trim();
+            for (int i = 1; i < parts.length; i++) {
+                if (!first.equals(parts[i].trim())) {
+                    return -1;
+                }
+            }
+            value = first;
+        }
+        try {
+            long len = Long.parseLong(value);
+            return len >= 0 ? len : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
 }
 

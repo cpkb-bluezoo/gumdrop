@@ -107,4 +107,34 @@ public class HTTPVersionTest {
         assertTrue(HTTPVersion.HTTP_3.requiresHostHeader());
         assertFalse(HTTPVersion.UNKNOWN.requiresHostHeader());
     }
+
+    @Test
+    public void testHttp1FramingHeadersOnMultiplexedTransports() {
+        assertTrue(HTTPVersion.isHttp1FramingHeader(
+                "Content-Length", "42"));
+        assertTrue(HTTPVersion.isHttp1FramingHeader(
+                "Transfer-Encoding", "chunked"));
+        assertTrue(HTTPVersion.isHttp1FramingHeader(
+                "Connection", "close"));
+        assertFalse(HTTPVersion.isHttp1FramingHeader(
+                "TE", "trailers"));
+        assertTrue(HTTPVersion.isHttp1FramingHeader(
+                "TE", "gzip"));
+        assertFalse(HTTPVersion.isHttp1FramingHeader(
+                "Content-Type", "text/plain"));
+    }
+
+    @Test
+    public void testStripHttp1FramingHeaders() {
+        Headers headers = new Headers();
+        headers.add("Content-Length", "42");
+        headers.add("Transfer-Encoding", "chunked");
+        headers.add("Content-Type", "text/plain");
+        headers.add(":method", "GET");
+        HTTPVersion.stripHttp1FramingHeaders(headers);
+        assertNull(headers.getValue("Content-Length"));
+        assertNull(headers.getValue("Transfer-Encoding"));
+        assertEquals("text/plain", headers.getValue("Content-Type"));
+        assertEquals("GET", headers.getValue(":method"));
+    }
 }

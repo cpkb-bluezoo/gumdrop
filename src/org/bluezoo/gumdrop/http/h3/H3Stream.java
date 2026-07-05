@@ -192,6 +192,8 @@ class H3Stream implements HTTPResponseState {
                 return;
             }
 
+            HTTPVersion.stripHttp1FramingHeaders(headers);
+
             HTTPAuthenticationProvider authProvider =
                     connection.getAuthenticationProvider();
             if (authProvider != null) {
@@ -841,16 +843,10 @@ class H3Stream implements HTTPResponseState {
 
     // ── Internal ──
 
-    /**
-     * Sends a minimal error response (e.g. 400) and closes the stream.
-     * Used when the request is malformed before a handler is created.
-     */
     private void sendErrorResponse(int statusCode) {
         pendingResponseHeaders = new ArrayList<Header>();
         pendingResponseHeaders.add(
                 new Header(":status", Integer.toString(statusCode)));
-        pendingResponseHeaders.add(
-                new Header("content-length", "0"));
         flushHeaders(true);
         state = State.CLOSED;
         handler = null;
@@ -897,17 +893,7 @@ class H3Stream implements HTTPResponseState {
 
         // Strip headers that are illegal in HTTP/3
         // (RFC 9114 Section 4.2)
-        Iterator<Header> it = pendingResponseHeaders.iterator();
-        while (it.hasNext()) {
-            String name = it.next().getName();
-            if ("Connection".equalsIgnoreCase(name)
-                    || "Keep-Alive".equalsIgnoreCase(name)
-                    || "Proxy-Connection".equalsIgnoreCase(name)
-                    || "Transfer-Encoding".equalsIgnoreCase(name)
-                    || "Upgrade".equalsIgnoreCase(name)) {
-                it.remove();
-            }
-        }
+        HTTPVersion.stripHttp1FramingHeaders(pendingResponseHeaders);
 
         // Inject traceparent for distributed trace propagation
         if (span != null) {

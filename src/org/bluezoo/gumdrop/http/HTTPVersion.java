@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.util.Iterator;
+import java.util.List;
+
 /**
  * Enum of possible HTTP versions.
  *
@@ -158,5 +161,67 @@ public enum HTTPVersion {
      */
     public boolean requiresHostHeader() {
         return this == HTTP_1_1 || this == HTTP_2_0 || this == HTTP_3;
+    }
+
+    /**
+     * HTTP/1 connection-specific and message-framing header fields that have
+     * no role on HTTP/2 or HTTP/3 (body length is defined by DATA frames).
+     * Peers may send these incorrectly; strip on ingest rather than rejecting
+     * the stream. Outbound multiplexed messages must not include them.
+     *
+     * @param name header field name
+     * @param value header field value
+     * @return true if the header should be stripped from a multiplexed message
+     */
+    public static boolean isHttp1FramingHeader(String name, String value) {
+        String lower = name.toLowerCase();
+        if ("connection".equals(lower) || "keep-alive".equals(lower)
+                || "proxy-connection".equals(lower)
+                || "upgrade".equals(lower)
+                || "transfer-encoding".equals(lower)
+                || "content-length".equals(lower)) {
+            return true;
+        }
+        return "te".equals(lower) && !"trailers".equals(value);
+    }
+
+    /**
+     * Strips {@link #isHttp1FramingHeader HTTP/1 framing headers} from a
+     * multiplexed-protocol header block before dispatch to handlers.
+     */
+    public static void stripHttp1FramingHeaders(Headers headers) {
+        if (headers == null) {
+            return;
+        }
+        Iterator<Header> it = headers.iterator();
+        while (it.hasNext()) {
+            Header header = it.next();
+            if (header.getName().startsWith(":")) {
+                continue;
+            }
+            if (isHttp1FramingHeader(header.getName(), header.getValue())) {
+                it.remove();
+            }
+        }
+    }
+
+    /**
+     * Strips {@link #isHttp1FramingHeader HTTP/1 framing headers} from a
+     * multiplexed-protocol header list before sending.
+     */
+    public static void stripHttp1FramingHeaders(List<Header> headers) {
+        if (headers == null) {
+            return;
+        }
+        Iterator<Header> it = headers.iterator();
+        while (it.hasNext()) {
+            Header header = it.next();
+            if (header.getName().startsWith(":")) {
+                continue;
+            }
+            if (isHttp1FramingHeader(header.getName(), header.getValue())) {
+                it.remove();
+            }
+        }
     }
 }

@@ -531,13 +531,8 @@ public class HTTPProtocolHandler
         boolean success = false;
         switch (state) {
             case HTTP2:
-                // RFC 9113 section 8.2.2: connection-specific headers MUST NOT
-                // appear in an HTTP/2 message
-                headers.removeAll("Connection");
-                headers.removeAll("Keep-Alive");
-                headers.removeAll("Proxy-Connection");
-                headers.removeAll("Transfer-Encoding");
-                headers.removeAll("Upgrade");
+                // RFC 9113 section 8.2.2: do not send HTTP/1 framing headers
+                HTTPVersion.stripHttp1FramingHeaders(headers);
                 // RFC 9113 section 8.3.2: :status is the only response pseudo-header
                 headers.add(0, new Header(":status", Integer.toString(statusCode)));
                 int streamDependency = 0;
