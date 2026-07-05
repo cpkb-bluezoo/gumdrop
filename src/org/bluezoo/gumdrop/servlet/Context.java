@@ -53,6 +53,8 @@ import org.bluezoo.util.ByteArrays;
 import org.xml.sax.SAXException;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -1348,6 +1350,87 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     }
 
     /**
+     * Validates a servlet context resource path and returns a normalized entry path
+     * relative to the web application root (no leading slash, {@code /} separators),
+     * or {@code null} if the path is invalid or escapes the root.
+     *
+     * @param servletPath context-relative path starting with {@code /}
+     * @param directoryListing {@code true} when resolving a directory for
+     *        {@link #getResourcePaths}; the returned entry path ends with {@code /}
+     */
+    private String safeResourceEntryPath(String servletPath, boolean directoryListing) {
+        if (servletPath == null || servletPath.isEmpty()) {
+            return null;
+        }
+        if (servletPath.indexOf('\0') >= 0) {
+            return null;
+        }
+        if (servletPath.charAt(0) != '/') {
+            servletPath = "/" + servletPath;
+        }
+        boolean trailingSlash = servletPath.endsWith("/");
+        if (trailingSlash) {
+            servletPath = servletPath.substring(0, servletPath.length() - 1);
+            if (servletPath.isEmpty()) {
+                servletPath = "/";
+            }
+        } else if (directoryListing) {
+            return null;
+        }
+
+        String relative = servletPath.substring(1);
+        String[] parts = relative.isEmpty() ? new String[0] : relative.split("/", -1);
+        for (String part : parts) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (".".equals(part) || "..".equals(part) || part.contains("..")) {
+                return null;
+            }
+        }
+
+        if (root.isDirectory()) {
+            try {
+                Path rootPath = root.toPath().toRealPath();
+                Path resolved = rootPath;
+                for (String part : parts) {
+                    if (!part.isEmpty()) {
+                        resolved = resolved.resolve(part);
+                    }
+                }
+                resolved = resolved.normalize();
+                if (!resolved.startsWith(rootPath)) {
+                    return null;
+                }
+                if (Files.exists(resolved)) {
+                    Path realPath = resolved.toRealPath();
+                    if (!realPath.startsWith(rootPath)) {
+                        return null;
+                    }
+                    resolved = realPath;
+                }
+                String entry = rootPath.relativize(resolved).toString()
+                        .replace(File.separatorChar, '/');
+                if (directoryListing) {
+                    return entry.isEmpty() ? "" : entry + "/";
+                }
+                return entry.isEmpty() ? null : entry;
+            } catch (IOException e) {
+                return null;
+            }
+        }
+
+        if (!directoryListing && trailingSlash) {
+            return null;
+        }
+        String entry = relative.replace(File.separatorChar, '/');
+        if (directoryListing) {
+            return entry.isEmpty() ? "" : entry + "/";
+        }
+        return entry.isEmpty() ? null : entry;
+    }
+
+    /**
      * @param searchJars if false, ignore resources in the
      * META-INF/resources subdirectory of JARs in the /WEB-INF/lib
      * directory (Servlet 3.0 spec section 4.6)
@@ -1364,7 +1447,10 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             // this is a "directory"
             path = path + "/";
         }
-        String entryPath = path.substring(1); // without leading /
+        String entryPath = safeResourceEntryPath(path, true);
+        if (entryPath == null) {
+            return null;
+        }
         String libPath = "WEB-INF/lib/";
         Set<String> ret = new LinkedHashSet();
         List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
@@ -1480,7 +1566,10 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             // it can't end with /
             return null;
         }
-        String entryPath = path.substring(1); // without leading /
+        String entryPath = safeResourceEntryPath(path, false);
+        if (entryPath == null) {
+            return null;
+        }
         String libPath = "WEB-INF/lib/";
         List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
         if (root.isDirectory()) {
@@ -1578,7 +1667,10 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             // it can't end with /
             return null;
         }
-        String entryPath = path.substring(1); // without leading /
+        String entryPath = safeResourceEntryPath(path, false);
+        if (entryPath == null) {
+            return null;
+        }
         String libPath = "WEB-INF/lib/";
         List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
         try {
