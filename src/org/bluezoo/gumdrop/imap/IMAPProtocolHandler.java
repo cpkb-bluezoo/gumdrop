@@ -1795,7 +1795,8 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
             Realm realm = getRealm();
             Realm.TokenValidationResult result = realm.validateBearerToken(token);
-            if (result != null && result.valid) {
+            if (result != null && result.valid
+                    && user.equals(result.username)) {
                 openMailStore(user, "OAUTHBEARER");
                 authSucceeded();
             } else {
