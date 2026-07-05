@@ -28,6 +28,7 @@ import org.junit.Test;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 
@@ -253,6 +254,141 @@ public class DNSServiceTest {
             }
         } finally {
             mockUpstream.close();
+        }
+    }
+
+    /**
+     * RFC 7873 section 5.2.3: a query with a client cookie but no
+     * server cookie receives a cookie-only response without resolution.
+     */
+    @Test
+    public void testCookieOnlyResponseWithoutServerCookie() throws Exception {
+        CapturingDNSListener listener = new CapturingDNSListener();
+        DNSService service = new DNSService();
+        service.setUseSystemResolvers(false);
+        service.setCacheEnabled(false);
+        listener.setService(service);
+
+        DNSCookie clientCookie = new DNSCookie();
+        byte[] cc = clientCookie.getClientCookie();
+        DNSResourceRecord opt = DNSResourceRecord.opt(
+                DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+                buildCookieEdnsOption(cc));
+        DNSMessage query = DNSMessage.createQuery(7, "example.com",
+                DNSType.A, Collections.singletonList(opt));
+
+        InetSocketAddress source =
+                new InetSocketAddress("127.0.0.1", 54321);
+        service.handleDatagram(listener, query.serialize(), source);
+
+        assertNotNull(listener.lastSent);
+        DNSMessage response = DNSMessage.parse(listener.lastSent);
+        assertTrue(response.getAnswers().isEmpty());
+        assertEquals(1, response.getAdditionals().size());
+
+        DNSResourceRecord responseOpt =
+                response.getAdditionals().get(0);
+        byte[] cookieData = DNSCookie.findEdnsOption(
+                responseOpt.getRData(), DNSCookie.EDNS_OPTION_COOKIE);
+        assertNotNull(cookieData);
+        assertEquals(DNSCookie.CLIENT_COOKIE_LENGTH
+                + DNSCookie.MIN_SERVER_COOKIE_LENGTH, cookieData.length);
+    }
+
+    /**
+     * RFC 7873: after the cookie handshake, queries with a valid server
+     * cookie are resolved normally.
+     */
+    @Test
+    public void testCookieHandshakeThenResolution() throws Exception {
+        DatagramSocket mockUpstream = new DatagramSocket(0,
+                InetAddress.getByName("127.0.0.1"));
+        int mockPort = mockUpstream.getLocalPort();
+
+        Thread responder = new Thread(() -> {
+            try {
+                byte[] buf = new byte[512];
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                mockUpstream.setSoTimeout(3000);
+                mockUpstream.receive(pkt);
+
+                ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
+                DNSMessage query = DNSMessage.parse(queryBuf);
+                DNSMessage goodResponse = query.createResponse(
+                        Collections.singletonList(
+                                DNSResourceRecord.a("example.com", 300,
+                                        InetAddress.getByName("1.2.3.4"))));
+                ByteBuffer resp = goodResponse.serialize();
+                byte[] respBytes = new byte[resp.remaining()];
+                resp.get(respBytes);
+                mockUpstream.send(new DatagramPacket(respBytes,
+                        respBytes.length, pkt.getAddress(), pkt.getPort()));
+            } catch (Exception e) {
+                // test will fail via assertion
+            }
+        });
+        responder.setDaemon(true);
+        responder.start();
+
+        try {
+            CapturingDNSListener listener = new CapturingDNSListener();
+            DNSService service = new DNSService();
+            service.setUseSystemResolvers(false);
+            service.setCacheEnabled(false);
+            service.setUpstreamServers("127.0.0.1:" + mockPort);
+            listener.setService(service);
+
+            DNSCookie clientCookie = new DNSCookie();
+            byte[] cc = clientCookie.getClientCookie();
+            InetSocketAddress source =
+                    new InetSocketAddress("127.0.0.1", 54322);
+
+            DNSResourceRecord opt1 = DNSResourceRecord.opt(
+                    DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+                    buildCookieEdnsOption(cc));
+            DNSMessage query1 = DNSMessage.createQuery(8, "example.com",
+                    DNSType.A, Collections.singletonList(opt1));
+            service.handleDatagram(listener, query1.serialize(), source);
+
+            DNSMessage cookieResponse = DNSMessage.parse(listener.lastSent);
+            byte[] cookieData = DNSCookie.findEdnsOption(
+                    cookieResponse.getAdditionals().get(0).getRData(),
+                    DNSCookie.EDNS_OPTION_COOKIE);
+            assertNotNull(cookieData);
+            assertTrue(cookieData.length > DNSCookie.CLIENT_COOKIE_LENGTH);
+
+            DNSResourceRecord opt2 = DNSResourceRecord.opt(
+                    DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+                    buildCookieEdnsOption(cookieData));
+            DNSMessage query2 = DNSMessage.createQuery(9, "example.com",
+                    DNSType.A, Collections.singletonList(opt2));
+            service.handleDatagram(listener, query2.serialize(), source);
+
+            DNSMessage response = DNSMessage.parse(listener.lastSent);
+            assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+            assertFalse(response.getAnswers().isEmpty());
+        } finally {
+            mockUpstream.close();
+        }
+    }
+
+    private static byte[] buildCookieEdnsOption(byte[] cookieData) {
+        ByteBuffer buf = ByteBuffer.allocate(4 + cookieData.length);
+        buf.putShort((short) DNSCookie.EDNS_OPTION_COOKIE);
+        buf.putShort((short) cookieData.length);
+        buf.put(cookieData);
+        return buf.array();
+    }
+
+    /** Test listener that captures outbound datagrams. */
+    private static final class CapturingDNSListener extends DNSListener {
+        ByteBuffer lastSent;
+        InetSocketAddress lastDest;
+
+        @Override
+        void sendTo(ByteBuffer data, InetSocketAddress destination) {
+            lastSent = data.duplicate();
+            lastDest = destination;
         }
     }
 }
