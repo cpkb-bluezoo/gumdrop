@@ -40,6 +40,13 @@ public final class GrpcFraming {
     private static final int HEADER_SIZE = 5;
     private static final byte UNCOMPRESSED = 0;
 
+    /**
+     * Default maximum gRPC message payload size: 4 MB (common gRPC default).
+     * Deployments can raise this or set {@code 0} (unlimited) via
+     * {@link org.bluezoo.gumdrop.grpc.server.GrpcHandlerFactory#setMaxMessageSize(long)}.
+     */
+    public static final long DEFAULT_MAX_MESSAGE_SIZE = 4L * 1024 * 1024;
+
     private GrpcFraming() {
     }
 
@@ -83,20 +90,45 @@ public final class GrpcFraming {
     }
 
     /**
-     * Parses the gRPC frame header from the buffer.
+     * Parses the gRPC frame header from the buffer with no payload-size limit
+     * (except {@link Integer#MAX_VALUE}).
      *
      * @param buffer the buffer (position at start of frame)
      * @return the message length, or -1 if header is incomplete
+     * @throws GrpcException if the declared length exceeds {@code maxMessageLength}
      */
     public static int readHeader(ByteBuffer buffer) {
+        return readHeader(buffer, Long.MAX_VALUE);
+    }
+
+    /**
+     * Parses the gRPC frame header from the buffer.
+     *
+     * @param buffer the buffer (position at start of frame)
+     * @param maxMessageLength maximum permitted message payload bytes
+     *        ({@link Long#MAX_VALUE} = no limit except {@link Integer#MAX_VALUE})
+     * @return the message length, or -1 if header is incomplete
+     * @throws GrpcException if the declared length exceeds {@code maxMessageLength}
+     */
+    public static int readHeader(ByteBuffer buffer, long maxMessageLength) {
         if (buffer.remaining() < HEADER_SIZE) {
             return -1;
         }
         buffer.get(); // compressed flag
-        return ((buffer.get() & 0xFF) << 24)
-                | ((buffer.get() & 0xFF) << 16)
-                | ((buffer.get() & 0xFF) << 8)
+        long length = ((long) (buffer.get() & 0xFF) << 24)
+                | ((long) (buffer.get() & 0xFF) << 16)
+                | ((long) (buffer.get() & 0xFF) << 8)
                 | (buffer.get() & 0xFF);
+        if (length > Integer.MAX_VALUE) {
+            throw new GrpcException("gRPC message length exceeds maximum "
+                    + Integer.MAX_VALUE);
+        }
+        int messageLength = (int) length;
+        if (maxMessageLength > 0 && messageLength > maxMessageLength) {
+            throw new GrpcException("gRPC message length " + messageLength
+                    + " exceeds maximum " + maxMessageLength);
+        }
+        return messageLength;
     }
 
     /**
