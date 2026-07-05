@@ -1709,19 +1709,29 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                 return;
             }
 
+            Realm realm = getRealm();
+            if (realm == null) {
+                authFailed();
+                return;
+            }
+            Realm.ScramCredentials creds = realm.getScramCredentials(username);
+            if (creds == null) {
+                authFailed();
+                return;
+            }
+
             pendingAuthUsername = username;
 
             String serverNonce = clientNonce + SASLUtils.generateNonce(16);
-            byte[] salt = new byte[16];
-            RANDOM.nextBytes(salt);
-            String saltB64 = Base64.getEncoder().encodeToString(salt);
-
             authNonce = serverNonce;
             String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
-                    saltB64, scramIterations);
+                    creds.salt, creds.iterations);
+            authChallenge = attrString + "," + serverFirst;
             authState = AuthState.SCRAM_FINAL;
             sendContinuation(SASLUtils.encodeBase64(serverFirst));
 
+        } catch (UnsupportedOperationException e) {
+            authFailed();
         } catch (Exception e) {
             authFailed();
         }
@@ -1732,17 +1742,29 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             String clientFinal = SASLUtils.decodeBase64ToString(line);
 
             Realm realm = getRealm();
+            if (realm == null) {
+                authFailed();
+                return;
+            }
             Realm.ScramCredentials creds = realm.getScramCredentials(
                     pendingAuthUsername);
-
-            if (creds != null) {
-                openMailStore(pendingAuthUsername, "SCRAM-SHA-256");
-                String serverFinal = "v=" + SASLUtils.encodeBase64(new byte[32]);
-                sendContinuation(SASLUtils.encodeBase64(serverFinal));
-                authSucceeded();
-            } else {
+            if (creds == null) {
                 authFailed();
+                return;
             }
+
+            byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
+                    authChallenge, clientFinal, authNonce);
+            if (serverSignature == null) {
+                authFailed();
+                return;
+            }
+
+            openMailStore(pendingAuthUsername, "SCRAM-SHA-256");
+            String serverFinal = "v=" + Base64.getEncoder()
+                    .encodeToString(serverSignature);
+            sendContinuation(SASLUtils.encodeBase64(serverFinal));
+            authSucceeded();
         } catch (UnsupportedOperationException e) {
             authFailed();
         } catch (Exception e) {

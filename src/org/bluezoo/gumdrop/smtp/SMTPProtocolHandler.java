@@ -1527,53 +1527,19 @@ public class SMTPProtocolHandler
     /** RFC 5802 §5 — process SCRAM client-final-message and verify proof. */
     private void processScramClientFinal(String encoded) throws IOException {
         String clientFinal = new String(Base64.getDecoder().decode(encoded), UTF_8);
-        // client-final-message: channel-binding "," nonce "," proof
-        // e.g. c=biws,r=combinednonce,p=base64proof
-        String nonce = null;
-        String proof = null;
-        for (String attr : clientFinal.split(",")) {
-            if (attr.startsWith("c=")) {
-                // channel-binding data — verified implicitly by nonce match
-            } else if (attr.startsWith("r=")) {
-                nonce = attr.substring(2);
-            } else if (attr.startsWith("p=")) {
-                proof = attr.substring(2);
-            }
-        }
-        if (nonce == null || proof == null || !nonce.equals(authNonce)) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            return;
-        }
         Realm.ScramCredentials creds = getRealm().getScramCredentials(pendingAuthUsername);
         if (creds == null) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
             return;
         }
-        // clientFinalWithoutProof = everything before ",p="
-        int proofIdx = clientFinal.lastIndexOf(",p=");
-        String clientFinalWithoutProof = clientFinal.substring(0, proofIdx);
-        String authMessage = authChallenge + "," + clientFinalWithoutProof;
-
-        // RFC 5802 §3: ClientSignature = HMAC(StoredKey, AuthMessage)
-        byte[] clientSignature = SASLUtils.hmacSHA256(creds.storedKey, authMessage.getBytes(UTF_8));
-        byte[] clientProof = Base64.getDecoder().decode(proof);
-
-        // ClientKey = ClientProof XOR ClientSignature
-        byte[] recoveredClientKey = new byte[clientProof.length];
-        for (int i = 0; i < clientProof.length; i++) {
-            recoveredClientKey[i] = (byte) (clientProof[i] ^ clientSignature[i]);
-        }
-        // StoredKey = H(ClientKey)
-        byte[] computedStoredKey = SASLUtils.sha256(recoveredClientKey);
-        if (!java.security.MessageDigest.isEqual(computedStoredKey, creds.storedKey)) {
+        byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
+                authChallenge, clientFinal, authNonce);
+        if (serverSignature == null) {
             notifyAuthenticationFailure(pendingAuthUsername, "SCRAM-SHA-256");
             resetAuthState();
             return;
         }
-        // ServerSignature = HMAC(ServerKey, AuthMessage)
-        byte[] serverSignature = SASLUtils.hmacSHA256(creds.serverKey, authMessage.getBytes(UTF_8));
         String serverFinal = "v=" + Base64.getEncoder().encodeToString(serverSignature);
         notifyAuthenticationSuccess(pendingAuthUsername, "SCRAM-SHA-256");
         // RFC 5802 §5: server-final appended to the 235 response

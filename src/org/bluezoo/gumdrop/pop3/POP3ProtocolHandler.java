@@ -1400,22 +1400,33 @@ public class POP3ProtocolHandler
                 return;
             }
 
-            SecureRandom random = new SecureRandom();
-            byte[] serverNonceBytes = new byte[16];
-            random.nextBytes(serverNonceBytes);
-            authNonce = authClientNonce
-                    + ByteArrays.toHexString(serverNonceBytes);
-            authSalt = new byte[16];
-            random.nextBytes(authSalt);
-            authIterations = 4096;
+            Realm realm = getRealm();
+            if (realm == null) {
+                sendERR(L10N.getString("pop3.err.auth_failed"));
+                resetAuthState();
+                return;
+            }
+            Realm.ScramCredentials creds =
+                    realm.getScramCredentials(pendingAuthUsername);
+            if (creds == null) {
+                sendERR(L10N.getString("pop3.err.auth_failed"));
+                resetAuthState();
+                return;
+            }
 
-            String serverFirst = "r=" + authNonce
-                    + ",s=" + Base64.getEncoder()
-                            .encodeToString(authSalt)
-                    + ",i=" + authIterations;
+            String serverNonce = authClientNonce + SASLUtils.generateNonce(16);
+            authNonce = serverNonce;
+            String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
+                    creds.salt, creds.iterations);
+            authChallenge = messageBody + "," + serverFirst;
+            authSalt = Base64.getDecoder().decode(creds.salt);
+            authIterations = creds.iterations;
             authState = AuthState.SCRAM_FINAL;
             sendContinuation(Base64.getEncoder().encodeToString(
                     serverFirst.getBytes(US_ASCII)));
+        } catch (UnsupportedOperationException e) {
+            sendERR(L10N.getString("pop3.err.scram_not_available"));
+            resetAuthState();
         } catch (Exception e) {
             LOGGER.log(Level.WARNING,
                     "SCRAM client first processing error", e);
@@ -1427,7 +1438,7 @@ public class POP3ProtocolHandler
     private void processScramClientFinal(String data)
             throws IOException {
         try {
-            Base64.getDecoder().decode(data);
+            String clientFinal = SASLUtils.decodeBase64ToString(data);
 
             if (pendingAuthUsername != null) {
                 Realm realm = getRealm();
@@ -1437,6 +1448,25 @@ public class POP3ProtocolHandler
                                 realm.getScramCredentials(
                                         pendingAuthUsername);
                         if (creds != null) {
+                            byte[] serverSignature =
+                                    SASLUtils.verifyScramClientFinal(creds,
+                                            authChallenge, clientFinal,
+                                            authNonce);
+                            if (serverSignature == null) {
+                                failedAuthAttempts++;
+                                lastFailedAuthTime =
+                                        System.currentTimeMillis();
+                                recordAuthenticationFailure(
+                                        "AUTH SCRAM-SHA-256",
+                                        pendingAuthUsername);
+                                sendERR(L10N.getString(
+                                        "pop3.err.auth_failed"));
+                                return;
+                            }
+                            String serverFinal = "v=" + Base64.getEncoder()
+                                    .encodeToString(serverSignature);
+                            sendContinuation(Base64.getEncoder().encodeToString(
+                                    serverFinal.getBytes(US_ASCII)));
                             // Capture into a local: the finally below resets
                             // pendingAuthUsername before the async continuation
                             // runs.
@@ -1542,6 +1572,7 @@ public class POP3ProtocolHandler
         authNonce = null;
         authClientNonce = null;
         authSalt = null;
+        authIterations = 4096;
         if (gssapiExchange != null) {
             gssapiExchange.dispose();
             gssapiExchange = null;
