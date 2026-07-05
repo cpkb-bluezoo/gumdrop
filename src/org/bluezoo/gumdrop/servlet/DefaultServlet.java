@@ -26,6 +26,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -225,16 +227,83 @@ public class DefaultServlet extends HttpServlet {
      * SRV.9.6).
      */
     protected final boolean isWebInf(String path) {
-        if (path != null && path.length() >= 8) {
-            String prefix = path.substring(0, 8);
-            if ("/WEB-INF".equalsIgnoreCase(prefix)) {
+        String normalized = normalizeServletPath(path);
+        if (normalized == null) {
+            return true;
+        }
+        int len = normalized.length();
+        if (len >= 8
+                && "/WEB-INF".equalsIgnoreCase(normalized.substring(0, 8))
+                && (len == 8 || normalized.charAt(8) == '/')) {
+            return true;
+        }
+        if (len >= 9
+                && normalized.regionMatches(true, 0, "/META-INF", 0, 9)
+                && (len == 9 || normalized.charAt(9) == '/')) {
+            return true;
+        }
+        int segStart = 1;
+        while (segStart <= len) {
+            int segEnd = normalized.indexOf('/', segStart);
+            if (segEnd < 0) {
+                segEnd = len;
+            }
+            String segment = normalized.substring(segStart, segEnd);
+            if ("WEB-INF".equalsIgnoreCase(segment)
+                    || "META-INF".equalsIgnoreCase(segment)) {
                 return true;
             }
-            if (path.length() >= 9 && path.startsWith("/META-INF")) {
-                return true;
-            }
+            segStart = segEnd + 1;
         }
         return false;
+    }
+
+    /**
+     * Normalizes a servlet context path by collapsing {@code .} and {@code ..}
+     * segments. Returns {@code null} if normalization would escape above the
+     * context root.
+     */
+    static String normalizeServletPath(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        if (path.charAt(0) != '/') {
+            path = "/" + path;
+        }
+        boolean trailingSlash = path.endsWith("/") && path.length() > 1;
+        if (trailingSlash) {
+            path = path.substring(0, path.length() - 1);
+        }
+        if (path.equals("/")) {
+            return trailingSlash ? "/" : "/";
+        }
+        String relative = path.substring(1);
+        String[] parts = relative.split("/", -1);
+        Deque<String> stack = new ArrayDeque<>();
+        for (String part : parts) {
+            if (part.isEmpty() || ".".equals(part)) {
+                continue;
+            }
+            if ("..".equals(part)) {
+                if (stack.isEmpty()) {
+                    return null;
+                }
+                stack.removeLast();
+                continue;
+            }
+            stack.addLast(part);
+        }
+        if (stack.isEmpty()) {
+            return trailingSlash ? "/" : "/";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String part : stack) {
+            sb.append('/').append(part);
+        }
+        if (trailingSlash) {
+            sb.append('/');
+        }
+        return sb.toString();
     }
 
 }
