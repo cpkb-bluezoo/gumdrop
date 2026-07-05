@@ -172,6 +172,63 @@ public final class SASLUtils {
         return "r=" + nonce + ",s=" + salt + ",i=" + iterations;
     }
 
+    /**
+     * RFC 5802 §5 — verifies a SCRAM client-final message and computes the
+     * server signature.
+     *
+     * @param creds the user's SCRAM credentials
+     * @param authChallenge the auth message ({@code client-first-bare,server-first})
+     * @param clientFinal the decoded client-final message
+     * @param expectedNonce the combined nonce from the server-first message
+     * @return the server signature bytes, or {@code null} if verification fails
+     */
+    public static byte[] verifyScramClientFinal(Realm.ScramCredentials creds,
+            String authChallenge, String clientFinal, String expectedNonce) {
+        if (creds == null || authChallenge == null || clientFinal == null
+                || expectedNonce == null) {
+            return null;
+        }
+        String nonce = null;
+        String proof = null;
+        for (String attr : clientFinal.split(",")) {
+            if (attr.startsWith("r=")) {
+                nonce = attr.substring(2);
+            } else if (attr.startsWith("p=")) {
+                proof = attr.substring(2);
+            }
+        }
+        if (nonce == null || proof == null || !nonce.equals(expectedNonce)) {
+            return null;
+        }
+        int proofIdx = clientFinal.lastIndexOf(",p=");
+        if (proofIdx < 0) {
+            return null;
+        }
+        String clientFinalWithoutProof = clientFinal.substring(0, proofIdx);
+        String authMessage = authChallenge + "," + clientFinalWithoutProof;
+        byte[] clientSignature = hmacSHA256(creds.storedKey,
+                authMessage.getBytes(StandardCharsets.UTF_8));
+        byte[] clientProof;
+        try {
+            clientProof = Base64.getDecoder().decode(proof);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (clientProof.length != clientSignature.length) {
+            return null;
+        }
+        byte[] recoveredClientKey = new byte[clientProof.length];
+        for (int i = 0; i < clientProof.length; i++) {
+            recoveredClientKey[i] = (byte) (clientProof[i] ^ clientSignature[i]);
+        }
+        byte[] computedStoredKey = sha256(recoveredClientKey);
+        if (!MessageDigest.isEqual(computedStoredKey, creds.storedKey)) {
+            return null;
+        }
+        return hmacSHA256(creds.serverKey,
+                authMessage.getBytes(StandardCharsets.UTF_8));
+    }
+
     // ========================================================================
     // Cryptographic Operations
     // ========================================================================

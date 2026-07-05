@@ -147,6 +147,77 @@ public class SMTPServerAuthTest {
         assertFalse(java.util.Arrays.equals(a.storedKey, b.storedKey));
     }
 
+    @Test
+    public void testVerifyScramClientFinalRejectsInvalidProof() {
+        byte[] salt = new byte[]{1, 2, 3, 4};
+        Realm.ScramCredentials creds =
+                Realm.ScramCredentials.derive("secret", salt, 4096, "SHA-256");
+        String clientNonce = "clientnonce";
+        String serverNonce = clientNonce + "servernonce";
+        String serverFirst = SASLUtils.generateScramServerFirst(
+                serverNonce, creds.salt, creds.iterations);
+        String authChallenge = "n=alice,r=" + clientNonce + "," + serverFirst;
+        String clientFinal = "c=biws,r=" + serverNonce + ",p="
+                + java.util.Base64.getEncoder().encodeToString(new byte[32]);
+        assertNull(SASLUtils.verifyScramClientFinal(
+                creds, authChallenge, clientFinal, serverNonce));
+    }
+
+    @Test
+    public void testVerifyScramClientFinalRejectsWrongNonce() {
+        byte[] salt = new byte[]{1, 2, 3, 4};
+        Realm.ScramCredentials creds =
+                Realm.ScramCredentials.derive("secret", salt, 4096, "SHA-256");
+        String serverFirst = SASLUtils.generateScramServerFirst(
+                "expected", creds.salt, creds.iterations);
+        String authChallenge = "n=alice,r=client," + serverFirst;
+        String clientFinal = "c=biws,r=wrong,p=AAAA";
+        assertNull(SASLUtils.verifyScramClientFinal(
+                creds, authChallenge, clientFinal, "expected"));
+    }
+
+    @Test
+    public void testVerifyScramClientFinalAcceptsValidProof() throws Exception {
+        byte[] salt = new byte[]{9, 8, 7, 6};
+        String password = "secret";
+        Realm.ScramCredentials creds =
+                Realm.ScramCredentials.derive(password, salt, 4096, "SHA-256");
+        String clientNonce = "client";
+        String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+        String serverFirst = SASLUtils.generateScramServerFirst(
+                serverNonce, creds.salt, creds.iterations);
+        String clientFirstBare = "n=alice,r=" + clientNonce;
+        String authChallenge = clientFirstBare + "," + serverFirst;
+        String clientFinalWithoutProof = "c=biws,r=" + serverNonce;
+        String authMessage = authChallenge + "," + clientFinalWithoutProof;
+
+        javax.crypto.SecretKeyFactory factory =
+                javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        javax.crypto.spec.PBEKeySpec spec =
+                new javax.crypto.spec.PBEKeySpec(password.toCharArray(), salt, 4096, 256);
+        byte[] saltedPassword = factory.generateSecret(spec).getEncoded();
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(saltedPassword, "HmacSHA256"));
+        byte[] clientKey = mac.doFinal("Client Key".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8));
+
+        byte[] clientSignature = SASLUtils.hmacSHA256(creds.storedKey,
+                authMessage.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        byte[] clientProof = new byte[clientSignature.length];
+        for (int i = 0; i < clientProof.length; i++) {
+            clientProof[i] = (byte) (clientKey[i] ^ clientSignature[i]);
+        }
+        String clientFinal = clientFinalWithoutProof + ",p="
+                + java.util.Base64.getEncoder().encodeToString(clientProof);
+
+        byte[] serverSignature = SASLUtils.verifyScramClientFinal(
+                creds, authChallenge, clientFinal, serverNonce);
+        assertNotNull(serverSignature);
+        byte[] expected = SASLUtils.hmacSHA256(creds.serverKey,
+                authMessage.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertArrayEquals(expected, serverSignature);
+    }
+
     // -- OAUTHBEARER (RFC 7628) --
 
     @Test
