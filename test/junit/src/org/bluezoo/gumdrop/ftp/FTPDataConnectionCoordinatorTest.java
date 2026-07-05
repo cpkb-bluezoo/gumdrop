@@ -47,6 +47,49 @@ public class FTPDataConnectionCoordinatorTest {
     }
 
     @Test
+    public void testSetupActiveModeRejectsForeignAddress() throws Exception {
+        StubFTPListener listener = new StubFTPListener();
+        FTPDataConnectionCoordinator coordinator =
+                new FTPDataConnectionCoordinator(
+                        new StubControlConnection(listener));
+        coordinator.setControlClientAddress(
+                InetAddress.getByName("192.168.1.100"));
+
+        assertFalse(coordinator.setupActiveMode("10.0.0.1", 50000));
+        assertEquals(FTPDataConnectionCoordinator.DataConnectionMode.NONE,
+                coordinator.getMode());
+    }
+
+    @Test
+    public void testSetupActiveModeAcceptsMatchingAddress() throws Exception {
+        StubFTPListener listener = new StubFTPListener();
+        FTPDataConnectionCoordinator coordinator =
+                new FTPDataConnectionCoordinator(
+                        new StubControlConnection(listener));
+        coordinator.setControlClientAddress(
+                InetAddress.getByName("192.168.1.100"));
+
+        assertTrue(coordinator.setupActiveMode("192.168.1.100", 50000));
+        assertEquals(FTPDataConnectionCoordinator.DataConnectionMode.ACTIVE,
+                coordinator.getMode());
+    }
+
+    @Test
+    public void testSetupActiveModeAllowsBounceWhenConfigured() throws Exception {
+        StubFTPListener listener = new StubFTPListener();
+        listener.setAllowActiveModeBounce(true);
+        FTPDataConnectionCoordinator coordinator =
+                new FTPDataConnectionCoordinator(
+                        new StubControlConnection(listener));
+        coordinator.setControlClientAddress(
+                InetAddress.getByName("192.168.1.100"));
+
+        assertTrue(coordinator.setupActiveMode("10.0.0.1", 50000));
+        assertEquals(FTPDataConnectionCoordinator.DataConnectionMode.ACTIVE,
+                coordinator.getMode());
+    }
+
+    @Test
     public void testPendingTransferForMLSD() {
         FTPDataConnectionCoordinator.PendingTransfer transfer =
                 new FTPDataConnectionCoordinator.PendingTransfer(
@@ -63,9 +106,22 @@ public class FTPDataConnectionCoordinatorTest {
     }
 
     private static class StubControlConnection implements FTPControlConnection {
+        private final FTPListener server;
+
+        StubControlConnection() {
+            this(null);
+        }
+
+        StubControlConnection(FTPListener server) {
+            this.server = server;
+        }
+
         @Override
         public FTPListener getServer() {
-            return null;
+            return server;
         }
+    }
+
+    private static class StubFTPListener extends FTPListener {
     }
 }
