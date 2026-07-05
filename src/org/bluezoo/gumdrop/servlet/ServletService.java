@@ -192,6 +192,10 @@ public class ServletService extends HTTPService {
         container.setClusterKey(key);
     }
 
+    public void setReplicationAllowedClasses(String classNames) {
+        container.setReplicationAllowedClasses(classNames);
+    }
+
     /**
      * Returns the servlet handler factory.
      * This factory is used by all connections to create request handlers.

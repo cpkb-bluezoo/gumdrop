@@ -47,12 +47,16 @@ import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
+import java.util.StringTokenizer;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -186,6 +190,33 @@ public class Cluster {
      */
     public void setTelemetryConfig(TelemetryConfig config) {
         this.telemetryConfig = config;
+    }
+
+    /**
+     * Sets fully qualified class names that may be deserialized from
+     * Java-serialized session attributes during replication, in addition
+     * to the built-in JDK allowlist. Use only for known-safe application
+     * types; webapp class loaders are never blanket-allowed.
+     *
+     * @param classNames comma- or whitespace-separated fully qualified names
+     */
+    public void setReplicationAllowedClasses(String classNames) {
+        SessionSerializer.configureAllowedClasses(parseClassNameList(classNames));
+    }
+
+    private static Set<String> parseClassNameList(String spec) {
+        if (spec == null || spec.trim().isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> names = new HashSet<String>();
+        StringTokenizer tok = new StringTokenizer(spec, ", \t\n\r");
+        while (tok.hasMoreTokens()) {
+            String name = tok.nextToken().trim();
+            if (!name.isEmpty()) {
+                names.add(name);
+            }
+        }
+        return names;
     }
 
     /**

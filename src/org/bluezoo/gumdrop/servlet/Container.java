@@ -77,6 +77,7 @@ public class Container implements ManagerContainerService, ClusterContainer {
     byte[] clusterKey;
     int clusterPort = 8080;
     String clusterGroupAddress = "224.0.80.80";
+    String replicationAllowedClasses;
     Cluster cluster;
 
     @Override public Collection<ManagerContextService> getContexts() {
@@ -140,6 +141,16 @@ public class Container implements ManagerContainerService, ClusterContainer {
             bytes = tmp; 
         }
         clusterKey = bytes;
+    }
+
+    /**
+     * Sets fully qualified class names permitted in Java-serialized replicated
+     * session attributes, in addition to the built-in JDK allowlist.
+     *
+     * @param classNames comma- or whitespace-separated class names
+     */
+    public void setReplicationAllowedClasses(String classNames) {
+        this.replicationAllowedClasses = classNames;
     }
     
     /**
@@ -219,6 +230,10 @@ public class Container implements ManagerContainerService, ClusterContainer {
                     // Create single cluster instance for all contexts
                     try {
                         cluster = new Cluster(this);
+                        if (replicationAllowedClasses != null) {
+                            cluster.setReplicationAllowedClasses(
+                                    replicationAllowedClasses);
+                        }
                         cluster.open();
 
                         // Register each distributable context with the cluster

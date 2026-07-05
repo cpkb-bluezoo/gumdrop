@@ -50,8 +50,14 @@
  *   <li>Message fragmentation: Large sessions are split across packets</li>
  *   <li>Replay protection: Sequence numbers and timestamps prevent attacks</li>
  *   <li>AES-256-GCM encryption: All cluster traffic is encrypted</li>
+ *   <li>Strict deserialization allowlist for Java-serialized attributes</li>
  *   <li>OpenTelemetry metrics: Counters and histograms for monitoring</li>
  * </ul>
+ *
+ * <p>Primitive session attributes are encoded directly in protobuf. Complex
+ * objects use Java serialization with a strict class allowlist; arbitrary
+ * webapp types are rejected unless named via the container property
+ * {@code replication-allowed-classes}.
  *
  * <h3>{@link org.bluezoo.gumdrop.servlet.session.ClusterMetrics}</h3>
  * <p>When telemetry is configured, the cluster provides metrics for session
