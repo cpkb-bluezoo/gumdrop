@@ -1659,13 +1659,20 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             }
 
             Realm realm = getRealm();
-            InetSocketAddress addr = (InetSocketAddress) endpoint
-                    .getLocalAddress();
-            String ha1 = realm.getDigestHA1(username, addr.getHostName());
+            String realmName = params.get("realm");
+            if (realmName == null) {
+                InetSocketAddress addr = (InetSocketAddress) endpoint
+                        .getLocalAddress();
+                realmName = addr.getHostName();
+            }
+            String ha1 = realm.getDigestHA1(username, realmName);
+            String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+                    ha1, authNonce, params);
 
-            if (ha1 != null) {
+            if (rspAuth != null) {
                 openMailStore(username, "DIGEST-MD5");
-                sendContinuation(SASLUtils.encodeBase64("rspauth="));
+                sendContinuation(SASLUtils.encodeBase64(
+                        "rspauth=" + rspAuth));
                 authSucceeded();
             } else {
                 authFailed();

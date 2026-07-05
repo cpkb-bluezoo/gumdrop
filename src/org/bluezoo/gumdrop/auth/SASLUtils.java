@@ -37,6 +37,7 @@ import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
 
@@ -347,6 +348,53 @@ public final class SASLUtils {
     public static String computeDigestHA1(String username, String realm, String password) {
         String a1 = username + ":" + realm + ":" + password;
         return md5Hex(a1.getBytes(UTF_8));
+    }
+
+    /**
+     * RFC 2831 §2.1.2 — verifies a DIGEST-MD5 client response.
+     *
+     * @param ha1 H(username:realm:password) from the realm
+     * @param serverNonce the nonce sent in the server challenge
+     * @param params parsed client response parameters
+     * @return the rspauth hash on success, or {@code null} if verification fails
+     */
+    public static String verifyDigestMD5ClientResponse(String ha1,
+            String serverNonce, Map<String, String> params) {
+        if (ha1 == null || serverNonce == null || params == null) {
+            return null;
+        }
+        String clientNonce = params.get("nonce");
+        String nc = params.get("nc");
+        String cnonce = params.get("cnonce");
+        String qop = params.get("qop");
+        String digestUri = params.get("digest-uri");
+        String clientResponse = params.get("response");
+        if (clientNonce == null || nc == null || cnonce == null || qop == null
+                || digestUri == null || clientResponse == null) {
+            return null;
+        }
+        if (!serverNonce.equals(clientNonce)) {
+            return null;
+        }
+        // RFC 2831: HA1 for md5-sess = H(H(username:realm:password):nonce:cnonce)
+        String a1Input = ha1 + ":" + serverNonce + ":" + cnonce;
+        String sessionHA1 = md5Hex(a1Input.getBytes(UTF_8));
+        String a2 = "AUTHENTICATE:" + digestUri;
+        String ha2 = md5Hex(a2.getBytes(UTF_8));
+        String expectedInput = sessionHA1 + ":" + serverNonce + ":" + nc + ":"
+                + cnonce + ":" + qop + ":" + ha2;
+        String expected = md5Hex(expectedInput.getBytes(UTF_8));
+        if (!MessageDigest.isEqual(
+                expected.getBytes(US_ASCII),
+                clientResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
+            return null;
+        }
+        // RFC 2831 §2.1.3 — rspauth in response-value
+        String rspA2 = ":" + digestUri;
+        String rspHA2 = md5Hex(rspA2.getBytes(UTF_8));
+        String rspInput = sessionHA1 + ":" + serverNonce + ":" + nc + ":"
+                + cnonce + ":" + qop + ":" + rspHA2;
+        return md5Hex(rspInput.getBytes(UTF_8));
     }
 
     // ========================================================================

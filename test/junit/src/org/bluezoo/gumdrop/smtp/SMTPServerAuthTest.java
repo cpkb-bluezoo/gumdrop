@@ -27,6 +27,7 @@ import org.bluezoo.util.ByteArrays;
 import org.junit.Test;
 
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.*;
@@ -105,6 +106,79 @@ public class SMTPServerAuthTest {
         String ha1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
         assertNotNull(ha1);
         assertEquals(32, ha1.length()); // MD5 hex = 32 chars
+    }
+
+    @Test
+    public void testDigestMD5ClientResponseVerification() {
+        String username = "alice";
+        String realm = "example.com";
+        String password = "secret";
+        String serverNonce = "abc123";
+        String ha1 = SASLUtils.computeDigestHA1(username, realm, password);
+        String cnonce = "clientnonce1234";
+        String nc = "00000001";
+        String qop = "auth";
+        String digestUri = "ldap/example.com";
+
+        String sessionHA1 = SASLUtils.md5Hex(
+                (ha1 + ":" + serverNonce + ":" + cnonce).getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8));
+        String ha2 = SASLUtils.md5Hex(
+                ("AUTHENTICATE:" + digestUri).getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8));
+        String responseHash = SASLUtils.md5Hex(
+                (sessionHA1 + ":" + serverNonce + ":" + nc + ":" + cnonce
+                        + ":" + qop + ":" + ha2).getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8));
+
+        Map<String, String> params = new HashMap<String, String>();
+        params.put("username", username);
+        params.put("realm", realm);
+        params.put("nonce", serverNonce);
+        params.put("nc", nc);
+        params.put("cnonce", cnonce);
+        params.put("qop", qop);
+        params.put("digest-uri", digestUri);
+        params.put("response", responseHash);
+
+        String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+                ha1, serverNonce, params);
+        assertNotNull(rspAuth);
+        assertEquals(32, rspAuth.length());
+    }
+
+    @Test
+    public void testDigestMD5WrongResponseRejected() {
+        String ha1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
+        String serverNonce = "abc123";
+
+        Map<String, String> params = new HashMap<String, String>();
+        params.put("username", "alice");
+        params.put("nonce", serverNonce);
+        params.put("nc", "00000001");
+        params.put("cnonce", "clientnonce1234");
+        params.put("qop", "auth");
+        params.put("digest-uri", "ldap/example.com");
+        params.put("response", "00000000000000000000000000000000");
+
+        assertNull(SASLUtils.verifyDigestMD5ClientResponse(
+                ha1, serverNonce, params));
+    }
+
+    @Test
+    public void testDigestMD5WrongNonceRejected() {
+        String ha1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
+
+        Map<String, String> params = new HashMap<String, String>();
+        params.put("nonce", "wrongnonce");
+        params.put("nc", "00000001");
+        params.put("cnonce", "clientnonce1234");
+        params.put("qop", "auth");
+        params.put("digest-uri", "ldap/example.com");
+        params.put("response", "00000000000000000000000000000000");
+
+        assertNull(SASLUtils.verifyDigestMD5ClientResponse(
+                ha1, "abc123", params));
     }
 
     // -- SCRAM-SHA-256 (RFC 5802, RFC 7677) --

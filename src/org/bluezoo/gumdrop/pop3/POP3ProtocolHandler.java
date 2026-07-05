@@ -1321,16 +1321,20 @@ public class POP3ProtocolHandler
             Map<String, String> params =
                     SASLUtils.parseDigestParams(digestResponse);
             String digestUsername = params.get("username");
-            String responseHash = params.get("response");
 
-            if (digestUsername != null && responseHash != null) {
+            if (digestUsername != null) {
                 Realm realm = getRealm();
                 if (realm != null) {
-                    String hostname = ((InetSocketAddress)
-                            endpoint.getLocalAddress()).getHostName();
+                    String realmName = params.get("realm");
+                    if (realmName == null) {
+                        realmName = ((InetSocketAddress)
+                                endpoint.getLocalAddress()).getHostName();
+                    }
                     String ha1 = realm.getDigestHA1(
-                            digestUsername, hostname);
-                    if (ha1 != null) {
+                            digestUsername, realmName);
+                    String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+                            ha1, authNonce, params);
+                    if (rspAuth != null) {
                         openMailboxAsync(digestUsername, () -> {
                             username = digestUsername;
                             state = POP3State.TRANSACTION;
