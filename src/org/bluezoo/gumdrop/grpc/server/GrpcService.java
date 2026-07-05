@@ -3,42 +3,26 @@
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
- * For more information please visit https://www.nongnu.org/gumdrop/
- *
- * gumdrop is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * gumdrop is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.grpc.server;
 
-import java.nio.ByteBuffer;
+import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 
 /**
  * Interface for handling gRPC RPC calls.
  *
- * <p>Implementations dispatch to the appropriate method based on the path
- * (/package.Service/Method) and process the request.
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * <p>Implementations receive request protobuf events through a
+ * {@link ProtoMessageHandler} and send responses via {@link GrpcResponseSender}.
  */
 public interface GrpcService {
 
     /**
-     * Handles a unary gRPC call.
+     * Called when a unary RPC request body begins.
      *
-     * @param path the gRPC path (/package.Service/Method)
-     * @param request the request message bytes (without gRPC framing)
-     * @param response the sender for the response
+     * @param path the gRPC path ({@code /package.Service/Method})
+     * @param response sender for the response message
+     * @return handler for request protobuf events, or {@code null} if unimplemented
      */
-    void unaryCall(String path, ByteBuffer request, GrpcResponseSender response);
+    ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response);
 }

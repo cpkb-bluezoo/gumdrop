@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.grpc.server;
 
 import java.util.Set;
 
+import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
@@ -44,6 +45,7 @@ public class GrpcHandlerFactory implements HTTPRequestHandlerFactory {
 
     private final ProtoFile protoFile;
     private final GrpcService service;
+    private long maxMessageSize = GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE;
 
     /**
      * Creates a factory with the given Proto model and service.
@@ -54,6 +56,27 @@ public class GrpcHandlerFactory implements HTTPRequestHandlerFactory {
     public GrpcHandlerFactory(ProtoFile protoFile, GrpcService service) {
         this.protoFile = protoFile;
         this.service = service;
+    }
+
+    /**
+     * Returns the maximum gRPC request message size in bytes ({@code 0} = unlimited).
+     */
+    public long getMaxMessageSize() {
+        return maxMessageSize;
+    }
+
+    /**
+     * Sets the maximum gRPC request message size enforced by handlers created
+     * by this factory. XML property name: {@code max-message-size}
+     *
+     * @param maxMessageSize the limit in bytes, or {@code 0} for unlimited
+     */
+    public void setMaxMessageSize(long maxMessageSize) {
+        if (maxMessageSize < 0) {
+            throw new IllegalArgumentException(
+                    "maxMessageSize must not be negative, got: " + maxMessageSize);
+        }
+        this.maxMessageSize = maxMessageSize;
     }
 
     @Override
@@ -77,7 +100,8 @@ public class GrpcHandlerFactory implements HTTPRequestHandlerFactory {
             return null;
         }
 
-        return new GrpcHandler(protoFile, service, path);
+        return new GrpcHandler(protoFile, service, path, maxMessageSize,
+                protoFile.getRpcByPath(path));
     }
 
     @Override

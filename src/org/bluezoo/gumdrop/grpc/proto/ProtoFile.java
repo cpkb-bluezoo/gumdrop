@@ -98,6 +98,29 @@ public class ProtoFile {
         return servicesByFullName.get(fullName);
     }
 
+    /**
+     * Resolves an RPC descriptor from a gRPC path
+     * ({@code /package.Service/Method}).
+     *
+     * @param path the request path
+     * @return the RPC descriptor, or {@code null} if not found
+     */
+    public RpcDescriptor getRpcByPath(String path) {
+        if (path == null || !path.startsWith("/")) {
+            return null;
+        }
+        int slash = path.indexOf('/', 1);
+        if (slash < 0) {
+            return null;
+        }
+        String methodName = path.substring(slash + 1);
+        if (methodName.isEmpty()) {
+            return null;
+        }
+        ServiceDescriptor service = getService(path.substring(1, slash));
+        return service != null ? service.getRpc(methodName) : null;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
