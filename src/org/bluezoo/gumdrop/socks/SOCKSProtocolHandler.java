@@ -725,6 +725,24 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         resolver.resolve(request.getHost(), new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
+                // Validate every resolved address: if any would be blocked,
+                // reject the whole request to prevent filter bypass via
+                // multi-RR DNS responses.
+                for (InetAddress addr : addresses) {
+                    if (!service.isDestinationAllowed(addr)) {
+                        SOCKSServerMetrics metrics = getServerMetrics();
+                        if (metrics != null) {
+                            metrics.destinationBlocked();
+                        }
+                        if (request.getVersion() == SOCKS4_VERSION) {
+                            sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
+                        } else {
+                            sendSOCKS5Reply(SOCKS5_REPLY_NOT_ALLOWED, null);
+                        }
+                        close();
+                        return;
+                    }
+                }
                 InetAddress resolved = addresses.get(0);
                 connectToDestination(request, resolved);
             }

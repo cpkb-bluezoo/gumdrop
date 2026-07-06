@@ -381,6 +381,13 @@ class SOCKSUDPRelay {
         resolver.resolve(parsed.hostname, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
+                // Validate every resolved address before forwarding.
+                for (InetAddress addr : addresses) {
+                    if (!service.isDestinationAllowed(addr)) {
+                        // RFC 1928 §7: silently drop datagrams to blocked destinations
+                        return;
+                    }
+                }
                 InetAddress resolved = addresses.get(0);
                 InetSocketAddress dest = new InetSocketAddress(
                         resolved, parsed.port);
