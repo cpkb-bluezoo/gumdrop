@@ -448,6 +448,14 @@ class Request implements HttpServletRequest {
         return sessionId;
     }
 
+    /** Rotates the session ID if a session already exists, to prevent fixation. */
+    private void rotateSessionIdIfPresent() {
+        if (sessionId != null
+                && context.getSessionManager().getSession(sessionId, false) != null) {
+            changeSessionId();
+        }
+    }
+
     @Override public boolean isRequestedSessionIdValid() {
         return sessionId != null && context.getSessionManager().getSession(sessionId) != null;
     }
@@ -505,8 +513,10 @@ class Request implements HttpServletRequest {
             return false;
         }
 
-        // Authentication succeeded - create principal
+        // Authentication succeeded - create principal and rotate session ID
+        // to prevent session fixation (OWASP A07).
         userPrincipal = new ServletPrincipal(context, result.realm, result.username);
+        rotateSessionIdIfPresent();
         return true;
     }
 
@@ -532,6 +542,7 @@ class Request implements HttpServletRequest {
         }
 
         userPrincipal = new ServletPrincipal(context, realm, username);
+        rotateSessionIdIfPresent();
         return true;
     }
 
@@ -568,6 +579,7 @@ class Request implements HttpServletRequest {
             if (result != null && result.valid) {
                 userPrincipal = new ServletPrincipal(
                         context, realmName, result.username);
+                rotateSessionIdIfPresent();
                 return true;
             }
         }
@@ -576,6 +588,7 @@ class Request implements HttpServletRequest {
         // configured or when the Realm does not support certificates
         String username = x509.getSubjectX500Principal().getName();
         userPrincipal = new ServletPrincipal(context, realmName, username);
+        rotateSessionIdIfPresent();
         return true;
     }
 
@@ -588,6 +601,7 @@ class Request implements HttpServletRequest {
             throw new ServletException(message);
         }
         userPrincipal = new ServletPrincipal(context, realm, username);
+        rotateSessionIdIfPresent();
     }
 
     @Override public void logout() throws ServletException {
