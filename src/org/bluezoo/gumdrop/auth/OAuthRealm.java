@@ -280,11 +280,19 @@ public class OAuthRealm implements Realm {
         try {
             // RFC 7519 — try local JWT validation first if enabled
             TokenValidationResult result = null;
-            if (jwtEnabled && looksLikeJWT(accessToken)) {
+            boolean attemptedJWT = jwtEnabled && looksLikeJWT(accessToken);
+            if (attemptedJWT) {
                 result = validateJWT(accessToken);
+                // Fail closed: a JWT-shaped token that fails cryptographic
+                // validation must not be retried via introspection.  Doing so
+                // would allow a token with a bad signature or unsupported
+                // algorithm to authenticate through a less-strict trust path.
+                if (result == null) {
+                    return TokenValidationResult.failure();
+                }
             }
-            // Fall back to introspection if JWT validation was not attempted or failed
-            if (result == null || !result.valid) {
+            // Only fall back to introspection for non-JWT tokens.
+            if (result == null) {
                 result = performTokenIntrospection(accessToken);
             }
             if (result.valid) {
