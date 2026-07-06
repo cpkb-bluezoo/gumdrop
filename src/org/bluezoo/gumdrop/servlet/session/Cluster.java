@@ -393,28 +393,32 @@ public class Cluster {
             long msgTimestamp = buf.getLong();
             byte eventType = buf.get();
 
+            // Always validate timestamp and sequence regardless of claimed UUID.
+            // Skipping these checks for messages that claim our own node UUID
+            // would allow a cluster-key holder to replay lifecycle events by
+            // spoofing the local node's identity.
+            long now = System.currentTimeMillis();
+            if (Math.abs(now - msgTimestamp) > MAX_TIMESTAMP_DRIFT_MS) {
+                String message = L10N.getString("warn.cluster_timestamp_rejected");
+                message = MessageFormat.format(message, remoteNodeUuid, msgTimestamp, now);
+                LOGGER.warning(message);
+                if (metrics != null) {
+                    metrics.recordTimestampError();
+                }
+                return;
+            }
+
+            if (!validateAndRecordSequence(remoteNodeUuid, msgSequence)) {
+                String message = L10N.getString("warn.cluster_replay_detected");
+                message = MessageFormat.format(message, remoteNodeUuid, msgSequence);
+                LOGGER.warning(message);
+                if (metrics != null) {
+                    metrics.recordReplayError();
+                }
+                return;
+            }
+
             if (!remoteNodeUuid.equals(nodeUuid)) {
-                long now = System.currentTimeMillis();
-                if (Math.abs(now - msgTimestamp) > MAX_TIMESTAMP_DRIFT_MS) {
-                    String message = L10N.getString("warn.cluster_timestamp_rejected");
-                    message = MessageFormat.format(message, remoteNodeUuid, msgTimestamp, now);
-                    LOGGER.warning(message);
-                    if (metrics != null) {
-                        metrics.recordTimestampError();
-                    }
-                    return;
-                }
-
-                if (!validateAndRecordSequence(remoteNodeUuid, msgSequence)) {
-                    String message = L10N.getString("warn.cluster_replay_detected");
-                    message = MessageFormat.format(message, remoteNodeUuid, msgSequence);
-                    LOGGER.warning(message);
-                    if (metrics != null) {
-                        metrics.recordReplayError();
-                    }
-                    return;
-                }
-
                 // Record message received
                 if (metrics != null) {
                     metrics.recordMessageReceived(data.limit(), getEventTypeName(eventType));
