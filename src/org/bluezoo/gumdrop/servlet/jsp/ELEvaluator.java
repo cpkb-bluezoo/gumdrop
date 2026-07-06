@@ -628,10 +628,22 @@ public class ELEvaluator {
             }
         }
         
-        // Find and invoke method
-        for (Method method : base.getClass().getMethods()) {
-            if (methodName.equals(method.getName()) && 
+        // Find and invoke method — restricted to the bean's own declared type
+        Class<?> baseClass = base.getClass();
+        if (isDangerousClass(baseClass)) {
+            String msg = MessageFormat.format(
+                L10N.getString("el.method_blocked"), methodName);
+            throw new ELException(msg);
+        }
+        for (Method method : baseClass.getMethods()) {
+            if (methodName.equals(method.getName()) &&
                 method.getParameterTypes().length == args.size()) {
+                Class<?> declaring = method.getDeclaringClass();
+                if (isDangerousClass(declaring)) {
+                    String msg = MessageFormat.format(
+                        L10N.getString("el.method_blocked"), methodName);
+                    throw new ELException(msg);
+                }
                 try {
                     return method.invoke(base, args.toArray());
                 } catch (InvocationTargetException e) {
@@ -639,12 +651,30 @@ public class ELEvaluator {
                 }
             }
         }
-        
+
         String msg = MessageFormat.format(
             L10N.getString("el.method_not_found"), methodName);
         throw new ELException(msg);
     }
     
+    private static boolean isDangerousClass(Class<?> cls) {
+        if (cls == null) {
+            return false;
+        }
+        String name = cls.getName();
+        return name.equals("java.lang.Runtime")
+            || name.equals("java.lang.Class")
+            || name.equals("java.lang.ClassLoader")
+            || name.equals("java.lang.ProcessBuilder")
+            || name.equals("java.lang.Process")
+            || name.equals("java.lang.reflect.Method")
+            || name.equals("java.lang.reflect.Field")
+            || name.equals("java.lang.reflect.Constructor")
+            || name.startsWith("sun.")
+            || name.startsWith("com.sun.")
+            || name.startsWith("jdk.internal.");
+    }
+
     /**
      * Initializes implicit objects.
      */
