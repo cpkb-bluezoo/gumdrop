@@ -25,6 +25,7 @@ import org.bluezoo.gonzalez.Parser;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
+import org.xml.sax.ext.LexicalHandler;
 import org.xml.sax.helpers.DefaultHandler;
 
 import java.io.IOException;
@@ -51,7 +52,7 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DeadPropertyStore
  */
-final class DeadPropertyParser extends DefaultHandler {
+final class DeadPropertyParser extends DefaultHandler implements LexicalHandler {
 
     private final Parser parser;
     private final Map<String, DeadProperty> properties;
@@ -72,6 +73,12 @@ final class DeadPropertyParser extends DefaultHandler {
                     "http://xml.org/sax/features/namespaces", true);
         } catch (Exception e) {
             // Namespaces enabled by default
+        }
+        try {
+            this.parser.setProperty(
+                    "http://xml.org/sax/properties/lexical-handler", this);
+        } catch (Exception e) {
+            // Gonzalez supports LexicalHandler; if unavailable, log and continue
         }
         this.properties = new HashMap<String, DeadProperty>();
         this.textContent = new StringBuilder();
@@ -112,6 +119,33 @@ final class DeadPropertyParser extends DefaultHandler {
     Map<String, DeadProperty> getProperties() {
         return properties;
     }
+
+    // -- SAX LexicalHandler --
+
+    @Override
+    public void startDTD(String name, String publicId, String systemId)
+            throws SAXException {
+        throw new SAXException(
+                "DOCTYPE declarations are not permitted in property sidecars");
+    }
+
+    @Override
+    public void endDTD() throws SAXException {}
+
+    @Override
+    public void startEntity(String name) throws SAXException {}
+
+    @Override
+    public void endEntity(String name) throws SAXException {}
+
+    @Override
+    public void startCDATA() throws SAXException {}
+
+    @Override
+    public void endCDATA() throws SAXException {}
+
+    @Override
+    public void comment(char[] ch, int start, int length) throws SAXException {}
 
     // -- SAX ContentHandler --
 
