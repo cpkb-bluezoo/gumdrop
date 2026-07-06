@@ -605,6 +605,21 @@ public class DNSService implements Service {
                             responseData, responseData.length);
                     socket.receive(receivePacket);
 
+                    // RFC 5452 §9.1: verify the response came from the
+                    // upstream address we sent the query to.
+                    InetSocketAddress responder =
+                            (InetSocketAddress) receivePacket.getSocketAddress();
+                    if (!upstream.getAddress().equals(responder.getAddress())
+                            || upstream.getPort() != responder.getPort()) {
+                        if (metrics != null) {
+                            metrics.upstreamFailure();
+                        }
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.upstream_source_mismatch"),
+                                upstream, responder));
+                        continue;
+                    }
+
                     ByteBuffer responseBuffer = ByteBuffer.wrap(
                             responseData, 0,
                             receivePacket.getLength());
@@ -622,6 +637,29 @@ public class DNSService implements Service {
                                         "warn.upstream_id_mismatch"),
                                 upstream, upstreamId,
                                 response.getId()));
+                        continue;
+                    }
+
+                    // RFC 1035 §4.1.1: QR bit must be set in a response.
+                    if (!response.isResponse()) {
+                        if (metrics != null) {
+                            metrics.upstreamFailure();
+                        }
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.upstream_not_response"),
+                                upstream));
+                        continue;
+                    }
+
+                    // RFC 5452 §9.1: question section must echo the query.
+                    if (!response.getQuestions().equals(
+                            upstreamQuery.getQuestions())) {
+                        if (metrics != null) {
+                            metrics.upstreamFailure();
+                        }
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.upstream_question_mismatch"),
+                                upstream));
                         continue;
                     }
 
