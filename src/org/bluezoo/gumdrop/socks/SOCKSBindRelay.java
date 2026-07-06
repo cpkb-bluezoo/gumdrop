@@ -118,7 +118,11 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
     InetSocketAddress start() throws IOException {
         serverChannel = ServerSocketChannel.open();
         serverChannel.configureBlocking(false);
-        serverChannel.bind(new InetSocketAddress(0));
+        // Bind to loopback only — BIND is a server-assisted relay, not a
+        // general inbound listener, so exposing it on all interfaces is
+        // unnecessary and widens the attack surface.
+        serverChannel.bind(new InetSocketAddress(
+                InetAddress.getLoopbackAddress(), 0));
 
         InetSocketAddress boundAddress =
                 (InetSocketAddress) serverChannel.getLocalAddress();
@@ -179,6 +183,25 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
                                         "log.bind_peer_rejected"),
                                 peerAddress.getAddress(),
                                 expectedPeerAddress));
+                    }
+                    try {
+                        accepted.close();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                    callback.bindFailed(
+                            SOCKSConstants.SOCKS5_REPLY_NOT_ALLOWED);
+                    return;
+                }
+
+                // Apply destination policy to the connecting peer regardless
+                // of whether an expected peer address was specified.
+                if (!service.isDestinationAllowed(peerAddress.getAddress())) {
+                    if (LOGGER.isLoggable(Level.FINE)) {
+                        LOGGER.fine(MessageFormat.format(
+                                L10N.getString("log.bind_peer_rejected"),
+                                peerAddress.getAddress(),
+                                "(blocked by destination policy)"));
                     }
                     try {
                         accepted.close();
