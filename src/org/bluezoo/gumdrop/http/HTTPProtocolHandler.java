@@ -1234,6 +1234,13 @@ public class HTTPProtocolHandler
         });
     }
 
+    // Called by Stream when its response path sets state to CLOSED, freeing the
+    // concurrency slot immediately.  Must NOT be called from the RST_STREAM path
+    // so that rapid-reset attacks cannot bypass SETTINGS_MAX_CONCURRENT_STREAMS.
+    void streamResponseCompleted(int streamId) {
+        activeStreams.remove(streamId);
+    }
+
     private void maybeCleanupClosedStreams() {
         long now = System.currentTimeMillis();
         if (now - lastStreamCleanup < STREAM_CLEANUP_INTERVAL_MS) {
@@ -1243,19 +1250,24 @@ public class HTTPProtocolHandler
         int removedCount = 0;
         for (Map.Entry<Integer, Stream> entry : streams.entrySet()) {
             Stream stream = entry.getValue();
-            if (stream.isClosed()
-                    && (now - stream.timestampCompleted) > STREAM_RETENTION_MS) {
-                int sid = entry.getKey();
-                if (streams.remove(sid, stream)) {
-                    if (h2FlowControl != null) {
-                        h2FlowControl.closeStream(sid);
+            if (stream.isClosed()) {
+                // Free the concurrency slot for any closed stream not already
+                // freed via the normal response path (e.g. RST-cancelled streams
+                // whose handler exited without sending a response).
+                activeStreams.remove(entry.getKey());
+                if ((now - stream.timestampCompleted) > STREAM_RETENTION_MS) {
+                    int sid = entry.getKey();
+                    if (streams.remove(sid, stream)) {
+                        if (h2FlowControl != null) {
+                            h2FlowControl.closeStream(sid);
+                        }
+                        h2WriteCallbacks.remove(sid);
+                        PendingData removed = h2PendingData.remove(sid);
+                        if (removed != null) {
+                            releasePendingData(removed);
+                        }
+                        removedCount++;
                     }
-                    h2WriteCallbacks.remove(sid);
-                    PendingData removed = h2PendingData.remove(sid);
-                    if (removed != null) {
-                        releasePendingData(removed);
-                    }
-                    removedCount++;
                 }
             }
         }
@@ -2102,7 +2114,10 @@ public class HTTPProtocolHandler
         }
         Stream stream = getStream(streamId);
         stream.streamClose();
-        activeStreams.remove(streamId);
+        // Intentionally do NOT remove from activeStreams here.  The concurrency
+        // slot is held until the stream is fully cleaned up, preventing a
+        // rapid-reset attacker from keeping activeStreams.size() artificially
+        // low while unbounded handler work executes (CVE-2023-44487).
     }
 
     // RFC 9113 section 6.5: SETTINGS frame reception

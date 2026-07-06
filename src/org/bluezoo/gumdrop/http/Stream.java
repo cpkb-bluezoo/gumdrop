@@ -943,6 +943,9 @@ class Stream implements HTTPResponseState {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED; // normal request termination
                 timestampCompleted = System.currentTimeMillis();
+                if (connection instanceof HTTPProtocolHandler) {
+                    ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+                }
                 // Close TCP connection if Connection: close was set
                 if (closeConnection && connection.getVersion() != HTTPVersion.HTTP_2_0) {
                     connection.send(null);
@@ -1080,6 +1083,9 @@ class Stream implements HTTPResponseState {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED;
                 timestampCompleted = System.currentTimeMillis();
+                if (connection instanceof HTTPProtocolHandler) {
+                    ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+                }
                 // Close TCP connection if Connection: close was set
                 if (closeConnection && connection.getVersion() != HTTPVersion.HTTP_2_0) {
                     connection.send(null);
