@@ -233,7 +233,8 @@ public class Decoder extends HPACKConstants {
      * @param opcode the opcode byte
      * @param nbits the number of bits not in the opcode
      */
-    private static int decodeInteger(ByteBuffer buf, byte opcode, int nbits) {
+    private static int decodeInteger(ByteBuffer buf, byte opcode, int nbits)
+            throws ProtocolException {
         // Maximum value that fits in N bits
         int nmask = (1 << nbits) - 1; // same as Math.pow(2, nbits) - 1
         int value = opcode & nmask; // Called I in spec
@@ -243,9 +244,17 @@ public class Decoder extends HPACKConstants {
             int shift = 0; // called M in spec
             byte b;
             do {
+                if (shift > 28) {
+                    // RFC 7541 section 5.1: integers MUST NOT exceed 2^31-1;
+                    // 5 continuation bytes (shift=28 after 4) would overflow int.
+                    throw new ProtocolException("HPACK integer overflow");
+                }
                 b = buf.get(); // called B in spec
                 // add the 7 least significant bits to value
-                value += (b & 0x7f) * (1 << shift);
+                value += (b & 0x7f) << shift;
+                if (value < 0) {
+                    throw new ProtocolException("HPACK integer overflow");
+                }
                 shift += 7;
             } while ((b & 0x80) == 0x80); // continue while MSB is 1
             return value;
