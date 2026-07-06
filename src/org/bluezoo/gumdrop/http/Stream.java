@@ -540,28 +540,29 @@ class Stream implements HTTPResponseState {
             hasExplicitContentLength = false;
             headers.removeAll("Content-Length");
         }
+        long maxBody = connection.getMaxRequestBodySize();
+        if (maxBody > 0 && connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
+            // Check Content-Length before stripHttp1FramingHeaders removes it.
+            String cl = headers.getValue("Content-Length");
+            if (cl != null) {
+                try {
+                    long clValue = Long.parseLong(cl.trim());
+                    if (clValue > maxBody) {
+                        rejectRequestBodyTooLarge();
+                        return;
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Malformed Content-Length is handled elsewhere
+                }
+            }
+        }
         if (connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
             HTTPVersion.stripHttp1FramingHeaders(headers);
         }
-        long maxBody = connection.getMaxRequestBodySize();
         if (maxBody > 0) {
             if (!chunked && contentLength > maxBody) {
                 rejectRequestBodyTooLarge();
                 return;
-            }
-            if (connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
-                String cl = headers.getValue("Content-Length");
-                if (cl != null) {
-                    try {
-                        long clValue = Long.parseLong(cl.trim());
-                        if (clValue > maxBody) {
-                            rejectRequestBodyTooLarge();
-                            return;
-                        }
-                    } catch (NumberFormatException ignored) {
-                        // Malformed Content-Length is handled elsewhere
-                    }
-                }
             }
         }
         // RFC 9110 section 10.1.1: Expect: 100-continue
