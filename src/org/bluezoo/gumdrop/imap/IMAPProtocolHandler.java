@@ -67,6 +67,7 @@ import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -1646,7 +1647,9 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             Realm realm = getRealm();
             try {
                 String expected = realm.getCramMD5Response(username, authChallenge);
-                if (expected != null && expected.equalsIgnoreCase(digest)) {
+                if (expected != null && ByteArrays.equalsConstantTime(
+                        ByteArrays.toByteArray(expected),
+                        ByteArrays.toByteArray(digest.toLowerCase()))) {
                     openMailStore(username, "CRAM-MD5");
                     authSucceeded();
                 } else {

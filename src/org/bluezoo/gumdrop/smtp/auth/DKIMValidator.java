@@ -37,6 +37,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.dns.DNSMessage;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
@@ -180,8 +181,8 @@ public class DKIMValidator {
         // Verify body hash first
         if (bodyHash != null) {
             String expectedHash = signature.getBodyHash();
-            String actualHash = base64Encode(bodyHash);
-            if (!expectedHash.equals(actualHash)) {
+            if (!ByteArrays.equalsConstantTime(
+                    Base64.getDecoder().decode(expectedHash), bodyHash)) {
                 callback.dkimResult(DKIMResult.FAIL, signature.getDomain(),
                         signature.getSelector());
                 return;
