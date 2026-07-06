@@ -328,6 +328,13 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             }
         }
 
+        // SOCKS4 carries no credentials; reject if authentication is required.
+        if (listener.getRealm() != null) {
+            sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
+            close();
+            return;
+        }
+
         // SOCKS4 protocol: CD=1 is CONNECT, CD=2 is BIND
         if (cmd == SOCKS4_CMD_BIND) {
             SOCKSRequest bindRequest = new SOCKSRequest(
@@ -406,11 +413,9 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         } else if (realm == null && offered[SOCKS5_AUTH_NONE & 0xFF]) {
             selectedAuthMethod = SOCKS5_AUTH_NONE;
             state = State.SOCKS5_REQUEST;
-        } else if (realm != null && offered[SOCKS5_AUTH_NONE & 0xFF]) {
-            // Realm configured but client only offers no-auth
-            selectedAuthMethod = SOCKS5_AUTH_NONE;
-            state = State.SOCKS5_REQUEST;
         } else {
+            // realm != null and client offered no acceptable auth method,
+            // or no method matched at all — reject per RFC 1928 section 3.
             sendSOCKS5MethodSelection(SOCKS5_AUTH_NO_ACCEPTABLE);
             close();
             return;
