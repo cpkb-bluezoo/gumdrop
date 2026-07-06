@@ -918,6 +918,23 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     }
 
     private void authorizeAndBind(SOCKSRequest request) {
+        // Apply destination policy to the DST.ADDR supplied in the BIND request.
+        InetAddress dst = request.getAddress();
+        if (dst != null && !dst.isAnyLocalAddress()
+                && !service.isDestinationAllowed(dst)) {
+            SOCKSServerMetrics mtr = getServerMetrics();
+            if (mtr != null) {
+                mtr.destinationBlocked();
+            }
+            if (request.getVersion() == SOCKS4_VERSION) {
+                sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
+            } else {
+                sendSOCKS5Reply(SOCKS5_REPLY_NOT_ALLOWED, null);
+            }
+            close();
+            return;
+        }
+
         if (!service.acquireRelay()) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(L10N.getString("log.max_relays_reached"));
