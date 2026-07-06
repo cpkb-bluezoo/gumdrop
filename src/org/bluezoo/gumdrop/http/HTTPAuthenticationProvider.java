@@ -837,7 +837,9 @@ public abstract class HTTPAuthenticationProvider {
         md.update(ha2Hex.getBytes());
         String computed = ByteArrays.toHexString(md.digest());
 
-        return computed.equals(requestDigest);
+        return ByteArrays.equalsConstantTime(
+                ByteArrays.toByteArray(computed),
+                ByteArrays.toByteArray(requestDigest.toLowerCase()));
     }
 
     /**

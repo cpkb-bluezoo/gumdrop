@@ -678,8 +678,9 @@ public class POP3ProtocolHandler
                             realm.getApopResponse(user,
                                     apopTimestamp);
                     if (expected != null
-                            && expected.equalsIgnoreCase(
-                                    clientDigest)) {
+                            && ByteArrays.equalsConstantTime(
+                                    ByteArrays.toByteArray(expected),
+                                    ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
                         username = user;
                         openMailboxAsync(username, () -> {
                             state = POP3State.TRANSACTION;
@@ -1228,7 +1229,9 @@ public class POP3ProtocolHandler
                 String expected =
                         realm.getCramMD5Response(user, authChallenge);
                 if (expected != null
-                        && expected.equalsIgnoreCase(clientDigest)) {
+                        && ByteArrays.equalsConstantTime(
+                                ByteArrays.toByteArray(expected),
+                                ByteArrays.toByteArray(clientDigest.toLowerCase()))) {
                     openMailboxAsync(user, () -> {
                         username = user;
                         state = POP3State.TRANSACTION;
