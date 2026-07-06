@@ -309,13 +309,12 @@ public class OAuthRealmJWTTest {
 	public void testTokenWithoutExpiration() throws Exception {
 		OAuthRealm realm = createRealm(null);
 
+		// RFC 7519 §4.1.4: exp is now required; tokens without it must be rejected.
 		String payload = "{\"sub\":\"testuser\",\"scope\":\"read\"}";
 		String token = createHS256JWT("{\"alg\":\"HS256\"}", payload, TEST_SECRET);
 
 		Realm.TokenValidationResult result = realm.validateJWT(token);
-		assertNotNull(result);
-		assertTrue(result.valid);
-		assertEquals(0, result.expirationTime);
+		assertNull(result);
 	}
 
 	// ========== JWT disabled ==========
