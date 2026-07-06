@@ -132,6 +132,11 @@ public class Decoder extends HPACKConstants {
                 } else {
                     throw new ProtocolException("HPACK indexed header field index out of range: "+index);
                 }
+                // RFC 7541 section 4.1: each emitted header counts against the
+                // header list size regardless of representation type.
+                addToHeaderListSize(header.getName().length()
+                        + (header.getValue() != null ? header.getValue().length() : 0)
+                        + 32);
             } else if ((b & 0x40) != 0) { // RFC 7541 section 6.2.1: literal with incremental indexing
                 //System.err.println(" literal header field");
                 header = getLiteralHeaderField(buf, b, 6, dynamicTable, this);
