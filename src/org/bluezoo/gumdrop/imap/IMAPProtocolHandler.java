@@ -750,6 +750,12 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         if (pendingCommand != null) {
             long[] literalSpec = parseLiteralSpec(line);
             if (literalSpec != null) {
+                if (literalSpec[0] > server.getMaxLiteralSize()) {
+                    pendingCommand = null;
+                    sendTaggedNo(currentTag,
+                            L10N.getString("imap.err.literal_too_large"));
+                    return;
+                }
                 pendingCommand.append(line, 0,
                         line.lastIndexOf('{'));
                 startCommandLiteral(literalSpec[0], literalSpec[1] != 0);
@@ -776,6 +782,13 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         // APPEND handles its own literal (binary message body), so skip it.
         long[] literalSpec = parseLiteralSpec(line);
         if (literalSpec != null && !isAppendCommand(line)) {
+            if (literalSpec[0] > server.getMaxLiteralSize()) {
+                int tagEnd = line.indexOf(' ');
+                String errTag = tagEnd > 0 ? line.substring(0, tagEnd) : "*";
+                sendTaggedNo(errTag,
+                        L10N.getString("imap.err.literal_too_large"));
+                return;
+            }
             pendingCommand = new StringBuilder();
             pendingCommand.append(line, 0, line.lastIndexOf('{'));
             startCommandLiteral(literalSpec[0], literalSpec[1] != 0);
