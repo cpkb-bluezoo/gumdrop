@@ -2121,14 +2121,11 @@ public class SMTPProtocolHandler
                     heloName = value;
                 }
             } else if ("LOGIN".equals(attr)) {
+                // Record the proxied login name for informational/policy use
+                // only. Do NOT set authenticated=true or authenticatedUser:
+                // those fields are reserved for locally verified SASL AUTH
+                // exchanges and must not be derived from a proxy assertion.
                 xclientLogin = value;
-                if (value != null) {
-                    authenticated = true;
-                    authenticatedUser = value;
-                } else {
-                    authenticated = false;
-                    authenticatedUser = null;
-                }
             } else if ("DESTADDR".equals(attr)) {
                 if (value != null) {
                     try {
@@ -2174,6 +2171,9 @@ public class SMTPProtocolHandler
         bodyType = BodyType.SEVEN_BIT;
         deliveryRequirements = null;
         resetDataState();
+        if (xclientLogin != null) {
+            addSessionAttribute("smtp.xclient_login", xclientLogin);
+        }
         String localHostname = ((InetSocketAddress) endpoint.getLocalAddress())
                 .getHostName();
         reply(220, localHostname + " ESMTP Gumdrop");
