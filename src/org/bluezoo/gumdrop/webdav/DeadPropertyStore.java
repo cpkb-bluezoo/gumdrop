@@ -66,6 +66,8 @@ final class DeadPropertyStore {
     /** Sidecar file prefix. */
     static final String SIDECAR_PREFIX = ".webdav_";
 
+    private static final long MAX_SIDECAR_SIZE = 1024 * 1024L;
+
     /** Sidecar XML namespace. */
     static final String PROPS_NAMESPACE = "urn:gumdrop:webdav-props";
 
@@ -473,6 +475,10 @@ final class DeadPropertyStore {
             if (size == 0) {
                 callback.onProperties(
                         new HashMap<String, DeadProperty>());
+                return;
+            }
+            if (size > MAX_SIDECAR_SIZE) {
+                callback.onError("Sidecar file exceeds maximum size");
                 return;
             }
             final AsynchronousFileChannel channel =
