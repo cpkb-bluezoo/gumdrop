@@ -427,7 +427,7 @@ public class OAuthRealm implements Realm {
             byte[] signatureBytes = urlDecoder.decode(parts[2]);
             
             // Parse header to determine algorithm
-            JWTClaimsHandler headerHandler = new JWTClaimsHandler();
+            JWTClaimsHandler headerHandler = new JWTClaimsHandler(null);
             parseJsonString(headerJson, headerHandler);
             String alg = headerHandler.getString("alg");
             if (alg == null) {
@@ -443,13 +443,17 @@ public class OAuthRealm implements Realm {
             }
             
             // Parse payload claims
-            JWTClaimsHandler claimsHandler = new JWTClaimsHandler();
+            JWTClaimsHandler claimsHandler = new JWTClaimsHandler(jwtAudience);
             parseJsonString(payloadJson, claimsHandler);
             
-            // RFC 7519 §4.1.4 — check expiration
+            // RFC 7519 §4.1.4 — exp is required; a token with no expiry is rejected.
             long now = System.currentTimeMillis() / 1000;
             Long exp = claimsHandler.getNumber("exp");
-            if (exp != null && now > exp + jwtClockSkewSeconds) {
+            if (exp == null) {
+                LOGGER.fine(L10N.getString("debug.jwt_missing_exp"));
+                return null;
+            }
+            if (now > exp + jwtClockSkewSeconds) {
                 LOGGER.fine(L10N.getString("debug.jwt_expired"));
                 return null;
             }
@@ -472,15 +476,14 @@ public class OAuthRealm implements Realm {
                 }
             }
             
-            // RFC 7519 §4.1.3 — check audience
-            if (jwtAudience != null) {
-                String aud = claimsHandler.getString("aud");
-                if (!jwtAudience.equals(aud)) {
-                    String msg = MessageFormat.format(
-                            L10N.getString("debug.jwt_audience_mismatch"), aud, jwtAudience);
-                    LOGGER.fine(msg);
-                    return null;
-                }
+            // RFC 7519 §4.1.3 — check audience; aud may be a string or a JSON array.
+            // The handler matched values on the fly against jwtAudience as they arrived.
+            if (jwtAudience != null && !claimsHandler.isAudMatched()) {
+                String msg = MessageFormat.format(
+                        L10N.getString("debug.jwt_audience_mismatch"),
+                        claimsHandler.getString("aud"), jwtAudience);
+                LOGGER.fine(msg);
+                return null;
             }
             
             // Extract subject and scopes
@@ -915,49 +918,78 @@ public class OAuthRealm implements Realm {
      * JWT claims set.
      */
     static class JWTClaimsHandler extends JSONDefaultHandler {
-        
+
+        private final String expectedAudience;
         private String currentKey;
+        private boolean inArray;
+        private boolean audMatched;
         private final Map<String, String> strings = new HashMap<String, String>();
         private final Map<String, Long> numbers = new HashMap<String, Long>();
-        
+
+        JWTClaimsHandler(String expectedAudience) {
+            this.expectedAudience = expectedAudience;
+        }
+
         @Override
         public void key(String key) throws JSONException {
             this.currentKey = key;
         }
-        
+
+        @Override
+        public void startArray() throws JSONException {
+            inArray = true;
+        }
+
+        @Override
+        public void endArray() throws JSONException {
+            inArray = false;
+            currentKey = null;
+        }
+
         @Override
         public void stringValue(String value) throws JSONException {
-            if (currentKey != null) {
+            if (currentKey == null) {
+                return;
+            }
+            if ("aud".equals(currentKey) && expectedAudience != null
+                    && expectedAudience.equals(value)) {
+                audMatched = true;
+            }
+            if (!inArray) {
                 strings.put(currentKey, value);
             }
         }
-        
+
         @Override
         public void numberValue(Number number) throws JSONException {
-            if (currentKey != null) {
+            if (currentKey != null && !inArray) {
                 numbers.put(currentKey, number.longValue());
                 strings.put(currentKey, number.toString());
             }
         }
-        
+
         @Override
         public void booleanValue(boolean value) throws JSONException {
-            if (currentKey != null) {
+            if (currentKey != null && !inArray) {
                 strings.put(currentKey, Boolean.toString(value));
             }
         }
-        
+
         @Override
         public void endObject() throws JSONException {
             this.currentKey = null;
         }
-        
+
         String getString(String key) {
             return strings.get(key);
         }
-        
+
         Long getNumber(String key) {
             return numbers.get(key);
+        }
+
+        boolean isAudMatched() {
+            return audMatched;
         }
     }
     
