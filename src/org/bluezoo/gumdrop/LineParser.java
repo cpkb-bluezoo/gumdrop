@@ -168,7 +168,7 @@ public final class LineParser {
                 if (!callback.continueLineProcessing()) {
                     break;
                 }
-            } else if (pos - start > maxLineLength + CRLF_LENGTH) {
+            } else if (pos - start - CRLF_LENGTH > maxLineLength) {
                 data.position(start);
                 callback.lineTooLong();
                 return;
