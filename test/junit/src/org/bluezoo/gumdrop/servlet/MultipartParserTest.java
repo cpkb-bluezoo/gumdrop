@@ -518,17 +518,20 @@ public class MultipartParserTest {
         assertEquals(content.length(), dest.length());
     }
 
-    @Test(expected = IOException.class)
+    @Test
     public void testPartWriteWithPathTraversal() throws Exception {
         String body = buildMultipartBody(
             part("file", "test.txt", "text/plain", "content")
         );
-        
+
         Collection<Part> parts = parse(body);
         Part part = parts.iterator().next();
-        
-        // Attempt path traversal - should fail
+
+        // Path traversal: directory component is stripped, file is written
+        // safely inside the upload location as "outside.txt".
         part.write("../outside.txt");
+        File dest = new File(tempDir, "outside.txt");
+        assertTrue("File should be written with traversal component stripped", dest.exists());
     }
 
     // ===== Part.delete() Tests =====
