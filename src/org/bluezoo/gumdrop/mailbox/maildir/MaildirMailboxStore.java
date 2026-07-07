@@ -268,12 +268,25 @@ public class MaildirMailboxStore implements MailboxStore {
             mailboxPath = userDirectory.resolve(dirName);
         }
         
-        // Security check - ensure path is within user directory
+        // Security check - ensure path is within user directory,
+        // resolving symlinks to prevent mailbox escape via planted links.
         Path normalized = mailboxPath.normalize();
         if (!normalized.startsWith(userDirectory)) {
             throw new IOException("Invalid mailbox path: " + mailboxName);
         }
-        
+        Path canonicalUser = userDirectory.toRealPath();
+        if (Files.exists(normalized)) {
+            if (!normalized.toRealPath().startsWith(canonicalUser)) {
+                throw new IOException("Invalid mailbox path: " + mailboxName);
+            }
+        } else {
+            Path parent = normalized.getParent();
+            if (parent != null && Files.exists(parent)
+                    && !parent.toRealPath().startsWith(canonicalUser)) {
+                throw new IOException("Invalid mailbox path: " + mailboxName);
+            }
+        }
+
         return normalized;
     }
 
