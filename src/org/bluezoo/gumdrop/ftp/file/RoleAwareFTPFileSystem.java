@@ -318,9 +318,10 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
         if (path == null || path.isEmpty()) {
             return "/";
         }
-        if (path.endsWith("/") && path.length() > 1) {
-            return path.substring(0, path.length() - 1);
+        String normalized = java.nio.file.Paths.get(path).normalize().toString();
+        if (normalized.endsWith("/") && normalized.length() > 1) {
+            normalized = normalized.substring(0, normalized.length() - 1);
         }
-        return path;
+        return normalized;
     }
 }
