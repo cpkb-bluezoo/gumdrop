@@ -640,9 +640,11 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 return new UniqueNameResult(FTPFileOperationResult.NOT_FOUND, null);
             }
             
-            // Generate unique filename
-            String baseName = (suggestedName != null && !suggestedName.isEmpty()) ? 
-                             suggestedName : "file";
+            // Generate unique filename; strip any path separators from the
+            // suggested name so it cannot escape baseDir via .. components.
+            String sanitized = suggestedName != null
+                    ? suggestedName.replaceAll("[/\\\\]", "_").trim() : "";
+            String baseName = !sanitized.isEmpty() ? sanitized : "file";
                              
             // Remove extension for counter insertion
             String name;
@@ -661,9 +663,12 @@ public class BasicFTPFileSystem implements FTPFileSystem {
             int counter = 1;
             
             do {
-                uniqueName = counter == 1 ? (name + extension) : 
+                uniqueName = counter == 1 ? (name + extension) :
                            (name + "_" + counter + extension);
-                uniqueFile = baseDir.resolve(uniqueName);
+                uniqueFile = baseDir.resolve(uniqueName).normalize();
+                if (!uniqueFile.startsWith(rootPath)) {
+                    return new UniqueNameResult(FTPFileOperationResult.ACCESS_DENIED, null);
+                }
                 counter++;
             } while (Files.exists(uniqueFile) && counter < 10000); // Prevent infinite loops
             
