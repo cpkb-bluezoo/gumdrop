@@ -347,15 +347,17 @@ final class HTTPUtils {
         int start = 0;
         int len = value.length();
         String lastToken = null;
+        int tokenCount = 0;
         while (start <= len) {
             int end = value.indexOf(',', start);
             if (end < 0) {
                 end = len;
             }
             lastToken = value.substring(start, end).trim();
+            tokenCount++;
             start = end + 1;
         }
-        return lastToken != null && "chunked".equalsIgnoreCase(lastToken);
+        return tokenCount == 1 && lastToken != null && "chunked".equalsIgnoreCase(lastToken);
     }
 
     /**
