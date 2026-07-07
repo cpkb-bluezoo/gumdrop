@@ -55,6 +55,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler;
@@ -409,8 +410,8 @@ public class HTTPClient implements AltSvcListener {
     }
 
     /**
-     * Sets whether to verify the peer's TLS certificate for QUIC
-     * connections. Defaults to {@code true}.
+     * Sets whether to verify the peer's TLS certificate. Defaults to
+     * {@code true}. Applies to both TCP/TLS and QUIC/H3 connections.
      *
      * @param verify true to verify the peer certificate
      */
@@ -485,6 +486,8 @@ public class HTTPClient implements AltSvcListener {
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);
+        } else if (!verifyPeer) {
+            transportFactory.setTrustManager(new EmptyX509TrustManager());
         }
         if (keystoreFile != null) {
             transportFactory.setKeystoreFile(keystoreFile);
