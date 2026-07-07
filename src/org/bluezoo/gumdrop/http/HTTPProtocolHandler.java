@@ -2253,25 +2253,13 @@ public class HTTPProtocolHandler
         }
     }
 
-    // RFC 9113 section 6.6: PUSH_PROMISE frame reception
+    // RFC 9113 section 6.6 / 8.4: clients MUST NOT send PUSH_PROMISE;
+    // receipt of one is a connection error of type PROTOCOL_ERROR.
     @Override
     public void pushPromiseFrameReceived(int streamId, int promisedStreamId,
             boolean endHeaders, ByteBuffer headerBlockFragment) {
-        if (expectingInitialSettings()) {
-            return;
-        }
-        Stream stream = getStream(streamId);
-        stream.setPushPromise();
-        stream.appendHeaderBlockFragment(headerBlockFragment);
-        if (endHeaders) {
-            resetContinuationLimit();
-            stream.streamEndHeaders();
-            stream.streamEndRequest();
-        } else {
-            state = State.HTTP2_CONTINUATION;
-            continuationStream = streamId;
-            continuationEndStream = true;
-        }
+        sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+        closeEndpoint();
     }
 
     // RFC 9113 section 6.7: PING acknowledgement
