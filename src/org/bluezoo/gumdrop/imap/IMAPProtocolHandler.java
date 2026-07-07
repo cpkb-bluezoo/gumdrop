@@ -327,7 +327,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             }
         }
 
-        LineParser.parse(buffer, this);
+        LineParser.parse(buffer, this, server.getMaxLineLength());
 
         if (appendLiteralRemaining > 0 && buffer.hasRemaining()) {
             try {
@@ -455,6 +455,16 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     @Override
     public boolean continueLineProcessing() {
         return appendLiteralRemaining <= 0 && commandLiteralRemaining <= 0;
+    }
+
+    @Override
+    public void lineTooLong() {
+        try {
+            sendTaggedBad(currentTag != null ? currentTag : "*",
+                    L10N.getString("imap.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
     }
 
     // ── Transport helpers ──
@@ -735,7 +745,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             pendingCommand.append(literalStr);
             // Resume line parsing for the continuation of the command
             if (buffer.hasRemaining()) {
-                LineParser.parse(buffer, this);
+                LineParser.parse(buffer, this, server.getMaxLineLength());
             }
         }
     }

@@ -199,7 +199,7 @@ public class FTPProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
-        LineParser.parse(data, this);
+        LineParser.parse(data, this, MAX_LINE_LENGTH);
     }
 
     @Override
@@ -317,6 +317,15 @@ public class FTPProtocolHandler
     @Override
     public boolean continueLineProcessing() {
         return true;
+    }
+
+    @Override
+    public void lineTooLong() {
+        try {
+            reply(500, L10N.getString("ftp.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
     }
 
     // ── FTPControlConnection implementation ──

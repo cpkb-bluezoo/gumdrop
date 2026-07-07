@@ -284,7 +284,7 @@ public class SMTPProtocolHandler
             } else if (state == SMTPState.DATA) {
                 handleDataContent(buf);
             } else {
-                LineParser.parse(buf, this);
+                LineParser.parse(buf, this, MAX_COMMAND_LINE_LENGTH);
                 if (buf.hasRemaining()) {
                     if (state == SMTPState.BDAT) {
                         handleBdatContent(buf);
@@ -459,6 +459,15 @@ public class SMTPProtocolHandler
     @Override
     public boolean continueLineProcessing() {
         return state != SMTPState.DATA && state != SMTPState.BDAT;
+    }
+
+    @Override
+    public void lineTooLong() {
+        try {
+            reply(500, L10N.getString("smtp.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
     }
 
     // ── Transport helpers ──
@@ -646,7 +655,7 @@ public class SMTPProtocolHandler
     }
 
     private void handlePipelinedCommands(ByteBuffer buf) throws IOException {
-        LineParser.parse(buf, this);
+        LineParser.parse(buf, this, MAX_COMMAND_LINE_LENGTH);
         if (buf.hasRemaining()) {
             if (state == SMTPState.BDAT) {
                 handleBdatContent(buf);

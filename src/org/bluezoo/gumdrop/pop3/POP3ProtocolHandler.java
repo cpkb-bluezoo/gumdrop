@@ -242,7 +242,7 @@ public class POP3ProtocolHandler
     @Override
     public void receive(ByteBuffer data) {
         lastActivityTime = System.currentTimeMillis();
-        LineParser.parse(data, this);
+        LineParser.parse(data, this, MAX_LINE_LENGTH);
     }
 
     @Override
@@ -386,6 +386,15 @@ public class POP3ProtocolHandler
     @Override
     public boolean continueLineProcessing() {
         return true;
+    }
+
+    @Override
+    public void lineTooLong() {
+        try {
+            sendERR(L10N.getString("pop3.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
     }
 
     // ── Transport helpers (delegate to Endpoint) ──
