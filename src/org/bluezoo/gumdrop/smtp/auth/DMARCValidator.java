@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.smtp.auth;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
+import java.security.SecureRandom;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -299,7 +299,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     }
 
     private final DNSResolver resolver;
-    private final Random random;
+    private final SecureRandom random;
 
     // Callback for delivering DMARC results
     private final DMARCCallback callback;
@@ -337,7 +337,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     public DMARCValidator(DNSResolver resolver, DMARCCallback callback) {
         this.resolver = resolver;
         this.callback = callback;
-        this.random = new Random();
+        this.random = new SecureRandom();
     }
 
     // -- Event-driven interface (SPFCallback, DKIMCallback) --
