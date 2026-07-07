@@ -95,6 +95,17 @@ public final class LineParser {
          * @return true to continue parsing lines, false to stop
          */
         boolean continueLineProcessing();
+
+        /**
+         * Called when an in-progress line exceeds the maximum line length
+         * passed to {@link LineParser#parse(ByteBuffer, Callback, int)}.
+         *
+         * <p>After this is called, parsing stops and the buffer position
+         * is left at the point of overflow. The default implementation
+         * does nothing; protocol handlers that pass a limit should override
+         * this to close or error the connection.
+         */
+        default void lineTooLong() {}
     }
 
     private LineParser() {
@@ -120,6 +131,23 @@ public final class LineParser {
      * @param callback the callback to receive parsed lines
      */
     public static void parse(ByteBuffer data, Callback callback) {
+        parse(data, callback, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Parses CRLF-terminated lines from the buffer, enforcing a per-line
+     * length limit.
+     *
+     * <p>If an in-progress line exceeds {@code maxLineLength} bytes before a
+     * CRLF is found, {@link Callback#lineTooLong()} is invoked and parsing
+     * stops immediately.
+     *
+     * @param data          the byte data in read mode
+     * @param callback      the callback to receive parsed lines
+     * @param maxLineLength maximum number of bytes (excluding CRLF) per line
+     */
+    public static void parse(ByteBuffer data, Callback callback,
+                             int maxLineLength) {
         int start = data.position();
         int end = data.limit();
         int pos = start;
@@ -140,6 +168,10 @@ public final class LineParser {
                 if (!callback.continueLineProcessing()) {
                     break;
                 }
+            } else if (pos - start > maxLineLength + CRLF_LENGTH) {
+                data.position(start);
+                callback.lineTooLong();
+                return;
             }
 
             last = c;
@@ -147,4 +179,6 @@ public final class LineParser {
 
         data.position(start);
     }
+
+    private static final int CRLF_LENGTH = 2;
 }

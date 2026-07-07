@@ -360,7 +360,7 @@ public class HTTPProtocolHandler
                 case HEADER:
                 case BODY_CHUNKED_SIZE:
                 case BODY_CHUNKED_TRAILER:
-                    LineParser.parse(buf, this);
+                    LineParser.parse(buf, this, MAX_LINE_LENGTH);
                     break;
                 case BODY:
                     receiveBody(buf);
@@ -486,6 +486,12 @@ public class HTTPProtocolHandler
                 || state == State.HEADER
                 || state == State.BODY_CHUNKED_SIZE
                 || state == State.BODY_CHUNKED_TRAILER;
+    }
+
+    @Override
+    public void lineTooLong() {
+        Stream stream = getStream(clientStreamId);
+        sendStreamError(stream, 431);
     }
 
     // ── HTTPConnectionLike implementation ──
