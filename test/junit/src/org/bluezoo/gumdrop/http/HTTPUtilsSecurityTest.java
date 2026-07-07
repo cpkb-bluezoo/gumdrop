@@ -13,7 +13,8 @@ public class HTTPUtilsSecurityTest {
 
     @Test
     public void testChunkedAsFinalCoding() {
-        assertTrue(HTTPUtils.isChunkedTransferEncoding("gzip, chunked"));
+        assertTrue(HTTPUtils.isChunkedTransferEncoding("chunked"));
+        assertFalse(HTTPUtils.isChunkedTransferEncoding("gzip, chunked"));
         assertFalse(HTTPUtils.isChunkedTransferEncoding("chunked, gzip"));
         assertFalse(HTTPUtils.isChunkedTransferEncoding("xchunked"));
     }
