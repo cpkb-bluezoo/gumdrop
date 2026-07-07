@@ -365,6 +365,46 @@ final class HTTPUtils {
      * if multiple values appear, they MUST all be equal or the message
      * is invalid. Returns the parsed value, or {@code -1} if invalid.
      */
+    /**
+     * Returns true if the Host header field-value is syntactically valid
+     * per RFC 9110 section 7.2: {@code uri-host [":" port]}.
+     * Rejects IP-literals for simplicity; accepts reg-name and IPv4address.
+     */
+    public static boolean isValidHost(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        int ci = value.lastIndexOf(':');
+        String host;
+        if (ci >= 0) {
+            String portStr = value.substring(ci + 1);
+            if (portStr.isEmpty()) {
+                return false;
+            }
+            try {
+                int port = Integer.parseInt(portStr);
+                if (port < 1 || port > 65535) {
+                    return false;
+                }
+            } catch (NumberFormatException e) {
+                return false;
+            }
+            host = value.substring(0, ci);
+        } else {
+            host = value;
+        }
+        if (host.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '-' && c != '.') {
+                return false;
+            }
+        }
+        return true;
+    }
+
     static long validateContentLength(String value) {
         if (value == null) {
             return -1;
