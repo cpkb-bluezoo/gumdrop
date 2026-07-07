@@ -31,6 +31,13 @@ import org.bluezoo.gumdrop.mqtt.handler.ConnectHandler;
  * All connection, publish, and subscribe decisions use default policies
  * (accept all connections, allow all publishes and subscriptions).
  *
+ * <p><strong>Security warning:</strong> This service is an <em>open
+ * broker</em> by default. Any client that can reach the listener port
+ * may connect, publish, and subscribe without authentication. Configure
+ * a {@link org.bluezoo.gumdrop.auth.Realm Realm} and a custom
+ * {@link org.bluezoo.gumdrop.mqtt.handler.ConnectHandler ConnectHandler}
+ * before exposing this service to untrusted networks.
+ *
  * <h2>Configuration Example</h2>
  * <pre>{@code
  * <service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTService">

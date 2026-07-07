@@ -33,6 +33,13 @@ import org.bluezoo.gumdrop.socks.handler.ConnectHandler;
  * Realm} is configured, SOCKS5 clients must authenticate; SOCKS4
  * clients are accepted without authentication.
  *
+ * <p><strong>Security warning:</strong> Without a configured
+ * {@code realm} and {@code allowed-sources} CIDR list this service
+ * acts as an <em>open proxy</em> and must not be exposed to untrusted
+ * networks. Always restrict access via network policy or the built-in
+ * source filtering before deploying in any environment reachable from
+ * the internet.
+ *
  * <h2>Configuration Example</h2>
  * <pre>{@code
  * <service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService">
