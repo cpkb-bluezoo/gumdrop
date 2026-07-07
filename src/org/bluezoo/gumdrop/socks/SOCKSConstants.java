@@ -157,6 +157,9 @@ public final class SOCKSConstants {
     /** GSSAPI context establishment failure. RFC 1961 §4. */
     public static final byte SOCKS5_GSSAPI_STATUS_FAILURE = (byte) 0xFF;
 
+    /** Maximum GSSAPI token size per subnegotiation round (16 KiB). */
+    public static final int SOCKS5_GSSAPI_MAX_TOKEN_LENGTH = 16 * 1024;
+
     // ═══════════════════════════════════════════════════════════════════
     // SOCKS5 commands (RFC 1928 §4: CMD field)
     // ═══════════════════════════════════════════════════════════════════
