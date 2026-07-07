@@ -148,6 +148,7 @@ public class HTTPProtocolHandler
     ));
 
     private static final int MAX_LINE_LENGTH = 8192;
+    private static final int MAX_HEADER_COUNT = 100;
     private static final int CRLF_LENGTH = 2;
     private static final int FRAME_HEADER_LENGTH = 9;
     private static final int PRI_CONTINUATION_LENGTH = 8;
@@ -1377,6 +1378,10 @@ public class HTTPProtocolHandler
         int lineLength = line.remaining();
         // RFC 9110 section 15.5.18: 431 Request Header Fields Too Large
         if (lineLength > MAX_LINE_LENGTH + CRLF_LENGTH) {
+            sendStreamError(stream, 431);
+            return;
+        }
+        if (stream.getHeaders().size() >= MAX_HEADER_COUNT) {
             sendStreamError(stream, 431);
             return;
         }
