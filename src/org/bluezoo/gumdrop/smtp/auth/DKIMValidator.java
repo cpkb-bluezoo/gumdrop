@@ -353,8 +353,6 @@ public class DKIMValidator {
         String sigAlgorithm;
         if (alg.startsWith("rsa-sha256")) {
             sigAlgorithm = "SHA256withRSA";
-        } else if (alg.startsWith("rsa-sha1")) {
-            sigAlgorithm = "SHA1withRSA";
         } else if (alg.startsWith("ed25519")) {
             sigAlgorithm = "Ed25519";
         } else {
