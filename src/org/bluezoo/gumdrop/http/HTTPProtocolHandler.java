@@ -152,6 +152,10 @@ public class HTTPProtocolHandler
     private static final int CRLF_LENGTH = 2;
     private static final int FRAME_HEADER_LENGTH = 9;
     private static final int PRI_CONTINUATION_LENGTH = 8;
+    // RFC 9113 section 3.4: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+    private static final byte[] H2C_CONNECTION_PREFACE =
+        "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+    private int h2cPrefacePos;
     private static final int DEFAULT_HEADER_TABLE_SIZE = 4096;
     private static final int DEFAULT_INITIAL_WINDOW_SIZE = 65535;
     private static final int DEFAULT_MAX_FRAME_SIZE = 16384;
@@ -176,6 +180,7 @@ public class HTTPProtocolHandler
         BODY_CHUNKED_DATA,       // RFC 9112 section 7.1: chunk-data
         BODY_CHUNKED_TRAILER,    // RFC 9112 section 7.1.2: trailer section
         BODY_UNTIL_CLOSE,        // RFC 9112 section 6.3: read until close (HTTP/1.0)
+        H2C_PREFACE,             // RFC 9113 section 3.4: awaiting full h2c connection preface after 101
         PRI,                     // RFC 9113 section 3.4: HTTP/2 connection preface
         PRI_SETTINGS,            // RFC 9113 section 3.4: awaiting client SETTINGS
         HTTP2,                   // RFC 9113 section 4: HTTP/2 frame processing
@@ -370,6 +375,9 @@ public class HTTPProtocolHandler
                     break;
                 case BODY_UNTIL_CLOSE:
                     receiveBodyUntilClose(buf);
+                    break;
+                case H2C_PREFACE:
+                    receiveH2cPreface(buf);
                     break;
                 case PRI:
                     receivePri(buf);
@@ -1808,13 +1816,43 @@ public class HTTPProtocolHandler
     // RFC 9110 section 15.2.2: 101 Switching Protocols
     // RFC 9113 section 3.1: h2c upgrade from HTTP/1.1 (deprecated by RFC 9113,
     // but intentionally retained for backwards compatibility)
+    private void receiveH2cPreface(ByteBuffer buf) {
+        while (buf.hasRemaining() && h2cPrefacePos < H2C_CONNECTION_PREFACE.length) {
+            byte b = buf.get();
+            if (b != H2C_CONNECTION_PREFACE[h2cPrefacePos]) {
+                sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+                closeEndpoint();
+                return;
+            }
+            h2cPrefacePos++;
+        }
+        if (h2cPrefacePos == H2C_CONNECTION_PREFACE.length) {
+            h2Parser = new H2Parser(this);
+            h2Parser.setMaxFrameSize(maxFrameSize);
+            h2Writer = new H2Writer(new EndpointChannel());
+            h2FlowControl = new H2FlowControl();
+            for (Integer existingStreamId : streams.keySet()) {
+                h2FlowControl.openStream(existingStreamId.intValue());
+            }
+            state = State.PRI_SETTINGS;
+            Map<Integer, Integer> initialSettings = new LinkedHashMap<Integer, Integer>();
+            initialSettings.put(H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS,
+                    serverMaxConcurrentStreams);
+            initialSettings.put(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE,
+                    serverMaxHeaderListSize);
+            sendSettingsFrame(false, initialSettings);
+            startSettingsTimeout();
+        }
+    }
+
     private void completeH2cUpgrade() {
         h2cUpgradePending = false;
         Headers responseHeaders = new Headers();
         responseHeaders.add("Connection", "Upgrade");
         responseHeaders.add("Upgrade", "h2c");
         sendResponseHeaders(clientStreamId, 101, responseHeaders, true);
-        state = State.REQUEST_LINE;
+        h2cPrefacePos = 0;
+        state = State.H2C_PREFACE;
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Sent 101 Switching Protocols, waiting for client preface");
         }
