@@ -180,6 +180,9 @@ class MimePart implements Part {
 		}
 		File dir = new File(location);
 		File dest = new File(dir, n);
+		if (!dest.getCanonicalPath().startsWith(dir.getCanonicalPath() + File.separator)) {
+			throw new IOException(Context.L10N.getString("err.bad_part_location"));
+		}
 		try (OutputStream out = new FileOutputStream(dest);
 			 InputStream in = getInputStream()) {
 			byte[] buf = new byte[8192];
@@ -194,19 +197,15 @@ class MimePart implements Part {
 		if (fileName == null || fileName.isEmpty()) {
 			return null;
 		}
-		String n = fileName;
-		// Reject path traversal attempts
-		if (n.contains("..")) {
-			return null;
+		// Normalize separators then take only the final path component so
+		// that encoded traversal sequences (%2e%2e, backslashes, etc.) cannot
+		// escape the upload directory.
+		String n = fileName.replace('\\', '/');
+		int slash = n.lastIndexOf('/');
+		if (slash >= 0) {
+			n = n.substring(slash + 1);
 		}
-		// Normalize separators
-		n = n.replace('\\', '/');
-		// Remove leading slashes
-		while (n.startsWith("/")) {
-			n = n.substring(1);
-		}
-		// Reject if empty after sanitization
-		if (n.isEmpty()) {
+		if (n.isEmpty() || n.equals(".") || n.equals("..")) {
 			return null;
 		}
 		return n;
