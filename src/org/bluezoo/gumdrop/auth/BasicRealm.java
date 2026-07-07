@@ -124,6 +124,12 @@ public class BasicRealm extends DefaultHandler implements Realm {
     /** Source of cryptographically strong randomness for salt generation. */
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
+    /** PBKDF2 iteration count for on-demand SCRAM credential derivation (OWASP 2023). */
+    private static final int SCRAM_ITERATIONS = 210_000;
+
+    /** Cache of derived SCRAM credentials keyed by username. Invalidated on password change. */
+    private final Map<String, Realm.ScramCredentials> scramCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     /**
      * Users and their passwords.
      */
@@ -405,13 +411,18 @@ public class BasicRealm extends DefaultHandler implements Realm {
         if (password == null || isHashedPassword(password)) {
             return null; // User doesn't exist or hashed (requires plaintext)
         }
-        // Generate credentials on demand with a fresh random salt. SCRAM sends
-        // the salt to the client during each exchange (RFC 5802), so the salt
-        // need not be stable across exchanges, but it must be unpredictable.
-        // In production, credentials should be pre-computed and stored.
+        // Return a cached derivation so the salt remains stable across exchanges
+        // (RFC 5802 §5.1: clients may cache SaltedPassword keyed on salt+iterations).
+        // The cache entry is keyed by username; a password change must invalidate it.
+        Realm.ScramCredentials cached = scramCache.get(username);
+        if (cached != null) {
+            return cached;
+        }
         byte[] salt = new byte[16];
         SECURE_RANDOM.nextBytes(salt);
-        return ScramCredentials.derive(password, salt, 4096, "SHA-256");
+        Realm.ScramCredentials creds = Realm.ScramCredentials.derive(password, salt, SCRAM_ITERATIONS, "SHA-256");
+        scramCache.put(username, creds);
+        return creds;
     }
 
     @Override
@@ -498,6 +509,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
             
             if (password != null) {
                 passwords.put(username, password);
+                scramCache.remove(username);
             }
             
             if (certFp != null && !certFp.isEmpty()) {

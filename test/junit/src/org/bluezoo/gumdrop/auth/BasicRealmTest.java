@@ -201,13 +201,14 @@ public class BasicRealmTest {
     }
 
     @Test
-    public void testScramSaltIsNotDeterministic() {
-        // Regression: SCRAM salt must not be derived from the username.
+    public void testScramCredentialsAreCached() {
+        // Salt must be stable across calls so clients can cache SaltedPassword
+        // (RFC 5802 §5.1). A fresh random salt is generated once and reused.
         Realm.ScramCredentials c1 = realm.getScramCredentials("alice");
         Realm.ScramCredentials c2 = realm.getScramCredentials("alice");
         assertNotNull(c1);
         assertNotNull(c2);
-        assertNotEquals("SCRAM salt must be random per call", c1.salt, c2.salt);
+        assertEquals("SCRAM salt must be stable across calls for the same user", c1.salt, c2.salt);
     }
 
     @Test
