@@ -975,7 +975,11 @@ class Request implements HttpServletRequest {
         if (host != null) {
             int ci = host.indexOf(':');
             if (ci >= 0) {
-                return Integer.parseInt(host.substring(ci + 1));
+                try {
+                    return Integer.parseInt(host.substring(ci + 1));
+                } catch (NumberFormatException e) {
+                    // fall through
+                }
             }
         }
         return getLocalPort();

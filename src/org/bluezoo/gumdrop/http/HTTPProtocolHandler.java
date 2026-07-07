@@ -1469,6 +1469,14 @@ public class HTTPProtocolHandler
                 sendStreamError(stream, 400);
                 return;
             }
+            String hostValue = stream.getHeaders().getValue("host");
+            if (hostValue == null) {
+                hostValue = stream.getHeaders().getValue(":authority");
+            }
+            if (!HTTPUtils.isValidHost(hostValue)) {
+                sendStreamError(stream, 400);
+                return;
+            }
         }
         // RFC 9110 section 9.3.7: OPTIONS * targets the server itself
         String method = stream.getHeaders().getValue(":method");
