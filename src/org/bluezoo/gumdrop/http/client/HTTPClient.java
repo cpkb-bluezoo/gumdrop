@@ -148,6 +148,7 @@ public class HTTPClient implements AltSvcListener {
     private Path certFile;
     private Path keyFile;
     private boolean verifyPeer = true;
+    private boolean blockPrivateAddresses;
     private long idleTimeoutMs;
     private ClientEndpointPool connectionPool;
 
@@ -420,6 +421,36 @@ public class HTTPClient implements AltSvcListener {
     }
 
     /**
+     * When {@code true}, connections to loopback, private, link-local, and
+     * cloud-metadata addresses (169.254.169.254) are rejected. Disabled by
+     * default. Enable when passing user-controlled URLs to guard against SSRF.
+     *
+     * @param block true to block private/internal addresses
+     */
+    public void setBlockPrivateAddresses(boolean block) {
+        this.blockPrivateAddresses = block;
+    }
+
+    private void checkNotPrivate(InetAddress addr) throws IOException {
+        if (!blockPrivateAddresses) {
+            return;
+        }
+        if (addr.isLoopbackAddress() || addr.isLinkLocalAddress()
+                || addr.isSiteLocalAddress() || addr.isAnyLocalAddress()
+                || addr.isMulticastAddress()) {
+            throw new IOException("SSRF protection: connection to "
+                    + addr.getHostAddress() + " is not permitted");
+        }
+        // Block cloud metadata addresses (IPv4 169.254.169.254, IPv6 fd00:ec2::254)
+        byte[] raw = addr.getAddress();
+        if (raw.length == 4 && raw[0] == (byte) 169 && raw[1] == (byte) 254
+                && raw[2] == (byte) 169 && raw[3] == (byte) 254) {
+            throw new IOException("SSRF protection: connection to "
+                    + addr.getHostAddress() + " is not permitted");
+        }
+    }
+
+    /**
      * Sets the idle connection timeout in milliseconds.
      * When positive, the connection is closed after the specified
      * period of inactivity (RFC 9113 section 9.1).
@@ -472,6 +503,12 @@ public class HTTPClient implements AltSvcListener {
 
         if (h3Enabled) {
             if (hostAddress != null) {
+                try {
+                    checkNotPrivate(hostAddress);
+                } catch (IOException e) {
+                    handler.onError(e);
+                    return;
+                }
                 connectH3(hostAddress, port, host, handler);
             } else {
                 resolveAndConnectH3(host, port, handler);
@@ -535,6 +572,7 @@ public class HTTPClient implements AltSvcListener {
 
         try {
             if (hostAddress != null) {
+                checkNotPrivate(hostAddress);
                 if (selectorLoop != null) {
                     clientEndpoint = new ClientEndpoint(
                             transportFactory, selectorLoop,
@@ -693,6 +731,12 @@ public class HTTPClient implements AltSvcListener {
             @Override
             public void onResolved(List<InetAddress> addresses) {
                 hostAddress = addresses.get(0);
+                try {
+                    checkNotPrivate(hostAddress);
+                } catch (IOException e) {
+                    handler.onError(e);
+                    return;
+                }
                 connectH3(hostAddress, targetPort, targetHost, handler);
             }
 
