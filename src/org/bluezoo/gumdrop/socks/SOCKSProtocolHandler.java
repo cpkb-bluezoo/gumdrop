@@ -515,6 +515,11 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             close();
             return;
         }
+        if (tokenLen > SOCKS5_GSSAPI_MAX_TOKEN_LENGTH) {
+            sendSOCKS5GSSAPIFailure();
+            close();
+            return;
+        }
         if (data.remaining() < tokenLen) {
             data.position(startPos);
             return;
