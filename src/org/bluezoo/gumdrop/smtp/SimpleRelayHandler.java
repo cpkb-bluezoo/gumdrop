@@ -62,8 +62,12 @@ import org.bluezoo.gumdrop.smtp.client.handler.*;
  *   <li>Delivers messages via SMTP client</li>
  * </ul>
  *
- * <p><strong>Note:</strong> This is a simple implementation intended for
- * development and testing. Production MTAs require additional features:
+ * <p><strong>Security warning:</strong> This handler is an <em>open
+ * relay</em>: it accepts mail from any sender to any recipient and
+ * forwards it without authentication or access control. Exposing it to
+ * untrusted networks will result in spam abuse. It is intended only for
+ * development, testing, and closed internal environments. Production
+ * deployments must add:
  * <ul>
  *   <li>Authentication and access control</li>
  *   <li>Rate limiting and abuse prevention</li>
