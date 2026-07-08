@@ -200,6 +200,141 @@ public class POP3ProtocolHandlerTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // Streaming lexer tests (issue #85) — sliced-boundary and golden
+    // transcript coverage, proving the POP3ServerLexer conversion from
+    // buffered-line parsing preserves identical semantic dispatch.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // a single persistent buffer, compacted between receive() calls so
+    // unconsumed bytes from a partial token are preserved and physically
+    // moved forward, not a fresh isolated buffer per chunk.
+    private void sendCommandSliced(String command, int chunkSize) {
+        byte[] wire = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer netIn = ByteBuffer.allocate(1024);
+        int offset = 0;
+        while (offset < wire.length) {
+            int len = Math.min(chunkSize, wire.length - offset);
+            netIn.put(wire, offset, len);
+            offset += len;
+            netIn.flip();
+            handler.receive(netIn);
+            netIn.compact();
+        }
+    }
+
+    @Test
+    public void testCommandSlicedByteAtATime() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommandSliced("NOOP", 1);
+        assertEquals("+OK", lastResponse().split(" ")[0]);
+    }
+
+    @Test
+    public void testCommandWithArgsSlicedAtEveryChunkSize() {
+        for (int chunkSize = 1; chunkSize <= 12; chunkSize++) {
+            listener = new TestPOP3Listener();
+            listener.setRealm(realm);
+            listener.setMailboxFactory(mailboxFactory);
+            listener.setEnableAPOP(false);
+            listener.setEnableUTF8(true);
+            listener.setEnablePipelining(false);
+            handler = new POP3ProtocolHandler(listener);
+            endpoint = new StubEndpoint();
+
+            connectPlaintext();
+            endpoint.sentData.clear();
+            sendCommandSliced("USER alice", chunkSize);
+            assertEquals("chunk size " + chunkSize,
+                    "+OK", lastResponse().split(" ")[0]);
+        }
+    }
+
+    @Test
+    public void testMultipleCommandsInOneReceiveCall() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        byte[] wire = "USER alice\r\nNOOP\r\n"
+                .getBytes(StandardCharsets.US_ASCII);
+        handler.receive(ByteBuffer.wrap(wire));
+        List<String> responses = endpoint.getResponses();
+        assertEquals(2, responses.size());
+        assertTrue(responses.get(0).startsWith("+OK"));
+        assertTrue(responses.get(1).startsWith("+OK"));
+    }
+
+    @Test
+    public void testLongKeywordTriggersLineTooLongAndResyncs() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        StringBuilder longWord = new StringBuilder();
+        for (int i = 0; i < 600; i++) {
+            longWord.append('X');
+        }
+        // The lexer's own cap fires mid-buffer: feed() returns immediately
+        // without processing the rest of the buffer, exactly like the
+        // pre-streaming LineParser.parse() also returned immediately on
+        // lineTooLong() (see LineParser.parse()'s cap-exceeded branch).
+        // This is not a regression — a too-long line's tail, and anything
+        // pipelined after it in the SAME read, only gets processed on a
+        // subsequent receive() call, once the transport's compact() has
+        // preserved it. Model that here with a persistent buffer and two
+        // separate receive() calls, matching a realistic client that
+        // sends a bad line, then (after presumably seeing the error)
+        // sends its next command as a separate write.
+        ByteBuffer netIn = ByteBuffer.allocate(2048);
+        netIn.put((longWord.toString() + "\r\n").getBytes(StandardCharsets.US_ASCII));
+        netIn.flip();
+        handler.receive(netIn);
+        netIn.compact();
+
+        assertEquals(1, endpoint.getResponses().size());
+        assertTrue("Should report line too long",
+                lastResponse().contains("-ERR"));
+
+        // The connection must resynchronise: the next command, sent as a
+        // separate receive() call over the same persistent buffer, is
+        // parsed normally, proving TokenErrorRecovery correctly discarded
+        // the remainder of the rejected line up to its CRLF.
+        netIn.put("NOOP\r\n".getBytes(StandardCharsets.US_ASCII));
+        netIn.flip();
+        handler.receive(netIn);
+        netIn.compact();
+
+        assertEquals(2, endpoint.getResponses().size());
+        assertTrue(lastResponse().startsWith("+OK"));
+    }
+
+    @Test
+    public void testLongArgsTriggersLineTooLongAndResyncs() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        StringBuilder longArgs = new StringBuilder();
+        for (int i = 0; i < 600; i++) {
+            longArgs.append('a');
+        }
+        sendCommand("USER " + longArgs);
+        assertTrue("Should report line too long",
+                lastResponse().contains("-ERR"));
+
+        // Parser-tracked (not lexer-capped) overflow must not desync the
+        // lexer either: the next command parses normally.
+        sendCommand("NOOP");
+        assertTrue(lastResponse().startsWith("+OK"));
+    }
+
+    @Test
+    public void testEmptyLineDoesNotCrash() {
+        connectPlaintext();
+        endpoint.sentData.clear();
+        sendCommand("");
+        assertTrue(lastResponse().contains("-ERR"));
+        sendCommand("NOOP");
+        assertTrue(lastResponse().startsWith("+OK"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // CAPA tests
     // ═══════════════════════════════════════════════════════════════════
 

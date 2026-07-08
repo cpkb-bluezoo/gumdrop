@@ -29,11 +29,10 @@ import java.nio.channels.CompletionHandler;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.ByteOrder;
-import java.nio.CharBuffer;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
 import java.security.MessageDigest;
 import java.security.Principal;
 import java.security.SecureRandom;
@@ -50,13 +49,14 @@ import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -96,7 +96,9 @@ import org.bluezoo.util.ByteArrays;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses the composable {@link LineParser} utility</li>
+ * <li>Line parsing uses a streaming {@link POP3ServerLexer} (issue #85):
+ *     bytes are tokenised as they arrive rather than buffered into whole
+ *     lines — see {@link ByteStreamLexer}</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
@@ -121,12 +123,12 @@ import org.bluezoo.util.ByteArrays;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see LineParser
+ * @see POP3ServerLexer
  * @see POP3Listener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
 public class POP3ProtocolHandler
-        implements ProtocolHandler, LineParser.Callback,
+        implements ProtocolHandler, ByteStreamLexer.Handler<POP3ServerLexer.Token>,
                    ConnectedState, AuthenticateState, MailboxStatusState,
                    ListState, RetrieveState, MarkDeletedState, ResetState,
                    TopState, UidlState, UpdateState {
@@ -197,7 +199,16 @@ public class POP3ProtocolHandler
     private byte[] authSalt;
     private int authIterations = 4096;
     private GSSAPIServer.GSSAPIExchange gssapiExchange;
-    private CharBuffer charBuffer;
+
+    // Streaming lexer (issue #85) and per-line parse state
+    private final POP3ServerLexer lexer;
+    private final TokenErrorRecovery<POP3ServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<POP3ServerLexer.Token>(POP3ServerLexer.Token.CRLF);
+    private String pendingKeyword;
+    private boolean pendingHasSp;
+    private final StringBuilder argsBuilder = new StringBuilder();
+    private int lineByteCount;
+    private String lineErrorMessage;
 
     // Telemetry
     private Trace connectionTrace;
@@ -213,7 +224,8 @@ public class POP3ProtocolHandler
         this.server = server;
         this.connectionTimeMillis = System.currentTimeMillis();
         this.lastActivityTime = connectionTimeMillis;
-        this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH + 2);
+        ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
+        this.lexer = new POP3ServerLexer(this, MAX_LINE_LENGTH);
 
         if (server.isEnableAPOP()) {
             this.apopTimestamp = generateAPOPTimestamp();
@@ -242,7 +254,7 @@ public class POP3ProtocolHandler
     @Override
     public void receive(ByteBuffer data) {
         lastActivityTime = System.currentTimeMillis();
-        LineParser.parse(data, this, MAX_LINE_LENGTH);
+        lexer.feed(data);
     }
 
     @Override
@@ -298,67 +310,114 @@ public class POP3ProtocolHandler
         closeEndpoint();
     }
 
-    // ── LineParser.Callback implementation ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
+
+    // RFC 1939 section 3: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
+    // zero-copy chunks by the lexer (see POP3ServerLexer / ByteStreamLexer);
+    // this dispatcher accumulates only what it needs to retain (the args
+    // string) and enforces the combined line-length budget itself, since
+    // free-form text is intentionally exempt from the lexer's own cap.
+    @Override
+    public boolean token(POP3ServerLexer.Token type, ByteBuffer window) {
+        if (lexerRecovery.handleToken(type)) {
+            // Discarding the remainder of a line already rejected by
+            // tokenTooLong(); the error reply was already sent there.
+            return false;
+        }
+        switch (type) {
+            case KEYWORD:
+                lineByteCount = window.remaining();
+                if (lineErrorMessage == null) {
+                    try {
+                        pendingKeyword = decodeAscii(window);
+                    } catch (CharacterCodingException e) {
+                        lineErrorMessage = L10N.getString(
+                                "pop3.err.invalid_command_encoding");
+                    }
+                }
+                return false;
+            case SP:
+                pendingHasSp = true;
+                lineByteCount += 1;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                if (lineErrorMessage == null) {
+                    int len = window.remaining();
+                    if (lineByteCount + len > MAX_LINE_LENGTH) {
+                        lineErrorMessage = L10N.getString("pop3.err.line_too_long");
+                    } else {
+                        try {
+                            argsBuilder.append(decodeAscii(window));
+                            lineByteCount += len;
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString(
+                                    "pop3.err.invalid_command_encoding");
+                        }
+                    }
+                }
+                return false;
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
+        }
+    }
 
     @Override
-    public void lineReceived(ByteBuffer line) {
+    public void rawBytes(ByteBuffer slice) {
+        // POP3's control channel is always line-based; the lexer never
+        // enters a raw escape, so this is structurally unreachable.
+        LOGGER.warning("Unexpected rawBytes() call on POP3 server lexer");
+    }
+
+    @Override
+    public void tokenTooLong() {
+        lexerRecovery.beginDiscard();
+        resetLineState();
         try {
-            int lineLength = line.remaining();
-            if (lineLength > MAX_LINE_LENGTH + 2) {
-                sendERR(L10N.getString("pop3.err.line_too_long"));
-                closeEndpoint();
-                return;
-            }
+            sendERR(L10N.getString("pop3.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
+    }
 
-            charBuffer.clear();
-            US_ASCII_DECODER.reset();
-            CoderResult result =
-                    US_ASCII_DECODER.decode(line, charBuffer, true);
-            if (result.isError()) {
-                sendERR(L10N.getString(
-                        "pop3.err.invalid_command_encoding"));
-                return;
-            }
-            charBuffer.flip();
+    private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
+        return US_ASCII_DECODER.decode(window).toString();
+    }
 
-            int len = charBuffer.limit();
-            if (len >= 2
-                    && charBuffer.get(len - 2) == '\r'
-                    && charBuffer.get(len - 1) == '\n') {
-                charBuffer.limit(len - 2);
-                len -= 2;
+    private void resetLineState() {
+        pendingKeyword = null;
+        pendingHasSp = false;
+        argsBuilder.setLength(0);
+        lineByteCount = 0;
+        lineErrorMessage = null;
+    }
+
+    // RFC 1939 section 3 — a complete command/continuation line has been
+    // lexed; dispatch it exactly as the pre-streaming lineReceived() did.
+    private void dispatchLine() {
+        String keyword = pendingKeyword != null ? pendingKeyword : "";
+        String args = argsBuilder.toString();
+        boolean hadArgs = pendingHasSp;
+        String error = lineErrorMessage;
+        resetLineState();
+
+        try {
+            if (error != null) {
+                sendERR(error);
+                return;
             }
 
             // SASL continuation data must preserve original case
             if (state == POP3State.AUTHORIZATION
                     && authState != AuthState.NONE) {
-                String rawLine = charBuffer.toString();
+                String rawLine = hadArgs ? (keyword + " " + args) : keyword;
                 handleAuthContinuation(rawLine);
                 return;
             }
 
-            int spaceIndex = -1;
-            for (int i = 0; i < len; i++) {
-                if (charBuffer.get(i) == ' ') {
-                    spaceIndex = i;
-                    break;
-                }
-            }
-
-            String command;
-            String args;
-            if (spaceIndex > 0) {
-                charBuffer.limit(spaceIndex);
-                command = charBuffer.toString()
-                        .toUpperCase(Locale.ENGLISH);
-                charBuffer.limit(len);
-                charBuffer.position(spaceIndex + 1);
-                args = charBuffer.toString();
-            } else {
-                command = charBuffer.toString()
-                        .toUpperCase(Locale.ENGLISH);
-                args = "";
-            }
+            String command = keyword.toUpperCase(Locale.ENGLISH);
 
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String msg = L10N.getString("log.pop3_command");
@@ -380,20 +439,6 @@ public class POP3ProtocolHandler
                 LOGGER.log(Level.SEVERE, errMsg, e2);
             }
             closeEndpoint();
-        }
-    }
-
-    @Override
-    public boolean continueLineProcessing() {
-        return true;
-    }
-
-    @Override
-    public void lineTooLong() {
-        try {
-            sendERR(L10N.getString("pop3.err.line_too_long"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
         }
     }
 

@@ -532,10 +532,81 @@ phase's implementer):
    original content's last line did.
 
 ### Phase 1 — POP3
-- [ ] POP3 server lexer + parser; route AUTH sub-dialog; keep `dispatchCommand`.
-- [ ] POP3 client lexer + parser; multiline `RAW_UNTIL` + dot-unstuffing.
-- [ ] Golden-transcript + sliced-boundary tests; full suite green.
-- [ ] Remove `LineParser.Callback` from both POP3 handlers.
+
+**Server: done ✅ — paused here for review before starting the client half,
+per instruction to pause after every individual protocol handler.**
+
+- [x] POP3 server lexer + parser; route AUTH sub-dialog; keep `dispatchCommand`.
+      `POP3ServerLexer` ([src/org/bluezoo/gumdrop/pop3/POP3ServerLexer.java](../src/org/bluezoo/gumdrop/pop3/POP3ServerLexer.java))
+      implements the `KEYWORD [SP TEXT] CRLF` grammar exactly as planned in
+      §5.1. `POP3ProtocolHandler` now implements
+      `ByteStreamLexer.Handler<POP3ServerLexer.Token>` instead of
+      `LineParser.Callback`; `receive()` delegates to `lexer.feed(data)`;
+      `handleCommand`/`handleAuthContinuation` (the semantic dispatch layer)
+      are untouched, confirming the "seam" design in §6 held.
+- [ ] POP3 client lexer + parser; multiline `RAW_UNTIL` + dot-unstuffing. —
+      not started; next up.
+- [x] Golden-transcript + sliced-boundary tests for the **server**: extended
+      `POP3ProtocolHandlerTest` (6 new tests: byte-at-a-time, every-chunk-size
+      fuzz up to 12, pipelined commands in one buffer, lexer-cap and
+      parser-tracked-length "line too long" + resync, empty line) and added
+      `POP3ServerLexerTest` (8 tests) directly verifying token content,
+      including the embedded-double-space verbatim-preservation property the
+      TEXT-mode reconstruction depends on. Full `ant test` green (106 + 8
+      new POP3 tests), **and** `ant integration-test-pop3` green (real
+      `TCPEndpoint` sockets, not simulated buffers) — 22/22 tests passing.
+- [ ] Remove `LineParser.Callback` — **done for the server** (no remaining
+      reference in `POP3ProtocolHandler.java`); client still pending.
+
+**Design decisions made while implementing the server:**
+
+- **Args/SASL-continuation via TEXT mode, reconstructed by the parser.**
+  `SP` latches text mode for everything after the first space (matching the
+  pre-streaming split-on-first-space semantics exactly, including preserving
+  embedded/repeated spaces verbatim — verified directly by
+  `POP3ServerLexerTest.testArgsWithEmbeddedDoubleSpacePreservedVerbatim`).
+  For SASL continuation lines (`authState != NONE`), the parser reconstructs
+  the original raw line as `keyword + " " + args` when an `SP` was seen, or
+  just `keyword` otherwise — exact for a single separating space, which is
+  the only kind `SP` ever represents.
+- **Overall line-length cap reproduced at the parser, not the lexer.** The
+  lexer's own `maxTokenLength` cap only bounds the `KEYWORD` token (per
+  §3.2/§3.5, text mode is exempt). To reproduce the old `LineParser`'s
+  512-byte **whole-line** cap, `POP3ProtocolHandler` tracks a running
+  `lineByteCount` (keyword + SP + args-so-far) and flags `lineErrorMessage`
+  once it would exceed `MAX_LINE_LENGTH`, deferring the `-ERR` reply to CRLF
+  time. This path does **not** need `TokenErrorRecovery` — text mode has no
+  cap, so the lexer keeps scanning normally all the way to the real CRLF
+  with no desync.
+- **`tokenTooLong()` *does* need `TokenErrorRecovery`.** Unlike the
+  parser-tracked overflow above, a lexer-level cap violation (an
+  over-long `KEYWORD`, e.g. no spaces at all) leaves the lexer mid-line in
+  a genuinely desynced position. `POP3ProtocolHandler.tokenTooLong()` calls
+  `lexerRecovery.beginDiscard()`; every subsequent token — including ones
+  from an unrelated, later command that happens to be re-lexed once the
+  wire catches up — is discarded until the next CRLF, at which point normal
+  dispatch resumes. This is the case Phase 0's `TokenErrorRecovery` helper
+  was built for; POP3's otherwise-simple grammar doesn't need it anywhere
+  else.
+- **`tokenTooLong()` returns from `feed()` immediately, matching old
+  behaviour exactly — not a regression, but worth flagging for every later
+  phase.** `ByteStreamLexer.scanTokens()`'s cap-violation branch calls
+  `handler.tokenTooLong()` and returns `false` **without** continuing to
+  scan any remaining bytes already sitting in the same buffer — verified to
+  be byte-for-byte the same shape as `LineParser.parse()`'s own
+  cap-exceeded branch (`callback.lineTooLong(); return;`, no further
+  scanning). Concretely: if a too-long line is immediately followed by a
+  well-formed pipelined command **in the same network read**, that
+  follow-up command will **not** be dispatched until a **separate**
+  `receive()` call delivers more bytes (or re-delivers, via the transport's
+  `compact()`, whatever was already sitting unconsumed) — it is not
+  processed within the same `feed()` call just because the bytes are
+  physically present. This matches the pre-existing `LineParser` model
+  exactly, so it is not a regression, but it was surprising enough to trip
+  up an initial version of the server's own test (see git history / test
+  comments in `testLongKeywordTriggersLineTooLongAndResyncs`) and is worth
+  restating for whoever implements Phase 5 (HTTP), where pipelined
+  requests are common and this same property will apply identically.
 
 ### Phase 2 — FTP
 - [ ] FTP server lexer + parser (verb + REST_OF_LINE; IAC/ABOR preserved).
