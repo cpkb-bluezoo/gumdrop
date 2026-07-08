@@ -6,7 +6,8 @@ handlers with a two-stage **lexer → parser** pipeline, matching the streaming
 style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
-Status: **in progress — Phase 0 (foundation) complete, Phase 1 (POP3) next.**
+Status: **in progress — Phase 0 (foundation) and Phase 1 (POP3, server +
+client) complete, Phase 2 (FTP) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -534,7 +535,12 @@ Update as work lands. Record blockers inline under each item.
       token(T, ByteBuffer)` / `rawBytes(ByteBuffer)` / `tokenTooLong()` on the
       nested `Handler<T>` interface, `consume(byte)` abstract scan step,
       `emit(T, int, int)`, `enterRaw(long)` / `enterRawUntil(byte[])`,
-      `currentPosition()`, and `regionStart()` (see below).
+      `currentPosition()`, and `regionStart()` (see below). **Grew one more
+      primitive during Phase 1:** `requestStop()` / `MODE_STOPPED`, for
+      handing control to something that reads raw bytes directly outside
+      this lexer's token/text/raw modes entirely (POP3 client's
+      `DotUnstuffer` handoff) — see Phase 1's client write-up below for why
+      the first attempt at this was subclass-local and silently broken.
 - [x] `checkTokenCap(int maxTokenLength, int maxNetInSize)` static helper added
       per §3.5, to be called by each per-protocol lexer once its transport's
       `maxNetInSize` is known.
@@ -592,10 +598,7 @@ phase's implementer):
    message content — do not assume the delivered raw bytes end where the
    original content's last line did.
 
-### Phase 1 — POP3
-
-**Server: done ✅ — paused here for review before starting the client half,
-per instruction to pause after every individual protocol handler.**
+### Phase 1 — POP3 ✅ done (server + client)
 
 - [x] POP3 server lexer + parser; route AUTH sub-dialog.
       `POP3ServerLexer` ([src/org/bluezoo/gumdrop/pop3/POP3ServerLexer.java](../src/org/bluezoo/gumdrop/pop3/POP3ServerLexer.java))
@@ -672,19 +675,105 @@ per instruction to pause after every individual protocol handler.**
   switch" plus reusing existing canonical parsing instead of duplicating
   it. Verified against `ant integration-test-pop3`'s `testAuthPlain` /
   `testAuthLogin`, which exercise this exact path end-to-end.
-- [ ] POP3 client lexer + parser; multiline `RAW_UNTIL` + dot-unstuffing. —
-      not started; next up.
-- [x] Golden-transcript + sliced-boundary tests for the **server**: extended
-      `POP3ProtocolHandlerTest` (6 new tests: byte-at-a-time, every-chunk-size
-      fuzz up to 12, pipelined commands in one buffer, lexer-cap and
-      parser-tracked-length "line too long" + resync, empty line) and added
-      `POP3ServerLexerTest` (8 tests) directly verifying token content,
-      including the embedded-double-space verbatim-preservation property the
-      TEXT-mode reconstruction depends on. Full `ant test` green (106 + 8
-      new POP3 tests), **and** `ant integration-test-pop3` green (real
-      `TCPEndpoint` sockets, not simulated buffers) — 22/22 tests passing.
-- [ ] Remove `LineParser.Callback` — **done for the server** (no remaining
-      reference in `POP3ProtocolHandler.java`); client still pending.
+- [x] POP3 client lexer + parser.
+      `POP3ClientLexer` ([src/org/bluezoo/gumdrop/pop3/client/POP3ClientLexer.java](../src/org/bluezoo/gumdrop/pop3/client/POP3ClientLexer.java))
+      implements `WORD [SP TEXT] CRLF` — the same grammar as the server side,
+      grammatically. `POP3ClientProtocolHandler` now implements
+      `ByteStreamLexer.Handler<POP3ClientLexer.Token>` instead of
+      `LineParser.Callback`. Two design decisions diverge from §5.1's
+      original wording, both recorded here because they matter for later
+      client phases (SMTP, IMAP):
+  - **RETR/TOP message content deliberately does *not* go through
+    `enterRawUntil()`.** §5.1 originally said "RAW_UNTIL(...) with
+    dot-unstuffing (reuse DotUnstuffer)" — but `DotUnstuffer` already does
+    *both* boundary detection *and* the unstuffing transform in one pass,
+    correctly, in constant memory, across arbitrary chunk boundaries; it
+    already meets this whole effort's bar. Routing it through
+    `enterRawUntil()` would only find the `\r\n.\r\n` boundary — the
+    delivered bytes would still be dot-*stuffed*, requiring a *second*,
+    separate unstuffing pass over them anyway, for no benefit and real
+    risk (reimplementing tested, subtle state-machine logic). Instead
+    `POP3ClientProtocolHandler.receive()` keeps its pre-existing structure
+    unchanged: branch on `dotUnstufferActive`, drive `DotUnstuffer`
+    directly off raw bytes when active, the lexer otherwise. This lexer
+    only needed to learn when to *get out of the way* — which is `requestStop()`,
+    below, and turned out to require a real fix to the shared scaffold.
+  - **`ByteStreamLexer.requestStop()` — new shared primitive, added here,
+    born from a bug.** The first implementation gave `POP3ClientLexer` its
+    own local `stopRequested` flag, checked only inside its own
+    `consume()`, set by the handler (via a package-visible wrapper) from
+    within `dispatchRetrReply()`/`dispatchTopReply()` — the same
+    "nested call during token dispatch" pattern already used for
+    `enterRaw`/`enterRawUntil`. **It silently didn't work for the common
+    case.** Any response line with a space in it (`"+OK 13 octets"`, not
+    just bare `"+OK"`) latches text mode, and text mode's terminating
+    CRLF is emitted by the *base class's own* `continueText()` — which
+    never calls the subclass's `consume()` at all. The subclass-local
+    flag was checked in the one place that, for exactly the case that
+    mattered, was never reached. Caught by
+    `testRetrOkAndContentInSameReadDoNotDesyncLexer` (assertion failure,
+    not a hang this time — a quieter, easier-to-miss failure mode than
+    Phase 0's infinite loop, and arguably more dangerous for that reason).
+    Fixed properly by promoting this to the base class: a new
+    `MODE_STOPPED` mode and `protected final void requestStop()`, hooking
+    into the *existing* `mode == modeBeforeCallback` check inside `emit()`
+    that already makes `enterRaw`/`enterRawUntil` work correctly when
+    called from a nested callback — no matter which internal path (`consume()`
+    or `continueText()`) is what actually emitted the triggering token,
+    `emit()` is the one chokepoint both go through, so this now works
+    uniformly. `feed()` normalises `MODE_STOPPED` back to `MODE_TOKEN`
+    both mid-loop and at loop exit (a token completing on the very last
+    byte of a buffer needed the latter case explicitly). **Any future
+    phase that needs "hand control to something reading raw bytes
+    directly, outside token/text/raw modes entirely" should use
+    `requestStop()` — do not reinvent a subclass-local flag; it will have
+    this exact gap.**
+  - Status markers (`+OK`, `-ERR`, the bare `+` SASL continuation prefix)
+    are matched directly off the `WORD` token's bytes via `matchStatus()`,
+    resolving to the *existing* `POP3Response.Status` enum (no new enum
+    needed) — same "resolve once, at the token" principle as the server's
+    `matchCommand()`, but case-*sensitive* (unlike command verbs), matching
+    the pre-streaming `POP3Response.parse()`'s `String.startsWith` exactly.
+    `POP3Response.parse(String)` itself and its dedicated test
+    (`POP3ResponseTest`, 18 tests) are untouched — the handler simply stopped
+    calling it, constructing `POP3Response` directly from the resolved
+    status + accumulated text instead.
+  - No overall line-length cap for the client (matches the pre-streaming
+    `LineParser.parse(data, this)` two-arg call, which had none either —
+    the client trusts the server it connected to; `maxTokenLength =
+    Integer.MAX_VALUE`, and `checkTokenCap()` is correctly *not* called,
+    since it would always throw for an intentionally-unbounded cap).
+  - Decoding is lenient (`new String(bytes, US_ASCII)`, replacing invalid
+    bytes) rather than strict, matching the pre-streaming client's own
+    behaviour exactly — this is a deliberate *difference* from the
+    server's strict `CharacterCodingException`-throwing decode, because
+    the **old code differed the same way** between client and server; not
+    an inconsistency introduced by this conversion.
+- [x] Golden-transcript + sliced-boundary tests for **both** server and
+      client. Server: extended `POP3ProtocolHandlerTest` (6 new tests:
+      byte-at-a-time, every-chunk-size fuzz up to 12, pipelined commands in
+      one buffer, lexer-cap and parser-tracked-length "line too long" +
+      resync, empty line) and added `POP3ServerLexerTest` (8 tests) directly
+      verifying token content, including the embedded-double-space
+      verbatim-preservation property the TEXT-mode reconstruction depends
+      on. Client: extended `POP3ClientProtocolHandlerTest` (5 new tests:
+      greeting byte-at-a-time, greeting every-chunk-size fuzz, CAPA
+      multi-line every-chunk-size fuzz, and the `requestStop()`-proving
+      same-buffer RETR test above). Full `ant test` green throughout (POP3:
+      106 + 8 server, 52 + 18 client = 184 POP3-specific tests; plus the full
+      pre-existing suite unaffected), **and** `ant integration-test-pop3`
+      green after both the server and the shared-scaffold `ByteStreamLexer`
+      change (real `TCPEndpoint` sockets) — 22/22 (this target only exercises
+      the server; there is no dedicated client integration target — the
+      existing `POP3ClientHelper` integration test helper is an independent
+      reference client, not `POP3ClientProtocolHandler`, so client coverage
+      relies on the unit tests above, which do model the real
+      persistent-buffer + `compact()` transport contract).
+- [x] Remove `LineParser.Callback` — done for both server and client (no
+      remaining reference in `POP3ProtocolHandler.java` or
+      `POP3ClientProtocolHandler.java`; `LineParser` itself is not removed
+      yet, per §6's "delete only after the last handler stops implementing
+      it" — POP3 is the first of five protocols).
 
 **Design decisions made while implementing the server:**
 

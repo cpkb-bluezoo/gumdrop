@@ -155,6 +155,7 @@ public abstract class ByteStreamLexer<T extends Enum<T>> {
     private static final int MODE_RAW_FIXED = 1;
     private static final int MODE_RAW_UNTIL = 2;
     private static final int MODE_TEXT = 3;
+    private static final int MODE_STOPPED = 4;
 
     /**
      * Callback interface for receiving lexed tokens. Implemented by the
@@ -294,6 +295,9 @@ public abstract class ByteStreamLexer<T extends Enum<T>> {
         boolean cont = true;
         while (cont && buf.hasRemaining()) {
             switch (mode) {
+                case MODE_STOPPED:
+                    mode = MODE_TOKEN;
+                    return;
                 case MODE_RAW_FIXED:
                     cont = continueRawFixed(buf);
                     break;
@@ -308,6 +312,13 @@ public abstract class ByteStreamLexer<T extends Enum<T>> {
                     cont = scanTokens(buf);
                     break;
             }
+        }
+        // requestStop() may have been called on the very last byte of buf,
+        // where the while condition's hasRemaining() check exits the loop
+        // before the MODE_STOPPED case above gets a chance to normalise
+        // mode back to MODE_TOKEN for the next feed() call.
+        if (mode == MODE_STOPPED) {
+            mode = MODE_TOKEN;
         }
     }
 
@@ -450,6 +461,35 @@ public abstract class ByteStreamLexer<T extends Enum<T>> {
         this.pending = new byte[delim.length];
         this.delimMatched = 0;
         this.mode = MODE_RAW_UNTIL;
+    }
+
+    /**
+     * Requests that this lexer stop tokenising immediately after the
+     * current token finishes being dispatched, leaving the buffer
+     * position exactly where it is at that point — equivalent to
+     * {@code LineParser.Callback.continueLineProcessing()} returning
+     * {@code false}.
+     *
+     * <p>Call this from within a token callback (any token type, not just
+     * {@code CRLF} — the "nested call during token dispatch" pattern also
+     * used by {@link #enterRaw(long)}/{@link #enterRawUntil(byte[])} when
+     * control needs to pass to something that will read the connection's
+     * raw bytes directly, outside this lexer's own token/text/raw modes
+     * entirely — for example, a client handing off to a separate
+     * dot-unstuffing state machine for message content whose length isn't
+     * known up front and isn't a fixed delimiter search either (see
+     * {@code POP3ClientLexer}'s class Javadoc for why that case doesn't
+     * fit {@link #enterRaw(long)} or {@link #enterRawUntil(byte[])}).
+     *
+     * <p>{@link #feed(ByteBuffer)} returns as soon as this takes effect,
+     * without processing any further bytes still in the buffer, and
+     * resets automatically so the lexer is back in ordinary token mode
+     * the next time {@link #feed(ByteBuffer)} is called — the caller
+     * decides, externally, when (and whether) to call {@link
+     * #feed(ByteBuffer)} again versus routing bytes elsewhere.
+     */
+    protected final void requestStop() {
+        mode = MODE_STOPPED;
     }
 
     private boolean scanTokens(ByteBuffer buf) {
