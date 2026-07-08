@@ -6,9 +6,10 @@ handlers with a two-stage **lexer → parser** pipeline, matching the streaming
 style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
-Status: **planning**. Nothing implemented yet. This document is the working
-checklist — update the task tables as work lands and record issues encountered
-inline.
+Status: **in progress — Phase 0 (foundation) complete, Phase 1 (POP3) next.**
+This document is the working checklist — update the task tables as work lands
+and record issues encountered inline. See §8 for the current phase-by-phase
+status and issues found so far.
 
 ---
 
@@ -460,21 +461,75 @@ implementation cautions, not open questions:
 
 Update as work lands. Record blockers inline under each item.
 
-### Phase 0 — foundation
+### Phase 0 — foundation ✅ done
+
 - [x] D1 resolved: zero-copy windowed `token(type, buf)`, no copies in the lexer.
 - [x] D2 resolved: `boolean token()` return latches text mode until `CRLF`; text
       mode emits chunked `TEXT` windows (no lexer buffering) then `CRLF`; parser
       buffers/streams/discards as it chooses; shared *discard-until-CRLF* recovery.
-- [ ] Implement `ByteStreamLexer` scaffold to the §3.4 API (feed loop emitting
-      windowed `boolean token(type, buf)`, `true`→latch text mode until `CRLF`,
-      underflow-rewind for structured cross-read tokens, chunked text mode, cap →
-      `tokenTooLong()`, `RAW(n)` / `RAW_UNTIL(delim)` with in-`feed()` resume).
-- [ ] Assert per-token cap ≤ `maxNetInSize` at construction (§3.5).
-- [ ] Reusable parser base providing *discard-until-CRLF* recovery.
-- [ ] Scaffold unit tests: token boundary splitting, window validity within the
-      callback, chunked TEXT across `feed()` slices, cap enforcement, escape
-      entry/resume, underflow rewind across `feed()` calls sliced mid-token,
-      error recovery resync.
+- [x] Implemented `ByteStreamLexer<T extends Enum<T>>`
+      ([src/org/bluezoo/gumdrop/ByteStreamLexer.java](../src/org/bluezoo/gumdrop/ByteStreamLexer.java))
+      to the §3.4 API: `feed(ByteBuffer)` drive loop, windowed `boolean
+      token(T, ByteBuffer)` / `rawBytes(ByteBuffer)` / `tokenTooLong()` on the
+      nested `Handler<T>` interface, `consume(byte)` abstract scan step,
+      `emit(T, int, int)`, `enterRaw(long)` / `enterRawUntil(byte[])`,
+      `currentPosition()`, and `regionStart()` (see below).
+- [x] `checkTokenCap(int maxTokenLength, int maxNetInSize)` static helper added
+      per §3.5, to be called by each per-protocol lexer once its transport's
+      `maxNetInSize` is known.
+- [x] Reusable parser base providing *discard-until-CRLF* recovery: implemented
+      as a small composed helper, `TokenErrorRecovery<T extends Enum<T>>`
+      ([src/org/bluezoo/gumdrop/TokenErrorRecovery.java](../src/org/bluezoo/gumdrop/TokenErrorRecovery.java)),
+      not a base class — protocol handlers already extend other things, so a
+      parser holds an instance as a field and delegates to it from `token()`.
+- [x] Scaffold unit tests: `ByteStreamLexerTest` (25 tests) and
+      `TokenErrorRecoveryTest` (7 tests), both in
+      `test/junit/src/org/bluezoo/gumdrop/`, using a minimal toy protocol
+      independent of any real handler. Cover token boundary splitting, window
+      validity, chunked TEXT across `feed()` slices (incl. CRLF split across
+      calls), cap enforcement (incl. exempting text mode), `RAW(n)` /
+      `RAW_UNTIL(delim)` entry + in-`feed()` resume + split-across-calls +
+      false-match recovery, underflow rewind fuzzed at every chunk size from 1
+      byte up, the `consume()` abort escape hatch, and constructor validation.
+      `ant test` full suite green.
+
+**Issues found and fixed during implementation** (kept here for the next
+phase's implementer):
+
+1. **`emit()` stomped a nested raw-mode request.** For the CRLF token type,
+   `emit()` unconditionally reset `mode = MODE_TOKEN` after calling
+   `handler.token()` — which clobbered `mode` if the handler had synchronously
+   called `enterRaw()`/`enterRawUntil()` from *within* that same callback (the
+   exact pattern used to accept SMTP DATA / open an IMAP literal). Fixed by
+   only applying `emit()`'s own mode transition when the callback left `mode`
+   unchanged; if the callback changed it, that change is preserved. All raw
+   escapes are entered this way — nested inside the token dispatch, not as a
+   separate call after `feed()` returns.
+2. **Missing `mode = MODE_TOKEN` reset caused a genuine infinite loop.**
+   `continueRawFixed()` and `continueRawUntil()` didn't reset `mode` back to
+   `MODE_TOKEN` on successful completion (unlike text mode, which goes through
+   `emit()` for its own reset). Once a fixed-length raw payload was fully
+   consumed, `continueRawFixed()` became a no-op that kept returning `true`
+   without advancing the buffer — `feed()`'s outer loop spun forever whenever
+   there was trailing structured data after the raw payload. **Caught by two
+   real hung JVMs during test development, not by inspection** — a strong
+   argument for the fuzz/fuzz-like fixed tests in §6, and a reminder to watch
+   for this same "did I reset `mode` on the non-`emit()` completion path"
+   pattern in any future raw-mode-like addition.
+3. **`enterRawUntil()`'s delimiter fully excludes itself from delivered
+   content, including bytes it shares with what looks like content.** For
+   `RAW_UNTIL("\r\n.\r\n")` (SMTP DATA / POP3 dot-termination), the CRLF
+   immediately before the terminating `.` is consumed as part of the 5-byte
+   delimiter match, **not delivered as the content's own trailing line
+   terminator**. This is required for correctness — anchoring the delimiter to
+   include the leading CRLF is what prevents a false match on ordinary content
+   like `"Hello.\r\n"` appearing mid-body (a bare `".\r\n"` search would wrongly
+   terminate on that). But it means content delivered via `rawBytes()` for a
+   non-empty DATA/multiline body will be missing its final CRLF relative to
+   what was actually sent. **Phase 3 (SMTP) and Phase 1 (POP3 client) must
+   account for this explicitly** when applying `DotUnstuffer` / reconstructing
+   message content — do not assume the delivered raw bytes end where the
+   original content's last line did.
 
 ### Phase 1 — POP3
 - [ ] POP3 server lexer + parser; route AUTH sub-dialog; keep `dispatchCommand`.
