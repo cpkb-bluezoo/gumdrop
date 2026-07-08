@@ -41,10 +41,13 @@ receive(ByteBuffer) → Lexer.feed(buf)        // bytes → tokens (state machin
 ### Worked example — SMTP server, receiving `EHLO mail.sender.com\r\n`
 
 Lexer emits: `KEYWORD("EHLO")`, `SP`, `ATOM("mail.sender.com")`, `CRLF`.
-Parser (a state machine starting in `EXPECT_COMMAND`) consumes those tokens and,
-on `CRLF`, emits the semantic event `ehlo("mail.sender.com")` — which is exactly
-today's `dispatchCommand("EHLO", "mail.sender.com")` call, minus the whole-line
-buffer.
+Parser (a state machine starting in `EXPECT_COMMAND`) matches the `KEYWORD`
+token directly against known verbs — no `String` buffered — resolving to an
+enum (e.g. `SMTPCommand.EHLO`) immediately; `ATOM` is retained as the domain
+argument (it must be, it's a value the command needs); on `CRLF` it calls
+`handleEHLO("mail.sender.com")` directly via a `switch` on that enum — see
+§3.3 for why this, not a buffered-string `dispatchCommand(String, String)`
+re-parsed at `CRLF`, is the target shape.
 
 ### Worked example — SMTP client, receiving a multiline reply
 
@@ -193,12 +196,55 @@ Consequences:
 ### 3.3 Per-protocol parser = the protocol handler
 
 The existing handler implements the lexer's `Handler` interface and holds the
-parse state machine. On each token it advances state; on `CRLF` (or on a
-completed production) it invokes the **same semantic dispatch methods that exist
-today** (`dispatchCommand`, `reply`, `handleAuthData`, …). The semantic events
-are unchanged — only their production changes from "parse a buffered line" to
-"reduce a token stream". This keeps the blast radius inside the parsing front
-end and leaves command-execution logic untouched.
+parse state machine. The **command-execution logic itself is the seam and stays
+untouched** — every existing `handleXXX(args)` method (business logic: `handleQUIT`,
+`handleUSER`, `handleAuthPLAIN`, …) keeps its current signature and body. What
+changes, and must change, is everything **upstream** of that: how the handler
+decides *which* `handleXXX` to call.
+
+**Target shape: resolve identity to an enum at the token that determines it;
+dispatch by switching on that enum. Never buffer a command/mechanism/verb as a
+`String` to re-parse or string-`switch` on later** — that is just the old
+whole-line buffering pushed one step downstream, and gives up the efficiency
+and clarity the token model is for. Concretely, established by the POP3 server
+conversion (§8 Phase 1) and the model for every later phase:
+
+- The **first token that identifies a command/verb/mechanism** is matched
+  directly against known values — as raw bytes against known byte sequences
+  where it comes straight off the lexer (e.g. `POP3ServerLexer.Token.KEYWORD`
+  → `POP3Command`, via `matchCommand(ByteBuffer)`; no `String` allocated, no
+  decode, for every *recognised* command), or via a canonical existing
+  `fromName`-style lookup where it's a sub-value inside already-materialised
+  text (e.g. the SASL mechanism name inside POP3's `AUTH` args →
+  `SASLMechanism.fromName(...)`, reusing existing infrastructure rather than a
+  hand-rolled `switch` on string literals). Either way, the result is an enum,
+  resolved once, immediately — not a `String` field revisited later.
+- A `String` is decoded **only when the value doesn't match anything known**
+  and the raw text is genuinely needed (an error message quoting what the
+  client sent), or when the token content must be preserved verbatim by
+  contract (SASL continuation data, free-form args) — decoding is the
+  exception path, not the default one.
+- Dispatch, at the token/production that completes the command (typically
+  `CRLF`), is a **direct `switch` on the resolved enum** calling the
+  `handleXXX` method — not a re-parse, not a generic `dispatchCommand(String,
+  String)` layer that re-derives what was already known. An enum `switch`
+  compiles to a `tableswitch` on ordinal; a `String` `switch` is a
+  hashCode-then-`equals` chain. Preferring the enum form is a real efficiency
+  gain on top of the architectural one.
+- Where a resolved-but-invalid-for-context value still needs its text for an
+  error reply (e.g. `USER` sent while in `TRANSACTION` state — a *known*
+  command, just wrong here), the enum constant's own `name()` **is** the exact
+  canonical text already, at zero decode cost; only genuinely-unrecognised
+  input needs the separately-decoded fallback string. See
+  `POP3ProtocolHandler.unknownCommandText()` for the pattern.
+
+This keeps the blast radius inside the parsing front end (`handleXXX` bodies
+are untouched) while eliminating the deferred-string-dispatch shape that a
+naive "just swap `LineParser` for `ByteStreamLexer`" pass tends to produce —
+watch for it explicitly in every later phase (SMTP verbs, IMAP commands, HTTP
+methods, …): if a phase's first draft has a `dispatchCommand(String, ...)` or
+a `switch (someBufferedString)`, that draft was too shallow and should be
+reworked to this shape before being called done.
 
 ### 3.4 Concrete API shape (build to this, do not reinvent)
 
@@ -302,10 +348,16 @@ methods), and binary-mode escapes.
 
 ### 5.1 POP3
 
-**Server tokens:** `KEYWORD` (verb, ≤4 letters), `SP`, `ARG` (atom), `CRLF`.
-**Server grammar:** `KEYWORD [SP ARG [SP ARG]] CRLF` → `dispatchCommand(verb,
-args)`. AUTH sub-dialog: after `AUTH`, lexer stays in line mode but parser routes
-the next line to `handleAuthData` (base64 atom) — mirrors current `authState`.
+**Server tokens:** `KEYWORD` (verb, ≤4 letters), `SP`, `TEXT`, `CRLF`.
+**Server grammar:** `KEYWORD [SP TEXT] CRLF`. `KEYWORD` is matched directly
+against known verbs at the token itself, resolving to a `POP3Command` enum
+with no `String` buffered for the common case (§3.3) → direct `switch`-on-enum
+dispatch to `handleXXX(args)` at `CRLF`. **Implemented; see §8 Phase 1 for the
+as-built shape** (`POP3ServerLexer`, `POP3Command`, `matchCommand()`,
+`dispatchCommand()`). AUTH sub-dialog: after `AUTH`, lexer stays in line mode
+but parser routes the next line's `KEYWORD` (checked against `authState` at
+the token, before any verb-matching is attempted) to `handleAuthContinuation`
+as raw text — mirrors current `authState`.
 **Binary escape:** none inbound. Outbound multiline (`RETR`/`TOP`/`LIST`/`UIDL`)
 is response-side, unaffected.
 
@@ -330,7 +382,11 @@ handling; the lexer should pass IAC bytes through unchanged in REST_OF_LINE.
 **Server tokens:** `KEYWORD` (verb), `SP`, `ATOM`, separators `<` `>` `:`,
 `REST_OF_LINE`, `CRLF`. Enough to see `MAIL FROM:<path>` structure without
 buffering the whole line.
-**Server grammar:** `KEYWORD [SP REST_OF_LINE] CRLF` → `dispatchCommand`. The
+**Server grammar:** `KEYWORD [SP REST_OF_LINE] CRLF`. As with POP3 (§5.1),
+`KEYWORD` is matched directly against known SMTP verbs at the token, resolving
+to an `SMTPCommand`-style enum with no `String` buffered for recognised verbs,
+dispatched via `switch`-on-enum at `CRLF` — not a buffered-string
+`dispatchCommand(String, String)` (§3.3). The
 UTF-8-vs-ASCII decision currently made in `lineReceived` (SMTPUTF8, the
 `mightBeMailCommand` peek) moves to a lexer charset mode set when the verb token
 resolves to `MAIL`/`RCPT`. AUTH sub-dialog routes to `handleAuthData` as today.
@@ -405,9 +461,14 @@ the client's own parse path rather than the shared `LineParser`.
   migrated; convert one handler at a time on its own branch, each behind a green
   `ant clean test` + integration run. Delete `LineParser` only after the last
   handler stops implementing `LineParser.Callback`.
-- **Semantic dispatch methods are the seam.** Do not touch command-execution
-  logic. The conversion is purely "how tokens/lines reach `dispatchCommand`,
-  `reply`, `handleAuthData`, `processDataBuffer`, `receiveLiteralData`, …".
+- **`handleXXX(args)` command-execution bodies are the seam — do not touch
+  them.** Everything *upstream* of them is fair game and, per §3.3, is
+  expected to change shape: replace deferred `String`-buffer-then-dispatch
+  with resolve-to-enum-at-the-identifying-token, direct `switch`-on-enum
+  dispatch. `reply`, `processDataBuffer`, `receiveLiteralData`, … (the
+  non-command-verb dispatch points) follow the same principle where they
+  have an equivalent identifying token (e.g. an IMAP response type, an SMTP
+  reply code range).
 - **Shared parser recovery state.** Every protocol parser implements
   *discard-until-CRLF* (§3.2): on a malformed token sequence, drop tokens until
   `CRLF`, emit the protocol error reply, resync. Factor this into a small reusable
@@ -536,14 +597,81 @@ phase's implementer):
 **Server: done ✅ — paused here for review before starting the client half,
 per instruction to pause after every individual protocol handler.**
 
-- [x] POP3 server lexer + parser; route AUTH sub-dialog; keep `dispatchCommand`.
+- [x] POP3 server lexer + parser; route AUTH sub-dialog.
       `POP3ServerLexer` ([src/org/bluezoo/gumdrop/pop3/POP3ServerLexer.java](../src/org/bluezoo/gumdrop/pop3/POP3ServerLexer.java))
       implements the `KEYWORD [SP TEXT] CRLF` grammar exactly as planned in
       §5.1. `POP3ProtocolHandler` now implements
       `ByteStreamLexer.Handler<POP3ServerLexer.Token>` instead of
-      `LineParser.Callback`; `receive()` delegates to `lexer.feed(data)`;
-      `handleCommand`/`handleAuthContinuation` (the semantic dispatch layer)
-      are untouched, confirming the "seam" design in §6 held.
+      `LineParser.Callback`; `receive()` delegates to `lexer.feed(data)`.
+      `handleAuthContinuation` and every per-command `handleXXX(args)`
+      method (the actual command logic) are untouched, confirming the
+      "seam" design in §6 held — but see the dispatch refactor below,
+      which goes further than the initial pass and replaces the
+      *dispatch* layer itself (not just how it's fed).
+- **Command dispatch refactored to resolve the verb once, at the KEYWORD
+  token, as an enum — not deferred as a string.** The initial pass had
+  kept the old shape: buffer a `String` keyword, uppercase it, and
+  `switch (String)` on it at CRLF via `handleCommand`/
+  `handleAuthorizationCommand`/`handleTransactionCommand`. That's just the
+  same string-dispatch work moved later, and defeats a chunk of the point
+  of tokenising. Reworked so the command is known as soon as its token
+  arrives:
+  - Added `POP3Command` enum (`QUIT, CAPA, NOOP, USER, PASS, APOP, AUTH,
+    STLS, UTF8, STAT, LIST, RETR, DELE, RSET, TOP, UIDL, UNKNOWN`).
+  - `matchCommand(ByteBuffer window)` matches the KEYWORD token's raw
+    bytes directly against known verbs, case-insensitively, **with no
+    String allocation and no decode** for the recognised-command case.
+    Refined from an initial linear chain of up to 14 sequential 3/4-byte
+    comparisons to: each byte is read exactly once and case-folded while
+    packing all of them into a single `int` (`pack3`/`pack4`), then
+    dispatched with **one `switch` on that packed int** — a
+    lookupswitch/tableswitch instead of a comparison chain. Length-3
+    (`TOP`) and length-4 verbs are packed and switched *separately*, not
+    padded into a shared 4-byte int, specifically to avoid a contrived but
+    real edge case: padding a 3-byte verb with a zero byte to compare
+    against 4-byte packed values would let a literal NUL byte sent as a
+    4th input byte falsely match the padded verb. A String is decoded only
+    for the unrecognised-verb case, where the exact text is needed for the
+    `-ERR unknown command` reply.
+  - The resolved `POP3Command` (a field, `pendingCommand`) replaces the
+    old `pendingKeyword` String entirely for the command path. SASL
+    continuation lines are detected at the *same* KEYWORD token (checking
+    `state`/`authState`, which cannot change mid-line) and take a
+    completely separate branch — they were never really "commands" and
+    are never matched against verbs at all, just decoded (case preserved)
+    into `pendingContinuationText`.
+  - `dispatchLine()` now calls `dispatchCommand(POP3Command, ...)`, a
+    direct `switch` on the enum (replacing the three deleted
+    string-switching methods entirely) — an enum switch compiles to a
+    `tableswitch` on ordinal, versus a `String` switch's hashCode+equals
+    chain, so this is a genuine efficiency gain in addition to the
+    architectural one.
+  - One correctness subtlety: the "unknown command" error message needs
+    the exact command text in **two** distinct cases — a verb that
+    matched nothing (`pendingUnknownText`, decoded once) and a verb that
+    matched something valid but in the *wrong state* (e.g. `USER` while
+    in `TRANSACTION`) — for the latter, decoding is unnecessary since
+    `command.name()` **is** the exact uppercased text already, at zero
+    cost. `unknownCommandText(command, unknownText)` picks the right one.
+  - Old `handleCommand`/`handleAuthorizationCommand`/
+    `handleTransactionCommand` deleted entirely (verified no external
+    references first).
+- **Same "resolve to an enum once, don't string-switch later" pattern
+  applied to the SASL mechanism dispatch in `handleAUTH`.** This one
+  turned out to need no new code at all: `SASLMechanism.fromName(String)`
+  (case-insensitive) already existed in `org.bluezoo.gumdrop.auth` and was
+  going unused — `handleAUTH` was manually `.toUpperCase()`-ing the
+  mechanism substring and `switch`-ing on 8 string literals, duplicating
+  what the enum's own lookup already does. Replaced with
+  `SASLMechanism.fromName(mechanismText)` (also drops the now-unneeded
+  `toUpperCase` allocation) followed by a `switch` on the enum. Note this
+  one is *not* resolved at the lexer/token boundary like the command verb
+  was — the mechanism name is a substring of the already-opaque
+  `TEXT`-mode `args`, not a separate structured token, so there was no
+  buffering to avoid here; the win is purely "enum switch, not string
+  switch" plus reusing existing canonical parsing instead of duplicating
+  it. Verified against `ant integration-test-pop3`'s `testAuthPlain` /
+  `testAuthLogin`, which exercise this exact path end-to-end.
 - [ ] POP3 client lexer + parser; multiline `RAW_UNTIL` + dot-unstuffing. —
       not started; next up.
 - [x] Golden-transcript + sliced-boundary tests for the **server**: extended
