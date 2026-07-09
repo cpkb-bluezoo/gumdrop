@@ -7,7 +7,8 @@ style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
 Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
-client), and Phase 2 (FTP) complete. Phase 3 (SMTP) next.**
+client), and Phase 2 (FTP) complete. Phase 3.1 (SMTP server) complete.
+Phase 3.2 (SMTP client) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -900,11 +901,110 @@ phase's implementer):
 - [x] Remove `LineParser.Callback` — done (no remaining reference in
       `FTPProtocolHandler.java`).
 
-### Phase 3 — SMTP
-- [ ] SMTP server lexer + parser; DATA `RAW_UNTIL` + BDAT `RAW(n)`; SMTPUTF8
-      charset mode; AUTH routing.
+### Phase 3.1 — SMTP server ✅ done
+- [x] `SMTPServerLexer.java` (new) — `KEYWORD [SP TEXT] CRLF`, structurally
+      identical to the POP3/FTP server lexers.
+- [x] **DATA/BDAT content deliberately bypasses the lexer entirely** —
+      unlike POP3/FTP, SMTP has two genuine binary/raw-content escapes
+      (RFC 5321 §4.5.2 dot-stuffed DATA, RFC 3030 fixed-length BDAT). Both
+      pre-existing state machines (`processDataBuffer`/`DataState` for
+      DATA, `handleBdatContent`/`bdatBytesRemaining` for BDAT) were kept
+      **completely unchanged** and are still driven directly from
+      `receive()`'s own state check — exactly as before this conversion —
+      rather than routed through the lexer's `enterRaw`/`enterRawUntil`
+      primitives. `processDataBuffer` already correctly combines
+      boundary-detection and dot-unstuffing in one pass in constant memory
+      across arbitrary chunk boundaries (including the async-delivery
+      retained-input replay path); reimplementing that as a lexer escape
+      would only duplicate already-correct, subtle logic. Same principle
+      as POP3 client's `DotUnstuffer` handoff (Phase 1).
+    - `receive()` and `handlePipelinedCommands()` needed only the minimal
+      `LineParser.parse(...)` → `lexer.feed(...)` swap; all surrounding
+      state-check structure (`if BDAT ... else if DATA ... else { <parse>;
+      if hasRemaining() { recheck state } }`) is untouched.
+- [x] **`requestStop()` timing — checked fresh after `dispatchCommand()`
+      returns, not eagerly inside `data()`/`bdat()`.** `dispatchLine()`
+      calls `dispatchCommand(...)`, then separately checks `state ==
+      SMTPState.DATA || state == SMTPState.BDAT` and only then calls
+      `lexer.enterContentMode()` (a package-private wrapper around the
+      base class's `protected final requestStop()`, same pattern as POP3
+      client's `stopForHandoff()`). This matters because `bdat()` with
+      `chunkSize == 0` synchronously completes via
+      `handleBdatChunkComplete()` and may revert `state` back to
+      `SMTPState.RCPT` **within the same call** (when `!bdatLast`) — the
+      pre-conversion `LineParser`-based code's `continueLineProcessing()`
+      was re-checked fresh by `LineParser` after every line and correctly
+      did *not* stop in that case, letting a pipelined next command on the
+      same line be processed normally. Checking state after dispatch
+      (rather than inside `bdat()`/`data()`) reproduces this exactly.
+      Verified with `testZeroChunkBdatDoesNotStopLexerAndPipelinedCommandRuns`.
+- [x] `SMTPCommand` enum (16 verbs: HELO, EHLO, MAIL, RCPT, DATA, BDAT,
+      RSET, QUIT, NOOP, HELP, VRFY, EXPN, STARTTLS, AUTH, XCLIENT, ETRN) +
+      packed-int `matchCommand()`, built correctly from the start this
+      time (no self-caught string-redecode mistake, unlike Phase 2). 14 of
+      the 16 verbs are exactly 4 bytes and share one packed-int switch;
+      STARTTLS (8 bytes) and XCLIENT (7 bytes) don't fit a 32-bit pack and
+      are the only verbs at their respective lengths, so they use a plain
+      byte-by-byte `matchesLiteral()` comparison instead — there is
+      nothing to *dispatch among* at those lengths, so a packed-int switch
+      would add complexity with no benefit.
+- [x] SMTPUTF8 (RFC 6531) charset-mode handling reproduced token-by-token
+      rather than via the old whole-line re-scan:
+    - `mightBeMailCommand`'s speculative UTF-8-vs-ASCII decoder selection
+      is now `isMailKeyword()`, a pure byte comparison against the KEYWORD
+      token (a 4-byte token that literally spells "MAIL" can, by
+      definition, never itself contain non-ASCII bytes, so no decode is
+      needed to test this) — computed once at the KEYWORD token as
+      `pendingUseUtf8`, then reused for every subsequent TEXT chunk's
+      decoder choice on that line, including for AUTH continuation data
+      (mirroring the pre-conversion code, which computed the decoder once
+      per line regardless of `authState`).
+    - The retroactive rejection ("MAIL was UTF-8-flavoured but SMTPUTF8
+      wasn't declared") no longer re-scans a buffered whole line: a
+      `pendingSawNonAscii` flag is set if any TEXT chunk's raw bytes have
+      the high bit set (checking raw bytes directly, rather than decoded
+      `char > 127`, is equivalent for detecting "was there any non-ASCII
+      content" and avoids a redundant decode), then checked once in
+      `dispatchLine()` after `dispatchCommand()` returns.
+    - One provably-redundant check from the old code was *not*
+      replicated: `requireAscii && containsNonAscii(charBuffer)` after a
+      strict US-ASCII decode. A strict `CharsetDecoder` (the JDK default
+      REPORT action) already fails on any byte > 127 during the decode
+      itself, so that whole-line re-scan could never actually fire — it
+      was defensive-but-dead code, not a behavior difference.
+- [x] AUTH continuation routing confirmed **simpler** than POP3's: no
+      `SMTPState` gating at all (POP3 required `state == AUTHORIZATION &&
+      authState != NONE`; SMTP only checks `authState != AuthState.NONE`),
+      since AUTH can legitimately be issued from `SMTPState.READY`.
+    - `charBuffer` (the old `CharBuffer` accumulator) was removed
+      entirely — confirmed by grep it was used nowhere outside the
+      replaced `lineReceived()`.
+- [x] Tests: `SMTPServerLexerTest.java` (6 tests, direct token-level,
+      mirroring `POP3ServerLexerTest`/`FTPServerLexerTest`) +
+      `SMTPProtocolHandlerTest.java` (17 tests, new — no pre-existing
+      handler-level coverage existed; `SMTPServerAuthTest.java` only
+      exercised `SASLUtils` directly). Handler tests cover: basic
+      dispatch, sliced-boundary fuzzing (byte-at-a-time and every chunk
+      size), pipelined commands in one `receive()` call, line-too-long +
+      resync (both KEYWORD-capped and parser-tracked TEXT overflow), DATA
+      with dot-unstuffed content (including a pipelined DATA+content+
+      terminator in one buffer), a pipelined command immediately after
+      DATA completes, BDAT with content, and — the key regression
+      target — the zero-chunk BDAT case where the lexer must *not* stop
+      and a pipelined next command on the same line runs normally. All
+      existing SMTP tests (`SMTPServerAuthTest` 30 tests,
+      `SMTPClientProtocolHandlerTest` 22 tests) and integration tests
+      (`SMTPServerIntegrationTest` 27, `LocalDeliveryIntegrationTest` 5,
+      `SMTPClientIntegrationTest` 7 — including DATA, dot-stuffing, RCPT,
+      multi-transaction, STARTTLS, and full local-delivery scenarios)
+      pass unchanged. Full `ant test` and `ant integration-test-smtp`
+      green.
+- [x] `LineParser.Callback` removed from `SMTPProtocolHandler` (the
+      client still implements it; removed once Phase 3.2 converts it).
+
+### Phase 3.2 — SMTP client
 - [ ] SMTP client lexer + parser; multiline reply state machine; EHLO caps.
-- [ ] Tests; suite green; remove `LineParser.Callback` from both.
+- [ ] Tests; suite green; remove `LineParser.Callback` from the client.
 
 ### Phase 4 — IMAP
 - [ ] Spike: mid-line `{nnn}` literal extraction → `+ OK` → `RAW(n)` → resume.
