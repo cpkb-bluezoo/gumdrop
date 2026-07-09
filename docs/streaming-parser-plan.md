@@ -6,8 +6,8 @@ handlers with a two-stage **lexer → parser** pipeline, matching the streaming
 style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
-Status: **in progress — Phase 0 (foundation) and Phase 1 (POP3, server +
-client) complete, Phase 2 (FTP) next.**
+Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
+client), and Phase 2 (FTP) complete. Phase 3 (SMTP) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -825,9 +825,80 @@ phase's implementer):
   restating for whoever implements Phase 5 (HTTP), where pipelined
   requests are common and this same property will apply identically.
 
-### Phase 2 — FTP
-- [ ] FTP server lexer + parser (verb + REST_OF_LINE; IAC/ABOR preserved).
-- [ ] Tests; suite green; remove `LineParser.Callback`.
+### Phase 2 — FTP ✅ done
+
+- [x] FTP server lexer + parser.
+      `FTPServerLexer` ([src/org/bluezoo/gumdrop/ftp/FTPServerLexer.java](../src/org/bluezoo/gumdrop/ftp/FTPServerLexer.java))
+      implements `KEYWORD [SP TEXT] CRLF` — the same grammar as POP3's server
+      side. `FTPProtocolHandler` now implements
+      `ByteStreamLexer.Handler<FTPServerLexer.Token>` instead of
+      `LineParser.Callback`. Command dispatch was built enum-first from the
+      start this time (§3.3's target shape, not the string-buffer-then-switch
+      version POP3 initially had and had to be corrected afterwards): a new
+      `FTPCommand` enum (45 verbs) is resolved directly from the `KEYWORD`
+      token's raw bytes via `matchCommand()` — packed-int `switch`, no
+      allocation for recognised verbs, same technique as POP3's
+      (already-optimised) `matchCommand()` — and `dispatchLine()` calls
+      `dispatchCommand(FTPCommand, String, String)`, a direct `switch` on the
+      enum, replacing the old 45-branch `if/else` chain in `lineRead(String)`
+      entirely.
+  - **No continuation-mode branch needed, unlike POP3.** FTP's `AUTH
+    TLS`/`AUTH SSL` (RFC 2228/4217) completes in a single command/reply
+    exchange — there is no SASL-style multi-line challenge-response on the
+    control channel — so every `KEYWORD` token is always a command verb,
+    never raw continuation data. This made the FTP conversion structurally
+    simpler than POP3's.
+  - **No state-gated command sets, unlike POP3.** POP3's `AUTHORIZATION`/
+    `TRANSACTION` states restrict which verbs are valid, requiring a nested
+    `switch (state) { switch (command) }` and a "matched-but-wrong-state"
+    text fallback (`command.name()`). FTP has no equivalent — every `doXxx`
+    method checks `authenticated` itself — so `dispatchCommand()` is a
+    single flat `switch`, and the `default:` (unmatched) branch can only
+    ever be reached with `command == UNKNOWN`, making a POP3-style
+    `unknownCommandText()` helper genuinely dead code here; written, then
+    deleted once that was noticed.
+  - **§5.2's original "IAC/ABOR" gotcha does not apply.** The plan's
+    per-protocol breakdown flagged preserving TELNET IAC sequences and an
+    ABOR out-of-band path as a risk. Checked the actual code: there is no
+    IAC/Telnet handling anywhere in `FTPProtocolHandler`, and `doAbor()` is
+    an ordinary command dispatched through the normal line-based path like
+    any other verb — no special out-of-band/urgent-data mechanism exists in
+    this codebase. Nothing needed preserving beyond ordinary byte
+    pass-through, which `TEXT`-mode chunking already does.
+  - **Whole-line cap reproduced the same two-part way as POP3** (lexer caps
+    `KEYWORD` at `MAX_LINE_LENGTH` = 1024; parser tracks `lineByteCount`
+    across `KEYWORD`+`SP`+`TEXT` for the combined budget; `tokenTooLong()`
+    uses `TokenErrorRecovery` to discard-until-CRLF and resync, matching
+    POP3's `tokenTooLong()`-needs-recovery /
+    parser-tracked-overflow-doesn't split exactly).
+  - **A pre-existing, unrelated bug was left alone, deliberately.**
+    `L10N.properties` entries like `ftp.err.line_too_long` already have the
+    reply code baked into the string (`"500 Command line too long"`), but
+    every call site does `reply(500, L10N.getString(...))` — and `reply()`
+    itself prepends `"%d %s"` — so the wire output is actually `"500 500
+    Command line too long"`. This bug predates this conversion; fixing it
+    is out of scope for a parsing-model change and the exact same buggy
+    call pattern was reproduced verbatim rather than silently "fixed" as a
+    drive-by.
+- [x] Tests; suite green. **No pre-existing unit or integration coverage
+      existed for `FTPProtocolHandler`'s control channel at all** — unlike
+      POP3, which had 100 existing tests to extend, this was a from-scratch
+      gap (confirmed: `ant integration-test-ftp`'s target pattern,
+      `**/ftp/*IntegrationTest.java`, matches no files, and previously
+      succeeded trivially as a no-op). Added `FTPServerLexerTest` (7 tests,
+      direct token-content verification, mirroring `POP3ServerLexerTest`)
+      and `FTPProtocolHandlerTest` (15 tests: greeting, basic dispatch,
+      case-insensitive verbs, unknown command, sliced-boundary
+      byte-at-a-time and every-chunk-size fuzz for both bare and
+      argument-bearing commands, pathname-with-spaces fuzz, pipelined
+      commands in one buffer, lexer-cap and parser-tracked "line too long" +
+      resync, empty line) using `handler == null` (business logic —
+      authentication, filesystem access — is unrelated to this conversion;
+      only command recognition/dispatch is under test, and unauthenticated
+      replies like `530` still prove correct routing). Full `ant test`
+      green throughout.
+- [x] Remove `LineParser.Callback` — done (no remaining reference in
+      `FTPProtocolHandler.java`).
 
 ### Phase 3 — SMTP
 - [ ] SMTP server lexer + parser; DATA `RAW_UNTIL` + BDAT `RAW(n)`; SMTPUTF8
