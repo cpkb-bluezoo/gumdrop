@@ -7,8 +7,8 @@ style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
 Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
-client), Phase 2 (FTP), Phase 3 (SMTP server + client), and Phase 4.1
-(IMAP server) complete. Phase 4.2 (IMAP client) next.**
+client), Phase 2 (FTP), Phase 3 (SMTP server + client), and Phase 4
+(IMAP, server + client) complete. Phase 5 (HTTP/1) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -1208,9 +1208,76 @@ phase's implementer):
       that the non-sync test's own comment calls out. Full `ant test` and
       `ant integration-test-imap` green.
 
-### Phase 4.2 — IMAP client
-- [ ] IMAP client lexer + parser (`*` / tag / `+`, literals in responses).
-- [ ] Tests; suite green; remove `LineParser.Callback` from the client.
+### Phase 4.2 — IMAP client ✅ done
+- [x] `IMAPClientLexer.java` (new) — same `KEYWORD [SP TEXT] CRLF` shape as
+      every other client/server lexer in this conversion, but genuinely
+      **simpler than the server side**: no tag/args split is needed at
+      all. A response line's leading word (a tag, `"*"`, or `"+"`) and
+      everything after it are just concatenated back into one
+      reconstructed string and handed whole to the existing, unchanged,
+      string-based `IMAPResponse.parse(String)` — `KEYWORD` and `TEXT`
+      get identical handling in `token()`. `Integer.MAX_VALUE`
+      `maxTokenLength` (no cap, no `checkTokenCap` call): this client
+      trusts the remote server, same as POP3ClientLexer/SMTPClientLexer.
+- [x] **Why the client is structurally simpler than the server despite
+      also handling literals**: on the server side a `{n}` marker can
+      appear *mid-command*, forcing incremental token-level tracking of
+      "have we seen the tag yet" across possibly-chained literal
+      continuations. On the client side, RFC 9051 FETCH responses only
+      ever put a literal marker at the very end of one complete,
+      self-contained response line — the pre-conversion code already
+      fully buffered and string-decoded that line *first* (via
+      `LineParser`) and only checked for a trailing `{n}` afterward, in
+      `dispatchFetchLine()`. That method is completely unchanged; the
+      only thing that changed is how the octets following it are
+      delivered.
+- [x] **`LiteralTracker` (the pre-existing byte-counting helper for FETCH
+      literal content) is untouched** — same principle as SMTP's
+      `processDataBuffer`/`handleBdatContent` and POP3 client's
+      `DotUnstuffer`: an already-correct, already-tested component that
+      does its own bounded byte-counting is left alone; only *what
+      drives it* changes. `receive()`'s hand-rolled loop (`while
+      (data.hasRemaining()) { if literalTracker... else LineParser.parse
+      ...}`, including a stall-detection escape hatch for the manual
+      interleaving) collapsed to a single `lexer.feed(data)`; `rawBytes()`
+      now forwards each slice straight to
+      `literalTracker.process(slice)`, unchanged. `literalTracker`'s own
+      remaining-count and the lexer's internal `rawRemaining` stay in
+      lockstep (both start at the same declared size, both see the exact
+      same byte counts per call, since `enterRaw` already bounds what
+      `rawBytes()` receives) — harmless parallel bookkeeping, not a
+      behavior risk, same pattern as IMAP server's `appendLiteralRemaining`
+      alongside the lexer's own tracking in Phase 4.1.
+- [x] **No async-callback-timing gap here** (unlike IMAP server's APPEND,
+      Phase 4.1's main discovered wrinkle): `literalTracker` is always
+      set synchronously inside `dispatchFetchLine()`, called synchronously
+      from `handleResponseLine()`, called synchronously from the lexer's
+      `CRLF` token callback — so the SMTP-style "check state after
+      dispatch, call `enterRaw` if needed" pattern (`if (literalTracker
+      != null) { lexer.enterLiteral(literalTracker.getRemaining()); }`)
+      is safe here, unlike on the server side where an application
+      callback could defer the equivalent assignment.
+- [x] Trailing content after a literal's octets (e.g. FETCH's closing
+      `")"` before the response's real terminating CRLF) needs no special
+      handling: `enterRaw` resumes token scanning automatically, so it's
+      picked up as an ordinary follow-on "line" exactly the way the old
+      code's next `LineParser.parse` call would have picked it up —
+      confirmed against the pre-existing `testFetchWithLiteral` transcript
+      test, which sends exactly this shape (literal octets immediately
+      followed by `")\r\n" + tag + " OK FETCH completed\r\n"` in one
+      buffer) and passed unchanged.
+- [x] `LineParser.Callback` removed from `IMAPClientProtocolHandler`.
+- [x] Tests: `IMAPClientLexerTest.java` (7 tests, new, direct token-level)
+      + one new sliced-boundary regression test
+      (`testFetchWithLiteralSlicedByteAtATime`, added alongside the
+      existing `testFetchWithLiteral`) exercising the full FETCH-literal
+      transcript one byte at a time across many `receive()` calls. All 58
+      pre-existing `IMAPClientProtocolHandlerTest` tests (now 59) pass
+      unchanged, including the whole-buffer `testFetchWithLiteral`. Full
+      `ant test` and `ant integration-test-imap` green (this phase has no
+      dedicated client-against-real-server integration test — none
+      existed before this conversion either, so no coverage gap
+      introduced).
 
 ### Phase 5 — HTTP/1
 - [ ] Server (`HTTPProtocolHandler`): request-line + header lexer/parser;

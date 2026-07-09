@@ -756,6 +756,45 @@ public class IMAPClientProtocolHandlerTest {
         assertTrue(fetchHandler.fetchComplete);
     }
 
+    // Streaming lexer conversion (issue #85): the FETCH-literal transcript
+    // above, fed one byte at a time across many receive() calls, mirroring
+    // the real transport contract (TCPEndpoint.processInbound()) — a
+    // single persistent buffer, compacted between calls so unconsumed
+    // bytes from a partial token/raw run are preserved and physically
+    // moved forward, not a fresh isolated buffer per chunk.
+    @Test
+    public void testFetchWithLiteralSlicedByteAtATime() {
+        enterSelectedState();
+
+        RecordingFetchHandler fetchHandler = new RecordingFetchHandler();
+        greetingHandler.selectedState.fetch("1", "(BODY[TEXT])", fetchHandler);
+        String tag = lastSentTag();
+
+        String fetchLine = "* 1 FETCH (BODY[TEXT] {11}";
+        byte[] wire = (fetchLine + "\r\n" + "Hello World"
+                + ")\r\n" + tag + " OK FETCH completed\r\n")
+                .getBytes(StandardCharsets.US_ASCII);
+
+        ByteBuffer netIn = ByteBuffer.allocate(4096);
+        int offset = 0;
+        while (offset < wire.length) {
+            netIn.put(wire[offset]);
+            offset++;
+            netIn.flip();
+            handler.receive(netIn);
+            netIn.compact();
+        }
+
+        assertTrue(fetchHandler.literalBeginReceived);
+        assertEquals(1, fetchHandler.literalBeginMessageNumber);
+        assertEquals("TEXT", fetchHandler.literalSection);
+        assertEquals(11, fetchHandler.literalSize);
+        assertEquals("Hello World",
+                fetchHandler.literalContent.toString(StandardCharsets.US_ASCII));
+        assertTrue(fetchHandler.literalEndReceived);
+        assertTrue(fetchHandler.fetchComplete);
+    }
+
     @Test
     public void testUidFetch() {
         enterSelectedState();
