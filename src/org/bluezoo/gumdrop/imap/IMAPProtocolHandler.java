@@ -25,12 +25,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.CompletionHandler;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.security.SecureRandom;
@@ -59,14 +58,15 @@ import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -126,7 +126,15 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses the composable {@link LineParser} utility</li>
+ * <li>Line parsing uses a streaming {@link IMAPServerLexer} (issue #85):
+ *     bytes are tokenised as they arrive rather than buffered into whole
+ *     lines — see {@link ByteStreamLexer}. IMAP literals ({@code {nnn}})
+ *     use {@link ByteStreamLexer#enterRaw(long)}, triggered by inspecting
+ *     accumulated text when a {@code CRLF} token arrives (literals only
+ *     ever appear immediately before one) — general-purpose literals are
+ *     buffered and spliced back into the reassembled command text exactly
+ *     as before; APPEND's own message-body literal is untouched and still
+ *     streams straight to mailbox storage</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
@@ -153,11 +161,12 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see LineParser
+ * @see IMAPServerLexer
  * @see IMAPListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
-public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback {
+public class IMAPProtocolHandler
+        implements ProtocolHandler, ByteStreamLexer.Handler<IMAPServerLexer.Token> {
 
     private static final Logger LOGGER =
             Logger.getLogger(IMAPProtocolHandler.class.getName());
@@ -216,8 +225,23 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private int lastReportedExists = -1;
 
     // Command parsing
-    private CharBuffer charBuffer;
     private String currentTag = null;
+
+    // Streaming lexer (issue #85) and per-segment/per-command parse state.
+    // "Segment" = one physical KEYWORD/SP/TEXT/CRLF span (what LineParser
+    // used to hand to lineReceived() as one buffered line); a "command"
+    // can span several segments when literals are involved, exactly as
+    // pendingCommand used to accumulate across them.
+    private final IMAPServerLexer lexer;
+    private final TokenErrorRecovery<IMAPServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<IMAPServerLexer.Token>(IMAPServerLexer.Token.CRLF);
+    private boolean freshCommand = true;
+    private String pendingTagText = "";
+    private boolean pendingHasSp;
+    private final StringBuilder argsBuilder = new StringBuilder();
+    private int segmentByteCount;
+    private String segmentError;
+    private boolean inGeneralLiteralContinuation;
 
     // SASL authentication
     private AuthState authState = AuthState.NONE;
@@ -263,10 +287,13 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
     private boolean appendDiscarding = false;
     private ByteArrayOutputStream appendPendingData = null;
 
-    // General-purpose command literal state (RFC 7888 LITERAL-)
-    private StringBuilder pendingCommand;
-    private long commandLiteralRemaining = 0;
-    private java.io.ByteArrayOutputStream commandLiteralBuffer;
+    // General-purpose command literal state (RFC 7888 LITERAL-): raw bytes
+    // accumulate here while a non-APPEND literal is being read via
+    // lexer.enterLiteral() (see rawBytes()); once complete, decoded as
+    // UTF-8 and spliced back into argsBuilder, exactly as the
+    // pre-conversion pendingCommand/commandLiteralBuffer splicing did.
+    private long generalLiteralRemaining = 0;
+    private ByteArrayOutputStream generalLiteralBuffer;
 
     // Telemetry
     private Span sessionSpan;
@@ -279,7 +306,8 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
      */
     public IMAPProtocolHandler(IMAPListener server) {
         this.server = server;
-        this.charBuffer = CharBuffer.allocate(server.getMaxLineLength() + 2);
+        ByteStreamLexer.checkTokenCap(server.getMaxLineLength(), server.getMaxNetInSize());
+        this.lexer = new IMAPServerLexer(this, server.getMaxLineLength());
     }
 
     // ── ProtocolHandler implementation ──
@@ -305,47 +333,7 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
 
     @Override
     public void receive(ByteBuffer buffer) {
-        if (appendLiteralRemaining > 0) {
-            try {
-                receiveLiteralData(buffer);
-            } catch (IOException e) {
-                String msg = L10N.getString("log.error_processing_data");
-                LOGGER.log(Level.WARNING, msg, e);
-            }
-            return;
-        }
-
-        if (commandLiteralRemaining > 0) {
-            try {
-                receiveCommandLiteralData(buffer);
-            } catch (IOException e) {
-                String msg = L10N.getString("log.error_processing_data");
-                LOGGER.log(Level.WARNING, msg, e);
-            }
-            if (!buffer.hasRemaining()) {
-                return;
-            }
-        }
-
-        LineParser.parse(buffer, this, server.getMaxLineLength());
-
-        if (appendLiteralRemaining > 0 && buffer.hasRemaining()) {
-            try {
-                receiveLiteralData(buffer);
-            } catch (IOException e) {
-                String msg = L10N.getString("log.error_processing_data");
-                LOGGER.log(Level.WARNING, msg, e);
-            }
-        }
-
-        if (commandLiteralRemaining > 0 && buffer.hasRemaining()) {
-            try {
-                receiveCommandLiteralData(buffer);
-            } catch (IOException e) {
-                String msg = L10N.getString("log.error_processing_data");
-                LOGGER.log(Level.WARNING, msg, e);
-            }
-        }
+        lexer.feed(buffer);
     }
 
     @Override
@@ -407,64 +395,392 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         closeEndpoint();
     }
 
-    // ── LineParser.Callback implementation ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
+
+    // RFC 9051 section 2.2: KEYWORD [SP TEXT] CRLF, the same outer shape
+    // as every other server lexer in this conversion. TEXT is delivered in
+    // zero-copy chunks (see IMAPServerLexer / ByteStreamLexer); this
+    // dispatcher accumulates a "tag" and an "args-so-far" text, exactly
+    // mirroring the old whole-line decode's tag/rest split, and enforces
+    // the combined per-segment length budget itself (matching the
+    // pre-conversion "lineLength > maxLineLength + 2" whole-line check),
+    // since free-form text is intentionally exempt from the lexer's own
+    // cap.
+    //
+    // Whether a KEYWORD/SP pair is genuinely a fresh command's tag, or
+    // just leftover text after resuming from a literal's raw bytes (which
+    // may not have been preceded by a space — e.g. a literal immediately
+    // followed by ")" closing a list), is tracked by {@code freshCommand}:
+    // once false, KEYWORD/SP content is appended into argsBuilder
+    // verbatim instead of being captured as the tag.
+    @Override
+    public boolean token(IMAPServerLexer.Token type, ByteBuffer window) {
+        if (lexerRecovery.handleToken(type)) {
+            // Discarding the remainder of a segment already rejected by
+            // tokenTooLong(); the error reply was already sent there.
+            return false;
+        }
+        switch (type) {
+            case KEYWORD:
+                segmentByteCount = window.remaining();
+                if (segmentError == null) {
+                    try {
+                        String text = decodeAscii(window);
+                        if (freshCommand) {
+                            pendingTagText = text;
+                        } else {
+                            argsBuilder.append(text);
+                        }
+                    } catch (CharacterCodingException e) {
+                        segmentError = L10N.getString(
+                                "imap.err.invalid_command_encoding");
+                    }
+                }
+                return false;
+            case SP:
+                segmentByteCount += 1;
+                if (segmentError == null) {
+                    if (freshCommand) {
+                        freshCommand = false;
+                        pendingHasSp = true;
+                    } else {
+                        argsBuilder.append(' ');
+                    }
+                }
+                return true; // latch text mode for the rest of the segment
+            case TEXT:
+                if (segmentError == null) {
+                    int len = window.remaining();
+                    if (segmentByteCount + len > server.getMaxLineLength()) {
+                        segmentError = L10N.getString("imap.err.line_too_long");
+                    } else {
+                        try {
+                            argsBuilder.append(decodeAscii(window));
+                            segmentByteCount += len;
+                        } catch (CharacterCodingException e) {
+                            segmentError = L10N.getString(
+                                    "imap.err.invalid_command_encoding");
+                        }
+                    }
+                }
+                return false;
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
+        }
+    }
 
     @Override
-    public void lineReceived(ByteBuffer line) {
+    public void rawBytes(ByteBuffer slice) {
+        // Discriminator matches the pre-conversion receive()'s own check
+        // order: an APPEND literal in progress always takes priority.
+        if (appendLiteralRemaining > 0) {
+            handleAppendLiteralBytes(slice);
+        } else {
+            handleGeneralLiteralBytes(slice);
+        }
+    }
+
+    @Override
+    public void tokenTooLong() {
+        lexerRecovery.beginDiscard();
+        String tag = currentTag != null ? currentTag : "*";
+        // A segment this malformed makes the whole in-progress command
+        // (including any literal-continuation state) unreliable; abandon
+        // it entirely rather than trying to resume mid-command. The
+        // pre-conversion code did not reset pendingCommand on
+        // lineTooLong() for a continuation segment specifically, which
+        // looks like a latent bug (a subsequent line would be wrongly
+        // treated as continuing the abandoned command) — resetting fully
+        // here is a deliberate, safer deviation, not a faithfulness gap.
+        resetCommandState();
         try {
-            int lineLength = line.remaining();
-            if (lineLength > server.getMaxLineLength() + 2) {
-                sendTaggedBad(currentTag != null ? currentTag : "*",
-                        L10N.getString("imap.err.line_too_long"));
-                return;
+            sendTaggedBad(tag, L10N.getString("imap.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
+    }
+
+    private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
+        return US_ASCII_DECODER.decode(window).toString();
+    }
+
+    private void resetSegmentState() {
+        segmentByteCount = 0;
+        segmentError = null;
+    }
+
+    private void resetCommandState() {
+        resetSegmentState();
+        freshCommand = true;
+        pendingTagText = "";
+        pendingHasSp = false;
+        argsBuilder.setLength(0);
+        inGeneralLiteralContinuation = false;
+    }
+
+    /**
+     * Handles the raw bytes of an APPEND message-body literal: the body
+     * of the pre-conversion {@code receiveLiteralData}, minus the "how
+     * much do I take from this buffer" arithmetic — {@code slice} is
+     * already bounded to at most what {@link #enterLiteral} for this
+     * literal still needs, since {@link ByteStreamLexer#enterRaw(long)}
+     * tracks that internally.
+     */
+    private void handleAppendLiteralBytes(ByteBuffer slice) {
+        try {
+            int toConsume = slice.remaining();
+            if (toConsume > 0) {
+                if (appendDiscarding) {
+                    // The mailbox open (or a buffered write) failed; drain
+                    // the client's literal into the void to stay in sync.
+                } else if (appendMailboxOpening) {
+                    byte[] tmp = new byte[toConsume];
+                    slice.get(tmp);
+                    appendPendingData.write(tmp, 0, tmp.length);
+                } else if (appendDataHandler != null) {
+                    appendDataHandler.appendData(appendMailbox, slice);
+                } else {
+                    appendMailbox.appendMessageContent(slice);
+                }
+
+                appendLiteralRemaining -= toConsume;
+
+                if (!appendMailboxOpening && !appendDiscarding
+                        && appendDataHandler != null
+                        && appendDataHandler.wantsPause()
+                        && appendLiteralRemaining > 0) {
+                    appendDataHandler.setResumeCallback(new AppendResumeTask());
+                    endpoint.pauseRead();
+                    return;
+                }
             }
 
-            charBuffer.clear();
-            US_ASCII_DECODER.reset();
-            CoderResult result = US_ASCII_DECODER.decode(line, charBuffer, true);
-            if (result.isError()) {
-                sendTaggedBad(currentTag != null ? currentTag : "*",
-                        L10N.getString("imap.err.invalid_command_encoding"));
-                return;
+            if (appendLiteralRemaining == 0) {
+                if (appendDiscarding) {
+                    // Finished draining a failed APPEND; report it now.
+                    sendAppendFailure();
+                    resetAppendState();
+                } else if (appendMailboxOpening) {
+                    // All literal buffered but the mailbox is still
+                    // opening; the async-open completion callback will
+                    // flush and finalise.
+                } else {
+                    finishAppend();
+                }
             }
-            charBuffer.flip();
-
-            int len = charBuffer.limit();
-            if (len >= 2 && charBuffer.get(len - 2) == '\r'
-                    && charBuffer.get(len - 1) == '\n') {
-                charBuffer.limit(len - 2);
-            } else if (len >= 1 && charBuffer.get(len - 1) == '\n') {
-                charBuffer.limit(len - 1);
-            }
-            String lineStr = charBuffer.toString();
-
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                String msg = L10N.getString("log.imap_command");
-                msg = MessageFormat.format(msg, lineStr);
-                LOGGER.finest(msg);
-            }
-
-            processLine(lineStr);
-
         } catch (IOException e) {
             String msg = L10N.getString("log.error_processing_data");
             LOGGER.log(Level.WARNING, msg, e);
         }
     }
 
-    @Override
-    public boolean continueLineProcessing() {
-        return appendLiteralRemaining <= 0 && commandLiteralRemaining <= 0;
+    /**
+     * Handles the raw bytes of a general-purpose (non-APPEND) literal:
+     * the body of the pre-conversion {@code receiveCommandLiteralData},
+     * minus the buffer-bound arithmetic (see {@link
+     * #handleAppendLiteralBytes(ByteBuffer)}). Once complete, the
+     * accumulated bytes are UTF-8 decoded and spliced back into {@code
+     * argsBuilder}, exactly as {@code pendingCommand.append(literalStr)}
+     * did — structured token scanning then resumes automatically for the
+     * rest of this segment (see {@link ByteStreamLexer#enterRaw(long)}),
+     * which is what replaces the old code's manual re-entrant {@code
+     * LineParser.parse}/{@code receive(buffer)} call.
+     */
+    private void handleGeneralLiteralBytes(ByteBuffer slice) {
+        int toConsume = slice.remaining();
+        if (toConsume > 0) {
+            byte[] chunk = new byte[toConsume];
+            slice.get(chunk);
+            try {
+                generalLiteralBuffer.write(chunk);
+            } catch (IOException e) {
+                // ByteArrayOutputStream.write() never actually throws.
+            }
+            generalLiteralRemaining -= toConsume;
+        }
+        if (generalLiteralRemaining == 0) {
+            String literalStr;
+            try {
+                literalStr = generalLiteralBuffer.toString(
+                        StandardCharsets.UTF_8.name());
+            } catch (java.io.UnsupportedEncodingException e) {
+                literalStr = ""; // UTF-8 is always supported; unreachable
+            }
+            generalLiteralBuffer = null;
+            argsBuilder.append(literalStr);
+        }
     }
 
-    @Override
-    public void lineTooLong() {
+    // ── Line/literal assembly (RFC 9051 section 4 — command syntax) ──
+
+    // RFC 9051 section 2.2 — a complete segment has been lexed: either a
+    // literal spec ({@code {nnn}}/{@code {nnn+}}, RFC 7888) that starts a
+    // raw escape and awaits more segments, or the true end of a command
+    // (or of a bare IDLE DONE / SASL continuation line), which dispatches.
+    private void dispatchLine() {
         try {
-            sendTaggedBad(currentTag != null ? currentTag : "*",
-                    L10N.getString("imap.err.line_too_long"));
+            if (segmentError != null) {
+                String err = segmentError;
+                String tag = currentTag != null ? currentTag : "*";
+                resetCommandState();
+                sendTaggedBad(tag, err);
+                return;
+            }
+
+            // RFC 7888 / RFC 9051 section 4.3: a literal spec only ever
+            // appears immediately before this CRLF, whether this is the
+            // first segment of a fresh command or a continuation after a
+            // prior general literal (mirrors parseLiteralSpec() being
+            // checked in both the fresh-line and pendingCommand-continuation
+            // branches of the pre-conversion processLine()).
+            long[] literalSpec = parseLiteralSpec(argsBuilder.toString());
+            boolean isAppend = !inGeneralLiteralContinuation
+                    && literalSpec != null && isAppendCommandWord();
+            if (literalSpec != null && !isAppend) {
+                if (literalSpec[0] > server.getMaxLiteralSize()) {
+                    String tag = inGeneralLiteralContinuation
+                            ? currentTag
+                            : (pendingHasSp && !pendingTagText.isEmpty()
+                                    ? pendingTagText : "*");
+                    resetCommandState();
+                    sendTaggedNo(tag, L10N.getString("imap.err.literal_too_large"));
+                    return;
+                }
+                int braceIdx = argsBuilder.lastIndexOf("{");
+                argsBuilder.setLength(braceIdx);
+                inGeneralLiteralContinuation = true;
+                startGeneralLiteral(literalSpec[0], literalSpec[1] != 0);
+                resetSegmentState();
+                return;
+            }
+
+            inGeneralLiteralContinuation = false;
+            dispatchAssembledCommand();
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+            String msg = L10N.getString("log.error_processing_data");
+            LOGGER.log(Level.WARNING, msg, e);
         }
+    }
+
+    // Reassembly is complete for this logical command (no trailing literal
+    // spec on the just-finished segment): reconstruct what the old
+    // whole-line decode would have produced, and run the exact same
+    // idling/SASL/tag/command dispatch it did.
+    private void dispatchAssembledCommand() throws IOException {
+        String tag = pendingTagText;
+        boolean hadSp = pendingHasSp;
+        String args = argsBuilder.toString();
+        String line = hadSp ? (tag + " " + args) : tag;
+        resetCommandState();
+
+        if (line.isEmpty()) {
+            return;
+        }
+
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            String msg = L10N.getString("log.imap_command");
+            msg = MessageFormat.format(msg, line);
+            LOGGER.finest(msg);
+        }
+
+        if (idling && line.equalsIgnoreCase("DONE")) {
+            handleIdleDone();
+            return;
+        }
+        if (authState != AuthState.NONE) {
+            processSASLResponse(line);
+            return;
+        }
+
+        if (!hadSp || tag.isEmpty()) {
+            sendTaggedBad("*", L10N.getString("imap.err.missing_tag"));
+            return;
+        }
+        if (!isValidTag(tag)) {
+            sendTaggedBad("*", L10N.getString("imap.err.invalid_tag"));
+            return;
+        }
+        currentTag = tag;
+
+        int spaceIndex = args.indexOf(' ');
+        String command;
+        String arguments;
+        if (spaceIndex > 0) {
+            command = args.substring(0, spaceIndex).toUpperCase(Locale.ENGLISH);
+            arguments = args.substring(spaceIndex + 1);
+        } else {
+            command = args.toUpperCase(Locale.ENGLISH);
+            arguments = "";
+        }
+
+        try {
+            dispatchCommand(tag, command, arguments);
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Error processing IMAP command: "
+                    + command, e);
+            sendTaggedNo(tag, L10N.getString("imap.err.internal_error"));
+        }
+    }
+
+    /**
+     * Parses a literal specifier at the end of an assembled segment.
+     * Returns {@code [size, nonSync]} where nonSync is 1 for {N+} and 0
+     * for {N}, or null if no literal specifier is present.
+     */
+    private long[] parseLiteralSpec(String text) {
+        if (!text.endsWith("}")) {
+            return null;
+        }
+        int braceStart = text.lastIndexOf('{');
+        if (braceStart < 0) {
+            return null;
+        }
+        String spec = text.substring(braceStart + 1, text.length() - 1);
+        boolean nonSync = spec.endsWith("+");
+        if (nonSync) {
+            spec = spec.substring(0, spec.length() - 1);
+        }
+        try {
+            long size = Long.parseLong(spec);
+            if (size < 0) {
+                return null;
+            }
+            // RFC 7888: LITERAL- only allows non-sync for <= 4096 bytes
+            if (nonSync && size > 4096) {
+                return null;
+            }
+            return new long[]{size, nonSync ? 1 : 0};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Tests whether the command word assembled so far in {@code
+     * argsBuilder} is APPEND (which handles its own literal via the
+     * specialized binary data path, so the generic literal interruption
+     * below must not intercept it).
+     */
+    private boolean isAppendCommandWord() {
+        int sp = argsBuilder.indexOf(" ");
+        String word = sp >= 0 ? argsBuilder.substring(0, sp) : argsBuilder.toString();
+        return "APPEND".equalsIgnoreCase(word);
+    }
+
+    /**
+     * Begins consuming a general-purpose literal for command assembly.
+     * Sends a continuation request for synchronizing literals.
+     */
+    private void startGeneralLiteral(long size, boolean nonSync) throws IOException {
+        generalLiteralRemaining = size;
+        generalLiteralBuffer = new ByteArrayOutputStream((int) Math.min(size, 8192));
+        if (!nonSync) {
+            sendContinuation(L10N.getString("imap.ready_for_literal"));
+        }
+        lexer.enterLiteral(size);
     }
 
     // ── Transport helpers ──
@@ -661,251 +977,6 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         if (sessionSpan != null && !sessionSpan.isEnded()
                 && category != null) {
             sessionSpan.recordError(category, message);
-        }
-    }
-
-    // ── Literal data ──
-
-    private void receiveLiteralData(ByteBuffer buffer) throws IOException {
-        int available = buffer.remaining();
-        int toConsume = (int) Math.min(available, appendLiteralRemaining);
-
-        if (toConsume > 0) {
-            ByteBuffer slice = buffer.slice();
-            slice.limit(toConsume);
-
-            if (appendDiscarding) {
-                // The mailbox open (or a buffered write) failed; drain the
-                // client's literal into the void to stay in protocol sync.
-            } else if (appendMailboxOpening) {
-                // Mailbox still opening off-loop; buffer until it is ready.
-                byte[] tmp = new byte[toConsume];
-                slice.get(tmp);
-                appendPendingData.write(tmp, 0, tmp.length);
-            } else if (appendDataHandler != null) {
-                appendDataHandler.appendData(appendMailbox, slice);
-            } else {
-                appendMailbox.appendMessageContent(slice);
-            }
-
-            buffer.position(buffer.position() + toConsume);
-            appendLiteralRemaining -= toConsume;
-
-            if (!appendMailboxOpening && !appendDiscarding
-                    && appendDataHandler != null
-                    && appendDataHandler.wantsPause()
-                    && appendLiteralRemaining > 0) {
-                appendDataHandler.setResumeCallback(
-                        new AppendResumeTask());
-                endpoint.pauseRead();
-                return;
-            }
-        }
-
-        if (appendLiteralRemaining == 0) {
-            if (appendDiscarding) {
-                // Finished draining a failed APPEND; report it now.
-                sendAppendFailure();
-                resetAppendState();
-            } else if (appendMailboxOpening) {
-                // All literal buffered but the mailbox is still opening; the
-                // async-open completion callback will flush and finalise.
-                return;
-            } else {
-                finishAppend();
-            }
-
-            if (buffer.hasRemaining()) {
-                receive(buffer);
-            }
-        }
-    }
-
-    /**
-     * Consumes bytes from the buffer for a general-purpose command literal.
-     * When all literal bytes are consumed, appends them to {@code pendingCommand}
-     * and resumes line parsing for the command continuation.
-     */
-    private void receiveCommandLiteralData(ByteBuffer buffer)
-            throws IOException {
-        int available = buffer.remaining();
-        int toConsume = (int) Math.min(available, commandLiteralRemaining);
-
-        if (toConsume > 0) {
-            byte[] chunk = new byte[toConsume];
-            buffer.get(chunk);
-            commandLiteralBuffer.write(chunk);
-            commandLiteralRemaining -= toConsume;
-        }
-
-        if (commandLiteralRemaining == 0) {
-            String literalStr = commandLiteralBuffer.toString(
-                    java.nio.charset.StandardCharsets.UTF_8.name());
-            commandLiteralBuffer = null;
-            pendingCommand.append(literalStr);
-            // Resume line parsing for the continuation of the command
-            if (buffer.hasRemaining()) {
-                LineParser.parse(buffer, this, server.getMaxLineLength());
-            }
-        }
-    }
-
-    // ── Line processing (RFC 9051 section 4 — command syntax) ──
-
-    private void processLine(String line) throws IOException {
-        if (line.isEmpty()) {
-            return;
-        }
-
-        // Continuation after a general-purpose literal has been consumed
-        if (pendingCommand != null) {
-            long[] literalSpec = parseLiteralSpec(line);
-            if (literalSpec != null) {
-                if (literalSpec[0] > server.getMaxLiteralSize()) {
-                    pendingCommand = null;
-                    sendTaggedNo(currentTag,
-                            L10N.getString("imap.err.literal_too_large"));
-                    return;
-                }
-                pendingCommand.append(line, 0,
-                        line.lastIndexOf('{'));
-                startCommandLiteral(literalSpec[0], literalSpec[1] != 0);
-                return;
-            }
-            pendingCommand.append(line);
-            String assembled = pendingCommand.toString();
-            pendingCommand = null;
-            processLine(assembled);
-            return;
-        }
-
-        if (idling && line.equalsIgnoreCase("DONE")) {
-            handleIdleDone();
-            return;
-        }
-
-        if (authState != AuthState.NONE) {
-            processSASLResponse(line);
-            return;
-        }
-
-        // RFC 7888: detect literal at end of command line.
-        // APPEND handles its own literal (binary message body), so skip it.
-        long[] literalSpec = parseLiteralSpec(line);
-        if (literalSpec != null && !isAppendCommand(line)) {
-            if (literalSpec[0] > server.getMaxLiteralSize()) {
-                int tagEnd = line.indexOf(' ');
-                String errTag = tagEnd > 0 ? line.substring(0, tagEnd) : "*";
-                sendTaggedNo(errTag,
-                        L10N.getString("imap.err.literal_too_large"));
-                return;
-            }
-            pendingCommand = new StringBuilder();
-            pendingCommand.append(line, 0, line.lastIndexOf('{'));
-            startCommandLiteral(literalSpec[0], literalSpec[1] != 0);
-            return;
-        }
-
-        int spaceIndex = line.indexOf(' ');
-        if (spaceIndex <= 0) {
-            sendTaggedBad("*", L10N.getString("imap.err.missing_tag"));
-            return;
-        }
-
-        String tag = line.substring(0, spaceIndex);
-        String rest = line.substring(spaceIndex + 1);
-
-        if (!isValidTag(tag)) {
-            sendTaggedBad("*", L10N.getString("imap.err.invalid_tag"));
-            return;
-        }
-
-        currentTag = tag;
-
-        spaceIndex = rest.indexOf(' ');
-        String command;
-        String arguments;
-        if (spaceIndex > 0) {
-            command = rest.substring(0, spaceIndex)
-                    .toUpperCase(Locale.ENGLISH);
-            arguments = rest.substring(spaceIndex + 1);
-        } else {
-            command = rest.toUpperCase(Locale.ENGLISH);
-            arguments = "";
-        }
-
-        try {
-            dispatchCommand(tag, command, arguments);
-        } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error processing IMAP command: "
-                    + command, e);
-            sendTaggedNo(tag, L10N.getString("imap.err.internal_error"));
-        }
-    }
-
-    /**
-     * Parses a literal specifier at the end of a line.
-     * Returns {@code [size, nonSync]} where nonSync is 1 for {N+} and 0
-     * for {N}, or null if no literal specifier is present.
-     */
-    private long[] parseLiteralSpec(String line) {
-        if (!line.endsWith("}")) {
-            return null;
-        }
-        int braceStart = line.lastIndexOf('{');
-        if (braceStart < 0) {
-            return null;
-        }
-        String spec = line.substring(braceStart + 1, line.length() - 1);
-        boolean nonSync = spec.endsWith("+");
-        if (nonSync) {
-            spec = spec.substring(0, spec.length() - 1);
-        }
-        try {
-            long size = Long.parseLong(spec);
-            if (size < 0) {
-                return null;
-            }
-            // RFC 7888: LITERAL- only allows non-sync for <= 4096 bytes
-            if (nonSync && size > 4096) {
-                return null;
-            }
-            return new long[]{size, nonSync ? 1 : 0};
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    /**
-     * Tests whether a command line is an APPEND command (which handles
-     * its own literal via the specialized binary data path).
-     */
-    private boolean isAppendCommand(String line) {
-        int sp1 = line.indexOf(' ');
-        if (sp1 <= 0) {
-            return false;
-        }
-        int sp2 = line.indexOf(' ', sp1 + 1);
-        String command;
-        if (sp2 > 0) {
-            command = line.substring(sp1 + 1, sp2);
-        } else {
-            command = line.substring(sp1 + 1);
-        }
-        return "APPEND".equalsIgnoreCase(command);
-    }
-
-    /**
-     * Begins consuming a general-purpose literal for command assembly.
-     * Sends a continuation request for synchronizing literals.
-     */
-    private void startCommandLiteral(long size, boolean nonSync)
-            throws IOException {
-        commandLiteralRemaining = size;
-        commandLiteralBuffer = new java.io.ByteArrayOutputStream(
-                (int) Math.min(size, 8192));
-        if (!nonSync) {
-            sendContinuation(L10N.getString("imap.ready_for_literal"));
         }
     }
 
@@ -2851,11 +2922,11 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
             long literalSize, boolean nonSync) throws IOException {
         // Opening the target mailbox is blocking disk I/O (file lock + full
         // index scan) and must not run on the loop. Set up the literal state
-        // synchronously so the receive()/LineParser flow is unchanged, then
-        // open the mailbox off-loop. Literal bytes arriving while the open is
-        // in flight are buffered by receiveLiteralData() and flushed on
-        // completion; reads are NOT paused so pipelined LITERAL+ data is never
-        // stranded in the connection buffer.
+        // synchronously so the receive()/lexer flow is unchanged, then open
+        // the mailbox off-loop. Literal bytes arriving while the open is in
+        // flight are buffered by handleAppendLiteralBytes() (see rawBytes())
+        // and flushed on completion; reads are NOT paused so pipelined
+        // LITERAL+ data is never stranded in the connection buffer.
         appendTag = tag;
         appendLiteralRemaining = literalSize;
         appendMailboxName = mailboxName;
@@ -2872,6 +2943,15 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
         if (!nonSync) {
             sendContinuation(L10N.getString("imap.ready_for_literal"));
         }
+        // Tell the lexer to deliver the literal's octets via rawBytes()
+        // instead of tokenising them as more command syntax. This must
+        // happen synchronously here (not deferred to a check after
+        // dispatchCommand() returns, the way SMTP's DATA/BDAT transition
+        // works) because appendLiteralRemaining can also be set later,
+        // asynchronously, from AppendStateImpl.readyForData() when an
+        // application-provided SelectedHandler/AuthenticatedHandler defers
+        // its append() decision — see the matching call there.
+        lexer.enterLiteral(literalSize);
 
         final String mbxName = mailboxName;
         final Set<Flag> appendFlags = flags;
@@ -6783,6 +6863,14 @@ public class IMAPProtocolHandler implements ProtocolHandler, LineParser.Callback
                     sendContinuation(
                             L10N.getString("imap.ready_for_literal"));
                 }
+                // This may run well after dispatchCommand() has already
+                // returned — an application's SelectedHandler/
+                // AuthenticatedHandler.append() can defer calling this
+                // (e.g. an async permission check) — so the lexer must be
+                // told right here, not via a post-dispatch check like
+                // SMTP's DATA/BDAT transition uses. See the matching call
+                // in executeAppendDirect() for the synchronous path.
+                lexer.enterLiteral(literalSize);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed to start APPEND to " + mailboxName, e);

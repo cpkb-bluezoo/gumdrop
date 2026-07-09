@@ -7,8 +7,8 @@ style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
 Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
-client), Phase 2 (FTP), and Phase 3 (SMTP server + client) complete.
-Phase 4 (IMAP) next.**
+client), Phase 2 (FTP), Phase 3 (SMTP server + client), and Phase 4.1
+(IMAP server) complete. Phase 4.2 (IMAP client) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -1076,12 +1076,141 @@ phase's implementer):
 - [x] `LineParser.Callback` removed from `SMTPClientProtocolHandler`
       (`LineParser` import removed; no remaining reference).
 
-### Phase 4 — IMAP
-- [ ] Spike: mid-line `{nnn}` literal extraction → `+ OK` → `RAW(n)` → resume.
-- [ ] IMAP server lexer + parser (tags, quoted, literals, LITERAL-).
+### Phase 4.1 — IMAP server ✅ done
+- [x] `IMAPServerLexer.java` (new) — `KEYWORD [SP TEXT] CRLF`, structurally
+      identical to the POP3/FTP/SMTP server lexers. Crucially, **this
+      lexer knows nothing about IMAP literals at all**: the `"{" number
+      ["+"] "}" CRLF` production (RFC 9051 §4.3, RFC 7888) only ever
+      appears immediately before a CRLF, so all literal detection lives in
+      the parser, inspecting accumulated text when the `CRLF` token
+      arrives, and calling `enterRaw(long)` from within that callback (the
+      "nested call during token dispatch" pattern, same as every other
+      raw escape in this conversion). This confirms the plan's original
+      framing of IMAP as "hardest because of literals" — the existing
+      pre-conversion code turned out to already be a hand-rolled version
+      of exactly what `enterRaw` was designed for (its own class Javadoc
+      cites IMAP `{nnn}` literals as the motivating example), so the
+      actual work was mapping onto that primitive faithfully, not
+      inventing new mechanism.
+- [x] **Scope boundary, deliberately**: only the outer "get bytes off the
+      wire into a fully-assembled logical command line" layer — the exact
+      seam `LineParser` occupied — was converted. `dispatchCommand(tag,
+      command, args)` and every per-command argument parser beneath it
+      (quoted strings, parenthesized lists, `StringTokenizer` flag
+      parsing, ~40 commands across several state-gated `switch (String)`
+      blocks) is **completely unchanged**. Unlike POP3/FTP/SMTP, this
+      dispatch was *not* converted to enum resolution: `switch (String)`
+      already compiles to hashcode+equals dispatch in Java, not the
+      sequential-if-else pattern the original enum-resolution instruction
+      was correcting for in POP3 — so there was no efficiency or
+      clarity win available, only risk, across a dispatch this large.
+- [x] **Two literal kinds, two different fates, exactly preserved**:
+    - **APPEND's own message-body literal** never touches the lexer's
+      general-literal path at all. The pre-conversion `isAppendCommand`
+      sniff (now `isAppendCommandWord()`, checking the first word
+      assembled so far in `argsBuilder`) makes the generic CRLF handler
+      leave APPEND's `{n}` marker untouched in the dispatched arguments
+      text, exactly as before — APPEND's own business logic
+      (`handleAppend`/`executeAppendDirect`/`AppendStateImpl`) parses it
+      itself, completely unchanged. `receiveLiteralData` became
+      `handleAppendLiteralBytes(ByteBuffer slice)`, invoked from
+      `rawBytes()` — identical routing logic (discard-on-failure /
+      buffer-while-mailbox-opening / stream-to-`appendDataHandler` /
+      stream-to-mailbox, plus the `wantsPause()`/`endpoint.pauseRead()`
+      backpressure check), just minus the "how much do I take from this
+      buffer" arithmetic, since `enterRaw` already bounds `slice` to at
+      most what's still needed.
+    - **General-purpose literals** (RFC 7888 — a literal mailbox name,
+      SASL/LOGIN credential, search key, anywhere else in a command)
+      buffer into a small `ByteArrayOutputStream`, UTF-8 decode, and
+      splice back into `argsBuilder` once complete — `receiveCommandLiteralData`
+      became `handleGeneralLiteralBytes`, same simplification. A chained
+      second literal on the continuation segment is detected the exact
+      same way, at the next `CRLF`, with no special-casing — this is what
+      `enterRaw`'s automatic resume-within-the-same-`feed()`-call
+      behavior buys for free.
+- [x] **Discovered during design, before writing code**: `enterRaw` is
+      *always* triggered from within a token callback in every other use
+      in this conversion, but APPEND's `appendLiteralRemaining` is not
+      reliably set synchronously with `dispatchCommand()` returning — an
+      application-provided `SelectedHandler`/`AuthenticatedHandler.append()`
+      can defer calling `AppendStateImpl.readyForData()` asynchronously
+      (e.g. behind a permission check), well after `dispatchCommand()` has
+      already returned. A SMTP-style "check state after dispatchCommand()
+      returns" post-dispatch hook (as used for DATA/BDAT) would silently
+      miss this case. Fixed by calling `lexer.enterLiteral(literalSize)`
+      directly at both of the two sites that actually set
+      `appendLiteralRemaining` (`executeAppendDirect`'s synchronous path,
+      and `AppendStateImpl.readyForData()`'s app-callback path) — the
+      *only* place in this whole phase where business logic needed a
+      one-line touch, and it's the same timing/race characteristics the
+      pre-conversion code already had (the app callback could always defer
+      past when bytes start arriving for a non-sync literal; this isn't a
+      regression, just faithfully relocating the existing trigger point).
+- [x] **A second, purely-lexical wrinkle, resolved without changing the
+      lexer**: after a raw literal escape completes, `ByteStreamLexer`
+      always resumes in structured token-scanning mode, not latched text
+      mode (necessarily — that's what makes chained-literal detection
+      possible at all). So resumed bytes arrive as an ordinary
+      `KEYWORD`/`SP` pair, which — for content that continues *without* a
+      leading space (e.g. a literal immediately followed by `)` closing a
+      list, with no separating space) — would otherwise be misidentified
+      as a fresh command's tag. Resolved entirely in the parser via a
+      `freshCommand` flag: once false (past the real tag), a `KEYWORD`
+      token's content is appended into `argsBuilder` verbatim instead of
+      being captured as a new tag, and an `SP` token appends a literal
+      space and re-latches text mode, which then handles the rest of the
+      resumed segment normally via the base class's own `continueText()`.
+      Covered by `IMAPServerLexerTest.testResumeAfterEnterRawWithoutLeadingSpace`.
+- [x] The per-segment length budget (`segmentByteCount`, checked
+      incrementally as `TEXT` chunks arrive) replicates the pre-conversion
+      `lineLength > maxLineLength + 2` whole-physical-line check, reset
+      once per segment (not cumulatively across a multi-literal logical
+      command) — matching the original's own per-`lineReceived()`-call
+      scope exactly.
+- [x] **One deliberate, documented behavioral improvement, not a
+      faithfulness gap**: the pre-conversion `lineTooLong()` did not reset
+      `pendingCommand` when an oversized *continuation* segment (post-
+      literal) was rejected, which looks like a latent bug — a subsequent
+      line would be wrongly treated as continuing the abandoned command.
+      `tokenTooLong()` now unconditionally calls `resetCommandState()`,
+      abandoning the whole in-progress command (tag, args, literal-
+      continuation state) rather than trying to preserve any of it. Noted
+      here rather than silently diverging.
+- [x] `receive()` simplified from ~42 lines of manual
+      `appendLiteralRemaining`/`commandLiteralRemaining` pre/post checks
+      and re-entrant `LineParser.parse`/`receive(buffer)` calls down to a
+      single `lexer.feed(buffer)` — `enterRaw`'s automatic resume made all
+      of that bookkeeping unnecessary, not just relocated it.
+- [x] `charBuffer` (whole-line `CharBuffer` decode buffer) and
+      `pendingCommand`/`commandLiteralRemaining`/`commandLiteralBuffer`
+      removed; `LineParser.Callback` removed from `IMAPProtocolHandler`.
+- [x] Tests: `IMAPServerLexerTest.java` (8 tests, direct token-level,
+      including the post-raw-escape-resume regression test above) +
+      `IMAPProtocolHandlerTest.java` (19 tests, new — no pre-existing
+      handler-level coverage existed at all). Handler tests cover: basic
+      dispatch, missing/invalid tag (including the "leading space" edge
+      case), sliced-boundary fuzzing, line-too-long for both the tag and
+      the args (confirming the reply correctly falls back to `currentTag`/
+      `"*"` when the cap fires before any tag is known — matching, not
+      fixing, the pre-conversion timing), and — the core new-ground
+      coverage — RFC 7888 general-purpose literals via LOGIN: a
+      synchronizing literal, a non-synchronizing (LITERAL+) pipelined
+      literal, two **chained** literals in one command (proving the
+      resume-and-detect-another-literal path), literal-too-large
+      rejection with resync, and literal content sliced at every chunk
+      size. APPEND's own literal (the specialised streaming path) is
+      deliberately left to `IMAPServerIntegrationTest`'s
+      `testAppendSynchronizingLiteral`/`testAppendNonSynchronizingLiteral`
+      (26 tests total, unchanged, still green) — driving it meaningfully
+      needs a real `MailboxStore`/`Mailbox`, which those tests already
+      provide end-to-end, including the async mailbox-open buffering path
+      that the non-sync test's own comment calls out. Full `ant test` and
+      `ant integration-test-imap` green.
+
+### Phase 4.2 — IMAP client
 - [ ] IMAP client lexer + parser (`*` / tag / `+`, literals in responses).
-- [ ] Tests incl. literal split across `receive()`; suite green; remove
-      `LineParser.Callback` from both.
+- [ ] Tests; suite green; remove `LineParser.Callback` from the client.
 
 ### Phase 5 — HTTP/1
 - [ ] Server (`HTTPProtocolHandler`): request-line + header lexer/parser;
