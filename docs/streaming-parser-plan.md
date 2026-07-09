@@ -7,8 +7,8 @@ style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
 Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
-client), and Phase 2 (FTP) complete. Phase 3.1 (SMTP server) complete.
-Phase 3.2 (SMTP client) next.**
+client), Phase 2 (FTP), and Phase 3 (SMTP server + client) complete.
+Phase 4 (IMAP) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -1002,9 +1002,79 @@ phase's implementer):
 - [x] `LineParser.Callback` removed from `SMTPProtocolHandler` (the
       client still implements it; removed once Phase 3.2 converts it).
 
-### Phase 3.2 — SMTP client
-- [ ] SMTP client lexer + parser; multiline reply state machine; EHLO caps.
-- [ ] Tests; suite green; remove `LineParser.Callback` from the client.
+### Phase 3.2 — SMTP client ✅ done
+- [x] `SMTPClientLexer.java` (new) — reply grammar `CODE [SEP TEXT] CRLF`
+      (RFC 5321 §4.2), structurally different from every server-side lexer
+      so far: `CODE` is a **fixed 3-digit width**, not a variable-length
+      run up to the first space, so the lexer tracks a small amount of
+      per-line non-positional state (`sawCode`) instead of scanning for a
+      delimiter. `SEP` is a single byte — `'-'` (`DASH`, continuation) or,
+      leniently, any other byte (`SP`, final line) — consumed but not
+      itself part of the message text, matching the pre-conversion code's
+      own lenient `charAt(3) == '-'` check (any non-`'-'` separator byte
+      was silently accepted and dropped, not just space).
+    - `Integer.MAX_VALUE` `maxTokenLength` (no cap): this client trusts the
+      remote server, same principle as `POP3ClientLexer` — structured
+      tokens here (`CODE`, `DASH`, `SP`) are fixed at 1–3 bytes each
+      anyway, so the cap is moot for the common case, but the constant
+      documents the "trust the peer" client-side stance explicitly rather
+      than leaving a magic small number to be questioned later.
+    - No `requestStop()`/raw-escape machinery needed at all — the SMTP
+      client only *sends* DATA/BDAT content (via the pre-existing,
+      untouched `DotUnstuffer`), it never *receives* raw content, so
+      `rawBytes()`/`tokenTooLong()` are structurally unreachable.
+- [x] **Bug found and fixed during testing** (self-caught, not user-
+      reported): `sawCode` was being reset to `false` only inside {@code
+      consume(byte)}'s own CR/LF branch — but once `SEP` latches text mode
+      (true for nearly every real SMTP reply, since almost all carry a
+      status message), `consume()` is **not** re-entered for the rest of
+      that line; the base class's `continueText()` emits the terminating
+      CRLF directly. So `sawCode` stayed `true` into the next line, and
+      the next line's first CODE digit was misinterpreted as the
+      *separator byte left over from the previous line*, corrupting
+      parsing of every line after the first in any multi-line response.
+      This is the same class of bug as POP3 client's `requestStop()` saga
+      in Phase 1 (subclass-local state that a generic base-class text-mode
+      path silently bypasses) but caught by the new unit tests before
+      reaching integration tests. Unlike `lastWasCR` in the command
+      lexers — which self-heals because every non-`'\r'` byte
+      unconditionally clears it, and a fresh line's first byte is never
+      `'\r'` — `sawCode` has no such self-correcting property, since its
+      *whole job* is to persist meaningfully across the CODE→separator
+      boundary. Fixed by adding `SMTPClientLexer.resetForNextLine()`
+      (package-private) and having the parser call it from its own
+      `Token.CRLF` handling, which reliably fires exactly once per line
+      regardless of which internal path produced the CRLF — the same
+      "let the single chokepoint the parser always sees do the reset"
+      principle used elsewhere in this conversion. Covered by
+      `testMultilineEhloReplySequence` in the new lexer test, which fails
+      without the fix.
+- [x] Reply code resolved directly from the `CODE` token's raw bytes
+      (`parseCode()`, a 3-digit unrolled loop) with **no `String`
+      allocation** for the common (valid, 3-digit) case — a decode only
+      happens on the rare malformed-code error path, mirroring the
+      "decode only for the rare/error case" pattern used throughout this
+      conversion (e.g. POP3/FTP/SMTP-server's unknown-command text).
+- [x] `handleReplyLine(String)` removed entirely; its logic (421 special-
+      case, continuation accumulation into `multiLineResponse`, dispatch)
+      moved into `dispatchLine()`, operating on already-resolved
+      `pendingCode`/`pendingContinuation`/`replyTextBuilder` state instead
+      of re-parsing a buffered line string. A bare CRLF with no CODE token
+      at all (blank line) is silently ignored, matching the pre-conversion
+      `line.remaining() < 2` check.
+    - `lineBuilder` (an unused leftover `StringBuilder` field never
+      actually read anywhere in the pre-conversion code) removed.
+- [x] Tests: `SMTPClientLexerTest.java` (7 tests, new, direct token-level)
+      + all 22 pre-existing `SMTPClientProtocolHandlerTest` tests pass
+      unchanged (EHLO capability parsing, MAIL FROM/RCPT TO extension
+      params, VRFY/EXPN — this suite already gave strong regression
+      coverage for the conversion once the `sawCode` bug above was fixed).
+      `SMTPClientIntegrationTest` (7 tests, real client against real
+      server: STARTTLS upgrade, SMTPS implicit TLS, multiple messages per
+      session, multiple recipients) passes unchanged. Full `ant test` and
+      `ant integration-test-smtp` green.
+- [x] `LineParser.Callback` removed from `SMTPClientProtocolHandler`
+      (`LineParser` import removed; no remaining reference).
 
 ### Phase 4 — IMAP
 - [ ] Spike: mid-line `{nnn}` literal extraction → `+ OK` → `RAW(n)` → resume.
