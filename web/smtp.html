@@ -360,6 +360,34 @@ builder.onComplete(new AuthResultCallback() {
 connection.setPipeline(builder.build());
 </pre>
 
+<h4>Organizational Domain Alignment (RFC 7489 &sect;3.1, &sect;3.2)</h4>
+
+<p>
+DMARC alignment compares the From domain against the SPF and DKIM domains
+at the <b>organizational domain</b> level (relaxed mode) or exact domain
+level (strict mode). Computing the organizational domain correctly requires
+knowing where a public suffix ends and a registrable domain begins -
+<code>example.co.uk</code>'s organizational domain is
+<code>example.co.uk</code> itself (since <code>co.uk</code> is a public
+suffix, not a registrable domain), whereas <code>example.com</code>'s is
+also just <code>example.com</code>, but for a different reason
+(<code>com</code> alone is the public suffix).
+</p>
+
+<p>
+<code>DMARCValidator</code> computes this against the real
+<a href="https://publicsuffix.org/list/">Mozilla Public Suffix List</a>,
+bundled as a classpath resource
+(<code>org/bluezoo/gumdrop/smtp/auth/public_suffix_list.dat</code>) and
+loaded by <code>PublicSuffixList</code>, rather than a hardcoded subset of
+common TLDs - this covers every public suffix rule the list defines,
+including wildcard rules (e.g. <code>*.ck</code>) and their exceptions
+(e.g. <code>!www.ck</code>), and matches internationalized TLDs regardless
+of whether the domain arrives in Unicode or ASCII/punycode form. Run
+<code>ant update-psl</code> to refresh the bundled list from
+publicsuffix.org.
+</p>
+
 <h4>Message Handler Integration</h4>
 
 <p>
