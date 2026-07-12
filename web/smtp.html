@@ -388,6 +388,44 @@ of whether the domain arrives in Unicode or ASCII/punycode form. Run
 publicsuffix.org.
 </p>
 
+<h4>DMARCbis (RFC 9989)</h4>
+
+<p>
+<code>DMARCValidator</code> also implements the DMARC policy-and-alignment
+additions from RFC 9989 ("DMARCbis"), which is largely additive and
+backward-compatible - existing <code>v=DMARC1</code> records continue to
+work unchanged:
+</p>
+
+<ul>
+<li><b><code>t=</code></b> - testing mode. <code>t=y</code> downgrades the
+enforced policy by one level (<code>reject</code>&rarr;<code>quarantine</code>,
+<code>quarantine</code>&rarr;<code>none</code>) without changing the
+published <code>p=</code>/<code>sp=</code>/<code>np=</code> values, letting
+a domain owner observe what a stricter policy would do before enforcing
+it.</li>
+<li><b><code>np=</code></b> - policy for non-existent subdomains, used
+together with <code>psd=</code> below.</li>
+<li><b><code>psd=</code></b> - Public Suffix Domain flag. When the
+Organizational Domain (see above) has no DMARC record of its own,
+<code>DMARCValidator</code> queries one level above it; if that record
+declares <code>psd=y</code>, its <code>np=</code> tag (falling back to
+<code>sp=</code>, then <code>p=</code>) governs. This covers the
+spec-intended case of a registry or other Public Suffix Operator
+declaring policy directly above an Organizational Domain that publishes
+nothing itself - it does not implement RFC 9989's full generic multi-level
+DNS Tree Walk, since <code>psd=</code> adoption is negligible this soon
+after publication and the Public Suffix List above already resolves the
+Organizational Domain correctly for the overwhelming majority of
+domains.</li>
+</ul>
+
+<p>
+RFC 9989 §4.1 also requires <code>v=DMARC1</code> to be the first tag in
+a record; <code>DMARCValidator</code> discards any record where it is
+missing or not first, matching a malformed record.
+</p>
+
 <h4>Message Handler Integration</h4>
 
 <p>
