@@ -1,0 +1,15 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  WebSocket server integration test configuration.
+
+  Runs an EchoWebSocketService (see EchoWebSocketService.java) that
+  echoes text messages back prefixed with "echo:" and binary messages
+  back unchanged, so tests can verify the full upgrade handshake and
+  post-upgrade frame delivery path end to end.
+-->
+<gumdrop>
+    <service id="ws" class="org.bluezoo.gumdrop.websocket.EchoWebSocketService">
+        <listener class="org.bluezoo.gumdrop.websocket.WebSocketListener"
+                port="18110" addresses="127.0.0.1"/>
+    </service>
+</gumdrop>

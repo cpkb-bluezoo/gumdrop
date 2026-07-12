@@ -6,10 +6,12 @@ handlers with a two-stage **lexer → parser** pipeline, matching the streaming
 style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
-Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
-client), Phase 2 (FTP), Phase 3 (SMTP server + client), Phase 4 (IMAP,
-server + client), and Phase 5 (HTTP/1, server + client) complete.
-Phase 6 (teardown) next.**
+Status: **Phases 0–5 complete (foundation; POP3; FTP; SMTP server +
+client; IMAP server + client; HTTP/1 server + client). Phase 6
+(`LineParser` removed; WebSocket frame-delivery plumbing audited against
+the same push-parsing discipline, root-causing and fixing issue #107 as a
+byproduct) complete. `LineParser.java` no longer exists in this
+codebase.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -1512,6 +1514,130 @@ phase's implementer):
       test errors on the same unrelated pre-existing `Gumdrop.workerLoops`
       QUIC setup breakage noted in Phase 5.1).
 
-### Phase 6 — teardown
-- [ ] Confirm no remaining `LineParser.Callback` implementors.
-- [ ] Remove `LineParser` once unused; update `SEC-032` notes (cap now per-byte).
+### Phase 6 — WebSocket push-parsing conversion + LineParser teardown
+- [x] Confirm no remaining `LineParser.Callback` implementors.
+- [x] Remove `LineParser`; update `ByteStreamLexer`/`HTTPLineLexer` Javadoc
+      references from `{@link LineParser}` to plain prose (the class no
+      longer exists to link against). `SEC-032`'s original concern (no max
+      line length) is now addressed structurally by `ByteStreamLexer`'s
+      per-byte `maxTokenLength` cap (issue #85) rather than by a specific
+      class that can be referenced by name.
+- [x] **Scope change, mid-phase**: rather than stopping at LineParser
+      removal, converted the client-side compile break it exposed (see
+      below) into an opportunity to audit WebSocket frame handling against
+      the same push-parsing discipline used everywhere else in this
+      project (`ByteStreamLexer`, `H2Parser`) — partial data must never be
+      lost or force-consumed; a caller must be able to feed a connection's
+      bytes across arbitrarily many `receive()` calls, with any incomplete
+      trailing frame surviving to the next call.
+
+#### `ant clean && ant dist` compile break (client)
+
+Incremental `ant dist`/`ant test` runs after Phase 5.2 had been silently
+using stale `.class` files: `WebSocketClientProtocolHandler.java` (a
+subclass of `HTTPClientProtocolHandler` never itself modified in Phase
+5.2) referenced the `parseBuffer` field Phase 5.2 removed, in its
+`handleProtocolSwitch()` override — used to drain any pipelined
+post-upgrade WebSocket bytes still sitting in the old accumulation buffer
+at the moment the 101 response's upgrade completes. Only a full `ant
+clean && ant dist` (forcing recompilation of every file, not just changed
+ones) surfaced this.
+
+Fixed by giving `HTTPClientProtocolHandler` two small hooks so a subclass
+can take over mid-`receive()`-call the same way the server's `case
+WEBSOCKET:` dispatch already could:
+- `protected ByteBuffer currentReceiveBuffer` — the buffer passed to the
+  current `receive()` call, set once at the top of the loop. Lets a
+  synchronously-invoked subclass hook (`handleProtocolSwitch()`, called
+  from deep inside `processHeaderLine()`'s SWITCHING_PROTOCOLS branch)
+  read "whatever's left of this call's buffer beyond what the lexer has
+  consumed so far" — exactly what the removed `parseBuffer` used to
+  represent at that point, but now zero-copy against the real transport
+  buffer instead of an accumulation copy.
+- `protected boolean isExternallyHandled()` (default `false`) — checked
+  in `receive()`'s loop right after `lexer.feed(data)`; lets a subclass
+  say "I've already taken over for the rest of this buffer, stop." Needed
+  because the base `ParseState` enum has no WEBSOCKET value — `webSocketMode`
+  is a subclass-private concept the base loop can't otherwise see, so
+  without this override it would try to re-feed the lexer with leftover
+  binary WebSocket frame bytes as if they were more HTTP header lines.
+
+`WebSocketClientProtocolHandler.handleProtocolSwitch()` now drains
+`currentReceiveBuffer` directly (no flip needed — it's already in
+transport read-mode-with-position-tracking-consumed shape) and overrides
+`isExternallyHandled()` to return `webSocketMode`.
+
+#### The actual WebSocket delivery bug (issue #107) — root-caused and fixed
+
+Investigating whether this client-side gap had a server-side analogue led
+to actually root-causing #107 (previously filed as "confirmed pre-existing,
+not a regression, root cause unknown"). Two distinct, both pre-existing,
+bugs — neither introduced by this project, both violating the same
+push-parsing discipline the rest of the codebase already follows:
+
+1. **`Stream.appendRequestBody(ByteBuffer)` copied into an ephemeral
+   buffer every call, and `Stream.receiveRequestBody()`'s WebSocket branch
+   unconditionally forced `buf.position(buf.limit())` after
+   `webSocketAdapter.processIncomingData(buf)` returned.** `WebSocketFrame.parse()`
+   already correctly rewinds the buffer position to the start of an
+   incomplete trailing frame when there isn't enough data yet (same
+   contract as `H2Parser.receive()` leaving a partial frame's bytes
+   unconsumed) — but forcing the position to the limit anyway discarded
+   those bytes outright, and since the wrapping buffer was a fresh copy
+   discarded after each call, there was nowhere for them to survive to
+   the next `receive()` even if the position *had* been left alone. Fixed
+   by passing the real transport buffer straight through (no copy) and
+   removing the forced full-consumption — letting the transport's normal
+   compact-and-append cycle preserve the unconsumed remainder exactly the
+   way it already does for `H2Parser` and every `ByteStreamLexer`.
+2. **The actual reason nothing was ever delivered, even for a single
+   complete frame that arrived pipelined with the upgrade request**:
+   `HTTPProtocolHandler.processHeaderLine()`'s pre-existing "message body
+   length determination" logic (RFC 9112 section 6.3) unconditionally set
+   `state = State.REQUEST_LINE` for any bodyless request (`contentLength
+   == 0L`) once `stream.streamEndHeaders()` (which synchronously invokes
+   the application's `headers()` callback) returned — clobbering the
+   `state = State.WEBSOCKET` that `switchToWebSocketMode()` had *just* set
+   synchronously from inside that very callback (RFC 6455 section 4.1
+   upgrades are bodyless GET requests). The next loop iteration in
+   `receive()` therefore re-entered `REQUEST_LINE` instead of dispatching
+   to `receiveWebSocket()`, and the lexer silently absorbed the binary
+   WebSocket frame bytes while waiting forever for a CRLF that would never
+   come — the observed hang. Fixed with a guard immediately after
+   `stream.streamEndHeaders()`: if `state == State.WEBSOCKET`, return
+   immediately rather than falling into the body-length branch.
+
+   Confirmed via `git worktree` earlier (pre-#85, commit `c65803c`) that
+   this reproduced identically before the streaming-parser conversion
+   began — genuinely pre-existing, not a Phase 5 regression, just much
+   easier to trace with the push-parsing model's explicit `state` field
+   than the old `LineParser` callback chain would have been.
+
+   Verified fixed with two standalone real-socket repros (masked client
+   text frame, both pipelined with the upgrade request in one write and
+   sent as a fully separate write after the 101 response) — both now
+   `RESULT: PASS`, echo received correctly. `ant test` and
+   `ant integration-test-http` / `ant integration-test-http-client` all
+   green afterward (only the pre-existing, separately-filed #106 QUIC
+   `HTTP3ClientIntegrationTest` failure remains, unrelated).
+
+- [x] Added the integration test coverage noted in issue #107's original
+      scope: `test/integration/src/org/bluezoo/gumdrop/websocket/
+      WebSocketServerIntegrationTest.java` (new `EchoWebSocketService` +
+      `test/integration/config/websocket-server-test.xml`; new
+      `integration-test-websocket` Ant target, folded into the aggregate
+      `integration-test`). 6 tests: upgrade handshake, text/binary
+      round-trips, and two tests that reproduce each bug directly —
+      `testTextMessagePipelinedWithUpgrade` (bug 2, the state clobber) and
+      `testFrameSplitAcrossTwoWrites` (bug 1, the copy+force-consume).
+      Verified both regression tests actually fail (timeout) against the
+      pre-fix code via a temporary `git stash` of the two source fixes,
+      then pass again once restored — confirms they're real regression
+      guards, not tautological. `ant integration-test-websocket` green
+      alongside `ant test`, `ant integration-test-http`, and
+      `ant integration-test-http-client` (all still green together).
+- [ ] Issue #107 can now be closed with the two root causes above and
+      this new test coverage instead of left open as "root cause unknown".
+- [ ] Consider a small follow-up note on the closed SEC-032 issue (#36)
+      pointing at `ByteStreamLexer.maxTokenLength` as its structural
+      successor now that `LineParser.java` is gone.

@@ -37,8 +37,8 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * <p>So unlike every other lexer in this conversion, this one emits a
  * single token type, {@link Token#LINE}, spanning the <em>entire</em> line
  * <strong>including its CRLF terminator</strong> — deliberately matching
- * {@link org.bluezoo.gumdrop.LineParser.Callback#lineReceived}'s exact
- * buffer contract, so the four {@code processXxxLine} methods needed zero
+ * the buffer contract the removed {@code LineParser.Callback#lineReceived}
+ * used to have, so the four {@code processXxxLine} methods needed zero
  * changes to keep working against this lexer's token windows. {@code
  * LINE} doubles as this lexer's {@code crlfTokenType}: emitting it always
  * returns to structured token-scanning mode, and since {@link

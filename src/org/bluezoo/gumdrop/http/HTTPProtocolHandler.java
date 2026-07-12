@@ -1678,6 +1678,17 @@ public class HTTPProtocolHandler
             return;
         }
         stream.streamEndHeaders();
+        // RFC 6455 section 4.1: an application's headers() callback may
+        // synchronously switch this connection into WEBSOCKET mode (via
+        // switchToWebSocketMode(), called from HTTPResponseState.
+        // upgradeToWebSocket()) — a bodyless upgrade request otherwise
+        // falls straight into the contentLength == 0L branch below, which
+        // would clobber that transition back to REQUEST_LINE before the
+        // pipelined/next-arriving WebSocket frame bytes are ever handed
+        // to receiveWebSocket().
+        if (state == State.WEBSOCKET) {
+            return;
+        }
         // RFC 9112 section 9.6: track requests for Connection: close
         requestCount++;
         int maxRequests = server.getMaxRequestsPerConnection();

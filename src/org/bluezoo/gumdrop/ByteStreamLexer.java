@@ -26,9 +26,9 @@ import java.nio.ByteBuffer;
 /**
  * Shared scaffold for streaming byte-to-token lexers (issue #85).
  *
- * <p>Replaces the buffered-line model of {@link LineParser} with a
- * zero-copy, zero-allocation token stream: bytes arrive via {@link
- * #feed(ByteBuffer)}, and complete tokens are delivered to a {@link
+ * <p>Replaces the buffered-line model of the (now-removed) {@code
+ * LineParser} with a zero-copy, zero-allocation token stream: bytes
+ * arrive via {@link #feed(ByteBuffer)}, and complete tokens are delivered to a {@link
  * Handler} as windows over the <em>same</em> buffer the caller passed in.
  * No {@code Token} object is ever created and no token payload is copied
  * by this class; a {@link Handler} that needs to retain a token's bytes
@@ -101,8 +101,9 @@ import java.nio.ByteBuffer;
  * whole.
  *
  * <h3>Buffer contract</h3>
- * <p>Identical to {@link LineParser}: the input buffer must be in read
- * mode (position at the start of available data, limit at the end).
+ * <p>Identical to the (now-removed) {@code LineParser}'s own contract:
+ * the input buffer must be in read mode (position at the start of
+ * available data, limit at the end).
  * After {@link #feed(ByteBuffer)} returns, the buffer's position marks the
  * start of unconsumed data (a partial structured token still being
  * accumulated). The caller is responsible for compacting the buffer
@@ -115,8 +116,8 @@ import java.nio.ByteBuffer;
  * <h3>Replay safety for subclasses</h3>
  * <p>When a structured token is incomplete at the end of a {@link
  * #feed(ByteBuffer)} call, this class rewinds the buffer to the last
- * confirmed token boundary (exactly as {@link LineParser} rewinds to the
- * start of an incomplete line). On the next call — after the caller has
+ * confirmed token boundary (exactly as the old {@code LineParser} rewound
+ * to the start of an incomplete line). On the next call — after the caller has
  * compacted and refilled the buffer, which physically moves those bytes —
  * every byte since that boundary, including ones already seen, is fed
  * through {@link #consume(byte)} again.
@@ -137,14 +138,13 @@ import java.nio.ByteBuffer;
  *
  * <p>Non-positional state (an enum-like sub-state, a running count) may
  * be persisted freely across calls — the hazard is specifically absolute
- * positions. This is the same discipline {@link LineParser} already
- * follows for CRLF detection, which does not persist its "last byte was
+ * positions. This is the same discipline the old {@code LineParser}
+ * followed for CRLF detection, which did not persist its "last byte was
  * CR" flag across calls, instead re-deriving it by replaying the trailing
  * CR from the start on the next call.
  *
  * @param <T> the protocol-specific token type enum
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LineParser
  */
 public abstract class ByteStreamLexer<T extends Enum<T>> {
 

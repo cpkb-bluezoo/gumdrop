@@ -176,6 +176,15 @@ public class HTTPClientProtocolHandler
     // HTTPProtocolHandler.tokenTooLong()'s server-side analogue and its
     // Javadoc for why this must not force-close synchronously either.
     private boolean fatalParseError;
+    // The buffer passed to the current receive() call, exposed so a
+    // subclass hook invoked synchronously from deep within this same call
+    // stack (e.g. WebSocketClientProtocolHandler.handleProtocolSwitch(),
+    // called from processHeaderLine()'s SWITCHING_PROTOCOLS branch) can
+    // drain whatever pipelined bytes remain beyond what the lexer has
+    // consumed so far — the zero-copy design has no persistent
+    // accumulation buffer to inspect the way the removed parseBuffer
+    // field used to provide for free.
+    protected ByteBuffer currentReceiveBuffer;
     // RFC 9112 section 7.1: a chunk's data is followed by a mandatory
     // trailing CRLF; enterRawBody() reads chunk-size + 2 bytes as one
     // fixed-length raw span, and these two fields track how much of the
@@ -352,6 +361,7 @@ public class HTTPClientProtocolHandler
             lexer = new HTTPClientLineLexer(this, maxResponseHeaderSize);
         }
 
+        currentReceiveBuffer = data;
         while (data.hasRemaining()) {
             if (fatalParseError) {
                 return;
@@ -374,6 +384,15 @@ public class HTTPClientProtocolHandler
                 }
                 return;
             }
+            if (isExternallyHandled()) {
+                // A subclass hook (e.g. WebSocketClientProtocolHandler's
+                // handleProtocolSwitch()) took over synchronously during
+                // this same feed() call, and already drained whatever was
+                // left of currentReceiveBuffer (== data) for its own
+                // purposes. Nothing left for this base class to do with
+                // the rest of the buffer.
+                return;
+            }
             if (data.position() == positionBefore) {
                 return;
             }
@@ -384,6 +403,19 @@ public class HTTPClientProtocolHandler
         return negotiatedVersion == HTTPVersion.HTTP_2_0
                 || parseState == ParseState.H2C_UPGRADE_PENDING
                 || parseState == ParseState.HTTP2;
+    }
+
+    /**
+     * Returns true if a subclass has taken over handling of the
+     * connection's raw bytes outside this class's own state machine (e.g.
+     * WebSocket mode after a protocol switch), so {@link #receive} should
+     * stop looping for the remainder of the current call. Mirrors the
+     * server-side {@code HTTPProtocolHandler}'s {@code case WEBSOCKET:}
+     * dispatch, but the client's base {@code ParseState} enum has no such
+     * state of its own — subclasses that divert must override this.
+     */
+    protected boolean isExternallyHandled() {
+        return false;
     }
 
     @Override

@@ -748,9 +748,7 @@ class Stream implements HTTPResponseState {
      * Note: HTTP/1 chunked encoding is now handled at the connection level.
      */
     void appendRequestBody(ByteBuffer buf) {
-        byte[] bytes = new byte[buf.remaining()];
-        buf.get(bytes);
-        receiveRequestBody(ByteBuffer.wrap(bytes));
+        receiveRequestBody(buf);
     }
 
     /**
@@ -770,6 +768,15 @@ class Stream implements HTTPResponseState {
      */
     void receiveRequestBody(ByteBuffer buf) {
         if (webSocketAdapter != null) {
+            // Unlike the general body path below, WebSocket frames are
+            // push-parsed the same way as H2Parser: processIncomingData()
+            // consumes as many complete frames as the buffer holds and
+            // leaves the position at the start of any incomplete trailing
+            // frame (WebSocketFrame.parse() rewinds on insufficient data).
+            // That leftover MUST NOT be force-consumed here — it needs to
+            // survive to the next receiveRequestBody() call the same way
+            // an incomplete H2 frame or line-lexer token does, relying on
+            // the transport to compact and preserve it across reads.
             try {
                 webSocketAdapter.processIncomingData(buf);
             } catch (IOException e) {
@@ -777,7 +784,6 @@ class Stream implements HTTPResponseState {
                     LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
                 }
             }
-            buf.position(buf.limit());
             return;
         }
 
