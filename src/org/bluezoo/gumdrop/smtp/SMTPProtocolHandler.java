@@ -26,10 +26,9 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
 import java.security.Principal;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
@@ -54,11 +53,12 @@ import javax.security.sasl.Sasl;
 import javax.security.sasl.SaslException;
 import javax.security.sasl.SaslServer;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -102,7 +102,12 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses the composable {@link LineParser} utility</li>
+ * <li>Line parsing uses a streaming {@link SMTPServerLexer} (issue #85):
+ *     bytes are tokenised as they arrive rather than buffered into whole
+ *     lines — see {@link ByteStreamLexer}. DATA (RFC 5321 §4.5.2) and BDAT
+ *     (RFC 3030) message content bypass the lexer entirely; {@link
+ *     #receive(ByteBuffer)} checks state before calling {@link
+ *     SMTPServerLexer#feed}, exactly as before this conversion</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
@@ -128,13 +133,13 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see LineParser
+ * @see SMTPServerLexer
  * @see SMTPListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  */
 public class SMTPProtocolHandler
-        implements ProtocolHandler, LineParser.Callback,
+        implements ProtocolHandler, ByteStreamLexer.Handler<SMTPServerLexer.Token>,
                    ConnectedState, HelloState, AuthenticateState,
                    MailFromState, RecipientState, MessageStartState, MessageEndState,
                    ResetState, SMTPConnectionMetadata {
@@ -167,6 +172,16 @@ public class SMTPProtocolHandler
         NORMAL, SAW_CR, SAW_CRLF, SAW_DOT, SAW_DOT_CR
     }
 
+    // RFC 5321 §4.1.1, RFC 3030, RFC 4954, Postfix XCLIENT — recognised
+    // command verbs. Resolved once, directly from the KEYWORD token's
+    // bytes (issue #85), rather than buffered as a String and re-compared
+    // later at dispatch time.
+    enum SMTPCommand {
+        HELO, EHLO, MAIL, RCPT, DATA, BDAT, RSET, QUIT, NOOP, HELP, VRFY,
+        EXPN, STARTTLS, AUTH, XCLIENT, ETRN,
+        UNKNOWN
+    }
+
     private Endpoint endpoint;
 
     private final SMTPListener server;
@@ -174,8 +189,21 @@ public class SMTPProtocolHandler
     private final long connectionTimeMillis;
     private final List<EmailAddress> recipients;
     private final Map<EmailAddress, DSNRecipientParameters> dsnRecipients;
-    private final CharBuffer charBuffer;
     private ByteBuffer controlBuffer;
+
+    // Streaming lexer (issue #85) and per-line parse state
+    private final SMTPServerLexer lexer;
+    private final TokenErrorRecovery<SMTPServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<SMTPServerLexer.Token>(SMTPServerLexer.Token.CRLF);
+    private SMTPCommand pendingCommand = SMTPCommand.UNKNOWN;
+    private String pendingUnknownText = "";
+    private String pendingContinuationText = "";
+    private boolean pendingHasSp;
+    private boolean pendingUseUtf8;
+    private boolean pendingSawNonAscii;
+    private final StringBuilder argsBuilder = new StringBuilder();
+    private int lineByteCount;
+    private String lineErrorMessage;
 
     private Realm realm;
     private HelloHandler helloHandler;
@@ -247,8 +275,9 @@ public class SMTPProtocolHandler
         this.connectionTimeMillis = System.currentTimeMillis();
         this.recipients = new ArrayList<EmailAddress>();
         this.dsnRecipients = new HashMap<EmailAddress, DSNRecipientParameters>();
-        this.charBuffer = CharBuffer.allocate(MAX_COMMAND_LINE_LENGTH);
         this.controlBuffer = ByteBuffer.allocate(MAX_CONTROL_BUFFER_SIZE);
+        ByteStreamLexer.checkTokenCap(MAX_COMMAND_LINE_LENGTH, server.getMaxNetInSize());
+        this.lexer = new SMTPServerLexer(this, MAX_COMMAND_LINE_LENGTH);
     }
 
     // ── ProtocolHandler implementation ──
@@ -284,7 +313,7 @@ public class SMTPProtocolHandler
             } else if (state == SMTPState.DATA) {
                 handleDataContent(buf);
             } else {
-                LineParser.parse(buf, this, MAX_COMMAND_LINE_LENGTH);
+                lexer.feed(buf);
                 if (buf.hasRemaining()) {
                     if (state == SMTPState.BDAT) {
                         handleBdatContent(buf);
@@ -363,86 +392,262 @@ public class SMTPProtocolHandler
         }
     }
 
-    // ── LineParser.Callback implementation ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
-    /** RFC 5321 §2.3.8 — command lines are CR LF terminated, max 512 octets. */
+    // RFC 5321 §2.3.8: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
+    // zero-copy chunks by the lexer (see SMTPServerLexer / ByteStreamLexer);
+    // this dispatcher accumulates only what it needs to retain (the args
+    // string) and enforces the combined line-length budget itself, since
+    // free-form text is intentionally exempt from the lexer's own cap.
     @Override
-    public void lineReceived(ByteBuffer line) {
-        try {
-            int lineLength = line.remaining();
-            if (lineLength > MAX_COMMAND_LINE_LENGTH) {
-                reply(500, L10N.getString("smtp.err.line_too_long"));
-                return;
-            }
-            boolean mightBeMailCommand = (state == SMTPState.READY && lineLength >= 4
-                    && isMailCommandPrefix(line));
-            CharsetDecoder decoder;
-            boolean requireAscii;
-            if (mightBeMailCommand) {
-                decoder = UTF_8_DECODER;
-                requireAscii = false;
-            } else if (smtputf8) {
-                decoder = UTF_8_DECODER;
-                requireAscii = false;
-            } else {
-                decoder = US_ASCII_DECODER;
-                requireAscii = true;
-            }
-            charBuffer.clear();
-            decoder.reset();
-            CoderResult result = decoder.decode(line, charBuffer, true);
-            if (result.isError()) {
-                reply(500, L10N.getString("smtp.err.invalid_encoding"));
-                return;
-            }
-            charBuffer.flip();
-            if (requireAscii && containsNonAscii(charBuffer)) {
-                reply(500, L10N.getString("smtp.err.invalid_encoding"));
-                return;
-            }
-            int len = charBuffer.limit();
-            if (len >= 2 && charBuffer.get(len - 2) == '\r' && charBuffer.get(len - 1) == '\n') {
-                charBuffer.limit(len - 2);
-                len -= 2;
-            }
-            if (authState != AuthState.NONE) {
-                String lineStr = charBuffer.toString();
-                handleAuthData(lineStr);
-                return;
-            }
-            int spaceIndex = -1;
-            for (int i = 0; i < len; i++) {
-                if (charBuffer.get(i) == ' ') {
-                    spaceIndex = i;
-                    break;
+    public boolean token(SMTPServerLexer.Token type, ByteBuffer window) {
+        if (lexerRecovery.handleToken(type)) {
+            // Discarding the remainder of a line already rejected by
+            // tokenTooLong(); the error reply was already sent there.
+            return false;
+        }
+        switch (type) {
+            case KEYWORD:
+                lineByteCount = window.remaining();
+                // RFC 6531 §3.4 — MAIL FROM addresses may need UTF-8; this
+                // mirrors the pre-conversion isMailCommandPrefix() peek: a
+                // 4-byte "MAIL" keyword can never itself contain non-ASCII
+                // bytes, so this check is purely a byte comparison, no
+                // decode needed.
+                pendingUseUtf8 = smtputf8 || (state == SMTPState.READY
+                        && isMailKeyword(window));
+                if (authState != AuthState.NONE) {
+                    // SASL continuation data must preserve original case,
+                    // and isn't a command at all, so it is never matched
+                    // against known verbs.
+                    try {
+                        pendingContinuationText = decodeText(window, pendingUseUtf8);
+                    } catch (CharacterCodingException e) {
+                        lineErrorMessage = L10N.getString("smtp.err.invalid_encoding");
+                    }
+                } else {
+                    // Resolve the command directly from the token's bytes
+                    // now, once, rather than buffering a string to
+                    // re-compare at CRLF time. A string is decoded only for
+                    // the (rare) unrecognised-verb case, where the exact
+                    // text is needed for the error reply.
+                    pendingCommand = matchCommand(window);
+                    if (pendingCommand == SMTPCommand.UNKNOWN) {
+                        try {
+                            pendingUnknownText =
+                                    decodeText(window, pendingUseUtf8).toUpperCase(Locale.ENGLISH);
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString("smtp.err.invalid_encoding");
+                        }
+                    }
                 }
+                return false;
+            case SP:
+                pendingHasSp = true;
+                lineByteCount += 1;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                if (lineErrorMessage == null) {
+                    int len = window.remaining();
+                    if (lineByteCount + len > MAX_COMMAND_LINE_LENGTH) {
+                        lineErrorMessage = L10N.getString("smtp.err.line_too_long");
+                    } else {
+                        if (containsNonAscii(window)) {
+                            pendingSawNonAscii = true;
+                        }
+                        try {
+                            argsBuilder.append(decodeText(window, pendingUseUtf8));
+                            lineByteCount += len;
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString("smtp.err.invalid_encoding");
+                        }
+                    }
+                }
+                return false;
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    @Override
+    public void rawBytes(ByteBuffer slice) {
+        // SMTP's command channel is always line-based; DATA/BDAT content is
+        // handled directly from receive(), never as a lexer raw escape, so
+        // this is structurally unreachable.
+        LOGGER.warning("Unexpected rawBytes() call on SMTP server lexer");
+    }
+
+    @Override
+    public void tokenTooLong() {
+        lexerRecovery.beginDiscard();
+        resetLineState();
+        try {
+            reply(500, L10N.getString("smtp.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
+    }
+
+    private static String decodeText(ByteBuffer window, boolean utf8)
+            throws CharacterCodingException {
+        CharsetDecoder decoder = utf8 ? UTF_8_DECODER : US_ASCII_DECODER;
+        return decoder.decode(window).toString();
+    }
+
+    private static boolean containsNonAscii(ByteBuffer window) {
+        int base = window.position();
+        int lim = window.limit();
+        for (int i = base; i < lim; i++) {
+            if ((window.get(i) & 0xFF) > 127) {
+                return true;
             }
-            String command;
-            String args;
-            if (spaceIndex > 0) {
-                charBuffer.limit(spaceIndex);
-                command = charBuffer.toString().toUpperCase(Locale.ENGLISH);
-                charBuffer.limit(len);
-                charBuffer.position(spaceIndex + 1);
-                args = charBuffer.toString();
-            } else {
-                command = charBuffer.toString().toUpperCase(Locale.ENGLISH);
-                args = null;
+        }
+        return false;
+    }
+
+    private void resetLineState() {
+        pendingCommand = SMTPCommand.UNKNOWN;
+        pendingUnknownText = "";
+        pendingContinuationText = "";
+        pendingHasSp = false;
+        pendingUseUtf8 = false;
+        pendingSawNonAscii = false;
+        argsBuilder.setLength(0);
+        lineByteCount = 0;
+        lineErrorMessage = null;
+    }
+
+    /**
+     * Matches a KEYWORD token's raw bytes against the known SMTP verbs
+     * (RFC 5321 §4.1.1, RFC 3030, RFC 4954, Postfix XCLIENT), case-
+     * insensitively, without decoding to a String.
+     *
+     * @param window the KEYWORD token's bytes
+     * @return the matched command, or {@link SMTPCommand#UNKNOWN}
+     */
+    private static SMTPCommand matchCommand(ByteBuffer window) {
+        int len = window.remaining();
+        int base = window.position();
+        if (len == 4) {
+            switch (pack4(window, base)) {
+                case ('H' << 24) | ('E' << 16) | ('L' << 8) | 'O':
+                    return SMTPCommand.HELO;
+                case ('E' << 24) | ('H' << 16) | ('L' << 8) | 'O':
+                    return SMTPCommand.EHLO;
+                case ('M' << 24) | ('A' << 16) | ('I' << 8) | 'L':
+                    return SMTPCommand.MAIL;
+                case ('R' << 24) | ('C' << 16) | ('P' << 8) | 'T':
+                    return SMTPCommand.RCPT;
+                case ('D' << 24) | ('A' << 16) | ('T' << 8) | 'A':
+                    return SMTPCommand.DATA;
+                case ('B' << 24) | ('D' << 16) | ('A' << 8) | 'T':
+                    return SMTPCommand.BDAT;
+                case ('R' << 24) | ('S' << 16) | ('E' << 8) | 'T':
+                    return SMTPCommand.RSET;
+                case ('Q' << 24) | ('U' << 16) | ('I' << 8) | 'T':
+                    return SMTPCommand.QUIT;
+                case ('N' << 24) | ('O' << 16) | ('O' << 8) | 'P':
+                    return SMTPCommand.NOOP;
+                case ('H' << 24) | ('E' << 16) | ('L' << 8) | 'P':
+                    return SMTPCommand.HELP;
+                case ('V' << 24) | ('R' << 16) | ('F' << 8) | 'Y':
+                    return SMTPCommand.VRFY;
+                case ('E' << 24) | ('X' << 16) | ('P' << 8) | 'N':
+                    return SMTPCommand.EXPN;
+                case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
+                    return SMTPCommand.AUTH;
+                case ('E' << 24) | ('T' << 16) | ('R' << 8) | 'N':
+                    return SMTPCommand.ETRN;
+                default:
+                    return SMTPCommand.UNKNOWN;
             }
+        }
+        if (len == 7 && matchesLiteral(window, base, "XCLIENT")) {
+            return SMTPCommand.XCLIENT;
+        }
+        if (len == 8 && matchesLiteral(window, base, "STARTTLS")) {
+            return SMTPCommand.STARTTLS;
+        }
+        return SMTPCommand.UNKNOWN;
+    }
+
+    private static boolean matchesLiteral(ByteBuffer window, int base, String literal) {
+        int len = literal.length();
+        for (int i = 0; i < len; i++) {
+            if (upperFold(window.get(base + i)) != literal.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int pack4(ByteBuffer window, int base) {
+        int packed = 0;
+        for (int i = 0; i < 4; i++) {
+            packed = (packed << 8) | upperFold(window.get(base + i));
+        }
+        return packed;
+    }
+
+    private static int upperFold(byte b) {
+        if (b >= 'a' && b <= 'z') {
+            b -= 32;
+        }
+        return b & 0xFF;
+    }
+
+    // RFC 5321 §2.3.8 — a complete command/continuation line has been
+    // lexed; the command was already resolved to an enum at the KEYWORD
+    // token, so dispatch is a direct switch, not a re-parse of a string.
+    // requestStop() is checked here, fresh, after dispatchCommand()
+    // returns — not eagerly inside data()/bdat() — so that a BDAT with
+    // chunkSize==0 (which synchronously completes and may revert state
+    // back to RCPT within the same call) is correctly NOT stopped,
+    // exactly replicating continueLineProcessing()'s per-line-fresh-check
+    // semantics from the pre-conversion LineParser-based code.
+    private void dispatchLine() {
+        SMTPCommand command = pendingCommand;
+        String unknownText = pendingUnknownText;
+        String continuationText = pendingContinuationText;
+        boolean hadArgs = pendingHasSp;
+        String args = hadArgs ? argsBuilder.toString() : null;
+        boolean sawNonAscii = pendingSawNonAscii;
+        boolean useUtf8 = pendingUseUtf8;
+        String error = lineErrorMessage;
+        resetLineState();
+
+        try {
+            if (error != null) {
+                reply(500, error);
+                return;
+            }
+
+            if (authState != AuthState.NONE) {
+                String rawLine = hadArgs
+                        ? (continuationText + " " + args) : continuationText;
+                handleAuthData(rawLine);
+                return;
+            }
+
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String msg = L10N.getString("log.smtp_command");
-                msg = MessageFormat.format(msg, command, args != null ? args : "");
+                msg = MessageFormat.format(msg, command.name(), args != null ? args : "");
                 LOGGER.finest(msg);
             }
-            dispatchCommand(command, args);
-            if (mightBeMailCommand && "MAIL".equals(command) && !smtputf8) {
-                charBuffer.position(0);
-                charBuffer.limit(len);
-                if (containsNonAscii(charBuffer)) {
-                    resetTransaction();
-                    reply(553, L10N.getString("smtp.err.smtputf8_required"));
-                    return;
-                }
+
+            dispatchCommand(command, unknownText, args);
+
+            if (useUtf8 && command == SMTPCommand.MAIL && !smtputf8 && sawNonAscii) {
+                resetTransaction();
+                reply(553, L10N.getString("smtp.err.smtputf8_required"));
+                return;
+            }
+
+            if (state == SMTPState.DATA || state == SMTPState.BDAT) {
+                lexer.enterContentMode();
             }
         } catch (IOException e) {
             String msg = L10N.getString("log.error_processing_data");
@@ -453,20 +658,6 @@ public class SMTPProtocolHandler
                 String errMsg = L10N.getString("log.error_sending_response");
                 LOGGER.log(Level.SEVERE, errMsg, e2);
             }
-        }
-    }
-
-    @Override
-    public boolean continueLineProcessing() {
-        return state != SMTPState.DATA && state != SMTPState.BDAT;
-    }
-
-    @Override
-    public void lineTooLong() {
-        try {
-            reply(500, L10N.getString("smtp.err.line_too_long"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
         }
     }
 
@@ -582,80 +773,103 @@ public class SMTPProtocolHandler
         }
     }
 
-    private boolean isMailCommandPrefix(ByteBuffer buf) {
-        int pos = buf.position();
-        if (buf.remaining() < 4) {
+    // RFC 6531 §3.4 — a KEYWORD token that literally spells MAIL (any
+    // case), tested purely on raw bytes: a 4-byte match here can never
+    // itself contain non-ASCII, so no decode is needed to test this.
+    private static boolean isMailKeyword(ByteBuffer window) {
+        if (window.remaining() != 4) {
             return false;
         }
-        byte b0 = buf.get(pos);
-        byte b1 = buf.get(pos + 1);
-        byte b2 = buf.get(pos + 2);
-        byte b3 = buf.get(pos + 3);
-        return (b0 == 'M' || b0 == 'm') && (b1 == 'A' || b1 == 'a')
-                && (b2 == 'I' || b2 == 'i') && (b3 == 'L' || b3 == 'l');
+        int base = window.position();
+        return pack4(window, base) == (('M' << 24) | ('A' << 16) | ('I' << 8) | 'L');
     }
 
-    private boolean containsNonAscii(CharBuffer buf) {
-        int pos = buf.position();
-        int lim = buf.limit();
-        for (int i = pos; i < lim; i++) {
-            if (buf.get(i) > 127) {
-                return true;
-            }
-        }
-        return false;
-    }
 
-    /** RFC 5321 §4.5.1 — command dispatch and sequencing. */
-    private void dispatchCommand(String command, String args) throws IOException {
+    // RFC 5321 §4.5.1 — command dispatch and sequencing. `command` was
+    // already resolved from the KEYWORD token's raw bytes (see
+    // matchCommand()); SASL continuation routing happens earlier, in
+    // dispatchLine(), before this is ever called.
+    private void dispatchCommand(SMTPCommand command, String unknownText, String args)
+            throws IOException {
         if (state == SMTPState.REJECTED) {
-            if ("QUIT".equals(command)) {
+            if (command == SMTPCommand.QUIT) {
                 quit(args);
             } else {
                 reply(554, L10N.getString("smtp.err.connection_rejected"));
             }
             return;
         }
-        if ("HELO".equals(command)) {
-            helo(args);
-        } else if ("EHLO".equals(command)) {
-            ehlo(args);
-        } else if ("MAIL".equals(command)) {
-            mail(args);
-        } else if ("RCPT".equals(command)) {
-            rcpt(args);
-        } else if ("DATA".equals(command)) {
-            data(args);
-        } else if ("BDAT".equals(command)) {
-            bdat(args);
-        } else if ("RSET".equals(command)) {
-            rset(args);
-        } else if ("QUIT".equals(command)) {
-            quit(args);
-        } else if ("NOOP".equals(command)) {
-            noop(args);
-        } else if ("HELP".equals(command)) {
-            help(args);
-        } else if ("VRFY".equals(command)) {
-            vrfy(args);
-        } else if ("EXPN".equals(command)) {
-            expn(args);
-        } else if ("STARTTLS".equals(command) && !endpoint.isSecure() && server.isSTARTTLSAvailable()
-                && !starttlsUsed) {
-            starttls(args);
-        } else if ("AUTH".equals(command)) {
-            auth(args);
-        } else if ("XCLIENT".equals(command)) {
-            xclient(args);
-        } else if ("ETRN".equals(command)) {
-            etrn(args);                                   // RFC 1985
-        } else {
-            reply(500, MessageFormat.format(L10N.getString("smtp.err.command_unrecognized"), command));
+        switch (command) {
+            case HELO:
+                helo(args);
+                break;
+            case EHLO:
+                ehlo(args);
+                break;
+            case MAIL:
+                mail(args);
+                break;
+            case RCPT:
+                rcpt(args);
+                break;
+            case DATA:
+                data(args);
+                break;
+            case BDAT:
+                bdat(args);
+                break;
+            case RSET:
+                rset(args);
+                break;
+            case QUIT:
+                quit(args);
+                break;
+            case NOOP:
+                noop(args);
+                break;
+            case HELP:
+                help(args);
+                break;
+            case VRFY:
+                vrfy(args);
+                break;
+            case EXPN:
+                expn(args);
+                break;
+            case STARTTLS:
+                if (!endpoint.isSecure() && server.isSTARTTLSAvailable() && !starttlsUsed) {
+                    starttls(args);
+                } else {
+                    reply(500, MessageFormat.format(
+                            L10N.getString("smtp.err.command_unrecognized"), command.name()));
+                }
+                break;
+            case AUTH:
+                auth(args);
+                break;
+            case XCLIENT:
+                xclient(args);
+                break;
+            case ETRN:
+                etrn(args);                                   // RFC 1985
+                break;
+            default:
+                reply(500, MessageFormat.format(L10N.getString("smtp.err.command_unrecognized"),
+                        unknownCommandText(command, unknownText)));
         }
     }
 
+    // A command may reach the "unknown" branch either because it truly
+    // didn't match any verb (unknownText holds its decoded text) or
+    // because STARTTLS matched but its dispatch guard failed — in which
+    // case the enum's own name is already the exact uppercased text, with
+    // no decode needed.
+    private static String unknownCommandText(SMTPCommand command, String unknownText) {
+        return command == SMTPCommand.UNKNOWN ? unknownText : command.name();
+    }
+
     private void handlePipelinedCommands(ByteBuffer buf) throws IOException {
-        LineParser.parse(buf, this, MAX_COMMAND_LINE_LENGTH);
+        lexer.feed(buf);
         if (buf.hasRemaining()) {
             if (state == SMTPState.BDAT) {
                 handleBdatContent(buf);

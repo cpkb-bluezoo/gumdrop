@@ -28,10 +28,9 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
 import java.security.cert.Certificate;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -40,10 +39,11 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.quota.Quota;
@@ -57,25 +57,28 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
- * FTP protocol handler using {@link ProtocolHandler} and {@link LineParser}.
+ * FTP protocol handler using {@link ProtocolHandler}.
  *
  * <p>Implements the FTP protocol with the transport layer fully decoupled:
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses the composable {@link LineParser} utility</li>
+ * <li>Line parsing uses a streaming {@link FTPServerLexer} (issue #85):
+ *     bytes are tokenised as they arrive rather than buffered into whole
+ *     lines — see {@link ByteStreamLexer}</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see LineParser
+ * @see FTPServerLexer
  * @see FTPListener
  * @see https://www.rfc-editor.org/rfc/rfc959
  */
 public class FTPProtocolHandler
-        implements ProtocolHandler, LineParser.Callback, FTPControlConnection {
+        implements ProtocolHandler, ByteStreamLexer.Handler<FTPServerLexer.Token>,
+                   FTPControlConnection {
 
     private static final Logger LOGGER =
             Logger.getLogger(FTPProtocolHandler.class.getName());
@@ -86,6 +89,18 @@ public class FTPProtocolHandler
     static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
 
     private static final int MAX_LINE_LENGTH = 1024;
+
+    // RFC 959/2228/2428/3659/etc. — recognised command verbs. Resolved
+    // once, directly from the KEYWORD token's bytes (issue #85), rather
+    // than buffered as a String and re-compared later.
+    private enum FTPCommand {
+        USER, PASS, ACCT, CWD, CDUP, SMNT, REIN, QUIT,
+        PORT, PASV, EPRT, EPSV, TYPE, STRU, MODE,
+        RETR, STOR, STOU, APPE, ALLO, REST, RNFR, RNTO, ABOR, DELE,
+        RMD, MKD, PWD, LIST, NLST, SITE, SYST, STAT, HELP, NOOP,
+        AUTH, PBSZ, PROT, CCC, SIZE, MDTM, MLST, MLSD, OPTS, FEAT,
+        UNKNOWN
+    }
 
     private Endpoint endpoint;
 
@@ -106,7 +121,16 @@ public class FTPProtocolHandler
     private boolean dataProtection = false;
     private boolean utf8Enabled = false;
 
-    private CharBuffer charBuffer;
+    // Streaming lexer (issue #85) and per-line parse state
+    private final FTPServerLexer lexer;
+    private final TokenErrorRecovery<FTPServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<FTPServerLexer.Token>(FTPServerLexer.Token.CRLF);
+    private FTPCommand pendingCommand = FTPCommand.UNKNOWN;
+    private String pendingUnknownText = "";
+    private boolean pendingHasSp;
+    private final StringBuilder argsBuilder = new StringBuilder();
+    private int lineByteCount;
+    private String lineErrorMessage;
 
     private Trace connectionTrace = null;
     private Span sessionSpan = null;
@@ -149,7 +173,8 @@ public class FTPProtocolHandler
         }
         this.metadata = tempMetadata;
         this.dataCoordinator = new FTPDataConnectionCoordinator(this);
-        this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH + 2);
+        ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
+        this.lexer = new FTPServerLexer(this, MAX_LINE_LENGTH);
     }
 
     // ── ProtocolHandler implementation ──
@@ -199,7 +224,7 @@ public class FTPProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
-        LineParser.parse(data, this, MAX_LINE_LENGTH);
+        lexer.feed(data);
     }
 
     @Override
@@ -264,46 +289,265 @@ public class FTPProtocolHandler
         }
     }
 
-    // ── LineParser.Callback implementation ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
+
+    // RFC 959 section 4: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
+    // zero-copy chunks by the lexer (see FTPServerLexer / ByteStreamLexer);
+    // this dispatcher accumulates only what it needs to retain (the args
+    // string, which may itself contain spaces, e.g. pathnames) and
+    // enforces the combined line-length budget itself, since free-form
+    // text is intentionally exempt from the lexer's own cap.
+    @Override
+    public boolean token(FTPServerLexer.Token type, ByteBuffer window) {
+        if (lexerRecovery.handleToken(type)) {
+            // Discarding the remainder of a line already rejected by
+            // tokenTooLong(); the error reply was already sent there.
+            return false;
+        }
+        switch (type) {
+            case KEYWORD:
+                lineByteCount = window.remaining();
+                if (lineErrorMessage == null) {
+                    // Resolve the command directly from the token's bytes
+                    // now, once, rather than buffering a string to
+                    // re-compare at CRLF time. A string is decoded only
+                    // for the (rare) unrecognised-verb case, where the
+                    // exact text is needed for the error reply.
+                    pendingCommand = matchCommand(window);
+                    if (pendingCommand == FTPCommand.UNKNOWN) {
+                        try {
+                            pendingUnknownText = decodeAscii(window).toUpperCase();
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString("ftp.err.illegal_characters");
+                        }
+                    }
+                }
+                return false;
+            case SP:
+                pendingHasSp = true;
+                lineByteCount += 1;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                if (lineErrorMessage == null) {
+                    int len = window.remaining();
+                    if (lineByteCount + len > MAX_LINE_LENGTH) {
+                        lineErrorMessage = L10N.getString("ftp.err.line_too_long");
+                    } else {
+                        try {
+                            argsBuilder.append(decodeAscii(window));
+                            lineByteCount += len;
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString("ftp.err.illegal_characters");
+                        }
+                    }
+                }
+                return false;
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
+        }
+    }
 
     @Override
-    public void lineReceived(ByteBuffer line) {
+    public void rawBytes(ByteBuffer slice) {
+        // FTP's control channel is always line-based (data transfers use a
+        // separate connection, handled entirely outside this lexer), so
+        // this is structurally unreachable.
+        LOGGER.warning("Unexpected rawBytes() call on FTP server lexer");
+    }
+
+    @Override
+    public void tokenTooLong() {
+        lexerRecovery.beginDiscard();
+        resetLineState();
         try {
-            int lineLen = line.remaining();
-            if (lineLen < 2) {
+            reply(500, L10N.getString("ftp.err.line_too_long"));
+            if (endpoint != null && endpoint.getRemoteAddress() != null) {
+                LOGGER.warning("FTP command line too long from "
+                        + endpoint.getRemoteAddress());
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
+    }
+
+    private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
+        return US_ASCII_DECODER.decode(window).toString();
+    }
+
+    private void resetLineState() {
+        pendingCommand = FTPCommand.UNKNOWN;
+        pendingUnknownText = "";
+        pendingHasSp = false;
+        argsBuilder.setLength(0);
+        lineByteCount = 0;
+        lineErrorMessage = null;
+    }
+
+    /**
+     * Matches a KEYWORD token's raw bytes against the known FTP verbs
+     * (RFC 959 and extensions), case-insensitively, without decoding to a
+     * String — the command is resolved once, here, rather than deferred
+     * to a string comparison at dispatch time. Each byte is read exactly
+     * once and case-folded while packing into a single {@code int};
+     * dispatch is then one {@code switch} on that packed value rather
+     * than a chain of comparisons. Length-3 and length-4 verbs are packed
+     * and switched separately (not padded into a shared int) so a literal
+     * NUL byte in a 4-byte token can never collide with a padded 3-byte
+     * verb's packed value.
+     *
+     * @param window the KEYWORD token's bytes
+     * @return the matched command, or {@link FTPCommand#UNKNOWN}
+     */
+    private static FTPCommand matchCommand(ByteBuffer window) {
+        int len = window.remaining();
+        int base = window.position();
+        if (len == 4) {
+            switch (pack4(window, base)) {
+                case ('U' << 24) | ('S' << 16) | ('E' << 8) | 'R':
+                    return FTPCommand.USER;
+                case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'S':
+                    return FTPCommand.PASS;
+                case ('A' << 24) | ('C' << 16) | ('C' << 8) | 'T':
+                    return FTPCommand.ACCT;
+                case ('C' << 24) | ('D' << 16) | ('U' << 8) | 'P':
+                    return FTPCommand.CDUP;
+                case ('S' << 24) | ('M' << 16) | ('N' << 8) | 'T':
+                    return FTPCommand.SMNT;
+                case ('R' << 24) | ('E' << 16) | ('I' << 8) | 'N':
+                    return FTPCommand.REIN;
+                case ('Q' << 24) | ('U' << 16) | ('I' << 8) | 'T':
+                    return FTPCommand.QUIT;
+                case ('P' << 24) | ('O' << 16) | ('R' << 8) | 'T':
+                    return FTPCommand.PORT;
+                case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'V':
+                    return FTPCommand.PASV;
+                case ('E' << 24) | ('P' << 16) | ('R' << 8) | 'T':
+                    return FTPCommand.EPRT;
+                case ('E' << 24) | ('P' << 16) | ('S' << 8) | 'V':
+                    return FTPCommand.EPSV;
+                case ('T' << 24) | ('Y' << 16) | ('P' << 8) | 'E':
+                    return FTPCommand.TYPE;
+                case ('S' << 24) | ('T' << 16) | ('R' << 8) | 'U':
+                    return FTPCommand.STRU;
+                case ('M' << 24) | ('O' << 16) | ('D' << 8) | 'E':
+                    return FTPCommand.MODE;
+                case ('R' << 24) | ('E' << 16) | ('T' << 8) | 'R':
+                    return FTPCommand.RETR;
+                case ('S' << 24) | ('T' << 16) | ('O' << 8) | 'R':
+                    return FTPCommand.STOR;
+                case ('S' << 24) | ('T' << 16) | ('O' << 8) | 'U':
+                    return FTPCommand.STOU;
+                case ('A' << 24) | ('P' << 16) | ('P' << 8) | 'E':
+                    return FTPCommand.APPE;
+                case ('A' << 24) | ('L' << 16) | ('L' << 8) | 'O':
+                    return FTPCommand.ALLO;
+                case ('R' << 24) | ('E' << 16) | ('S' << 8) | 'T':
+                    return FTPCommand.REST;
+                case ('R' << 24) | ('N' << 16) | ('F' << 8) | 'R':
+                    return FTPCommand.RNFR;
+                case ('R' << 24) | ('N' << 16) | ('T' << 8) | 'O':
+                    return FTPCommand.RNTO;
+                case ('A' << 24) | ('B' << 16) | ('O' << 8) | 'R':
+                    return FTPCommand.ABOR;
+                case ('D' << 24) | ('E' << 16) | ('L' << 8) | 'E':
+                    return FTPCommand.DELE;
+                case ('L' << 24) | ('I' << 16) | ('S' << 8) | 'T':
+                    return FTPCommand.LIST;
+                case ('N' << 24) | ('L' << 16) | ('S' << 8) | 'T':
+                    return FTPCommand.NLST;
+                case ('S' << 24) | ('I' << 16) | ('T' << 8) | 'E':
+                    return FTPCommand.SITE;
+                case ('S' << 24) | ('Y' << 16) | ('S' << 8) | 'T':
+                    return FTPCommand.SYST;
+                case ('S' << 24) | ('T' << 16) | ('A' << 8) | 'T':
+                    return FTPCommand.STAT;
+                case ('H' << 24) | ('E' << 16) | ('L' << 8) | 'P':
+                    return FTPCommand.HELP;
+                case ('N' << 24) | ('O' << 16) | ('O' << 8) | 'P':
+                    return FTPCommand.NOOP;
+                case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
+                    return FTPCommand.AUTH;
+                case ('P' << 24) | ('B' << 16) | ('S' << 8) | 'Z':
+                    return FTPCommand.PBSZ;
+                case ('P' << 24) | ('R' << 16) | ('O' << 8) | 'T':
+                    return FTPCommand.PROT;
+                case ('S' << 24) | ('I' << 16) | ('Z' << 8) | 'E':
+                    return FTPCommand.SIZE;
+                case ('M' << 24) | ('D' << 16) | ('T' << 8) | 'M':
+                    return FTPCommand.MDTM;
+                case ('M' << 24) | ('L' << 16) | ('S' << 8) | 'T':
+                    return FTPCommand.MLST;
+                case ('M' << 24) | ('L' << 16) | ('S' << 8) | 'D':
+                    return FTPCommand.MLSD;
+                case ('O' << 24) | ('P' << 16) | ('T' << 8) | 'S':
+                    return FTPCommand.OPTS;
+                case ('F' << 24) | ('E' << 16) | ('A' << 8) | 'T':
+                    return FTPCommand.FEAT;
+                default:
+                    return FTPCommand.UNKNOWN;
+            }
+        }
+        if (len == 3) {
+            switch (pack3(window, base)) {
+                case ('C' << 16) | ('W' << 8) | 'D':
+                    return FTPCommand.CWD;
+                case ('R' << 16) | ('M' << 8) | 'D':
+                    return FTPCommand.RMD;
+                case ('M' << 16) | ('K' << 8) | 'D':
+                    return FTPCommand.MKD;
+                case ('P' << 16) | ('W' << 8) | 'D':
+                    return FTPCommand.PWD;
+                case ('C' << 16) | ('C' << 8) | 'C':
+                    return FTPCommand.CCC;
+                default:
+                    return FTPCommand.UNKNOWN;
+            }
+        }
+        return FTPCommand.UNKNOWN;
+    }
+
+    private static int pack4(ByteBuffer window, int base) {
+        int packed = 0;
+        for (int i = 0; i < 4; i++) {
+            packed = (packed << 8) | upperFold(window.get(base + i));
+        }
+        return packed;
+    }
+
+    private static int pack3(ByteBuffer window, int base) {
+        int packed = 0;
+        for (int i = 0; i < 3; i++) {
+            packed = (packed << 8) | upperFold(window.get(base + i));
+        }
+        return packed;
+    }
+
+    private static int upperFold(byte b) {
+        if (b >= 'a' && b <= 'z') {
+            b -= 32;
+        }
+        return b & 0xFF;
+    }
+
+
+    // RFC 959 section 4 — a complete command line has been lexed; dispatch
+    // it exactly as the pre-streaming lineRead(String) did.
+    private void dispatchLine() {
+        FTPCommand command = pendingCommand;
+        String unknownText = pendingUnknownText;
+        String args = pendingHasSp ? argsBuilder.toString() : null;
+        String error = lineErrorMessage;
+        resetLineState();
+
+        try {
+            if (error != null) {
+                reply(500, error);
                 return;
             }
-            if (lineLen > MAX_LINE_LENGTH + 2) {
-                reply(500, L10N.getString("ftp.err.line_too_long"));
-                if (endpoint != null && endpoint.getRemoteAddress() != null) {
-                    LOGGER.warning("FTP command line too long from "
-                            + endpoint.getRemoteAddress() + ": " + lineLen + " bytes");
-                }
-                return;
-            }
-
-            charBuffer.clear();
-            US_ASCII_DECODER.reset();
-
-            int savedLimit = line.limit();
-            line.limit(savedLimit - 2);
-            CoderResult result = US_ASCII_DECODER.decode(line, charBuffer, true);
-            line.limit(savedLimit);
-
-            if (result.isError()) {
-                reply(500, L10N.getString("ftp.err.illegal_characters"));
-                if (endpoint != null && endpoint.getRemoteAddress() != null) {
-                    LOGGER.log(Level.WARNING, "Invalid FTP command encoding from "
-                            + endpoint.getRemoteAddress() + ": " + result.toString());
-                }
-                return;
-            }
-
-            charBuffer.flip();
-            String lineStr = charBuffer.toString();
-
-            lineRead(lineStr);
-
+            dispatchCommand(command, unknownText, args);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error processing FTP command", e);
             try {
@@ -311,20 +555,6 @@ public class FTPProtocolHandler
             } catch (IOException e2) {
                 LOGGER.log(Level.SEVERE, "Cannot write error reply", e2);
             }
-        }
-    }
-
-    @Override
-    public boolean continueLineProcessing() {
-        return true;
-    }
-
-    @Override
-    public void lineTooLong() {
-        try {
-            reply(500, L10N.getString("ftp.err.line_too_long"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
         }
     }
 
@@ -480,103 +710,153 @@ public class FTPProtocolHandler
     // RFC 959 section 5.4: "The command codes themselves are not case
     // sensitive."  This dispatch uses exact-match which rejects lower-case
     // commands — a compliance gap.
-    private void lineRead(String line) throws IOException {
-        int si = line.indexOf(' ');
-        String command = (si > 0) ? line.substring(0, si).toUpperCase() : line.toUpperCase();
-        String args = (si > 0) ? line.substring(si + 1) : null;
-        if ("USER".equals(command)) {
-            doUser(args);
-        } else if ("PASS".equals(command)) {
-            doPass(args);
-        } else if ("ACCT".equals(command)) {
-            doAcct(args);
-        } else if ("CWD".equals(command)) {
-            doCwd(args);
-        } else if ("CDUP".equals(command)) {
-            doCdup(args);
-        } else if ("SMNT".equals(command)) {
-            doSmnt(args);
-        } else if ("REIN".equals(command)) {
-            doRein(args);
-        } else if ("QUIT".equals(command)) {
-            doQuit(args);
-        } else if ("PORT".equals(command)) {
-            doPort(args);
-        } else if ("PASV".equals(command)) {
-            doPasv(args);
-        } else if ("EPRT".equals(command)) {
-            doEprt(args);
-        } else if ("EPSV".equals(command)) {
-            doEpsv(args);
-        } else if ("TYPE".equals(command)) {
-            doType(args);
-        } else if ("STRU".equals(command)) {
-            doStru(args);
-        } else if ("MODE".equals(command)) {
-            doMode(args);
-        } else if ("RETR".equals(command)) {
-            doRetr(args);
-        } else if ("STOR".equals(command)) {
-            doStor(args);
-        } else if ("STOU".equals(command)) {
-            doStou(args);
-        } else if ("APPE".equals(command)) {
-            doAppe(args);
-        } else if ("ALLO".equals(command)) {
-            doAllo(args);
-        } else if ("REST".equals(command)) {
-            doRest(args);
-        } else if ("RNFR".equals(command)) {
-            doRnfr(args);
-        } else if ("RNTO".equals(command)) {
-            doRnto(args);
-        } else if ("ABOR".equals(command)) {
-            doAbor(args);
-        } else if ("DELE".equals(command)) {
-            doDele(args);
-        } else if ("RMD".equals(command)) {
-            doRmd(args);
-        } else if ("MKD".equals(command)) {
-            doMkd(args);
-        } else if ("PWD".equals(command)) {
-            doPwd(args);
-        } else if ("LIST".equals(command)) {
-            doList(args);
-        } else if ("NLST".equals(command)) {
-            doNlst(args);
-        } else if ("SITE".equals(command)) {
-            doSite(args);
-        } else if ("SYST".equals(command)) {
-            doSyst(args);
-        } else if ("STAT".equals(command)) {
-            doStat(args);
-        } else if ("HELP".equals(command)) {
-            doHelp(args);
-        } else if ("NOOP".equals(command)) {
-            doNoop(args);
-        } else if ("AUTH".equals(command)) {
-            doAuth(args);
-        } else if ("PBSZ".equals(command)) {
-            doPbsz(args);
-        } else if ("PROT".equals(command)) {
-            doProt(args);
-        } else if ("CCC".equals(command)) {
-            doCcc(args);
-        } else if ("SIZE".equals(command)) {
-            doSize(args);
-        } else if ("MDTM".equals(command)) {
-            doMdtm(args);
-        } else if ("MLST".equals(command)) {
-            doMlst(args);
-        } else if ("MLSD".equals(command)) {
-            doMlsd(args);
-        } else if ("OPTS".equals(command)) {
-            doOpts(args);
-        } else if ("FEAT".equals(command)) {
-            doFeat(args);
-        } else {
-            String message = L10N.getString("ftp.err.command_unrecognized");
-            reply(500, MessageFormat.format(message, command));
+    // RFC 959 section 4 — dispatch by command. `command` was already
+    // resolved from the KEYWORD token's raw bytes (see matchCommand());
+    // this is a direct switch on the enum, not a re-parse of a string.
+    // Unlike POP3, no FTP command is gated by connection state — each
+    // doXxx method checks `authenticated` itself where required — so
+    // there is no nested state switch here.
+    private void dispatchCommand(FTPCommand command, String unknownText, String args)
+            throws IOException {
+        switch (command) {
+            case USER:
+                doUser(args);
+                break;
+            case PASS:
+                doPass(args);
+                break;
+            case ACCT:
+                doAcct(args);
+                break;
+            case CWD:
+                doCwd(args);
+                break;
+            case CDUP:
+                doCdup(args);
+                break;
+            case SMNT:
+                doSmnt(args);
+                break;
+            case REIN:
+                doRein(args);
+                break;
+            case QUIT:
+                doQuit(args);
+                break;
+            case PORT:
+                doPort(args);
+                break;
+            case PASV:
+                doPasv(args);
+                break;
+            case EPRT:
+                doEprt(args);
+                break;
+            case EPSV:
+                doEpsv(args);
+                break;
+            case TYPE:
+                doType(args);
+                break;
+            case STRU:
+                doStru(args);
+                break;
+            case MODE:
+                doMode(args);
+                break;
+            case RETR:
+                doRetr(args);
+                break;
+            case STOR:
+                doStor(args);
+                break;
+            case STOU:
+                doStou(args);
+                break;
+            case APPE:
+                doAppe(args);
+                break;
+            case ALLO:
+                doAllo(args);
+                break;
+            case REST:
+                doRest(args);
+                break;
+            case RNFR:
+                doRnfr(args);
+                break;
+            case RNTO:
+                doRnto(args);
+                break;
+            case ABOR:
+                doAbor(args);
+                break;
+            case DELE:
+                doDele(args);
+                break;
+            case RMD:
+                doRmd(args);
+                break;
+            case MKD:
+                doMkd(args);
+                break;
+            case PWD:
+                doPwd(args);
+                break;
+            case LIST:
+                doList(args);
+                break;
+            case NLST:
+                doNlst(args);
+                break;
+            case SITE:
+                doSite(args);
+                break;
+            case SYST:
+                doSyst(args);
+                break;
+            case STAT:
+                doStat(args);
+                break;
+            case HELP:
+                doHelp(args);
+                break;
+            case NOOP:
+                doNoop(args);
+                break;
+            case AUTH:
+                doAuth(args);
+                break;
+            case PBSZ:
+                doPbsz(args);
+                break;
+            case PROT:
+                doProt(args);
+                break;
+            case CCC:
+                doCcc(args);
+                break;
+            case SIZE:
+                doSize(args);
+                break;
+            case MDTM:
+                doMdtm(args);
+                break;
+            case MLST:
+                doMlst(args);
+                break;
+            case MLSD:
+                doMlsd(args);
+                break;
+            case OPTS:
+                doOpts(args);
+                break;
+            case FEAT:
+                doFeat(args);
+                break;
+            default:
+                String message = L10N.getString("ftp.err.command_unrecognized");
+                reply(500, MessageFormat.format(message, unknownText));
         }
     }
 

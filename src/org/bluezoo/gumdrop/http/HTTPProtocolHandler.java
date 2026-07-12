@@ -49,10 +49,10 @@ import java.util.logging.Logger;
 import javax.mail.internet.MimeUtility;
 
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
@@ -67,15 +67,19 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 /**
- * HTTP/1.1 and HTTP/2 protocol handler using {@link ProtocolHandler} and
- * {@link LineParser}.
+ * HTTP/1.1 and HTTP/2 protocol handler using {@link ProtocolHandler}.
  *
  * <p>Implements the HTTP protocol with the transport layer fully decoupled
  * via composition:
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses the composable {@link LineParser} utility</li>
+ * <li>Line parsing uses a streaming {@link HTTPLineLexer} (issue #85):
+ *     bytes are tokenised as they arrive rather than buffered into whole
+ *     lines — see {@link ByteStreamLexer}. Content-Length and chunked
+ *     bodies use {@link ByteStreamLexer#enterRaw(long)}; HTTP/2 framing,
+ *     the h2c/prior-knowledge prefaces, the HTTP/1.0 until-close body, and
+ *     WebSocket data are read entirely outside the lexer, unchanged</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
@@ -112,11 +116,12 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see LineParser
+ * @see HTTPLineLexer
  * @see HTTPConnectionLike
  */
 public class HTTPProtocolHandler
-        implements ProtocolHandler, LineParser.Callback, H2FrameHandler, HTTPConnectionLike {
+        implements ProtocolHandler, ByteStreamLexer.Handler<HTTPLineLexer.Token>,
+                   H2FrameHandler, HTTPConnectionLike {
 
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
@@ -210,6 +215,27 @@ public class HTTPProtocolHandler
 
     private State state = State.REQUEST_LINE;
     private CharBuffer charBuffer;
+
+    // Streaming lexer (issue #85). Every line-based state (REQUEST_LINE,
+    // HEADER, BODY_CHUNKED_SIZE, BODY_CHUNKED_TRAILER) and every raw-body
+    // state (BODY, BODY_CHUNKED_DATA) is driven through this lexer;
+    // BODY_UNTIL_CLOSE, H2C_PREFACE, PRI, and the HTTP/2/WebSocket states
+    // are handled entirely outside it — see stopForHandoff() call sites.
+    private final HTTPLineLexer lexer = new HTTPLineLexer(this, MAX_LINE_LENGTH);
+    // Set by tokenTooLong() (see its Javadoc for why); once true, receive()
+    // stops feeding this connection anything further.
+    private boolean fatalParseError;
+
+    // RFC 9112 section 7.1: a chunk's data is followed by a mandatory,
+    // otherwise-content-free CRLF before the next chunk-size line. Since
+    // chunk-data is arbitrary binary content, that CRLF cannot be found by
+    // scanning for one (an embedded "\r\n" inside the chunk's own bytes
+    // would false-match) — enterRawBody() reads chunk-data-length + 2
+    // bytes as one fixed-length raw span, and these two fields split each
+    // incoming raw slice at the chunk-data/terminator boundary and buffer
+    // the (at most 2) terminator bytes until they can be validated.
+    private final byte[] chunkTerminatorBuf = new byte[CRLF_LENGTH];
+    private int chunkTerminatorLen;
 
     private String headerName;
     private CharBuffer headerValue;
@@ -312,6 +338,7 @@ public class HTTPProtocolHandler
         this.maxHeaderListSize = serverMaxHeaderListSize;
         this.maxRequestBodySize = server.getMaxRequestBodySize();
         this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH);
+        ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
         this.authenticationProvider = server.getAuthenticationProvider();
         this.handlerFactory = server.getHandlerFactory();
     }
@@ -358,6 +385,9 @@ public class HTTPProtocolHandler
         }
 
         while (buf.hasRemaining()) {
+            if (fatalParseError) {
+                break;
+            }
             int positionBefore = buf.position();
 
             switch (state) {
@@ -365,13 +395,15 @@ public class HTTPProtocolHandler
                 case HEADER:
                 case BODY_CHUNKED_SIZE:
                 case BODY_CHUNKED_TRAILER:
-                    LineParser.parse(buf, this, MAX_LINE_LENGTH);
-                    break;
                 case BODY:
-                    receiveBody(buf);
-                    break;
                 case BODY_CHUNKED_DATA:
-                    receiveChunkedData(buf);
+                    // The lexer transparently handles both line-scanning
+                    // and (once enterRawBody() has been called, see
+                    // afterLineDispatch()/handleBodyBytes()/
+                    // handleChunkedDataBytes()) raw-body delivery — it
+                    // remembers its own mode across receive() calls, so
+                    // BODY/BODY_CHUNKED_DATA route through it too.
+                    lexer.feed(buf);
                     break;
                 case BODY_UNTIL_CLOSE:
                     receiveBodyUntilClose(buf);
@@ -465,41 +497,178 @@ public class HTTPProtocolHandler
         closeEndpoint();
     }
 
-    // ── LineParser.Callback implementation ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
     // RFC 9112 section 2: message = start-line CRLF *( field-line CRLF ) CRLF [ message-body ]
 
     @Override
-    public void lineReceived(ByteBuffer line) {
+    public boolean token(HTTPLineLexer.Token type, ByteBuffer window) {
+        if (type != HTTPLineLexer.Token.LINE) {
+            return false;
+        }
         switch (state) {
             case REQUEST_LINE:
-                processRequestLine(line);
+                processRequestLine(window);
                 break;
             case HEADER:
-                processHeaderLine(line);
+                processHeaderLine(window);
                 break;
             case BODY_CHUNKED_SIZE:
-                processChunkSizeLine(line);
+                processChunkSizeLine(window);
                 break;
             case BODY_CHUNKED_TRAILER:
-                processTrailerLine(line);
+                processTrailerLine(window);
                 break;
             default:
                 break;
         }
+        afterStateTransition();
+        return false;
     }
 
     @Override
-    public boolean continueLineProcessing() {
-        return state == State.REQUEST_LINE
-                || state == State.HEADER
-                || state == State.BODY_CHUNKED_SIZE
-                || state == State.BODY_CHUNKED_TRAILER;
+    public void rawBytes(ByteBuffer slice) {
+        switch (state) {
+            case BODY:
+                handleBodyBytes(slice);
+                break;
+            case BODY_CHUNKED_DATA:
+                handleChunkedDataBytes(slice);
+                break;
+            default:
+                LOGGER.warning("Unexpected rawBytes() call in state " + state);
+        }
     }
 
     @Override
-    public void lineTooLong() {
+    public void tokenTooLong() {
+        // Unlike every other protocol in this conversion, this does not
+        // discard-and-resync (TokenErrorRecovery): state never advances
+        // past REQUEST_LINE/HEADER here, so resuming line-scanning would
+        // just misinterpret the next already-buffered legitimate line
+        // (e.g. "Host: ...") as another request-line and send a second,
+        // invalid error on the now-errored stream. sendStreamError()
+        // already marks the connection closeConnection=true, and
+        // Stream's own response-write path closes the connection once
+        // that response has actually been flushed (see Stream.java's
+        // closeConnection checks) — fatalParseError just needs to stop
+        // receive() from feeding it anything more in the meantime; it
+        // must not force-close the endpoint itself, which would race
+        // ahead of that queued response ever being written.
+        fatalParseError = true;
         Stream stream = getStream(clientStreamId);
-        sendStreamError(stream, 431);
+        // RFC 9110 section 15.5.15 (414) vs section 15.5.18 (431): which
+        // status is correct depends on which kind of line overflowed. The
+        // pre-conversion code sent 431 unconditionally here — its own
+        // request-line-specific 414 check (in processRequestLine) was
+        // unreachable dead code, since LineParser's own cap always fired
+        // first at exactly this same byte threshold, so 414 for an
+        // oversized request-line was already the intended behavior, just
+        // never actually reachable.
+        int statusCode;
+        switch (state) {
+            case REQUEST_LINE:
+                statusCode = 414;
+                break;
+            case BODY_CHUNKED_SIZE:
+                // Not a header field limit; an oversized chunk-size line
+                // is malformed chunked framing (RFC 9112 section 7.1).
+                statusCode = 400;
+                break;
+            default:
+                statusCode = 431;
+        }
+        sendStreamError(stream, statusCode);
+    }
+
+    /**
+     * Called after every {@code LINE} token dispatch, and after every raw
+     * body/chunk-data completion, to decide what the lexer should do next
+     * based on the {@code state} transition that dispatch may have just
+     * made — mirrors the pre-conversion {@code receive()} loop's own
+     * per-iteration state re-check, just centralised here since {@link
+     * ByteStreamLexer#enterRaw(long)}/{@code requestStop()} need to be
+     * triggered from within the callback that caused the transition.
+     */
+    private void afterStateTransition() {
+        switch (state) {
+            case BODY: {
+                Stream stream = getStream(clientStreamId);
+                lexer.enterRawBody(stream.getRequestBodyBytesNeeded());
+                break;
+            }
+            case BODY_CHUNKED_DATA:
+                chunkTerminatorLen = 0;
+                lexer.enterRawBody((long) currentChunkSize + CRLF_LENGTH);
+                break;
+            case REQUEST_LINE:
+            case HEADER:
+            case BODY_CHUNKED_SIZE:
+            case BODY_CHUNKED_TRAILER:
+                break; // still lexer-driven; nothing to do
+            default:
+                // PRI, BODY_UNTIL_CLOSE, H2C_PREFACE, PRI_SETTINGS, HTTP2,
+                // HTTP2_CONTINUATION, WEBSOCKET: none of these are read
+                // through the lexer — hand control back to receive()'s own
+                // state dispatch for the rest of the current buffer.
+                lexer.stopForHandoff();
+        }
+    }
+
+    /**
+     * Handles Content-Length-delimited body bytes (RFC 9112 section 6.2):
+     * the body of the pre-conversion {@code receiveBody}, minus the "how
+     * much do I take from this buffer" arithmetic — {@code slice} is
+     * already bounded to at most what {@link HTTPLineLexer#enterRawBody}
+     * still needs.
+     */
+    private void handleBodyBytes(ByteBuffer slice) {
+        Stream stream = getStream(clientStreamId);
+        stream.receiveRequestBody(slice);
+        if (stream.getRequestBodyBytesNeeded() == 0L) {
+            stream.streamEndRequest();
+            if (h2cUpgradePending) {
+                completeH2cUpgrade();
+            } else {
+                state = State.REQUEST_LINE;
+            }
+            clientStreamId += 2;
+            afterStateTransition();
+        }
+    }
+
+    /**
+     * Handles chunk-data bytes (RFC 9112 section 7.1): the body of the
+     * pre-conversion {@code receiveChunkedData}. {@code enterRawBody} was
+     * called with {@code currentChunkSize + CRLF_LENGTH}, so each incoming
+     * {@code slice} may contain real chunk-data, the mandatory trailing
+     * CRLF, or a split across both — chunk-data cannot be told apart from
+     * its terminator by scanning for a CRLF (arbitrary binary chunk
+     * content could legitimately contain one), so this manually splits
+     * the slice at the {@code chunkBytesRemaining} boundary instead,
+     * exactly as the pre-conversion code did against the raw transport
+     * buffer.
+     */
+    private void handleChunkedDataBytes(ByteBuffer slice) {
+        Stream stream = getStream(clientStreamId);
+        if (chunkBytesRemaining > 0) {
+            int dataLen = Math.min(slice.remaining(), chunkBytesRemaining);
+            int savedLimit = slice.limit();
+            slice.limit(slice.position() + dataLen);
+            stream.receiveRequestBody(slice);
+            slice.limit(savedLimit);
+            chunkBytesRemaining -= dataLen;
+        }
+        while (slice.hasRemaining()) {
+            chunkTerminatorBuf[chunkTerminatorLen++] = slice.get();
+        }
+        if (chunkTerminatorLen == CRLF_LENGTH) {
+            if (chunkTerminatorBuf[0] != '\r' || chunkTerminatorBuf[1] != '\n') {
+                sendStreamError(stream, 400);
+                return;
+            }
+            state = State.BODY_CHUNKED_SIZE;
+            afterStateTransition();
+        }
     }
 
     // ── HTTPConnectionLike implementation ──
@@ -843,6 +1012,16 @@ public class HTTPProtocolHandler
     public void switchToWebSocketMode(int streamId) {
         this.webSocketStreamId = streamId;
         this.state = State.WEBSOCKET;
+        // May be called synchronously, from within the call stack of a
+        // LINE token's dispatch (e.g. an app accepting a WebSocket
+        // upgrade as soon as headers complete) — if the current buffer
+        // has more bytes after this point (a pipelined WebSocket frame),
+        // the lexer must stop trying to tokenise them as HTTP lines and
+        // hand them to receive()'s WEBSOCKET dispatch instead. Harmless
+        // if called asynchronously too: receive() checks state before
+        // ever calling lexer.feed(), so this just becomes a no-op wait
+        // for the next feed() call that will never come.
+        lexer.stopForHandoff();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Switched to WebSocket mode for stream " + streamId);
         }
@@ -1499,6 +1678,17 @@ public class HTTPProtocolHandler
             return;
         }
         stream.streamEndHeaders();
+        // RFC 6455 section 4.1: an application's headers() callback may
+        // synchronously switch this connection into WEBSOCKET mode (via
+        // switchToWebSocketMode(), called from HTTPResponseState.
+        // upgradeToWebSocket()) — a bodyless upgrade request otherwise
+        // falls straight into the contentLength == 0L branch below, which
+        // would clobber that transition back to REQUEST_LINE before the
+        // pipelined/next-arriving WebSocket frame bytes are ever handed
+        // to receiveWebSocket().
+        if (state == State.WEBSOCKET) {
+            return;
+        }
         // RFC 9112 section 9.6: track requests for Connection: close
         requestCount++;
         int maxRequests = server.getMaxRequestsPerConnection();
@@ -1619,65 +1809,6 @@ public class HTTPProtocolHandler
                 state = State.REQUEST_LINE;
             }
             clientStreamId += 2;
-        }
-    }
-
-    // RFC 9112 section 6.2: Content-Length delimited body
-    private void receiveBody(ByteBuffer buf) {
-        Stream stream = getStream(clientStreamId);
-        long contentLength = stream.getContentLength();
-        if (contentLength == -1L) {
-            sendStreamError(stream, 411);
-            return;
-        }
-        int available = buf.remaining();
-        if (available < 1) {
-            return;
-        }
-        long needed = stream.getRequestBodyBytesNeeded();
-        if ((long) available > needed) {
-            available = (int) needed;
-        }
-        int savedLimit = buf.limit();
-        buf.limit(buf.position() + available);
-        stream.receiveRequestBody(buf);
-        buf.limit(savedLimit);
-        if (stream.getRequestBodyBytesNeeded() == 0L) {
-            stream.streamEndRequest();
-            if (h2cUpgradePending) {
-                completeH2cUpgrade();
-            } else {
-                state = State.REQUEST_LINE;
-            }
-            clientStreamId += 2;
-        }
-    }
-
-    // RFC 9112 section 7.1: chunk-data = 1*OCTET
-    private void receiveChunkedData(ByteBuffer buf) {
-        Stream stream = getStream(clientStreamId);
-        int available = buf.remaining();
-        if (available < 1) {
-            return;
-        }
-        int toRead = Math.min(available, chunkBytesRemaining);
-        if (toRead > 0) {
-            int savedLimit = buf.limit();
-            buf.limit(buf.position() + toRead);
-            stream.receiveRequestBody(buf);
-            buf.limit(savedLimit);
-            chunkBytesRemaining -= toRead;
-        }
-        if (chunkBytesRemaining == 0) {
-            if (buf.remaining() >= CRLF_LENGTH) {
-                byte cr = buf.get();
-                byte lf = buf.get();
-                if (cr != '\r' || lf != '\n') {
-                    sendStreamError(stream, 400);
-                    return;
-                }
-                state = State.BODY_CHUNKED_SIZE;
-            }
         }
     }
 

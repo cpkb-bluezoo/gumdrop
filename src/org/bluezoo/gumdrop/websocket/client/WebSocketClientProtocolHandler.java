@@ -148,23 +148,34 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
         currentStream = null;
         parseState = ParseState.IDLE;
 
-        // Drain any remaining data in the parse buffer into WebSocket
-        if (parseBuffer.position() > 0) {
-            parseBuffer.flip();
-            if (parseBuffer.hasRemaining()) {
-                try {
-                    webSocketConnection.processIncomingData(parseBuffer);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error processing buffered data", e);
-                    eventHandler.error(e);
-                }
+        // Drain any pipelined WebSocket bytes left in the current
+        // receive() call's buffer beyond what the lexer has consumed so
+        // far (see HTTPClientProtocolHandler#currentReceiveBuffer) — the
+        // zero-copy design has no persistent accumulation buffer the way
+        // the removed parseBuffer field used to provide.
+        if (currentReceiveBuffer != null && currentReceiveBuffer.hasRemaining()) {
+            try {
+                webSocketConnection.processIncomingData(currentReceiveBuffer);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error processing buffered data", e);
+                eventHandler.error(e);
             }
-            parseBuffer.clear();
         }
 
         webSocketConnection.notifyConnectionOpen();
 
         return true;
+    }
+
+    /**
+     * Tells the base class's {@code receive()} loop to stop once
+     * {@link #handleProtocolSwitch} has switched to WebSocket mode
+     * mid-call, since that method already drained the remainder of
+     * {@code currentReceiveBuffer} itself.
+     */
+    @Override
+    protected boolean isExternallyHandled() {
+        return webSocketMode;
     }
 
     /** RFC 6455 §5 — routes data to WebSocket frame processing after upgrade. */

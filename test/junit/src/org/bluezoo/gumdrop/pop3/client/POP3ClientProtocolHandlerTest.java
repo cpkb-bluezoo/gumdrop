@@ -136,6 +136,123 @@ public class POP3ClientProtocolHandlerTest {
         assertNull(greetingHandler.apopTimestamp);
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Streaming lexer tests (issue #85) — sliced-boundary and golden
+    // transcript coverage, proving the POP3ClientLexer conversion from
+    // buffered-line parsing preserves identical semantic dispatch, and
+    // that requestStop() correctly hands off to DotUnstuffer.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // a single persistent buffer, compacted between receive() calls.
+    private void receiveResponseSliced(String line, int chunkSize) {
+        byte[] wire = (line + "\r\n").getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer netIn = ByteBuffer.allocate(1024);
+        int offset = 0;
+        while (offset < wire.length) {
+            int len = Math.min(chunkSize, wire.length - offset);
+            netIn.put(wire, offset, len);
+            offset += len;
+            netIn.flip();
+            handler.receive(netIn);
+            netIn.compact();
+        }
+    }
+
+    @Test
+    public void testGreetingSlicedByteAtATime() {
+        receiveResponseSliced("+OK POP3 server ready", 1);
+        assertTrue(greetingHandler.greetingReceived);
+        assertEquals("POP3 server ready", greetingHandler.greetingMessage);
+    }
+
+    @Test
+    public void testGreetingSlicedAtEveryChunkSize() {
+        String line = "+OK POP3 server ready";
+        for (int chunkSize = 1; chunkSize <= line.length() + 2; chunkSize++) {
+            greetingHandler = new RecordingGreetingHandler();
+            handler = new POP3ClientProtocolHandler(greetingHandler);
+            endpoint = new StubEndpoint();
+            handler.connected(endpoint);
+
+            receiveResponseSliced(line, chunkSize);
+            assertTrue("chunk size " + chunkSize,
+                    greetingHandler.greetingReceived);
+            assertEquals("chunk size " + chunkSize,
+                    "POP3 server ready", greetingHandler.greetingMessage);
+        }
+    }
+
+    @Test
+    public void testRetrOkAndContentInSameReadDoNotDesyncLexer() {
+        enterTransactionState();
+        RecordingRetrHandler retrHandler = new RecordingRetrHandler();
+        greetingHandler.transactionState.retr(1, retrHandler);
+
+        // "+OK" and the start of the message content arrive in the SAME
+        // network read. requestStop() must stop the lexer exactly at the
+        // CRLF ending "+OK ...", leaving the content bytes unconsumed —
+        // proving the lexer does not try to tokenise message content as
+        // more response lines. Matches the pre-streaming
+        // LineParser.Callback.continueLineProcessing() contract this
+        // replaces: content in the same buffer as the triggering "+OK"
+        // is not drained within that same receive() call.
+        ByteBuffer netIn = ByteBuffer.allocate(1024);
+        netIn.put(("+OK 13 octets\r\n" + "Hello World\r\n.\r\n")
+                .getBytes(StandardCharsets.US_ASCII));
+        netIn.flip();
+        handler.receive(netIn);
+        netIn.compact();
+
+        assertFalse("content should not be drained within the same "
+                + "receive() call as the triggering +OK",
+                retrHandler.messageComplete);
+
+        // The next receive() call (transport's compact() has preserved
+        // the leftover bytes) sees dotUnstufferActive already true and
+        // correctly hands them to DotUnstuffer.
+        netIn.flip();
+        handler.receive(netIn);
+        netIn.compact();
+
+        assertTrue(retrHandler.messageComplete);
+        assertEquals("Hello World\r\n", retrHandler.collectedContent());
+    }
+
+    @Test
+    public void testCapaSlicedAtEveryChunkSize() {
+        String transcript = "+OK Capability list follows\r\n"
+                + "TOP\r\nUIDL\r\nUSER\r\n.\r\n";
+        byte[] wire = transcript.getBytes(StandardCharsets.US_ASCII);
+
+        for (int chunkSize = 1; chunkSize <= wire.length; chunkSize++) {
+            greetingHandler = new RecordingGreetingHandler();
+            handler = new POP3ClientProtocolHandler(greetingHandler);
+            endpoint = new StubEndpoint();
+            handler.connected(endpoint);
+            receiveResponse("+OK POP3 server ready");
+
+            RecordingCapaHandler capaHandler = new RecordingCapaHandler();
+            greetingHandler.authState.capa(capaHandler);
+
+            ByteBuffer netIn = ByteBuffer.allocate(1024);
+            int offset = 0;
+            while (offset < wire.length) {
+                int len = Math.min(chunkSize, wire.length - offset);
+                netIn.put(wire, offset, len);
+                offset += len;
+                netIn.flip();
+                handler.receive(netIn);
+                netIn.compact();
+            }
+
+            assertTrue("chunk size " + chunkSize, capaHandler.capabilitiesReceived);
+            assertTrue("chunk size " + chunkSize, capaHandler.top);
+            assertTrue("chunk size " + chunkSize, capaHandler.uidl);
+            assertTrue("chunk size " + chunkSize, capaHandler.user);
+        }
+    }
+
     @Test
     public void testGreetingServiceUnavailable() {
         receiveResponse("-ERR server busy, try later");

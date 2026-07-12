@@ -33,9 +33,9 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientAuthExchange;
@@ -67,7 +67,9 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  * delegates all transport operations to a transport-agnostic
  * {@link Endpoint}.
  *
- * <p>Line parsing is handled by the composable {@link LineParser} utility.
+ * <p>Line parsing uses a streaming {@link SMTPClientLexer} (issue #85):
+ * bytes are tokenised as they arrive rather than buffered into whole
+ * lines — see {@link ByteStreamLexer}.
  *
  * <p>Supported client capabilities:
  * <ul>
@@ -98,7 +100,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
  */
 public class SMTPClientProtocolHandler
-        implements ProtocolHandler, LineParser.Callback,
+        implements ProtocolHandler, ByteStreamLexer.Handler<SMTPClientLexer.Token>,
         WritableByteChannel, ClientHelloState, ClientSession,
         ClientPostTls, ClientAuthExchange, ClientEnvelope,
         ClientEnvelopeReady, ClientMessageData {
@@ -150,8 +152,16 @@ public class SMTPClientProtocolHandler
     private boolean useBdat;
     private int bdatPendingResponses;
 
-    // Line assembly buffer for LineParser
-    private StringBuilder lineBuilder;
+    // Streaming lexer (issue #85) and per-line parse state. No cap on
+    // structured tokens (CODE is always exactly 3 bytes; DASH/SP are
+    // always exactly 1): this client trusts the remote server, same
+    // principle as POP3ClientLexer.
+    private final SMTPClientLexer lexer = new SMTPClientLexer(this, Integer.MAX_VALUE);
+    private boolean pendingHasCode;
+    private int pendingCode;
+    private String pendingCodeError;
+    private final StringBuilder replyTextBuilder = new StringBuilder();
+    private boolean pendingContinuation;
 
     /**
      * Creates an SMTP client endpoint handler.
@@ -165,7 +175,6 @@ public class SMTPClientProtocolHandler
         this.handler = handler;
         this.dotStuffer = new DotStuffer();
         this.multiLineResponse = new ArrayList<String>();
-        this.lineBuilder = new StringBuilder();
     }
 
     /**
@@ -212,7 +221,7 @@ public class SMTPClientProtocolHandler
     /** RFC 5321 §4.2 — replies are line-oriented: code SP text CRLF. */
     @Override
     public void receive(ByteBuffer data) {
-        LineParser.parse(data, this);
+        lexer.feed(data);
     }
 
     @Override
@@ -246,25 +255,144 @@ public class SMTPClientProtocolHandler
         handleError(new SMTPException("Connection error", cause));
     }
 
-    // ── LineParser.Callback ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
+    // RFC 5321 §4.2: CODE [SEP TEXT] CRLF. TEXT is delivered in zero-copy
+    // chunks by the lexer (see SMTPClientLexer / ByteStreamLexer); this
+    // dispatcher accumulates only what it needs to retain (the message
+    // text) and resolves the reply code directly from the CODE token's
+    // bytes, without decoding to a String for the common (valid) case.
     @Override
-    public void lineReceived(ByteBuffer line) {
-        int len = line.remaining();
-        if (len < 2) {
-            return;
+    public boolean token(SMTPClientLexer.Token type, ByteBuffer window) {
+        switch (type) {
+            case CODE:
+                pendingHasCode = true;
+                if (window.remaining() != 3) {
+                    pendingCodeError = MessageFormat.format(
+                            L10N.getString("err.invalid_smtp_response"),
+                            decodeAscii(window));
+                } else {
+                    try {
+                        pendingCode = parseCode(window);
+                    } catch (NumberFormatException e) {
+                        pendingCodeError = MessageFormat.format(
+                                L10N.getString("err.invalid_smtp_response"),
+                                decodeAscii(window));
+                    }
+                }
+                return false;
+            case DASH:
+                pendingContinuation = true;
+                return true; // latch text mode for the rest of the line
+            case SP:
+                pendingContinuation = false;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                replyTextBuilder.append(decodeAscii(window));
+                return false;
+            case CRLF:
+                lexer.resetForNextLine();
+                dispatchLine();
+                return false;
+            default:
+                return false;
         }
-        byte[] bytes = new byte[len - 2];
-        line.get(bytes);
-        line.get();
-        line.get();
-        String text = new String(bytes, StandardCharsets.US_ASCII);
-        handleReplyLine(text);
     }
 
     @Override
-    public boolean continueLineProcessing() {
-        return true;
+    public void rawBytes(ByteBuffer slice) {
+        // SMTP client responses are always line-based; DATA/BDAT content is
+        // written by the client, never received, so the lexer never enters
+        // a raw escape and this is structurally unreachable.
+        LOGGER.warning("Unexpected rawBytes() call on SMTP client lexer");
+    }
+
+    @Override
+    public void tokenTooLong() {
+        // SMTPClientLexer is constructed with an unbounded per-token cap
+        // (Integer.MAX_VALUE) — this client trusts the remote server, same
+        // as POP3ClientLexer — so this is structurally unreachable.
+        LOGGER.warning("Unexpected tokenTooLong() call on SMTP client lexer");
+    }
+
+    private static String decodeAscii(ByteBuffer window) {
+        byte[] bytes = new byte[window.remaining()];
+        window.get(bytes);
+        return new String(bytes, StandardCharsets.US_ASCII);
+    }
+
+    private static int parseCode(ByteBuffer window) {
+        int base = window.position();
+        int code = 0;
+        for (int i = 0; i < 3; i++) {
+            byte b = window.get(base + i);
+            if (b < '0' || b > '9') {
+                throw new NumberFormatException();
+            }
+            code = code * 10 + (b - '0');
+        }
+        return code;
+    }
+
+    private void resetLineState() {
+        pendingHasCode = false;
+        pendingCode = 0;
+        pendingCodeError = null;
+        pendingContinuation = false;
+        replyTextBuilder.setLength(0);
+    }
+
+    // RFC 5321 §4.2 — a complete reply line has been lexed; the code was
+    // already resolved from the CODE token's bytes, so dispatch does not
+    // re-parse a buffered line.
+    private void dispatchLine() {
+        boolean hasCode = pendingHasCode;
+        int code = pendingCode;
+        String error = pendingCodeError;
+        boolean continuation = pendingContinuation;
+        String message = replyTextBuilder.toString();
+        resetLineState();
+
+        if (!hasCode) {
+            // A bare CRLF with no reply code at all — silently ignored,
+            // matching the pre-conversion "line.remaining() < 2" check.
+            return;
+        }
+
+        try {
+            if (error != null) {
+                throw new SMTPException(error);
+            }
+
+            if (code == 421) {
+                handle421ServiceClosing(message);
+                return;
+            }
+
+            if (continuation) {
+                if (!inMultiLineResponse) {
+                    inMultiLineResponse = true;
+                    multiLineResponse.clear();
+                }
+                multiLineResponse.add(message);
+            } else {
+                if (inMultiLineResponse) {
+                    multiLineResponse.add(message);
+                    inMultiLineResponse = false;
+                    dispatchResponse(code, multiLineResponse);
+                    multiLineResponse.clear();
+                } else {
+                    List<String> singleLine = new ArrayList<String>();
+                    singleLine.add(message);
+                    dispatchResponse(code, singleLine);
+                }
+            }
+        } catch (SMTPException e) {
+            handleError(e);
+        } catch (Exception e) {
+            handleError(new SMTPException(
+                    "Failed to parse SMTP response", e));
+        }
     }
 
     // ── Connection state ──
@@ -679,54 +807,6 @@ public class SMTPClientProtocolHandler
     }
 
     // ── Response handling ──
-
-    private void handleReplyLine(String line) {
-        try {
-            if (line.length() < 3) {
-                throw new SMTPException(MessageFormat.format(
-                        L10N.getString("err.invalid_smtp_response"),
-                        line));
-            }
-
-            int code = Integer.parseInt(line.substring(0, 3));
-            boolean continuation =
-                    line.length() > 3 && line.charAt(3) == '-';
-            String message =
-                    line.length() > 4 ? line.substring(4) : "";
-
-            if (code == 421) {
-                handle421ServiceClosing(message);
-                return;
-            }
-
-            if (continuation) {
-                if (!inMultiLineResponse) {
-                    inMultiLineResponse = true;
-                    multiLineResponse.clear();
-                }
-                multiLineResponse.add(message);
-            } else {
-                if (inMultiLineResponse) {
-                    multiLineResponse.add(message);
-                    inMultiLineResponse = false;
-                    dispatchResponse(code, multiLineResponse);
-                    multiLineResponse.clear();
-                } else {
-                    List<String> singleLine = new ArrayList<String>();
-                    singleLine.add(message);
-                    dispatchResponse(code, singleLine);
-                }
-            }
-        } catch (NumberFormatException e) {
-            handleError(new SMTPException(
-                    "Invalid SMTP response code: " + line, e));
-        } catch (SMTPException e) {
-            handleError(e);
-        } catch (Exception e) {
-            handleError(new SMTPException(
-                    "Failed to parse SMTP response: " + line, e));
-        }
-    }
 
     /** RFC 5321 §4.2.1 — 421 service closing transmission channel. */
     private void handle421ServiceClosing(String message) {

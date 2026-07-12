@@ -29,11 +29,10 @@ import java.nio.channels.CompletionHandler;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.ByteOrder;
-import java.nio.CharBuffer;
 import java.nio.channels.ReadableByteChannel;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
 import java.security.MessageDigest;
 import java.security.Principal;
 import java.security.SecureRandom;
@@ -50,13 +49,14 @@ import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -96,7 +96,9 @@ import org.bluezoo.util.ByteArrays;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses the composable {@link LineParser} utility</li>
+ * <li>Line parsing uses a streaming {@link POP3ServerLexer} (issue #85):
+ *     bytes are tokenised as they arrive rather than buffered into whole
+ *     lines — see {@link ByteStreamLexer}</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
@@ -121,12 +123,12 @@ import org.bluezoo.util.ByteArrays;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see LineParser
+ * @see POP3ServerLexer
  * @see POP3Listener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
 public class POP3ProtocolHandler
-        implements ProtocolHandler, LineParser.Callback,
+        implements ProtocolHandler, ByteStreamLexer.Handler<POP3ServerLexer.Token>,
                    ConnectedState, AuthenticateState, MailboxStatusState,
                    ListState, RetrieveState, MarkDeletedState, ResetState,
                    TopState, UidlState, UpdateState {
@@ -147,6 +149,18 @@ public class POP3ProtocolHandler
         AUTHORIZATION,
         TRANSACTION,
         UPDATE
+    }
+
+    // RFC 1939 sections 4, 5, 7 — recognised command verbs. Resolved once,
+    // directly from the KEYWORD token's bytes (issue #85), rather than
+    // buffered as a String and re-compared later: the command is known as
+    // soon as its token arrives, so it is carried as this enum from then
+    // on instead of a string requiring a second dispatch-time lookup.
+    enum POP3Command {
+        QUIT, CAPA, NOOP,
+        USER, PASS, APOP, AUTH, STLS, UTF8,
+        STAT, LIST, RETR, DELE, RSET, TOP, UIDL,
+        UNKNOWN
     }
 
     enum AuthState {
@@ -197,7 +211,18 @@ public class POP3ProtocolHandler
     private byte[] authSalt;
     private int authIterations = 4096;
     private GSSAPIServer.GSSAPIExchange gssapiExchange;
-    private CharBuffer charBuffer;
+
+    // Streaming lexer (issue #85) and per-line parse state
+    private final POP3ServerLexer lexer;
+    private final TokenErrorRecovery<POP3ServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<POP3ServerLexer.Token>(POP3ServerLexer.Token.CRLF);
+    private POP3Command pendingCommand = POP3Command.UNKNOWN;
+    private String pendingUnknownText = "";
+    private String pendingContinuationText = "";
+    private boolean pendingHasSp;
+    private final StringBuilder argsBuilder = new StringBuilder();
+    private int lineByteCount;
+    private String lineErrorMessage;
 
     // Telemetry
     private Trace connectionTrace;
@@ -213,7 +238,8 @@ public class POP3ProtocolHandler
         this.server = server;
         this.connectionTimeMillis = System.currentTimeMillis();
         this.lastActivityTime = connectionTimeMillis;
-        this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH + 2);
+        ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
+        this.lexer = new POP3ServerLexer(this, MAX_LINE_LENGTH);
 
         if (server.isEnableAPOP()) {
             this.apopTimestamp = generateAPOPTimestamp();
@@ -242,7 +268,7 @@ public class POP3ProtocolHandler
     @Override
     public void receive(ByteBuffer data) {
         lastActivityTime = System.currentTimeMillis();
-        LineParser.parse(data, this, MAX_LINE_LENGTH);
+        lexer.feed(data);
     }
 
     @Override
@@ -298,75 +324,235 @@ public class POP3ProtocolHandler
         closeEndpoint();
     }
 
-    // ── LineParser.Callback implementation ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
+
+    // RFC 1939 section 3: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
+    // zero-copy chunks by the lexer (see POP3ServerLexer / ByteStreamLexer);
+    // this dispatcher accumulates only what it needs to retain (the args
+    // string) and enforces the combined line-length budget itself, since
+    // free-form text is intentionally exempt from the lexer's own cap.
+    @Override
+    public boolean token(POP3ServerLexer.Token type, ByteBuffer window) {
+        if (lexerRecovery.handleToken(type)) {
+            // Discarding the remainder of a line already rejected by
+            // tokenTooLong(); the error reply was already sent there.
+            return false;
+        }
+        switch (type) {
+            case KEYWORD:
+                lineByteCount = window.remaining();
+                if (lineErrorMessage == null) {
+                    if (state == POP3State.AUTHORIZATION
+                            && authState != AuthState.NONE) {
+                        // SASL continuation data must preserve original
+                        // case, and isn't a command at all, so it is
+                        // never matched against known verbs.
+                        try {
+                            pendingContinuationText = decodeAscii(window);
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString(
+                                    "pop3.err.invalid_command_encoding");
+                        }
+                    } else {
+                        // Resolve the command directly from the token's
+                        // bytes now, once, rather than buffering a string
+                        // to re-compare at CRLF time. A string is decoded
+                        // only for the (rare) unrecognised-verb case,
+                        // where the exact text is needed for the error
+                        // reply.
+                        pendingCommand = matchCommand(window);
+                        if (pendingCommand == POP3Command.UNKNOWN) {
+                            try {
+                                pendingUnknownText =
+                                        decodeAscii(window).toUpperCase(Locale.ENGLISH);
+                            } catch (CharacterCodingException e) {
+                                lineErrorMessage = L10N.getString(
+                                        "pop3.err.invalid_command_encoding");
+                            }
+                        }
+                    }
+                }
+                return false;
+            case SP:
+                pendingHasSp = true;
+                lineByteCount += 1;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                if (lineErrorMessage == null) {
+                    int len = window.remaining();
+                    if (lineByteCount + len > MAX_LINE_LENGTH) {
+                        lineErrorMessage = L10N.getString("pop3.err.line_too_long");
+                    } else {
+                        try {
+                            argsBuilder.append(decodeAscii(window));
+                            lineByteCount += len;
+                        } catch (CharacterCodingException e) {
+                            lineErrorMessage = L10N.getString(
+                                    "pop3.err.invalid_command_encoding");
+                        }
+                    }
+                }
+                return false;
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
+        }
+    }
 
     @Override
-    public void lineReceived(ByteBuffer line) {
+    public void rawBytes(ByteBuffer slice) {
+        // POP3's control channel is always line-based; the lexer never
+        // enters a raw escape, so this is structurally unreachable.
+        LOGGER.warning("Unexpected rawBytes() call on POP3 server lexer");
+    }
+
+    @Override
+    public void tokenTooLong() {
+        lexerRecovery.beginDiscard();
+        resetLineState();
         try {
-            int lineLength = line.remaining();
-            if (lineLength > MAX_LINE_LENGTH + 2) {
-                sendERR(L10N.getString("pop3.err.line_too_long"));
-                closeEndpoint();
-                return;
-            }
+            sendERR(L10N.getString("pop3.err.line_too_long"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+        }
+    }
 
-            charBuffer.clear();
-            US_ASCII_DECODER.reset();
-            CoderResult result =
-                    US_ASCII_DECODER.decode(line, charBuffer, true);
-            if (result.isError()) {
-                sendERR(L10N.getString(
-                        "pop3.err.invalid_command_encoding"));
-                return;
-            }
-            charBuffer.flip();
+    private static String decodeAscii(ByteBuffer window) throws CharacterCodingException {
+        return US_ASCII_DECODER.decode(window).toString();
+    }
 
-            int len = charBuffer.limit();
-            if (len >= 2
-                    && charBuffer.get(len - 2) == '\r'
-                    && charBuffer.get(len - 1) == '\n') {
-                charBuffer.limit(len - 2);
-                len -= 2;
+    private void resetLineState() {
+        pendingCommand = POP3Command.UNKNOWN;
+        pendingUnknownText = "";
+        pendingContinuationText = "";
+        pendingHasSp = false;
+        argsBuilder.setLength(0);
+        lineByteCount = 0;
+        lineErrorMessage = null;
+    }
+
+    /**
+     * Matches a KEYWORD token's raw bytes against the known POP3 verbs
+     * (RFC 1939 sections 4, 5, 7), case-insensitively, without decoding to
+     * a String — the command is resolved once, here, rather than deferred
+     * to a string comparison at dispatch time.
+     *
+     * @param window the KEYWORD token's bytes
+     * @return the matched command, or {@link POP3Command#UNKNOWN}
+     */
+    private static POP3Command matchCommand(ByteBuffer window) {
+        int len = window.remaining();
+        int base = window.position();
+        // Every verb byte is read exactly once and folded to uppercase,
+        // packed into a single int; dispatch is then one switch (a
+        // lookupswitch/tableswitch) rather than up to 14 sequential
+        // 3-or-4-byte string comparisons. Length-3 and length-4 verbs are
+        // packed and switched separately (not padded into a shared int)
+        // so a literal NUL byte in a 4-byte token can never collide with
+        // a padded 3-byte verb's packed value.
+        if (len == 4) {
+            switch (pack4(window, base)) {
+                case ('Q' << 24) | ('U' << 16) | ('I' << 8) | 'T':
+                    return POP3Command.QUIT;
+                case ('C' << 24) | ('A' << 16) | ('P' << 8) | 'A':
+                    return POP3Command.CAPA;
+                case ('N' << 24) | ('O' << 16) | ('O' << 8) | 'P':
+                    return POP3Command.NOOP;
+                case ('U' << 24) | ('S' << 16) | ('E' << 8) | 'R':
+                    return POP3Command.USER;
+                case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'S':
+                    return POP3Command.PASS;
+                case ('A' << 24) | ('P' << 16) | ('O' << 8) | 'P':
+                    return POP3Command.APOP;
+                case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
+                    return POP3Command.AUTH;
+                case ('S' << 24) | ('T' << 16) | ('L' << 8) | 'S':
+                    return POP3Command.STLS;
+                case ('U' << 24) | ('T' << 16) | ('F' << 8) | '8':
+                    return POP3Command.UTF8;
+                case ('S' << 24) | ('T' << 16) | ('A' << 8) | 'T':
+                    return POP3Command.STAT;
+                case ('L' << 24) | ('I' << 16) | ('S' << 8) | 'T':
+                    return POP3Command.LIST;
+                case ('R' << 24) | ('E' << 16) | ('T' << 8) | 'R':
+                    return POP3Command.RETR;
+                case ('D' << 24) | ('E' << 16) | ('L' << 8) | 'E':
+                    return POP3Command.DELE;
+                case ('R' << 24) | ('S' << 16) | ('E' << 8) | 'T':
+                    return POP3Command.RSET;
+                case ('U' << 24) | ('I' << 16) | ('D' << 8) | 'L':
+                    return POP3Command.UIDL;
+                default:
+                    return POP3Command.UNKNOWN;
+            }
+        }
+        if (len == 3) {
+            if (pack3(window, base) == (('T' << 16) | ('O' << 8) | 'P')) {
+                return POP3Command.TOP;
+            }
+        }
+        return POP3Command.UNKNOWN;
+    }
+
+    private static int pack4(ByteBuffer window, int base) {
+        int packed = 0;
+        for (int i = 0; i < 4; i++) {
+            packed = (packed << 8) | upperFold(window.get(base + i));
+        }
+        return packed;
+    }
+
+    private static int pack3(ByteBuffer window, int base) {
+        int packed = 0;
+        for (int i = 0; i < 3; i++) {
+            packed = (packed << 8) | upperFold(window.get(base + i));
+        }
+        return packed;
+    }
+
+    private static int upperFold(byte b) {
+        if (b >= 'a' && b <= 'z') {
+            b -= 32;
+        }
+        return b & 0xFF;
+    }
+
+    // RFC 1939 section 3 — a complete command/continuation line has been
+    // lexed; the command was already resolved to an enum at the KEYWORD
+    // token, so dispatch is a direct switch, not a re-parse of a string.
+    private void dispatchLine() {
+        POP3Command command = pendingCommand;
+        String unknownText = pendingUnknownText;
+        String continuationText = pendingContinuationText;
+        String args = argsBuilder.toString();
+        boolean hadArgs = pendingHasSp;
+        String error = lineErrorMessage;
+        resetLineState();
+
+        try {
+            if (error != null) {
+                sendERR(error);
+                return;
             }
 
             // SASL continuation data must preserve original case
             if (state == POP3State.AUTHORIZATION
                     && authState != AuthState.NONE) {
-                String rawLine = charBuffer.toString();
+                String rawLine = hadArgs
+                        ? (continuationText + " " + args) : continuationText;
                 handleAuthContinuation(rawLine);
                 return;
             }
 
-            int spaceIndex = -1;
-            for (int i = 0; i < len; i++) {
-                if (charBuffer.get(i) == ' ') {
-                    spaceIndex = i;
-                    break;
-                }
-            }
-
-            String command;
-            String args;
-            if (spaceIndex > 0) {
-                charBuffer.limit(spaceIndex);
-                command = charBuffer.toString()
-                        .toUpperCase(Locale.ENGLISH);
-                charBuffer.limit(len);
-                charBuffer.position(spaceIndex + 1);
-                args = charBuffer.toString();
-            } else {
-                command = charBuffer.toString()
-                        .toUpperCase(Locale.ENGLISH);
-                args = "";
-            }
-
             if (LOGGER.isLoggable(Level.FINEST)) {
                 String msg = L10N.getString("log.pop3_command");
-                msg = MessageFormat.format(msg, command, args);
+                msg = MessageFormat.format(msg, command.name(), args);
                 LOGGER.finest(msg);
             }
 
-            handleCommand(command, args);
+            dispatchCommand(command, unknownText, args);
 
         } catch (IOException e) {
             String logMsg =
@@ -380,20 +566,6 @@ public class POP3ProtocolHandler
                 LOGGER.log(Level.SEVERE, errMsg, e2);
             }
             closeEndpoint();
-        }
-    }
-
-    @Override
-    public boolean continueLineProcessing() {
-        return true;
-    }
-
-    @Override
-    public void lineTooLong() {
-        try {
-            sendERR(L10N.getString("pop3.err.line_too_long"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
         }
     }
 
@@ -495,27 +667,81 @@ public class POP3ProtocolHandler
 
     // ── Command dispatch (RFC 1939 section 3 — state-based) ──
 
-    // RFC 1939 section 3 — dispatch by protocol state
-    private void handleCommand(String command, String args)
+    // RFC 1939 section 3 — dispatch by protocol state. `command` was
+    // already resolved from the KEYWORD token's raw bytes (see
+    // matchCommand()); SASL continuation routing happens earlier, in
+    // dispatchLine(), before this is ever called.
+    private void dispatchCommand(POP3Command command, String unknownText, String args)
             throws IOException {
         switch (command) {
-            case "QUIT":
+            case QUIT:
                 handleQUIT(args);
                 return;
-            case "CAPA":
+            case CAPA:
                 handleCAPA(args);
                 return;
-            case "NOOP":
+            case NOOP:
                 handleNOOP(args);
                 return;
+            default:
+                break;
         }
 
         switch (state) {
             case AUTHORIZATION:
-                handleAuthorizationCommand(command, args);
+                switch (command) {
+                    case USER:
+                        handleUSER(args);
+                        break;
+                    case PASS:
+                        handlePASS(args);
+                        break;
+                    case APOP:
+                        handleAPOP(args);
+                        break;
+                    case AUTH:
+                        handleAUTH(args);
+                        break;
+                    case STLS:
+                        handleSTLS(args);
+                        break;
+                    case UTF8:
+                        handleUTF8(args);
+                        break;
+                    default:
+                        sendERR(MessageFormat.format(
+                                L10N.getString("pop3.err.unknown_command"),
+                                unknownCommandText(command, unknownText)));
+                }
                 break;
             case TRANSACTION:
-                handleTransactionCommand(command, args);
+                switch (command) {
+                    case STAT:
+                        handleSTAT(args);
+                        break;
+                    case LIST:
+                        handleLIST(args);
+                        break;
+                    case RETR:
+                        handleRETR(args);
+                        break;
+                    case DELE:
+                        handleDELE(args);
+                        break;
+                    case RSET:
+                        handleRSET(args);
+                        break;
+                    case TOP:
+                        handleTOP(args);
+                        break;
+                    case UIDL:
+                        handleUIDL(args);
+                        break;
+                    default:
+                        sendERR(MessageFormat.format(
+                                L10N.getString("pop3.err.unknown_command"),
+                                unknownCommandText(command, unknownText)));
+                }
                 break;
             case UPDATE:
                 sendERR(L10N.getString(
@@ -524,69 +750,13 @@ public class POP3ProtocolHandler
         }
     }
 
-    private void handleAuthorizationCommand(String command, String args)
-            throws IOException {
-        if (authState != AuthState.NONE) {
-            handleAuthContinuation(
-                    command + (args.isEmpty() ? "" : " " + args));
-            return;
-        }
-
-        switch (command) {
-            case "USER":
-                handleUSER(args);
-                break;
-            case "PASS":
-                handlePASS(args);
-                break;
-            case "APOP":
-                handleAPOP(args);
-                break;
-            case "AUTH":
-                handleAUTH(args);
-                break;
-            case "STLS":
-                handleSTLS(args);
-                break;
-            case "UTF8":
-                handleUTF8(args);
-                break;
-            default:
-                sendERR(MessageFormat.format(
-                        L10N.getString("pop3.err.unknown_command"),
-                        command));
-        }
-    }
-
-    private void handleTransactionCommand(String command, String args)
-            throws IOException {
-        switch (command) {
-            case "STAT":
-                handleSTAT(args);
-                break;
-            case "LIST":
-                handleLIST(args);
-                break;
-            case "RETR":
-                handleRETR(args);
-                break;
-            case "DELE":
-                handleDELE(args);
-                break;
-            case "RSET":
-                handleRSET(args);
-                break;
-            case "TOP":
-                handleTOP(args);
-                break;
-            case "UIDL":
-                handleUIDL(args);
-                break;
-            default:
-                sendERR(MessageFormat.format(
-                        L10N.getString("pop3.err.unknown_command"),
-                        command));
-        }
+    // A command may reach the "unknown" branch either because it truly
+    // didn't match any verb (unknownText holds its decoded text) or
+    // because it matched a verb that isn't valid in the current state
+    // (e.g. USER while in TRANSACTION) — in which case the enum's own
+    // name is already the exact uppercased text, with no decode needed.
+    private static String unknownCommandText(POP3Command command, String unknownText) {
+        return command == POP3Command.UNKNOWN ? unknownText : command.name();
     }
 
     // ── AUTHORIZATION commands (RFC 1939 section 4, 7) ──
@@ -804,40 +974,48 @@ public class POP3ProtocolHandler
             return;
         }
 
-        String mechanism;
+        String mechanismText;
         String initialResponse = null;
         int spaceIndex = args.indexOf(' ');
         if (spaceIndex > 0) {
-            mechanism = args.substring(0, spaceIndex)
-                    .toUpperCase(Locale.ENGLISH);
+            mechanismText = args.substring(0, spaceIndex);
             initialResponse = args.substring(spaceIndex + 1);
         } else {
-            mechanism = args.toUpperCase(Locale.ENGLISH);
+            mechanismText = args;
+        }
+
+        // SASLMechanism.fromName() is already the canonical, case-insensitive
+        // string-to-enum lookup for this — resolve to the enum once here
+        // rather than switching on the raw string.
+        SASLMechanism mechanism = SASLMechanism.fromName(mechanismText);
+        if (mechanism == null) {
+            sendERR(L10N.getString("pop3.err.unsupported_mechanism"));
+            return;
         }
 
         switch (mechanism) {
-            case "PLAIN":
+            case PLAIN:
                 handleAuthPLAIN(initialResponse);
                 break;
-            case "LOGIN":
+            case LOGIN:
                 handleAuthLOGIN(initialResponse);
                 break;
-            case "CRAM-MD5":
+            case CRAM_MD5:
                 handleAuthCRAMMD5(initialResponse);
                 break;
-            case "DIGEST-MD5":
+            case DIGEST_MD5:
                 handleAuthDIGESTMD5(initialResponse);
                 break;
-            case "SCRAM-SHA-256":
+            case SCRAM_SHA_256:
                 handleAuthSCRAM(initialResponse);
                 break;
-            case "OAUTHBEARER":
+            case OAUTHBEARER:
                 handleAuthOAUTHBEARER(initialResponse);
                 break;
-            case "GSSAPI":
+            case GSSAPI:
                 handleAuthGSSAPI(initialResponse);
                 break;
-            case "EXTERNAL":
+            case EXTERNAL:
                 handleAuthEXTERNAL(initialResponse);
                 break;
             default:

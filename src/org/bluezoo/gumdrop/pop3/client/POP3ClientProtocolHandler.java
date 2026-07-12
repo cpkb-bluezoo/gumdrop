@@ -30,8 +30,8 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.pop3.client.handler.ClientAuthExchange;
@@ -65,10 +65,15 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
  * and delegates all transport operations to a transport-agnostic
  * {@link Endpoint}.
  *
- * <p>Line parsing is handled by the composable {@link LineParser} utility.
- * Multi-line content (RETR, TOP) is dot-unstuffed transparently via
- * {@link DotUnstuffer} (RFC 1939 section 3) and delivered as ByteBuffer
- * chunks.
+ * <p>Response line parsing uses a streaming {@link POP3ClientLexer} (issue
+ * #85): bytes are tokenised as they arrive rather than buffered into whole
+ * lines — see {@link ByteStreamLexer}. Multi-line message content (RETR,
+ * TOP) is dot-unstuffed transparently via {@link DotUnstuffer} (RFC 1939
+ * section 3) and delivered as ByteBuffer chunks; {@link #receive} still
+ * drives it directly from raw bytes exactly as before, since it already
+ * processes dot-terminated, dot-stuffed content correctly in constant
+ * memory across chunk boundaries — see {@link POP3ClientLexer} for why
+ * that is deliberately not reimplemented as a lexer escape.
  *
  * <p>Supported features:
  * <ul>
@@ -81,10 +86,11 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see ServerGreeting
+ * @see POP3ClientLexer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
 public class POP3ClientProtocolHandler
-        implements ProtocolHandler, LineParser.Callback,
+        implements ProtocolHandler, ByteStreamLexer.Handler<POP3ClientLexer.Token>,
         DotUnstuffer.Callback,
         ClientAuthorizationState, ClientPasswordState,
         ClientPostStls, ClientTransactionState,
@@ -121,6 +127,18 @@ public class POP3ClientProtocolHandler
     private boolean capaUser;
     private boolean capaPipelining;
     private String capaImplementation;
+
+    // Streaming lexer (issue #85) and per-line parse state. No overall
+    // line-length cap: the pre-streaming LineParser.parse(data, this)
+    // two-arg call already had none (delegates to Integer.MAX_VALUE) —
+    // the client trusts the server it connected to, unlike the server
+    // side defending against untrusted clients. The transport's own
+    // maxNetInSize is therefore the only backstop, exactly as before.
+    private final POP3ClientLexer lexer = new POP3ClientLexer(this, Integer.MAX_VALUE);
+    private POP3Response.Status pendingStatus;
+    private String pendingWordText;
+    private boolean pendingHasSp;
+    private final StringBuilder textBuilder = new StringBuilder();
 
     /**
      * Creates a POP3 client protocol handler.
@@ -167,10 +185,10 @@ public class POP3ClientProtocolHandler
                 dotUnstufferActive = false;
             }
             if (data.hasRemaining()) {
-                LineParser.parse(data, this);
+                lexer.feed(data);
             }
         } else {
-            LineParser.parse(data, this);
+            lexer.feed(data);
         }
     }
 
@@ -209,25 +227,148 @@ public class POP3ClientProtocolHandler
         handler.onError(cause);
     }
 
-    // ── LineParser.Callback ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
+    // RFC 1939 section 3: WORD [SP TEXT] CRLF. In CAPA_DATA/LIST_DATA/
+    // UIDL_DATA state, WORD is the first field of a data line (or the
+    // lone "." terminator) and the whole line is reconstructed verbatim
+    // for the existing handleXxxDataLine(String) methods, unchanged. In
+    // any other state, WORD is matched directly against the known status
+    // markers — no String allocated, no decode — resolving to a
+    // POP3Response.Status enum at the token itself, the same pattern used
+    // for command verbs on the server side.
     @Override
-    public void lineReceived(ByteBuffer line) {
-        int len = line.remaining();
-        if (len < 2) {
-            return;
+    public boolean token(POP3ClientLexer.Token type, ByteBuffer window) {
+        switch (type) {
+            case WORD:
+                if (isDataLineState()) {
+                    pendingWordText = decodeLenient(window);
+                    pendingStatus = null;
+                } else {
+                    pendingStatus = matchStatus(window);
+                    pendingWordText = pendingStatus == null
+                            ? decodeLenient(window) : null;
+                }
+                return false;
+            case SP:
+                pendingHasSp = true;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                // No cap: matches the pre-streaming unbounded behaviour
+                // (see the lexer field's Javadoc).
+                textBuilder.append(decodeLenient(window));
+                return false;
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
         }
-        byte[] bytes = new byte[len - 2];
-        line.get(bytes);
-        line.get(); // CR
-        line.get(); // LF
-        String text = new String(bytes, StandardCharsets.US_ASCII);
-        handleResponseLine(text);
     }
 
     @Override
-    public boolean continueLineProcessing() {
-        return !dotUnstufferActive;
+    public void rawBytes(ByteBuffer slice) {
+        // RETR/TOP content bypasses this lexer entirely (see
+        // POP3ClientLexer's class Javadoc) — structurally unreachable.
+        LOGGER.warning("Unexpected rawBytes() call on POP3 client lexer");
+    }
+
+    @Override
+    public void tokenTooLong() {
+        // maxTokenLength is Integer.MAX_VALUE for this lexer (no cap);
+        // structurally unreachable.
+        LOGGER.warning("Unexpected tokenTooLong() call on POP3 client lexer");
+    }
+
+    private boolean isDataLineState() {
+        return state == POP3State.CAPA_DATA
+                || state == POP3State.LIST_DATA
+                || state == POP3State.UIDL_DATA;
+    }
+
+    private static String decodeLenient(ByteBuffer window) {
+        byte[] bytes = new byte[window.remaining()];
+        window.get(bytes);
+        return new String(bytes, StandardCharsets.US_ASCII);
+    }
+
+    // RFC 1939 section 3 — status markers: "+OK", "-ERR", or the SASL
+    // continuation prefix "+" (RFC 5034 section 4). Matched directly
+    // against the WORD token's raw bytes, case-sensitively (real servers
+    // never vary case here, and the pre-streaming POP3Response.parse()
+    // this replaces was also case-sensitive via String.startsWith).
+    private static POP3Response.Status matchStatus(ByteBuffer window) {
+        int len = window.remaining();
+        int base = window.position();
+        if (len == 1 && window.get(base) == '+') {
+            return POP3Response.Status.CONTINUATION;
+        }
+        if (len == 3 && window.get(base) == '+'
+                && window.get(base + 1) == 'O' && window.get(base + 2) == 'K') {
+            return POP3Response.Status.OK;
+        }
+        if (len == 4 && window.get(base) == '-' && window.get(base + 1) == 'E'
+                && window.get(base + 2) == 'R' && window.get(base + 3) == 'R') {
+            return POP3Response.Status.ERR;
+        }
+        return null;
+    }
+
+    private void resetLineState() {
+        pendingStatus = null;
+        pendingWordText = null;
+        pendingHasSp = false;
+        textBuilder.setLength(0);
+    }
+
+    // A complete response or data line has been lexed; dispatch it
+    // exactly as the pre-streaming handleResponseLine(String) did.
+    private void dispatchLine() {
+        POP3Response.Status status = pendingStatus;
+        String wordText = pendingWordText != null ? pendingWordText : "";
+        String text = textBuilder.toString();
+        boolean hadSp = pendingHasSp;
+        boolean dataLineMode = isDataLineState();
+        resetLineState();
+
+        try {
+            if (dataLineMode) {
+                String line = hadSp ? (wordText + " " + text) : wordText;
+                switch (state) {
+                    case CAPA_DATA:
+                        handleCapaDataLine(line);
+                        return;
+                    case LIST_DATA:
+                        handleListDataLine(line);
+                        return;
+                    case UIDL_DATA:
+                        handleUidlDataLine(line);
+                        return;
+                    default:
+                        return;
+                }
+            }
+
+            if (status == null) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    String line = hadSp ? (wordText + " " + text) : wordText;
+                    LOGGER.warning("Unparseable POP3 response: " + line);
+                }
+                return;
+            }
+
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Received POP3 response: "
+                        + (hadSp ? (wordText + " " + text) : wordText));
+            }
+
+            dispatchResponse(new POP3Response(status, text));
+        } catch (Exception e) {
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "Error handling POP3 response", e);
+            }
+            handler.onError(e);
+        }
     }
 
     // ── DotUnstuffer.Callback ──
@@ -509,45 +650,6 @@ public class POP3ClientProtocolHandler
     }
 
     // ── Response handling ──
-
-    private void handleResponseLine(String line) {
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Received POP3 response: " + line);
-        }
-
-        try {
-            switch (state) {
-                case CAPA_DATA:
-                    handleCapaDataLine(line);
-                    return;
-                case LIST_DATA:
-                    handleListDataLine(line);
-                    return;
-                case UIDL_DATA:
-                    handleUidlDataLine(line);
-                    return;
-                default:
-                    break;
-            }
-
-            POP3Response response = POP3Response.parse(line);
-            if (response == null) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(
-                            "Unparseable POP3 response: " + line);
-                }
-                return;
-            }
-
-            dispatchResponse(response);
-        } catch (Exception e) {
-            if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.log(Level.WARNING,
-                        "Error handling POP3 response: " + line, e);
-            }
-            handler.onError(e);
-        }
-    }
 
     private void dispatchResponse(POP3Response response) {
         if (state == POP3State.CLOSED
@@ -1015,6 +1117,7 @@ public class POP3ClientProtocolHandler
             state = POP3State.RETR_DATA;
             dotUnstuffer.reset();
             dotUnstufferActive = true;
+            lexer.stopForHandoff();
         } else {
             currentCallback = null;
             state = POP3State.TRANSACTION;
@@ -1039,6 +1142,7 @@ public class POP3ClientProtocolHandler
             state = POP3State.TOP_DATA;
             dotUnstuffer.reset();
             dotUnstufferActive = true;
+            lexer.stopForHandoff();
         } else {
             currentCallback = null;
             state = POP3State.TRANSACTION;

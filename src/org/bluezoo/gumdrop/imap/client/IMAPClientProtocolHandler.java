@@ -30,8 +30,8 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.LineParser;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.imap.client.handler.ClientAppendState;
@@ -72,9 +72,13 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
  * each protocol stage. Tagged command tracking ensures exactly one
  * command is in-flight at a time (RFC 9051 section 5.5).
  *
- * <p>Line parsing is handled by the composable {@link LineParser} utility.
- * Incoming literal data (FETCH body sections) is tracked by
- * {@link LiteralTracker} and streamed as ByteBuffer chunks.
+ * <p>Line parsing uses a streaming {@link IMAPClientLexer} (issue #85):
+ * bytes are tokenised as they arrive rather than buffered into whole
+ * lines — see {@link ByteStreamLexer}. Incoming literal data (FETCH body
+ * sections) is delivered via {@link ByteStreamLexer#enterRaw(long)} and
+ * still tracked by the pre-existing, unchanged {@link LiteralTracker},
+ * which is now driven from {@link #rawBytes(ByteBuffer)} instead of a
+ * hand-rolled loop in {@code receive()}.
  *
  * <p>Supported features:
  * <ul>
@@ -92,7 +96,7 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
 public class IMAPClientProtocolHandler
-        implements ProtocolHandler, LineParser.Callback,
+        implements ProtocolHandler, ByteStreamLexer.Handler<IMAPClientLexer.Token>,
         LiteralTracker.Callback,
         ClientNotAuthenticatedState, ClientPostStarttls,
         ClientAuthExchange, ClientAuthenticatedState,
@@ -114,6 +118,14 @@ public class IMAPClientProtocolHandler
 
     private String currentTag;
     private Object currentCallback;
+
+    // Streaming lexer (issue #85). No cap on structured tokens (this
+    // client trusts the remote server, same principle as
+    // POP3ClientLexer/SMTPClientLexer) and no tag/args split is needed at
+    // this layer at all — KEYWORD and TEXT are just concatenated back into
+    // one reconstructed line for the existing IMAPResponse.parse(String).
+    private final IMAPClientLexer lexer = new IMAPClientLexer(this, Integer.MAX_VALUE);
+    private final StringBuilder lineBuilder = new StringBuilder();
 
     // Whether we were in SELECTED state before issuing a command
     private boolean wasSelected;
@@ -211,18 +223,7 @@ public class IMAPClientProtocolHandler
 
     @Override
     public void receive(ByteBuffer data) {
-        while (data.hasRemaining()) {
-            if (literalTracker != null
-                    && !literalTracker.isComplete()) {
-                literalTracker.process(data);
-                continue;
-            }
-            int posBefore = data.position();
-            LineParser.parse(data, this);
-            if (data.position() == posBefore) {
-                break;
-            }
-        }
+        lexer.feed(data);
     }
 
     @Override
@@ -260,25 +261,57 @@ public class IMAPClientProtocolHandler
         handler.onError(cause);
     }
 
-    // ── LineParser.Callback ──
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
+    // RFC 9051 section 7: KEYWORD [SP TEXT] CRLF. Unlike the server side,
+    // no tag/args split is needed here — KEYWORD and TEXT are just
+    // concatenated back into one reconstructed line (identical to what
+    // the old whole-line CharBuffer-free byte copy produced) and handed
+    // to the existing, unchanged handleResponseLine()/IMAPResponse.parse().
     @Override
-    public void lineReceived(ByteBuffer line) {
-        int len = line.remaining();
-        if (len < 2) {
-            return;
+    public boolean token(IMAPClientLexer.Token type, ByteBuffer window) {
+        switch (type) {
+            case KEYWORD:
+            case TEXT:
+                byte[] bytes = new byte[window.remaining()];
+                window.get(bytes);
+                lineBuilder.append(new String(bytes, StandardCharsets.US_ASCII));
+                return false;
+            case SP:
+                lineBuilder.append(' ');
+                return true; // latch text mode for the rest of the line
+            case CRLF:
+                dispatchLine();
+                return false;
+            default:
+                return false;
         }
-        byte[] bytes = new byte[len - 2];
-        line.get(bytes);
-        line.get(); // CR
-        line.get(); // LF
-        String text = new String(bytes, StandardCharsets.US_ASCII);
-        handleResponseLine(text);
     }
 
     @Override
-    public boolean continueLineProcessing() {
-        return literalTracker == null || literalTracker.isComplete();
+    public void rawBytes(ByteBuffer slice) {
+        literalTracker.process(slice);
+    }
+
+    @Override
+    public void tokenTooLong() {
+        // IMAPClientLexer is constructed with an unbounded per-token cap
+        // (Integer.MAX_VALUE) — this client trusts the remote server, same
+        // as POP3ClientLexer/SMTPClientLexer — so this is structurally
+        // unreachable.
+        LOGGER.warning("Unexpected tokenTooLong() call on IMAP client lexer");
+    }
+
+    private void dispatchLine() {
+        String line = lineBuilder.toString();
+        lineBuilder.setLength(0);
+        if (line.isEmpty()) {
+            return;
+        }
+        handleResponseLine(line);
+        if (literalTracker != null) {
+            lexer.enterLiteral(literalTracker.getRemaining());
+        }
     }
 
     // ── LiteralTracker.Callback ──

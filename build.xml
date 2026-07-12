@@ -588,6 +588,12 @@
     <integration-junit includes='**/TestCertificateManagerTest.java'/>
   </target>
 
+  <!-- Run WebSocket integration tests -->
+  <target name='integration-test-websocket' depends='integration-build'
+          description='Run WebSocket server integration tests'>
+    <integration-junit includes='**/websocket/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report' 
           description='Generate HTML report from integration test results'>
@@ -602,8 +608,8 @@
   </target>
 
   <!-- Run all integration tests -->
-  <target name='integration-test' 
-          depends='integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls'
+  <target name='integration-test'
+          depends='integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket'
           description='Run all integration tests'>
   </target>
 
