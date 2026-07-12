@@ -35,13 +35,24 @@ import org.bluezoo.gumdrop.dns.DNSType;
 
 /**
  * DMARC (Domain-based Message Authentication, Reporting and Conformance)
- * validator as defined in RFC 7489.
+ * validator, originally defined in RFC 7489 and updated by RFC 9989
+ * ("DMARCbis", FEAT-001) — largely additive and backward-compatible, so
+ * existing {@code v=DMARC1} records continue to work unchanged.
  *
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9989">RFC 9989 - DMARCbis</a>
  *
  * <p>DMARC combines SPF and DKIM authentication results with domain alignment
  * checks to determine whether a message should be accepted, quarantined, or
  * rejected. This implementation is fully asynchronous and event-driven.
+ *
+ * <p>RFC 9989 additions implemented here: the {@code t=} testing-mode tag
+ * (downgrades the enforced policy by one level without changing what's
+ * published), the {@code np=} policy for non-existent subdomains, the
+ * {@code psd=} Public Suffix Domain flag and a corresponding one-hop PSD
+ * policy lookup when the Organizational Domain has no record of its own
+ * (see {@link #lookupPsd}), and strict validation that {@code v=DMARC1}
+ * is the first tag in the record.
  *
  * <p>This class implements both {@link SPFCallback} and {@link DKIMCallback},
  * allowing it to aggregate results from both validators. When the DKIM result
@@ -233,6 +244,37 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     }
 
     /**
+     * RFC 9989 §4.2 — returns the non-existent-subdomain policy (np= tag)
+     * from the last evaluated record.
+     *
+     * @return the np= policy, or null if not present
+     */
+    public DMARCPolicy getLastNp() {
+        return lastRecord != null ? lastRecord.np : null;
+    }
+
+    /**
+     * RFC 9989 §4.2 — returns the testing mode (t= tag) from the last
+     * evaluated record.
+     *
+     * @return "y" or "n" (default), or null if no record was evaluated
+     */
+    public String getLastT() {
+        return lastRecord != null ? lastRecord.t : null;
+    }
+
+    /**
+     * RFC 9989 §4.2 — returns the Public Suffix Domain flag (psd= tag)
+     * from the last evaluated record.
+     *
+     * @return "y", "n", or "u" (undetermined, default), or null if no
+     *         record was evaluated
+     */
+    public String getLastPsd() {
+        return lastRecord != null ? lastRecord.psd : null;
+    }
+
+    /**
      * RFC 7489 §7.2 — returns the forensic report URIs (ruf= tag) from the
      * last evaluated DMARC record, or null if not available.
      *
@@ -398,7 +440,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
         int rcode = response.getRcode();
         if (rcode != DNSMessage.RCODE_NOERROR) {
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            lookupPsd(orgDomain, fromDomain, spfResult, spfDomain, dkimResult, dkimDomain, callback);
             return;
         }
 
@@ -417,7 +459,10 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         }
 
         if (dmarcRecord == null) {
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            // FEAT-001: RFC 9989 §5 — no record at the Organizational Domain
+            // either; check one level up for a Public Suffix Domain (PSD)
+            // record before giving up.
+            lookupPsd(orgDomain, fromDomain, spfResult, spfDomain, dkimResult, dkimDomain, callback);
             return;
         }
 
@@ -439,6 +484,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             effectiveRecord.adkim = record.adkim;
             effectiveRecord.aspf = record.aspf;
             effectiveRecord.pct = record.pct;
+            effectiveRecord.t = record.t;
         }
 
         DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
@@ -446,6 +492,116 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
         AuthVerdict verdict = computeVerdict(result, effectiveRecord);
         callback.dmarcResult(result, effectiveRecord.policy, fromDomain, verdict);
+    }
+
+    /**
+     * FEAT-001: RFC 9989 §5 — Public Suffix Domain (PSD) policy lookup.
+     *
+     * <p>Called when neither the Author Domain nor its Organizational
+     * Domain (as computed via {@link PublicSuffixList}, see SEC-048)
+     * published a DMARC record. Queries one label above the
+     * Organizational Domain; if a valid record is found there with
+     * {@code psd=y}, its {@code np=} tag (falling back to {@code sp=},
+     * then {@code p=}) governs — the PSD operator is declaring policy for
+     * non-existent subdomains under it, which is exactly the situation
+     * here (nothing published at the Organizational Domain).
+     *
+     * <p>This covers the common, spec-intended case of a PSD declaring
+     * itself directly one level above the Organizational Domain (e.g. a
+     * registry publishing {@code psd=y} at its own TLD/SLD). It does not
+     * implement RFC 9989's full generic N-level DNS Tree Walk (which
+     * keeps climbing indefinitely, up to 8 queries, looking for a
+     * {@code psd=y}/{@code psd=n} record at any height) — that walk has
+     * negligible practical value today given how recently {@code psd=}
+     * was standardized, and {@link PublicSuffixList} already gives the
+     * correct Organizational Domain for the overwhelming majority of
+     * real-world domains without it.
+     */
+    private void lookupPsd(String orgDomain, final String fromDomain,
+                            final SPFResult spfResult, final String spfDomain,
+                            final DKIMResult dkimResult, final String dkimDomain,
+                            final DMARCCallback callback) {
+
+        int dot = orgDomain.indexOf('.');
+        if (dot < 0) {
+            // No further label to walk up to.
+            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            return;
+        }
+        String psdCandidate = orgDomain.substring(dot + 1);
+
+        String dmarcDomain = "_dmarc." + psdCandidate;
+        resolver.queryTXT(dmarcDomain, new DNSQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response) {
+                handlePsdResponse(response, fromDomain, spfResult, spfDomain,
+                        dkimResult, dkimDomain, callback);
+            }
+
+            @Override
+            public void onError(String error) {
+                callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            }
+        });
+    }
+
+    /**
+     * Handles the DNS response for a PSD-level DMARC lookup (see
+     * {@link #lookupPsd}).
+     */
+    private void handlePsdResponse(DNSMessage response, String fromDomain,
+                                    SPFResult spfResult, String spfDomain,
+                                    DKIMResult dkimResult, String dkimDomain,
+                                    DMARCCallback callback) {
+
+        if (response.getRcode() != DNSMessage.RCODE_NOERROR) {
+            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            return;
+        }
+
+        String dmarcRecord = null;
+        List<DNSResourceRecord> answers = response.getAnswers();
+        for (int i = 0; i < answers.size(); i++) {
+            DNSResourceRecord rr = answers.get(i);
+            if (rr.getType() == DNSType.TXT) {
+                String txt = rr.getText();
+                if (txt != null && txt.startsWith("v=DMARC1")) {
+                    dmarcRecord = txt;
+                    break;
+                }
+            }
+        }
+
+        if (dmarcRecord == null) {
+            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            return;
+        }
+
+        DMARCRecord record = parseDMARCRecord(dmarcRecord);
+        if (record == null || !"y".equals(record.psd)) {
+            // Not a declared PSD - RFC 9989 §5 only applies np= when the
+            // record found explicitly opts in with psd=y.
+            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            return;
+        }
+        this.lastRecord = record;
+
+        DMARCPolicy effectivePolicy = record.np != null ? record.np
+                : record.subdomainPolicy != null ? record.subdomainPolicy
+                : record.policy;
+
+        DMARCRecord effectiveRecord = new DMARCRecord();
+        effectiveRecord.policy = effectivePolicy;
+        effectiveRecord.adkim = record.adkim;
+        effectiveRecord.aspf = record.aspf;
+        effectiveRecord.pct = record.pct;
+        effectiveRecord.t = record.t;
+
+        DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
+                dkimResult, dkimDomain, record);
+
+        AuthVerdict verdict = computeVerdict(result, effectiveRecord);
+        callback.dmarcResult(result, effectivePolicy, fromDomain, verdict);
     }
 
     /**
@@ -486,6 +642,11 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * of failing messages. Messages outside the percentage are treated as if the
      * policy were "none".
      *
+     * <p>FEAT-001: RFC 9989 §4.2 — the t= tag ("testing mode") downgrades
+     * the declared policy by one level before it's applied: reject becomes
+     * quarantine, and quarantine becomes none. This lets a domain owner
+     * observe what a policy would do without actually enforcing it yet.
+     *
      * @param result the DMARC evaluation result
      * @param record the parsed DMARC record containing policy and pct
      * @return the computed verdict
@@ -496,6 +657,14 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         }
 
         DMARCPolicy policy = record.policy;
+        if ("y".equals(record.t)) {
+            if (policy == DMARCPolicy.REJECT) {
+                policy = DMARCPolicy.QUARANTINE;
+            } else if (policy == DMARCPolicy.QUARANTINE) {
+                policy = DMARCPolicy.NONE;
+            }
+        }
+
         if (result == DMARCResult.FAIL && policy != null) {
             // Apply pct= sampling
             if (record.pct < 100) {
@@ -572,13 +741,28 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     /**
      * Parses a DMARC record.
-     * RFC 7489 §6.3 — TXT record format.
+     * RFC 7489 §6.3 / RFC 9989 §4 — TXT record format.
+     *
+     * <p>FEAT-001: RFC 9989 §4.1 requires the {@code v} tag to be the
+     * first tag in the record; a record where it is missing, not first,
+     * or not exactly {@code DMARC1} MUST be discarded entirely. This is
+     * validated here against the split, trimmed tag list (not just a raw
+     * string prefix check, which wouldn't handle whitespace variations
+     * correctly).
      */
     private DMARCRecord parseDMARCRecord(String record) {
         DMARCRecord result = new DMARCRecord();
 
         String[] parts = splitOnSemicolons(record);
-        for (int i = 0; i < parts.length; i++) {
+        if (parts.length == 0) {
+            return null;
+        }
+        String firstTag = parts[0].trim();
+        if (!firstTag.equals("v=DMARC1")) {
+            return null;
+        }
+
+        for (int i = 1; i < parts.length; i++) {
             String part = parts[i].trim();
             int eqPos = part.indexOf('=');
             if (eqPos <= 0) {
@@ -592,12 +776,21 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
                 result.policy = DMARCPolicy.parse(value);
             } else if ("sp".equals(tag)) {
                 result.subdomainPolicy = DMARCPolicy.parse(value);
+            } else if ("np".equals(tag)) {
+                // RFC 9989 §4.2 — policy for non-existent subdomains
+                result.np = DMARCPolicy.parse(value);
             } else if ("adkim".equals(tag)) {
                 result.adkim = value;
             } else if ("aspf".equals(tag)) {
                 result.aspf = value;
             } else if ("pct".equals(tag)) {
                 result.pct = parseInt(value, 100);
+            } else if ("t".equals(tag)) {
+                // RFC 9989 §4.2 — testing mode ("y"/"n", default "n")
+                result.t = value;
+            } else if ("psd".equals(tag)) {
+                // RFC 9989 §4.2 — Public Suffix Domain flag ("y"/"n"/"u")
+                result.psd = value;
             } else if ("rua".equals(tag)) {
                 // RFC 7489 §6.2 — aggregate report destination(s)
                 result.rua = parseUriList(value);
@@ -677,9 +870,15 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     static class DMARCRecord {
         DMARCPolicy policy;
         DMARCPolicy subdomainPolicy;
+        /** RFC 9989 §4.2 — policy for non-existent subdomains (np= tag). */
+        DMARCPolicy np;
         String adkim = "r"; // relaxed by default
         String aspf = "r";  // relaxed by default
         int pct = 100;
+        /** RFC 9989 §4.2 — testing mode (t= tag): "y" or "n", default "n". */
+        String t = "n";
+        /** RFC 9989 §4.2 — Public Suffix Domain flag (psd= tag): "y", "n", or "u" (undetermined, default). */
+        String psd = "u";
         /** RFC 7489 §6.2 — aggregate report URIs (rua= tag). */
         List<String> rua;
         /** RFC 7489 §6.2 — forensic report URIs (ruf= tag). */
