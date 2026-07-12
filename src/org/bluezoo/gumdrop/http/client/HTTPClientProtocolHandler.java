@@ -44,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -84,7 +85,9 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandler, HTTPClientConnectionOps {
+public class HTTPClientProtocolHandler
+        implements ProtocolHandler, ByteStreamLexer.Handler<HTTPClientLineLexer.Token>,
+                   H2FrameHandler, HTTPClientConnectionOps {
 
     private static final ResourceBundle L10N =
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
@@ -143,7 +146,6 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
 
     // HTTP/1.1 parsing state
     protected HTTPStream currentStream;
-    protected ByteBuffer parseBuffer;
     protected ParseState parseState = ParseState.IDLE;
     private HTTPStatus responseStatus;
     private Headers responseHeaders;
@@ -153,6 +155,35 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
     private boolean discardingBody;
     private String pendingAuthChallenge;
     private boolean pendingProxyAuth;
+
+    // Streaming lexer (issue #85), constructed lazily on first use so it
+    // picks up the current maxResponseHeaderSize even if
+    // setMaxResponseHeaderSize() is called after this handler is
+    // constructed but before the connection starts. Every line-based
+    // state (STATUS_LINE, HEADERS, CHUNK_SIZE, CHUNK_TRAILER) and every
+    // raw-body state (BODY, CHUNK_DATA) is driven through it; H2C_UPGRADE_
+    // PENDING, HTTP2, and the (defensively-preserved, confirmed-
+    // unreachable-in-practice) read-until-close body are handled entirely
+    // outside it — see stopForHandoff() call sites.
+    private HTTPClientLineLexer lexer;
+    // Cumulative byte count across the whole status-line + header
+    // section, mirroring the pre-conversion buffer-growth check —
+    // maxResponseHeaderSize bounds the total, not any single line.
+    private int headerByteCount;
+    // Set once a fatal parse error (oversized headers) has already
+    // reported failure and closed the connection; stops receive() from
+    // feeding the lexer anything further in the meantime. See
+    // HTTPProtocolHandler.tokenTooLong()'s server-side analogue and its
+    // Javadoc for why this must not force-close synchronously either.
+    private boolean fatalParseError;
+    // RFC 9112 section 7.1: a chunk's data is followed by a mandatory
+    // trailing CRLF; enterRawBody() reads chunk-size + 2 bytes as one
+    // fixed-length raw span, and these two fields track how much of the
+    // current raw run is still real chunk-data vs. terminator bytes to be
+    // discarded (unlike the server, this client does not validate the
+    // terminator's content — see HTTPClientLineLexer's class Javadoc).
+    private long chunkDataRemaining;
+    private int chunkTerminatorRemaining;
 
     protected enum ParseState {
         IDLE, STATUS_LINE, HEADERS, BODY, CHUNK_SIZE, CHUNK_DATA, CHUNK_TRAILER,
@@ -193,7 +224,6 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         this.host = host;
         this.port = port;
         this.secure = secure;
-        this.parseBuffer = ByteBuffer.allocate(8192);
     }
 
     /**
@@ -313,35 +343,47 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         }
         // RFC 9113 section 9.1: reset idle timer on activity
         resetIdleTimeout();
-        // Append to parse buffer
-        if (parseBuffer.remaining() < data.remaining()) {
-            int newSize = parseBuffer.position() + data.remaining() + 4096;
-            // RFC 9112 section 5: protect against unbounded header growth
-            if (newSize > maxResponseHeaderSize
-                    && (parseState == ParseState.STATUS_LINE
-                        || parseState == ParseState.HEADERS)) {
-                LOGGER.warning("Response header size exceeds limit ("
-                        + maxResponseHeaderSize + " bytes)");
-                failAllStreams(new IOException("Response header too large"));
-                close();
+
+        if (isHttp2State()) {
+            processHTTP2Response(data);
+            return;
+        }
+        if (lexer == null) {
+            lexer = new HTTPClientLineLexer(this, maxResponseHeaderSize);
+        }
+
+        while (data.hasRemaining()) {
+            if (fatalParseError) {
                 return;
             }
-            ByteBuffer newBuffer = ByteBufferPool.acquire(newSize);
-            parseBuffer.flip();
-            newBuffer.put(parseBuffer);
-            ByteBufferPool.release(parseBuffer);
-            parseBuffer = newBuffer;
+            if (parseState == ParseState.BODY && contentLength < 0) {
+                // Dead code in practice (see HTTPClientLineLexer's class
+                // Javadoc) — parseState only ever becomes BODY once
+                // contentLength > 0 has already been validated — but
+                // preserved defensively, matching the pre-conversion
+                // parseBody()'s own "else" branch: unbounded, not
+                // lexer-driven, consumes whatever is available.
+                handleBodyUntilCloseBytes(data);
+                continue;
+            }
+            int positionBefore = data.position();
+            lexer.feed(data);
+            if (isHttp2State()) {
+                if (data.hasRemaining()) {
+                    processHTTP2Response(data);
+                }
+                return;
+            }
+            if (data.position() == positionBefore) {
+                return;
+            }
         }
-        parseBuffer.put(data);
+    }
 
-        // Process based on protocol
-        if (negotiatedVersion == HTTPVersion.HTTP_2_0
+    private boolean isHttp2State() {
+        return negotiatedVersion == HTTPVersion.HTTP_2_0
                 || parseState == ParseState.H2C_UPGRADE_PENDING
-                || parseState == ParseState.HTTP2) {
-            processHTTP2Response();
-        } else {
-            processHTTP11Response();
-        }
+                || parseState == ParseState.HTTP2;
     }
 
     @Override
@@ -821,6 +863,7 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         endpoint.send(ByteBuffer.wrap(bytes));
 
         parseState = ParseState.STATUS_LINE;
+        headerByteCount = 0;
         responseStatus = null;
         responseHeaders = new Headers();
         contentLength = -1;
@@ -1026,95 +1069,121 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
     // Response parsing
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
     // RFC 9112 sections 4-7: HTTP/1.1 response parsing state machine
     // (status-line → headers → body via Content-Length or chunked encoding)
-    private void processHTTP11Response() {
-        parseBuffer.flip();
 
-        try {
-            while (parseBuffer.hasRemaining()) {
-                switch (parseState) {
-                    case STATUS_LINE:
-                        if (!parseStatusLine()) {
-                            parseBuffer.compact();
-                            return;
-                        }
-                        break;
-
-                    case HEADERS:
-                        if (!parseHeaders()) {
-                            parseBuffer.compact();
-                            return;
-                        }
-                        break;
-
-                    case BODY:
-                        if (!parseBody()) {
-                            parseBuffer.compact();
-                            return;
-                        }
-                        break;
-
-                    case CHUNK_SIZE:
-                        if (!parseChunkSize()) {
-                            parseBuffer.compact();
-                            return;
-                        }
-                        break;
-
-                    case CHUNK_DATA:
-                        if (!parseChunkData()) {
-                            parseBuffer.compact();
-                            return;
-                        }
-                        break;
-
-                    case CHUNK_TRAILER:
-                        if (!parseChunkTrailer()) {
-                            parseBuffer.compact();
-                            return;
-                        }
-                        break;
-
-                    case IDLE:
-                        parseBuffer.compact();
-                        return;
-
-                    case H2C_UPGRADE_PENDING:
-                    case HTTP2:
-                        parseBuffer.compact();
-                        processHTTP2Response();
-                        return;
-                }
+    @Override
+    public boolean token(HTTPClientLineLexer.Token type, ByteBuffer window) {
+        if (type != HTTPClientLineLexer.Token.LINE) {
+            return false;
+        }
+        if (parseState == ParseState.STATUS_LINE || parseState == ParseState.HEADERS) {
+            headerByteCount += window.remaining();
+            // RFC 9112 section 5: protect against unbounded header growth
+            if (headerByteCount > maxResponseHeaderSize) {
+                reportHeaderTooLarge();
+                return false;
             }
-        } finally {
-            if (parseState != ParseState.IDLE) {
-                parseBuffer.compact();
-            }
+        }
+        switch (parseState) {
+            case STATUS_LINE:
+                processStatusLine(window);
+                break;
+            case HEADERS:
+                processHeaderLine(window);
+                break;
+            case CHUNK_SIZE:
+                processChunkSizeLine(window);
+                break;
+            case CHUNK_TRAILER:
+                processChunkTrailerLine(window);
+                break;
+            default:
+                break;
+        }
+        afterStateTransition();
+        return false;
+    }
+
+    @Override
+    public void rawBytes(ByteBuffer slice) {
+        switch (parseState) {
+            case BODY:
+                handleBodyBytes(slice);
+                break;
+            case CHUNK_DATA:
+                handleChunkDataBytes(slice);
+                break;
+            default:
+                LOGGER.warning("Unexpected rawBytes() call in state " + parseState);
+        }
+    }
+
+    @Override
+    public void tokenTooLong() {
+        // Defense-in-depth only (see HTTPClientLineLexer's class Javadoc):
+        // the pre-conversion code had no protection at all against a
+        // single, never-terminated line growing its buffer unboundedly
+        // (its own check only fired on buffer *growth*, i.e. once a line
+        // was already known to be incomplete); this backstop is stricter
+        // than that, which is a deliberate improvement, not a
+        // faithfulness gap — a line this long is not something any real
+        // HTTP/1.1 response should ever produce.
+        reportHeaderTooLarge();
+    }
+
+    private void reportHeaderTooLarge() {
+        fatalParseError = true;
+        LOGGER.warning("Response header size exceeds limit ("
+                + maxResponseHeaderSize + " bytes)");
+        failAllStreams(new IOException("Response header too large"));
+        close();
+    }
+
+    /**
+     * Called after every {@code LINE} token dispatch, and after every raw
+     * body/chunk-data completion, to decide what the lexer should do next
+     * based on the {@code parseState} transition that dispatch may have
+     * just made — mirrors {@code HTTPProtocolHandler}'s server-side
+     * {@code afterStateTransition()}.
+     */
+    private void afterStateTransition() {
+        switch (parseState) {
+            case BODY:
+                lexer.enterRawBody(contentLength);
+                break;
+            case CHUNK_DATA:
+                chunkDataRemaining = contentLength;
+                chunkTerminatorRemaining = 2;
+                lexer.enterRawBody(contentLength + 2);
+                break;
+            case STATUS_LINE:
+            case HEADERS:
+            case CHUNK_SIZE:
+            case CHUNK_TRAILER:
+                break; // still lexer-driven; nothing to do
+            default:
+                // IDLE, H2C_UPGRADE_PENDING, HTTP2, and (defensively) BODY
+                // with contentLength < 0: none of these are read through
+                // the lexer — hand control back to receive()'s own
+                // dispatch for the rest of the current buffer.
+                lexer.stopForHandoff();
         }
     }
 
     // RFC 9112 section 4: status-line = HTTP-version SP status-code SP [reason-phrase]
-    private boolean parseStatusLine() {
-        int lineEnd = findCRLF(parseBuffer);
-        if (lineEnd < 0) {
-            if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info("[HTTPClient] parseStatusLine: no CRLF yet, need more data");
-            }
-            return false;
-        }
-        if (Boolean.getBoolean("gumdrop.http.debug")) {
-            byte[] line = new byte[lineEnd];
-            parseBuffer.duplicate().position(0).get(line, 0, lineEnd);
-            LOGGER.info("[HTTPClient] parseStatusLine: " + new String(line, StandardCharsets.UTF_8));
-        }
-
+    private void processStatusLine(ByteBuffer window) {
+        // window includes the trailing CRLF (HTTPClientLineLexer's LINE
+        // token contract); strip it to get the line content.
+        int lineEnd = window.remaining() - 2;
         byte[] lineBytes = new byte[lineEnd];
-        parseBuffer.get(lineBytes);
-        parseBuffer.get();
-        parseBuffer.get();
+        window.get(lineBytes);
 
         String line = new String(lineBytes, StandardCharsets.UTF_8);
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            LOGGER.info("[HTTPClient] parseStatusLine: " + line);
+        }
 
         int firstSpace = line.indexOf(' ');
         int secondSpace = line.indexOf(' ', firstSpace + 1);
@@ -1138,20 +1207,13 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         }
 
         parseState = ParseState.HEADERS;
-        return true;
     }
 
     // RFC 9112 section 5: header fields terminated by empty line (CRLF)
-    private boolean parseHeaders() {
-        while (true) {
-            int lineEnd = findCRLF(parseBuffer);
-            if (lineEnd < 0) {
-                return false;
-            }
+    private void processHeaderLine(ByteBuffer window) {
+        int lineEnd = window.remaining() - 2;
 
-            if (lineEnd == 0) {
-                parseBuffer.get();
-                parseBuffer.get();
+        if (lineEnd == 0) {
 
                 // RFC 9110 section 15.2.2: 101 Switching Protocols
                 if (h2cUpgradeInFlight && responseStatus == HTTPStatus.SWITCHING_PROTOCOLS) {
@@ -1159,14 +1221,14 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                     if (upgrade != null && upgrade.equalsIgnoreCase("h2c")) {
                         LOGGER.fine("h2c upgrade accepted, switching to HTTP/2");
                         completeH2cUpgrade();
-                        return true;
+                        return;
                     } else if (!handleProtocolSwitch(responseStatus, responseHeaders)) {
                         LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
                     }
                     h2cUpgradeInFlight = false;
                 } else if (responseStatus == HTTPStatus.SWITCHING_PROTOCOLS) {
                     if (handleProtocolSwitch(responseStatus, responseHeaders)) {
-                        return true;
+                        return;
                     }
                     LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
                 } else if (h2cUpgradeInFlight) {
@@ -1181,7 +1243,8 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                     responseHeaders = new Headers();
                     responseStatus = null;
                     parseState = ParseState.STATUS_LINE;
-                    return true;
+                    headerByteCount = 0;
+                    return;
                 }
 
                 if (responseStatus == HTTPStatus.UNAUTHORIZED
@@ -1192,7 +1255,7 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                         pendingAuthChallenge = wwwAuth;
                         pendingProxyAuth = false;
                         startBodyDiscard();
-                        return true;
+                        return;
                     }
                 }
 
@@ -1205,7 +1268,7 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                         pendingAuthChallenge = proxyAuth;
                         pendingProxyAuth = true;
                         startBodyDiscard();
-                        return true;
+                        return;
                     }
                 }
 
@@ -1319,117 +1382,107 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                     }
                 }
 
-                return true;
+            return;
+        }
+
+        byte[] lineBytes = new byte[lineEnd];
+        window.get(lineBytes);
+
+        String line = new String(lineBytes, StandardCharsets.UTF_8);
+
+        // RFC 9112 section 5.2: obs-fold — a line starting with SP
+        // or HTAB is a continuation of the previous header value
+        if (!line.isEmpty() && (line.charAt(0) == ' ' || line.charAt(0) == '\t')) {
+            int lastIdx = responseHeaders.size() - 1;
+            if (lastIdx >= 0) {
+                Header prev = responseHeaders.get(lastIdx);
+                responseHeaders.set(lastIdx,
+                        new Header(prev.getName(),
+                                prev.getValue() + " " + line.trim()));
             }
+            return;
+        }
 
-            byte[] lineBytes = new byte[lineEnd];
-            parseBuffer.get(lineBytes);
-            parseBuffer.get();
-            parseBuffer.get();
-
-            String line = new String(lineBytes, StandardCharsets.UTF_8);
-
-            // RFC 9112 section 5.2: obs-fold — a line starting with SP
-            // or HTAB is a continuation of the previous header value
-            if (!line.isEmpty() && (line.charAt(0) == ' ' || line.charAt(0) == '\t')) {
-                int lastIdx = responseHeaders.size() - 1;
-                if (lastIdx >= 0) {
-                    Header prev = responseHeaders.get(lastIdx);
-                    responseHeaders.set(lastIdx,
-                            new Header(prev.getName(),
-                                    prev.getValue() + " " + line.trim()));
-                }
-                continue;
-            }
-
-            int colonPos = line.indexOf(':');
-            if (colonPos > 0) {
-                String name = line.substring(0, colonPos).trim();
-                String value = line.substring(colonPos + 1).trim();
-                responseHeaders.add(name, value);
-            }
+        int colonPos = line.indexOf(':');
+        if (colonPos > 0) {
+            String name = line.substring(0, colonPos).trim();
+            String value = line.substring(colonPos + 1).trim();
+            responseHeaders.add(name, value);
         }
     }
 
-    // RFC 9112 section 6.3: Content-Length delimited body, or
-    // read-until-close when Content-Length is absent
-    private boolean parseBody() {
+    // RFC 9112 section 6.2: Content-Length delimited body (the
+    // read-until-close case, reachable only defensively, stays outside
+    // the lexer — see handleBodyUntilCloseBytes())
+    private void handleBodyBytes(ByteBuffer slice) {
         HTTPResponseHandler responseHandler = null;
         if (!discardingBody && currentStream != null) {
             responseHandler = currentStream.getHandler();
         }
 
+        int len = slice.remaining();
         if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info("[HTTPClient] parseBody: contentLength=" + contentLength
-                    + " bytesReceived=" + bytesReceived + " remaining=" + parseBuffer.remaining());
+            LOGGER.info("[HTTPClient] handleBodyBytes: contentLength=" + contentLength
+                    + " bytesReceived=" + bytesReceived + " chunk=" + len);
         }
 
-        if (contentLength >= 0) {
-            long remaining = contentLength - bytesReceived;
-            int available = parseBuffer.remaining();
-            int toRead = (int) Math.min(remaining, available);
+        if (responseHandler != null) {
+            ByteBuffer bodyData = ByteBufferPool.acquire(len);
+            bodyData.put(slice);
+            bodyData.flip();
+            try {
+                responseHandler.responseBodyContent(bodyData);
+            } finally {
+                ByteBufferPool.release(bodyData);
+            }
+        }
+        bytesReceived += len;
 
-            if (toRead > 0) {
+        if (bytesReceived >= contentLength) {
+            if (Boolean.getBoolean("gumdrop.http.debug")) {
+                LOGGER.info("[HTTPClient] handleBodyBytes: body complete, endResponseBody+completeResponse");
+            }
+            if (discardingBody) {
+                completeBodyDiscard();
+            } else {
                 if (responseHandler != null) {
-                    ByteBuffer bodyData = ByteBufferPool.acquire(toRead);
-                    int oldLimit = parseBuffer.limit();
-                    parseBuffer.limit(parseBuffer.position() + toRead);
-                    bodyData.put(parseBuffer);
-                    parseBuffer.limit(oldLimit);
-                    bodyData.flip();
-                    try {
-                        responseHandler.responseBodyContent(bodyData);
-                    } finally {
-                        ByteBufferPool.release(bodyData);
-                    }
-                } else {
-                    parseBuffer.position(parseBuffer.position() + toRead);
+                    responseHandler.endResponseBody();
                 }
-                bytesReceived += toRead;
-            }
-
-            if (bytesReceived >= contentLength) {
-                if (Boolean.getBoolean("gumdrop.http.debug")) {
-                    LOGGER.info("[HTTPClient] parseBody: body complete, endResponseBody+completeResponse");
-                }
-                if (discardingBody) {
-                    completeBodyDiscard();
-                } else {
-                    if (responseHandler != null) {
-                        responseHandler.endResponseBody();
-                    }
-                    completeResponse();
-                }
-            }
-        } else {
-            if (responseHandler != null && parseBuffer.hasRemaining()) {
-                ByteBuffer bodyData = ByteBufferPool.acquire(parseBuffer.remaining());
-                bodyData.put(parseBuffer);
-                bodyData.flip();
-                try {
-                    responseHandler.responseBodyContent(bodyData);
-                } finally {
-                    ByteBufferPool.release(bodyData);
-                }
-            } else if (discardingBody) {
-                parseBuffer.position(parseBuffer.limit());
+                completeResponse();
             }
         }
+    }
 
-        return true;
+    // RFC 9112 section 6.3: read-until-close body — dead code in practice
+    // (see HTTPClientLineLexer's class Javadoc), preserved defensively.
+    // Not lexer-driven: no length is known up front, so there is no
+    // enterRawBody() count to give it; consumes whatever is available in
+    // the current buffer, exactly as the pre-conversion parseBody()'s own
+    // "else" branch did against parseBuffer.
+    private void handleBodyUntilCloseBytes(ByteBuffer data) {
+        HTTPResponseHandler responseHandler = null;
+        if (!discardingBody && currentStream != null) {
+            responseHandler = currentStream.getHandler();
+        }
+        if (responseHandler != null && data.hasRemaining()) {
+            ByteBuffer bodyData = ByteBufferPool.acquire(data.remaining());
+            bodyData.put(data);
+            bodyData.flip();
+            try {
+                responseHandler.responseBodyContent(bodyData);
+            } finally {
+                ByteBufferPool.release(bodyData);
+            }
+        } else if (discardingBody) {
+            data.position(data.limit());
+        }
     }
 
     // RFC 9112 section 7.1: chunk-size in hex followed by CRLF
-    private boolean parseChunkSize() {
-        int lineEnd = findCRLF(parseBuffer);
-        if (lineEnd < 0) {
-            return false;
-        }
-
+    private void processChunkSizeLine(ByteBuffer window) {
+        int lineEnd = window.remaining() - 2;
         byte[] lineBytes = new byte[lineEnd];
-        parseBuffer.get(lineBytes);
-        parseBuffer.get();
-        parseBuffer.get();
+        window.get(lineBytes);
 
         String line = new String(lineBytes, StandardCharsets.US_ASCII);
         // RFC 9112 section 7.1.1: strip chunk extensions (after semicolon)
@@ -1451,28 +1504,28 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
             bytesReceived = 0;
             parseState = ParseState.CHUNK_DATA;
         }
-
-        return true;
     }
 
-    // RFC 9112 section 7.1: chunk-data
-    private boolean parseChunkData() {
+    // RFC 9112 section 7.1: chunk-data, plus its mandatory trailing CRLF.
+    // enterRawBody() was called with contentLength + 2 (see
+    // afterStateTransition()); this splits each incoming raw slice at the
+    // chunkDataRemaining boundary into real data (forwarded) vs.
+    // terminator bytes (discarded, unvalidated — see
+    // HTTPClientLineLexer's class Javadoc for why this client, unlike the
+    // server, does not check the terminator is actually "\r\n").
+    private void handleChunkDataBytes(ByteBuffer slice) {
         HTTPResponseHandler responseHandler = null;
         if (!discardingBody && currentStream != null) {
             responseHandler = currentStream.getHandler();
         }
 
-        long remaining = contentLength - bytesReceived;
-        int available = parseBuffer.remaining();
-        int toRead = (int) Math.min(remaining, available);
-
-        if (toRead > 0) {
+        if (chunkDataRemaining > 0) {
+            int dataLen = (int) Math.min(slice.remaining(), chunkDataRemaining);
+            int savedLimit = slice.limit();
+            slice.limit(slice.position() + dataLen);
             if (responseHandler != null) {
-                ByteBuffer bodyData = ByteBufferPool.acquire(toRead);
-                int oldLimit = parseBuffer.limit();
-                parseBuffer.limit(parseBuffer.position() + toRead);
-                bodyData.put(parseBuffer);
-                parseBuffer.limit(oldLimit);
+                ByteBuffer bodyData = ByteBufferPool.acquire(dataLen);
+                bodyData.put(slice);
                 bodyData.flip();
                 try {
                     responseHandler.responseBodyContent(bodyData);
@@ -1480,35 +1533,26 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                     ByteBufferPool.release(bodyData);
                 }
             } else {
-                parseBuffer.position(parseBuffer.position() + toRead);
+                slice.position(slice.limit());
             }
-            bytesReceived += toRead;
+            slice.limit(savedLimit);
+            chunkDataRemaining -= dataLen;
+            bytesReceived += dataLen;
         }
 
-        if (bytesReceived >= contentLength) {
-            if (parseBuffer.remaining() >= 2) {
-                parseBuffer.get();
-                parseBuffer.get();
-                parseState = ParseState.CHUNK_SIZE;
-                return true;
-            }
-            return false;
+        int discardLen = Math.min(slice.remaining(), chunkTerminatorRemaining);
+        slice.position(slice.position() + discardLen);
+        chunkTerminatorRemaining -= discardLen;
+        if (chunkTerminatorRemaining == 0) {
+            parseState = ParseState.CHUNK_SIZE;
         }
-
-        return true;
     }
 
     // RFC 9112 section 7.1.2: trailer section after final zero-length chunk
-    private boolean parseChunkTrailer() {
-        int lineEnd = findCRLF(parseBuffer);
-        if (lineEnd < 0) {
-            return false;
-        }
+    private void processChunkTrailerLine(ByteBuffer window) {
+        int lineEnd = window.remaining() - 2;
 
         if (lineEnd == 0) {
-            parseBuffer.get();
-            parseBuffer.get();
-
             if (discardingBody) {
                 completeBodyDiscard();
             } else {
@@ -1521,13 +1565,11 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 }
                 completeResponse();
             }
-            return true;
+            return;
         }
 
         byte[] lineBytes = new byte[lineEnd];
-        parseBuffer.get(lineBytes);
-        parseBuffer.get();
-        parseBuffer.get();
+        window.get(lineBytes);
 
         if (!discardingBody) {
             HTTPResponseHandler responseHandler = null;
@@ -1542,8 +1584,6 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
                 responseHandler.header(name, value);
             }
         }
-
-        return true;
     }
 
     // RFC 9112 section 9.3: persistent connection ready for reuse after response
@@ -1575,7 +1615,6 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
 
         currentStream = null;
         parseState = ParseState.IDLE;
-        parseBuffer.clear();
 
         if (serverClose) {
             LOGGER.fine("Server sent Connection: close — closing connection");
@@ -1611,22 +1650,8 @@ public class HTTPClientProtocolHandler implements ProtocolHandler, H2FrameHandle
         }
     }
 
-    private int findCRLF(ByteBuffer buffer) {
-        for (int i = buffer.position(); i < buffer.limit() - 1; i++) {
-            if (buffer.get(i) == '\r' && buffer.get(i + 1) == '\n') {
-                return i - buffer.position();
-            }
-        }
-        return -1;
-    }
-
-    private void processHTTP2Response() {
-        parseBuffer.flip();
-        try {
-            h2Parser.receive(parseBuffer);
-        } finally {
-            parseBuffer.compact();
-        }
+    private void processHTTP2Response(ByteBuffer data) {
+        h2Parser.receive(data);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

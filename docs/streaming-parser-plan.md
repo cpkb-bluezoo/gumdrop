@@ -8,8 +8,8 @@ style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 
 Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
 client), Phase 2 (FTP), Phase 3 (SMTP server + client), Phase 4 (IMAP,
-server + client), and Phase 5.1 (HTTP/1 server) complete. Phase 5.2
-(HTTP/1 client) next.**
+server + client), and Phase 5 (HTTP/1, server + client) complete.
+Phase 6 (teardown) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -1417,10 +1417,100 @@ phase's implementer):
       test errors on unrelated `Gumdrop.workerLoops` QUIC setup breakage,
       confirmed pre-existing and unrelated to this phase).
 
-### Phase 5.2 — HTTP/1 client
-- [ ] Client (`HTTPClientProtocolHandler`): status-line + header lexer/parser;
-      replace the bespoke `findCRLF`/`parseBuffer` path.
-- [ ] Tests; suite green; remove old line-buffering paths.
+### Phase 5.2 — HTTP/1 client ✅ done
+- [x] `HTTPClientLineLexer.java` (new) — structurally identical to the
+      server-side `HTTPLineLexer`: a single `LINE` token spanning a whole
+      line including its CRLF, matching the pre-conversion bespoke
+      `findCRLF`-based line extraction's own shape (line bytes, then two
+      explicit CRLF byte reads) closely enough that
+      `processStatusLine`/`processHeaderLine`/`processChunkSizeLine`/
+      `processChunkTrailerLine` (refactored from `parseStatusLine`/
+      `parseHeaders`/`parseChunkSize`/`parseChunkTrailer`, each losing
+      only their own `findCRLF` scanning wrapper) keep every line of
+      per-line-type charset choice (US-ASCII for status-line/chunk-size,
+      UTF-8 for header/trailer lines) and string-parsing logic unchanged.
+- [x] **The bespoke `parseBuffer` accumulation buffer is eliminated
+      entirely** — not just for the HTTP/1.1 path (which now reads
+      directly off the transport's own buffer via `lexer.feed()`, same as
+      every other client in this conversion) but also for HTTP/2:
+      `processHTTP2Response()` used to flip/compact `parseBuffer` around
+      `h2Parser.receive(...)`, but per the server-side precedent (Phase
+      5.1's `receiveFrameData` already feeds `H2Parser` the raw transport
+      buffer directly, no accumulation copy), the client now does the
+      same — `h2Parser.receive(data)` on the transport buffer as-is. This
+      was the one piece of "double buffering" this whole conversion set
+      out to remove that Phase 5.1 didn't touch (H2 was explicitly
+      out-of-scope there since the *server's* H2 path was already
+      buffer-direct).
+- [x] The header-size cap (`maxResponseHeaderSize`, public and mutable
+      *after* construction via `setMaxResponseHeaderSize()`) can't be
+      baked into the lexer's own fixed-at-construction `maxTokenLength`
+      the way every other cap in this conversion was — so the lexer is
+      now constructed **lazily**, on first use in `receive()`, picking up
+      whatever the current value is at that point (matching when the
+      pre-conversion code's own check first ran). The cumulative
+      cross-line total (the check's actual semantics — bounding the whole
+      header *section*, not any single line) is tracked by the parser
+      itself (`headerByteCount`, reset at both `parseState =
+      ParseState.STATUS_LINE` sites); the lexer's own `maxTokenLength` is
+      set to that same snapshotted value purely as a defense-in-depth
+      backstop against a single, never-terminated line growing the
+      receive buffer unboundedly before the parser's cumulative check
+      ever gets a chance to run — the pre-conversion code had **no**
+      protection against that specific case at all (its check only fired
+      on buffer *growth*, i.e. after a line was already known to be
+      incomplete), so `tokenTooLong()` catching it is a deliberate
+      improvement, not a faithfulness gap.
+- [x] Reused the server-side Phase 5.1 `fatalParseError` fix directly:
+      `tokenTooLong()`/the header-too-large check must not force-close the
+      endpoint synchronously (there's no queued response to race here,
+      unlike the server, but `close()` still doesn't stop the lexer's own
+      in-flight `feed()` call from continuing to scan the rest of the
+      current buffer as more lines) — a `fatalParseError` flag checked in
+      `receive()`'s loop handles it instead.
+- [x] **Chunk-data's mandatory trailing CRLF reused the server's
+      `enterRawBody(chunkSize + 2)` + manual split technique** (ruled out
+      `enterRawUntil` for the same reason: chunk-data is arbitrary binary
+      content that could legitimately contain an embedded `"\r\n"`) —
+      with one simplification specific to this client: the pre-conversion
+      `parseChunkData()` never validated the terminator bytes were
+      actually `"\r\n"` (just unconditionally skipped 2 bytes), so unlike
+      the server's `chunkTerminatorBuf`, no byte buffering is needed here
+      at all — just a plain countdown (`chunkTerminatorRemaining`) of how
+      many terminator bytes are still to be discarded.
+- [x] **`parseBody()`'s read-until-close ("no Content-Length") branch is
+      confirmed dead code**, preserved defensively rather than deleted:
+      grepping every `parseState = ParseState.BODY` assignment site shows
+      `contentLength` is always validated `> 0` first — the pre-conversion
+      code could never actually reach `BODY` with `contentLength < 0`.
+      Kept as `handleBodyUntilCloseBytes()`, driven directly from
+      `receive()`'s loop (not lexer-driven, matching the equivalent
+      server-side `BODY_UNTIL_CLOSE` precedent), in case some path not
+      exercised by the current test suite does reach it.
+- [x] `afterStateTransition()` (mirroring the server-side helper of the
+      same name, name and purpose both) centralises what the
+      pre-conversion `processHTTP11Response()` loop's own per-iteration
+      `switch(parseState)` did explicitly for every state — `BODY`/
+      `CHUNK_DATA` trigger `enterRawBody`; `IDLE`, `H2C_UPGRADE_PENDING`,
+      `HTTP2`, and the dead-code `BODY`-with-no-length case all trigger
+      `stopForHandoff()`.
+- [x] Tests: `HTTPClientLineLexerTest.java` (6 tests, new, direct
+      token-level, including the `enterRawBody`-then-resume-line-scanning
+      wiring). All 21 pre-existing `HTTPClientProtocolHandlerTest` tests
+      pass unchanged (they exercise cipher-suite blocking, idle timeout,
+      and `validateContentLength` — none of the code this phase touched).
+      Primary regression coverage, as with Phase 5.1, comes from the
+      already-thorough integration suites: `HTTPClientIntegrationTest`
+      (18 tests — the exact same real-client-against-real-server
+      Content-Length/chunked/64KB-upload/h2c/TLS tests Phase 5.1 already
+      relied on, this time exercising the *client's* receiving side of
+      each response) and `HTTPClientVersionIntegrationTest` (6 tests), both
+      green, plus `HTTPServerIntegrationTest` (23) and
+      `HTTPSServerIntegrationTest` (5) re-confirmed unaffected. Full
+      `ant test`, `ant integration-test-http`, and
+      `ant integration-test-http-client` green (HTTP3's own integration
+      test errors on the same unrelated pre-existing `Gumdrop.workerLoops`
+      QUIC setup breakage noted in Phase 5.1).
 
 ### Phase 6 — teardown
 - [ ] Confirm no remaining `LineParser.Callback` implementors.
