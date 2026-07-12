@@ -91,6 +91,15 @@
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
   </target>
 
+  <!-- Refresh the bundled Mozilla Public Suffix List (SEC-048). Run
+       periodically to pick up new/changed TLD rules; always overwrites
+       (no skipexisting), unlike resolve-deps' pinned release jars. -->
+  <target name='update-psl' description='Fetch the latest Public Suffix List'>
+    <get src='https://publicsuffix.org/list/public_suffix_list.dat'
+         dest='${src}/org/bluezoo/gumdrop/smtp/auth/public_suffix_list.dat'/>
+    <echo message='Updated public_suffix_list.dat from publicsuffix.org'/>
+  </target>
+
   <!-- Target for the server/servlet container and all its resources -->
   <target name='build' depends='resolve-deps'>
     <mkdir dir='${build}'/>
@@ -129,6 +138,7 @@
     <copy todir='${build}'>
       <fileset dir='${src}'>
         <include name='**/*.properties'/>
+        <include name='**/*.dat'/>
         <include name='META-INF/**'/>
       </fileset>
     </copy>

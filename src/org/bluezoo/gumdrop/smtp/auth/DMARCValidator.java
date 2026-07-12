@@ -22,10 +22,8 @@
 package org.bluezoo.gumdrop.smtp.auth;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.security.SecureRandom;
-import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -90,213 +88,6 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
 
     private static final Logger LOGGER = Logger.getLogger(DMARCValidator.class.getName());
-
-    /**
-     * Common two-level TLDs (public suffixes) that require three labels
-     * for an organizational domain. This is a subset of the full Public
-     * Suffix List (PSL) covering the most common cases.
-     */
-    private static final Set<String> TWO_LEVEL_TLDS = new HashSet<String>();
-    static {
-        // United Kingdom
-        TWO_LEVEL_TLDS.add("co.uk");
-        TWO_LEVEL_TLDS.add("org.uk");
-        TWO_LEVEL_TLDS.add("me.uk");
-        TWO_LEVEL_TLDS.add("ltd.uk");
-        TWO_LEVEL_TLDS.add("plc.uk");
-        TWO_LEVEL_TLDS.add("net.uk");
-        TWO_LEVEL_TLDS.add("sch.uk");
-        TWO_LEVEL_TLDS.add("ac.uk");
-        TWO_LEVEL_TLDS.add("gov.uk");
-        TWO_LEVEL_TLDS.add("nhs.uk");
-        TWO_LEVEL_TLDS.add("police.uk");
-        // Australia
-        TWO_LEVEL_TLDS.add("com.au");
-        TWO_LEVEL_TLDS.add("net.au");
-        TWO_LEVEL_TLDS.add("org.au");
-        TWO_LEVEL_TLDS.add("edu.au");
-        TWO_LEVEL_TLDS.add("gov.au");
-        TWO_LEVEL_TLDS.add("id.au");
-        // New Zealand
-        TWO_LEVEL_TLDS.add("co.nz");
-        TWO_LEVEL_TLDS.add("net.nz");
-        TWO_LEVEL_TLDS.add("org.nz");
-        TWO_LEVEL_TLDS.add("govt.nz");
-        TWO_LEVEL_TLDS.add("ac.nz");
-        // Japan
-        TWO_LEVEL_TLDS.add("co.jp");
-        TWO_LEVEL_TLDS.add("or.jp");
-        TWO_LEVEL_TLDS.add("ne.jp");
-        TWO_LEVEL_TLDS.add("ac.jp");
-        TWO_LEVEL_TLDS.add("go.jp");
-        // Brazil
-        TWO_LEVEL_TLDS.add("com.br");
-        TWO_LEVEL_TLDS.add("net.br");
-        TWO_LEVEL_TLDS.add("org.br");
-        TWO_LEVEL_TLDS.add("gov.br");
-        TWO_LEVEL_TLDS.add("edu.br");
-        // South Africa
-        TWO_LEVEL_TLDS.add("co.za");
-        TWO_LEVEL_TLDS.add("org.za");
-        TWO_LEVEL_TLDS.add("net.za");
-        TWO_LEVEL_TLDS.add("gov.za");
-        TWO_LEVEL_TLDS.add("edu.za");
-        // India
-        TWO_LEVEL_TLDS.add("co.in");
-        TWO_LEVEL_TLDS.add("net.in");
-        TWO_LEVEL_TLDS.add("org.in");
-        TWO_LEVEL_TLDS.add("gov.in");
-        TWO_LEVEL_TLDS.add("ac.in");
-        // China
-        TWO_LEVEL_TLDS.add("com.cn");
-        TWO_LEVEL_TLDS.add("net.cn");
-        TWO_LEVEL_TLDS.add("org.cn");
-        TWO_LEVEL_TLDS.add("gov.cn");
-        TWO_LEVEL_TLDS.add("edu.cn");
-        // Hong Kong
-        TWO_LEVEL_TLDS.add("com.hk");
-        TWO_LEVEL_TLDS.add("org.hk");
-        TWO_LEVEL_TLDS.add("net.hk");
-        TWO_LEVEL_TLDS.add("gov.hk");
-        TWO_LEVEL_TLDS.add("edu.hk");
-        // Taiwan
-        TWO_LEVEL_TLDS.add("com.tw");
-        TWO_LEVEL_TLDS.add("org.tw");
-        TWO_LEVEL_TLDS.add("net.tw");
-        TWO_LEVEL_TLDS.add("gov.tw");
-        TWO_LEVEL_TLDS.add("edu.tw");
-        // South Korea
-        TWO_LEVEL_TLDS.add("co.kr");
-        TWO_LEVEL_TLDS.add("or.kr");
-        TWO_LEVEL_TLDS.add("ne.kr");
-        TWO_LEVEL_TLDS.add("go.kr");
-        TWO_LEVEL_TLDS.add("ac.kr");
-        // Singapore
-        TWO_LEVEL_TLDS.add("com.sg");
-        TWO_LEVEL_TLDS.add("org.sg");
-        TWO_LEVEL_TLDS.add("net.sg");
-        TWO_LEVEL_TLDS.add("gov.sg");
-        TWO_LEVEL_TLDS.add("edu.sg");
-        // Malaysia
-        TWO_LEVEL_TLDS.add("com.my");
-        TWO_LEVEL_TLDS.add("org.my");
-        TWO_LEVEL_TLDS.add("net.my");
-        TWO_LEVEL_TLDS.add("gov.my");
-        TWO_LEVEL_TLDS.add("edu.my");
-        // Indonesia
-        TWO_LEVEL_TLDS.add("co.id");
-        TWO_LEVEL_TLDS.add("or.id");
-        TWO_LEVEL_TLDS.add("web.id");
-        TWO_LEVEL_TLDS.add("go.id");
-        TWO_LEVEL_TLDS.add("ac.id");
-        // Thailand
-        TWO_LEVEL_TLDS.add("co.th");
-        TWO_LEVEL_TLDS.add("or.th");
-        TWO_LEVEL_TLDS.add("go.th");
-        TWO_LEVEL_TLDS.add("ac.th");
-        // Vietnam
-        TWO_LEVEL_TLDS.add("com.vn");
-        TWO_LEVEL_TLDS.add("net.vn");
-        TWO_LEVEL_TLDS.add("org.vn");
-        TWO_LEVEL_TLDS.add("gov.vn");
-        TWO_LEVEL_TLDS.add("edu.vn");
-        // Philippines
-        TWO_LEVEL_TLDS.add("com.ph");
-        TWO_LEVEL_TLDS.add("org.ph");
-        TWO_LEVEL_TLDS.add("net.ph");
-        TWO_LEVEL_TLDS.add("gov.ph");
-        TWO_LEVEL_TLDS.add("edu.ph");
-        // Mexico
-        TWO_LEVEL_TLDS.add("com.mx");
-        TWO_LEVEL_TLDS.add("org.mx");
-        TWO_LEVEL_TLDS.add("net.mx");
-        TWO_LEVEL_TLDS.add("gob.mx");
-        TWO_LEVEL_TLDS.add("edu.mx");
-        // Argentina
-        TWO_LEVEL_TLDS.add("com.ar");
-        TWO_LEVEL_TLDS.add("org.ar");
-        TWO_LEVEL_TLDS.add("net.ar");
-        TWO_LEVEL_TLDS.add("gov.ar");
-        TWO_LEVEL_TLDS.add("edu.ar");
-        // Chile
-        TWO_LEVEL_TLDS.add("co.cl");
-        // Colombia
-        TWO_LEVEL_TLDS.add("com.co");
-        TWO_LEVEL_TLDS.add("org.co");
-        TWO_LEVEL_TLDS.add("net.co");
-        TWO_LEVEL_TLDS.add("gov.co");
-        TWO_LEVEL_TLDS.add("edu.co");
-        // Peru
-        TWO_LEVEL_TLDS.add("com.pe");
-        TWO_LEVEL_TLDS.add("org.pe");
-        TWO_LEVEL_TLDS.add("net.pe");
-        TWO_LEVEL_TLDS.add("gob.pe");
-        TWO_LEVEL_TLDS.add("edu.pe");
-        // Venezuela
-        TWO_LEVEL_TLDS.add("com.ve");
-        TWO_LEVEL_TLDS.add("org.ve");
-        TWO_LEVEL_TLDS.add("net.ve");
-        TWO_LEVEL_TLDS.add("gov.ve");
-        TWO_LEVEL_TLDS.add("edu.ve");
-        // Turkey
-        TWO_LEVEL_TLDS.add("com.tr");
-        TWO_LEVEL_TLDS.add("org.tr");
-        TWO_LEVEL_TLDS.add("net.tr");
-        TWO_LEVEL_TLDS.add("gov.tr");
-        TWO_LEVEL_TLDS.add("edu.tr");
-        // Russia
-        TWO_LEVEL_TLDS.add("com.ru");
-        TWO_LEVEL_TLDS.add("org.ru");
-        TWO_LEVEL_TLDS.add("net.ru");
-        // Ukraine
-        TWO_LEVEL_TLDS.add("com.ua");
-        TWO_LEVEL_TLDS.add("org.ua");
-        TWO_LEVEL_TLDS.add("net.ua");
-        TWO_LEVEL_TLDS.add("gov.ua");
-        TWO_LEVEL_TLDS.add("edu.ua");
-        // Poland
-        TWO_LEVEL_TLDS.add("com.pl");
-        TWO_LEVEL_TLDS.add("org.pl");
-        TWO_LEVEL_TLDS.add("net.pl");
-        TWO_LEVEL_TLDS.add("gov.pl");
-        TWO_LEVEL_TLDS.add("edu.pl");
-        // Israel
-        TWO_LEVEL_TLDS.add("co.il");
-        TWO_LEVEL_TLDS.add("org.il");
-        TWO_LEVEL_TLDS.add("net.il");
-        TWO_LEVEL_TLDS.add("gov.il");
-        TWO_LEVEL_TLDS.add("ac.il");
-        // Egypt
-        TWO_LEVEL_TLDS.add("com.eg");
-        TWO_LEVEL_TLDS.add("org.eg");
-        TWO_LEVEL_TLDS.add("net.eg");
-        TWO_LEVEL_TLDS.add("gov.eg");
-        TWO_LEVEL_TLDS.add("edu.eg");
-        // Pakistan
-        TWO_LEVEL_TLDS.add("com.pk");
-        TWO_LEVEL_TLDS.add("org.pk");
-        TWO_LEVEL_TLDS.add("net.pk");
-        TWO_LEVEL_TLDS.add("gov.pk");
-        TWO_LEVEL_TLDS.add("edu.pk");
-        // Bangladesh
-        TWO_LEVEL_TLDS.add("com.bd");
-        TWO_LEVEL_TLDS.add("org.bd");
-        TWO_LEVEL_TLDS.add("net.bd");
-        TWO_LEVEL_TLDS.add("gov.bd");
-        TWO_LEVEL_TLDS.add("edu.bd");
-        // Nigeria
-        TWO_LEVEL_TLDS.add("com.ng");
-        TWO_LEVEL_TLDS.add("org.ng");
-        TWO_LEVEL_TLDS.add("net.ng");
-        TWO_LEVEL_TLDS.add("gov.ng");
-        TWO_LEVEL_TLDS.add("edu.ng");
-        // Kenya
-        TWO_LEVEL_TLDS.add("co.ke");
-        TWO_LEVEL_TLDS.add("or.ke");
-        TWO_LEVEL_TLDS.add("ne.ke");
-        TWO_LEVEL_TLDS.add("go.ke");
-        TWO_LEVEL_TLDS.add("ac.ke");
-    }
 
     private final DNSResolver resolver;
     private final SecureRandom random;
@@ -759,10 +550,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * Gets the organizational domain (registered domain).
      * RFC 7489 §3.2 — organizational domain.
      *
-     * <p>This implementation uses a partial Public Suffix List covering common
-     * two-level TLDs like co.uk, com.au, etc. For domains with these suffixes,
-     * the organizational domain requires three labels (e.g., example.co.uk).
-     * For other domains, the organizational domain is the last two labels.
+     * <p>SEC-048: computed against the real Mozilla Public Suffix List via
+     * {@link PublicSuffixList} rather than a hardcoded set of common
+     * two-level TLDs, so this is correct for any TLD the PSL covers.
      *
      * @param domain the domain to find the organizational domain for
      * @return the organizational domain, or the input domain if it's already
@@ -772,38 +562,12 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         if (domain == null) {
             return null;
         }
-
-        String lower = domain.toLowerCase();
-
-        // Find the last dot
-        int lastDot = lower.lastIndexOf('.');
+        int lastDot = domain.lastIndexOf('.');
         if (lastDot <= 0) {
             // Single label or starts with dot - return as-is
             return domain;
         }
-
-        // Find the second-to-last dot
-        int secondLastDot = lower.lastIndexOf('.', lastDot - 1);
-        if (secondLastDot < 0) {
-            // Only two labels - this is already organizational domain
-            return domain;
-        }
-
-        // Check if the last two labels form a two-level TLD
-        String lastTwoLabels = lower.substring(secondLastDot + 1);
-        if (TWO_LEVEL_TLDS.contains(lastTwoLabels)) {
-            // Need three labels for organizational domain
-            int thirdLastDot = lower.lastIndexOf('.', secondLastDot - 1);
-            if (thirdLastDot < 0) {
-                // Only three labels - this is the organizational domain
-                return domain;
-            }
-            // Return last three labels
-            return domain.substring(thirdLastDot + 1);
-        }
-
-        // Standard case: last two labels are the organizational domain
-        return domain.substring(secondLastDot + 1);
+        return PublicSuffixList.getInstance().getRegistrableDomain(domain.toLowerCase());
     }
 
     /**
