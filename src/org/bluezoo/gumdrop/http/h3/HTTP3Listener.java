@@ -280,11 +280,21 @@ public class HTTP3Listener extends TCPListener
             if (isMetricsEnabled()) {
                 metrics = new HTTPServerMetrics(getTelemetryConfig());
             }
+            // Unlike TCP-accept listeners (which register with the accept
+            // loop lazily and don't actually bind until Gumdrop.start()
+            // runs), this listener binds a UDP socket right here — but
+            // Gumdrop.addListener() calls start() immediately, even for a
+            // standalone listener added before Gumdrop.start(), at which
+            // point the worker-loop pool nextWorkerLoop() depends on
+            // hasn't been allocated yet. Defer the QUIC bind in that case;
+            // Gumdrop.start() calls start() again for exactly this
+            // scenario once workerLoops exists (issue #106).
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            if (gumdrop == null || !gumdrop.isStarted()) {
+                return;
+            }
             if (selectorLoop == null) {
-                Gumdrop gumdrop = Gumdrop.getInstance();
-                if (gumdrop != null) {
-                    selectorLoop = gumdrop.nextWorkerLoop();
-                }
+                selectorLoop = gumdrop.nextWorkerLoop();
             }
             if (selectorLoop == null) {
                 throw new IllegalStateException(

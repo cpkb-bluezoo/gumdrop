@@ -587,6 +587,17 @@ public class Gumdrop {
             registerServiceListeners(service);
         }
 
+        // Standalone listeners that don't use the TCP accept loop (e.g.
+        // HTTP3Listener's QUIC/UDP bind) can't complete their own start()
+        // if addListener() ran before workerLoops existed — their start()
+        // call at addListener() time deferred in that case. Give them a
+        // second chance now that the worker-loop pool is ready (issue #106).
+        for (TCPListener listener : standaloneListeners) {
+            if (!listener.requiresTcpAccept()) {
+                listener.start();
+            }
+        }
+
         // Start AcceptSelectorLoop if we have TCP listeners
         boolean hasTcpListeners = false;
         for (TCPListener listener : serverListeners) {
