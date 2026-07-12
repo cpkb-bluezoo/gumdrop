@@ -7,8 +7,9 @@ style already used by `RESPDecoder`, `H2Parser`, `GrpcFrameParser`, and
 `JSONParser`.
 
 Status: **in progress — Phase 0 (foundation), Phase 1 (POP3, server +
-client), Phase 2 (FTP), Phase 3 (SMTP server + client), and Phase 4
-(IMAP, server + client) complete. Phase 5 (HTTP/1) next.**
+client), Phase 2 (FTP), Phase 3 (SMTP server + client), Phase 4 (IMAP,
+server + client), and Phase 5.1 (HTTP/1 server) complete. Phase 5.2
+(HTTP/1 client) next.**
 This document is the working checklist — update the task tables as work lands
 and record issues encountered inline. See §8 for the current phase-by-phase
 status and issues found so far.
@@ -1279,10 +1280,144 @@ phase's implementer):
       existed before this conversion either, so no coverage gap
       introduced).
 
-### Phase 5 — HTTP/1
-- [ ] Server (`HTTPProtocolHandler`): request-line + header lexer/parser;
-      Content-Length + chunked escapes; preserve `State.H2C_PREFACE`, header
-      caps, pseudo-header synthesis; HTTP/2 handoff to `H2Parser` untouched.
+### Phase 5.1 — HTTP/1 server ✅ done
+- [x] `HTTPLineLexer.java` (new) — structurally the simplest lexer in this
+      whole conversion: **a single token type**, `LINE`, spanning a whole
+      line **including its CRLF terminator**, deliberately matching {@code
+      LineParser.Callback#lineReceived}'s exact buffer contract. Every
+      other lexer here splits a line into KEYWORD/SP/TEXT because the
+      parser needed the split; HTTP's four line-consuming methods
+      (`processRequestLine`/`processHeaderLine`/`processChunkSizeLine`/
+      `processTrailerLine`) already did their own whole-buffer decode (with
+      a *per-line-type* charset choice — US-ASCII vs the historically-
+      allowed ISO-8859-1 for header values) and string parsing, so they
+      needed **zero changes** — `LINE`'s token window is handed to them
+      directly. `LINE` doubles as this lexer's own `crlfTokenType`, and
+      since the parser never returns `true` from `token()`, latched text
+      mode is never entered — `TEXT` exists purely to satisfy the
+      constructor's non-null contract, never actually emitted.
+- [x] A useful byproduct of "whole line including CRLF as one token": the
+      lexer's own `maxTokenLength` cap (set to `MAX_LINE_LENGTH`) applies
+      to the **combined** line length directly, with no separate parser-
+      side length-tracking needed (unlike POP3/FTP/SMTP/IMAP, where TEXT
+      mode is deliberately cap-exempt, forcing manual `segmentByteCount`
+      tracking) — a design freedom specific to never using latched text
+      mode at all.
+- [x] Content-Length bodies (RFC 9112 §6.2) and chunk-data (§7.1) both use
+      `enterRaw`, triggered by a new `afterStateTransition()` helper called
+      after every `LINE` dispatch *and* after every raw-body completion —
+      centralising what the pre-conversion `receive()` loop's own
+      per-iteration `state` re-check did implicitly, since `enterRaw`/
+      `requestStop()` must be triggered from within the callback that
+      caused the transition, not from an external loop.
+- [x] **Chunk-data's mandatory trailing CRLF (RFC 9112 §7.1) needed a
+      genuinely new technique**, not reusable from earlier phases:
+      `enterRawUntil(delim)` was ruled out — chunk-data is arbitrary binary
+      content that could legitimately contain an embedded `"\r\n"`,
+      causing `enterRawUntil` to false-match mid-content. Nested
+      `enterRaw()` calls from within `rawBytes()` were also ruled out — a
+      concrete trace through `ByteStreamLexer.continueRawFixed()` showed
+      its own post-callback `rawRemaining -= available` line would corrupt
+      a freshly-nested raw run's count (this loop lacks the
+      `mode == modeBeforeCallback` nested-call guard that makes the
+      *token*-callback nesting pattern safe elsewhere in this class).
+      Resolved by calling `enterRawBody(currentChunkSize + 2)` **once**
+      (data + terminator together) and manually splitting each incoming
+      `rawBytes()` slice at the `chunkBytesRemaining` boundary into
+      "real data" (forwarded to `Stream.receiveRequestBody`) vs.
+      "terminator bytes" (buffered in a new 2-byte `chunkTerminatorBuf`,
+      validated once complete) — the same "bounded exception to no-copies"
+      precedent as `enterRawUntil`'s own internal `pending` array.
+- [x] **Four call sites transition to states the lexer must not keep
+      driving** (PRI, BODY_UNTIL_CLOSE, H2C_PREFACE, WEBSOCKET — HTTP/2
+      framing, prefaces, the HTTP/1.0 until-close body, and WebSocket data
+      are all read completely outside the lexer, unchanged) — all handled
+      via `requestStop()` (wrapped as `stopForHandoff()`). Three
+      (`state = PRI`/`BODY_UNTIL_CLOSE` inside `processRequestLine`/
+      `endHeaders`; `state = H2C_PREFACE` inside `completeH2cUpgrade`,
+      itself called from both the header-dispatch path and the raw-body-
+      completion path) are synchronous, reachable only from
+      `afterStateTransition()`'s own `default` branch. The fourth,
+      `switchToWebSocketMode()`, is **public API an application can call
+      asynchronously** (accepting a WebSocket upgrade well after
+      `dispatchLine()`'s own post-dispatch check already ran) — mirroring
+      IMAP server Phase 4.1's `AppendStateImpl.readyForData()` discovery,
+      it calls `stopForHandoff()` directly at its own `state = WEBSOCKET`
+      assignment, not via the centralised helper. Harmless if called
+      synchronously *or* asynchronously either way: `receive()` checks
+      `state` before ever calling `lexer.feed()`, so an async call just
+      pre-empts a `feed()` invocation that would never have happened once
+      `state` is `WEBSOCKET`; a synchronous call (mid-buffer, e.g. a
+      pipelined WebSocket frame arriving in the same TCP segment as the
+      upgrade request) is the case that actually matters, preventing the
+      lexer from misinterpreting those bytes as more HTTP lines.
+- [x] **Bug found and fixed via `testOversizedRequestLine`** (an existing
+      integration test — confirmed, by stashing this phase's changes and
+      re-running the test in isolation, to **already fail identically on
+      unmodified pre-conversion code**; not a regression, a latent
+      pre-existing defect this conversion happened to surface): the
+      pre-conversion `lineTooLong()` sent a hardcoded 431 in every state
+      and relied on `LineParser.parse()` silently stopping (leaving the
+      buffer's position un-advanced) to avoid re-processing the rest of an
+      oversized line — an implicit "the connection is now stuck" behavior,
+      not a real fix. `TokenErrorRecovery`'s discard-until-CRLF resync
+      (used everywhere else in this conversion) makes this *worse*, not
+      better: it actively finds the oversized line's real end and
+      resumes, so the *next*, perfectly legitimate line (e.g.
+      `"Host: ..."`) gets reprocessed as a bogus request-line, sending a
+      second, invalid response on an already-errored stream
+      (`ProtocolException: Invalid state: HALF_CLOSED_LOCAL`, caught and
+      logged as SEVERE but not fatal). Fixed properly, not just papered
+      over: (1) a new `fatalParseError` flag stops `receive()` from
+      feeding the lexer anything further on this connection at all — set
+      in `tokenTooLong()`, checked at the top of `receive()`'s loop; it
+      must *not* force-close the endpoint itself (an earlier attempt at
+      this did, and raced ahead of the still-queued error response ever
+      being flushed — `Stream`'s own `closeConnection`-driven graceful
+      close-after-write already handles that correctly once given the
+      chance). (2) `tokenTooLong()` now picks the RFC-correct status per
+      `state` (414 for `REQUEST_LINE` — the pre-conversion `414` branch in
+      `processRequestLine` was *itself* unreachable dead code, since
+      `LineParser`'s own cap always fired first at the identical byte
+      threshold, so 414 was already the intended-but-never-reached
+      behavior; 400 for `BODY_CHUNKED_SIZE`, since an oversized chunk-size
+      line is malformed framing, not a header-field-count problem; 431
+      elsewhere) instead of hardcoding 431 everywhere.
+- [x] `receiveBody`/`receiveChunkedData` removed, replaced by
+      `handleBodyBytes`/`handleChunkedDataBytes` (driven from `rawBytes()`,
+      minus the "how much do I take from this buffer" arithmetic `enterRaw`
+      now handles). The pre-conversion `receiveBody`'s defensive
+      `contentLength == -1L → 411` check was dropped as confirmed-
+      unreachable: `state` only ever becomes `BODY` when `endHeaders()`
+      has already validated `contentLength > 0L`.
+- [x] `LineParser.Callback` removed from `HTTPProtocolHandler`; method
+      dispatch (`HTTPUtils.isValidMethod`/`Set.contains`) was **not**
+      converted to enum resolution — already O(1) hash lookup, not the
+      sequential-comparison inefficiency the original enum-resolution
+      instruction (Phase 1, POP3) was correcting for, so there was no win
+      available, matching the same judgment call made for IMAP's
+      `dispatchCommand` in Phase 4.1.
+- [x] Tests: `HTTPLineLexerTest.java` (6 tests, new, direct token-level,
+      including the `enterRawBody`-then-resume-line-scanning wiring).
+      Primary regression coverage for the body-framing paths comes from
+      integration tests, which already covered this ground thoroughly pre-
+      conversion: `HTTPServerIntegrationTest` (23 tests — request-line/
+      header parsing, malformed input, oversized lines, HTTP/2 upgrade,
+      keep-alive) and `HTTPSServerIntegrationTest` (5 tests) both green,
+      plus critically `HTTPClientIntegrationTest`'s real-client-against-
+      real-server tests exercising exactly the paths this phase touched:
+      `testHTTP11POSTWithContentLength`/`testH2cPOSTWithContentLength`
+      (Content-Length body → `enterRaw`), `testHTTP11ChunkedPOST`/
+      `testHTTP11LargeChunkedUpload` (64KB, multi-chunk, multi-buffer-
+      boundary chunked body → `enterRaw` + terminator splitting)/
+      `testHTTPSChunkedUpload`/`testH2cChunkedPOST`, all passing unchanged
+      (18 tests) alongside `HTTPClientVersionIntegrationTest` (6 tests).
+      Full `ant test`, `ant integration-test-http`, and
+      `ant integration-test-http-client` green (HTTP/3's own integration
+      test errors on unrelated `Gumdrop.workerLoops` QUIC setup breakage,
+      confirmed pre-existing and unrelated to this phase).
+
+### Phase 5.2 — HTTP/1 client
 - [ ] Client (`HTTPClientProtocolHandler`): status-line + header lexer/parser;
       replace the bespoke `findCRLF`/`parseBuffer` path.
 - [ ] Tests; suite green; remove old line-buffering paths.
