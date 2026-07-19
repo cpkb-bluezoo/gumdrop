@@ -33,13 +33,13 @@ For a pure async microservice without servlets:
 
 **Required:**
 - `gumdrop.jar` — core framework (2,537,896 bytes)
-- `gonzalez-1.1.jar` — XML parsing (1.9 MB) **OR** `jsonparser-1.2.jar` — JSON (23,063 bytes)
+- `gonzalez-1.2.0.jar` — XML parsing (1.9 MB) **OR** `jsonparser-1.3.jar` — JSON (23,063 bytes)
 
 **Total:** ~4.4 MB (with gonzalez) or ~2.56 MB (with jsonparser only)
 
 **Dependencies:** Downloaded from GitHub Releases on first build. Ant `resolve-deps` fetches:
-- jsonparser: https://github.com/cpkb-bluezoo/jsonparser/releases/download/v1.2/jsonparser-1.2.jar
-- gonzalez: https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.1/gonzalez-1.1.jar
+- jsonparser: https://github.com/cpkb-bluezoo/jsonparser/releases/download/v1.3/jsonparser-1.3.jar
+- gonzalez: https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.2.0/gonzalez-1.2.0.jar
 
 **Build:** `ant dist` — downloads 2 JARs (~2 MB total), compiles, produces `gumdrop.jar`. No Maven/Gradle required for build.
 
@@ -50,8 +50,8 @@ For a pure async microservice without servlets:
 
 **Bundled inside fat JAR:**
 - gumdrop.jar
-- gonzalez-1.1.jar
-- jsonparser-1.2.jar
+- gonzalez-1.2.0.jar
+- jsonparser-1.3.jar
 - javax.servlet-api-4.0.1.jar (95 KB)
 - javax.mail-1.6.2.jar (659 KB)
 - javax.annotation-api-1.3.2.jar (27 KB)
@@ -69,8 +69,8 @@ For a pure async microservice without servlets:
 |----------|------|
 | gumdrop.jar | 2,537,896 bytes |
 | gumdrop-container.jar | 5.2 MB |
-| gonzalez-1.1.jar | 1.9 MB |
-| jsonparser-1.2.jar | 23,063 bytes |
+| gonzalez-1.2.0.jar | 1.9 MB |
+| jsonparser-1.3.jar | 31,331 bytes |
 | lib/ total (all deps) | ~3.5 MB |
 
 ### Sample gumdroprc Configurations
