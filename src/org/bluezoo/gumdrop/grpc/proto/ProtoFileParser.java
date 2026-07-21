@@ -713,24 +713,40 @@ public class ProtoFileParser {
     }
 
     private FieldType scalarTypeFromName(String name) throws ProtoParseException {
-        return switch (name) {
-            case "double" -> FieldType.DOUBLE;
-            case "float" -> FieldType.FLOAT;
-            case "int32" -> FieldType.INT32;
-            case "int64" -> FieldType.INT64;
-            case "uint32" -> FieldType.UINT32;
-            case "uint64" -> FieldType.UINT64;
-            case "sint32" -> FieldType.SINT32;
-            case "sint64" -> FieldType.SINT64;
-            case "fixed32" -> FieldType.FIXED32;
-            case "fixed64" -> FieldType.FIXED64;
-            case "sfixed32" -> FieldType.SFIXED32;
-            case "sfixed64" -> FieldType.SFIXED64;
-            case "bool" -> FieldType.BOOL;
-            case "string" -> FieldType.STRING;
-            case "bytes" -> FieldType.BYTES;
-            default -> throw parseError(L10N.getString("err.unknown_type"), name);
-        };
+        switch (name) {
+        case "double":
+            return FieldType.DOUBLE;
+        case "float":
+            return FieldType.FLOAT;
+        case "int32":
+            return FieldType.INT32;
+        case "int64":
+            return FieldType.INT64;
+        case "uint32":
+            return FieldType.UINT32;
+        case "uint64":
+            return FieldType.UINT64;
+        case "sint32":
+            return FieldType.SINT32;
+        case "sint64":
+            return FieldType.SINT64;
+        case "fixed32":
+            return FieldType.FIXED32;
+        case "fixed64":
+            return FieldType.FIXED64;
+        case "sfixed32":
+            return FieldType.SFIXED32;
+        case "sfixed64":
+            return FieldType.SFIXED64;
+        case "bool":
+            return FieldType.BOOL;
+        case "string":
+            return FieldType.STRING;
+        case "bytes":
+            return FieldType.BYTES;
+        default:
+            throw parseError(L10N.getString("err.unknown_type"), name);
+        }
     }
 
     private ProtoParseException parseError(String key, Object... args) {

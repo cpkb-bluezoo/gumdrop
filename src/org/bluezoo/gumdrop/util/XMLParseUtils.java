@@ -96,8 +96,12 @@ public final class XMLParseUtils {
      * apply the same protection via {@link Parser#setEntityResolver}.
      */
     public static final EntityResolver DENY_EXTERNAL_ENTITIES =
-            (String publicId, String systemId) ->
-                    new InputSource(new StringReader(""));
+            new EntityResolver() {
+                @Override
+                public InputSource resolveEntity(String publicId, String systemId) {
+                    return new InputSource(new StringReader(""));
+                }
+            };
 
     private XMLParseUtils() {
         // Utility class

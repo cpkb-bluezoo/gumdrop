@@ -60,7 +60,8 @@ public interface NotAuthenticatedHandler {
      * (via LOGIN command or AUTHENTICATE SASL). The handler now makes a
      * policy decision on whether to allow access.
      * 
-     * <p>To accept, open the user's mailbox store using the factory and call
+     * <p>To accept, call {@link AuthenticateState#proceed} to let the
+     * protocol open the store, or open a store yourself and call
      * {@link AuthenticateState#accept}. To reject, call one of the reject
      * methods on the state.
      * 

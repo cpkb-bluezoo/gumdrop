@@ -31,6 +31,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface CopyState {
 
     /**
+     * Authorises COPY and lets the protocol copy messages.
+     *
+     * @param handler continues receiving selected commands
+     */
+    void proceed(SelectedHandler handler);
+
+    /**
      * Copy completed successfully.
      * 
      * @param handler continues receiving selected commands

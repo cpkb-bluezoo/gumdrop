@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.http.h2;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.IntConsumer;
 
 /**
  * HTTP/2 flow control accounting for both connection-level and per-stream
@@ -327,20 +326,27 @@ public class H2FlowControl {
     }
 
     /**
-     * Invokes the consumer for each stream that currently has available
+     * Callback for streams that currently have available send window.
+     */
+    public interface UnblockedStreamCallback {
+        void onUnblocked(int streamId);
+    }
+
+    /**
+     * Invokes the callback for each stream that currently has available
      * send window (both stream-level and connection-level are positive).
      * Useful after a connection-level WINDOW_UPDATE to find streams
      * that may resume sending.
      *
-     * @param consumer called with each unblocked stream ID
+     * @param callback called with each unblocked stream ID
      */
-    public void forEachUnblockedStream(IntConsumer consumer) {
+    public void forEachUnblockedStream(UnblockedStreamCallback callback) {
         if (connectionSendWindow <= 0) {
             return;
         }
         for (Map.Entry<Integer, StreamFlowState> entry : streams.entrySet()) {
             if (entry.getValue().sendWindow > 0) {
-                consumer.accept(entry.getKey().intValue());
+                callback.onUnblocked(entry.getKey().intValue());
             }
         }
     }

@@ -36,6 +36,17 @@ import org.bluezoo.gumdrop.mailbox.MailboxStore;
 public interface AuthenticateState {
 
     /**
+     * Authorises the principal and lets the protocol open the mailbox store.
+     *
+     * <p>The server opens the store on {@code StorageExecutor} (off the
+     * SelectorLoop) and transitions to AUTHENTICATED state. Prefer this over
+     * {@link #accept} unless the handler supplies its own store.
+     *
+     * @param handler receives authenticated state commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Accepts the authenticated principal.
      * 
      * <p>Transitions to AUTHENTICATED state. The handler will receive

@@ -30,6 +30,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface DeleteState {
 
     /**
+     * Authorises DELETE and lets the protocol delete the mailbox.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Mailbox deleted successfully.
      * 
      * @param handler continues receiving authenticated commands

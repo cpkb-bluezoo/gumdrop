@@ -31,6 +31,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface ExpungeState {
 
     /**
+     * Authorises EXPUNGE and lets the protocol expunge deleted messages.
+     *
+     * @param handler continues receiving selected commands
+     */
+    void proceed(SelectedHandler handler);
+
+    /**
      * Sends an EXPUNGE notification for a deleted message.
      * 
      * <p>Call this for each message that was expunged.

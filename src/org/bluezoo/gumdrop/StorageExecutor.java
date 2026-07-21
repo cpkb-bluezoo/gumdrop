@@ -56,6 +56,14 @@ import java.util.logging.Logger;
  * touch per-connection state and call {@link Endpoint#send}. This preserves the
  * single-threaded-per-connection invariant.
  *
+ * <p>Byte streaming of open files uses
+ * {@link java.nio.channels.AsynchronousFileChannel}, whose read/write
+ * completions run on the JDK async-file thread group and re-enter the loop
+ * via {@link Endpoint#execute}. Note that
+ * {@code AsynchronousFileChannel.open} itself is a <em>blocking</em>
+ * syscall and <strong>must</strong> be performed on this pool (or another
+ * non-loop thread), never on a {@code SelectorLoop}.
+ *
  * <p>The pool is bounded (fixed thread count and a bounded queue) so that a
  * slow or stuck disk applies backpressure rather than spawning unbounded work.
  * When the queue is full, submission is rejected and the {@code Callback}'s
@@ -70,6 +78,30 @@ public final class StorageExecutor {
 
     private static final Logger LOGGER =
             Logger.getLogger(StorageExecutor.class.getName());
+
+    /**
+     * Test-only observer invoked on a storage worker thread immediately before
+     * each submitted operation runs. Production code must leave this
+     * {@code null}.
+     *
+     * <p>Used by boundary tests to assert blocking work runs on a
+     * {@code gumdrop-storage-*} thread rather than a SelectorLoop or caller.
+     */
+    public interface WorkThreadObserver {
+        /**
+         * @param worker the storage pool thread about to run an operation
+         */
+        void observed(Thread worker);
+    }
+
+    /**
+     * Test-only: if non-null, invoked on the storage worker before each
+     * operation runs. Production code must leave this {@code null}.
+     *
+     * <p>Used by boundary tests to assert blocking work runs on a
+     * {@code gumdrop-storage-*} thread rather than a SelectorLoop or caller.
+     */
+    static volatile WorkThreadObserver workThreadObserver;
 
     /**
      * Default number of storage worker threads when
@@ -215,6 +247,10 @@ public final class StorageExecutor {
         final Runnable task = new Runnable() {
             @Override
             public void run() {
+                WorkThreadObserver observer = workThreadObserver;
+                if (observer != null) {
+                    observer.observed(Thread.currentThread());
+                }
                 T result = null;
                 Throwable error = null;
                 try {

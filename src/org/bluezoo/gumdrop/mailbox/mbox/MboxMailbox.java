@@ -377,27 +377,9 @@ public class MboxMailbox implements Mailbox {
         if (messageNumber < 1 || messageNumber > messages.size()) {
             throw new IOException("Invalid message number: " + messageNumber);
         }
-        
-        MboxMessageDescriptor msg = messages.get(messageNumber - 1);
-        
-        // Check if we already have a computed hash-based ID
-        String existingId = msg.getUniqueId();
-        if (existingId != null && existingId.length() == 32) {
-            // Looks like an MD5 hash, use it
-            return existingId;
-        }
-        
-        // Compute MD5 hash of message content for unique ID
-        byte[] content = readMessageContent(msg.getStartOffset(), msg.getEndOffset());
-        
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            md.update(content);
-            return ByteArrays.toHexString(md.digest());
-        } catch (NoSuchAlgorithmException e) {
-            // Fallback to offset-based ID
-            return existingId;
-        }
+
+        // UID is computed once at index time — never re-hash on the loop.
+        return messages.get(messageNumber - 1).getUniqueId();
     }
 
     @Override
@@ -613,11 +595,28 @@ public class MboxMailbox implements Mailbox {
         }
         
         int msgNum = messages.size() + 1;
-        
-        // Use file position as initial unique ID (content hash computed on demand)
-        String uniqueId = String.valueOf(start);
-        
+
+        // Stable UID at index time (mailbox open runs on StorageExecutor) so
+        // UIDL / IDLE / NOOP never MD5 the full message on the SelectorLoop.
+        String uniqueId = computeContentUniqueId(rfc822Start, rfc822End, start);
+
         messages.add(new MboxMessageDescriptor(msgNum, rfc822Start, rfc822End, uniqueId));
+    }
+
+    /**
+     * MD5 of the raw RFC822 bytes between {@code start} and {@code end}, or
+     * {@code String.valueOf(fallback)} if the digest is unavailable.
+     */
+    private String computeContentUniqueId(long start, long end, long fallback)
+            throws IOException {
+        byte[] content = readMessageContent(start, end);
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(content);
+            return ByteArrays.toHexString(md.digest());
+        } catch (NoSuchAlgorithmException e) {
+            return String.valueOf(fallback);
+        }
     }
 
     /**

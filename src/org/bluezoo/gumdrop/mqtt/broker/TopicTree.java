@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.mqtt.broker;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -103,7 +104,15 @@ public class TopicTree {
         String[] levels = topicFilter.split("/", -1);
         Node current = root;
         for (String level : levels) {
-            current = current.children.computeIfAbsent(level, k -> new Node());
+            Node child = current.children.get(level);
+            if (child == null) {
+                child = new Node();
+                Node existing = current.children.putIfAbsent(level, child);
+                if (existing != null) {
+                    child = existing;
+                }
+            }
+            current = child;
         }
         // Remove any existing subscription for this client (to update QoS)
         current.subscribers.remove(new SubscriptionEntry(clientId, qos));
@@ -124,7 +133,7 @@ public class TopicTree {
             if (child == null) return;
             current = child;
         }
-        current.subscribers.removeIf(e -> e.getClientId().equals(clientId));
+        removeSubscriber(current.subscribers, clientId);
     }
 
     /**
@@ -137,9 +146,19 @@ public class TopicTree {
     }
 
     private void unsubscribeAllRecursive(Node node, String clientId) {
-        node.subscribers.removeIf(e -> e.getClientId().equals(clientId));
+        removeSubscriber(node.subscribers, clientId);
         for (Node child : node.children.values()) {
             unsubscribeAllRecursive(child, clientId);
+        }
+    }
+
+    private static void removeSubscriber(Set<SubscriptionEntry> subscribers,
+                                         String clientId) {
+        Iterator<SubscriptionEntry> it = subscribers.iterator();
+        while (it.hasNext()) {
+            if (it.next().getClientId().equals(clientId)) {
+                it.remove();
+            }
         }
     }
 
@@ -212,9 +231,11 @@ public class TopicTree {
         List<SubscriptionEntry> entries = match(topicName);
         Map<String, QoS> result = new ConcurrentHashMap<>();
         for (SubscriptionEntry entry : entries) {
-            result.merge(entry.getClientId(), entry.getQoS(),
-                    (existing, newQos) ->
-                            existing.getValue() >= newQos.getValue() ? existing : newQos);
+            QoS existing = result.get(entry.getClientId());
+            if (existing == null
+                    || existing.getValue() < entry.getQoS().getValue()) {
+                result.put(entry.getClientId(), entry.getQoS());
+            }
         }
         return result;
     }

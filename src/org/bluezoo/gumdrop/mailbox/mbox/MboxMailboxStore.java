@@ -44,7 +44,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
 
 /**
  * Mail store implementation using mbox-format mailbox files.
@@ -223,12 +222,8 @@ public class MboxMailboxStore implements MailboxStore {
             return result;
         }
         
-        // Convert IMAP wildcards to regex
-        String regex = convertWildcardToRegex(fullPattern);
-        Pattern compiledPattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
-        
         // Scan for mbox files
-        scanMailboxes(userDirectory, "", compiledPattern, result);
+        scanMailboxes(userDirectory, "", fullPattern, result);
         
         // Sort results
         Collections.sort(result);
@@ -240,7 +235,7 @@ public class MboxMailboxStore implements MailboxStore {
      * Scans for mailbox files using iterative depth-first traversal.
      * Decodes filesystem-encoded mailbox names back to Unicode.
      */
-    private void scanMailboxes(Path directory, String prefix, Pattern pattern, List<String> result) {
+    private void scanMailboxes(Path directory, String prefix, String pattern, List<String> result) {
         if (!Files.exists(directory) || !Files.isDirectory(directory)) {
             return;
         }
@@ -265,7 +260,7 @@ public class MboxMailboxStore implements MailboxStore {
                     String mailboxName = MailboxNameCodec.decode(encodedName);
                     String fullName = state.prefix.isEmpty() ? mailboxName : state.prefix + HIERARCHY_DELIMITER + mailboxName;
                     
-                    if (pattern.matcher(fullName).matches()) {
+                    if (matchesPattern(fullName, pattern)) {
                         result.add(fullName);
                     }
                 } else if (child.isDirectory() && !fileName.startsWith(".")) {
@@ -313,12 +308,10 @@ public class MboxMailboxStore implements MailboxStore {
         ensureOpen();
         
         String fullPattern = reference + pattern;
-        String regex = convertWildcardToRegex(fullPattern);
-        Pattern compiledPattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
         
         List<String> result = new ArrayList<>();
         for (String mailbox : subscriptions) {
-            if (compiledPattern.matcher(mailbox).matches()) {
+            if (matchesPattern(mailbox, fullPattern)) {
                 result.add(mailbox);
             }
         }
@@ -692,43 +685,67 @@ public class MboxMailboxStore implements MailboxStore {
     }
 
     /**
-     * Converts IMAP wildcard pattern to regex.
+     * Matches a mailbox name against an IMAP pattern.
+     * Supports {@code *} (any chars, including hierarchy delimiter) and
+     * {@code %} (any chars except delimiter). Comparison is case-insensitive.
      */
-    private String convertWildcardToRegex(String pattern) {
-        StringBuilder regex = new StringBuilder();
-        regex.append("^");
-        
-        for (int i = 0; i < pattern.length(); i++) {
-            char c = pattern.charAt(i);
-            switch (c) {
-                case '*':
-                    regex.append(".*");
-                    break;
-                case '%':
-                    regex.append("[^").append(HIERARCHY_DELIMITER).append("]*");
-                    break;
-                case '.':
-                case '(':
-                case ')':
-                case '[':
-                case ']':
-                case '{':
-                case '}':
-                case '\\':
-                case '^':
-                case '$':
-                case '|':
-                case '?':
-                case '+':
-                    regex.append("\\").append(c);
-                    break;
-                default:
-                    regex.append(c);
+    private boolean matchesPattern(String name, String pattern) {
+        return matchesPatternRecursive(name, 0, pattern, 0);
+    }
+
+    private boolean matchesPatternRecursive(String name, int nameIdx, String pattern, int patIdx) {
+        while (patIdx < pattern.length()) {
+            char pc = pattern.charAt(patIdx);
+
+            if (pc == '*') {
+                // * matches any sequence including delimiter
+                patIdx++;
+                if (patIdx >= pattern.length()) {
+                    return true; // * at end matches everything
+                }
+                for (int i = nameIdx; i <= name.length(); i++) {
+                    if (matchesPatternRecursive(name, i, pattern, patIdx)) {
+                        return true;
+                    }
+                }
+                return false;
+
+            } else if (pc == '%') {
+                // % matches any sequence except delimiter
+                patIdx++;
+                if (patIdx >= pattern.length()) {
+                    // % at end - check no more delimiters
+                    for (int i = nameIdx; i < name.length(); i++) {
+                        if (name.charAt(i) == HIERARCHY_DELIMITER) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                for (int i = nameIdx; i <= name.length(); i++) {
+                    if (i > nameIdx && name.charAt(i - 1) == HIERARCHY_DELIMITER) {
+                        break; // Can't match past delimiter
+                    }
+                    if (matchesPatternRecursive(name, i, pattern, patIdx)) {
+                        return true;
+                    }
+                }
+                return false;
+
+            } else {
+                if (nameIdx >= name.length()) {
+                    return false;
+                }
+                char nc = name.charAt(nameIdx);
+                if (Character.toLowerCase(nc) != Character.toLowerCase(pc)) {
+                    return false;
+                }
+                nameIdx++;
+                patIdx++;
             }
         }
-        
-        regex.append("$");
-        return regex.toString();
+
+        return nameIdx >= name.length();
     }
 
     /**

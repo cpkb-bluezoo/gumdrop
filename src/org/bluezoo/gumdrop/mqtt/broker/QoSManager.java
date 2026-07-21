@@ -89,7 +89,13 @@ public class QoSManager {
     public int nextPacketId() {
         int id;
         do {
-            id = nextPacketId.getAndUpdate(v -> (v >= 65535) ? 1 : v + 1);
+            int current;
+            int next;
+            do {
+                current = nextPacketId.get();
+                next = (current >= 65535) ? 1 : current + 1;
+            } while (!nextPacketId.compareAndSet(current, next));
+            id = next;
         } while (outbound.containsKey(id) || inbound.containsKey(id));
         return id;
     }

@@ -77,8 +77,12 @@ public class DNSCache {
         this.maxEntries = maxEntries;
         this.negativeTTL = negativeTTL;
         this.cache = new ConcurrentHashMap<>();
-        this.expiryQueue = new PriorityQueue<>(
-                Comparator.comparingLong(e -> e.entry.expiryTime));
+        this.expiryQueue = new PriorityQueue<>(new Comparator<EvictionEntry>() {
+            @Override
+            public int compare(EvictionEntry a, EvictionEntry b) {
+                return Long.compare(a.entry.expiryTime, b.entry.expiryTime);
+            }
+        });
         this.keyToEvictionEntry = new ConcurrentHashMap<>();
     }
 

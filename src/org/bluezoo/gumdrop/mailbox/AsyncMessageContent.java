@@ -55,6 +55,11 @@ public interface AsyncMessageContent extends Closeable {
      * CRLFCRLF separator between headers and body). Returns {@code -1}
      * if the offset is unknown or cannot be determined.
      *
+     * <p>Implementations must return a cached value without blocking I/O
+     * (no waiting on async-file completions, no synchronous file
+     * scans). The offset should be precomputed when the message is
+     * indexed or opened on a storage worker thread.
+     *
      * @return the body offset, or -1 if unknown
      */
     long bodyOffset();

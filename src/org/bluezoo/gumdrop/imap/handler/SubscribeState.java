@@ -31,6 +31,14 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface SubscribeState {
 
     /**
+     * Authorises SUBSCRIBE/UNSUBSCRIBE and lets the protocol update
+     * subscriptions.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Subscription changed successfully.
      * 
      * @param handler continues receiving authenticated commands

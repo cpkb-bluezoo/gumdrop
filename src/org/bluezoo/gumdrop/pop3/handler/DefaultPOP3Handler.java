@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.pop3.handler;
 
 import java.io.IOException;
-import java.nio.channels.ReadableByteChannel;
 import java.security.Principal;
 import java.util.Iterator;
 import java.util.ResourceBundle;
@@ -30,38 +29,29 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 
 /**
  * Default POP3 handler implementation that accepts all operations.
- * 
- * <p>This handler provides passthrough behaviour using the configured
- * Realm and MailboxFactory. It accepts all connections, opens mailboxes
- * for authenticated users, and performs all mailbox operations using the
- * Mailbox API.
- * 
+ *
+ * <p>This handler authorises authentication and QUIT, and performs
+ * transaction-state mailbox reads using the Mailbox API. Opening the
+ * mailbox at authenticate time and closing it on QUIT are delegated to
+ * the protocol via {@code state.proceed(this)} so they run on
+ * {@link org.bluezoo.gumdrop.StorageExecutor} rather than the SelectorLoop.
+ *
  * <p>This handler is used as the default when no custom handler factory
  * is configured on the server. Subclasses can override specific methods
  * to add custom policy logic.
- * 
- * <p><strong>Behaviour:</strong>
- * <ul>
- *   <li>Accepts all connections with a configurable greeting</li>
- *   <li>Opens the INBOX for authenticated users</li>
- *   <li>Permits all mailbox operations (STAT, LIST, RETR, DELE, etc.)</li>
- *   <li>Commits deletions on QUIT</li>
- * </ul>
- * 
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.pop3.DefaultPOP3Service
  */
-public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler, 
+public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler,
         TransactionHandler {
 
     private static final Logger LOGGER = Logger.getLogger(DefaultPOP3Handler.class.getName());
@@ -70,7 +60,7 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
 
     /**
      * Creates a new DefaultPOP3Handler with the specified greeting.
-     * 
+     *
      * @param greeting the greeting message to send to clients
      */
     public DefaultPOP3Handler(String greeting) {
@@ -94,21 +84,8 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
     @Override
     public void authenticate(AuthenticateState state, Principal principal,
                              MailboxFactory mailboxFactory) {
-        try {
-            MailboxStore store = mailboxFactory.createStore();
-            store.open(principal.getName());
-            
-            // Open INBOX for POP3
-            Mailbox mailbox = store.openMailbox("INBOX", false);
-            if (mailbox == null) {
-                state.reject("Mailbox not available", this);
-            } else {
-                state.accept(mailbox, this);
-            }
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to open mailbox for " + principal.getName(), e);
-            state.reject("Unable to open mailbox", this);
-        }
+        // Authorise only; protocol opens the mailbox via StorageExecutor.
+        state.proceed(this);
     }
 
     // ============== TransactionHandler ==============
@@ -167,19 +144,8 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             } else if (mailbox.isDeleted(messageNumber)) {
                 state.messageDeleted(this);
             } else {
-                AsyncMessageContent asyncContent = null;
-                try {
-                    asyncContent = mailbox.openAsyncContent(messageNumber);
-                } catch (IOException ignored) {
-                    // Fall back to sync path
-                }
-                if (asyncContent != null) {
-                    state.sendMessage(msg.getSize(), asyncContent, this);
-                } else {
-                    ReadableByteChannel content =
-                            mailbox.getMessageContent(messageNumber);
-                    state.sendMessage(msg.getSize(), content, this);
-                }
+                // Disk open/load runs in the protocol after proceed().
+                state.proceed(msg.getSize(), this);
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to retrieve message " + messageNumber, e);
@@ -227,8 +193,8 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
             } else if (mailbox.isDeleted(messageNumber)) {
                 state.messageDeleted(this);
             } else {
-                ReadableByteChannel content = mailbox.getMessageTop(messageNumber, lines);
-                state.sendTop(content, this);
+                // Disk open/load runs in the protocol after proceed().
+                state.proceed(lines, this);
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to get TOP for message " + messageNumber, e);
@@ -280,14 +246,8 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
 
     @Override
     public void quit(UpdateState state, Mailbox mailbox) {
-        try {
-            mailbox.close(true); // Expunge on close
-            state.commitAndClose();
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to commit mailbox changes", e);
-            state.updateFailed("Some messages could not be deleted");
-        }
+        // Authorise quit; protocol closes/expunges via StorageExecutor.
+        state.proceed(this);
     }
 
 }
-

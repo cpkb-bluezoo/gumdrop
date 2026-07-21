@@ -38,6 +38,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.HostsFile;
 
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
@@ -560,6 +561,11 @@ public class Gumdrop {
             storageExecutor = StorageExecutor.createDefault();
         }
 
+        // Parse /etc/hosts (or Windows hosts) once off the selector so the
+        // first DNSResolver.resolve after accept cannot stall a reactor
+        // thread on cold hosts-file I/O.
+        HostsFile.warm();
+
         // Create or recreate worker loops (1-based naming for humans)
         if (workerLoops == null) {
             workerLoops = new SelectorLoop[workerCount];
@@ -618,13 +624,16 @@ public class Gumdrop {
                     acceptLoop.registerListener(listener);
                 }
             }
-            acceptLoop.onReady(() -> {
-                ready = true;
-                long t2 = System.currentTimeMillis();
-                if (LOGGER.isLoggable(Level.INFO)) {
-                    String message = L10N.getString("info.started_gumdrop");
-                    message = MessageFormat.format(message, (t2 - t1));
-                    LOGGER.info(message);
+            acceptLoop.onReady(new Runnable() {
+                @Override
+                public void run() {
+                    ready = true;
+                    long t2 = System.currentTimeMillis();
+                    if (LOGGER.isLoggable(Level.INFO)) {
+                        String message = L10N.getString("info.started_gumdrop");
+                        message = MessageFormat.format(message, (t2 - t1));
+                        LOGGER.info(message);
+                    }
                 }
             });
         } else {

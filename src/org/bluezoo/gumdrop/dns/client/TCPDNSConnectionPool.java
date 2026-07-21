@@ -150,9 +150,15 @@ public class TCPDNSConnectionPool {
         }
         conn.lastUsed = now;
 
-        Deque<PooledConnection> connections = pool.computeIfAbsent(
-                conn.server,
-                k -> new ArrayDeque<>(maxConnectionsPerServer));
+        Deque<PooledConnection> connections = pool.get(conn.server);
+        if (connections == null) {
+            connections = new ArrayDeque<>(maxConnectionsPerServer);
+            Deque<PooledConnection> existing =
+                    pool.putIfAbsent(conn.server, connections);
+            if (existing != null) {
+                connections = existing;
+            }
+        }
         synchronized (connections) {
             evictExpired(connections);
             if (connections.size() >= maxConnectionsPerServer) {

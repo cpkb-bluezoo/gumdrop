@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.pop3.handler;
 
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
+
 import java.nio.channels.ReadableByteChannel;
 
 /**
@@ -38,6 +40,18 @@ import java.nio.channels.ReadableByteChannel;
 public interface TopState {
 
     /**
+     * Continues TOP after authorization/validation: the protocol opens
+     * content off the SelectorLoop via {@code StorageExecutor}.
+     *
+     * @param lines body lines requested
+     * @param handler continues receiving transaction commands after send completes
+     */
+    default void proceed(int lines, TransactionHandler handler) {
+        throw new UnsupportedOperationException(
+                "Async TOP proceed not supported");
+    }
+
+    /**
      * Sends the message headers and N body lines.
      * 
      * <p>Sends a +OK response, then streams the content from the channel
@@ -45,8 +59,24 @@ public interface TopState {
      * 
      * @param content the message headers + N body lines channel
      * @param handler continues receiving transaction commands after send completes
+     * @deprecated Prefer {@link #proceed(int, TransactionHandler)} so the
+     *             protocol can offload disk I/O.
      */
+    @Deprecated
     void sendTop(ReadableByteChannel content, TransactionHandler handler);
+
+    /**
+     * Sends TOP content from an async reader.
+     *
+     * @param content async message content
+     * @param endOffset exclusive end byte offset for headers + N body lines
+     * @param handler continues receiving transaction commands after send completes
+     */
+    default void sendTop(AsyncMessageContent content, long endOffset,
+            TransactionHandler handler) {
+        throw new UnsupportedOperationException(
+                "Async TOP not supported");
+    }
 
     /**
      * The requested message does not exist.

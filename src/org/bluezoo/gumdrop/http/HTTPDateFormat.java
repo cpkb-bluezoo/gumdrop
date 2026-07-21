@@ -62,7 +62,12 @@ public class HTTPDateFormat extends DateFormat {
      * resets it, so a single instance shared across threads never races.
      */
     private static final ThreadLocal<Calendar> CALENDAR =
-        ThreadLocal.withInitial(() -> new GregorianCalendar(TimeZone.getTimeZone("GMT")));
+        new ThreadLocal<Calendar>() {
+            @Override
+            protected Calendar initialValue() {
+                return new GregorianCalendar(TimeZone.getTimeZone("GMT"));
+            }
+        };
 
     public HTTPDateFormat() {
         // Satisfy DateFormat's contract (getCalendar/clone/equals); the hot
@@ -322,7 +327,7 @@ public class HTTPDateFormat extends DateFormat {
                     zoneOffset += 60 * Character.digit(text.charAt(++start), 10);
                     zoneOffset += 10 * Character.digit(text.charAt(++start), 10);
                     zoneOffset += Character.digit(text.charAt(++start), 10);
-                    zoneOffset *= 60000; // minutes -> ms
+                    zoneOffset *= 60000; // minutes to ms
                     if ('-' == pm) {
                         zoneOffset = -zoneOffset;
                     }

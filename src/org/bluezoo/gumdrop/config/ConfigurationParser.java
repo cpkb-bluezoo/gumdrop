@@ -38,8 +38,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * SAX-based parser for the gumdroprc configuration file.
@@ -61,15 +59,8 @@ public class ConfigurationParser extends DefaultHandler {
     
     private static final Logger LOGGER = Logger.getLogger(ConfigurationParser.class.getName());
 
-    /**
-     * Matches {@code ${ENV:NAME}} and {@code ${ENV:NAME:default}} placeholders
-     * in configuration string values, allowing ports, hostnames, certificate
-     * paths, and secrets (e.g. keystore passwords) to be supplied from the
-     * environment (Kubernetes Secrets/ConfigMaps) instead of being hardcoded in
-     * the XML. This is the key enabler for immutable, per-environment images.
-     */
-    private static final Pattern ENV_PATTERN = Pattern.compile(
-            "\\$\\{ENV:([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\\}");
+    /** Prefix of {@code ${ENV:NAME}} / {@code ${ENV:NAME:default}} placeholders. */
+    private static final String ENV_PREFIX = "${ENV:";
 
     /** Default class names for configuration element types. */
     private static final Map<String, String> DEFAULT_CLASS_NAMES;
@@ -595,36 +586,89 @@ public class ConfigurationParser extends DefaultHandler {
      * unset the default is used if present, otherwise an empty string is
      * substituted and a warning is logged.
      *
+     * <p>Scans with {@code indexOf}/{@code substring} rather than
+     * {@code java.util.regex}. Placeholders whose name is not a valid
+     * identifier ({@code [A-Za-z_][A-Za-z0-9_]*}) are left unchanged.
+     *
      * @param value the raw configuration value (may be null)
      * @return the value with environment placeholders resolved
      */
     static String interpolate(String value) {
-        if (value == null || value.indexOf("${ENV:") < 0) {
+        if (value == null || value.indexOf(ENV_PREFIX) < 0) {
             return value;
         }
-        Matcher m = ENV_PATTERN.matcher(value);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String name = m.group(1);
-            String def = m.group(2);
+        StringBuilder sb = new StringBuilder(value.length());
+        int i = 0;
+        while (i < value.length()) {
+            int start = value.indexOf(ENV_PREFIX, i);
+            if (start < 0) {
+                sb.append(value, i, value.length());
+                break;
+            }
+            sb.append(value, i, start);
+            int close = value.indexOf('}', start + ENV_PREFIX.length());
+            if (close < 0) {
+                // Unclosed placeholder — leave the remainder unchanged
+                sb.append(value, start, value.length());
+                break;
+            }
+            String body = value.substring(start + ENV_PREFIX.length(), close);
+            int colon = body.indexOf(':');
+            String name;
+            String def;
+            if (colon < 0) {
+                name = body;
+                def = null;
+            } else {
+                name = body.substring(0, colon);
+                def = body.substring(colon + 1);
+            }
+            if (!isValidEnvName(name)) {
+                // Not a well-formed placeholder — copy literally
+                sb.append(value, start, close + 1);
+                i = close + 1;
+                continue;
+            }
             String env = System.getenv(name);
-            String replacement;
             if (env != null) {
-                replacement = env;
+                sb.append(env);
             } else if (def != null) {
-                replacement = def;
+                sb.append(def);
             } else {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.warning("Environment variable " + name
                             + " referenced in configuration is not set;"
                             + " substituting empty string");
                 }
-                replacement = "";
             }
-            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+            i = close + 1;
         }
-        m.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * Returns true if {@code name} is a valid environment variable identifier
+     * matching {@code [A-Za-z_][A-Za-z0-9_]*}.
+     */
+    private static boolean isValidEnvName(String name) {
+        int len = name.length();
+        if (len == 0) {
+            return false;
+        }
+        char c0 = name.charAt(0);
+        if (!(c0 == '_' || (c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z'))) {
+            return false;
+        }
+        for (int i = 1; i < len; i++) {
+            char c = name.charAt(i);
+            if (!(c == '_'
+                    || (c >= 'A' && c <= 'Z')
+                    || (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9'))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String getDefaultClassName(String elementName) {

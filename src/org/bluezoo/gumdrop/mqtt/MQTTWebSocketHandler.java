@@ -225,14 +225,17 @@ public class MQTTWebSocketHandler implements WebSocketEventHandler {
         @Override
         public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
             // Use a simple thread-based timer as fallback
-            Thread timer = new Thread(() -> {
-                try {
-                    Thread.sleep(delayMs);
-                    if (open) {
-                        callback.run();
+            final Thread timer = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(delayMs);
+                        if (open) {
+                            callback.run();
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                 }
             });
             timer.setDaemon(true);

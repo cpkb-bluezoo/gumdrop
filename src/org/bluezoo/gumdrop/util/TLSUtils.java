@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.net.ssl.KeyManager;
@@ -82,8 +83,18 @@ public final class TLSUtils {
         }
         keystoreCache.put(canonicalPath, new CachedKeyStore(ks, lastModified));
         String prefix = canonicalPath.toString() + "|";
-        keyManagerCache.keySet().removeIf(k -> k.startsWith(prefix));
-        trustManagerCache.keySet().removeIf(k -> k.startsWith(prefix));
+        for (Iterator<String> it = keyManagerCache.keySet().iterator();
+                it.hasNext(); ) {
+            if (it.next().startsWith(prefix)) {
+                it.remove();
+            }
+        }
+        for (Iterator<String> it = trustManagerCache.keySet().iterator();
+                it.hasNext(); ) {
+            if (it.next().startsWith(prefix)) {
+                it.remove();
+            }
+        }
         return ks;
     }
 

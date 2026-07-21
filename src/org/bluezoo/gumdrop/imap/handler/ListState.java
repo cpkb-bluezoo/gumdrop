@@ -35,6 +35,13 @@ import java.util.Set;
 public interface ListState {
 
     /**
+     * Authorises LIST/LSUB and lets the protocol list mailboxes.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Begins a list response and returns a writer.
      * 
      * @return a writer for sending list entries

@@ -449,8 +449,12 @@ public class MQTTClientProtocolHandler
         int keepAlive = connectPacket.getKeepAlive();
         if (keepAlive > 0 && endpoint != null) {
             long intervalMs = keepAlive * 1000L;
-            keepAliveTimer = endpoint.scheduleTimer(intervalMs,
-                    this::sendPing);
+            keepAliveTimer = endpoint.scheduleTimer(intervalMs, new Runnable() {
+                @Override
+                public void run() {
+                    sendPing();
+                }
+            });
         }
     }
 
@@ -461,7 +465,12 @@ public class MQTTClientProtocolHandler
             int keepAlive = connectPacket.getKeepAlive();
             if (keepAlive > 0) {
                 keepAliveTimer = endpoint.scheduleTimer(
-                        keepAlive * 1000L, this::sendPing);
+                        keepAlive * 1000L, new Runnable() {
+                    @Override
+                    public void run() {
+                        sendPing();
+                    }
+                });
             }
         }
     }

@@ -172,11 +172,14 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
         if (metrics != null) {
             metrics.connectionOpened();
         }
-        connectTimer = endpoint.scheduleTimer(CONNECT_TIMEOUT_MS, () -> {
-            if (state == State.AWAITING_CONNECT ||
-                    state == State.AWAITING_CONNECT_AUTH) {
-                LOGGER.fine(L10N.getString("log.connect_timeout"));
-                endpoint.close();
+        connectTimer = endpoint.scheduleTimer(CONNECT_TIMEOUT_MS, new Runnable() {
+            @Override
+            public void run() {
+                if (state == State.AWAITING_CONNECT ||
+                        state == State.AWAITING_CONNECT_AUTH) {
+                    LOGGER.fine(L10N.getString("log.connect_timeout"));
+                    endpoint.close();
+                }
             }
         });
     }
@@ -360,8 +363,12 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
         if (packet.getKeepAlive() > 0) {
             long keepAliveMs = (long) (packet.getKeepAlive() * 1500);
-            keepAliveTimer = endpoint.scheduleTimer(keepAliveMs,
-                    this::keepAliveExpired);
+            keepAliveTimer = endpoint.scheduleTimer(keepAliveMs, new Runnable() {
+                @Override
+                public void run() {
+                    keepAliveExpired();
+                }
+            });
         }
 
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -1147,8 +1154,12 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
         cancelTimer(keepAliveTimer);
         if (session != null && session.getKeepAlive() > 0) {
             long keepAliveMs = (long) (session.getKeepAlive() * 1500);
-            keepAliveTimer = endpoint.scheduleTimer(keepAliveMs,
-                    this::keepAliveExpired);
+            keepAliveTimer = endpoint.scheduleTimer(keepAliveMs, new Runnable() {
+                @Override
+                public void run() {
+                    keepAliveExpired();
+                }
+            });
         }
     }
 

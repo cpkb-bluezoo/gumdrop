@@ -32,7 +32,6 @@ import java.util.ResourceBundle;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -263,14 +262,14 @@ public class LocalDeliveryHandler
             public List<AsyncAppendTarget> call() {
                 return openAsyncTargets(recips);
             }
-        }, new Consumer<List<AsyncAppendTarget>>() {
+        }, new StorageExecutor.Callback<List<AsyncAppendTarget>>() {
             @Override
-            public void accept(List<AsyncAppendTarget> targets) {
+            public void completed(List<AsyncAppendTarget> targets) {
                 onTargetsOpened(targets);
             }
-        }, new Consumer<Throwable>() {
+
             @Override
-            public void accept(Throwable error) {
+            public void failed(Throwable error) {
                 LOGGER.log(Level.FINE,
                         "Async append unavailable; buffering", error);
                 onTargetsOpened(null);
@@ -426,9 +425,9 @@ public class LocalDeliveryHandler
                 public String call() {
                     return finalizeTargets(targets);
                 }
-            }, new Consumer<String>() {
+            }, new StorageExecutor.Callback<String>() {
                 @Override
-                public void accept(String errorMessage) {
+                public void completed(String errorMessage) {
                     resetMessageState();
                     if (errorMessage == null) {
                         state.acceptMessageDelivery(null,
@@ -438,9 +437,9 @@ public class LocalDeliveryHandler
                                 LocalDeliveryHandler.this);
                     }
                 }
-            }, new Consumer<Throwable>() {
+
                 @Override
-                public void accept(Throwable error) {
+                public void failed(Throwable error) {
                     resetMessageState();
                     state.rejectMessageTemporary(
                             error.getMessage(), LocalDeliveryHandler.this);
@@ -459,9 +458,9 @@ public class LocalDeliveryHandler
             public String call() {
                 return deliverBuffered(recips, messageData);
             }
-        }, new Consumer<String>() {
+        }, new StorageExecutor.Callback<String>() {
             @Override
-            public void accept(String errorMessage) {
+            public void completed(String errorMessage) {
                 resetMessageState();
                 if (errorMessage == null) {
                     state.acceptMessageDelivery(null, LocalDeliveryHandler.this);
@@ -470,9 +469,9 @@ public class LocalDeliveryHandler
                             LocalDeliveryHandler.this);
                 }
             }
-        }, new Consumer<Throwable>() {
+
             @Override
-            public void accept(Throwable error) {
+            public void failed(Throwable error) {
                 resetMessageState();
                 state.rejectMessageTemporary(
                         error.getMessage(), LocalDeliveryHandler.this);
@@ -512,8 +511,8 @@ public class LocalDeliveryHandler
      * executor/endpoint is available (e.g. a unit-test harness), the operation
      * runs inline.
      */
-    private <T> void offload(Callable<T> op, final Consumer<T> onDone,
-            final Consumer<Throwable> onError) {
+    private <T> void offload(Callable<T> op,
+            final StorageExecutor.Callback<T> callback) {
         Gumdrop gumdrop = Gumdrop.getInstance();
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
@@ -522,24 +521,14 @@ public class LocalDeliveryHandler
             try {
                 result = op.call();
             } catch (Throwable t) {
-                onError.accept(t);
+                callback.failed(t);
                 return;
             }
-            onDone.accept(result);
+            callback.completed(result);
             return;
         }
 
-        exec.submit(endpoint, op, new StorageExecutor.Callback<T>() {
-            @Override
-            public void completed(T result) {
-                onDone.accept(result);
-            }
-
-            @Override
-            public void failed(Throwable error) {
-                onError.accept(error);
-            }
-        });
+        exec.submit(endpoint, op, callback);
     }
 
     /**

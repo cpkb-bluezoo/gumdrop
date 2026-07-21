@@ -363,7 +363,12 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             authenticated = true;
 
             // The user must be a member of at least one permitted role.
-            if (!isRoleAuthorized(sc.authConstraints, request::isUserInRole)) {
+            final HttpServletRequest roleRequest = request;
+            if (!isRoleAuthorized(sc.authConstraints, new RoleTester() {
+                public boolean isUserInRole(String roleName) {
+                    return roleRequest.isUserInRole(roleName);
+                }
+            })) {
                 // Authenticated but not authorized for this resource.
                 response.sendError(HttpServletResponse.SC_FORBIDDEN);
                 return false;
@@ -409,6 +414,13 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
     }
 
     /**
+     * Tests whether the current user is a member of a named role.
+     */
+    interface RoleTester {
+        boolean isUserInRole(String roleName);
+    }
+
+    /**
      * Returns whether an authenticated user is authorized by an
      * auth-constraint listing the given roles.
      *
@@ -421,13 +433,13 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
      * @return true if the user is authorized
      */
     static boolean isRoleAuthorized(Iterable<String> allowedRoles,
-            java.util.function.Predicate<String> roleTester) {
+            RoleTester roleTester) {
         for (String roleName : allowedRoles) {
             if (roleName == null || roleName.isEmpty()) {
                 continue;
             }
             if ("*".equals(roleName) || "**".equals(roleName)
-                    || roleTester.test(roleName)) {
+                    || roleTester.isUserInRole(roleName)) {
                 return true;
             }
         }

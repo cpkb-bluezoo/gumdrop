@@ -36,6 +36,18 @@ import org.bluezoo.gumdrop.mailbox.Mailbox;
 public interface AppendState {
 
     /**
+     * Authorises APPEND and lets the protocol open the mailbox and receive
+     * the literal.
+     *
+     * <p>The server opens the target mailbox on {@code StorageExecutor}
+     * (buffering literal bytes meanwhile) via the same path used when no
+     * handler is configured.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Ready to receive message data for the given mailbox.
      * 
      * <p>Convenience method that accepts the literal and associates

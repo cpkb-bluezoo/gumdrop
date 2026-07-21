@@ -971,11 +971,14 @@ public class HTTPProtocolHandler
                 debugMessage);
 
         if (endpoint != null) {
-            endpoint.scheduleTimer(GRACEFUL_GOAWAY_DELAY_MS, () -> {
-                int lastStreamId = clientStreamId > 0 ? clientStreamId : 0;
-                sendGoawayFrame(lastStreamId,
-                        H2FrameHandler.ERROR_NO_ERROR, debugMessage);
-                closeEndpoint();
+            endpoint.scheduleTimer(GRACEFUL_GOAWAY_DELAY_MS, new Runnable() {
+                @Override
+                public void run() {
+                    int lastStreamId = clientStreamId > 0 ? clientStreamId : 0;
+                    sendGoawayFrame(lastStreamId,
+                            H2FrameHandler.ERROR_NO_ERROR, debugMessage);
+                    closeEndpoint();
+                }
             });
         } else {
             closeEndpoint();
@@ -1257,16 +1260,19 @@ public class HTTPProtocolHandler
         cancelIdleTimeout();
         long timeoutMs = server.getIdleTimeoutMs();
         if (timeoutMs > 0 && endpoint != null) {
-            idleTimeoutHandle = endpoint.scheduleTimer(timeoutMs, () -> {
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Closing idle HTTP connection after "
-                            + timeoutMs + "ms");
-                }
-                // RFC 9113 section 9.1: use graceful GOAWAY for HTTP/2
-                if (version == HTTPVersion.HTTP_2_0) {
-                    sendGracefulGoaway("idle timeout");
-                } else {
-                    closeEndpoint();
+            idleTimeoutHandle = endpoint.scheduleTimer(timeoutMs, new Runnable() {
+                @Override
+                public void run() {
+                    if (LOGGER.isLoggable(Level.FINE)) {
+                        LOGGER.fine("Closing idle HTTP connection after "
+                                + timeoutMs + "ms");
+                    }
+                    // RFC 9113 section 9.1: use graceful GOAWAY for HTTP/2
+                    if (version == HTTPVersion.HTTP_2_0) {
+                        sendGracefulGoaway("idle timeout");
+                    } else {
+                        closeEndpoint();
+                    }
                 }
             });
         }
@@ -1289,11 +1295,14 @@ public class HTTPProtocolHandler
     }
 
     private void schedulePing(long intervalMs) {
-        pingKeepAliveHandle = endpoint.scheduleTimer(intervalMs, () -> {
-            if (endpoint != null && !goawaySent) {
-                long opaqueData = System.nanoTime();
-                sendPingFrame(opaqueData);
-                schedulePing(intervalMs);
+        pingKeepAliveHandle = endpoint.scheduleTimer(intervalMs, new Runnable() {
+            @Override
+            public void run() {
+                if (endpoint != null && !goawaySent) {
+                    long opaqueData = System.nanoTime();
+                    sendPingFrame(opaqueData);
+                    schedulePing(intervalMs);
+                }
             }
         });
     }
@@ -1419,13 +1428,15 @@ public class HTTPProtocolHandler
         if (streamId == 0) {
             return null;
         }
-        return streams.computeIfAbsent(streamId, id -> {
-            Stream s = newStream(this, id);
+        Stream s = streams.get(streamId);
+        if (s == null) {
+            s = newStream(this, streamId);
             if (h2FlowControl != null) {
-                h2FlowControl.openStream(id);
+                h2FlowControl.openStream(streamId);
             }
-            return s;
-        });
+            streams.put(streamId, s);
+        }
+        return s;
     }
 
     // Called by Stream when its response path sets state to CLOSED, freeing the
@@ -2482,7 +2493,12 @@ public class HTTPProtocolHandler
             return;
         }
         if (streamId == 0) {
-            h2FlowControl.forEachUnblockedStream(this::drainPendingData);
+            h2FlowControl.forEachUnblockedStream(new H2FlowControl.UnblockedStreamCallback() {
+                @Override
+                public void onUnblocked(int id) {
+                    drainPendingData(id);
+                }
+            });
         } else {
             drainPendingData(streamId);
         }

@@ -34,6 +34,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface MoveState {
 
     /**
+     * Authorises MOVE and lets the protocol move messages.
+     *
+     * @param handler continues receiving selected commands
+     */
+    void proceed(SelectedHandler handler);
+
+    /**
      * Sends an EXPUNGE notification for a moved message.
      * 
      * <p>Call this for each message that was moved.

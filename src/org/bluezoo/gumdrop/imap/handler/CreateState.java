@@ -30,6 +30,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface CreateState {
 
     /**
+     * Authorises CREATE and lets the protocol create the mailbox.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Mailbox created successfully.
      * 
      * @param handler continues receiving authenticated commands

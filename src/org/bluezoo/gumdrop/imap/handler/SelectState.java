@@ -39,6 +39,17 @@ import java.util.Set;
 public interface SelectState {
 
     /**
+     * Authorises SELECT/EXAMINE and lets the protocol open the mailbox.
+     *
+     * <p>The server opens the mailbox on {@code StorageExecutor} and sends
+     * the SELECT/EXAMINE response. Prefer this unless the handler opens the
+     * mailbox itself and calls {@link #selectOk}.
+     *
+     * @param handler receives commands for the selected mailbox
+     */
+    void proceed(SelectedHandler handler);
+
+    /**
      * Mailbox selected successfully.
      * 
      * <p>Sends the required untagged responses (FLAGS, EXISTS, RECENT,

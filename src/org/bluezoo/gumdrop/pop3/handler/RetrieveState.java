@@ -41,6 +41,18 @@ import java.nio.channels.ReadableByteChannel;
 public interface RetrieveState {
 
     /**
+     * Continues RETR after authorization/validation: the protocol opens
+     * content off the SelectorLoop via {@code StorageExecutor}.
+     *
+     * @param size the message size in octets
+     * @param handler continues receiving transaction commands after send completes
+     */
+    default void proceed(long size, TransactionHandler handler) {
+        throw new UnsupportedOperationException(
+                "Async RETR proceed not supported");
+    }
+
+    /**
      * Sends the message content.
      * 
      * <p>Sends a +OK response with the message size, then streams the
@@ -50,7 +62,11 @@ public interface RetrieveState {
      * @param size the message size in octets
      * @param content the message content channel
      * @param handler continues receiving transaction commands after send completes
+     * @deprecated Prefer {@link #proceed(long, TransactionHandler)} so the
+     *             protocol can offload disk I/O; sync channel reads must not
+     *             run on the SelectorLoop.
      */
+    @Deprecated
     void sendMessage(long size, ReadableByteChannel content, TransactionHandler handler);
 
     /**

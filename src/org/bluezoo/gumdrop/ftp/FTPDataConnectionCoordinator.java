@@ -28,9 +28,7 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
-import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.SocketChannel;
-import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
@@ -716,51 +714,87 @@ public class FTPDataConnectionCoordinator {
                 });
     }
 
-    private void beginDownload(Endpoint controlEndpoint,
-            PendingTransfer transfer, TransferCallback callback)
-            throws IOException {
-        FTPFileSystem fs = transfer.getHandler().getFileSystem(
+    private void beginDownload(final Endpoint controlEndpoint,
+            final PendingTransfer transfer, final TransferCallback callback) {
+        final FTPFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
-            throw new IOException("No file system available");
+            cleanup();
+            callback.transferFailed(
+                    new IOException("No file system available"));
+            return;
         }
 
-        Path asyncPath = fs.resolvePathForAsyncRead(
-                transfer.getPath(),
-                transfer.getRestartOffset(),
-                transfer.getMetadata());
-        AsynchronousFileChannel asyncChannel = null;
-        ReadableByteChannel fallbackChannel = null;
-        if (asyncPath != null) {
-            try {
-                asyncChannel = AsynchronousFileChannel.open(
-                        asyncPath,
-                        StandardOpenOption.READ);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to open AsynchronousFileChannel, falling back to sync", e);
-            }
-        }
-        if (asyncChannel == null) {
-            fallbackChannel = fs.openForReading(
-                    transfer.getPath(),
-                    transfer.getRestartOffset(),
-                    transfer.getMetadata());
-            if (fallbackChannel == null) {
-                throw new IOException("Failed to open file: "
-                        + transfer.getPath());
-            }
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            cleanup();
+            callback.transferFailed(new IOException(
+                    "Server not started; cannot open file for download"));
+            return;
         }
 
+        exec.submit(controlEndpoint, new Callable<AsynchronousFileChannel>() {
+            @Override
+            public AsynchronousFileChannel call() throws IOException {
+                Path asyncPath = fs.resolvePathForAsyncRead(
+                        transfer.getPath(),
+                        transfer.getRestartOffset(),
+                        transfer.getMetadata());
+                if (asyncPath == null) {
+                    throw new IOException(
+                            "Asynchronous file open not supported: "
+                                    + transfer.getPath());
+                }
+                return AsynchronousFileChannel.open(
+                        asyncPath, StandardOpenOption.READ);
+            }
+        }, new StorageExecutor.Callback<AsynchronousFileChannel>() {
+            @Override
+            public void completed(AsynchronousFileChannel asyncChannel) {
+                try {
+                    registerDownloadHandler(controlEndpoint, asyncChannel,
+                            transfer, callback);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP download registration failed", e);
+                    try {
+                        asyncChannel.close();
+                    } catch (IOException closeEx) {
+                        LOGGER.log(Level.FINE,
+                                "Error closing async channel after setup failure",
+                                closeEx);
+                    }
+                    cleanup();
+                    callback.transferFailed(e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                IOException e = (error instanceof IOException)
+                        ? (IOException) error
+                        : new IOException("Failed to open file: "
+                                + transfer.getPath(), error);
+                LOGGER.log(Level.WARNING, "FTP download open failed", e);
+                cleanup();
+                callback.transferFailed(e);
+            }
+        });
+    }
+
+    private void registerDownloadHandler(Endpoint controlEndpoint,
+            AsynchronousFileChannel asyncChannel,
+            PendingTransfer transfer, TransferCallback callback)
+            throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
         dataSc.configureBlocking(false);
 
         DownloadTransferHandler downloadHandler =
-                new DownloadTransferHandler(
-                        asyncChannel, fallbackChannel, transfer, callback);
-        TCPEndpoint dataEndpoint =
-                new TCPEndpoint(downloadHandler);
+                new DownloadTransferHandler(asyncChannel, transfer, callback);
+        TCPEndpoint dataEndpoint = new TCPEndpoint(downloadHandler);
         dataEndpoint.setChannel(dataSc);
         dataEndpoint.init();
         loop.registerTCP(dataSc, dataEndpoint);
@@ -801,37 +835,81 @@ public class FTPDataConnectionCoordinator {
                 });
     }
 
-    private void beginListing(Endpoint controlEndpoint,
-            PendingTransfer transfer, TransferCallback callback)
-            throws IOException {
-        FTPFileSystem fs = transfer.getHandler().getFileSystem(
+    private void beginListing(final Endpoint controlEndpoint,
+            final PendingTransfer transfer, final TransferCallback callback) {
+        final FTPFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
-            throw new IOException("No file system available");
+            cleanup();
+            callback.transferFailed(
+                    new IOException("No file system available"));
+            return;
         }
 
-        List<FTPFileInfo> files = fs.listDirectory(
-                transfer.getPath(), transfer.getMetadata());
-        if (files == null) {
-            throw new IOException("Failed to list directory: "
-                    + transfer.getPath());
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            cleanup();
+            callback.transferFailed(new IOException(
+                    "Server not started; cannot list directory"));
+            return;
         }
 
-        TransferType transferType = transfer.getType();
-        StringBuilder listing = new StringBuilder();
-        for (FTPFileInfo file : files) {
-            if (transferType == TransferType.NAME_LIST) {
-                listing.append(file.getName());
-            } else if (transferType == TransferType.MACHINE_LISTING) {
-                listing.append(file.formatAsMLSEntry());
-            } else {
-                listing.append(file.formatAsListingLine());
+        final TransferType transferType = transfer.getType();
+        exec.submit(controlEndpoint, new Callable<ByteBuffer>() {
+            @Override
+            public ByteBuffer call() throws IOException {
+                List<FTPFileInfo> files = fs.listDirectory(
+                        transfer.getPath(), transfer.getMetadata());
+                if (files == null) {
+                    throw new IOException("Failed to list directory: "
+                            + transfer.getPath());
+                }
+                StringBuilder listing = new StringBuilder();
+                for (FTPFileInfo file : files) {
+                    if (transferType == TransferType.NAME_LIST) {
+                        listing.append(file.getName());
+                    } else if (transferType == TransferType.MACHINE_LISTING) {
+                        listing.append(file.formatAsMLSEntry());
+                    } else {
+                        listing.append(file.formatAsListingLine());
+                    }
+                    listing.append("\r\n");
+                }
+                return ByteBuffer.wrap(
+                        listing.toString().getBytes(StandardCharsets.UTF_8));
             }
-            listing.append("\r\n");
-        }
-        byte[] listingBytes = listing.toString().getBytes(StandardCharsets.UTF_8);
-        ByteBuffer listingBuffer = ByteBuffer.wrap(listingBytes);
+        }, new StorageExecutor.Callback<ByteBuffer>() {
+            @Override
+            public void completed(ByteBuffer listingBuffer) {
+                try {
+                    registerListingHandler(controlEndpoint, listingBuffer,
+                            transfer, callback);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP listing registration failed", e);
+                    cleanup();
+                    callback.transferFailed(e);
+                }
+            }
 
+            @Override
+            public void failed(Throwable error) {
+                IOException e = (error instanceof IOException)
+                        ? (IOException) error
+                        : new IOException("Failed to list directory: "
+                                + transfer.getPath(), error);
+                LOGGER.log(Level.WARNING, "FTP listing failed", e);
+                cleanup();
+                callback.transferFailed(e);
+            }
+        });
+    }
+
+    private void registerListingHandler(Endpoint controlEndpoint,
+            ByteBuffer listingBuffer, PendingTransfer transfer,
+            TransferCallback callback) throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
         dataSc.configureBlocking(false);
@@ -879,31 +957,68 @@ public class FTPDataConnectionCoordinator {
                 });
     }
 
-    private void beginUpload(Endpoint controlEndpoint,
-            PendingTransfer transfer, TransferCallback callback)
-            throws IOException {
-        FTPFileSystem fs = transfer.getHandler().getFileSystem(
+    /**
+     * Result of an offloaded upload open: channel plus append start position.
+     */
+    private static final class UploadOpenResult {
+        final AsynchronousFileChannel channel;
+        final long initialPosition;
+        final String targetPath;
+
+        UploadOpenResult(AsynchronousFileChannel channel,
+                long initialPosition, String targetPath) {
+            this.channel = channel;
+            this.initialPosition = initialPosition;
+            this.targetPath = targetPath;
+        }
+    }
+
+    private void beginUpload(final Endpoint controlEndpoint,
+            final PendingTransfer transfer, final TransferCallback callback) {
+        final FTPFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
-            throw new IOException("No file system available");
+            cleanup();
+            callback.transferFailed(
+                    new IOException("No file system available"));
+            return;
         }
 
-        String targetPath = transfer.getPath();
-        if (transfer.getType() == TransferType.UPLOAD && targetPath.isEmpty()) {
-            FTPFileSystem.UniqueNameResult uniqueResult = fs.generateUniqueName(
-                    "/", null, transfer.getMetadata());
-            if (uniqueResult.getResult() != FTPFileOperationResult.SUCCESS) {
-                throw new IOException("Failed to generate unique filename");
-            }
-            targetPath = uniqueResult.getUniquePath();
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            cleanup();
+            callback.transferFailed(new IOException(
+                    "Server not started; cannot open file for upload"));
+            return;
         }
 
-        Path asyncPath = fs.resolvePathForAsyncWrite(
-                targetPath, transfer.isAppend(), transfer.getMetadata());
-        AsynchronousFileChannel asyncChannel = null;
-        WritableByteChannel fallbackChannel = null;
-        if (asyncPath != null) {
-            try {
+        exec.submit(controlEndpoint, new Callable<UploadOpenResult>() {
+            @Override
+            public UploadOpenResult call() throws IOException {
+                String targetPath = transfer.getPath();
+                if (transfer.getType() == TransferType.UPLOAD
+                        && targetPath.isEmpty()) {
+                    FTPFileSystem.UniqueNameResult uniqueResult =
+                            fs.generateUniqueName(
+                                    "/", null, transfer.getMetadata());
+                    if (uniqueResult.getResult()
+                            != FTPFileOperationResult.SUCCESS) {
+                        throw new IOException(
+                                "Failed to generate unique filename");
+                    }
+                    targetPath = uniqueResult.getUniquePath();
+                }
+
+                Path asyncPath = fs.resolvePathForAsyncWrite(
+                        targetPath, transfer.isAppend(),
+                        transfer.getMetadata());
+                if (asyncPath == null) {
+                    throw new IOException(
+                            "Asynchronous file open not supported: "
+                                    + targetPath);
+                }
                 StandardOpenOption[] options = transfer.isAppend()
                         ? new StandardOpenOption[]{
                                 StandardOpenOption.CREATE,
@@ -913,39 +1028,61 @@ public class FTPDataConnectionCoordinator {
                                 StandardOpenOption.CREATE,
                                 StandardOpenOption.WRITE,
                                 StandardOpenOption.TRUNCATE_EXISTING};
-                asyncChannel = AsynchronousFileChannel.open(asyncPath, options);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to open AsynchronousFileChannel for upload, falling back to sync", e);
+                AsynchronousFileChannel asyncChannel =
+                        AsynchronousFileChannel.open(asyncPath, options);
+                long initialPosition = 0;
+                if (transfer.isAppend()) {
+                    initialPosition = asyncChannel.size();
+                }
+                return new UploadOpenResult(
+                        asyncChannel, initialPosition, targetPath);
             }
-        }
-        if (asyncChannel == null) {
-            fallbackChannel = fs.openForWriting(
-                    targetPath, transfer.isAppend(), transfer.getMetadata());
-            if (fallbackChannel == null) {
-                throw new IOException("Failed to open file: " + targetPath);
+        }, new StorageExecutor.Callback<UploadOpenResult>() {
+            @Override
+            public void completed(UploadOpenResult openResult) {
+                try {
+                    registerUploadHandler(controlEndpoint, openResult,
+                            transfer, callback);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP upload registration failed", e);
+                    try {
+                        openResult.channel.close();
+                    } catch (IOException closeEx) {
+                        LOGGER.log(Level.FINE,
+                                "Error closing async channel after setup failure",
+                                closeEx);
+                    }
+                    cleanup();
+                    callback.transferFailed(e);
+                }
             }
-        }
 
+            @Override
+            public void failed(Throwable error) {
+                IOException e = (error instanceof IOException)
+                        ? (IOException) error
+                        : new IOException("Failed to open file for upload",
+                                error);
+                LOGGER.log(Level.WARNING, "FTP upload open failed", e);
+                cleanup();
+                callback.transferFailed(e);
+            }
+        });
+    }
+
+    private void registerUploadHandler(Endpoint controlEndpoint,
+            UploadOpenResult openResult, PendingTransfer transfer,
+            TransferCallback callback) throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
         dataSc.configureBlocking(false);
 
-        long initialPosition = 0;
-        if (asyncChannel != null && transfer.isAppend()) {
-            try {
-                initialPosition = asyncChannel.size();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to get file size for append", e);
-            }
-        }
-
         UploadTransferHandler uploadHandler =
                 new UploadTransferHandler(
-                        asyncChannel, fallbackChannel, transfer, callback,
-                        initialPosition);
-        TCPEndpoint dataEndpoint =
-                new TCPEndpoint(uploadHandler);
+                        openResult.channel, transfer, callback,
+                        openResult.initialPosition);
+        TCPEndpoint dataEndpoint = new TCPEndpoint(uploadHandler);
         dataEndpoint.setChannel(dataSc);
         dataEndpoint.init();
         loop.registerTCP(dataSc, dataEndpoint);
@@ -1031,30 +1168,25 @@ public class FTPDataConnectionCoordinator {
 
     /**
      * Event-driven download handler.  Reads chunks from a file via
-     * AsynchronousFileChannel (or fallback sync channel) and sends
-     * them via the data endpoint, using onWriteReady to pace output.
+     * AsynchronousFileChannel and sends them via the data endpoint,
+     * using onWriteReady to pace output.
      */
     private class DownloadTransferHandler
             implements ProtocolHandler, Runnable {
 
         private final AsynchronousFileChannel asyncChannel;
-        private final ReadableByteChannel fallbackChannel;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
-        private final ByteBuffer readBuf;
         private final FTPAsciiLineEndings asciiCodec;
         private long filePosition;
         private Endpoint dataEndpoint;
 
         DownloadTransferHandler(AsynchronousFileChannel asyncChannel,
-                ReadableByteChannel fallbackChannel,
                 PendingTransfer transfer,
                 TransferCallback callback) {
             this.asyncChannel = asyncChannel;
-            this.fallbackChannel = fallbackChannel;
             this.transfer = transfer;
             this.callback = callback;
-            this.readBuf = ByteBuffer.allocate(TRANSFER_BUFFER_SIZE);
             this.asciiCodec = isAsciiType(transfer)
                     ? new FTPAsciiLineEndings() : null;
             this.filePosition = transfer.getRestartOffset();
@@ -1070,11 +1202,7 @@ public class FTPDataConnectionCoordinator {
         }
 
         void writeNextChunk() {
-            if (asyncChannel != null) {
-                writeNextChunkAsync();
-            } else {
-                writeNextChunkSync();
-            }
+            writeNextChunkAsync();
         }
 
         private void writeNextChunkAsync() {
@@ -1085,30 +1213,37 @@ public class FTPDataConnectionCoordinator {
                         public void completed(Integer result, Void attachment) {
                             if (result == null || result <= 0) {
                                 ByteBufferPool.release(buf);
-                                dataEndpoint.execute(
-                                        DownloadTransferHandler.this::closeAndFinish);
+                                dataEndpoint.execute(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        closeAndFinish();
+                                    }
+                                });
                                 return;
                             }
                             final int bytesRead = result;
                             filePosition += bytesRead;
                             totalBytesTransferred += bytesRead;
                             buf.flip();
-                            dataEndpoint.execute(() -> {
-                                try {
-                                    if (asciiCodec != null) {
-                                        ByteBuffer encoded =
-                                                asciiCodec.encode(buf);
-                                        dataEndpoint.send(encoded);
-                                        ByteBufferPool.release(encoded);
-                                    } else {
-                                        dataEndpoint.send(buf);
+                            dataEndpoint.execute(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        if (asciiCodec != null) {
+                                            ByteBuffer encoded =
+                                                    asciiCodec.encode(buf);
+                                            dataEndpoint.send(encoded);
+                                            ByteBufferPool.release(encoded);
+                                        } else {
+                                            dataEndpoint.send(buf);
+                                        }
+                                        ByteBufferPool.release(buf);
+                                        dataEndpoint.onWriteReady(
+                                                DownloadTransferHandler.this);
+                                    } catch (Exception e) {
+                                        ByteBufferPool.release(buf);
+                                        handleAsyncError(e);
                                     }
-                                    ByteBufferPool.release(buf);
-                                    dataEndpoint.onWriteReady(
-                                            DownloadTransferHandler.this);
-                                } catch (Exception e) {
-                                    ByteBufferPool.release(buf);
-                                    handleAsyncError(e);
                                 }
                             });
                         }
@@ -1118,38 +1253,14 @@ public class FTPDataConnectionCoordinator {
                             ByteBufferPool.release(buf);
                             LOGGER.log(Level.WARNING,
                                     "Async file read failed", exc);
-                            dataEndpoint.execute(() -> handleAsyncError(exc));
+                            dataEndpoint.execute(new Runnable() {
+                                @Override
+                                public void run() {
+                                    handleAsyncError(exc);
+                                }
+                            });
                         }
                     });
-        }
-
-        private void writeNextChunkSync() {
-            try {
-                readBuf.clear();
-                int bytesRead = fallbackChannel.read(readBuf);
-
-                if (bytesRead == -1) {
-                    finishDownload();
-                    return;
-                }
-
-                readBuf.flip();
-                totalBytesTransferred += bytesRead;
-                if (asciiCodec != null) {
-                    ByteBuffer encoded = asciiCodec.encode(readBuf);
-                    dataEndpoint.send(encoded);
-                    ByteBufferPool.release(encoded);
-                } else {
-                    dataEndpoint.send(readBuf);
-                }
-                dataEndpoint.onWriteReady(this);
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error during async download", e);
-                closeChannels();
-                dataEndpoint.close();
-                callback.transferFailed(e);
-            }
         }
 
         private void closeAndFinish() {
@@ -1169,22 +1280,6 @@ public class FTPDataConnectionCoordinator {
                             "Error closing async file channel", e);
                 }
             }
-            if (fallbackChannel != null) {
-                try {
-                    fallbackChannel.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            "Error closing file channel", e);
-                }
-            }
-        }
-
-        private void finishDownload() {
-            closeChannels();
-            dataEndpoint.onWriteReady(null);
-            dataEndpoint.close();
-            notifyTransferHandler(true);
-            callback.transferComplete(totalBytesTransferred);
         }
 
         private void handleAsyncError(Throwable exc) {
@@ -1231,13 +1326,12 @@ public class FTPDataConnectionCoordinator {
 
     /**
      * Event-driven upload handler.  Receives data from the data
-     * endpoint and writes it via AsynchronousFileChannel (or fallback
-     * sync channel).  Pauses reads while a write is in-flight.
+     * endpoint and writes it via AsynchronousFileChannel.
+     * Pauses reads while a write is in-flight.
      */
     private class UploadTransferHandler implements ProtocolHandler {
 
         private final AsynchronousFileChannel asyncChannel;
-        private final WritableByteChannel fallbackChannel;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
         private long filePosition;
@@ -1248,12 +1342,10 @@ public class FTPDataConnectionCoordinator {
         private Endpoint dataEndpoint;
 
         UploadTransferHandler(AsynchronousFileChannel asyncChannel,
-                WritableByteChannel fallbackChannel,
                 PendingTransfer transfer,
                 TransferCallback callback,
                 long initialPosition) {
             this.asyncChannel = asyncChannel;
-            this.fallbackChannel = fallbackChannel;
             this.transfer = transfer;
             this.callback = callback;
             this.asciiMode = isAsciiType(transfer);
@@ -1271,11 +1363,7 @@ public class FTPDataConnectionCoordinator {
 
         @Override
         public void receive(ByteBuffer data) {
-            if (asyncChannel != null) {
-                receiveAsync(data);
-            } else {
-                receiveSync(data);
-            }
+            receiveAsync(data);
         }
 
         private void receiveAsync(ByteBuffer data) {
@@ -1310,7 +1398,6 @@ public class FTPDataConnectionCoordinator {
             writeInFlight = true;
             dataEndpoint.pauseRead();
             final long pos = filePosition;
-            final int len = buf.remaining();
             asyncChannel.write(buf, pos, null,
                     new CompletionHandler<Integer, Void>() {
                         @Override
@@ -1321,10 +1408,13 @@ public class FTPDataConnectionCoordinator {
                                 totalBytesTransferred += result;
                             }
                             writeInFlight = false;
-                            dataEndpoint.execute(() -> {
-                                dataEndpoint.resumeRead();
-                                if (!pendingWrites.isEmpty()) {
-                                    drainPendingWrites();
+                            dataEndpoint.execute(new Runnable() {
+                                @Override
+                                public void run() {
+                                    dataEndpoint.resumeRead();
+                                    if (!pendingWrites.isEmpty()) {
+                                        drainPendingWrites();
+                                    }
                                 }
                             });
                         }
@@ -1335,45 +1425,25 @@ public class FTPDataConnectionCoordinator {
                             writeInFlight = false;
                             LOGGER.log(Level.WARNING,
                                     "Async file write failed", exc);
-                            dataEndpoint.execute(() -> {
-                                if (finished) {
-                                    return;
+                            dataEndpoint.execute(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (finished) {
+                                        return;
+                                    }
+                                    finished = true;
+                                    closeChannels();
+                                    dataEndpoint.close();
+                                    callback.transferFailed(
+                                            exc instanceof IOException
+                                                    ? (IOException) exc
+                                                    : new IOException(
+                                                            "Upload failed",
+                                                            exc));
                                 }
-                                finished = true;
-                                closeChannels();
-                                dataEndpoint.close();
-                                callback.transferFailed(
-                                        exc instanceof IOException
-                                                ? (IOException) exc
-                                                : new IOException(
-                                                        "Upload failed", exc));
                             });
                         }
                     });
-        }
-
-        private void receiveSync(ByteBuffer data) {
-            try {
-                ByteBuffer out = asciiMode
-                        ? FTPAsciiLineEndings.decode(data) : data;
-                try {
-                    int written = 0;
-                    while (out.hasRemaining()) {
-                        written += fallbackChannel.write(out);
-                    }
-                    totalBytesTransferred += written;
-                } finally {
-                    if (asciiMode) {
-                        ByteBufferPool.release(out);
-                    }
-                }
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error writing upload data", e);
-                closeChannels();
-                dataEndpoint.close();
-                callback.transferFailed(e);
-            }
         }
 
         @Override
@@ -1387,12 +1457,10 @@ public class FTPDataConnectionCoordinator {
                 return;
             }
             finished = true;
-            if (asyncChannel != null) {
-                while (!pendingWrites.isEmpty()) {
-                    ByteBuffer b = pendingWrites.poll();
-                    if (b != null) {
-                        ByteBufferPool.release(b);
-                    }
+            while (!pendingWrites.isEmpty()) {
+                ByteBuffer b = pendingWrites.poll();
+                if (b != null) {
+                    ByteBufferPool.release(b);
                 }
             }
             closeChannels();
@@ -1419,14 +1487,6 @@ public class FTPDataConnectionCoordinator {
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
                             "Error closing async file channel", e);
-                }
-            }
-            if (fallbackChannel != null) {
-                try {
-                    fallbackChannel.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            "Error closing file channel", e);
                 }
             }
         }

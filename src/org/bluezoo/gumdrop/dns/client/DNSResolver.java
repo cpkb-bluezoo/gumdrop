@@ -968,7 +968,12 @@ public class DNSResolver {
             tcpTransport.open(server.getAddress(), server.getPort(),
                     selectorLoop, handler);
             handler.timeoutHandle = tcpTransport.scheduleTimer(
-                    TCP_TIMEOUT_MS, handler::onTimeout);
+                    TCP_TIMEOUT_MS, new Runnable() {
+                @Override
+                public void run() {
+                    handler.onTimeout();
+                }
+            });
             pending.queryData.rewind();
             tcpTransport.send(pending.queryData);
         } catch (IOException e) {

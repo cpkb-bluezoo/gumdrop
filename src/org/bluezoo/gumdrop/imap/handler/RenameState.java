@@ -30,6 +30,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface RenameState {
 
     /**
+     * Authorises RENAME and lets the protocol rename the mailbox.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Mailbox renamed successfully.
      * 
      * @param handler continues receiving authenticated commands

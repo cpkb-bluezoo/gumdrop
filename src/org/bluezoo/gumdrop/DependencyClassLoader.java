@@ -175,13 +175,16 @@ public class DependencyClassLoader extends ClassLoader {
         try {
             // Find the temporary file corresponding to this URL
             File file = getFile(url);
-            JarFile jarFile = jarFileCache.computeIfAbsent(file.getPath(), k -> {
+            String path = file.getPath();
+            JarFile jarFile = jarFileCache.get(path);
+            if (jarFile == null) {
                 try {
-                    return new JarFile(file);
+                    jarFile = new JarFile(file);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
-            });
+                jarFileCache.put(path, jarFile);
+            }
             JarEntry jarEntry = jarFile.getJarEntry(name);
             if (jarEntry != null) {
                 return new URL("jar:" + file.toURI().toURL() + "!/" + name);
@@ -232,13 +235,16 @@ public class DependencyClassLoader extends ClassLoader {
         try {
             // Find the temporary file corresponding to this URL
             File file = getFile(url);
-            JarFile jarFile = jarFileCache.computeIfAbsent(file.getPath(), k -> {
+            String path = file.getPath();
+            JarFile jarFile = jarFileCache.get(path);
+            if (jarFile == null) {
                 try {
-                    return new JarFile(file);
+                    jarFile = new JarFile(file);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
-            });
+                jarFileCache.put(path, jarFile);
+            }
             JarEntry jarEntry = jarFile.getJarEntry(name);
             if (jarEntry != null) {
                 return new FilterInputStream(jarFile.getInputStream(jarEntry)) {};

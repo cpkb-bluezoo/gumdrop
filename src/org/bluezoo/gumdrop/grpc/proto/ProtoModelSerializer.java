@@ -192,7 +192,12 @@ public class ProtoModelSerializer {
 
         messageStack.push(nested);
         try {
-            writer.writeMessageField(fd.getNumber(), w -> content.writeTo(this, w));
+            final ProtoModelSerializer serializer = this;
+            writer.writeMessageField(fd.getNumber(), new ProtobufWriter.MessageContent() {
+                public void writeTo(ProtobufWriter w) throws IOException {
+                    content.writeTo(serializer, w);
+                }
+            });
         } finally {
             messageStack.pop();
         }
@@ -210,7 +215,6 @@ public class ProtoModelSerializer {
     /**
      * Callback for writing nested message content.
      */
-    @FunctionalInterface
     public interface MessageContent {
         void writeTo(ProtoModelSerializer serializer, ProtobufWriter writer) throws IOException;
     }

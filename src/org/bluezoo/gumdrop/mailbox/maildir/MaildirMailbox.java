@@ -34,6 +34,7 @@ import org.bluezoo.gumdrop.mailbox.index.MessageIndex;
 import org.bluezoo.gumdrop.mailbox.index.MessageIndexBuilder;
 import org.bluezoo.gumdrop.mailbox.index.MessageIndexEntry;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
@@ -222,11 +223,15 @@ public class MaildirMailbox implements Mailbox {
                     uid = uidList.assignUid(baseFilename);
                 }
 
+                // Precompute header/body boundary off the SelectorLoop
+                // (mailbox open/scan runs on StorageExecutor).
+                long bodyOffset = detectBodyOffset(filePath);
                 MaildirMessageDescriptor descriptor = new MaildirMessageDescriptor(
                     0, // Message number assigned later
                     uid,
                     filePath,
-                    parsed
+                    parsed,
+                    bodyOffset
                 );
                 scanned.add(descriptor);
             } catch (IllegalArgumentException e) {
@@ -243,12 +248,8 @@ public class MaildirMailbox implements Mailbox {
         
         int msgNum = 1;
         for (MaildirMessageDescriptor desc : scanned) {
-            MaildirMessageDescriptor numbered = new MaildirMessageDescriptor(
-                msgNum++,
-                desc.getUid(),
-                desc.getFilePath(),
-                desc.getParsedFilename()
-            );
+            MaildirMessageDescriptor numbered =
+                    desc.withMessageNumber(msgNum++);
             messages.add(numbered);
             uidToMessage.put(numbered.getUid(), numbered);
         }
@@ -465,7 +466,7 @@ public class MaildirMailbox implements Mailbox {
             }
             result.flip();
             return Channels.newChannel(
-                    new java.io.ByteArrayInputStream(result.array(), 0, result.limit()));
+                    new ByteArrayInputStream(result.array(), 0, result.limit()));
         }
     }
 
@@ -585,14 +586,10 @@ public class MaildirMailbox implements Mailbox {
         if (!oldPath.equals(newPath)) {
             Files.move(oldPath, newPath, StandardCopyOption.ATOMIC_MOVE);
             
-            // Update the message descriptor
+            // Update the message descriptor (preserve cached body offset)
             int idx = msg.getMessageNumber() - 1;
-            MaildirMessageDescriptor updated = new MaildirMessageDescriptor(
-                msg.getMessageNumber(),
-                msg.getUid(),
-                newPath,
-                newFilename
-            );
+            MaildirMessageDescriptor updated =
+                    msg.withPath(newPath, newFilename);
             messages.set(idx, updated);
             uidToMessage.put(updated.getUid(), updated);
         }
@@ -600,42 +597,27 @@ public class MaildirMailbox implements Mailbox {
 
     @Override
     public void deleteMessage(int messageNumber) throws IOException {
-        MaildirMessageDescriptor msg = (MaildirMessageDescriptor) getMessage(messageNumber);
-        if (msg != null) {
-            deletedMessages.add(msg.getUid());
-            
-            // Also set the \Deleted flag in the filename
-            Set<Flag> flags = msg.getFlags();
-            if (!flags.contains(Flag.DELETED)) {
-                flags = EnumSet.copyOf(flags);
-                flags.add(Flag.DELETED);
-                renameWithFlags(msg, flags, msg.getKeywordIndices());
-            }
+        // Mark in-memory only — no Files.move on the SelectorLoop (POP3 DELE).
+        // The file is removed at close(true) / expunge. IMAP STORE \Deleted
+        // still renames via setFlags when a client sets the flag explicitly.
+        if (messageNumber < 1 || messageNumber > messages.size()) {
+            return;
         }
+        MaildirMessageDescriptor msg = messages.get(messageNumber - 1);
+        deletedMessages.add(msg.getUid());
     }
 
     @Override
     public boolean isDeleted(int messageNumber) throws IOException {
-        MaildirMessageDescriptor msg = (MaildirMessageDescriptor) getMessage(messageNumber);
-        if (msg == null) {
+        if (messageNumber < 1 || messageNumber > messages.size()) {
             return false;
         }
-        return deletedMessages.contains(msg.getUid());
+        return deletedMessages.contains(messages.get(messageNumber - 1).getUid());
     }
 
     @Override
     public void undeleteAll() throws IOException {
-        for (Long uid : deletedMessages) {
-            MaildirMessageDescriptor msg = uidToMessage.get(uid);
-            if (msg != null) {
-                Set<Flag> flags = msg.getFlags();
-                if (flags.contains(Flag.DELETED)) {
-                    flags = EnumSet.copyOf(flags);
-                    flags.remove(Flag.DELETED);
-                    renameWithFlags(msg, flags, msg.getKeywordIndices());
-                }
-            }
-        }
+        // Deletion marks are in-memory until expunge; clearing is enough.
         deletedMessages.clear();
     }
 
@@ -678,16 +660,12 @@ public class MaildirMailbox implements Mailbox {
         messages = toKeep;
         deletedMessages.clear();
 
-        // Renumber remaining messages
+        // Renumber remaining messages (preserve cached body offsets)
         for (int i = 0; i < messages.size(); i++) {
             MaildirMessageDescriptor old = messages.get(i);
             if (old.getMessageNumber() != i + 1) {
-                MaildirMessageDescriptor renumbered = new MaildirMessageDescriptor(
-                    i + 1,
-                    old.getUid(),
-                    old.getFilePath(),
-                    old.getParsedFilename()
-                );
+                MaildirMessageDescriptor renumbered =
+                        old.withMessageNumber(i + 1);
                 messages.set(i, renumbered);
                 uidToMessage.put(renumbered.getUid(), renumbered);
             }
@@ -788,10 +766,11 @@ public class MaildirMailbox implements Mailbox {
             // Assign UID
             long uid = uidList.assignUid(filename.getBaseFilename());
 
-            // Add to message list
+            // Add to message list (body offset from the just-written file)
             int msgNum = messages.size() + 1;
+            long bodyOffset = detectBodyOffset(curFile);
             MaildirMessageDescriptor descriptor = new MaildirMessageDescriptor(
-                msgNum, uid, curFile, filename);
+                msgNum, uid, curFile, filename, bodyOffset);
             messages.add(descriptor);
             uidToMessage.put(uid, descriptor);
 
@@ -1019,9 +998,79 @@ public class MaildirMailbox implements Mailbox {
         if (msg == null) {
             throw new IOException("Message not found: " + messageNumber);
         }
+        // Resolve body offset on this StorageExecutor/open path if an
+        // older descriptor never had it scanned — never by waiting on async-file I/O.
+        msg = ensureBodyOffset(msg);
         AsynchronousFileChannel channel = AsynchronousFileChannel.open(
                 msg.getFilePath(), StandardOpenOption.READ);
-        return new MaildirAsyncMessageContent(channel, msg.getSize());
+        return new MaildirAsyncMessageContent(channel, msg.getSize(),
+                msg.getBodyOffset());
+    }
+
+    /**
+     * Ensures the descriptor has a resolved body offset, computing it with
+     * a blocking {@link FileChannel} if needed and replacing the in-memory
+     * descriptor so subsequent opens reuse the cache.
+     */
+    private MaildirMessageDescriptor ensureBodyOffset(
+            MaildirMessageDescriptor msg) {
+        if (msg.hasResolvedBodyOffset()) {
+            return msg;
+        }
+        long bodyOffset = detectBodyOffset(msg.getFilePath());
+        MaildirMessageDescriptor updated = msg.withBodyOffset(bodyOffset);
+        int idx = msg.getMessageNumber() - 1;
+        if (idx >= 0 && idx < messages.size()
+                && messages.get(idx).getUid() == msg.getUid()) {
+            messages.set(idx, updated);
+            uidToMessage.put(updated.getUid(), updated);
+        }
+        return updated;
+    }
+
+    /**
+     * Scans a message file for the blank-line header/body boundary
+     * (CRLFCRLF or LFLF). Uses a blocking {@link FileChannel} — call only
+     * from mailbox scan, append, or StorageExecutor open paths, never from
+     * the SelectorLoop via blocking JDK async-file APIs.
+     *
+     * @param filePath the message file
+     * @return body start offset, or {@code -1} if not found within the
+     *         scan window
+     */
+    static long detectBodyOffset(Path filePath) {
+        try (FileChannel fc = FileChannel.open(filePath,
+                StandardOpenOption.READ)) {
+            long size = fc.size();
+            int scanLen = (int) Math.min(size, 8192L);
+            if (scanLen <= 0) {
+                return -1;
+            }
+            ByteBuffer buf = ByteBuffer.allocate(scanLen);
+            while (buf.hasRemaining()) {
+                if (fc.read(buf) == -1) {
+                    break;
+                }
+            }
+            buf.flip();
+            boolean lastWasLF = false;
+            for (int i = 0; i < buf.limit(); i++) {
+                byte b = buf.get(i);
+                if (b == LF) {
+                    if (lastWasLF) {
+                        return (long) i + 1;
+                    }
+                    lastWasLF = true;
+                } else if (b != CR) {
+                    lastWasLF = false;
+                }
+            }
+            return -1;
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Error detecting body offset for " + filePath, e);
+            return -1;
+        }
     }
 
     @Override
@@ -1044,18 +1093,27 @@ public class MaildirMailbox implements Mailbox {
 
     /**
      * Async positional reader backed by an AsynchronousFileChannel.
+     *
+     * <p>The body offset is supplied from the message descriptor (scanned
+     * at mailbox open/append time). {@link #bodyOffset()} is a pure
+     * memory read — it never blocks on disk or waits on async-file completions.
      */
     private static final class MaildirAsyncMessageContent
             implements AsyncMessageContent {
 
         private final AsynchronousFileChannel channel;
         private final long contentSize;
-        private long cachedBodyOffset = -2; // -2 = not yet scanned
+        /** Resolved body offset ({@code >= 0} or {@code -1}). */
+        private final long bodyOffset;
 
         MaildirAsyncMessageContent(AsynchronousFileChannel channel,
-                long contentSize) {
+                long contentSize, long bodyOffset) {
             this.channel = channel;
             this.contentSize = contentSize;
+            // Normalize unknown sentinel to API -1 (should already be resolved)
+            this.bodyOffset = bodyOffset == MaildirMessageDescriptor.UNKNOWN_BODY_OFFSET
+                    ? -1
+                    : bodyOffset;
         }
 
         @Override
@@ -1065,46 +1123,7 @@ public class MaildirMailbox implements Mailbox {
 
         @Override
         public long bodyOffset() {
-            if (cachedBodyOffset != -2) {
-                return cachedBodyOffset;
-            }
-            // Synchronously scan the first portion of the file for the
-            // blank-line separator (CRLFCRLF or LFLF).
-            int scanLen = (int) Math.min(contentSize, 8192L);
-            ByteBuffer buf = ByteBuffer.allocate(scanLen);
-            try {
-                int totalRead = 0;
-                while (totalRead < scanLen) {
-                    java.util.concurrent.Future<Integer> f =
-                            channel.read(buf, totalRead);
-                    int n = f.get();
-                    if (n == -1) {
-                        break;
-                    }
-                    totalRead += n;
-                }
-                buf.flip();
-                boolean lastWasLF = false;
-                for (int i = 0; i < buf.limit(); i++) {
-                    byte b = buf.get(i);
-                    if (b == LF) {
-                        if (lastWasLF) {
-                            cachedBodyOffset = (long) i + 1;
-                            return cachedBodyOffset;
-                        }
-                        lastWasLF = true;
-                    } else if (b != CR) {
-                        lastWasLF = false;
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOGGER.log(Level.WARNING, "Interrupted scanning body offset", e);
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error scanning body offset", e);
-            }
-            cachedBodyOffset = -1;
-            return cachedBodyOffset;
+            return bodyOffset;
         }
 
         @Override
@@ -1187,9 +1206,10 @@ public class MaildirMailbox implements Mailbox {
                 long uid = uidList.assignUid(filename.getBaseFilename());
 
                 int msgNum = messages.size() + 1;
+                long bodyOffset = detectBodyOffset(curFile);
                 MaildirMessageDescriptor descriptor =
                         new MaildirMessageDescriptor(
-                                msgNum, uid, curFile, filename);
+                                msgNum, uid, curFile, filename, bodyOffset);
                 messages.add(descriptor);
                 uidToMessage.put(uid, descriptor);
                 uidList.save();

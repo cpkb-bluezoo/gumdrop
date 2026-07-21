@@ -448,7 +448,10 @@ public abstract class Listener {
      * @param remoteAddress the remote address of the closed connection
      */
     public void connectionClosed(SocketAddress remoteAddress) {
-        activeConnectionCount.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        int n;
+        do {
+            n = activeConnectionCount.get();
+        } while (n > 0 && !activeConnectionCount.compareAndSet(n, n - 1));
         if (connectionRateLimiter != null
                 && remoteAddress instanceof InetSocketAddress) {
             connectionRateLimiter.connectionClosed(

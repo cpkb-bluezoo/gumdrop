@@ -188,6 +188,18 @@ public final class HostsFile {
         entries = null;
     }
 
+    /**
+     * Eagerly parses and caches the system hosts file.
+     *
+     * <p>Call once during server startup (off any {@code SelectorLoop}) so
+     * the first DNS resolve after accept cannot stall a reactor thread on
+     * {@code /etc/hosts} I/O. Subsequent {@link #lookup} calls use the
+     * in-memory cache.
+     */
+    public static void warm() {
+        getEntries();
+    }
+
     private static Map<String, List<InetAddress>> getEntries() {
         Map<String, List<InetAddress>> map = entries;
         if (map != null) {

@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gonzalez.XMLWriter;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.StorageExecutor;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -31,6 +33,7 @@ import java.nio.channels.CompletionHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.security.MessageDigest;
@@ -38,6 +41,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -123,10 +128,36 @@ final class DeadPropertyStore {
      * @param callback receives the properties
      */
     void getProperties(Path resource, DeadPropertyCallback callback) {
+        getProperties(resource, null, callback);
+    }
+
+    /**
+     * Loads all dead properties for a resource.
+     *
+     * @param resource the resource path
+     * @param isDirectory whether {@code resource} is a directory (avoids a
+     *        re-stat when the caller already knows); {@code null} to detect
+     * @param callback receives the properties
+     */
+    void getProperties(Path resource, Boolean isDirectory,
+                       DeadPropertyCallback callback) {
         if (mode == Mode.NONE) {
             callback.onProperties(new HashMap<String, DeadProperty>());
             return;
         }
+        runOnStorage(callback, new Runnable() {
+            @Override
+            public void run() {
+                getPropertiesBlocking(resource, isDirectory, callback);
+            }
+        });
+    }
+
+    private void getPropertiesBlocking(Path resource, Boolean isDirectory,
+                                       DeadPropertyCallback callback) {
+        boolean isDir = isDirectory != null
+                ? isDirectory.booleanValue()
+                : Files.isDirectory(resource);
 
         Map<String, DeadProperty> xattrProps = new HashMap<String, DeadProperty>();
         if (useXattr(resource)) {
@@ -135,7 +166,7 @@ final class DeadPropertyStore {
 
         if (useSidecar()) {
             final Map<String, DeadProperty> merged = xattrProps;
-            Path sidecar = sidecarPath(resource);
+            Path sidecar = sidecarPath(resource, isDir);
             if (Files.exists(sidecar)) {
                 readSidecar(sidecar, new DeadPropertyCallback() {
                     @Override
@@ -177,11 +208,43 @@ final class DeadPropertyStore {
     void setProperty(Path resource, String ns, String name,
                      String value, boolean isXML,
                      DeadPropertyCallback callback) {
+        setProperty(resource, null, ns, name, value, isXML, callback);
+    }
+
+    /**
+     * Sets a dead property on a resource.
+     *
+     * @param resource the resource path
+     * @param isDirectory whether {@code resource} is a directory, or
+     *        {@code null} to detect
+     * @param ns the property namespace URI
+     * @param name the property local name
+     * @param value the property value
+     * @param isXML true if the value contains XML
+     * @param callback receives the result
+     */
+    void setProperty(Path resource, Boolean isDirectory,
+                     String ns, String name,
+                     String value, boolean isXML,
+                     DeadPropertyCallback callback) {
         if (mode == Mode.NONE) {
             callback.onError("Dead property storage disabled");
             return;
         }
 
+        runOnStorage(callback, new Runnable() {
+            @Override
+            public void run() {
+                setPropertyBlocking(resource, isDirectory, ns, name,
+                        value, isXML, callback);
+            }
+        });
+    }
+
+    private void setPropertyBlocking(Path resource, Boolean isDirectory,
+                                     String ns, String name,
+                                     String value, boolean isXML,
+                                     DeadPropertyCallback callback) {
         if (useXattr(resource)) {
             try {
                 writeXattrProperty(resource, ns, name, value, isXML);
@@ -198,7 +261,10 @@ final class DeadPropertyStore {
         }
 
         if (useSidecar()) {
-            updateSidecar(resource, ns, name, value, isXML, false,
+            boolean isDir = isDirectory != null
+                    ? isDirectory.booleanValue()
+                    : Files.isDirectory(resource);
+            updateSidecar(resource, isDir, ns, name, value, isXML, false,
                     callback);
         } else {
             callback.onError("No storage backend available");
@@ -215,11 +281,39 @@ final class DeadPropertyStore {
      */
     void removeProperty(Path resource, String ns, String name,
                         DeadPropertyCallback callback) {
+        removeProperty(resource, null, ns, name, callback);
+    }
+
+    /**
+     * Removes a dead property from a resource.
+     *
+     * @param resource the resource path
+     * @param isDirectory whether {@code resource} is a directory, or
+     *        {@code null} to detect
+     * @param ns the property namespace URI
+     * @param name the property local name
+     * @param callback receives the result
+     */
+    void removeProperty(Path resource, Boolean isDirectory,
+                        String ns, String name,
+                        DeadPropertyCallback callback) {
         if (mode == Mode.NONE) {
             callback.onError("Dead property storage disabled");
             return;
         }
 
+        runOnStorage(callback, new Runnable() {
+            @Override
+            public void run() {
+                removePropertyBlocking(resource, isDirectory, ns, name,
+                        callback);
+            }
+        });
+    }
+
+    private void removePropertyBlocking(Path resource, Boolean isDirectory,
+                                        String ns, String name,
+                                        DeadPropertyCallback callback) {
         boolean removed = false;
         if (useXattr(resource)) {
             try {
@@ -231,7 +325,10 @@ final class DeadPropertyStore {
         }
 
         if (useSidecar()) {
-            updateSidecar(resource, ns, name, null, false, true,
+            boolean isDir = isDirectory != null
+                    ? isDirectory.booleanValue()
+                    : Files.isDirectory(resource);
+            updateSidecar(resource, isDir, ns, name, null, false, true,
                     callback);
         } else if (removed) {
             callback.onProperties(null);
@@ -245,6 +342,9 @@ final class DeadPropertyStore {
      * For xattr mode, properties travel with {@code Files.copy(COPY_ATTRIBUTES)}.
      * For sidecar mode, copies the sidecar file.
      *
+     * <p>Caller must already be on a StorageExecutor thread (e.g. COPY/MOVE
+     * offload); this method performs blocking I/O inline.
+     *
      * @param source the source resource
      * @param target the target resource
      */
@@ -252,12 +352,13 @@ final class DeadPropertyStore {
         if (mode == Mode.NONE) {
             return;
         }
-        Path srcSidecar = sidecarPath(source);
+        boolean srcIsDir = Files.isDirectory(source);
+        Path srcSidecar = sidecarPath(source, srcIsDir);
         if (Files.exists(srcSidecar)) {
-            Path dstSidecar = sidecarPath(target);
+            Path dstSidecar = sidecarPath(target, Files.isDirectory(target));
             try {
                 Files.copy(srcSidecar, dstSidecar,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        StandardCopyOption.REPLACE_EXISTING);
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed to copy sidecar: " + srcSidecar, e);
@@ -268,19 +369,71 @@ final class DeadPropertyStore {
     /**
      * Deletes all dead properties for a resource.
      *
+     * <p>Caller must already be on a StorageExecutor thread; this method
+     * performs blocking I/O inline.
+     *
      * @param resource the resource path
      */
     void deleteProperties(Path resource) {
         if (mode == Mode.NONE) {
             return;
         }
-        Path sidecar = sidecarPath(resource);
+        Path sidecar = sidecarPath(resource, Files.isDirectory(resource));
         try {
             Files.deleteIfExists(sidecar);
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     "Failed to delete sidecar: " + sidecar, e);
         }
+    }
+
+    /**
+     * Runs blocking dead-property setup on the shared {@link StorageExecutor}
+     * when available. With no executor (unit-test harness), runs inline.
+     * Callbacks from the work itself are invoked on the storage thread (or
+     * inline); AFC completions remain on the JDK async-file pool.
+     */
+    private void runOnStorage(final DeadPropertyCallback callback,
+                              final Runnable work) {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            try {
+                work.run();
+            } catch (Throwable t) {
+                callback.onError(t.getMessage() != null
+                        ? t.getMessage() : t.toString());
+            }
+            return;
+        }
+        // Dispatch callbacks on the storage thread: this class has no
+        // HTTPResponseState; FileHandler already tolerates dead-property
+        // callbacks off the SelectorLoop (same as AFC completions today).
+        Executor inline = new Executor() {
+            @Override
+            public void execute(Runnable command) {
+                command.run();
+            }
+        };
+        exec.submit(inline, new Callable<Void>() {
+            @Override
+            public Void call() {
+                work.run();
+                return null;
+            }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void result) {
+                // User callback already invoked inside work when sync.
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                callback.onError(error.getMessage() != null
+                        ? error.getMessage() : error.toString());
+            }
+        });
     }
 
     /**
@@ -455,9 +608,22 @@ final class DeadPropertyStore {
      * Files: {@code dir/.webdav_filename}.
      * Directories (own properties): {@code dir/.webdav_.} inside
      * the directory itself.
+     *
+     * <p>Stats the resource; prefer {@link #sidecarPath(Path, boolean)} when
+     * the directory flag is already known.
      */
     static Path sidecarPath(Path resource) {
-        if (Files.isDirectory(resource)) {
+        return sidecarPath(resource, Files.isDirectory(resource));
+    }
+
+    /**
+     * Computes the sidecar path for a resource without re-statting.
+     *
+     * @param resource the resource path
+     * @param isDirectory true if {@code resource} is a collection
+     */
+    static Path sidecarPath(Path resource, boolean isDirectory) {
+        if (isDirectory) {
             return resource.resolve(SIDECAR_PREFIX + ".");
         }
         Path parent = resource.getParent();
@@ -467,6 +633,8 @@ final class DeadPropertyStore {
 
     /**
      * Reads a sidecar file asynchronously using the Gonzalez parser.
+     * Blocking setup ({@code Files.size}, {@code AFC.open}) must run on a
+     * StorageExecutor thread; only the byte transfer is AFC.
      */
     private void readSidecar(Path sidecar,
                              final DeadPropertyCallback callback) {
@@ -526,38 +694,39 @@ final class DeadPropertyStore {
      * Updates a sidecar file: loads existing properties, applies the
      * change, then writes the full sidecar back asynchronously.
      */
-    private void updateSidecar(final Path resource, final String ns,
+    private void updateSidecar(final Path resource, final boolean isDirectory,
+                               final String ns,
                                final String name, final String value,
                                final boolean isXML,
                                final boolean remove,
                                final DeadPropertyCallback callback) {
-        Path sidecar = sidecarPath(resource);
+        Path sidecar = sidecarPath(resource, isDirectory);
         if (Files.exists(sidecar)) {
             readSidecar(sidecar, new DeadPropertyCallback() {
                 @Override
                 public void onProperties(
                         Map<String, DeadProperty> existing) {
-                    applyAndWrite(resource, existing, ns, name, value,
-                            isXML, remove, callback);
+                    applyAndWrite(resource, isDirectory, existing, ns, name,
+                            value, isXML, remove, callback);
                 }
 
                 @Override
                 public void onError(String error) {
                     Map<String, DeadProperty> empty =
                             new HashMap<String, DeadProperty>();
-                    applyAndWrite(resource, empty, ns, name, value,
-                            isXML, remove, callback);
+                    applyAndWrite(resource, isDirectory, empty, ns, name,
+                            value, isXML, remove, callback);
                 }
             });
         } else {
             Map<String, DeadProperty> empty =
                     new HashMap<String, DeadProperty>();
-            applyAndWrite(resource, empty, ns, name, value, isXML,
-                    remove, callback);
+            applyAndWrite(resource, isDirectory, empty, ns, name, value,
+                    isXML, remove, callback);
         }
     }
 
-    private void applyAndWrite(Path resource,
+    private void applyAndWrite(Path resource, boolean isDirectory,
                                Map<String, DeadProperty> props,
                                String ns, String name, String value,
                                boolean isXML, boolean remove,
@@ -568,17 +737,17 @@ final class DeadPropertyStore {
         } else {
             props.put(key, new DeadProperty(ns, name, value, isXML));
         }
-        writeSidecar(resource, props, callback);
+        writeSidecar(resource, isDirectory, props, callback);
     }
 
     /**
      * Serializes properties to XML using Gonzalez XMLWriter and
      * writes asynchronously via AsynchronousFileChannel.
      */
-    private void writeSidecar(Path resource,
+    private void writeSidecar(Path resource, boolean isDirectory,
                               Map<String, DeadProperty> props,
                               final DeadPropertyCallback callback) {
-        Path sidecar = sidecarPath(resource);
+        Path sidecar = sidecarPath(resource, isDirectory);
 
         if (props.isEmpty()) {
             try {

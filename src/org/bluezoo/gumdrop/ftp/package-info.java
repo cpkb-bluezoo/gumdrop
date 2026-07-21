@@ -74,6 +74,16 @@
  * </service>
  * }</pre>
  *
+ * <h2>Async disk I/O</h2>
+ *
+ * <p>After startup the control and data connections share a
+ * {@link org.bluezoo.gumdrop.SelectorLoop}. Blocking filesystem work
+ * ({@code stat}/{@code readdir}/{@code open}/{@code rename}/…) is
+ * offloaded to {@link org.bluezoo.gumdrop.StorageExecutor}; file byte
+ * streaming uses {@link java.nio.channels.AsynchronousFileChannel}.
+ * {@code AsynchronousFileChannel.open} itself is a blocking syscall and
+ * must run on the storage pool, never on the selector.
+ *
  * <h2>Security</h2>
  *
  * <p>For secure file transfer, FTPS (FTP over SSL/TLS) is supported:

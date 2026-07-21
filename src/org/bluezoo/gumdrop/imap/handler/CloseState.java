@@ -31,6 +31,13 @@ package org.bluezoo.gumdrop.imap.handler;
 public interface CloseState {
 
     /**
+     * Authorises CLOSE/UNSELECT and lets the protocol close the mailbox.
+     *
+     * @param handler continues receiving authenticated commands
+     */
+    void proceed(AuthenticatedHandler handler);
+
+    /**
      * Mailbox closed/unselected successfully.
      * 
      * <p>Returns to AUTHENTICATED state.

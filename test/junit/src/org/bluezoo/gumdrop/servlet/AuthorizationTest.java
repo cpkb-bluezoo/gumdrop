@@ -27,11 +27,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.function.Predicate;
 
 import javax.servlet.annotation.ServletSecurity;
 
 import org.bluezoo.gumdrop.servlet.ContextRequestDispatcher.ConstraintRequirement;
+import org.bluezoo.gumdrop.servlet.ContextRequestDispatcher.RoleTester;
 
 import static org.bluezoo.gumdrop.servlet.ContextRequestDispatcher.isRoleAuthorized;
 import static org.bluezoo.gumdrop.servlet.ContextRequestDispatcher.requirementOf;
@@ -51,9 +51,13 @@ import static org.junit.Assert.*;
 public class AuthorizationTest {
 
     /** A role tester backed by a fixed set of granted roles. */
-    private static Predicate<String> user(String... roles) {
+    private static RoleTester user(String... roles) {
         final Set<String> granted = new HashSet<String>(Arrays.asList(roles));
-        return granted::contains;
+        return new RoleTester() {
+            public boolean isUserInRole(String roleName) {
+                return granted.contains(roleName);
+            }
+        };
     }
 
     private static SecurityConstraint constraintWithRoles(String... roles) {

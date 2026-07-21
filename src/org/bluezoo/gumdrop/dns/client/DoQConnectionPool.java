@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.dns.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -106,25 +108,28 @@ public class DoQConnectionPool implements DNSClientTransport {
     public void open(InetAddress server, int port, SelectorLoop loop,
                      DNSClientTransportHandler handler) throws IOException {
         String serverKey = server.getHostAddress() + ":" + port;
-        entry = pool.compute(serverKey, (key, existing) -> {
+        synchronized (pool) {
+            PoolEntry existing = pool.get(serverKey);
             if (existing != null && existing.isUsable()) {
                 existing.lastUsed = System.currentTimeMillis();
                 existing.handler = handler;
-                return existing;
+                entry = existing;
+            } else {
+                if (existing != null) {
+                    existing.transport.close();
+                }
+                PoolEntry pe = new PoolEntry();
+                pe.transport = new DoQClientTransport();
+                pe.handler = handler;
+                pe.loop = loop;
+                pe.server = server;
+                pe.port = port;
+                pe.lastUsed = System.currentTimeMillis();
+                pe.createdAt = System.currentTimeMillis();
+                pool.put(serverKey, pe);
+                entry = pe;
             }
-            if (existing != null) {
-                existing.transport.close();
-            }
-            PoolEntry pe = new PoolEntry();
-            pe.transport = new DoQClientTransport();
-            pe.handler = handler;
-            pe.loop = loop;
-            pe.server = server;
-            pe.port = port;
-            pe.lastUsed = System.currentTimeMillis();
-            pe.createdAt = System.currentTimeMillis();
-            return pe;
-        });
+        }
         if (!entry.opened) {
             entry.transport.open(server, port, loop, handler);
             entry.opened = true;
@@ -168,7 +173,9 @@ public class DoQConnectionPool implements DNSClientTransport {
      */
     static void evictStale() {
         long now = System.currentTimeMillis();
-        pool.entrySet().removeIf(e -> {
+        Iterator<Map.Entry<String, PoolEntry>> it = pool.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, PoolEntry> e = it.next();
             PoolEntry pe = e.getValue();
             if (now - pe.lastUsed > maxIdleTimeMs) {
                 if (LOGGER.isLoggable(Level.FINE)) {
@@ -176,10 +183,9 @@ public class DoQConnectionPool implements DNSClientTransport {
                             + e.getKey());
                 }
                 pe.transport.close();
-                return true;
+                it.remove();
             }
-            return false;
-        });
+        }
     }
 
     static final class PoolEntry {

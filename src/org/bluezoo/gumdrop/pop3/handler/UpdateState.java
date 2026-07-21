@@ -38,6 +38,14 @@ package org.bluezoo.gumdrop.pop3.handler;
 public interface UpdateState {
 
     /**
+     * Authorises QUIT and lets the protocol close the mailbox (expunging
+     * deleted messages) on {@code StorageExecutor}, then send +OK.
+     *
+     * @param handler the transaction handler (retained for disconnect)
+     */
+    void proceed(TransactionHandler handler);
+
+    /**
      * Commits deletions and closes the connection successfully.
      * 
      * <p>Sends a +OK response indicating the session ended normally

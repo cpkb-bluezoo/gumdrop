@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import java.util.Iterator;
 import java.util.PriorityQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -246,7 +247,11 @@ final class ScheduledTimer implements Runnable {
      */
     private void purgeCancelledIfNeeded() {
         if (deadCount.get() >= PURGE_THRESHOLD) {
-            queue.removeIf(TimerEntry::isCancelled);
+            for (Iterator<TimerEntry> it = queue.iterator(); it.hasNext(); ) {
+                if (it.next().isCancelled()) {
+                    it.remove();
+                }
+            }
             deadCount.set(0);
         }
     }

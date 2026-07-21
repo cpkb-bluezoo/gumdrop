@@ -54,7 +54,12 @@ public final class ByteBufferPool {
     private static final int MAX_PER_BUCKET = 32;
 
     private static final ThreadLocal<ArrayDeque<ByteBuffer>[]> POOL =
-            ThreadLocal.withInitial(ByteBufferPool::createBuckets);
+            new ThreadLocal<ArrayDeque<ByteBuffer>[]>() {
+                @Override
+                protected ArrayDeque<ByteBuffer>[] initialValue() {
+                    return createBuckets();
+                }
+            };
 
     private ByteBufferPool() { }
 

@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -55,6 +56,8 @@ import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -99,6 +102,8 @@ import org.bluezoo.gumdrop.imap.handler.SelectState;
 import org.bluezoo.gumdrop.imap.handler.StoreState;
 import org.bluezoo.gumdrop.imap.handler.SubscribeState;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
+import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
+import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
@@ -286,6 +291,15 @@ public class IMAPProtocolHandler
     private boolean appendMailboxOpening = false;
     private boolean appendDiscarding = false;
     private ByteArrayOutputStream appendPendingData = null;
+    /** Maildir async append writer; writes are AFC, finish/move is offloaded. */
+    private AsyncMessageWriter appendWriter = null;
+    /**
+     * mbox (and other sync-only) append: buffer the entire literal on the loop,
+     * then {@code startAppend}/{@code append}/{@code endAppend} on StorageExecutor.
+     */
+    private boolean appendBufferedFallback = false;
+    private Set<Flag> appendFlags = null;
+    private OffsetDateTime appendInternalDate = null;
 
     // General-purpose command literal state (RFC 7888 LITERAL-): raw bytes
     // accumulate here while a non-APPEND literal is being read via
@@ -350,28 +364,55 @@ public class IMAPProtocolHandler
             }
         } finally {
             cancelIdleTimer();
-            try {
-                if (selectedMailbox != null) {
+            offloadCloseMailboxAndStore();
+        }
+    }
+
+    /**
+     * Best-effort offload of mailbox/store close so disconnect never blocks
+     * the SelectorLoop on lock release or sidecar flushes.
+     */
+    private void offloadCloseMailboxAndStore() {
+        final Mailbox mb = selectedMailbox;
+        final MailboxStore st = store;
+        selectedMailbox = null;
+        store = null;
+        if (mb == null && st == null) {
+            return;
+        }
+        submitStorage(new Callable<Void>() {
+            @Override
+            public Void call() {
+                if (mb != null) {
                     try {
-                        selectedMailbox.close(false);
+                        mb.close(false);
                     } catch (IOException e) {
                         LOGGER.log(Level.WARNING,
                                 "Error closing mailbox on disconnect", e);
                     }
-                    selectedMailbox = null;
                 }
-            } finally {
-                if (store != null) {
+                if (st != null) {
                     try {
-                        store.close();
+                        st.close();
                     } catch (IOException e) {
                         LOGGER.log(Level.WARNING,
                                 "Error closing store on disconnect", e);
                     }
-                    store = null;
                 }
+                return null;
             }
-        }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void result) {
+                // Best-effort; connection is already gone
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.FINE,
+                        "Disconnect close offload failed", error);
+            }
+        }, false);
     }
 
     @Override
@@ -536,19 +577,63 @@ public class IMAPProtocolHandler
                 if (appendDiscarding) {
                     // The mailbox open (or a buffered write) failed; drain
                     // the client's literal into the void to stay in sync.
-                } else if (appendMailboxOpening) {
+                } else if (appendMailboxOpening || appendBufferedFallback) {
+                    // Opening off-loop, or mbox buffered-fallback: keep
+                    // literal bytes in memory — never FileChannel.write here.
                     byte[] tmp = new byte[toConsume];
                     slice.get(tmp);
+                    if (appendPendingData == null) {
+                        appendPendingData = new ByteArrayOutputStream();
+                    }
                     appendPendingData.write(tmp, 0, tmp.length);
+                } else if (appendWriter != null) {
+                    byte[] tmp = new byte[toConsume];
+                    slice.get(tmp);
+                    final ByteBuffer copy = ByteBuffer.wrap(tmp);
+                    appendWriter.write(copy,
+                            new CompletionHandler<Integer, ByteBuffer>() {
+                        @Override
+                        public void completed(Integer result,
+                                ByteBuffer attachment) {
+                            // Chunk accepted by AFC
+                        }
+
+                        @Override
+                        public void failed(Throwable exc,
+                                ByteBuffer attachment) {
+                            LOGGER.log(Level.WARNING,
+                                    "Async APPEND write failed", exc);
+                            endpoint.execute(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (appendLiteralRemaining > 0) {
+                                        appendDiscarding = true;
+                                    } else {
+                                        sendAppendFailure();
+                                        resetAppendState();
+                                    }
+                                }
+                            });
+                        }
+                    });
                 } else if (appendDataHandler != null) {
                     appendDataHandler.appendData(appendMailbox, slice);
-                } else {
-                    appendMailbox.appendMessageContent(slice);
+                } else if (appendMailbox != null) {
+                    // Should not reach here for mailbox I/O on the loop;
+                    // buffer for safety.
+                    byte[] tmp = new byte[toConsume];
+                    slice.get(tmp);
+                    if (appendPendingData == null) {
+                        appendPendingData = new ByteArrayOutputStream();
+                    }
+                    appendPendingData.write(tmp, 0, tmp.length);
                 }
 
                 appendLiteralRemaining -= toConsume;
 
                 if (!appendMailboxOpening && !appendDiscarding
+                        && !appendBufferedFallback
+                        && appendWriter == null
                         && appendDataHandler != null
                         && appendDataHandler.wantsPause()
                         && appendLiteralRemaining > 0) {
@@ -571,7 +656,7 @@ public class IMAPProtocolHandler
                     finishAppend();
                 }
             }
-        } catch (IOException e) {
+        } catch (RuntimeException e) {
             String msg = L10N.getString("log.error_processing_data");
             LOGGER.log(Level.WARNING, msg, e);
         }
@@ -795,23 +880,7 @@ public class IMAPProtocolHandler
                 }
             }
 
-            if (selectedMailbox != null) {
-                try {
-                    selectedMailbox.close(false);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            "Error closing mailbox", e);
-                }
-                selectedMailbox = null;
-            }
-            if (store != null) {
-                try {
-                    store.close();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Error closing store", e);
-                }
-                store = null;
-            }
+            offloadCloseMailboxAndStore();
         } finally {
             if (endpoint != null) {
                 endpoint.close();
@@ -1319,15 +1388,9 @@ public class IMAPProtocolHandler
 
         authenticatedUser = username;
 
-        if (notAuthenticatedHandler != null) {
-            Principal principal = createPrincipal(username);
-            notAuthenticatedHandler.authenticate(new AuthenticateStateImpl(tag),
-                    principal, server.getMailboxFactory());
-            return;
-        }
-
-        // Opening the mail store is blocking disk I/O; offload it and send the
-        // completion reply on the loop thread once the store is open.
+        // Opening the mail store is blocking disk I/O; offload it (via
+        // proceed() when a handler is set, or directly otherwise) and send
+        // the completion reply on the loop thread once the store is open.
         openMailStoreAsync(username, "PASSWORD", tag, new Runnable() {
             @Override
             public void run() {
@@ -1583,8 +1646,7 @@ public class IMAPProtocolHandler
                     localUser = localUser.substring(0, atIndex);
                 }
             }
-            openMailStore(localUser, "GSSAPI");
-            authSucceeded();
+            openMailStoreThenAuthOk(localUser, "GSSAPI");
         } catch (IOException e) {
             LOGGER.log(Level.FINE, "GSSAPI security layer failed", e);
             authFailed();
@@ -1620,7 +1682,7 @@ public class IMAPProtocolHandler
             return;
         }
 
-        openMailStore(result.username, "EXTERNAL");
+        openMailStoreThenAuthOk(result.username, "EXTERNAL");
     }
 
     // ── SASL response processing ──
@@ -1678,8 +1740,7 @@ public class IMAPProtocolHandler
             String password = parts[2];
 
             if (authenticateUser(username, password)) {
-                openMailStore(username, "PLAIN");
-                authSucceeded();
+                openMailStoreThenAuthOk(username, "PLAIN");
             } else {
                 authFailed();
             }
@@ -1703,8 +1764,7 @@ public class IMAPProtocolHandler
             String password = SASLUtils.decodeBase64ToString(line);
 
             if (authenticateUser(pendingAuthUsername, password)) {
-                openMailStore(pendingAuthUsername, "LOGIN");
-                authSucceeded();
+                openMailStoreThenAuthOk(pendingAuthUsername, "LOGIN");
             } else {
                 authFailed();
             }
@@ -1731,8 +1791,7 @@ public class IMAPProtocolHandler
                 if (expected != null && ByteArrays.equalsConstantTime(
                         ByteArrays.toByteArray(expected),
                         ByteArrays.toByteArray(digest.toLowerCase()))) {
-                    openMailStore(username, "CRAM-MD5");
-                    authSucceeded();
+                    openMailStoreThenAuthOk(username, "CRAM-MD5");
                 } else {
                     authFailed();
                 }
@@ -1767,10 +1826,21 @@ public class IMAPProtocolHandler
                     ha1, authNonce, params);
 
             if (rspAuth != null) {
-                openMailStore(username, "DIGEST-MD5");
-                sendContinuation(SASLUtils.encodeBase64(
-                        "rspauth=" + rspAuth));
-                authSucceeded();
+                final String digestRspAuth = rspAuth;
+                openMailStoreAsync(username, "DIGEST-MD5", pendingAuthTag,
+                        new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            sendContinuation(SASLUtils.encodeBase64(
+                                    "rspauth=" + digestRspAuth));
+                            authSucceeded();
+                        } catch (IOException e) {
+                            LOGGER.log(Level.WARNING,
+                                    "Failed to complete DIGEST-MD5", e);
+                        }
+                    }
+                });
             } else {
                 authFailed();
             }
@@ -1864,11 +1934,22 @@ public class IMAPProtocolHandler
                 return;
             }
 
-            openMailStore(pendingAuthUsername, "SCRAM-SHA-256");
-            String serverFinal = "v=" + Base64.getEncoder()
-                    .encodeToString(serverSignature);
-            sendContinuation(SASLUtils.encodeBase64(serverFinal));
-            authSucceeded();
+            final byte[] scramServerSignature = serverSignature;
+            openMailStoreAsync(pendingAuthUsername, "SCRAM-SHA-256",
+                    pendingAuthTag, new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String serverFinal = "v=" + Base64.getEncoder()
+                                .encodeToString(scramServerSignature);
+                        sendContinuation(SASLUtils.encodeBase64(serverFinal));
+                        authSucceeded();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING,
+                                "Failed to complete SCRAM-SHA-256", e);
+                    }
+                }
+            });
         } catch (UnsupportedOperationException e) {
             authFailed();
         } catch (Exception e) {
@@ -1894,8 +1975,7 @@ public class IMAPProtocolHandler
             Realm.TokenValidationResult result = realm.validateBearerToken(token);
             if (result != null && result.valid
                     && user.equals(result.username)) {
-                openMailStore(user, "OAUTHBEARER");
-                authSucceeded();
+                openMailStoreThenAuthOk(user, "OAUTHBEARER");
             } else {
                 authFailed();
             }
@@ -1909,6 +1989,25 @@ public class IMAPProtocolHandler
                 + server.getCapabilities(true, endpoint.isSecure()) + "] "
                 + L10N.getString("imap.auth_complete"));
         resetAuthState();
+    }
+
+    /**
+     * Opens the mail store off-loop then sends the SASL AUTHENTICATE OK.
+     */
+    private void openMailStoreThenAuthOk(String username, String mechanism)
+            throws IOException {
+        openMailStoreAsync(username, mechanism, pendingAuthTag,
+                new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    authSucceeded();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send auth OK", e);
+                }
+            }
+        });
     }
 
     private void authFailed() throws IOException {
@@ -1971,13 +2070,13 @@ public class IMAPProtocolHandler
     }
 
     /**
-     * Non-blocking counterpart of
-     * {@link #openMailStore(String, String, String)} for the default (no
-     * pluggable {@code NotAuthenticatedHandler}) path. Opening the mail store
-     * touches disk (directory creation and subscription loading) and must not
-     * run on the SelectorLoop thread, so the open is offloaded to the storage
-     * pool and {@code onSuccess} is invoked on the loop thread once the store
-     * is open. On failure a tagged NO is sent and {@code onSuccess} is not run.
+     * Opens the mail store off the SelectorLoop. When a
+     * {@link NotAuthenticatedHandler} is configured it is asked to authorise
+     * first; {@link AuthenticateState#proceed} (or a custom
+     * {@link AuthenticateState#accept}) then completes the open. Otherwise the
+     * store is opened directly on {@link StorageExecutor} and
+     * {@code onSuccess} runs on the loop thread. On failure a tagged NO is
+     * sent and {@code onSuccess} is not run.
      *
      * @param username the authenticated user
      * @param mechanism the SASL mechanism / auth type used
@@ -1993,16 +2092,29 @@ public class IMAPProtocolHandler
             Principal principal = createPrincipal(username);
             String responseTag = (tag != null) ? tag : pendingAuthTag;
             notAuthenticatedHandler.authenticate(
-                    new AuthenticateStateImpl(responseTag, mechanism),
+                    new AuthenticateStateImpl(responseTag, mechanism,
+                            onSuccess),
                     principal, server.getMailboxFactory());
             return;
         }
 
+        submitOpenMailStore(username, mechanism, tag, onSuccess);
+    }
+
+    /**
+     * Offloads {@link MailboxFactory#createStore}/{@link MailboxStore#open}
+     * to {@link StorageExecutor} and runs {@code onSuccess} on the loop.
+     */
+    private void submitOpenMailStore(final String username,
+            final String mechanism, final String tag,
+            final Runnable onSuccess) {
         final MailboxFactory factory = server.getMailboxFactory();
         if (factory == null) {
             state = IMAPState.AUTHENTICATED;
             startAuthenticatedSpan(username, mechanism);
-            onSuccess.run();
+            if (onSuccess != null) {
+                onSuccess.run();
+            }
             return;
         }
 
@@ -2019,7 +2131,9 @@ public class IMAPProtocolHandler
                 store = s;
                 state = IMAPState.AUTHENTICATED;
                 startAuthenticatedSpan(username, mechanism);
-                onSuccess.run();
+                if (onSuccess != null) {
+                    onSuccess.run();
+                }
             }
 
             @Override
@@ -2207,28 +2321,35 @@ public class IMAPProtocolHandler
             }
         }
 
+        SelectStateImpl selectState = new SelectStateImpl(tag, mailboxName,
+                readOnly, qresyncUidValidity, qresyncModSeq,
+                qresyncKnownUids);
+
         if (state == IMAPState.SELECTED && selectedHandler != null) {
             if (readOnly) {
-                selectedHandler.examine(new SelectStateImpl(tag), store,
-                        mailboxName);
+                selectedHandler.examine(selectState, store, mailboxName);
             } else {
-                selectedHandler.select(new SelectStateImpl(tag), store,
-                        mailboxName);
+                selectedHandler.select(selectState, store, mailboxName);
             }
             return;
         }
 
         if (authenticatedHandler != null) {
             if (readOnly) {
-                authenticatedHandler.examine(new SelectStateImpl(tag), store,
-                        mailboxName);
+                authenticatedHandler.examine(selectState, store, mailboxName);
             } else {
-                authenticatedHandler.select(new SelectStateImpl(tag), store,
-                        mailboxName);
+                authenticatedHandler.select(selectState, store, mailboxName);
             }
             return;
         }
 
+        executeSelect(tag, mailboxName, readOnly, qresyncUidValidity,
+                qresyncModSeq, qresyncKnownUids);
+    }
+
+    private void executeSelect(final String tag, final String mailboxName,
+            final boolean readOnly, final long qresyncUidValidity,
+            final long qresyncModSeq, final String qresyncKnownUids) {
         // Closing the previously selected mailbox and opening the new one are
         // blocking disk operations (a full maildir/mbox scan); offload them to
         // the storage pool. The response below reads only in-memory state that
@@ -2236,11 +2357,6 @@ public class IMAPProtocolHandler
         final Mailbox previous = selectedMailbox;
         final boolean previousReadOnly = selectedReadOnly;
         final MailboxStore currentStore = store;
-        final String selMailbox = mailboxName;
-        final boolean selReadOnly = readOnly;
-        final long selQresyncUidValidity = qresyncUidValidity;
-        final long selQresyncModSeq = qresyncModSeq;
-        final String selQresyncKnownUids = qresyncKnownUids;
         selectedMailbox = null;
 
         submitStorage(new Callable<Mailbox>() {
@@ -2249,19 +2365,19 @@ public class IMAPProtocolHandler
                 if (previous != null) {
                     previous.close(!previousReadOnly);
                 }
-                return currentStore.openMailbox(selMailbox, selReadOnly);
+                return currentStore.openMailbox(mailboxName, readOnly);
             }
         }, new StorageExecutor.Callback<Mailbox>() {
             @Override
             public void completed(Mailbox mbox) {
                 try {
                     selectedMailbox = mbox;
-                    selectedReadOnly = selReadOnly;
+                    selectedReadOnly = readOnly;
                     state = IMAPState.SELECTED;
 
-                    addSessionAttribute("imap.mailbox", selMailbox);
-                    addSessionAttribute("imap.mailbox.readonly", selReadOnly);
-                    addSessionEvent(selReadOnly ? "EXAMINE" : "SELECT");
+                    addSessionAttribute("imap.mailbox", mailboxName);
+                    addSessionAttribute("imap.mailbox.readonly", readOnly);
+                    addSessionEvent(readOnly ? "EXAMINE" : "SELECT");
 
                     int count = selectedMailbox.getMessageCount();
                     lastReportedExists = count;
@@ -2279,7 +2395,6 @@ public class IMAPProtocolHandler
                     sendUntagged("OK [UIDNEXT "
                             + selectedMailbox.getUidNext() + "]");
 
-                    // CONDSTORE: HIGHESTMODSEQ in SELECT/EXAMINE response
                     if (condstoreEnabled) {
                         long highestModSeq =
                                 selectedMailbox.getHighestModSeq();
@@ -2289,20 +2404,20 @@ public class IMAPProtocolHandler
                         }
                     }
 
-                    // QRESYNC: VANISHED (EARLIER) and unsolicited FETCH
-                    if (selQresyncUidValidity >= 0 && selQresyncModSeq >= 0
+                    if (qresyncUidValidity >= 0 && qresyncModSeq >= 0
                             && selectedMailbox.getUidValidity()
-                                    == selQresyncUidValidity) {
-                        sendQresyncData(selQresyncModSeq, selQresyncKnownUids);
+                                    == qresyncUidValidity) {
+                        sendQresyncData(qresyncModSeq, qresyncKnownUids);
                     }
 
                     String accessMode =
-                            selReadOnly ? "[READ-ONLY]" : "[READ-WRITE]";
+                            readOnly ? "[READ-ONLY]" : "[READ-WRITE]";
                     sendTaggedOk(tag, accessMode + " "
                             + L10N.getString("imap.select_complete"));
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to complete SELECT for: " + selMailbox, e);
+                            "Failed to complete SELECT for: " + mailboxName,
+                            e);
                     recordSessionException(e);
                     sendTaggedNoQuietly(tag, "imap.err.mailbox_not_found");
                 }
@@ -2311,7 +2426,7 @@ public class IMAPProtocolHandler
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.WARNING, "Failed to open mailbox: "
-                        + selMailbox, error);
+                        + mailboxName, error);
                 recordSessionException(error);
                 sendTaggedNoQuietly(tag, "imap.err.mailbox_not_found");
             }
@@ -2361,10 +2476,14 @@ public class IMAPProtocolHandler
             try {
                 MessageSet uidSet = MessageSet.parse(knownUids);
                 long max = selectedMailbox.getUidNext() - 1;
-                expunged = expunged.stream()
-                        .filter(u -> uidSet.contains(u, max))
-                        .collect(java.util.stream.Collectors
-                                .toList());
+                List<Long> filtered = new ArrayList<Long>();
+                for (int i = 0; i < expunged.size(); i++) {
+                    Long uid = expunged.get(i);
+                    if (uidSet.contains(uid, max)) {
+                        filtered.add(uid);
+                    }
+                }
+                expunged = filtered;
             } catch (IllegalArgumentException ignored) {
                 // Malformed UID set; report all expunged
             }
@@ -2384,8 +2503,7 @@ public class IMAPProtocolHandler
         List<Long> changed =
                 selectedMailbox.getChangedSince(sinceModSeq);
         if (!changed.isEmpty()) {
-            java.util.Set<Long> changedSet =
-                    new java.util.HashSet<>(changed);
+            Set<Long> changedSet = new HashSet<Long>(changed);
             int count = selectedMailbox.getMessageCount();
             for (int msgNum = 1; msgNum <= count; msgNum++) {
                 long uid = resolveUid(selectedMailbox, msgNum);
@@ -2410,23 +2528,42 @@ public class IMAPProtocolHandler
             return;
         }
 
+        CreateStateImpl createState = new CreateStateImpl(tag, mailboxName);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.create(new CreateStateImpl(tag), store,
-                    mailboxName);
+            selectedHandler.create(createState, store, mailboxName);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.create(new CreateStateImpl(tag), store,
-                    mailboxName);
+            authenticatedHandler.create(createState, store, mailboxName);
             return;
         }
 
-        try {
-            store.createMailbox(mailboxName);
-            sendTaggedOk(tag, L10N.getString("imap.create_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.create_failed"));
-        }
+        executeCreate(tag, mailboxName);
+    }
+
+    private void executeCreate(final String tag, final String mailboxName) {
+        final MailboxStore currentStore = store;
+        submitStorage(new Callable<Void>() {
+            @Override
+            public Void call() throws IOException {
+                currentStore.createMailbox(mailboxName);
+                return null;
+            }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void ignored) {
+                try {
+                    sendTaggedOk(tag, L10N.getString("imap.create_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send CREATE OK", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                sendTaggedNoQuietly(tag, "imap.err.create_failed");
+            }
+        });
     }
 
     // RFC 9051 section 6.3.4 — DELETE command
@@ -2437,23 +2574,42 @@ public class IMAPProtocolHandler
             return;
         }
 
+        DeleteStateImpl deleteState = new DeleteStateImpl(tag, mailboxName);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.delete(new DeleteStateImpl(tag), store,
-                    mailboxName);
+            selectedHandler.delete(deleteState, store, mailboxName);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.delete(new DeleteStateImpl(tag), store,
-                    mailboxName);
+            authenticatedHandler.delete(deleteState, store, mailboxName);
             return;
         }
 
-        try {
-            store.deleteMailbox(mailboxName);
-            sendTaggedOk(tag, L10N.getString("imap.delete_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.delete_failed"));
-        }
+        executeDelete(tag, mailboxName);
+    }
+
+    private void executeDelete(final String tag, final String mailboxName) {
+        final MailboxStore currentStore = store;
+        submitStorage(new Callable<Void>() {
+            @Override
+            public Void call() throws IOException {
+                currentStore.deleteMailbox(mailboxName);
+                return null;
+            }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void ignored) {
+                try {
+                    sendTaggedOk(tag, L10N.getString("imap.delete_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send DELETE OK", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                sendTaggedNoQuietly(tag, "imap.err.delete_failed");
+            }
+        });
     }
 
     // RFC 9051 section 6.3.5 — RENAME command
@@ -2464,23 +2620,45 @@ public class IMAPProtocolHandler
             return;
         }
 
+        RenameStateImpl renameState =
+                new RenameStateImpl(tag, parts[0], parts[1]);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.rename(new RenameStateImpl(tag), store,
-                    parts[0], parts[1]);
+            selectedHandler.rename(renameState, store, parts[0], parts[1]);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.rename(new RenameStateImpl(tag), store,
-                    parts[0], parts[1]);
+            authenticatedHandler.rename(renameState, store, parts[0],
+                    parts[1]);
             return;
         }
 
-        try {
-            store.renameMailbox(parts[0], parts[1]);
-            sendTaggedOk(tag, L10N.getString("imap.rename_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.rename_failed"));
-        }
+        executeRename(tag, parts[0], parts[1]);
+    }
+
+    private void executeRename(final String tag, final String oldName,
+            final String newName) {
+        final MailboxStore currentStore = store;
+        submitStorage(new Callable<Void>() {
+            @Override
+            public Void call() throws IOException {
+                currentStore.renameMailbox(oldName, newName);
+                return null;
+            }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void ignored) {
+                try {
+                    sendTaggedOk(tag, L10N.getString("imap.rename_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send RENAME OK", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                sendTaggedNoQuietly(tag, "imap.err.rename_failed");
+            }
+        });
     }
 
     // RFC 9051 section 6.3.6 — SUBSCRIBE command
@@ -2491,23 +2669,18 @@ public class IMAPProtocolHandler
             return;
         }
 
+        SubscribeStateImpl subState =
+                new SubscribeStateImpl(tag, mailboxName, false);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.subscribe(new SubscribeStateImpl(tag), store,
-                    mailboxName);
+            selectedHandler.subscribe(subState, store, mailboxName);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.subscribe(new SubscribeStateImpl(tag), store,
-                    mailboxName);
+            authenticatedHandler.subscribe(subState, store, mailboxName);
             return;
         }
 
-        try {
-            store.subscribe(mailboxName);
-            sendTaggedOk(tag, L10N.getString("imap.subscribe_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.subscribe_failed"));
-        }
+        executeSubscribe(tag, mailboxName, false);
     }
 
     // RFC 9051 section 6.3.7 — UNSUBSCRIBE command
@@ -2518,23 +2691,54 @@ public class IMAPProtocolHandler
             return;
         }
 
+        SubscribeStateImpl subState =
+                new SubscribeStateImpl(tag, mailboxName, true);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.unsubscribe(new SubscribeStateImpl(tag), store,
-                    mailboxName);
+            selectedHandler.unsubscribe(subState, store, mailboxName);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.unsubscribe(new SubscribeStateImpl(tag), store,
-                    mailboxName);
+            authenticatedHandler.unsubscribe(subState, store, mailboxName);
             return;
         }
 
-        try {
-            store.unsubscribe(mailboxName);
-            sendTaggedOk(tag, L10N.getString("imap.unsubscribe_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.unsubscribe_failed"));
-        }
+        executeSubscribe(tag, mailboxName, true);
+    }
+
+    private void executeSubscribe(final String tag, final String mailboxName,
+            final boolean unsubscribe) {
+        final MailboxStore currentStore = store;
+        submitStorage(new Callable<Void>() {
+            @Override
+            public Void call() throws IOException {
+                if (unsubscribe) {
+                    currentStore.unsubscribe(mailboxName);
+                } else {
+                    currentStore.subscribe(mailboxName);
+                }
+                return null;
+            }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void ignored) {
+                try {
+                    String key = unsubscribe
+                            ? "imap.unsubscribe_complete"
+                            : "imap.subscribe_complete";
+                    sendTaggedOk(tag, L10N.getString(key));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send SUBSCRIBE OK", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                sendTaggedNoQuietly(tag, unsubscribe
+                        ? "imap.err.unsubscribe_failed"
+                        : "imap.err.subscribe_failed");
+            }
+        });
     }
 
     // RFC 9051 section 6.3.8 — LIST command
@@ -2548,37 +2752,18 @@ public class IMAPProtocolHandler
         String reference = parts[0];
         String pattern = parts[1];
 
+        ListStateImpl listState =
+                new ListStateImpl(tag, false, reference, pattern);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.list(new ListStateImpl(tag, false), store,
-                    reference, pattern);
+            selectedHandler.list(listState, store, reference, pattern);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.list(new ListStateImpl(tag, false), store,
-                    reference, pattern);
+            authenticatedHandler.list(listState, store, reference, pattern);
             return;
         }
 
-        try {
-            List<String> mailboxes = store.listMailboxes(reference, pattern);
-            for (String mailbox : mailboxes) {
-                Set<MailboxAttribute> attrs =
-                        store.getMailboxAttributes(mailbox);
-                StringBuilder attrStr = new StringBuilder();
-                for (MailboxAttribute attr : attrs) {
-                    if (attrStr.length() > 0) {
-                        attrStr.append(' ');
-                    }
-                    attrStr.append(attr.getImapAtom());
-                }
-                sendUntagged("LIST (" + attrStr + ") \""
-                        + store.getHierarchyDelimiter() + "\" "
-                        + quoteMailboxName(mailbox));
-            }
-            sendTaggedOk(tag, L10N.getString("imap.list_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.list_failed"));
-        }
+        executeList(tag, reference, pattern, false);
     }
 
     // RFC 9051 section 6.3.9 — LSUB command (deprecated, backward compat)
@@ -2589,27 +2774,74 @@ public class IMAPProtocolHandler
             return;
         }
 
+        ListStateImpl listState =
+                new ListStateImpl(tag, true, parts[0], parts[1]);
         if (state == IMAPState.SELECTED && selectedHandler != null) {
-            selectedHandler.lsub(new ListStateImpl(tag, true), store,
-                    parts[0], parts[1]);
+            selectedHandler.lsub(listState, store, parts[0], parts[1]);
             return;
         }
         if (authenticatedHandler != null) {
-            authenticatedHandler.lsub(new ListStateImpl(tag, true), store,
-                    parts[0], parts[1]);
+            authenticatedHandler.lsub(listState, store, parts[0], parts[1]);
             return;
         }
 
-        try {
-            List<String> mailboxes = store.listSubscribed(parts[0], parts[1]);
-            for (String mailbox : mailboxes) {
-                sendUntagged("LSUB () \"" + store.getHierarchyDelimiter()
-                        + "\" " + quoteMailboxName(mailbox));
+        executeList(tag, parts[0], parts[1], true);
+    }
+
+    private void executeList(final String tag, final String reference,
+            final String pattern, final boolean lsub) {
+        final MailboxStore currentStore = store;
+        submitStorage(new Callable<List<String[]>>() {
+            @Override
+            public List<String[]> call() throws IOException {
+                List<String> mailboxes = lsub
+                        ? currentStore.listSubscribed(reference, pattern)
+                        : currentStore.listMailboxes(reference, pattern);
+                String delim = String.valueOf(
+                        currentStore.getHierarchyDelimiter());
+                List<String[]> entries = new ArrayList<String[]>(
+                        mailboxes.size());
+                for (String name : mailboxes) {
+                    Set<MailboxAttribute> attrs =
+                            currentStore.getMailboxAttributes(name);
+                    StringBuilder attrStr = new StringBuilder();
+                    for (MailboxAttribute attr : attrs) {
+                        if (attrStr.length() > 0) {
+                            attrStr.append(' ');
+                        }
+                        attrStr.append(attr.getImapAtom());
+                    }
+                    entries.add(new String[] {
+                            attrStr.toString(), delim, name });
+                }
+                return entries;
             }
-            sendTaggedOk(tag, L10N.getString("imap.lsub_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.lsub_failed"));
-        }
+        }, new StorageExecutor.Callback<List<String[]>>() {
+            @Override
+            public void completed(List<String[]> entries) {
+                try {
+                    String cmd = lsub ? "LSUB" : "LIST";
+                    for (String[] entry : entries) {
+                        sendUntagged(cmd + " (" + entry[0] + ") \""
+                                + entry[1] + "\" "
+                                + quoteMailboxName(entry[2]));
+                    }
+                    String key = lsub ? "imap.lsub_complete"
+                            : "imap.list_complete";
+                    sendTaggedOk(tag, L10N.getString(key));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send LIST/LSUB response", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                sendTaggedNoQuietly(tag, lsub
+                        ? "imap.err.lsub_failed"
+                        : "imap.err.list_failed");
+            }
+        });
     }
 
     // RFC 2342 — NAMESPACE command
@@ -2920,18 +3152,19 @@ public class IMAPProtocolHandler
     private void executeAppendDirect(String tag, String mailboxName,
             Set<Flag> flags, OffsetDateTime internalDate,
             long literalSize, boolean nonSync) throws IOException {
-        // Opening the target mailbox is blocking disk I/O (file lock + full
-        // index scan) and must not run on the loop. Set up the literal state
-        // synchronously so the receive()/lexer flow is unchanged, then open
-        // the mailbox off-loop. Literal bytes arriving while the open is in
-        // flight are buffered by handleAppendLiteralBytes() (see rawBytes())
-        // and flushed on completion; reads are NOT paused so pipelined
-        // LITERAL+ data is never stranded in the connection buffer.
+        // Opening the target mailbox / async append writer is blocking disk
+        // I/O and must not run on the loop. Literal bytes arriving while the
+        // open is in flight are buffered and flushed on completion; reads are
+        // NOT paused so pipelined LITERAL+ data is never stranded.
         appendTag = tag;
         appendLiteralRemaining = literalSize;
         appendMailboxName = mailboxName;
         appendMessageSize = literalSize;
         appendMailbox = null;
+        appendWriter = null;
+        appendBufferedFallback = false;
+        appendFlags = flags;
+        appendInternalDate = internalDate;
         appendMailboxOpening = true;
         appendDiscarding = false;
         appendPendingData = new ByteArrayOutputStream();
@@ -2954,39 +3187,43 @@ public class IMAPProtocolHandler
         lexer.enterLiteral(literalSize);
 
         final String mbxName = mailboxName;
-        final Set<Flag> appendFlags = flags;
+        final Set<Flag> appendFlagsCopy = flags;
         final OffsetDateTime date = internalDate;
         final MailboxStore currentStore = store;
 
-        submitStorage(new Callable<Mailbox>() {
+        submitStorage(new Callable<AppendOpenResult>() {
             @Override
-            public Mailbox call() throws IOException {
+            public AppendOpenResult call() throws IOException {
                 Mailbox m = currentStore.openMailbox(mbxName, false);
-                m.startAppendMessage(appendFlags, date);
-                return m;
-            }
-        }, new StorageExecutor.Callback<Mailbox>() {
-            @Override
-            public void completed(Mailbox m) {
-                appendMailbox = m;
-                appendMailboxOpening = false;
-                try {
-                    flushPendingAppendData();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            "Failed writing buffered APPEND data", e);
-                    recordSessionException(e);
-                    appendPendingData = null;
-                    if (appendLiteralRemaining > 0) {
-                        appendDiscarding = true;
-                    } else {
-                        sendAppendFailure();
-                        resetAppendState();
-                    }
-                    return;
+                AsyncMessageWriter writer =
+                        m.openAsyncAppend(appendFlagsCopy, date);
+                if (writer != null) {
+                    return new AppendOpenResult(m, writer);
                 }
-                if (appendLiteralRemaining == 0) {
-                    finishAppend();
+                // mbox: no async writer — buffer literal on the loop and
+                // write entirely on StorageExecutor at finish.
+                return new AppendOpenResult(m, null);
+            }
+        }, new StorageExecutor.Callback<AppendOpenResult>() {
+            @Override
+            public void completed(AppendOpenResult opened) {
+                appendMailbox = opened.mailbox;
+                appendMailboxOpening = false;
+                if (opened.writer != null) {
+                    appendWriter = opened.writer;
+                    if (appendLiteralRemaining == 0) {
+                        // Literal already fully buffered — write + finish
+                        // off-loop in finishAppend (no AFC race on the loop).
+                        finishAppend();
+                        return;
+                    }
+                    flushPendingAppendDataToWriter();
+                } else {
+                    appendBufferedFallback = true;
+                    // Keep appendPendingData; finishAppend writes off-loop.
+                    if (appendLiteralRemaining == 0) {
+                        finishAppend();
+                    }
                 }
             }
 
@@ -2996,10 +3233,9 @@ public class IMAPProtocolHandler
                         + mbxName, error);
                 recordSessionException(error);
                 appendMailbox = null;
+                appendWriter = null;
                 appendMailboxOpening = false;
                 appendPendingData = null;
-                // The client is (or will be) sending the literal; drain it so
-                // the protocol stays in sync, then report the failure.
                 if (appendLiteralRemaining > 0) {
                     appendDiscarding = true;
                 } else {
@@ -3010,60 +3246,249 @@ public class IMAPProtocolHandler
         }, false);
     }
 
-    /**
-     * Flushes any literal bytes buffered while the APPEND target mailbox was
-     * opening into the now-open mailbox.
-     */
-    private void flushPendingAppendData() throws IOException {
-        if (appendPendingData == null) {
-            return;
-        }
-        byte[] data = appendPendingData.toByteArray();
-        appendPendingData = null;
-        if (data.length > 0) {
-            appendMailbox.appendMessageContent(ByteBuffer.wrap(data));
+    private static final class AppendOpenResult {
+        final Mailbox mailbox;
+        final AsyncMessageWriter writer;
+        AppendOpenResult(Mailbox mailbox, AsyncMessageWriter writer) {
+            this.mailbox = mailbox;
+            this.writer = writer;
         }
     }
 
     /**
-     * Finalises a completed APPEND: closes the message, records quota, and
-     * sends the tagged OK (or NO on error). Never throws; used from both the
-     * literal-read path and the async-open completion callback.
+     * Flushes literal bytes buffered while the async append writer was opening.
+     * Writes are asynchronous (AFC); does not block the SelectorLoop.
+     */
+    private void flushPendingAppendDataToWriter() {
+        if (appendPendingData == null || appendWriter == null) {
+            appendPendingData = null;
+            return;
+        }
+        byte[] data = appendPendingData.toByteArray();
+        appendPendingData = null;
+        if (data.length == 0) {
+            return;
+        }
+        final ByteBuffer copy = ByteBuffer.wrap(data);
+        appendWriter.write(copy, new CompletionHandler<Integer, ByteBuffer>() {
+            @Override
+            public void completed(Integer result, ByteBuffer attachment) {
+                // Flushed
+            }
+
+            @Override
+            public void failed(Throwable exc, ByteBuffer attachment) {
+                LOGGER.log(Level.WARNING,
+                        "Async APPEND flush write failed", exc);
+                endpoint.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (appendLiteralRemaining > 0) {
+                            appendDiscarding = true;
+                        } else {
+                            sendAppendFailure();
+                            resetAppendState();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Finalises a completed APPEND. Maildir finish (Files.move) and mbox
+     * FileChannel writes run on StorageExecutor — never on the loop.
      */
     private void finishAppend() {
-        try {
-            long uid = appendMailbox.endAppendMessage();
-            appendMailbox.close(false);
+        final String tag = appendTag;
+        final long messageSize = appendMessageSize;
+        final Mailbox mb = appendMailbox;
+        final AsyncMessageWriter writer = appendWriter;
+        final boolean buffered = appendBufferedFallback;
+        final byte[] bufferedData = (appendPendingData != null)
+                ? appendPendingData.toByteArray() : new byte[0];
+        final Set<Flag> flags = appendFlags;
+        final OffsetDateTime date = appendInternalDate;
 
-            QuotaManager quotaManager = server.getQuotaManager();
-            if (quotaManager != null) {
-                quotaManager.recordMessageAdded(authenticatedUser,
-                        appendMessageSize);
-            }
+        // Clear wire state before offloading so a late literal cannot race.
+        appendTag = null;
+        appendPendingData = null;
+        appendWriter = null;
+        appendMailbox = null;
+        appendBufferedFallback = false;
+        appendMailboxOpening = false;
+        appendDiscarding = false;
+        appendFlags = null;
+        appendInternalDate = null;
+        appendMailboxName = null;
+        appendMessageSize = 0;
 
-            addSessionEvent("APPEND_COMPLETE");
-            addSessionAttribute("imap.append.uid", uid);
-
-            sendTaggedOk(appendTag, "[APPENDUID "
-                    + appendMailbox.getUidValidity() + " " + uid + "] "
-                    + L10N.getString("imap.append_complete"));
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to complete APPEND", e);
-            addSessionEvent("APPEND_FAILED");
-            recordSessionException(e);
-            Throwable cause = e.getCause();
-            String msg = (cause instanceof HeaderLineTooLongException)
-                ? L10N.getString("imap.err.header_line_too_long")
-                : (cause instanceof HeaderValueTooLongException)
-                    ? L10N.getString("imap.err.header_value_too_long")
-                    : L10N.getString("imap.err.append_failed");
+        if (mb == null) {
             try {
-                sendTaggedNo(appendTag, msg);
-            } catch (IOException e2) {
-                LOGGER.log(Level.WARNING, "Failed to send APPEND error", e2);
+                sendTaggedNo(tag, "[TRYCREATE] "
+                        + L10N.getString("imap.err.append_failed"));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to send APPEND error", e);
             }
-        } finally {
-            resetAppendState();
+            return;
+        }
+
+        long uidValidity = 0;
+        try {
+            uidValidity = mb.getUidValidity();
+        } catch (IOException e) {
+            uidValidity = 0;
+        }
+        final long expectedUidValidity = uidValidity;
+
+        submitStorage(new Callable<Long>() {
+            @Override
+            public Long call() throws Exception {
+                try {
+                    long uid;
+                    if (writer != null) {
+                        if (bufferedData.length > 0) {
+                            writeFully(writer, bufferedData);
+                        }
+                        uid = finishAsyncWriter(writer);
+                    } else if (buffered) {
+                        mb.startAppendMessage(flags, date);
+                        if (bufferedData.length > 0) {
+                            mb.appendMessageContent(
+                                    ByteBuffer.wrap(bufferedData));
+                        }
+                        uid = mb.endAppendMessage();
+                    } else {
+                        uid = mb.endAppendMessage();
+                    }
+                    mb.close(false);
+                    return Long.valueOf(uid);
+                } catch (Exception e) {
+                    try {
+                        if (writer != null) {
+                            writer.abort();
+                        }
+                    } catch (Exception ignored) {
+                        // Best-effort cleanup
+                    }
+                    try {
+                        mb.close(false);
+                    } catch (IOException ce) {
+                        LOGGER.log(Level.FINE,
+                                "Error closing append mailbox", ce);
+                    }
+                    throw e;
+                }
+            }
+        }, new StorageExecutor.Callback<Long>() {
+            @Override
+            public void completed(Long uid) {
+                QuotaManager quotaManager = server.getQuotaManager();
+                if (quotaManager != null) {
+                    quotaManager.recordMessageAdded(authenticatedUser,
+                            messageSize);
+                }
+                addSessionEvent("APPEND_COMPLETE");
+                addSessionAttribute("imap.append.uid", uid);
+                try {
+                    sendTaggedOk(tag, "[APPENDUID "
+                            + expectedUidValidity + " " + uid + "] "
+                            + L10N.getString("imap.append_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send APPEND OK", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "Failed to complete APPEND", error);
+                addSessionEvent("APPEND_FAILED");
+                recordSessionException(error);
+                Throwable cause = (error instanceof IOException)
+                        ? error.getCause() : error;
+                String msg = (cause instanceof HeaderLineTooLongException)
+                    ? L10N.getString("imap.err.header_line_too_long")
+                    : (cause instanceof HeaderValueTooLongException)
+                        ? L10N.getString("imap.err.header_value_too_long")
+                        : L10N.getString("imap.err.append_failed");
+                try {
+                    sendTaggedNo(tag, msg);
+                } catch (IOException e2) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send APPEND error", e2);
+                }
+            }
+        });
+    }
+
+    private static void writeFully(AsyncMessageWriter writer, byte[] data)
+            throws Exception {
+        final AtomicReference<Throwable> errRef =
+                new AtomicReference<Throwable>();
+        final CountDownLatch latch = new CountDownLatch(1);
+        writer.write(ByteBuffer.wrap(data),
+                new CompletionHandler<Integer, ByteBuffer>() {
+            @Override
+            public void completed(Integer result, ByteBuffer attachment) {
+                latch.countDown();
+            }
+
+            @Override
+            public void failed(Throwable exc, ByteBuffer attachment) {
+                errRef.set(exc);
+                latch.countDown();
+            }
+        });
+        latch.await();
+        if (errRef.get() != null) {
+            Throwable t = errRef.get();
+            if (t instanceof Exception) {
+                throw (Exception) t;
+            }
+            throw new IOException(t);
+        }
+    }
+
+    private static long finishAsyncWriter(AsyncMessageWriter writer)
+            throws Exception {
+        final AtomicReference<Long> uidRef = new AtomicReference<Long>();
+        final AtomicReference<Throwable> errRef =
+                new AtomicReference<Throwable>();
+        final CountDownLatch latch = new CountDownLatch(1);
+        writer.finish(new CompletionHandler<Long, Void>() {
+            @Override
+            public void completed(Long uid, Void att) {
+                uidRef.set(uid);
+                latch.countDown();
+            }
+
+            @Override
+            public void failed(Throwable exc, Void att) {
+                errRef.set(exc);
+                latch.countDown();
+            }
+        });
+        latch.await();
+        if (errRef.get() != null) {
+            Throwable t = errRef.get();
+            if (t instanceof Exception) {
+                throw (Exception) t;
+            }
+            throw new IOException(t);
+        }
+        Long uid = uidRef.get();
+        return uid != null ? uid.longValue() : 0L;
+    }
+
+    private void abortAppendWriter() {
+        if (appendWriter != null) {
+            try {
+                appendWriter.abort();
+            } catch (Exception e) {
+                LOGGER.log(Level.FINE, "Error aborting append writer", e);
+            }
+            appendWriter = null;
         }
     }
 
@@ -3072,6 +3497,7 @@ public class IMAPProtocolHandler
      * written), swallowing any I/O error while writing the reply.
      */
     private void sendAppendFailure() {
+        abortAppendWriter();
         try {
             sendTaggedNo(appendTag, "[TRYCREATE] "
                     + L10N.getString("imap.err.append_failed"));
@@ -3081,13 +3507,17 @@ public class IMAPProtocolHandler
     }
 
     private void resetAppendState() {
+        abortAppendWriter();
         appendTag = null;
         appendMailbox = null;
         appendMailboxName = null;
         appendMessageSize = 0;
         appendMailboxOpening = false;
         appendDiscarding = false;
+        appendBufferedFallback = false;
         appendPendingData = null;
+        appendFlags = null;
+        appendInternalDate = null;
     }
 
     // RFC 9051 section 6.3.12: IMAP date-time format
@@ -3490,15 +3920,7 @@ public class IMAPProtocolHandler
             return;
         }
 
-        if (selectedMailbox != null) {
-            selectedMailbox.close(!selectedReadOnly);
-            selectedMailbox = null;
-        }
-        selectedReadOnly = false;
-        lastReportedExists = -1;
-        lastReportedUIDs = null;
-        state = IMAPState.AUTHENTICATED;
-        sendTaggedOk(tag, L10N.getString("imap.close_complete"));
+        executeClose(tag, true);
     }
 
     // RFC 9051 section 6.4.2 — UNSELECT command
@@ -3509,15 +3931,56 @@ public class IMAPProtocolHandler
             return;
         }
 
-        if (selectedMailbox != null) {
-            selectedMailbox.close(false);
-            selectedMailbox = null;
-        }
+        executeClose(tag, false);
+    }
+
+    private void executeClose(final String tag, final boolean expunge) {
+        final Mailbox mbox = selectedMailbox;
+        final boolean doExpunge = expunge && !selectedReadOnly;
+        selectedMailbox = null;
         selectedReadOnly = false;
         lastReportedExists = -1;
         lastReportedUIDs = null;
         state = IMAPState.AUTHENTICATED;
-        sendTaggedOk(tag, L10N.getString("imap.unselect_complete"));
+
+        if (mbox == null) {
+            try {
+                String key = expunge ? "imap.close_complete"
+                        : "imap.unselect_complete";
+                sendTaggedOk(tag, L10N.getString(key));
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send CLOSE/UNSELECT OK", e);
+            }
+            return;
+        }
+
+        submitStorage(new Callable<Void>() {
+            @Override
+            public Void call() throws IOException {
+                mbox.close(doExpunge);
+                return null;
+            }
+        }, new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void ignored) {
+                try {
+                    String key = expunge ? "imap.close_complete"
+                            : "imap.unselect_complete";
+                    sendTaggedOk(tag, L10N.getString(key));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send CLOSE/UNSELECT OK", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "Failed to close mailbox", error);
+                recordSessionException(error);
+                sendTaggedNoQuietly(tag, "imap.err.internal_error");
+            }
+        });
     }
 
     // RFC 9051 section 6.4.3 — EXPUNGE command
@@ -3533,38 +3996,71 @@ public class IMAPProtocolHandler
             return;
         }
 
-        try {
-            if (qresyncEnabled) {
-                // Collect UIDs before expunging (sequence numbers shift)
-                List<Long> expungedUids = new ArrayList<>();
-                int count = selectedMailbox.getMessageCount();
-                for (int msgNum = 1; msgNum <= count; msgNum++) {
-                    if (selectedMailbox.isDeleted(msgNum)) {
-                        expungedUids.add(
-                                resolveUid(selectedMailbox, msgNum));
-                    }
-                }
-                selectedMailbox.expunge();
-                if (!expungedUids.isEmpty()) {
-                    StringBuilder sb = new StringBuilder("VANISHED ");
-                    for (int i = 0; i < expungedUids.size(); i++) {
-                        if (i > 0) {
-                            sb.append(',');
+        executeExpunge(tag);
+    }
+
+    private void executeExpunge(final String tag) {
+        final Mailbox mbox = selectedMailbox;
+        final boolean useQresync = qresyncEnabled;
+
+        submitStorage(new Callable<Object>() {
+            @Override
+            public Object call() throws IOException {
+                if (useQresync) {
+                    List<Long> expungedUids = new ArrayList<Long>();
+                    int count = mbox.getMessageCount();
+                    for (int msgNum = 1; msgNum <= count; msgNum++) {
+                        if (mbox.isDeleted(msgNum)) {
+                            try {
+                                expungedUids.add(Long.parseLong(
+                                        mbox.getUniqueId(msgNum)));
+                            } catch (NumberFormatException e) {
+                                expungedUids.add(Long.valueOf(msgNum));
+                            }
                         }
-                        sb.append(expungedUids.get(i));
                     }
-                    sendUntagged(sb.toString());
+                    mbox.expunge();
+                    return expungedUids;
                 }
-            } else {
-                List<Integer> expunged = selectedMailbox.expunge();
-                for (int msgNum : expunged) {
-                    sendUntagged(msgNum + " EXPUNGE");
+                return mbox.expunge();
+            }
+        }, new StorageExecutor.Callback<Object>() {
+            @Override
+            @SuppressWarnings("unchecked")
+            public void completed(Object result) {
+                try {
+                    if (useQresync) {
+                        List<Long> expungedUids = (List<Long>) result;
+                        if (!expungedUids.isEmpty()) {
+                            StringBuilder sb =
+                                    new StringBuilder("VANISHED ");
+                            for (int i = 0; i < expungedUids.size(); i++) {
+                                if (i > 0) {
+                                    sb.append(',');
+                                }
+                                sb.append(expungedUids.get(i));
+                            }
+                            sendUntagged(sb.toString());
+                        }
+                    } else {
+                        List<Integer> expunged = (List<Integer>) result;
+                        for (int msgNum : expunged) {
+                            sendUntagged(msgNum + " EXPUNGE");
+                        }
+                    }
+                    sendTaggedOk(tag,
+                            L10N.getString("imap.expunge_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send EXPUNGE response", e);
                 }
             }
-            sendTaggedOk(tag, L10N.getString("imap.expunge_complete"));
-        } catch (IOException e) {
-            sendTaggedNo(tag, L10N.getString("imap.err.expunge_failed"));
-        }
+
+            @Override
+            public void failed(Throwable error) {
+                sendTaggedNoQuietly(tag, "imap.err.expunge_failed");
+            }
+        });
     }
 
     // RFC 9051 section 6.4.4 — SEARCH command
@@ -3859,13 +4355,13 @@ public class IMAPProtocolHandler
         }
 
         if (selectedHandler != null) {
-            StoreStateImpl state =
-                    new StoreStateImpl(tag);
+            StoreStateImpl storeState = new StoreStateImpl(tag, seqSet,
+                    action, flags, silent, uid, unchangedSince);
             if (uid) {
-                selectedHandler.uidStore(state, selectedMailbox,
+                selectedHandler.uidStore(storeState, selectedMailbox,
                         seqSet, action, flags, silent);
             } else {
-                selectedHandler.store(state, selectedMailbox,
+                selectedHandler.store(storeState, selectedMailbox,
                         seqSet, action, flags, silent);
             }
             return;
@@ -3911,12 +4407,13 @@ public class IMAPProtocolHandler
         }
 
         if (selectedHandler != null) {
-            CopyStateImpl state = new CopyStateImpl(tag);
+            CopyStateImpl copyState =
+                    new CopyStateImpl(tag, seqSet, mailboxName, uid);
             if (uid) {
-                selectedHandler.uidCopy(state, store, selectedMailbox,
+                selectedHandler.uidCopy(copyState, store, selectedMailbox,
                         seqSet, mailboxName);
             } else {
-                selectedHandler.copy(state, store, selectedMailbox,
+                selectedHandler.copy(copyState, store, selectedMailbox,
                         seqSet, mailboxName);
             }
             return;
@@ -3972,12 +4469,13 @@ public class IMAPProtocolHandler
         }
 
         if (selectedHandler != null) {
-            MoveStateImpl state = new MoveStateImpl(tag);
+            MoveStateImpl moveState =
+                    new MoveStateImpl(tag, seqSet, mailboxName, uid);
             if (uid) {
-                selectedHandler.uidMove(state, store, selectedMailbox,
+                selectedHandler.uidMove(moveState, store, selectedMailbox,
                         seqSet, mailboxName);
             } else {
-                selectedHandler.move(state, store, selectedMailbox,
+                selectedHandler.move(moveState, store, selectedMailbox,
                         seqSet, mailboxName);
             }
             return;
@@ -4014,6 +4512,8 @@ public class IMAPProtocolHandler
         private final boolean uid;
         private final boolean needsSeen;
         private int index;
+        private final List<Integer> pendingSeen = new ArrayList<Integer>();
+        private boolean preparing;
 
         FetchResponseWriter(String tag, Mailbox mailbox,
                 List<Integer> matching, Set<String> fetchItems,
@@ -4032,67 +4532,137 @@ public class IMAPProtocolHandler
         }
 
         void writeNext() {
+            if (preparing) {
+                return;
+            }
             try {
                 if (index < matching.size()) {
-                    int msgNum = matching.get(index).intValue();
-                    long msgUid = resolveUid(mailbox, msgNum);
+                    final int msgNum = matching.get(index).intValue();
+                    final List<Integer> seenBatch =
+                            new ArrayList<Integer>(pendingSeen);
+                    pendingSeen.clear();
+                    preparing = true;
 
-                    String asyncItem =
-                            findStreamableLiteralItem(fetchItems);
-                    AsyncMessageContent asyncContent = null;
-                    if (asyncItem != null) {
-                        try {
-                            asyncContent =
-                                    mailbox.openAsyncContent(msgNum);
-                        } catch (IOException e) {
-                            LOGGER.log(Level.FINE,
-                                    "Async content unavailable", e);
+                    submitStorage(new Callable<PreparedFetch>() {
+                        @Override
+                        public PreparedFetch call() throws IOException {
+                            for (int i = 0; i < seenBatch.size(); i++) {
+                                int n = seenBatch.get(i).intValue();
+                                try {
+                                    mailbox.setFlags(n,
+                                            EnumSet.of(Flag.SEEN), true);
+                                } catch (Exception ignored) {
+                                    // Flags not supported
+                                }
+                            }
+                            return prepareFetchContent(mailbox, msgNum,
+                                    fetchItems);
                         }
-                    }
+                    }, new StorageExecutor.Callback<PreparedFetch>() {
+                        @Override
+                        public void completed(PreparedFetch prep) {
+                            preparing = false;
+                            try {
+                                emitPreparedFetch(msgNum, prep);
+                            } catch (IOException e) {
+                                failFetch(e);
+                            }
+                        }
 
-                    if (asyncContent != null) {
-                        sendFetchResponseAsync(mailbox, msgNum,
-                                msgUid, fetchItems, uid, asyncItem,
-                                asyncContent, () -> advanceAfterFetch(
-                                        msgNum));
-                        return;
-                    }
-
-                    sendFetchResponse(mailbox, msgNum, msgUid,
-                            fetchItems, uid);
-                    advanceAfterFetch(msgNum);
+                        @Override
+                        public void failed(Throwable error) {
+                            preparing = false;
+                            failFetch(error);
+                        }
+                    });
                 } else {
-                    finishFetch();
+                    flushSeenAndFinish();
                 }
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error during chunked FETCH write", e);
-                endpoint.onWriteReady(null);
+            } catch (Exception e) {
+                failFetch(e);
+            }
+        }
+
+        private void emitPreparedFetch(int msgNum, PreparedFetch prep)
+                throws IOException {
+            long msgUid = resolveUid(mailbox, msgNum);
+            String asyncItem = findStreamableLiteralItem(fetchItems);
+
+            if (asyncItem != null && prep.asyncContent != null) {
+                sendFetchResponseAsync(mailbox, msgNum, msgUid, fetchItems,
+                        uid, asyncItem, prep.asyncContent, prep.contentBytes,
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                advanceAfterFetch(msgNum);
+                            }
+                        });
+                return;
+            }
+
+            sendFetchResponse(mailbox, msgNum, msgUid, fetchItems, uid,
+                    prep.contentBytes);
+            if (prep.asyncContent != null) {
                 try {
-                    sendTaggedNo(tag,
-                            L10N.getString("imap.err.internal_error"));
-                } catch (IOException e2) {
-                    LOGGER.log(Level.WARNING,
-                            "Failed to send FETCH error", e2);
+                    prep.asyncContent.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE,
+                            "Error closing unused async content", e);
                 }
             }
+            advanceAfterFetch(msgNum);
         }
 
         private void advanceAfterFetch(int msgNum) {
             if (needsSeen && !selectedReadOnly) {
-                try {
-                    mailbox.setFlags(msgNum,
-                            EnumSet.of(Flag.SEEN), true);
-                } catch (Exception ignored) {
-                    // Flags not supported by this mailbox
-                }
+                pendingSeen.add(Integer.valueOf(msgNum));
             }
             index++;
             if (index < matching.size()) {
                 endpoint.onWriteReady(this);
             } else {
-                finishFetch();
+                flushSeenAndFinish();
             }
+        }
+
+        private void flushSeenAndFinish() {
+            if (pendingSeen.isEmpty()) {
+                finishFetch();
+                return;
+            }
+            final List<Integer> seenBatch =
+                    new ArrayList<Integer>(pendingSeen);
+            pendingSeen.clear();
+            preparing = true;
+            submitStorage(new Callable<Void>() {
+                @Override
+                public Void call() {
+                    for (int i = 0; i < seenBatch.size(); i++) {
+                        int n = seenBatch.get(i).intValue();
+                        try {
+                            mailbox.setFlags(n,
+                                    EnumSet.of(Flag.SEEN), true);
+                        } catch (Exception ignored) {
+                            // Flags not supported
+                        }
+                    }
+                    return null;
+                }
+            }, new StorageExecutor.Callback<Void>() {
+                @Override
+                public void completed(Void result) {
+                    preparing = false;
+                    finishFetch();
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    preparing = false;
+                    LOGGER.log(Level.FINE,
+                            "Deferred SEEN update failed", error);
+                    finishFetch();
+                }
+            });
         }
 
         private void finishFetch() {
@@ -4105,6 +4675,100 @@ public class IMAPProtocolHandler
                         "Failed to send FETCH completion", e);
             }
         }
+
+        private void failFetch(Throwable e) {
+            LOGGER.log(Level.WARNING,
+                    "Error during chunked FETCH write", e);
+            endpoint.onWriteReady(null);
+            try {
+                sendTaggedNo(tag,
+                        L10N.getString("imap.err.internal_error"));
+            } catch (IOException e2) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to send FETCH error", e2);
+            }
+        }
+    }
+
+    /**
+     * Content prepared off the SelectorLoop for one FETCH message.
+     */
+    private static final class PreparedFetch {
+        final AsyncMessageContent asyncContent;
+        final byte[] contentBytes;
+
+        PreparedFetch(AsyncMessageContent asyncContent, byte[] contentBytes) {
+            this.asyncContent = asyncContent;
+            this.contentBytes = contentBytes;
+        }
+    }
+
+    /**
+     * Opens async content and/or loads message bytes on a storage thread.
+     * Never call from the SelectorLoop.
+     */
+    private PreparedFetch prepareFetchContent(Mailbox mailbox, int msgNum,
+            Set<String> fetchItems) throws IOException {
+        AsyncMessageContent async = null;
+        try {
+            async = mailbox.openAsyncContent(msgNum);
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "Async content unavailable", e);
+        }
+
+        boolean needBytes = fetchNeedsLoadedBytes(fetchItems, mailbox, msgNum);
+        if (async != null && !needBytes && async.bodyOffset() < 0
+                && findStreamableLiteralItem(fetchItems) != null) {
+            // HEADER/TEXT streaming needs bodyOffset; fall back to full load.
+            needBytes = true;
+        }
+        byte[] bytes = null;
+        if (async == null || needBytes) {
+            bytes = loadMessageContentBytes(mailbox, msgNum);
+            if (async == null && bytes != null) {
+                async = new BufferedAsyncMessageContent(bytes);
+            }
+        }
+        return new PreparedFetch(async, bytes);
+    }
+
+    /**
+     * True when FETCH items require a full in-memory copy (cannot be served
+     * solely by streaming AsyncMessageContent).
+     */
+    private boolean fetchNeedsLoadedBytes(Set<String> fetchItems,
+            Mailbox mailbox, int msgNum) throws IOException {
+        for (String item : fetchItems) {
+            String upper = item.toUpperCase(Locale.ENGLISH);
+            if (upper.equals("ENVELOPE")) {
+                MessageDescriptor desc = mailbox.getMessage(msgNum);
+                if (desc instanceof IMAPMessageDescriptor) {
+                    IMAPMessageDescriptor.Envelope env =
+                            ((IMAPMessageDescriptor) desc).getEnvelope();
+                    if (env != null) {
+                        continue;
+                    }
+                }
+                return true;
+            }
+            if (upper.equals("RFC822.HEADER")) {
+                return true;
+            }
+            if (upper.startsWith("BODY[") || upper.startsWith("BODY.PEEK[")) {
+                int bo = upper.indexOf('[');
+                int bc = upper.indexOf(']', bo);
+                if (bo >= 0 && bc >= 0) {
+                    String sec = upper.substring(bo + 1, bc);
+                    if (sec.isEmpty() || sec.equals("HEADER")
+                            || sec.equals("TEXT")) {
+                        continue;
+                    }
+                    return true;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -4151,19 +4815,27 @@ public class IMAPProtocolHandler
                         ByteBuffer attachment) {
                     if (result == null || result <= 0) {
                         ByteBufferPool.release(attachment);
-                        endpoint.execute(() -> closeAndComplete());
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                closeAndComplete();
+                            }
+                        });
                         return;
                     }
                     bytesWritten += result;
                     attachment.flip();
-                    endpoint.execute(() -> {
-                        endpoint.send(attachment);
-                        ByteBufferPool.release(attachment);
-                        if (bytesWritten >= length) {
-                            closeAndComplete();
-                        } else {
-                            endpoint.onWriteReady(
-                                    AsyncLiteralWriter.this);
+                    endpoint.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            endpoint.send(attachment);
+                            ByteBufferPool.release(attachment);
+                            if (bytesWritten >= length) {
+                                closeAndComplete();
+                            } else {
+                                endpoint.onWriteReady(
+                                        AsyncLiteralWriter.this);
+                            }
                         }
                     });
                 }
@@ -4174,7 +4846,12 @@ public class IMAPProtocolHandler
                     ByteBufferPool.release(attachment);
                     LOGGER.log(Level.WARNING,
                             "Async literal read failed", exc);
-                    endpoint.execute(() -> closeAndComplete());
+                    endpoint.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            closeAndComplete();
+                        }
+                    });
                 }
             });
         }
@@ -4202,8 +4879,8 @@ public class IMAPProtocolHandler
     }
 
     private void sendFetchResponse(Mailbox mailbox, int msgNum,
-            long msgUid, Set<String> fetchItems, boolean uid)
-            throws IOException {
+            long msgUid, Set<String> fetchItems, boolean uid,
+            byte[] contentBytes) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(("* " + msgNum + " FETCH (").getBytes(US_ASCII));
 
@@ -4224,23 +4901,23 @@ public class IMAPProtocolHandler
             } else if (upper.equals("INTERNALDATE")) {
                 writeFetchInternalDate(out, mailbox, msgNum);
             } else if (upper.equals("ENVELOPE")) {
-                writeFetchEnvelope(out, mailbox, msgNum);
+                writeFetchEnvelope(out, mailbox, msgNum, contentBytes);
             } else if (upper.equals("BODYSTRUCTURE")) {
                 writeFetchBodyStructure(out, mailbox, msgNum, true);
             } else if (upper.equals("BODY") && !item.contains("[")) {
                 writeFetchBodyStructure(out, mailbox, msgNum, false);
             } else if (upper.equals("RFC822")) {
-                writeFetchLiteral(out, "RFC822", mailbox, msgNum,
+                writeFetchLiteral(out, "RFC822", contentBytes,
                         FetchSection.FULL);
             } else if (upper.equals("RFC822.HEADER")) {
-                writeFetchLiteral(out, "RFC822.HEADER", mailbox,
-                        msgNum, FetchSection.HEADER);
+                writeFetchLiteral(out, "RFC822.HEADER", contentBytes,
+                        FetchSection.HEADER);
             } else if (upper.equals("RFC822.TEXT")) {
-                writeFetchLiteral(out, "RFC822.TEXT", mailbox,
-                        msgNum, FetchSection.TEXT);
+                writeFetchLiteral(out, "RFC822.TEXT", contentBytes,
+                        FetchSection.TEXT);
             } else if (upper.startsWith("BODY[")
                     || upper.startsWith("BODY.PEEK[")) {
-                writeFetchBodySection(out, item, mailbox, msgNum);
+                writeFetchBodySection(out, item, contentBytes);
             }
         }
 
@@ -4346,7 +5023,7 @@ public class IMAPProtocolHandler
     private void sendFetchResponseAsync(Mailbox mailbox, int msgNum,
             long msgUid, Set<String> fetchItems, boolean uid,
             String asyncItem, AsyncMessageContent asyncContent,
-            Runnable onComplete) throws IOException {
+            byte[] contentBytes, Runnable onComplete) throws IOException {
         ByteArrayOutputStream prefix = new ByteArrayOutputStream();
         ByteArrayOutputStream suffix = new ByteArrayOutputStream();
         boolean first = true;
@@ -4438,8 +5115,8 @@ public class IMAPProtocolHandler
                     continue;
                 }
 
-                writeFetchLiteral(prefix, asyncItemHeader, mailbox,
-                        msgNum, section);
+                writeFetchLiteral(prefix, asyncItemHeader, contentBytes,
+                        section);
                 continue;
             }
 
@@ -4452,23 +5129,23 @@ public class IMAPProtocolHandler
             } else if (upper.equals("INTERNALDATE")) {
                 writeFetchInternalDate(target, mailbox, msgNum);
             } else if (upper.equals("ENVELOPE")) {
-                writeFetchEnvelope(target, mailbox, msgNum);
+                writeFetchEnvelope(target, mailbox, msgNum, contentBytes);
             } else if (upper.equals("BODYSTRUCTURE")) {
                 writeFetchBodyStructure(target, mailbox, msgNum, true);
             } else if (upper.equals("BODY") && !item.contains("[")) {
                 writeFetchBodyStructure(target, mailbox, msgNum, false);
             } else if (upper.equals("RFC822")) {
-                writeFetchLiteral(target, "RFC822", mailbox, msgNum,
+                writeFetchLiteral(target, "RFC822", contentBytes,
                         FetchSection.FULL);
             } else if (upper.equals("RFC822.HEADER")) {
-                writeFetchLiteral(target, "RFC822.HEADER", mailbox,
-                        msgNum, FetchSection.HEADER);
+                writeFetchLiteral(target, "RFC822.HEADER", contentBytes,
+                        FetchSection.HEADER);
             } else if (upper.equals("RFC822.TEXT")) {
-                writeFetchLiteral(target, "RFC822.TEXT", mailbox,
-                        msgNum, FetchSection.TEXT);
+                writeFetchLiteral(target, "RFC822.TEXT", contentBytes,
+                        FetchSection.TEXT);
             } else if (upper.startsWith("BODY[")
                     || upper.startsWith("BODY.PEEK[")) {
-                writeFetchBodySection(target, item, mailbox, msgNum);
+                writeFetchBodySection(target, item, contentBytes);
             }
         }
 
@@ -4503,9 +5180,13 @@ public class IMAPProtocolHandler
             byte[] suffixBytes = suffix.toByteArray();
             AsyncLiteralWriter writer = new AsyncLiteralWriter(
                     asyncContent, asyncRange[0], asyncRange[1],
-                    () -> {
-                        endpoint.send(ByteBuffer.wrap(suffixBytes));
-                        onComplete.run();
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            endpoint.send(
+                                    ByteBuffer.wrap(suffixBytes));
+                            onComplete.run();
+                        }
                     });
             endpoint.onWriteReady(writer);
             return;
@@ -4544,7 +5225,8 @@ public class IMAPProtocolHandler
     }
 
     private void writeFetchEnvelope(ByteArrayOutputStream out,
-            Mailbox mailbox, int msgNum) throws IOException {
+            Mailbox mailbox, int msgNum, byte[] contentBytes)
+            throws IOException {
         MessageDescriptor desc = mailbox.getMessage(msgNum);
         if (desc instanceof IMAPMessageDescriptor) {
             IMAPMessageDescriptor imapDesc =
@@ -4559,8 +5241,11 @@ public class IMAPProtocolHandler
             }
         }
 
-        byte[] content = readMessageContent(mailbox, msgNum);
-        byte[] headerBytes = extractHeaders(content);
+        if (contentBytes == null) {
+            out.write("ENVELOPE NIL".getBytes(US_ASCII));
+            return;
+        }
+        byte[] headerBytes = extractHeaders(contentBytes);
         String headers = new String(headerBytes, US_ASCII);
         out.write("ENVELOPE ".getBytes(US_ASCII));
         out.write(formatEnvelopeFromHeaders(headers)
@@ -4596,9 +5281,9 @@ public class IMAPProtocolHandler
     enum FetchSection { FULL, HEADER, TEXT }
 
     private void writeFetchLiteral(ByteArrayOutputStream out,
-            String itemName, Mailbox mailbox, int msgNum,
-            FetchSection section) throws IOException {
-        byte[] content = readMessageContent(mailbox, msgNum);
+            String itemName, byte[] contentBytes, FetchSection section)
+            throws IOException {
+        byte[] content = contentBytes != null ? contentBytes : new byte[0];
         byte[] data;
         switch (section) {
             case HEADER:
@@ -4617,8 +5302,7 @@ public class IMAPProtocolHandler
     }
 
     private void writeFetchBodySection(ByteArrayOutputStream out,
-            String item, Mailbox mailbox, int msgNum)
-            throws IOException {
+            String item, byte[] contentBytes) throws IOException {
         int bracketOpen = item.indexOf('[');
         int bracketClose = item.indexOf(']', bracketOpen);
         if (bracketOpen < 0 || bracketClose < 0) {
@@ -4646,7 +5330,7 @@ public class IMAPProtocolHandler
             }
         }
 
-        byte[] content = readMessageContent(mailbox, msgNum);
+        byte[] content = contentBytes != null ? contentBytes : new byte[0];
         byte[] data;
         if (sectionUpper.isEmpty()) {
             data = content;
@@ -4689,75 +5373,113 @@ public class IMAPProtocolHandler
 
     // ── STORE execution ──
 
-    private void executeStore(String tag, Mailbox mailbox,
-            MessageSet seqSet, StoreAction action, Set<Flag> flags,
-            boolean silent, boolean uid, long unchangedSince)
-            throws IOException {
-        List<Integer> matching = resolveMatchingMessages(mailbox,
+    private void executeStore(final String tag, final Mailbox mailbox,
+            MessageSet seqSet, final StoreAction action,
+            final Set<Flag> flags, final boolean silent, boolean uid,
+            final long unchangedSince) throws IOException {
+        final List<Integer> matching = resolveMatchingMessages(mailbox,
                 seqSet, uid);
+        final boolean condstore = condstoreEnabled;
 
-        List<Long> modifiedUids = null;
-        if (unchangedSince >= 0) {
-            modifiedUids = new ArrayList<>();
-        }
+        submitStorage(new Callable<StoreResult>() {
+            @Override
+            public StoreResult call() throws IOException {
+                List<String> fetchLines = new ArrayList<String>();
+                List<Long> modifiedUids = (unchangedSince >= 0)
+                        ? new ArrayList<Long>() : null;
 
-        for (int i = 0; i < matching.size(); i++) {
-            int msgNum = matching.get(i).intValue();
-            try {
-                // CONDSTORE: skip messages modified after
-                // the given UNCHANGEDSINCE value
-                if (unchangedSince >= 0) {
-                    long modSeq = mailbox.getModSeq(msgNum);
-                    if (modSeq > unchangedSince) {
-                        long msgUid = resolveUid(mailbox, msgNum);
-                        modifiedUids.add(msgUid);
-                        continue;
-                    }
-                }
-
-                switch (action) {
-                    case REPLACE:
-                        mailbox.replaceFlags(msgNum, flags);
-                        break;
-                    case ADD:
-                        mailbox.setFlags(msgNum, flags, true);
-                        break;
-                    case REMOVE:
-                        mailbox.setFlags(msgNum, flags, false);
-                        break;
-                }
-                if (!silent) {
-                    Set<Flag> newFlags = mailbox.getFlags(msgNum);
-                    if (condstoreEnabled) {
+                for (int i = 0; i < matching.size(); i++) {
+                    int msgNum = matching.get(i).intValue();
+                    if (unchangedSince >= 0) {
                         long modSeq = mailbox.getModSeq(msgNum);
-                        sendUntagged(msgNum + " FETCH (FLAGS ("
-                                + formatFlags(newFlags)
-                                + ") MODSEQ (" + modSeq + "))");
-                    } else {
-                        sendUntagged(msgNum + " FETCH (FLAGS ("
-                                + formatFlags(newFlags) + "))");
+                        if (modSeq > unchangedSince) {
+                            long msgUid;
+                            try {
+                                msgUid = Long.parseLong(
+                                        mailbox.getUniqueId(msgNum));
+                            } catch (NumberFormatException e) {
+                                msgUid = msgNum;
+                            }
+                            modifiedUids.add(Long.valueOf(msgUid));
+                            continue;
+                        }
+                    }
+
+                    switch (action) {
+                        case REPLACE:
+                            mailbox.replaceFlags(msgNum, flags);
+                            break;
+                        case ADD:
+                            mailbox.setFlags(msgNum, flags, true);
+                            break;
+                        case REMOVE:
+                            mailbox.setFlags(msgNum, flags, false);
+                            break;
+                    }
+                    if (!silent) {
+                        Set<Flag> newFlags = mailbox.getFlags(msgNum);
+                        if (condstore) {
+                            long modSeq = mailbox.getModSeq(msgNum);
+                            fetchLines.add(msgNum + " FETCH (FLAGS ("
+                                    + formatFlags(newFlags)
+                                    + ") MODSEQ (" + modSeq + "))");
+                        } else {
+                            fetchLines.add(msgNum + " FETCH (FLAGS ("
+                                    + formatFlags(newFlags) + "))");
+                        }
                     }
                 }
-            } catch (UnsupportedOperationException e) {
-                sendTaggedNo(tag,
-                        L10N.getString("imap.err.read_only"));
-                return;
+                return new StoreResult(fetchLines, modifiedUids);
             }
-        }
-
-        if (modifiedUids != null && !modifiedUids.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < modifiedUids.size(); i++) {
-                if (i > 0) {
-                    sb.append(',');
+        }, new StorageExecutor.Callback<StoreResult>() {
+            @Override
+            public void completed(StoreResult result) {
+                try {
+                    for (String line : result.fetchLines) {
+                        sendUntagged(line);
+                    }
+                    if (result.modifiedUids != null
+                            && !result.modifiedUids.isEmpty()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < result.modifiedUids.size();
+                                i++) {
+                            if (i > 0) {
+                                sb.append(',');
+                            }
+                            sb.append(result.modifiedUids.get(i));
+                        }
+                        sendTaggedOk(tag, "[MODIFIED " + sb + "] "
+                                + L10N.getString("imap.store_complete"));
+                    } else {
+                        sendTaggedOk(tag,
+                                L10N.getString("imap.store_complete"));
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send STORE response", e);
                 }
-                sb.append(modifiedUids.get(i));
             }
-            sendTaggedOk(tag, "[MODIFIED " + sb + "] "
-                    + L10N.getString("imap.store_complete"));
-        } else {
-            sendTaggedOk(tag,
-                    L10N.getString("imap.store_complete"));
+
+            @Override
+            public void failed(Throwable error) {
+                if (error instanceof UnsupportedOperationException) {
+                    sendTaggedNoQuietly(tag, "imap.err.read_only");
+                } else {
+                    LOGGER.log(Level.WARNING, "STORE failed", error);
+                    recordSessionException(error);
+                    sendTaggedNoQuietly(tag, "imap.err.internal_error");
+                }
+            }
+        });
+    }
+
+    private static final class StoreResult {
+        final List<String> fetchLines;
+        final List<Long> modifiedUids;
+
+        StoreResult(List<String> fetchLines, List<Long> modifiedUids) {
+            this.fetchLines = fetchLines;
+            this.modifiedUids = modifiedUids;
         }
     }
 
@@ -5110,13 +5832,11 @@ public class IMAPProtocolHandler
      * Uses a pre-sized array when message size is known to avoid
      * ByteArrayOutputStream growth and extra copying.
      *
-     * <p>This synchronous path is used for FETCH items that require the
-     * full message content for parsing (ENVELOPE, BODYSTRUCTURE, partial
-     * body sections with offset/count). Streamable items (RFC822, full
-     * BODY[] sections) use the async path in
-     * {@code sendFetchResponseAsync()} via {@link AsyncLiteralWriter}.
+     * <p><strong>Must only be called from a StorageExecutor worker</strong>
+     * (or equivalent non-loop thread). SelectorLoop code must use bytes
+     * prepared by {@link #prepareFetchContent}.
      */
-    private byte[] readMessageContent(Mailbox mailbox, int msgNum)
+    private byte[] loadMessageContentBytes(Mailbox mailbox, int msgNum)
             throws IOException {
         MessageDescriptor desc = mailbox.getMessage(msgNum);
         long size = (desc != null) ? desc.getSize() : -1;
@@ -5872,14 +6592,51 @@ public class IMAPProtocolHandler
     private class AuthenticateStateImpl implements AuthenticateState {
         private final String tag;
         private final String mechanism;
+        private final Runnable onSuccess;
 
         AuthenticateStateImpl(String tag) {
-            this(tag, "PASSWORD");
+            this(tag, "PASSWORD", null);
         }
 
         AuthenticateStateImpl(String tag, String mechanism) {
+            this(tag, mechanism, null);
+        }
+
+        AuthenticateStateImpl(String tag, String mechanism,
+                Runnable onSuccess) {
             this.tag = tag;
             this.mechanism = mechanism;
+            this.onSuccess = onSuccess;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            final String user = authenticatedUser;
+            final String mech = mechanism;
+            final String responseTag = tag;
+            final Runnable success = onSuccess;
+            submitOpenMailStore(user, mech, responseTag, new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (success != null) {
+                            success.run();
+                        } else {
+                            String caps = server.getCapabilities(true,
+                                    endpoint.isSecure());
+                            sendTaggedOk(responseTag, "[CAPABILITY " + caps
+                                    + "] "
+                                    + L10N.getString("imap.auth_complete"));
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING,
+                                "Failed to send auth OK", e);
+                    } finally {
+                        resetAuthState();
+                    }
+                }
+            });
         }
 
         @Override
@@ -5936,9 +6693,28 @@ public class IMAPProtocolHandler
 
     private class SelectStateImpl implements SelectState {
         private final String tag;
+        private final String mailboxName;
+        private final boolean readOnly;
+        private final long qresyncUidValidity;
+        private final long qresyncModSeq;
+        private final String qresyncKnownUids;
 
-        SelectStateImpl(String tag) {
+        SelectStateImpl(String tag, String mailboxName, boolean readOnly,
+                long qresyncUidValidity, long qresyncModSeq,
+                String qresyncKnownUids) {
             this.tag = tag;
+            this.mailboxName = mailboxName;
+            this.readOnly = readOnly;
+            this.qresyncUidValidity = qresyncUidValidity;
+            this.qresyncModSeq = qresyncModSeq;
+            this.qresyncKnownUids = qresyncKnownUids;
+        }
+
+        @Override
+        public void proceed(SelectedHandler handler) {
+            selectedHandler = handler;
+            executeSelect(tag, mailboxName, readOnly, qresyncUidValidity,
+                    qresyncModSeq, qresyncKnownUids);
         }
 
         @Override
@@ -6098,9 +6874,35 @@ public class IMAPProtocolHandler
 
     private class StoreStateImpl implements StoreState {
         private final String tag;
+        private final MessageSet seqSet;
+        private final StoreAction action;
+        private final Set<Flag> flags;
+        private final boolean silent;
+        private final boolean uid;
+        private final long unchangedSince;
 
-        StoreStateImpl(String tag) {
+        StoreStateImpl(String tag, MessageSet seqSet, StoreAction action,
+                Set<Flag> flags, boolean silent, boolean uid,
+                long unchangedSince) {
             this.tag = tag;
+            this.seqSet = seqSet;
+            this.action = action;
+            this.flags = flags;
+            this.silent = silent;
+            this.uid = uid;
+            this.unchangedSince = unchangedSince;
+        }
+
+        @Override
+        public void proceed(SelectedHandler handler) {
+            selectedHandler = handler;
+            try {
+                executeStore(tag, selectedMailbox, seqSet, action, flags,
+                        silent, uid, unchangedSince);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to execute STORE", e);
+                sendTaggedNoQuietly(tag, "imap.err.internal_error");
+            }
         }
 
         @Override
@@ -6146,9 +6948,27 @@ public class IMAPProtocolHandler
 
     private class CopyStateImpl implements CopyState {
         private final String tag;
+        private final MessageSet seqSet;
+        private final String targetMailbox;
+        private final boolean uid;
 
-        CopyStateImpl(String tag) {
+        CopyStateImpl(String tag, MessageSet seqSet, String targetMailbox,
+                boolean uid) {
             this.tag = tag;
+            this.seqSet = seqSet;
+            this.targetMailbox = targetMailbox;
+            this.uid = uid;
+        }
+
+        @Override
+        public void proceed(SelectedHandler handler) {
+            selectedHandler = handler;
+            try {
+                executeCopy(tag, selectedMailbox, seqSet, targetMailbox, uid);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to execute COPY", e);
+                sendTaggedNoQuietly(tag, "imap.err.internal_error");
+            }
         }
 
         @Override
@@ -6209,9 +7029,27 @@ public class IMAPProtocolHandler
 
     private class MoveStateImpl implements MoveState {
         private final String tag;
+        private final MessageSet seqSet;
+        private final String targetMailbox;
+        private final boolean uid;
 
-        MoveStateImpl(String tag) {
+        MoveStateImpl(String tag, MessageSet seqSet, String targetMailbox,
+                boolean uid) {
             this.tag = tag;
+            this.seqSet = seqSet;
+            this.targetMailbox = targetMailbox;
+            this.uid = uid;
+        }
+
+        @Override
+        public void proceed(SelectedHandler handler) {
+            selectedHandler = handler;
+            try {
+                executeMove(tag, selectedMailbox, seqSet, targetMailbox, uid);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to execute MOVE", e);
+                sendTaggedNoQuietly(tag, "imap.err.internal_error");
+            }
         }
 
         @Override
@@ -6290,6 +7128,13 @@ public class IMAPProtocolHandler
         }
 
         @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            selectedHandler = null;
+            executeClose(tag, expunge);
+        }
+
+        @Override
         public void closed(AuthenticatedHandler handler) {
             authenticatedHandler = handler;
             selectedHandler = null;
@@ -6328,6 +7173,12 @@ public class IMAPProtocolHandler
 
         ExpungeStateImpl(String tag) {
             this.tag = tag;
+        }
+
+        @Override
+        public void proceed(SelectedHandler handler) {
+            selectedHandler = handler;
+            executeExpunge(tag);
         }
 
         @Override
@@ -6420,9 +7271,17 @@ public class IMAPProtocolHandler
 
     private class CreateStateImpl implements CreateState {
         private final String tag;
+        private final String mailboxName;
 
-        CreateStateImpl(String tag) {
+        CreateStateImpl(String tag, String mailboxName) {
             this.tag = tag;
+            this.mailboxName = mailboxName;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            executeCreate(tag, mailboxName);
         }
 
         @Override
@@ -6480,9 +7339,17 @@ public class IMAPProtocolHandler
 
     private class DeleteStateImpl implements DeleteState {
         private final String tag;
+        private final String mailboxName;
 
-        DeleteStateImpl(String tag) {
+        DeleteStateImpl(String tag, String mailboxName) {
             this.tag = tag;
+            this.mailboxName = mailboxName;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            executeDelete(tag, mailboxName);
         }
 
         @Override
@@ -6529,9 +7396,19 @@ public class IMAPProtocolHandler
 
     private class RenameStateImpl implements RenameState {
         private final String tag;
+        private final String oldName;
+        private final String newName;
 
-        RenameStateImpl(String tag) {
+        RenameStateImpl(String tag, String oldName, String newName) {
             this.tag = tag;
+            this.oldName = oldName;
+            this.newName = newName;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            executeRename(tag, oldName, newName);
         }
 
         @Override
@@ -6590,9 +7467,20 @@ public class IMAPProtocolHandler
 
     private class SubscribeStateImpl implements SubscribeState {
         private final String tag;
+        private final String mailboxName;
+        private final boolean unsubscribe;
 
-        SubscribeStateImpl(String tag) {
+        SubscribeStateImpl(String tag, String mailboxName,
+                boolean unsubscribe) {
             this.tag = tag;
+            this.mailboxName = mailboxName;
+            this.unsubscribe = unsubscribe;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            executeSubscribe(tag, mailboxName, unsubscribe);
         }
 
         @Override
@@ -6640,10 +7528,21 @@ public class IMAPProtocolHandler
     private class ListStateImpl implements ListState {
         private final String tag;
         private final boolean lsub;
+        private final String reference;
+        private final String pattern;
 
-        ListStateImpl(String tag, boolean lsub) {
+        ListStateImpl(String tag, boolean lsub, String reference,
+                String pattern) {
             this.tag = tag;
             this.lsub = lsub;
+            this.reference = reference;
+            this.pattern = pattern;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            executeList(tag, reference, pattern, lsub);
         }
 
         @Override
@@ -6841,6 +7740,19 @@ public class IMAPProtocolHandler
             this.mailboxName = mailboxName;
             this.flags = flags;
             this.internalDate = internalDate;
+        }
+
+        @Override
+        public void proceed(AuthenticatedHandler handler) {
+            authenticatedHandler = handler;
+            try {
+                executeAppendDirect(tag, mailboxName, flags, internalDate,
+                        literalSize, nonSync);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to execute APPEND", e);
+                sendTaggedNoQuietly(tag, "[TRYCREATE] ",
+                        "imap.err.append_failed");
+            }
         }
 
         @Override

@@ -358,7 +358,12 @@ public final class ContentTypeParser {
 				if (isAllDigits(after)) {
 					String baseName = name.substring(0, starIdx);
 					int index = Integer.parseInt(after);
-					continuationRanges.computeIfAbsent(baseName, k -> new TreeMap<>()).put(index, new int[] { r.valueStart, r.valueEnd });
+					TreeMap<Integer, int[]> ranges = continuationRanges.get(baseName);
+					if (ranges == null) {
+						ranges = new TreeMap<>();
+						continuationRanges.put(baseName, ranges);
+					}
+					ranges.put(index, new int[] { r.valueStart, r.valueEnd });
 					continue;
 				}
 			}
@@ -461,7 +466,12 @@ public final class ContentTypeParser {
 				if (isAllDigits(after)) {
 					String baseName = name.substring(0, starIdx);
 					int index = Integer.parseInt(after);
-					continuations.computeIfAbsent(baseName, k -> new TreeMap<>()).put(index, value);
+					TreeMap<Integer, String> parts = continuations.get(baseName);
+					if (parts == null) {
+						parts = new TreeMap<>();
+						continuations.put(baseName, parts);
+					}
+					parts.put(index, value);
 					continue;
 				}
 			}

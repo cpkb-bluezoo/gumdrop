@@ -57,7 +57,8 @@ public interface AuthorizationHandler {
      * <p>The connection has already verified credentials using the Realm.
      * The handler now makes a policy decision on whether to allow access.
      * 
-     * <p>To accept, open the user's mailbox using the factory and call
+     * <p>To accept, call {@link AuthenticateState#proceed} to let the
+     * protocol open the mailbox, or open a mailbox yourself and call
      * {@link AuthenticateState#accept}. To reject, call one of the
      * reject methods on the state.
      * 

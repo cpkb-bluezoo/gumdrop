@@ -36,6 +36,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -43,6 +44,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLUtils;
@@ -595,6 +597,86 @@ public class FTPProtocolHandler
         return null;
     }
 
+    /**
+     * Runs a blocking storage operation off the SelectorLoop and delivers
+     * the outcome back on this control connection's loop thread.
+     *
+     * <p>Filesystem metadata ({@code stat}/{@code readdir}/{@code open}/…)
+     * and {@link java.nio.channels.AsynchronousFileChannel#open} must use
+     * this helper — never run them directly on the loop.
+     *
+     * @param op the blocking work
+     * @param callback outcome callback (invoked on the loop)
+     */
+    private <T> void submitStorage(final Callable<T> op,
+            final StorageExecutor.Callback<T> callback) {
+        org.bluezoo.gumdrop.Gumdrop gumdrop =
+                org.bluezoo.gumdrop.Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null || endpoint == null) {
+            T result;
+            try {
+                result = op.call();
+            } catch (Throwable t) {
+                callback.failed(t);
+                return;
+            }
+            callback.completed(result);
+            return;
+        }
+        endpoint.pauseRead();
+        exec.submit(endpoint, op,
+                new StorageExecutor.Callback<T>() {
+            @Override
+            public void completed(T result) {
+                endpoint.resumeRead();
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                endpoint.resumeRead();
+                callback.failed(error);
+            }
+        });
+    }
+
+    /**
+     * Sends an FTP reply, swallowing I/O errors. Used from storage-offload
+     * callbacks whose continuations cannot propagate a checked
+     * {@link IOException}.
+     */
+    private void replyQuietly(int code, String description) {
+        try {
+            reply(code, description);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send FTP reply " + code, e);
+        }
+    }
+
+    /**
+     * As {@link #handleFileOperationResult} but swallows I/O errors for use
+     * from storage-offload callbacks.
+     */
+    private void handleFileOperationResultQuietly(FTPFileOperationResult result,
+            String path) {
+        try {
+            handleFileOperationResult(result, path);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to send file operation reply", e);
+        }
+    }
+
+    private void sendLineQuietly(String line) {
+        try {
+            sendLine(line);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send FTP line", e);
+        }
+    }
+
     private boolean checkAuthorization(FTPOperation operation, String path) throws IOException {
         if (handler != null && !handler.isAuthorized(operation, path, metadata)) {
             reply(550, L10N.getString("ftp.err.permission_denied"));
@@ -946,26 +1028,42 @@ public class FTPProtocolHandler
             return;
         }
 
-        String targetPath = args.trim();
+        final String targetPath = args.trim();
 
         if (!checkAuthorization(FTPOperation.NAVIGATE, targetPath)) {
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        FTPFileSystem.DirectoryChangeResult result = fs.changeDirectory(targetPath, currentDirectory, metadata);
+        final String cwd = currentDirectory;
+        submitStorage(new Callable<FTPFileSystem.DirectoryChangeResult>() {
+            @Override
+            public FTPFileSystem.DirectoryChangeResult call() {
+                return fs.changeDirectory(targetPath, cwd, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileSystem.DirectoryChangeResult>() {
+            @Override
+            public void completed(FTPFileSystem.DirectoryChangeResult result) {
+                if (result.getResult() == FTPFileOperationResult.SUCCESS) {
+                    currentDirectory = result.getNewDirectory();
+                    metadata.setCurrentDirectory(currentDirectory);
+                    replyQuietly(250, L10N.getString("ftp.directory_changed"));
+                } else {
+                    handleFileOperationResultQuietly(
+                            result.getResult(), targetPath);
+                }
+            }
 
-        if (result.getResult() == FTPFileOperationResult.SUCCESS) {
-            currentDirectory = result.getNewDirectory();
-            metadata.setCurrentDirectory(currentDirectory);
-            reply(250, L10N.getString("ftp.directory_changed"));
-        } else {
-            handleFileOperationResult(result.getResult(), targetPath);
-        }
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "CWD failed for " + targetPath, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.1: CDUP <CRLF>
@@ -979,21 +1077,36 @@ public class FTPProtocolHandler
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        FTPFileSystem.DirectoryChangeResult result = fs.changeDirectory("..", currentDirectory, metadata);
+        final String cwd = currentDirectory;
+        submitStorage(new Callable<FTPFileSystem.DirectoryChangeResult>() {
+            @Override
+            public FTPFileSystem.DirectoryChangeResult call() {
+                return fs.changeDirectory("..", cwd, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileSystem.DirectoryChangeResult>() {
+            @Override
+            public void completed(FTPFileSystem.DirectoryChangeResult result) {
+                if (result.getResult() == FTPFileOperationResult.SUCCESS) {
+                    currentDirectory = result.getNewDirectory();
+                    metadata.setCurrentDirectory(currentDirectory);
+                    replyQuietly(250, L10N.getString("ftp.directory_changed"));
+                } else {
+                    handleFileOperationResultQuietly(result.getResult(), "..");
+                }
+            }
 
-        if (result.getResult() == FTPFileOperationResult.SUCCESS) {
-            currentDirectory = result.getNewDirectory();
-            metadata.setCurrentDirectory(currentDirectory);
-            reply(250, L10N.getString("ftp.directory_changed"));
-        } else {
-            handleFileOperationResult(result.getResult(), "..");
-        }
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "CDUP failed", error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.1: SMNT <SP> <pathname> <CRLF>
@@ -1437,9 +1550,8 @@ public class FTPProtocolHandler
         @Override
         public void transferFailed(IOException cause) {
             try {
-                reply(550, MessageFormat.format(
-                        L10N.getString("ftp.err.file_not_found"),
-                        filePath));
+                // 150 already sent; setup/open failure → 450 (not mid-transfer 426)
+                reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed to send RETR error", e);
@@ -1471,9 +1583,7 @@ public class FTPProtocolHandler
         @Override
         public void transferFailed(IOException cause) {
             try {
-                reply(550, MessageFormat.format(
-                        L10N.getString("ftp.err.file_not_found"),
-                        listPath));
+                reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed to send LIST error", e);
@@ -1553,7 +1663,7 @@ public class FTPProtocolHandler
         @Override
         public void transferFailed(IOException cause) {
             try {
-                reply(550, L10N.getString("ftp.err.file_system_error"));
+                reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING,
                         "Failed to send STOR error", e);
@@ -1617,7 +1727,7 @@ public class FTPProtocolHandler
         @Override
         public void transferFailed(IOException cause) {
             try {
-                reply(550, L10N.getString("ftp.err.file_system_error"));
+                reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Failed to send STOU error", e);
             }
@@ -1694,7 +1804,7 @@ public class FTPProtocolHandler
         @Override
         public void transferFailed(IOException cause) {
             try {
-                reply(550, L10N.getString("ftp.err.file_system_error"));
+                reply(450, L10N.getString("ftp.err.file_system_error"));
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Failed to send APPE error", e);
             }
@@ -1761,24 +1871,41 @@ public class FTPProtocolHandler
             return;
         }
 
-        String sourcePath = args.trim();
+        final String sourcePath = args.trim();
 
         if (!checkAuthorization(FTPOperation.RENAME, sourcePath)) {
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        FTPFileInfo info = fs.getFileInfo(sourcePath, metadata);
-        if (info != null) {
-            renameFrom = sourcePath;
-            reply(350, L10N.getString("ftp.rename_pending"));
-        } else {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), sourcePath));
-        }
+        submitStorage(new Callable<FTPFileInfo>() {
+            @Override
+            public FTPFileInfo call() {
+                return fs.getFileInfo(sourcePath, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileInfo>() {
+            @Override
+            public void completed(FTPFileInfo info) {
+                if (info != null) {
+                    renameFrom = sourcePath;
+                    replyQuietly(350, L10N.getString("ftp.rename_pending"));
+                } else {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.file_not_found"),
+                            sourcePath));
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "RNFR failed for " + sourcePath, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.3: RNTO <SP> <pathname> <CRLF>
@@ -1798,17 +1925,36 @@ public class FTPProtocolHandler
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        String targetPath = args.trim();
-        FTPFileOperationResult result = fs.rename(renameFrom, targetPath, metadata);
-        handleFileOperationResult(result, renameFrom + " -> " + targetPath);
-
+        final String targetPath = args.trim();
+        final String fromPath = renameFrom;
+        // Clear pending rename before offload so a second RNTO cannot race.
         renameFrom = null;
+        submitStorage(new Callable<FTPFileOperationResult>() {
+            @Override
+            public FTPFileOperationResult call() {
+                return fs.rename(fromPath, targetPath, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+            @Override
+            public void completed(FTPFileOperationResult result) {
+                handleFileOperationResultQuietly(
+                        result, fromPath + " -> " + targetPath);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING,
+                        "RNTO failed for " + fromPath + " -> " + targetPath,
+                        error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.3: ABOR <CRLF>
@@ -1834,23 +1980,38 @@ public class FTPProtocolHandler
             return;
         }
 
-        String filePath = args.trim();
+        final String filePath = args.trim();
 
         if (!checkAuthorization(FTPOperation.DELETE, filePath)) {
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        FTPFileOperationResult result = fs.deleteFile(filePath, metadata);
-        if (result == FTPFileOperationResult.SUCCESS) {
-            recordFileOperation("DELE", filePath);
-        }
-        handleFileOperationResult(result, filePath);
+        submitStorage(new Callable<FTPFileOperationResult>() {
+            @Override
+            public FTPFileOperationResult call() {
+                return fs.deleteFile(filePath, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+            @Override
+            public void completed(FTPFileOperationResult result) {
+                if (result == FTPFileOperationResult.SUCCESS) {
+                    recordFileOperation("DELE", filePath);
+                }
+                handleFileOperationResultQuietly(result, filePath);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "DELE failed for " + filePath, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.3: RMD <SP> <pathname> <CRLF>
@@ -1865,20 +2026,35 @@ public class FTPProtocolHandler
             return;
         }
 
-        String dirPath = args.trim();
+        final String dirPath = args.trim();
 
         if (!checkAuthorization(FTPOperation.DELETE_DIR, dirPath)) {
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        FTPFileOperationResult result = fs.removeDirectory(dirPath, metadata);
-        handleFileOperationResult(result, dirPath);
+        submitStorage(new Callable<FTPFileOperationResult>() {
+            @Override
+            public FTPFileOperationResult call() {
+                return fs.removeDirectory(dirPath, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+            @Override
+            public void completed(FTPFileOperationResult result) {
+                handleFileOperationResultQuietly(result, dirPath);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "RMD failed for " + dirPath, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.3: MKD <SP> <pathname> <CRLF>
@@ -1893,26 +2069,41 @@ public class FTPProtocolHandler
             return;
         }
 
-        String dirPath = args.trim();
+        final String dirPath = args.trim();
 
         if (!checkAuthorization(FTPOperation.CREATE_DIR, dirPath)) {
             return;
         }
 
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        FTPFileOperationResult result = fs.createDirectory(dirPath, metadata);
+        submitStorage(new Callable<FTPFileOperationResult>() {
+            @Override
+            public FTPFileOperationResult call() {
+                return fs.createDirectory(dirPath, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+            @Override
+            public void completed(FTPFileOperationResult result) {
+                if (result == FTPFileOperationResult.SUCCESS) {
+                    String successMsg = L10N.getString("ftp.directory_created");
+                    replyQuietly(257,
+                            MessageFormat.format(successMsg, dirPath));
+                } else {
+                    handleFileOperationResultQuietly(result, dirPath);
+                }
+            }
 
-        if (result == FTPFileOperationResult.SUCCESS) {
-            String successMsg = L10N.getString("ftp.directory_created");
-            reply(257, MessageFormat.format(successMsg, dirPath));
-        } else {
-            handleFileOperationResult(result, dirPath);
-        }
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "MKD failed for " + dirPath, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 959 section 4.1.3: PWD <CRLF>
@@ -2245,9 +2436,6 @@ public class FTPProtocolHandler
     }
 
     // RFC 959 section 4.1.3: STAT [<SP> <pathname>] <CRLF>
-    // With no argument, server MUST send status over control connection.
-    // With a pathname argument, like LIST but over control connection.
-    // RFC 959 section 4.1.3: STAT [<SP> <pathname>] <CRLF>
     // Without argument: server status.
     // With a directory argument: directory listing over the control connection
     // (no data connection needed).
@@ -2259,31 +2447,83 @@ public class FTPProtocolHandler
             status.append("Directory: ").append(currentDirectory).append("\r\n");
             status.append("Secure: ").append(metadata.isSecureConnection() ? "Yes" : "No").append("\r\n");
             reply(211, status.toString());
-        } else {
-            String path = args.trim();
-            FTPFileSystem fs = getFileSystem();
-            if (fs == null) {
-                reply(550, L10N.getString("ftp.err.file_system_error"));
-                return;
-            }
-            FTPFileInfo info = fs.getFileInfo(path, metadata);
-            if (info != null && info.isDirectory()) {
-                // RFC 959 section 4.1.3: directory listing over control
-                List<FTPFileInfo> files = fs.listDirectory(path, metadata);
-                if (files != null) {
-                    sendLine("213-Status of " + path + ":");
-                    for (FTPFileInfo file : files) {
-                        sendLine(" " + file.formatAsListingLine());
-                    }
-                    sendLine("213 End of status");
-                } else {
-                    reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+            return;
+        }
+
+        final String path = args.trim();
+        final FTPFileSystem fs = getFileSystem();
+        if (fs == null) {
+            reply(550, L10N.getString("ftp.err.file_system_error"));
+            return;
+        }
+        submitStorage(new Callable<StatOutcome>() {
+            @Override
+            public StatOutcome call() {
+                FTPFileInfo info = fs.getFileInfo(path, metadata);
+                if (info == null) {
+                    return StatOutcome.notFound();
                 }
-            } else if (info != null) {
-                reply(213, info.formatAsListingLine());
-            } else {
-                reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
+                if (info.isDirectory()) {
+                    List<FTPFileInfo> files = fs.listDirectory(path, metadata);
+                    return StatOutcome.directory(files);
+                }
+                return StatOutcome.file(info);
             }
+        }, new StorageExecutor.Callback<StatOutcome>() {
+            @Override
+            public void completed(StatOutcome outcome) {
+                if (outcome.kind == StatOutcome.Kind.NOT_FOUND) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.file_not_found"), path));
+                } else if (outcome.kind == StatOutcome.Kind.DIRECTORY) {
+                    if (outcome.listing == null) {
+                        replyQuietly(550, MessageFormat.format(
+                                L10N.getString("ftp.err.file_not_found"), path));
+                        return;
+                    }
+                    sendLineQuietly("213-Status of " + path + ":");
+                    for (FTPFileInfo file : outcome.listing) {
+                        sendLineQuietly(" " + file.formatAsListingLine());
+                    }
+                    sendLineQuietly("213 End of status");
+                } else {
+                    replyQuietly(213, outcome.info.formatAsListingLine());
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "STAT failed for " + path, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
+    }
+
+    /** Outcome of an offloaded STAT-with-path filesystem probe. */
+    private static final class StatOutcome {
+        enum Kind { NOT_FOUND, FILE, DIRECTORY }
+
+        final Kind kind;
+        final FTPFileInfo info;
+        final List<FTPFileInfo> listing;
+
+        private StatOutcome(Kind kind, FTPFileInfo info,
+                List<FTPFileInfo> listing) {
+            this.kind = kind;
+            this.info = info;
+            this.listing = listing;
+        }
+
+        static StatOutcome notFound() {
+            return new StatOutcome(Kind.NOT_FOUND, null, null);
+        }
+
+        static StatOutcome file(FTPFileInfo info) {
+            return new StatOutcome(Kind.FILE, info, null);
+        }
+
+        static StatOutcome directory(List<FTPFileInfo> listing) {
+            return new StatOutcome(Kind.DIRECTORY, null, listing);
         }
     }
 
@@ -2442,26 +2682,43 @@ public class FTPProtocolHandler
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
         }
-        String path = args.trim();
+        final String path = args.trim();
         if (!checkAuthorization(FTPOperation.READ, path)) {
             return;
         }
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        FTPFileInfo info = fs.getFileInfo(path, metadata);
-        if (info == null) {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
-            return;
-        }
-        if (info.isDirectory()) {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.is_directory"), path));
-            return;
-        }
-        // RFC 3659 section 4: reply code 213
-        reply(213, String.valueOf(info.getSize()));
+        submitStorage(new Callable<FTPFileInfo>() {
+            @Override
+            public FTPFileInfo call() {
+                return fs.getFileInfo(path, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileInfo>() {
+            @Override
+            public void completed(FTPFileInfo info) {
+                if (info == null) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.file_not_found"), path));
+                    return;
+                }
+                if (info.isDirectory()) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.is_directory"), path));
+                    return;
+                }
+                // RFC 3659 section 4: reply code 213
+                replyQuietly(213, String.valueOf(info.getSize()));
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "SIZE failed for " + path, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 3659 section 3: MDTM <SP> <pathname> <CRLF>
@@ -2475,35 +2732,53 @@ public class FTPProtocolHandler
             reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
             return;
         }
-        String path = args.trim();
+        final String path = args.trim();
         if (!checkAuthorization(FTPOperation.READ, path)) {
             return;
         }
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        FTPFileInfo info = fs.getFileInfo(path, metadata);
-        if (info == null) {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
-            return;
-        }
-        if (info.isDirectory()) {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.is_directory"), path));
-            return;
-        }
-        java.time.Instant modified = info.getLastModified();
-        if (modified == null) {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
-            return;
-        }
-        // RFC 3659 section 3: reply code 213, format YYYYMMDDhhmmss
-        String timestamp = java.time.format.DateTimeFormatter
-                .ofPattern("yyyyMMddHHmmss")
-                .withZone(java.time.ZoneOffset.UTC)
-                .format(modified);
-        reply(213, timestamp);
+        submitStorage(new Callable<FTPFileInfo>() {
+            @Override
+            public FTPFileInfo call() {
+                return fs.getFileInfo(path, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileInfo>() {
+            @Override
+            public void completed(FTPFileInfo info) {
+                if (info == null) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.file_not_found"), path));
+                    return;
+                }
+                if (info.isDirectory()) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.is_directory"), path));
+                    return;
+                }
+                java.time.Instant modified = info.getLastModified();
+                if (modified == null) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.file_not_found"), path));
+                    return;
+                }
+                // RFC 3659 section 3: reply code 213, format YYYYMMDDhhmmss
+                String timestamp = java.time.format.DateTimeFormatter
+                        .ofPattern("yyyyMMddHHmmss")
+                        .withZone(java.time.ZoneOffset.UTC)
+                        .format(modified);
+                replyQuietly(213, timestamp);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "MDTM failed for " + path, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 3659 section 7.2: MLST <SP> <pathname> <CRLF>
@@ -2513,24 +2788,41 @@ public class FTPProtocolHandler
             reply(530, L10N.getString("ftp.err.not_logged_in"));
             return;
         }
-        String path = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
+        final String path = (args != null && !args.trim().isEmpty())
+                ? args.trim() : currentDirectory;
         if (!checkAuthorization(FTPOperation.READ, path)) {
             return;
         }
-        FTPFileSystem fs = getFileSystem();
+        final FTPFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        FTPFileInfo info = fs.getFileInfo(path, metadata);
-        if (info == null) {
-            reply(550, MessageFormat.format(L10N.getString("ftp.err.file_not_found"), path));
-            return;
-        }
-        // RFC 3659 section 7.2: multi-line 250 with leading space on the entry
-        sendLine("250-Listing " + path);
-        sendLine(" " + info.formatAsMLSEntry());
-        sendLine("250 End");
+        submitStorage(new Callable<FTPFileInfo>() {
+            @Override
+            public FTPFileInfo call() {
+                return fs.getFileInfo(path, metadata);
+            }
+        }, new StorageExecutor.Callback<FTPFileInfo>() {
+            @Override
+            public void completed(FTPFileInfo info) {
+                if (info == null) {
+                    replyQuietly(550, MessageFormat.format(
+                            L10N.getString("ftp.err.file_not_found"), path));
+                    return;
+                }
+                // RFC 3659 section 7.2: multi-line 250 with leading space on the entry
+                sendLineQuietly("250-Listing " + path);
+                sendLineQuietly(" " + info.formatAsMLSEntry());
+                sendLineQuietly("250 End");
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING, "MLST failed for " + path, error);
+                replyQuietly(550, L10N.getString("ftp.err.file_system_error"));
+            }
+        });
     }
 
     // RFC 3659 section 7.2: MLSD [<SP> <pathname>] <CRLF>

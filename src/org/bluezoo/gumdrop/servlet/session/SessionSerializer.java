@@ -524,31 +524,33 @@ class SessionSerializer {
      * plus any names configured via {@link #configureAllowedClasses(Set)}.
      */
     private static final java.io.ObjectInputFilter SESSION_DESERIALIZATION_FILTER =
-            filterInfo -> {
-        Class<?> clazz = filterInfo.serialClass();
-        if (clazz == null) {
-            return java.io.ObjectInputFilter.Status.UNDECIDED;
-        }
-
-        String className = clazz.getName();
-
-        for (String denied : DENIED_CLASSES) {
-            if (className.startsWith(denied) || className.equals(denied)) {
-                String message = L10N.getString("warn.blocked_class");
-                message = MessageFormat.format(message, className);
-                LOGGER.warning(message);
-                return java.io.ObjectInputFilter.Status.REJECTED;
+            new java.io.ObjectInputFilter() {
+        public Status checkInput(FilterInfo filterInfo) {
+            Class<?> clazz = filterInfo.serialClass();
+            if (clazz == null) {
+                return Status.UNDECIDED;
             }
-        }
 
-        if (isAllowedDeserializationClass(clazz)) {
-            return java.io.ObjectInputFilter.Status.ALLOWED;
-        }
+            String className = clazz.getName();
 
-        String message = L10N.getString("warn.rejected_class");
-        message = MessageFormat.format(message, className);
-        LOGGER.warning(message);
-        return java.io.ObjectInputFilter.Status.REJECTED;
+            for (String denied : DENIED_CLASSES) {
+                if (className.startsWith(denied) || className.equals(denied)) {
+                    String message = L10N.getString("warn.blocked_class");
+                    message = MessageFormat.format(message, className);
+                    LOGGER.warning(message);
+                    return Status.REJECTED;
+                }
+            }
+
+            if (isAllowedDeserializationClass(clazz)) {
+                return Status.ALLOWED;
+            }
+
+            String message = L10N.getString("warn.rejected_class");
+            message = MessageFormat.format(message, className);
+            LOGGER.warning(message);
+            return Status.REJECTED;
+        }
     };
 
     // -- Delta serialization for incremental updates --

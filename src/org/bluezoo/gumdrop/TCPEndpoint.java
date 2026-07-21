@@ -716,7 +716,12 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         }
         long t = listener.getConnectionTimeoutMs();
         if (t > 0 && handshakeTimeoutHandle == null) {
-            handshakeTimeoutHandle = scheduleTimer(t, this::onHandshakeTimeout);
+            handshakeTimeoutHandle = scheduleTimer(t, new Runnable() {
+                @Override
+                public void run() {
+                    onHandshakeTimeout();
+                }
+            });
         }
     }
 
@@ -726,7 +731,12 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         }
         long t = listener.getReadTimeoutMs();
         if (t > 0 && firstByteTimeoutHandle == null) {
-            firstByteTimeoutHandle = scheduleTimer(t, this::onFirstByteTimeout);
+            firstByteTimeoutHandle = scheduleTimer(t, new Runnable() {
+                @Override
+                public void run() {
+                    onFirstByteTimeout();
+                }
+            });
         }
     }
 

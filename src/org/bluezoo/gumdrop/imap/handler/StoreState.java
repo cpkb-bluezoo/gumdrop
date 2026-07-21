@@ -35,6 +35,13 @@ import java.util.Set;
 public interface StoreState {
 
     /**
+     * Authorises STORE and lets the protocol update message flags.
+     *
+     * @param handler continues receiving selected commands
+     */
+    void proceed(SelectedHandler handler);
+
+    /**
      * Sends a FETCH response with updated flags.
      * 
      * <p>Unless .SILENT was used, call this for each modified message.

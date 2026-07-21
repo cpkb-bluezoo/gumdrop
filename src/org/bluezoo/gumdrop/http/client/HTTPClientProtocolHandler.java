@@ -34,6 +34,7 @@ import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -471,14 +472,17 @@ public class HTTPClientProtocolHandler
     private void resetIdleTimeout() {
         cancelIdleTimeout();
         if (idleTimeoutMs > 0 && endpoint != null) {
-            idleTimeoutHandle = endpoint.scheduleTimer(idleTimeoutMs, () -> {
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Idle timeout (" + idleTimeoutMs + "ms) — closing connection");
-                }
-                if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
-                    sendGoaway(H2FrameHandler.ERROR_NO_ERROR, "idle timeout");
-                } else {
-                    close();
+            idleTimeoutHandle = endpoint.scheduleTimer(idleTimeoutMs, new Runnable() {
+                @Override
+                public void run() {
+                    if (LOGGER.isLoggable(Level.FINE)) {
+                        LOGGER.fine("Idle timeout (" + idleTimeoutMs + "ms) — closing connection");
+                    }
+                    if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
+                        sendGoaway(H2FrameHandler.ERROR_NO_ERROR, "idle timeout");
+                    } else {
+                        close();
+                    }
                 }
             });
         }
@@ -803,7 +807,12 @@ public class HTTPClientProtocolHandler
     @Override
     public void cancelRequest(HTTPStream request) {
         // Also check the pending queue before active streams
-        pendingRequests.removeIf(p -> p.request == request);
+        for (Iterator<PendingRequest> it = pendingRequests.iterator();
+                it.hasNext(); ) {
+            if (it.next().request == request) {
+                it.remove();
+            }
+        }
 
         Integer streamId = streamIdByRequest.remove(request);
 

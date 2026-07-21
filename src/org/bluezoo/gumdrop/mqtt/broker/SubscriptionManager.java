@@ -84,8 +84,15 @@ public class SubscriptionManager {
      */
     public void subscribe(String clientId, String topicFilter, QoS qos) {
         topicTree.subscribe(topicFilter, clientId, qos);
-        clientSubscriptions.computeIfAbsent(clientId,
-                k -> ConcurrentHashMap.newKeySet()).add(topicFilter);
+        Set<String> subs = clientSubscriptions.get(clientId);
+        if (subs == null) {
+            subs = ConcurrentHashMap.newKeySet();
+            Set<String> existing = clientSubscriptions.putIfAbsent(clientId, subs);
+            if (existing != null) {
+                subs = existing;
+            }
+        }
+        subs.add(topicFilter);
     }
 
     /**
