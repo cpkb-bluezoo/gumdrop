@@ -97,6 +97,9 @@ public class DMARCForensicReport {
     private SPFResult spfResult;
     private DKIMResult dkimResult;
     private String dkimDomain;
+    /** FEAT-002: explicit alignment state for the Identity-Alignment field; null if not set. */
+    private Boolean spfAligned;
+    private Boolean dkimAligned;
     private String originalHeaders;
     private String originalMessage;
     private String messageId;
@@ -159,6 +162,33 @@ public class DMARCForensicReport {
     /** Sets the DKIM verification result. */
     public void setDkimResult(DKIMResult result) {
         this.dkimResult = result;
+    }
+
+    /**
+     * FEAT-002: RFC 9991 — sets whether SPF produced an aligned identifier
+     * for this message (distinct from a raw SPF pass, which can occur
+     * without the checked domain aligning to the From domain). Used for
+     * the {@code Identity-Alignment} field; if never called, alignment is
+     * approximated from {@link #setSpfResult} (pass = aligned), which is
+     * only correct when the caller didn't perform relaxed-mode alignment
+     * checking separately.
+     *
+     * @param aligned true if SPF passed and aligned
+     * @see DMARCValidator#isLastSpfAligned()
+     */
+    public void setSpfAligned(boolean aligned) {
+        this.spfAligned = aligned;
+    }
+
+    /**
+     * FEAT-002: RFC 9991 — sets whether DKIM produced an aligned
+     * identifier for this message. See {@link #setSpfAligned(boolean)}.
+     *
+     * @param aligned true if DKIM passed and aligned
+     * @see DMARCValidator#isLastDkimAligned()
+     */
+    public void setDkimAligned(boolean aligned) {
+        this.dkimAligned = aligned;
     }
 
     /** Sets the DKIM signing domain (d= tag), if available. */
@@ -368,8 +398,9 @@ public class DMARCForensicReport {
         }
 
         if (headerFrom != null) {
-            w.write("Identity-Alignment: " +
-                    (dmarcResult == DMARCResult.PASS ? "dkim" : "none") + CRLF);
+            // RFC 9991 — comma-separated list of mechanisms that failed to
+            // authenticate an aligned identity, or "none" if all did.
+            w.write("Identity-Alignment: " + computeIdentityAlignment() + CRLF);
         }
 
         if (authResults != null) {
@@ -403,6 +434,38 @@ public class DMARCForensicReport {
         if (subject != null) {
             w.write("Reported-URI: mid:" + (messageId != null ? messageId : "") + CRLF);
         }
+    }
+
+    /**
+     * FEAT-002: RFC 9991 — computes the Identity-Alignment field value:
+     * a comma-separated list of mechanism names ("dkim", "spf") that
+     * failed to authenticate an aligned identity, or "none" if all did.
+     *
+     * <p>Uses the explicit {@link #setSpfAligned}/{@link #setDkimAligned}
+     * state if set (the correct source — see
+     * {@link DMARCValidator#isLastSpfAligned()}); otherwise approximates
+     * from the raw {@link #setSpfResult}/{@link #setDkimResult} pass/fail,
+     * which is only accurate when alignment wasn't checked separately
+     * from the mechanism's own pass/fail.
+     */
+    private String computeIdentityAlignment() {
+        boolean dkimOk = dkimAligned != null ? dkimAligned : dkimResult == DKIMResult.PASS;
+        boolean spfOk = spfAligned != null ? spfAligned : spfResult == SPFResult.PASS;
+
+        if (dkimOk && spfOk) {
+            return "none";
+        }
+        StringBuilder sb = new StringBuilder();
+        if (!dkimOk) {
+            sb.append("dkim");
+        }
+        if (!spfOk) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append("spf");
+        }
+        return sb.toString();
     }
 
     /** Part 3: Original message headers or full message. */

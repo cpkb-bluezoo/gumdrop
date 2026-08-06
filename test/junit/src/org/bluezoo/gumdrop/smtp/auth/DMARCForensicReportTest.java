@@ -299,6 +299,56 @@ public class DMARCForensicReportTest {
 
     // -- Helpers --
 
+    // -- FEAT-002: RFC 9991 Identity-Alignment --
+
+    @Test
+    public void testIdentityAlignmentBothFailedApproximatedFromResults() throws IOException {
+        // createTestReport() has spfResult=FAIL, dkimResult=FAIL, and
+        // never calls setSpfAligned/setDkimAligned - falls back to
+        // approximating alignment from the raw pass/fail.
+        DMARCForensicReport report = createTestReport();
+        String mime = writeToString(report, "B1");
+
+        assertTrue(mime.contains("Identity-Alignment: dkim,spf"));
+    }
+
+    @Test
+    public void testIdentityAlignmentNoneWhenBothExplicitlyAligned() throws IOException {
+        DMARCForensicReport report = createTestReport();
+        report.setSpfAligned(true);
+        report.setDkimAligned(true);
+        String mime = writeToString(report, "B1");
+
+        assertTrue(mime.contains("Identity-Alignment: none"));
+    }
+
+    @Test
+    public void testIdentityAlignmentListsOnlyFailedMechanism() throws IOException {
+        DMARCForensicReport report = createTestReport();
+        // SPF passed and aligned, but DKIM did not - a raw DKIM pass
+        // without alignment is exactly the case setSpfAligned/
+        // setDkimAligned exist to distinguish from setSpfResult/
+        // setDkimResult alone.
+        report.setSpfAligned(true);
+        report.setDkimAligned(false);
+        String mime = writeToString(report, "B1");
+
+        assertTrue(mime.contains("Identity-Alignment: dkim"));
+        assertFalse(mime.contains("Identity-Alignment: dkim,spf"));
+    }
+
+    @Test
+    public void testExplicitAlignmentOverridesRawResultApproximation() throws IOException {
+        DMARCForensicReport report = createTestReport();
+        // Raw results are both FAIL (from createTestReport()), but if the
+        // caller explicitly says both aligned, that must win.
+        report.setSpfAligned(true);
+        report.setDkimAligned(true);
+        String mime = writeToString(report, "B1");
+
+        assertTrue(mime.contains("Identity-Alignment: none"));
+    }
+
     private DMARCForensicReport createTestReport() {
         DMARCForensicReport report = new DMARCForensicReport();
         report.setReporterDomain("receiver.example.com");

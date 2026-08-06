@@ -218,7 +218,78 @@ public class DMARCValidatorTest {
         assertEquals("n", validator.getLastPsd());
     }
 
+    @Test
+    public void testDiscoveryMethodAuthorWhenRecordAtFromDomain() {
+        resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
+
+        DMARCValidator validator = new DMARCValidator(resolver);
+        validator.evaluate("example.com", SPFResult.PASS, "example.com",
+                DKIMResult.FAIL, null, noopCallback());
+
+        assertEquals("author", validator.getLastDiscoveryMethod());
+    }
+
+    @Test
+    public void testDiscoveryMethodPslWhenRecordAtOrgDomain() {
+        resolver.addTxt("_dmarc.example.co.uk", "v=DMARC1; p=reject");
+
+        DMARCValidator validator = new DMARCValidator(resolver);
+        validator.evaluate("sub.example.co.uk", SPFResult.PASS, "sub.example.co.uk",
+                DKIMResult.FAIL, null, noopCallback());
+
+        assertEquals("psl", validator.getLastDiscoveryMethod());
+    }
+
+    @Test
+    public void testDiscoveryMethodTreewalkWhenRecordAtPsd() {
+        resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=none; psd=y; np=reject");
+
+        DMARCValidator validator = new DMARCValidator(resolver);
+        validator.evaluate("sub.example.co.uk", SPFResult.FAIL, null,
+                DKIMResult.FAIL, null, noopCallback());
+
+        assertEquals("treewalk", validator.getLastDiscoveryMethod());
+    }
+
+    @Test
+    public void testAlignmentAccessorsReflectLastEvaluation() {
+        resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
+
+        DMARCValidator validator = new DMARCValidator(resolver);
+        validator.evaluate("example.com", SPFResult.PASS, "example.com",
+                DKIMResult.FAIL, null, noopCallback());
+
+        assertTrue(validator.isLastSpfAligned());
+        assertFalse(validator.isLastDkimAligned());
+    }
+
+    @Test
+    public void testResetClearsAlignmentAndDiscoveryMethod() {
+        resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
+
+        DMARCValidator validator = new DMARCValidator(resolver);
+        validator.evaluate("example.com", SPFResult.PASS, "example.com",
+                DKIMResult.FAIL, null, noopCallback());
+        assertEquals("author", validator.getLastDiscoveryMethod());
+
+        validator.reset();
+
+        assertNull(validator.getLastDiscoveryMethod());
+        assertFalse(validator.isLastSpfAligned());
+        assertFalse(validator.isLastDkimAligned());
+    }
+
     // -- Helpers --
+
+    private DMARCCallback noopCallback() {
+        return new DMARCCallback() {
+            @Override
+            public void dmarcResult(DMARCResult result, DMARCPolicy policy,
+                                     String domain, AuthVerdict verdict) {
+                // no-op
+            }
+        };
+    }
 
     private Result evaluate(String fromDomain, SPFResult spfResult, String spfDomain,
                              DKIMResult dkimResult, String dkimDomain) {
