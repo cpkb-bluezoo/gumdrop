@@ -451,6 +451,72 @@ public class FTPClientProtocolHandlerTest {
         assertFalse(handler.isOpen());
     }
 
+    // ── PASV / EPSV ──
+
+    @Test
+    public void testPasvParsesAddress() {
+        login();
+        AtomicReference<InetSocketAddress> addr = new AtomicReference<>();
+        handler.pasv(new ServerPasvReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) {
+                addr.set(a);
+            }
+            @Override public void handleError(ClientAuthenticatedState s, int code, String message) { }
+        });
+        assertEquals("PASV", getLastSentCommand());
+        simulateResponse("227 Entering Passive Mode (127,0,0,1,200,50)\r\n");
+        assertEquals("/127.0.0.1", addr.get().getAddress().toString());
+        assertEquals(200 * 256 + 50, addr.get().getPort());
+    }
+
+    @Test
+    public void testPasvError() {
+        login();
+        AtomicReference<Integer> errCode = new AtomicReference<>();
+        handler.pasv(new ServerPasvReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) { }
+            @Override public void handleError(ClientAuthenticatedState s, int code, String message) {
+                errCode.set(code);
+            }
+        });
+        simulateResponse("502 Command not implemented\r\n");
+        assertEquals(Integer.valueOf(502), errCode.get());
+    }
+
+    @Test
+    public void testEpsvParsesPortUsingControlHost() {
+        login();
+        AtomicReference<InetSocketAddress> addr = new AtomicReference<>();
+        handler.epsv(new ServerEpsvReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) {
+                addr.set(a);
+            }
+            @Override public void handleError(ClientAuthenticatedState s, int code, String message) { }
+        });
+        assertEquals("EPSV", getLastSentCommand());
+        simulateResponse("229 Entering Extended Passive Mode (|||6446|)\r\n");
+        assertEquals(6446, addr.get().getPort());
+        assertEquals("/127.0.0.1", addr.get().getAddress().toString());
+    }
+
+    @Test
+    public void testEpsvError() {
+        login();
+        AtomicBoolean unavailable = new AtomicBoolean();
+        handler.epsv(new ServerEpsvReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) { }
+            @Override public void handleError(ClientAuthenticatedState s, int code, String message) {
+                unavailable.set(true);
+            }
+        });
+        simulateResponse("500 Unknown command\r\n");
+        assertTrue(unavailable.get());
+    }
+
     // ── 421 mid-session ──
 
     @Test

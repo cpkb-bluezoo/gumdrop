@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.ftp.client;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
@@ -37,17 +39,23 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientAccountState;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientAuthenticatedState;
+import org.bluezoo.gumdrop.ftp.client.handler.ClientDataSink;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientLoginState;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientPasswordState;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerAcctReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerAuthTlsReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerCwdReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.ServerEpsvReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.ftp.client.handler.ServerListReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerMkdReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerPassReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.ServerPasvReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerPwdReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.ServerRetrReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerSimpleReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.ServerStorReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerUserReplyHandler;
 
 /**
@@ -101,6 +109,18 @@ public class FTPClientProtocolHandler
     private final List<String> multiLineResponse = new ArrayList<String>();
     private boolean inMultiLineResponse;
 
+    // Data connection coordination (RFC 959 §3.2). Only one transfer can
+    // be active at a time (FTP's command sequencing is strictly serial),
+    // so this is tracked with plain fields rather than a per-transfer
+    // object — see FTPClientDataConnectionCoordinator's class Javadoc and
+    // the *DataHandler inner classes below.
+    private FTPClientDataConnectionCoordinator dataCoordinator;
+    private Endpoint dataEndpoint;
+    private boolean dataConnClosed;
+    private boolean controlAckReceived;
+    private final StringBuilder listingBuffer = new StringBuilder();
+    private List<FTPFileEntry> pendingListEntries;
+
     // Streaming lexer (issue #85) and per-line parse state. No cap on
     // structured tokens: this client trusts the remote server, same
     // principle as SMTPClientLexer/POP3ClientLexer.
@@ -137,6 +157,7 @@ public class FTPClientProtocolHandler
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
+        this.dataCoordinator = new FTPClientDataConnectionCoordinator(ep);
         state = FTPState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
@@ -454,6 +475,85 @@ public class FTPClientProtocolHandler
         sendCommand("MKD " + pathname, FTPState.MKD_SENT);
     }
 
+    /** RFC 959 §4.1.2 — PASV command. */
+    @Override
+    public void pasv(ServerPasvReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("PASV", FTPState.PASV_SENT);
+    }
+
+    /** RFC 2428 §3 — EPSV command. */
+    @Override
+    public void epsv(ServerEpsvReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("EPSV", FTPState.EPSV_SENT);
+    }
+
+    /**
+     * RFC 959 §4.1.3 — RETR command. The data connection is opened first;
+     * RETR is sent once it connects (see {@link DownloadDataHandler}).
+     */
+    @Override
+    public void retr(String pathname, InetSocketAddress dataAddress,
+            ServerRetrReplyHandler callback) {
+        beginDataTransfer(callback);
+        dataCoordinator.connect(dataAddress, new DownloadDataHandler(pathname, callback));
+    }
+
+    /** RFC 959 §4.1.3 — STOR command. See {@link #retr}. */
+    @Override
+    public void stor(String pathname, InetSocketAddress dataAddress,
+            ServerStorReplyHandler callback) {
+        beginDataTransfer(callback);
+        dataCoordinator.connect(dataAddress,
+                new UploadDataHandler(pathname, false, callback));
+    }
+
+    /** RFC 959 §4.1.3 — APPE command. See {@link #retr}. */
+    @Override
+    public void appe(String pathname, InetSocketAddress dataAddress,
+            ServerStorReplyHandler callback) {
+        beginDataTransfer(callback);
+        dataCoordinator.connect(dataAddress,
+                new UploadDataHandler(pathname, true, callback));
+    }
+
+    /** RFC 959 §4.1.3 — LIST command. See {@link #retr}. */
+    @Override
+    public void list(String pathname, InetSocketAddress dataAddress,
+            ServerListReplyHandler callback) {
+        beginDataTransfer(callback);
+        dataCoordinator.connect(dataAddress,
+                new ListingDataHandler("LIST", pathname, callback));
+    }
+
+    /** RFC 959 §4.1.3 — NLST command. See {@link #retr}. */
+    @Override
+    public void nlst(String pathname, InetSocketAddress dataAddress,
+            ServerListReplyHandler callback) {
+        beginDataTransfer(callback);
+        dataCoordinator.connect(dataAddress,
+                new ListingDataHandler("NLST", pathname, callback));
+    }
+
+    /** RFC 3659 §7 — MLSD command. See {@link #retr}. */
+    @Override
+    public void mlsd(String pathname, InetSocketAddress dataAddress,
+            ServerListReplyHandler callback) {
+        beginDataTransfer(callback);
+        dataCoordinator.connect(dataAddress,
+                new ListingDataHandler("MLSD", pathname, callback));
+    }
+
+    private void beginDataTransfer(Object callback) {
+        this.currentCallback = callback;
+        this.dataEndpoint = null;
+        this.dataConnClosed = false;
+        this.controlAckReceived = false;
+        this.listingBuffer.setLength(0);
+        this.pendingListEntries = null;
+    }
+
     // ── Command sending ──
 
     private static void rejectCrlf(String text) {
@@ -547,6 +647,20 @@ public class FTPClientProtocolHandler
                 break;
             case MKD_SENT:
                 dispatchMkdReply(code, message);
+                break;
+            case PASV_SENT:
+                dispatchPasvReply(code, message);
+                break;
+            case EPSV_SENT:
+                dispatchEpsvReply(code, message);
+                break;
+            case RETR_SENT:
+            case STOR_SENT:
+            case APPE_SENT:
+            case LIST_SENT:
+            case NLST_SENT:
+            case MLSD_SENT:
+                dispatchTransferControlReply(code, message);
                 break;
             case QUIT_SENT:
                 state = FTPState.CLOSED;
@@ -679,6 +793,345 @@ public class FTPClientProtocolHandler
             callback.handlePathname(parseQuotedPathname(message), this);
         } else {
             callback.handleError(this, code, message);
+        }
+    }
+
+    /** RFC 959 §4.1.2 — 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2). */
+    private void dispatchPasvReply(int code, String message) {
+        ServerPasvReplyHandler callback = (ServerPasvReplyHandler) currentCallback;
+        currentCallback = null;
+        state = FTPState.AUTHENTICATED;
+
+        if (code == 227) {
+            try {
+                callback.handlePassive(parsePasvAddress(message), this);
+            } catch (RuntimeException e) {
+                callback.handleError(this, code, "Malformed PASV reply: " + message);
+            }
+        } else {
+            callback.handleError(this, code, message);
+        }
+    }
+
+    /** RFC 2428 §3 — 229 Entering Extended Passive Mode (|||port|). */
+    private void dispatchEpsvReply(int code, String message) {
+        ServerEpsvReplyHandler callback = (ServerEpsvReplyHandler) currentCallback;
+        currentCallback = null;
+        state = FTPState.AUTHENTICATED;
+
+        if (code == 229) {
+            try {
+                int port = parseEpsvPort(message);
+                InetAddress host =
+                        ((InetSocketAddress) endpoint.getRemoteAddress()).getAddress();
+                callback.handlePassive(new InetSocketAddress(host, port), this);
+            } catch (RuntimeException e) {
+                callback.handleError(this, code, "Malformed EPSV reply: " + message);
+            }
+        } else {
+            callback.handleError(this, code, message);
+        }
+    }
+
+    /**
+     * RFC 959 §4.2 — the control-connection side of a RETR/STOR/APPE/
+     * LIST/NLST/MLSD transfer: 1xx is a preliminary "starting" reply
+     * (ignored — the data connection itself is what matters), 2xx is the
+     * final success reply, anything else fails the transfer.
+     */
+    private void dispatchTransferControlReply(int code, String message) {
+        if (code == 150 || code == 125) {
+            return;
+        }
+        if (code >= 200 && code < 300) {
+            controlAckReceived = true;
+            maybeCompleteTransfer();
+            return;
+        }
+        failActiveTransfer(code, message);
+    }
+
+    /**
+     * Fires the transfer's completion callback once both signals have
+     * arrived: the data connection reached EOF, and the control
+     * connection's final reply was received. Either can arrive first.
+     */
+    private void maybeCompleteTransfer() {
+        if (!dataConnClosed || !controlAckReceived) {
+            return;
+        }
+        Object callback = currentCallback;
+        if (callback == null) {
+            return;
+        }
+        currentCallback = null;
+        state = FTPState.AUTHENTICATED;
+        dataEndpoint = null;
+        dataConnClosed = false;
+        controlAckReceived = false;
+
+        if (callback instanceof ServerRetrReplyHandler) {
+            ((ServerRetrReplyHandler) callback).handleTransferComplete(this);
+        } else if (callback instanceof ServerStorReplyHandler) {
+            ((ServerStorReplyHandler) callback).handleTransferComplete(this);
+        } else if (callback instanceof ServerListReplyHandler) {
+            List<FTPFileEntry> entries =
+                    pendingListEntries != null ? pendingListEntries : new ArrayList<FTPFileEntry>();
+            pendingListEntries = null;
+            ((ServerListReplyHandler) callback).handleEntries(entries, this);
+        }
+    }
+
+    /**
+     * Fails the active transfer, from either a bad control reply ({@code
+     * code} nonzero) or a data-connection error ({@code code == 0}).
+     * Idempotent: a transfer already failed or completed has no callback
+     * left to notify.
+     */
+    private void failActiveTransfer(int code, String message) {
+        Object callback = currentCallback;
+        if (callback == null) {
+            return;
+        }
+        currentCallback = null;
+        state = FTPState.AUTHENTICATED;
+        if (dataEndpoint != null) {
+            dataEndpoint.close();
+        }
+        dataEndpoint = null;
+        dataConnClosed = false;
+        controlAckReceived = false;
+        pendingListEntries = null;
+
+        if (callback instanceof ServerRetrReplyHandler) {
+            ((ServerRetrReplyHandler) callback).handleTransferFailed(this, code, message);
+        } else if (callback instanceof ServerStorReplyHandler) {
+            ((ServerStorReplyHandler) callback).handleTransferFailed(this, code, message);
+        } else if (callback instanceof ServerListReplyHandler) {
+            ((ServerListReplyHandler) callback).handleTransferFailed(this, code, message);
+        }
+    }
+
+    /**
+     * Parses a 227 reply's address: {@code (h1,h2,h3,h4,p1,p2)} anywhere
+     * in the reply text (RFC 959 §4.1.2 does not fix the surrounding
+     * wording, only the parenthesised tuple).
+     */
+    private static InetSocketAddress parsePasvAddress(String message) {
+        int start = message.indexOf('(');
+        int end = message.indexOf(')', start + 1);
+        if (start < 0 || end < 0) {
+            throw new IllegalArgumentException("no address tuple in PASV reply");
+        }
+        String[] parts = message.substring(start + 1, end).split(",");
+        if (parts.length != 6) {
+            throw new IllegalArgumentException("expected 6 fields in PASV reply");
+        }
+        byte[] addr = new byte[4];
+        for (int i = 0; i < 4; i++) {
+            addr[i] = (byte) Integer.parseInt(parts[i].trim());
+        }
+        int p1 = Integer.parseInt(parts[4].trim());
+        int p2 = Integer.parseInt(parts[5].trim());
+        int port = (p1 << 8) | p2;
+        try {
+            return new InetSocketAddress(InetAddress.getByAddress(addr), port);
+        } catch (java.net.UnknownHostException e) {
+            // getByAddress() with a literal 4-byte array never resolves,
+            // so this is unreachable.
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    /**
+     * Parses a 229 reply's port: {@code (d net-prt d net-addr d tcp-port
+     * d)} per RFC 2428 §3, where {@code d} is a delimiter byte and
+     * net-prt/net-addr are conventionally empty for EPSV's own reply,
+     * e.g. {@code (|||6446|)}. Tolerant of any delimiter character and of
+     * non-empty net-prt/net-addr fields, taking the last non-empty
+     * numeric field as the port.
+     */
+    private static int parseEpsvPort(String message) {
+        int start = message.indexOf('(');
+        int end = message.indexOf(')', start + 1);
+        if (start < 0 || end < 0 || end == start + 1) {
+            throw new IllegalArgumentException("no port tuple in EPSV reply");
+        }
+        String content = message.substring(start + 1, end);
+        char delim = content.charAt(0);
+        String[] parts = content.split(java.util.regex.Pattern.quote(String.valueOf(delim)), -1);
+        for (int i = parts.length - 1; i >= 0; i--) {
+            if (!parts[i].isEmpty()) {
+                return Integer.parseInt(parts[i]);
+            }
+        }
+        throw new IllegalArgumentException("no port found in EPSV reply");
+    }
+
+    /**
+     * Parses a completed LIST/NLST/MLSD transfer's accumulated text into
+     * entries, per {@code command}'s format.
+     */
+    private List<FTPFileEntry> parseListingBuffer(String command) {
+        List<FTPFileEntry> entries = new ArrayList<FTPFileEntry>();
+        String[] lines = listingBuffer.toString().split("\r\n|\n");
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            if ("NLST".equals(command)) {
+                entries.add(FTPFileEntry.parseNlstLine(line));
+            } else if ("MLSD".equals(command)) {
+                entries.add(FTPFileEntry.parseMlsdLine(line));
+            } else {
+                entries.add(FTPFileEntry.parseListLine(line));
+            }
+        }
+        return entries;
+    }
+
+    // ── Data connection handlers ──
+
+    /** Handles the data connection for a RETR (download). */
+    private class DownloadDataHandler implements ProtocolHandler {
+        private final String pathname;
+        private final ServerRetrReplyHandler callback;
+
+        DownloadDataHandler(String pathname, ServerRetrReplyHandler callback) {
+            this.pathname = pathname;
+            this.callback = callback;
+        }
+
+        @Override
+        public void connected(Endpoint ep) {
+            dataEndpoint = ep;
+            sendCommand("RETR " + pathname, FTPState.RETR_SENT);
+        }
+
+        @Override
+        public void receive(ByteBuffer data) {
+            callback.handleContent(data);
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void disconnected() {
+            dataConnClosed = true;
+            maybeCompleteTransfer();
+        }
+
+        @Override
+        public void error(Exception cause) {
+            failActiveTransfer(0, cause.getMessage());
+        }
+    }
+
+    /** Handles the data connection for a STOR/APPE (upload). */
+    private class UploadDataHandler implements ProtocolHandler, ClientDataSink {
+        private final String pathname;
+        private final boolean append;
+        private final ServerStorReplyHandler callback;
+        private Endpoint ep;
+
+        UploadDataHandler(String pathname, boolean append, ServerStorReplyHandler callback) {
+            this.pathname = pathname;
+            this.append = append;
+            this.callback = callback;
+        }
+
+        @Override
+        public void connected(Endpoint ep) {
+            this.ep = ep;
+            dataEndpoint = ep;
+            String command = (append ? "APPE " : "STOR ") + pathname;
+            FTPState newState = append ? FTPState.APPE_SENT : FTPState.STOR_SENT;
+            sendCommand(command, newState);
+            callback.handleReadyToSend(this);
+        }
+
+        @Override
+        public void receive(ByteBuffer data) {
+            // Uploads are one-directional; the server sends no content.
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void disconnected() {
+            if (!dataConnClosed) {
+                dataConnClosed = true;
+                maybeCompleteTransfer();
+            }
+        }
+
+        @Override
+        public void error(Exception cause) {
+            failActiveTransfer(0, cause.getMessage());
+        }
+
+        // ── ClientDataSink ──
+
+        @Override
+        public void write(ByteBuffer data) {
+            ep.send(data);
+        }
+
+        @Override
+        public void finish() {
+            ep.close();
+            dataConnClosed = true;
+            maybeCompleteTransfer();
+        }
+    }
+
+    /** Handles the data connection for a LIST/NLST/MLSD (directory listing). */
+    private class ListingDataHandler implements ProtocolHandler {
+        private final String command;
+        private final String pathname;
+        private final ServerListReplyHandler callback;
+
+        ListingDataHandler(String command, String pathname, ServerListReplyHandler callback) {
+            this.command = command;
+            this.pathname = pathname;
+            this.callback = callback;
+        }
+
+        @Override
+        public void connected(Endpoint ep) {
+            dataEndpoint = ep;
+            String full = (pathname == null || pathname.isEmpty())
+                    ? command : command + " " + pathname;
+            FTPState newState = "NLST".equals(command) ? FTPState.NLST_SENT
+                    : "MLSD".equals(command) ? FTPState.MLSD_SENT : FTPState.LIST_SENT;
+            sendCommand(full, newState);
+        }
+
+        @Override
+        public void receive(ByteBuffer data) {
+            byte[] bytes = new byte[data.remaining()];
+            data.get(bytes);
+            listingBuffer.append(new String(bytes, StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public void securityEstablished(SecurityInfo info) {
+        }
+
+        @Override
+        public void disconnected() {
+            dataConnClosed = true;
+            pendingListEntries = parseListingBuffer(command);
+            maybeCompleteTransfer();
+        }
+
+        @Override
+        public void error(Exception cause) {
+            failActiveTransfer(0, cause.getMessage());
         }
     }
 

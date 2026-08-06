@@ -85,6 +85,30 @@ enum FTPState {
     /** AUTH TLS command sent, waiting for response. RFC 4217 */
     AUTH_TLS_SENT,
 
+    /** PASV command sent, waiting for response. RFC 959 §4.1.2 */
+    PASV_SENT,
+
+    /** EPSV command sent, waiting for response. RFC 2428 §3 */
+    EPSV_SENT,
+
+    /** RETR command sent, transfer in progress. RFC 959 §4.1.3 */
+    RETR_SENT,
+
+    /** STOR command sent, transfer in progress. RFC 959 §4.1.3 */
+    STOR_SENT,
+
+    /** APPE command sent, transfer in progress. RFC 959 §4.1.3 */
+    APPE_SENT,
+
+    /** LIST command sent, transfer in progress. RFC 959 §4.1.3 */
+    LIST_SENT,
+
+    /** NLST command sent, transfer in progress. RFC 959 §4.1.3 */
+    NLST_SENT,
+
+    /** MLSD command sent, transfer in progress. RFC 3659 §7 */
+    MLSD_SENT,
+
     /** QUIT command sent, waiting for response. RFC 959 §4.1.1 */
     QUIT_SENT,
 

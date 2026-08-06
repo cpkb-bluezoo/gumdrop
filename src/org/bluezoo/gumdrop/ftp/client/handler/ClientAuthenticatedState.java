@@ -21,13 +21,14 @@
 
 package org.bluezoo.gumdrop.ftp.client.handler;
 
+import java.net.InetSocketAddress;
+
 /**
  * Operations available once the FTP session is authenticated.
- * RFC 959 §4.1.2 (TYPE/STRU/MODE), §4.1.3 (CWD/CDUP/PWD/DELE/RMD/MKD).
+ * RFC 959 §4.1.2 (TYPE/STRU/MODE), §4.1.3 (CWD/CDUP/PWD/DELE/RMD/MKD/
+ * RETR/STOR/APPE/LIST/NLST), RFC 2428 (EPSV), RFC 3659 §7 (MLSD).
  *
- * <p>Data-transfer commands (RETR/STOR/APPE/LIST/NLST/MLSD, and the
- * PASV/EPSV/PORT/EPRT commands that establish the data connection) are
- * added separately once the data-connection coordinator is in place.
+ * <p>PORT/EPRT (active mode) are added separately in a follow-up.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerPassReplyHandler#handleAuthenticated
@@ -116,6 +117,86 @@ public interface ClientAuthenticatedState {
      * @param callback receives the server's response
      */
     void mkd(String pathname, ServerMkdReplyHandler callback);
+
+    /**
+     * Sends a PASV command to enter passive mode. RFC 959 §4.1.2.
+     *
+     * @param callback receives the data connection address
+     */
+    void pasv(ServerPasvReplyHandler callback);
+
+    /**
+     * Sends an EPSV command to enter extended passive mode. RFC 2428 §3.
+     *
+     * @param callback receives the data connection address
+     */
+    void epsv(ServerEpsvReplyHandler callback);
+
+    /**
+     * Sends a RETR command to download a file. RFC 959 §4.1.3.
+     *
+     * <p>{@code dataAddress} is the address returned by a prior {@link
+     * #pasv}/{@link #epsv} call; the data connection is opened before the
+     * RETR command is sent.
+     *
+     * @param pathname the remote file to download
+     * @param dataAddress the data connection address
+     * @param callback receives the file content and completion/failure
+     */
+    void retr(String pathname, InetSocketAddress dataAddress, ServerRetrReplyHandler callback);
+
+    /**
+     * Sends a STOR command to upload a file, replacing it if it exists.
+     * RFC 959 §4.1.3.
+     *
+     * @param pathname the remote file to upload to
+     * @param dataAddress the data connection address
+     * @param callback receives the data sink and completion/failure
+     */
+    void stor(String pathname, InetSocketAddress dataAddress, ServerStorReplyHandler callback);
+
+    /**
+     * Sends an APPE command to upload a file, appending to it if it
+     * exists. RFC 959 §4.1.3.
+     *
+     * @param pathname the remote file to append to
+     * @param dataAddress the data connection address
+     * @param callback receives the data sink and completion/failure
+     */
+    void appe(String pathname, InetSocketAddress dataAddress, ServerStorReplyHandler callback);
+
+    /**
+     * Sends a LIST command for a full (e.g. {@code ls -l}-style) directory
+     * listing. RFC 959 §4.1.3.
+     *
+     * @param pathname the directory (or file) to list, or null/empty for
+     *      the current directory
+     * @param dataAddress the data connection address
+     * @param callback receives the parsed entries
+     */
+    void list(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
+
+    /**
+     * Sends an NLST command for a bare-filename directory listing.
+     * RFC 959 §4.1.3.
+     *
+     * @param pathname the directory to list, or null/empty for the
+     *      current directory
+     * @param dataAddress the data connection address
+     * @param callback receives the parsed entries
+     */
+    void nlst(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
+
+    /**
+     * Sends an MLSD command for a machine-readable directory listing.
+     * RFC 3659 §7.
+     *
+     * @param pathname the directory to list, or null/empty for the
+     *      current directory
+     * @param dataAddress the data connection address
+     * @param callback receives the parsed entries
+     */
+    void mlsd(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
 
     /**
      * Closes the connection gracefully.
