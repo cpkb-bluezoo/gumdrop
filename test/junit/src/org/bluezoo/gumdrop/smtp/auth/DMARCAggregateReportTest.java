@@ -239,13 +239,50 @@ public class DMARCAggregateReportTest {
                 DKIMResult.PASS, "a.example.com", "s");
 
         assertEquals(1, report.getDomainCount());
+    }
 
-        report.addResult("10.0.0.1", "b.example.com",
+    /**
+     * FEAT-002: RFC 9990 requires a single aggregate report to cover
+     * exactly one Policy Domain - a second, distinct headerFrom must be
+     * rejected rather than silently producing a multi-domain report.
+     */
+    @Test
+    public void testSecondDistinctDomainIsRejected() {
+        DMARCAggregateReport report = new DMARCAggregateReport();
+        report.addResult("10.0.0.1", "a.example.com",
                 DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "b.example.com",
-                DKIMResult.PASS, "b.example.com", "s");
+                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
+                DKIMResult.PASS, "a.example.com", "s");
 
-        assertEquals(2, report.getDomainCount());
+        try {
+            report.addResult("10.0.0.1", "b.example.com",
+                    DMARCPolicy.NONE, "r", "r",
+                    DMARCResult.PASS, SPFResult.PASS, "b.example.com",
+                    DKIMResult.PASS, "b.example.com", "s");
+            fail("Expected IllegalStateException for a second Policy Domain");
+        } catch (IllegalStateException expected) {
+            // pass
+        }
+    }
+
+    /**
+     * Repeated results for the SAME domain (the normal case - many
+     * messages from one Policy Domain over the reporting period) must
+     * still work.
+     */
+    @Test
+    public void testSameDomainRepeatedIsAllowed() {
+        DMARCAggregateReport report = new DMARCAggregateReport();
+        report.addResult("10.0.0.1", "a.example.com",
+                DMARCPolicy.NONE, "r", "r",
+                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
+                DKIMResult.PASS, "a.example.com", "s");
+        report.addResult("10.0.0.2", "a.example.com",
+                DMARCPolicy.NONE, "r", "r",
+                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
+                DKIMResult.PASS, "a.example.com", "s");
+
+        assertEquals(1, report.getDomainCount());
     }
 
     @Test
@@ -281,6 +318,72 @@ public class DMARCAggregateReportTest {
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<spf>pass</spf>"));
+    }
+
+    // -- FEAT-002: RFC 9990 additions --
+
+    @Test
+    public void testNpTestingAndDiscoveryMethodInPolicyPublished() throws IOException {
+        DMARCAggregateReport report = new DMARCAggregateReport();
+        report.setReporterOrgName("T");
+        report.setReporterEmail("t@t.com");
+        report.setReportId("feat002-1");
+        report.setDateRange(0, 1);
+
+        report.addResult("10.0.0.1", "example.com",
+                DMARCPolicy.NONE, "r", "r",
+                DMARCResult.PASS, SPFResult.PASS, "example.com",
+                DKIMResult.PASS, "example.com", "sel1",
+                DMARCPolicy.REJECT, "y", 50, "treewalk");
+
+        String xml = writeToString(report);
+        assertTrue(xml.contains("<np>reject</np>"));
+        assertTrue(xml.contains("<testing>y</testing>"));
+        assertTrue(xml.contains("<discovery_method>treewalk</discovery_method>"));
+        // RFC 7489 backward compatibility: pct is retained and reflects
+        // the actual value, not a hardcoded 100.
+        assertTrue(xml.contains("<pct>50</pct>"));
+    }
+
+    @Test
+    public void testDefaultTestingIsNWhenOmitted() throws IOException {
+        // The plain 11-arg addResult() overload defaults testing to "n"
+        // and omits np/discovery_method entirely.
+        DMARCAggregateReport report = createMinimalReport();
+        String xml = writeToString(report);
+
+        assertTrue(xml.contains("<testing>n</testing>"));
+        assertFalse(xml.contains("<np>"));
+        assertFalse(xml.contains("<discovery_method>"));
+        assertTrue(xml.contains("<pct>100</pct>"));
+    }
+
+    @Test
+    public void testGeneratorIsOptional() throws IOException {
+        DMARCAggregateReport report = createMinimalReport();
+        assertFalse(writeToString(report).contains("<generator>"));
+
+        report.setGenerator("gumdrop/2.1");
+        assertTrue(writeToString(report).contains("<generator>gumdrop/2.1</generator>"));
+    }
+
+    @Test
+    public void testSelectorRequiredEvenWhenUnknown() throws IOException {
+        DMARCAggregateReport report = new DMARCAggregateReport();
+        report.setReporterOrgName("T");
+        report.setReporterEmail("t@t.com");
+        report.setReportId("feat002-2");
+        report.setDateRange(0, 1);
+
+        report.addResult("10.0.0.1", "example.com",
+                DMARCPolicy.NONE, "r", "r",
+                DMARCResult.PASS, SPFResult.PASS, "example.com",
+                DKIMResult.PASS, "example.com", null);
+
+        String xml = writeToString(report);
+        // RFC 9990: selector is required, emitted as empty rather than
+        // omitted when unknown.
+        assertTrue(xml.contains("<selector></selector>"));
     }
 
     // -- Helpers --

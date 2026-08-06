@@ -510,12 +510,12 @@ verification. For signing, pass an <code>Ed25519</code> private key and set
 the algorithm to <code>"ed25519-sha256"</code>.
 </p>
 
-<h4>DMARC Aggregate Reporting (RFC 7489 §7.1)</h4>
+<h4>DMARC Aggregate Reporting (RFC 7489 §7.1, RFC 9990)</h4>
 
 <p>
-The <code>DMARCAggregateReport</code> class generates XML aggregate reports
-conforming to the schema in RFC 7489 Appendix C. Reports can be sent to
-the domain owner's <code>rua=</code> address (now parsed from DMARC records).
+The <code>DMARCAggregateReport</code> class generates XML aggregate reports.
+Reports can be sent to the domain owner's <code>rua=</code> address (now
+parsed from DMARC records).
 </p>
 
 <pre><code>DMARCAggregateReport report = new DMARCAggregateReport();
@@ -524,9 +524,13 @@ report.setReporterEmail("dmarc-reports@receiver.example.com");
 report.setReportId("report-12345");
 report.setDateRange(beginEpoch, endEpoch);
 
-// Record results for each evaluated message
+// Record results for each evaluated message. The RFC 9989/9990-aware
+// overload also takes np=, t=, pct, and how the record was found -
+// typically straight from the DMARCValidator that produced this result.
 report.addResult(sourceIP, headerFrom, policy, adkim, aspf,
-    dmarcResult, spfResult, spfDomain, dkimResult, dkimDomain, selector);
+    dmarcResult, spfResult, spfDomain, dkimResult, dkimDomain, selector,
+    validator.getLastNp(), validator.getLastT(), pct,
+    validator.getLastDiscoveryMethod());
 
 // Write the XML report
 report.writeXML(outputStream);</code></pre>
@@ -539,14 +543,31 @@ records. After evaluation, call <code>getLastRua()</code> /
 <code>getLastFo()</code> to retrieve the failure reporting options.
 </p>
 
-<h4>DMARC Forensic / Failure Reporting (RFC 7489 §7.2)</h4>
+<p>
+RFC 9990 adds <code>np</code>, <code>testing</code>, and
+<code>discovery_method</code> to <code>policy_published</code>, and an
+optional <code>report_metadata/generator</code>. <code>DMARCAggregateReport</code>
+also now enforces RFC 9990's requirement that a single report cover
+exactly one Policy Domain - a second, distinct <code>headerFrom</code>
+passed to <code>addResult</code> throws <code>IllegalStateException</code>
+rather than silently producing a multi-domain report; use a separate
+<code>DMARCAggregateReport</code> instance per domain. <code>selector</code>
+is now always emitted for a reported DKIM signature (empty if unknown)
+rather than omitted, per RFC 9990 making it required. <code>pct</code> is
+retained for RFC 7489 backward compatibility even though RFC 9990 drops
+it - existing report consumers may still expect it, and it costs nothing
+for one that doesn't.
+</p>
+
+<h4>DMARC Forensic / Failure Reporting (RFC 7489 §7.2, RFC 9991)</h4>
 
 <p>
 The <code>DMARCForensicReport</code> class generates per-message failure
 reports in the Abuse Reporting Format (ARF, RFC 5965) with DMARC-specific
-extensions (RFC 6591). Reports are <code>multipart/report</code> MIME
-messages with three parts: a human-readable description, a machine-readable
-<code>message/feedback-report</code>, and the original message headers.
+extensions (RFC 6591, RFC 9991). Reports are <code>multipart/report</code>
+MIME messages with three parts: a human-readable description, a
+machine-readable <code>message/feedback-report</code>, and the original
+message headers.
 </p>
 
 <pre><code>// Check if a forensic report should be generated
@@ -560,6 +581,10 @@ if (DMARCForensicReport.shouldReport(fo, spfResult, dkimResult, dmarcResult)) {
     report.setDmarcPolicy(policy);
     report.setSpfResult(spfResult);
     report.setDkimResult(dkimResult);
+    // Alignment, not just raw pass/fail - drives the RFC 9991
+    // Identity-Alignment field correctly.
+    report.setSpfAligned(validator.isLastSpfAligned());
+    report.setDkimAligned(validator.isLastDkimAligned());
     report.setOriginalHeaders(messageHeaders);
 
     report.writeMIME(outputStream, boundary);
@@ -571,6 +596,18 @@ The <code>fo=</code> tag controls when reports are generated:
 <code>1</code> = any mechanism fails,
 <code>d</code> = DKIM fails,
 <code>s</code> = SPF fails. Multiple options may be colon-separated.
+</p>
+
+<p>
+RFC 9991's <code>Identity-Alignment</code> field lists which mechanisms
+(<code>dkim</code>, <code>spf</code>) failed to authenticate an <em>aligned</em>
+identity, or <code>none</code> if all did - distinct from a mechanism simply
+passing, since a pass without alignment to the From domain still doesn't
+satisfy DMARC. Call <code>setSpfAligned</code>/<code>setDkimAligned</code>
+with the values from <code>DMARCValidator.isLastSpfAligned()</code> /
+<code>isLastDkimAligned()</code> for a correct field value; without them,
+it's approximated from the raw SPF/DKIM pass/fail, which is only accurate
+when alignment isn't being checked separately.
 </p>
 
 <h3 id="policy">Security Policies</h3>

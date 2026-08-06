@@ -114,6 +114,12 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /** The last parsed DMARC record, retained for aggregate reporting (RFC 7489 §7.1). */
     private DMARCRecord lastRecord;
 
+    // FEAT-002: additional state retained for RFC 9990/9991 reporting.
+    private boolean lastSpfAligned;
+    private boolean lastDkimAligned;
+    /** How the effective DMARC record was found: "author", "psl", or "treewalk". */
+    private String lastDiscoveryMethod;
+
     /**
      * Creates a new DMARC validator using the specified DNS resolver.
      *
@@ -213,6 +219,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         this.spfDomain = null;
         this.fromDomain = null;
         this.lastRecord = null;
+        this.lastSpfAligned = false;
+        this.lastDkimAligned = false;
+        this.lastDiscoveryMethod = null;
     }
 
     /**
@@ -272,6 +281,42 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      */
     public String getLastPsd() {
         return lastRecord != null ? lastRecord.psd : null;
+    }
+
+    /**
+     * FEAT-002: returns whether SPF produced an aligned identifier in the
+     * last evaluation — distinct from a raw SPF pass, which can occur
+     * without the checked domain aligning to the From domain. Used for
+     * RFC 9991's {@code Identity-Alignment} forensic report field.
+     *
+     * @return true if SPF passed and aligned
+     */
+    public boolean isLastSpfAligned() {
+        return lastSpfAligned;
+    }
+
+    /**
+     * FEAT-002: returns whether DKIM produced an aligned identifier in the
+     * last evaluation. See {@link #isLastSpfAligned()}.
+     *
+     * @return true if DKIM passed and aligned
+     */
+    public boolean isLastDkimAligned() {
+        return lastDkimAligned;
+    }
+
+    /**
+     * FEAT-002: RFC 9990 §... — returns how the effective DMARC record for
+     * the last evaluation was located.
+     *
+     * @return {@code "author"} (a record existed at the Author Domain
+     *         itself), {@code "psl"} (found at the Organizational Domain,
+     *         computed via {@link PublicSuffixList}), {@code "treewalk"}
+     *         (found via the one-hop PSD lookup, see {@link #lookupPsd}),
+     *         or null if no record was found at all
+     */
+    public String getLastDiscoveryMethod() {
+        return lastDiscoveryMethod;
     }
 
     /**
@@ -397,6 +442,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             return;
         }
         this.lastRecord = record;
+        this.lastDiscoveryMethod = "author";
 
         // Evaluate alignment
         DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
@@ -473,6 +519,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             return;
         }
         this.lastRecord = record;
+        this.lastDiscoveryMethod = "psl";
 
         // Use subdomain policy if available
         DMARCRecord effectiveRecord = record;
@@ -585,6 +632,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             return;
         }
         this.lastRecord = record;
+        this.lastDiscoveryMethod = "treewalk";
 
         DMARCPolicy effectivePolicy = record.np != null ? record.np
                 : record.subdomainPolicy != null ? record.subdomainPolicy
@@ -624,6 +672,13 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         if (dkimResult == DKIMResult.PASS && dkimDomain != null) {
             dkimAligned = checkAlignment(fromDomain, dkimDomain, record.adkim);
         }
+
+        // FEAT-002: retained for RFC 9991 Identity-Alignment reporting
+        // (DMARCForensicReport) - distinct from the raw spfResult/dkimResult
+        // pass/fail, since a mechanism can pass without its identifier
+        // aligning to the From domain.
+        this.lastSpfAligned = spfAligned;
+        this.lastDkimAligned = dkimAligned;
 
         // DMARC passes if either mechanism is aligned
         if (spfAligned || dkimAligned) {
