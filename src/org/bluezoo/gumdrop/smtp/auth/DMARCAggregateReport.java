@@ -21,11 +21,11 @@
 
 package org.bluezoo.gumdrop.smtp.auth;
 
+import org.bluezoo.gonzalez.IndentConfig;
+import org.bluezoo.gonzalez.XMLWriter;
+
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -256,123 +256,123 @@ public class DMARCAggregateReport {
      * @throws IOException if an I/O error occurs
      */
     public void writeXML(OutputStream out) throws IOException {
-        Writer w = new OutputStreamWriter(out, StandardCharsets.UTF_8);
-        w.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        w.write("<feedback>\n");
+        XMLWriter xml = new XMLWriter(out, IndentConfig.spaces2());
+        // gonzalez's XMLWriter has no dedicated document-declaration call;
+        // emit it explicitly to match RFC 7489 Appendix C example reports.
+        xml.writeRaw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        xml.writeStartElement("feedback");
 
-        writeReportMetadata(w);
+        writeReportMetadata(xml);
 
         for (DomainReport dr : domainReports.values()) {
-            writePolicyPublished(w, dr);
+            writePolicyPublished(xml, dr);
             for (RecordRow row : dr.rows.values()) {
-                writeRecord(w, row, dr.domain);
+                writeRecord(xml, row, dr.domain);
             }
         }
 
-        w.write("</feedback>\n");
-        w.flush();
+        xml.writeEndElement();
+        xml.close();
     }
 
     /** RFC 7489 Appendix C — report_metadata element. */
-    private void writeReportMetadata(Writer w) throws IOException {
-        w.write("  <report_metadata>\n");
-        writeElement(w, "    ", "org_name", reporterOrgName);
-        writeElement(w, "    ", "email", reporterEmail);
+    private void writeReportMetadata(XMLWriter xml) throws IOException {
+        xml.writeStartElement("report_metadata");
+        writeElement(xml, "org_name", reporterOrgName);
+        writeElement(xml, "email", reporterEmail);
         if (reporterExtraContactInfo != null) {
-            writeElement(w, "    ", "extra_contact_info", reporterExtraContactInfo);
+            writeElement(xml, "extra_contact_info", reporterExtraContactInfo);
         }
-        writeElement(w, "    ", "report_id", reportId);
-        w.write("    <date_range>\n");
-        writeElement(w, "      ", "begin", String.valueOf(dateRangeBegin));
-        writeElement(w, "      ", "end", String.valueOf(dateRangeEnd));
-        w.write("    </date_range>\n");
+        writeElement(xml, "report_id", reportId);
+        xml.writeStartElement("date_range");
+        writeElement(xml, "begin", String.valueOf(dateRangeBegin));
+        writeElement(xml, "end", String.valueOf(dateRangeEnd));
+        xml.writeEndElement();
         if (generator != null) {
             // RFC 9990 — optional generator field.
-            writeElement(w, "    ", "generator", generator);
+            writeElement(xml, "generator", generator);
         }
-        w.write("  </report_metadata>\n");
+        xml.writeEndElement();
     }
 
     /** RFC 7489 Appendix C / RFC 9990 — policy_published element. */
-    private void writePolicyPublished(Writer w, DomainReport dr) throws IOException {
-        w.write("  <policy_published>\n");
-        writeElement(w, "    ", "domain", dr.domain);
-        writeElement(w, "    ", "adkim", dr.adkim);
-        writeElement(w, "    ", "aspf", dr.aspf);
-        writeElement(w, "    ", "p", dr.policy != null ? dr.policy.toString().toLowerCase() : "none");
+    private void writePolicyPublished(XMLWriter xml, DomainReport dr) throws IOException {
+        xml.writeStartElement("policy_published");
+        writeElement(xml, "domain", dr.domain);
+        writeElement(xml, "adkim", dr.adkim);
+        writeElement(xml, "aspf", dr.aspf);
+        writeElement(xml, "p", dr.policy != null ? dr.policy.toString().toLowerCase() : "none");
         if (dr.np != null) {
             // RFC 9990 — policy for non-existent subdomains.
-            writeElement(w, "    ", "np", dr.np.toString().toLowerCase());
+            writeElement(xml, "np", dr.np.toString().toLowerCase());
         }
         // RFC 7489 backward compatibility only - see class Javadoc for why
         // this is retained despite RFC 9990 dropping it.
-        writeElement(w, "    ", "pct", String.valueOf(dr.pct));
+        writeElement(xml, "pct", String.valueOf(dr.pct));
         // RFC 9990 additions.
-        writeElement(w, "    ", "testing", dr.testing != null ? dr.testing : "n");
+        writeElement(xml, "testing", dr.testing != null ? dr.testing : "n");
         if (dr.discoveryMethod != null) {
-            writeElement(w, "    ", "discovery_method", dr.discoveryMethod);
+            writeElement(xml, "discovery_method", dr.discoveryMethod);
         }
-        w.write("  </policy_published>\n");
+        xml.writeEndElement();
     }
 
     /** RFC 7489 Appendix C — record element. */
-    private void writeRecord(Writer w, RecordRow row, String headerFrom) throws IOException {
-        w.write("  <record>\n");
+    private void writeRecord(XMLWriter xml, RecordRow row, String headerFrom) throws IOException {
+        xml.writeStartElement("record");
 
-        w.write("    <row>\n");
-        writeElement(w, "      ", "source_ip", row.sourceIP);
-        writeElement(w, "      ", "count", String.valueOf(row.count));
-        w.write("      <policy_evaluated>\n");
-        writeElement(w, "        ", "disposition", row.disposition);
-        writeElement(w, "        ", "dkim",
-                hasDkimPass(row) ? "pass" : "fail");
-        writeElement(w, "        ", "spf",
-                hasSpfPass(row) ? "pass" : "fail");
-        w.write("      </policy_evaluated>\n");
-        w.write("    </row>\n");
+        xml.writeStartElement("row");
+        writeElement(xml, "source_ip", row.sourceIP);
+        writeElement(xml, "count", String.valueOf(row.count));
+        xml.writeStartElement("policy_evaluated");
+        writeElement(xml, "disposition", row.disposition);
+        writeElement(xml, "dkim", hasDkimPass(row) ? "pass" : "fail");
+        writeElement(xml, "spf", hasSpfPass(row) ? "pass" : "fail");
+        xml.writeEndElement();
+        xml.writeEndElement();
 
-        w.write("    <identifiers>\n");
-        writeElement(w, "      ", "header_from", headerFrom);
-        w.write("    </identifiers>\n");
+        xml.writeStartElement("identifiers");
+        writeElement(xml, "header_from", headerFrom);
+        xml.writeEndElement();
 
-        w.write("    <auth_results>\n");
-        writeUniqueSpfResults(w, row);
-        writeUniqueDkimResults(w, row);
-        w.write("    </auth_results>\n");
+        xml.writeStartElement("auth_results");
+        writeUniqueSpfResults(xml, row);
+        writeUniqueDkimResults(xml, row);
+        xml.writeEndElement();
 
-        w.write("  </record>\n");
+        xml.writeEndElement();
     }
 
-    private void writeUniqueSpfResults(Writer w, RecordRow row) throws IOException {
+    private void writeUniqueSpfResults(XMLWriter xml, RecordRow row) throws IOException {
         List<String> seen = new ArrayList<>();
         for (AuthResult ar : row.spfResults) {
             String key = ar.domain + "|" + ar.result;
             if (!seen.contains(key)) {
                 seen.add(key);
-                w.write("      <spf>\n");
-                writeElement(w, "        ", "domain", ar.domain);
-                writeElement(w, "        ", "result", ar.result);
-                w.write("      </spf>\n");
+                xml.writeStartElement("spf");
+                writeElement(xml, "domain", ar.domain);
+                writeElement(xml, "result", ar.result);
+                xml.writeEndElement();
             }
         }
     }
 
-    private void writeUniqueDkimResults(Writer w, RecordRow row) throws IOException {
+    private void writeUniqueDkimResults(XMLWriter xml, RecordRow row) throws IOException {
         List<String> seen = new ArrayList<>();
         for (AuthResult ar : row.dkimResults) {
             String key = ar.domain + "|" + ar.result + "|" + ar.signingDomain + "|" + ar.selector;
             if (!seen.contains(key)) {
                 seen.add(key);
-                w.write("      <dkim>\n");
-                writeElement(w, "        ", "domain", ar.domain);
-                writeElement(w, "        ", "result", ar.result);
+                xml.writeStartElement("dkim");
+                writeElement(xml, "domain", ar.domain);
+                writeElement(xml, "result", ar.result);
                 if (ar.signingDomain != null) {
-                    writeElement(w, "        ", "human_result", ar.signingDomain);
+                    writeElement(xml, "human_result", ar.signingDomain);
                 }
                 // RFC 9990 — selector is now required (not just best-effort)
                 // for a reported DKIM signature; emit it even if unknown.
-                writeElement(w, "        ", "selector", ar.selector != null ? ar.selector : "");
-                w.write("      </dkim>\n");
+                writeElement(xml, "selector", ar.selector != null ? ar.selector : "");
+                xml.writeEndElement();
             }
         }
     }
@@ -408,42 +408,14 @@ public class DMARCAggregateReport {
         return "none";
     }
 
-    private static void writeElement(Writer w, String indent, String name, String value)
+    /** Writes a leaf element, delegating escaping to {@link XMLWriter#writeCharacters}. */
+    private static void writeElement(XMLWriter xml, String name, String value)
             throws IOException {
-        w.write(indent);
-        w.write("<");
-        w.write(name);
-        w.write(">");
+        xml.writeStartElement(name);
         if (value != null) {
-            w.write(escapeXml(value));
+            xml.writeCharacters(value);
         }
-        w.write("</");
-        w.write(name);
-        w.write(">\n");
-    }
-
-    private static String escapeXml(String s) {
-        StringBuilder sb = new StringBuilder(s.length());
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '&':
-                    sb.append("&amp;");
-                    break;
-                case '<':
-                    sb.append("&lt;");
-                    break;
-                case '>':
-                    sb.append("&gt;");
-                    break;
-                case '"':
-                    sb.append("&quot;");
-                    break;
-                default:
-                    sb.append(c);
-            }
-        }
-        return sb.toString();
+        xml.writeEndElement();
     }
 
     // -- Inner classes --

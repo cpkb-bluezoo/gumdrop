@@ -382,8 +382,9 @@ public class DMARCAggregateReportTest {
 
         String xml = writeToString(report);
         // RFC 9990: selector is required, emitted as empty rather than
-        // omitted when unknown.
-        assertTrue(xml.contains("<selector></selector>"));
+        // omitted when unknown. gonzalez's XMLWriter renders an empty
+        // element as self-closing.
+        assertTrue(xml.contains("<selector/>"));
     }
 
     // -- Helpers --
