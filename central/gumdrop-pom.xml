@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This POM declares Maven coordinates and the metadata Maven Central's
+  Publisher API validates (name/description/url/licenses/developers/scm)
+  for the "gumdrop" artifact (the core server framework). It performs no
+  build or deploy action of its own: Ant (build.xml) is the sole build
+  tool, and this file is only consumed by scripts/publish-to-central.sh
+  when assembling the Central upload bundle.
+
+  Dependencies below mirror the exact compile classpath the 'build' target
+  in build.xml already uses to produce gumdrop.jar - not a guess, a direct
+  transcription of the working Ant classpath, with coordinates verified
+  against search.maven.org.
+
+  Gumdrop publishes three separate Central coordinates from one source
+  tree - see also gumdrop-container-pom.xml and gumdrop-manager-pom.xml in
+  this same directory. This is unrelated to the root pom.xml, which is a
+  distribution POM for GitHub Packages, driven by a standalone
+  `mvn deploy:deploy-file` invocation (see
+  .github/workflows/release-to-github-packages.yml) that does not consume
+  any of these three files.
+
+  NOTE: version is 2.1-SNAPSHOT, matching build.xml's current state
+  honestly - Maven Central does not accept SNAPSHOT publishes at all, so
+  scripts/publish-to-central.sh refuses to run while this remains a
+  SNAPSHOT version. Bump this (and build.xml's "version" property, and the
+  other two POMs in this directory) together when a real release is cut.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.bluezoo</groupId>
+    <artifactId>gumdrop</artifactId>
+    <version>2.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Gumdrop</name>
+    <description>Multipurpose Java server framework with HTTP, SMTP, POP3, IMAP, FTP, DNS, MQTT, SOCKS, and servlet container</description>
+    <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Chris Burdess</name>
+            <email>dog@gnu.org</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/cpkb-bluezoo/gumdrop.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/cpkb-bluezoo/gumdrop.git</developerConnection>
+        <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+    </scm>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>gonzalez</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>jsonparser</artifactId>
+            <version>1.3</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.sun.mail</groupId>
+            <artifactId>javax.mail</artifactId>
+            <version>1.6.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+            <version>1.3.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.ejb</groupId>
+            <artifactId>javax.ejb-api</artifactId>
+            <version>3.2.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.persistence</groupId>
+            <artifactId>javax.persistence-api</artifactId>
+            <version>2.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.xml.ws</groupId>
+            <artifactId>jaxws-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+    </dependencies>
+
+</project>

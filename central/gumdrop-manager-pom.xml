@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This POM declares Maven coordinates and the metadata Maven Central's
+  Publisher API validates (name/description/url/licenses/developers/scm)
+  for the "gumdrop-manager" artifact (the manager web application, a
+  deployable WAR with no separate Java compile step of its own - see
+  build.xml's manager-war target). It performs no build or deploy action
+  of its own: Ant (build.xml) is the sole build tool, and this file is
+  only consumed by scripts/publish-to-central.sh when assembling the
+  Central upload bundle.
+
+  No <dependencies>: manager/ has no WEB-INF/lib and build.xml's
+  manager-war target does no compilation of its own - it just jars the
+  manager/ directory as-is, so there is nothing to declare.
+
+  See gumdrop-pom.xml for the general notes on why this file exists
+  separately from the root pom.xml, and on the SNAPSHOT version blocker.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.bluezoo</groupId>
+    <artifactId>gumdrop-manager</artifactId>
+    <version>2.1-SNAPSHOT</version>
+    <packaging>war</packaging>
+
+    <name>Gumdrop Manager</name>
+    <description>Web-based management application for administering a running Gumdrop server.</description>
+    <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Chris Burdess</name>
+            <email>dog@gnu.org</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/cpkb-bluezoo/gumdrop.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/cpkb-bluezoo/gumdrop.git</developerConnection>
+        <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+    </scm>
+
+</project>

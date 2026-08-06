@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This POM declares Maven coordinates and the metadata Maven Central's
+  Publisher API validates (name/description/url/licenses/developers/scm)
+  for the "gumdrop-container" artifact (a self-contained bootstrap jar for
+  launching gumdrop as a standalone process). It performs no build or
+  deploy action of its own: Ant (build.xml) is the sole build tool, and
+  this file is only consumed by scripts/publish-to-central.sh when
+  assembling the Central upload bundle.
+
+  Deliberately no <dependencies>: unlike gumdrop-pom.xml, this artifact is
+  genuinely self-contained. build.xml's container-jar target (via
+  build-bootstrap) copies gumdrop.jar and every one of its dependency jars
+  bodily into gumdrop-container.jar as nested jar entries, loaded at
+  runtime through gumdrop's own Bootstrap/DependencyClassLoader
+  (Main-Class: org.bluezoo.gumdrop.Bootstrap) rather than the standard
+  jar Class-Path mechanism Maven understands. Declaring the usual
+  dependencies here would be wrong - a Maven consumer would get them on
+  the classpath twice (once from Maven, once already embedded), and
+  Maven's own resolution has no visibility into the embedded copies
+  either way.
+
+  See gumdrop-pom.xml for the general notes on why this file exists
+  separately from the root pom.xml, and on the SNAPSHOT version blocker.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.bluezoo</groupId>
+    <artifactId>gumdrop-container</artifactId>
+    <version>2.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Gumdrop Container</name>
+    <description>Self-contained, executable bootstrap jar for running Gumdrop as a standalone server process - bundles gumdrop.jar and all of its dependencies internally.</description>
+    <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <name>Chris Burdess</name>
+            <email>dog@gnu.org</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:git://github.com/cpkb-bluezoo/gumdrop.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/cpkb-bluezoo/gumdrop.git</developerConnection>
+        <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+    </scm>
+
+</project>

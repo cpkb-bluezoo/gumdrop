@@ -350,6 +350,62 @@
     <echo message='  ${dist}/gumdrop-manager-${version}.war (manager webapp)'/>
   </target>
 
+  <!-- Sources jar for Maven Central (core gumdrop.jar). No depends: archiving
+       .java files needs no compile step first. -->
+  <target name='release-sources'>
+    <mkdir dir='${dist}'/>
+    <jar jarfile='${dist}/gumdrop-${version}-sources.jar'>
+      <fileset dir='${src}'>
+        <exclude name='module-info.java'/>
+      </fileset>
+    </jar>
+  </target>
+
+  <!-- Sources jar for Maven Central (gumdrop-container.jar) - just the
+       bootstrap classes it actually adds on top of gumdrop.jar, mirroring
+       build-bootstrap's own include list exactly. -->
+  <target name='release-sources-container'>
+    <mkdir dir='${dist}'/>
+    <jar jarfile='${dist}/gumdrop-container-${version}-sources.jar'>
+      <fileset dir='${src}'>
+        <include name='org/bluezoo/gumdrop/Bootstrap.java'/>
+        <include name='org/bluezoo/gumdrop/DependencyClassLoader.java'/>
+        <include name='org/bluezoo/gumdrop/ContainerClassLoader.java'/>
+        <include name='org/bluezoo/gumdrop/util/IteratorEnumeration.java'/>
+        <include name='org/bluezoo/gumdrop/util/JarInputStream.java'/>
+      </fileset>
+    </jar>
+  </target>
+
+  <!-- "Sources" jar for Maven Central (gumdrop-manager.war) - manager-war
+       has no separate compile step, so the closest analog to "sources"
+       for this WAR is the raw manager/ webapp tree it's jarred from
+       as-is. -->
+  <target name='release-sources-manager'>
+    <mkdir dir='${dist}'/>
+    <jar jarfile='${dist}/gumdrop-manager-${version}-sources.jar' basedir='${manager}'/>
+  </target>
+
+  <target name='release-sources-all' depends='release-sources,release-sources-container,release-sources-manager'/>
+
+  <!-- Javadoc jar for Maven Central - one shared javadoc build (covering
+       the core gumdrop source tree only, since that's the only artifact
+       with real Java API surface) reused for all three published
+       artifacts; see scripts/publish-to-central.sh, which copies/renames
+       this single jar into each artifact's bundle. Depends on the
+       existing javadoc target, which already builds incrementally and
+       runs in classpath mode (see its own comments). -->
+  <target name='release-javadoc' depends='javadoc'>
+    <mkdir dir='${dist}'/>
+    <jar jarfile='${dist}/gumdrop-${version}-javadoc.jar' basedir='doc'/>
+  </target>
+
+  <!-- Everything scripts/publish-to-central.sh needs in ${dist}: the
+       three release jars/war (from 'release'), their three sources jars,
+       and the one shared javadoc jar. -->
+  <target name='release-central' depends='release,release-sources-all,release-javadoc'
+          description='Build all artifacts needed for a Maven Central publish'/>
+
   <!-- Check if javadoc needs to be regenerated -->
   <target name='javadoc-check'>
     <uptodate property='javadoc.uptodate' targetfile='doc/index.html'>
