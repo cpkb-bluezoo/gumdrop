@@ -517,6 +517,120 @@ public class FTPClientProtocolHandlerTest {
         assertTrue(unavailable.get());
     }
 
+    // ── PORT / EPRT ──
+
+    @Test
+    public void testPortSendsLoopbackAddressAndEphemeralPort() {
+        login();
+        handler.port(new ServerPortReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handleOk(ClientAuthenticatedState a) { }
+            @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
+        });
+        String sent = getLastSentCommand();
+        assertTrue(sent, sent.startsWith("PORT 127,0,0,1,"));
+    }
+
+    @Test
+    public void testPortOkCallback() {
+        login();
+        AtomicBoolean ok = new AtomicBoolean();
+        handler.port(new ServerPortReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handleOk(ClientAuthenticatedState a) { ok.set(true); }
+            @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
+        });
+        simulateResponse("200 PORT command successful\r\n");
+        assertTrue(ok.get());
+    }
+
+    @Test
+    public void testPortError() {
+        login();
+        AtomicReference<Integer> errCode = new AtomicReference<>();
+        handler.port(new ServerPortReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handleOk(ClientAuthenticatedState a) { }
+            @Override public void handleError(ClientAuthenticatedState a, int code, String message) {
+                errCode.set(code);
+            }
+        });
+        simulateResponse("500 PORT rejected\r\n");
+        assertEquals(Integer.valueOf(500), errCode.get());
+    }
+
+    @Test
+    public void testEprtSendsIpv4AddressFamilyOne() {
+        login();
+        handler.eprt(new ServerPortReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handleOk(ClientAuthenticatedState a) { }
+            @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
+        });
+        String sent = getLastSentCommand();
+        assertTrue(sent, sent.startsWith("EPRT |1|127.0.0.1|"));
+    }
+
+    @Test
+    public void testEprtOkCallback() {
+        login();
+        AtomicBoolean ok = new AtomicBoolean();
+        handler.eprt(new ServerPortReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handleOk(ClientAuthenticatedState a) { ok.set(true); }
+            @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
+        });
+        simulateResponse("200 EPRT command successful\r\n");
+        assertTrue(ok.get());
+    }
+
+    // ── PBSZ / PROT (RFC 4217) ──
+
+    @Test
+    public void testPbszOk() {
+        login();
+        AtomicBoolean ok = new AtomicBoolean();
+        handler.pbsz(0, simpleOk(ok));
+        assertEquals("PBSZ 0", getLastSentCommand());
+        simulateResponse("200 PBSZ=0\r\n");
+        assertTrue(ok.get());
+    }
+
+    @Test
+    public void testProtPOk() {
+        login();
+        AtomicBoolean ok = new AtomicBoolean();
+        handler.prot("P", simpleOk(ok));
+        assertEquals("PROT P", getLastSentCommand());
+        simulateResponse("200 Protection level set to P\r\n");
+        assertTrue(ok.get());
+    }
+
+    @Test
+    public void testProtCOk() {
+        login();
+        AtomicBoolean ok = new AtomicBoolean();
+        handler.prot("C", simpleOk(ok));
+        assertEquals("PROT C", getLastSentCommand());
+        simulateResponse("200 Protection level set to C\r\n");
+        assertTrue(ok.get());
+    }
+
+    @Test
+    public void testProtError() {
+        login();
+        AtomicReference<Integer> errCode = new AtomicReference<>();
+        handler.prot("P", new ServerSimpleReplyHandler() {
+            @Override public void handleServiceClosing(String message) { }
+            @Override public void handleOk(ClientAuthenticatedState a) { }
+            @Override public void handleError(ClientAuthenticatedState a, int code, String message) {
+                errCode.set(code);
+            }
+        });
+        simulateResponse("503 PBSZ required first\r\n");
+        assertEquals(Integer.valueOf(503), errCode.get());
+    }
+
     // ── 421 mid-session ──
 
     @Test
@@ -572,7 +686,12 @@ public class FTPClientProtocolHandlerTest {
 
         @Override
         public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("localhost", 21);
+            try {
+                return new InetSocketAddress(
+                        java.net.InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 21);
+            } catch (java.net.UnknownHostException e) {
+                throw new AssertionError(e);
+            }
         }
 
         @Override

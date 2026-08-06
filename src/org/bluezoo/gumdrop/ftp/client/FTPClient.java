@@ -236,6 +236,9 @@ public class FTPClient {
 
         endpointHandler = new FTPClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
+        if (sslContext != null) {
+            endpointHandler.setSSLContext(sslContext);
+        }
 
         try {
             if (host != null) {

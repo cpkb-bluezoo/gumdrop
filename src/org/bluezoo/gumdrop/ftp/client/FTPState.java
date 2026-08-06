@@ -91,6 +91,18 @@ enum FTPState {
     /** EPSV command sent, waiting for response. RFC 2428 §3 */
     EPSV_SENT,
 
+    /** PORT command sent, waiting for response. RFC 959 §4.1.2 */
+    PORT_SENT,
+
+    /** EPRT command sent, waiting for response. RFC 2428 §2 */
+    EPRT_SENT,
+
+    /** PBSZ command sent, waiting for response. RFC 4217 §8 */
+    PBSZ_SENT,
+
+    /** PROT command sent, waiting for response. RFC 4217 §9 */
+    PROT_SENT,
+
     /** RETR command sent, transfer in progress. RFC 959 §4.1.3 */
     RETR_SENT,
 

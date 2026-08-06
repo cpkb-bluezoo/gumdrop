@@ -1,0 +1,18 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  FTP Client integration test configuration.
+
+  Sets up a read-write SimpleFTPService (no realm, so any username with a
+  non-empty password is accepted) backed by a scratch directory, for
+  testing Gumdrop's FTP client implementation against a real server:
+  - USER/PASS login, PWD/CWD/MKD/TYPE
+  - PASV + STOR/RETR/LIST round trips
+-->
+<gumdrop>
+    <service id="simpleFtpService" class="org.bluezoo.gumdrop.ftp.file.SimpleFTPService">
+        <property name="root-directory">test/integration/ftp-data</property>
+        <property name="read-only">false</property>
+        <listener class="org.bluezoo.gumdrop.ftp.FTPListener"
+                  name="ftp" port="18021" addresses="127.0.0.1"/>
+    </service>
+</gumdrop>

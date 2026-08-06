@@ -133,67 +133,121 @@ public interface ClientAuthenticatedState {
     void epsv(ServerEpsvReplyHandler callback);
 
     /**
+     * Sends a PORT command to switch to active mode. RFC 959 §4.1.2.
+     *
+     * <p>Opens a local listener and announces its address to the server.
+     * On success, pass {@code null} as the {@code dataAddress} to {@link
+     * #retr}/{@link #stor}/{@link #appe}/{@link #list}/{@link
+     * #nlst}/{@link #mlsd} to accept the server's connection on that
+     * listener, instead of connecting out as PASV/EPSV do.
+     *
+     * @param callback receives the server's response
+     */
+    void port(ServerPortReplyHandler callback);
+
+    /**
+     * Sends an EPRT command to switch to active mode. RFC 2428 §2. See
+     * {@link #port} — used the same way, but supports IPv6.
+     *
+     * @param callback receives the server's response
+     */
+    void eprt(ServerPortReplyHandler callback);
+
+    /**
+     * Sends a PBSZ command to set the protection buffer size, required
+     * before {@link #prot} on a TLS-secured control connection. RFC 4217
+     * §8. TLS data protection ignores the buffer size (always effectively
+     * 0); pass {@code 0}.
+     *
+     * @param size the protection buffer size (conventionally 0 for TLS)
+     * @param callback receives the server's response
+     */
+    void pbsz(int size, ServerSimpleReplyHandler callback);
+
+    /**
+     * Sends a PROT command to set data connection protection. RFC 4217
+     * §9. Must follow a successful {@link #pbsz} call. {@code "P"}
+     * (private/TLS) applies to subsequent PASV/EPSV transfers only —
+     * active-mode (PORT/EPRT) data connections do not yet support TLS
+     * protection.
+     *
+     * @param level the protection level: {@code "P"} (private, TLS) or
+     *      {@code "C"} (clear)
+     * @param callback receives the server's response
+     */
+    void prot(String level, ServerSimpleReplyHandler callback);
+
+    /**
      * Sends a RETR command to download a file. RFC 959 §4.1.3.
      *
      * <p>{@code dataAddress} is the address returned by a prior {@link
-     * #pasv}/{@link #epsv} call; the data connection is opened before the
-     * RETR command is sent.
+     * #pasv}/{@link #epsv} call, in which case the data connection is
+     * opened before the RETR command is sent; or {@code null} following a
+     * successful {@link #port}/{@link #eprt} call, in which case the
+     * command is sent immediately and the transfer begins once the server
+     * connects to the previously-opened listener.
      *
      * @param pathname the remote file to download
-     * @param dataAddress the data connection address
+     * @param dataAddress the data connection address, or null to use a
+     *      pending PORT/EPRT listener
      * @param callback receives the file content and completion/failure
      */
     void retr(String pathname, InetSocketAddress dataAddress, ServerRetrReplyHandler callback);
 
     /**
      * Sends a STOR command to upload a file, replacing it if it exists.
-     * RFC 959 §4.1.3.
+     * RFC 959 §4.1.3. See {@link #retr} for {@code dataAddress}.
      *
      * @param pathname the remote file to upload to
-     * @param dataAddress the data connection address
+     * @param dataAddress the data connection address, or null to use a
+     *      pending PORT/EPRT listener
      * @param callback receives the data sink and completion/failure
      */
     void stor(String pathname, InetSocketAddress dataAddress, ServerStorReplyHandler callback);
 
     /**
      * Sends an APPE command to upload a file, appending to it if it
-     * exists. RFC 959 §4.1.3.
+     * exists. RFC 959 §4.1.3. See {@link #retr} for {@code dataAddress}.
      *
      * @param pathname the remote file to append to
-     * @param dataAddress the data connection address
+     * @param dataAddress the data connection address, or null to use a
+     *      pending PORT/EPRT listener
      * @param callback receives the data sink and completion/failure
      */
     void appe(String pathname, InetSocketAddress dataAddress, ServerStorReplyHandler callback);
 
     /**
      * Sends a LIST command for a full (e.g. {@code ls -l}-style) directory
-     * listing. RFC 959 §4.1.3.
+     * listing. RFC 959 §4.1.3. See {@link #retr} for {@code dataAddress}.
      *
      * @param pathname the directory (or file) to list, or null/empty for
      *      the current directory
-     * @param dataAddress the data connection address
+     * @param dataAddress the data connection address, or null to use a
+     *      pending PORT/EPRT listener
      * @param callback receives the parsed entries
      */
     void list(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
 
     /**
      * Sends an NLST command for a bare-filename directory listing.
-     * RFC 959 §4.1.3.
+     * RFC 959 §4.1.3. See {@link #retr} for {@code dataAddress}.
      *
      * @param pathname the directory to list, or null/empty for the
      *      current directory
-     * @param dataAddress the data connection address
+     * @param dataAddress the data connection address, or null to use a
+     *      pending PORT/EPRT listener
      * @param callback receives the parsed entries
      */
     void nlst(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
 
     /**
      * Sends an MLSD command for a machine-readable directory listing.
-     * RFC 3659 §7.
+     * RFC 3659 §7. See {@link #retr} for {@code dataAddress}.
      *
      * @param pathname the directory to list, or null/empty for the
      *      current directory
-     * @param dataAddress the data connection address
+     * @param dataAddress the data connection address, or null to use a
+     *      pending PORT/EPRT listener
      * @param callback receives the parsed entries
      */
     void mlsd(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);

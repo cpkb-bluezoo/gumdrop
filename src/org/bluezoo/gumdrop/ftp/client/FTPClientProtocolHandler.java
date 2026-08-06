@@ -33,6 +33,8 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.SSLContext;
+
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -51,6 +53,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.ServerListReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerMkdReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerPassReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerPasvReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.ServerPortReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerPwdReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerRetrReplyHandler;
@@ -121,6 +124,13 @@ public class FTPClientProtocolHandler
     private final StringBuilder listingBuffer = new StringBuilder();
     private List<FTPFileEntry> pendingListEntries;
 
+    // RFC 4217 §9 (PROT). The SSL context is supplied by FTPClient (the
+    // same one used for AUTH TLS on the control connection) so data
+    // connections can be secured too; remembered here since PROT is sent
+    // well after connect().
+    private SSLContext dataSslContext;
+    private String pendingProtLevel;
+
     // Streaming lexer (issue #85) and per-line parse state. No cap on
     // structured tokens: this client trusts the remote server, same
     // principle as SMTPClientLexer/POP3ClientLexer.
@@ -150,6 +160,17 @@ public class FTPClientProtocolHandler
      */
     public void setSecure(boolean secure) {
         this.secure = secure;
+    }
+
+    /**
+     * Sets the SSL context to use for TLS-protected data connections (RFC
+     * 4217 §9, PROT P). Typically the same context configured for the
+     * control connection's AUTH TLS.
+     *
+     * @param context the SSL context, or null to use the platform default
+     */
+    public void setSSLContext(SSLContext context) {
+        this.dataSslContext = context;
     }
 
     // ── ProtocolHandler (RFC 959 §4.1.1 — session initiation) ──
@@ -489,15 +510,72 @@ public class FTPClientProtocolHandler
         sendCommand("EPSV", FTPState.EPSV_SENT);
     }
 
+    /** RFC 959 §4.1.2 — PORT command. Opens the local active-mode listener first. */
+    @Override
+    public void port(ServerPortReplyHandler callback) {
+        this.currentCallback = callback;
+        try {
+            InetSocketAddress local = dataCoordinator.openActiveListener();
+            byte[] addr = local.getAddress().getAddress();
+            if (addr.length != 4) {
+                throw new IOException(
+                        "PORT requires an IPv4 local address; use EPRT for IPv6");
+            }
+            int port = local.getPort();
+            String cmd = "PORT " + (addr[0] & 0xFF) + "," + (addr[1] & 0xFF) + ","
+                    + (addr[2] & 0xFF) + "," + (addr[3] & 0xFF) + ","
+                    + ((port >> 8) & 0xFF) + "," + (port & 0xFF);
+            sendCommand(cmd, FTPState.PORT_SENT);
+        } catch (IOException e) {
+            currentCallback = null;
+            callback.handleError(this, 0, e.getMessage());
+        }
+    }
+
+    /** RFC 2428 §2 — EPRT command. Opens the local active-mode listener first. */
+    @Override
+    public void eprt(ServerPortReplyHandler callback) {
+        this.currentCallback = callback;
+        try {
+            InetSocketAddress local = dataCoordinator.openActiveListener();
+            InetAddress addr = local.getAddress();
+            int af = (addr instanceof java.net.Inet6Address) ? 2 : 1;
+            String cmd = "EPRT |" + af + "|" + addr.getHostAddress() + "|" + local.getPort() + "|";
+            sendCommand(cmd, FTPState.EPRT_SENT);
+        } catch (IOException e) {
+            currentCallback = null;
+            callback.handleError(this, 0, e.getMessage());
+        }
+    }
+
+    /** RFC 4217 §8 — PBSZ command. */
+    @Override
+    public void pbsz(int size, ServerSimpleReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("PBSZ " + size, FTPState.PBSZ_SENT);
+    }
+
+    /** RFC 4217 §9 — PROT command. */
+    @Override
+    public void prot(String level, ServerSimpleReplyHandler callback) {
+        this.currentCallback = callback;
+        this.pendingProtLevel = level;
+        sendCommand("PROT " + level, FTPState.PROT_SENT);
+    }
+
     /**
-     * RFC 959 §4.1.3 — RETR command. The data connection is opened first;
-     * RETR is sent once it connects (see {@link DownloadDataHandler}).
+     * RFC 959 §4.1.3 — RETR command. In passive mode ({@code dataAddress}
+     * non-null) the data connection is opened first, and RETR is sent
+     * once it connects (see {@link DownloadDataHandler}); in active mode
+     * ({@code dataAddress == null}, following a successful {@link #port}/
+     * {@link #eprt}) RETR is sent immediately, since the listener is
+     * already open.
      */
     @Override
     public void retr(String pathname, InetSocketAddress dataAddress,
             ServerRetrReplyHandler callback) {
         beginDataTransfer(callback);
-        dataCoordinator.connect(dataAddress, new DownloadDataHandler(pathname, callback));
+        openDataConnection(dataAddress, new DownloadDataHandler(pathname, callback));
     }
 
     /** RFC 959 §4.1.3 — STOR command. See {@link #retr}. */
@@ -505,8 +583,7 @@ public class FTPClientProtocolHandler
     public void stor(String pathname, InetSocketAddress dataAddress,
             ServerStorReplyHandler callback) {
         beginDataTransfer(callback);
-        dataCoordinator.connect(dataAddress,
-                new UploadDataHandler(pathname, false, callback));
+        openDataConnection(dataAddress, new UploadDataHandler(pathname, false, callback));
     }
 
     /** RFC 959 §4.1.3 — APPE command. See {@link #retr}. */
@@ -514,8 +591,7 @@ public class FTPClientProtocolHandler
     public void appe(String pathname, InetSocketAddress dataAddress,
             ServerStorReplyHandler callback) {
         beginDataTransfer(callback);
-        dataCoordinator.connect(dataAddress,
-                new UploadDataHandler(pathname, true, callback));
+        openDataConnection(dataAddress, new UploadDataHandler(pathname, true, callback));
     }
 
     /** RFC 959 §4.1.3 — LIST command. See {@link #retr}. */
@@ -523,8 +599,7 @@ public class FTPClientProtocolHandler
     public void list(String pathname, InetSocketAddress dataAddress,
             ServerListReplyHandler callback) {
         beginDataTransfer(callback);
-        dataCoordinator.connect(dataAddress,
-                new ListingDataHandler("LIST", pathname, callback));
+        openDataConnection(dataAddress, new ListingDataHandler("LIST", pathname, callback));
     }
 
     /** RFC 959 §4.1.3 — NLST command. See {@link #retr}. */
@@ -532,8 +607,7 @@ public class FTPClientProtocolHandler
     public void nlst(String pathname, InetSocketAddress dataAddress,
             ServerListReplyHandler callback) {
         beginDataTransfer(callback);
-        dataCoordinator.connect(dataAddress,
-                new ListingDataHandler("NLST", pathname, callback));
+        openDataConnection(dataAddress, new ListingDataHandler("NLST", pathname, callback));
     }
 
     /** RFC 3659 §7 — MLSD command. See {@link #retr}. */
@@ -541,8 +615,20 @@ public class FTPClientProtocolHandler
     public void mlsd(String pathname, InetSocketAddress dataAddress,
             ServerListReplyHandler callback) {
         beginDataTransfer(callback);
-        dataCoordinator.connect(dataAddress,
-                new ListingDataHandler("MLSD", pathname, callback));
+        openDataConnection(dataAddress, new ListingDataHandler("MLSD", pathname, callback));
+    }
+
+    /**
+     * Opens the data connection for a transfer: connects out to {@code
+     * dataAddress} (PASV/EPSV), or — if null — accepts the server's
+     * inbound connection on a previously-opened PORT/EPRT listener.
+     */
+    private void openDataConnection(InetSocketAddress dataAddress, ProtocolHandler dataHandler) {
+        if (dataAddress != null) {
+            dataCoordinator.connect(dataAddress, dataHandler);
+        } else {
+            dataCoordinator.acceptNext(dataHandler);
+        }
     }
 
     private void beginDataTransfer(Object callback) {
@@ -653,6 +739,16 @@ public class FTPClientProtocolHandler
                 break;
             case EPSV_SENT:
                 dispatchEpsvReply(code, message);
+                break;
+            case PORT_SENT:
+            case EPRT_SENT:
+                dispatchPortReply(code, message);
+                break;
+            case PBSZ_SENT:
+                dispatchSimpleReply(code, message);
+                break;
+            case PROT_SENT:
+                dispatchProtReply(code, message);
                 break;
             case RETR_SENT:
             case STOR_SENT:
@@ -828,6 +924,39 @@ public class FTPClientProtocolHandler
             } catch (RuntimeException e) {
                 callback.handleError(this, code, "Malformed EPSV reply: " + message);
             }
+        } else {
+            callback.handleError(this, code, message);
+        }
+    }
+
+    /** RFC 959 §4.1.2 — PORT/EPRT: 2xx accepted, else rejected. */
+    private void dispatchPortReply(int code, String message) {
+        ServerPortReplyHandler callback = (ServerPortReplyHandler) currentCallback;
+        currentCallback = null;
+        state = FTPState.AUTHENTICATED;
+
+        if (code >= 200 && code < 300) {
+            callback.handleOk(this);
+        } else {
+            dataCoordinator.closeActiveListener();
+            callback.handleError(this, code, message);
+        }
+    }
+
+    /**
+     * RFC 4217 §9 — PROT: 2xx accepted (arms/disarms data-connection TLS
+     * protection for subsequent passive-mode transfers), else rejected.
+     */
+    private void dispatchProtReply(int code, String message) {
+        ServerSimpleReplyHandler callback = (ServerSimpleReplyHandler) currentCallback;
+        currentCallback = null;
+        state = FTPState.AUTHENTICATED;
+        String level = pendingProtLevel;
+        pendingProtLevel = null;
+
+        if (code >= 200 && code < 300) {
+            dataCoordinator.setDataProtection("P".equalsIgnoreCase(level), dataSslContext);
+            callback.handleOk(this);
         } else {
             callback.handleError(this, code, message);
         }
