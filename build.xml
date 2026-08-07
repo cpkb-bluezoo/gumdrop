@@ -618,7 +618,7 @@
   <!-- Run FTP integration tests -->
   <target name='integration-test-ftp' depends='integration-build'
           description='Run FTP server integration tests'>
-    <integration-junit includes='**/ftp/*IntegrationTest.java'/>
+    <integration-junit includes='**/ftp/**/*IntegrationTest.java'/>
   </target>
 
   <!-- Run servlet container integration tests -->

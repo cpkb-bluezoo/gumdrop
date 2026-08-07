@@ -362,8 +362,14 @@ public class Gumdrop {
 
     /**
      * Ensures the AcceptSelectorLoop is created and running.
+     *
+     * <p>Public so that standalone accept-side use of {@link
+     * #getAcceptLoop()} (e.g. an FTP active-mode client, which is not
+     * itself a registered server/service and so never otherwise triggers
+     * this) can guarantee the loop exists before calling {@link
+     * AcceptSelectorLoop#registerRawAcceptor}.
      */
-    private void ensureAcceptLoop() {
+    public void ensureAcceptLoop() {
         if (acceptLoop == null || !acceptLoop.isRunning()) {
             acceptLoop = new AcceptSelectorLoop(this);
             acceptLoop.start();
