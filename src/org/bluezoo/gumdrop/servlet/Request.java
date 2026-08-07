@@ -101,9 +101,9 @@ class Request implements HttpServletRequest {
     Collection<Part> parts;
 
     Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
-            PipedInputStream pipeIn) throws IOException {
+            RequestBodyStream bodyStream) throws IOException {
         this.handler = handler;
-        in = new RequestInputStream(pipeIn);
+        in = new RequestInputStream(bodyStream);
         this.method = method;
         this.requestTarget = requestTarget;
         this.headers = headers;

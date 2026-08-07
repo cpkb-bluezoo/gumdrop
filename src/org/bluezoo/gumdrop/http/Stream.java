@@ -1545,6 +1545,16 @@ class Stream implements HTTPResponseState {
         if (responseState == ResponseState.COMPLETE) {
             return; // Already complete, ignore
         }
+        if (state == State.CLOSED) {
+            // The stream was already closed by something else (e.g. the
+            // peer dropped the connection, or a "Connection: close"
+            // teardown) before the handler got around to completing the
+            // response. The desired end state is already achieved, so
+            // treat this the same as an already-complete response rather
+            // than failing - there is nothing left to send.
+            responseState = ResponseState.COMPLETE;
+            return;
+        }
 
         try {
             if (bufferedResponseHeaders != null && bufferedResponseHeaders.size() > 0) {

@@ -29,13 +29,9 @@ import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 
 import java.io.IOException;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,11 +43,15 @@ import javax.servlet.ReadListener;
 
 /**
  * HTTP request handler for the servlet container.
- * 
+ *
  * <p>This handler bridges the async, event-driven HTTP layer with the
- * blocking servlet API. Request body data is delivered via a pipe that
- * the servlet reads from, and response data is buffered and sent via
- * {@link HTTPResponseState}.
+ * blocking servlet API. Request body data is delivered via a {@link
+ * RequestBodyStream} that the servlet reads from (applying backpressure —
+ * {@code pauseRequestBody()}/{@code resumeRequestBody()} — rather than
+ * blocking the SelectorLoop thread when the servlet reads slower than the
+ * network delivers), and response body data is streamed to {@link
+ * HTTPResponseState} as the servlet writes it, rather than buffered in
+ * full (issue #120).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -66,9 +66,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     // The HTTP response state - provides connection info and response sending
     private HTTPResponseState state;
 
-    // Pipe for delivering request body to servlet
-    private PipedOutputStream pipe;
-    private PipedInputStream pipeIn;
+    // Non-blocking bridge for delivering request body to the servlet
+    private RequestBodyStream bodyStream;
 
     // Servlet request/response
     private Request request;
@@ -79,14 +78,19 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     private ReadListener readListener;
     private Map<String, String> requestTrailerFields;
 
-    // Response buffering
+    // Response state
     private boolean closeConnection;
     private int statusCode;
     private Headers responseHeaders;
-    private List<ByteBuffer> responseBody;
     private long contentLength;
     private boolean responseComplete;
     private Supplier<Map<String, String>> trailerFieldsSupplier;
+
+    // Streaming dispatch state: headers/body-start are each sent to the
+    // network at most once, lazily, on first use (see ensureHeadersSent()/
+    // ensureBodyStarted()) rather than deferred to endResponse().
+    private boolean headersSent;
+    private boolean bodyStarted;
 
     ServletHandler(ServletService service, Container container, int bufferSize) {
         this.service = service;
@@ -139,12 +143,28 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         }
 
         try {
-            // Create the pipe for request body delivery
-            pipe = new PipedOutputStream();
-            pipeIn = new PipedInputStream(pipe, bufferSize);
+            // Non-blocking bridge for request body delivery. write() (via
+            // offer()) never blocks the SelectorLoop thread; it applies
+            // backpressure through pauseRequestBody()/resumeRequestBody()
+            // instead.
+            bodyStream = new RequestBodyStream();
+            bodyStream.setResumeCallback(new Runnable() {
+                @Override
+                public void run() {
+                    // May be called from the worker thread (inside
+                    // RequestBodyStream.read()); resumeRequestBody() must
+                    // run on the SelectorLoop thread.
+                    ServletHandler.this.state.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            ServletHandler.this.state.resumeRequestBody();
+                        }
+                    });
+                }
+            });
 
             // Create Request and Response
-            request = new Request(this, bufferSize, method, requestTarget, requestHeaders, pipeIn);
+            request = new Request(this, bufferSize, method, requestTarget, requestHeaders, bodyStream);
             response = new Response(this, request, bufferSize);
 
             // Dispatch to worker thread for servlet execution
@@ -159,23 +179,25 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     @Override
     public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
-        if (pipe == null) {
+        if (bodyStream == null) {
             return;
         }
 
-        try {
-            byte[] buf = new byte[data.remaining()];
-            data.get(buf);
-            pipe.write(buf);
+        byte[] buf = new byte[data.remaining()];
+        data.get(buf);
+        // Already running on the SelectorLoop thread here, so
+        // pauseRequestBody() can be called directly.
+        boolean shouldPause = bodyStream.offer(buf);
+        if (shouldPause) {
+            state.pauseRequestBody();
+        }
 
-            // Notify ReadListener if registered
-            if (readListener != null) {
+        // Notify ReadListener if registered
+        if (readListener != null) {
+            try {
                 readListener.onDataAvailable();
-            }
-        } catch (IOException e) {
-            String message = ServletService.L10N.getString("error.write_pipe");
-            LOGGER.log(Level.SEVERE, message, e);
-            if (readListener != null) {
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error notifying ReadListener", e);
                 readListener.onError(e);
             }
         }
@@ -188,14 +210,9 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     @Override
     public void requestComplete(HTTPResponseState state) {
-        // Close the pipe - signals EOF to servlet's InputStream
-        if (pipe != null) {
-            try {
-                pipe.close();
-            } catch (IOException e) {
-                String message = ServletService.L10N.getString("error.close_pipe");
-                LOGGER.log(Level.SEVERE, message, e);
-            }
+        // Signal EOF to the servlet's InputStream
+        if (bodyStream != null) {
+            bodyStream.finish();
         }
 
         // Notify ReadListener if registered
@@ -280,20 +297,79 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     void writeBody(ByteBuffer buf) {
-        if (responseBody == null) {
-            responseBody = new ArrayList<ByteBuffer>();
-        }
         // Must deep copy - duplicate() shares the backing array which gets reused
         int length = buf.remaining();
-        ByteBuffer copy = ByteBuffer.allocate(length);
+        final ByteBuffer copy = ByteBuffer.allocate(length);
         copy.put(buf);
         copy.flip();
-        responseBody.add(copy);
         contentLength += (long) length;
+
+        ensureBodyStarted();
+        // Fire-and-forget: state.execute() preserves submission order (it
+        // is backed by the connection's SelectorLoop task queue), so this
+        // chunk is guaranteed to be sent before any later writeBody() call
+        // or the final endResponse() completion, without the worker
+        // thread needing to wait for each individual chunk. Per-chunk
+        // backpressure against a slow peer is the transport layer's
+        // responsibility (see issue #123 for HTTP/2's pending-data queue).
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.responseBodyContent(copy);
+            }
+        });
+    }
+
+    /** Sends response headers to the network, at most once, lazily. */
+    private synchronized void ensureHeadersSent() {
+        if (headersSent) {
+            return;
+        }
+        headersSent = true;
+        final Headers headers = buildResponseHeaders();
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.headers(headers);
+            }
+        });
+    }
+
+    /**
+     * Sends response headers (if not already sent) and signals the start
+     * of the response body, at most once, lazily on the first {@link
+     * #writeBody(ByteBuffer)} call.
+     */
+    private synchronized void ensureBodyStarted() {
+        ensureHeadersSent();
+        if (bodyStarted) {
+            return;
+        }
+        bodyStarted = true;
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.startResponseBody();
+            }
+        });
+    }
+
+    private Headers buildResponseHeaders() {
+        Headers headers = new Headers();
+        headers.status(HTTPStatus.fromCode(statusCode));
+        if (responseHeaders != null) {
+            for (Header header : responseHeaders) {
+                headers.add(header);
+            }
+        }
+        return headers;
     }
 
     void endResponse() {
         responseComplete = true;
+        // Covers the empty-body case (headers were never sent because
+        // writeBody() was never called).
+        ensureHeadersSent();
         sendResponse();
     }
 
@@ -379,37 +455,27 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         }
     }
 
+    /**
+     * Finishes the response. Headers and any body content have already
+     * been streamed to the network as the servlet produced them (see
+     * {@link #ensureHeadersSent()}, {@link #ensureBodyStarted()}, {@link
+     * #writeBody(ByteBuffer)}) — this only needs to close out the body
+     * (if one was started), send trailers, and complete the response.
+     */
     private void sendResponseDirect() {
         try {
-            Headers headers = new Headers();
-            headers.status(HTTPStatus.fromCode(statusCode));
-            if (responseHeaders != null) {
-                for (Header header : responseHeaders) {
-                    headers.add(header);
-                }
-            }
-
-            boolean hasTrailerFields = false;
-            Map<String, String> trailerFields = null;
-            if (trailerFieldsSupplier != null) {
-                try {
-                    trailerFields = trailerFieldsSupplier.get();
-                    hasTrailerFields = (trailerFields != null && !trailerFields.isEmpty());
-                } catch (Exception e) {
-                    LOGGER.warning("Error getting trailer fields: " + e.getMessage());
-                }
-            }
-
-            state.headers(headers);
-
-            if (responseBody != null && !responseBody.isEmpty()) {
-                state.startResponseBody();
-                for (ByteBuffer buf : responseBody) {
-                    state.responseBodyContent(buf);
-                }
+            if (bodyStarted) {
                 state.endResponseBody();
 
-                if (hasTrailerFields) {
+                Map<String, String> trailerFields = null;
+                if (trailerFieldsSupplier != null) {
+                    try {
+                        trailerFields = trailerFieldsSupplier.get();
+                    } catch (Exception e) {
+                        LOGGER.warning("Error getting trailer fields: " + e.getMessage());
+                    }
+                }
+                if (trailerFields != null && !trailerFields.isEmpty()) {
                     Headers trailers = new Headers();
                     for (Map.Entry<String, String> entry : trailerFields.entrySet()) {
                         trailers.add(entry.getKey(), entry.getValue());
