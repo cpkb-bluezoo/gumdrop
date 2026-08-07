@@ -70,6 +70,14 @@ interface HTTPConnectionLike {
     long getMaxRequestBodySize();
 
     /**
+     * Returns the authentication provider configured for this connection's
+     * listener/service, or {@code null} if none is configured.
+     *
+     * @return the authentication provider, or null
+     */
+    HTTPAuthenticationProvider getAuthenticationProvider();
+
+    /**
      * Registers a one-shot callback invoked when the transport is ready
      * for more data on the given stream.
      *

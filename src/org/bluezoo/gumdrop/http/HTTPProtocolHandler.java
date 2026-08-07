@@ -1055,6 +1055,11 @@ public class HTTPProtocolHandler
         return maxRequestBodySize;
     }
 
+    @Override
+    public HTTPAuthenticationProvider getAuthenticationProvider() {
+        return authenticationProvider;
+    }
+
     private void checkContinuationLimit() {
         continuationFramesInBlock++;
         if (continuationFramesInBlock > MAX_CONTINUATION_FRAMES_PER_BLOCK) {

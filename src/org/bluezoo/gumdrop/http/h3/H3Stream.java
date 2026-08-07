@@ -199,14 +199,18 @@ class H3Stream implements HTTPResponseState {
             if (authProvider != null) {
                 String authHeader =
                         headers.getValue("authorization");
-                if (authHeader != null) {
-                    HTTPAuthenticationProvider.AuthenticationResult
-                            result = authProvider.authenticate(
-                                    authHeader, method, requestTarget);
-                    if (result.success) {
-                        authenticatedPrincipal =
-                                new HTTPPrincipal(result.username);
-                    }
+                HTTPAuthenticationProvider.AuthenticationResult
+                        result = authProvider.authenticate(
+                                authHeader, method, requestTarget);
+                if (result.success) {
+                    authenticatedPrincipal =
+                            new HTTPPrincipal(result.username);
+                } else if (authProvider.isAuthenticationRequired()) {
+                    // Previously a missing or failed Authorization header
+                    // just fell through here and the request was
+                    // dispatched anyway — no 401 was ever sent.
+                    sendUnauthorized(authProvider);
+                    return;
                 }
             }
 
@@ -847,6 +851,22 @@ class H3Stream implements HTTPResponseState {
         pendingResponseHeaders = new ArrayList<Header>();
         pendingResponseHeaders.add(
                 new Header(":status", Integer.toString(statusCode)));
+        flushHeaders(true);
+        state = State.CLOSED;
+        handler = null;
+    }
+
+    /**
+     * Sends a 401 Unauthorized response with a WWW-Authenticate challenge
+     * (RFC 9110 section 11.6.1).
+     */
+    private void sendUnauthorized(HTTPAuthenticationProvider authProvider) {
+        pendingResponseHeaders = new ArrayList<Header>();
+        pendingResponseHeaders.add(new Header(":status", "401"));
+        String challenge = authProvider.generateChallenge();
+        if (challenge != null) {
+            pendingResponseHeaders.add(new Header("www-authenticate", challenge));
+        }
         flushHeaders(true);
         state = State.CLOSED;
         handler = null;

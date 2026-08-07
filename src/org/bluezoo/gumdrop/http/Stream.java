@@ -598,6 +598,33 @@ class Stream implements HTTPResponseState {
                                 java.nio.charset.StandardCharsets.US_ASCII)));
             }
         }
+        // RFC 9110 section 11: HTTP authentication. Only checked on the
+        // first HEADERS frame that will create a handler (handler == null)
+        // — a service (e.g. WebDAVService) that configures a Realm expects
+        // this to gate every request, but the provider was previously
+        // stored on the connection and never actually consulted here, so
+        // no HTTP/1.1 or HTTP/2 request was ever rejected regardless of
+        // whether credentials were supplied.
+        if (handler == null) {
+            HTTPAuthenticationProvider authProvider = connection.getAuthenticationProvider();
+            if (authProvider != null) {
+                String authHeader = headers != null ? headers.getValue("Authorization") : null;
+                HTTPAuthenticationProvider.AuthenticationResult result =
+                        authProvider.authenticate(authHeader, method, requestTarget);
+                if (result.success) {
+                    authenticatedPrincipal = new HTTPPrincipal(result.username);
+                } else if (authProvider.isAuthenticationRequired()) {
+                    try {
+                        sendUnauthorized(authProvider);
+                    } catch (ProtocolException e) {
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.unauthorized_response_failed"),
+                                e.getMessage()));
+                    }
+                    return;
+                }
+            }
+        }
         // Initialize telemetry span if enabled
         initTelemetrySpan();
         
@@ -1311,6 +1338,28 @@ class Stream implements HTTPResponseState {
             closeConnection = true; // Close connection after error
         }
         sendResponseHeaders(statusCode, headers, true);
+    }
+
+    /**
+     * Sends a 401 Unauthorized response with a WWW-Authenticate challenge
+     * (RFC 9110 section 11.6.1). Unlike {@link #sendError}, the connection
+     * is not forced closed for HTTP/1.x: a 401 is a normal part of the
+     * authentication handshake and a client may legitimately retry with
+     * credentials on the same persistent connection.
+     */
+    private void sendUnauthorized(HTTPAuthenticationProvider authProvider) throws ProtocolException {
+        if (state == State.IDLE) {
+            state = State.OPEN;
+        }
+        Headers headers = new Headers();
+        String challenge = authProvider.generateChallenge();
+        if (challenge != null) {
+            headers.add("WWW-Authenticate", challenge);
+        }
+        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+            headers.add("Content-Length", "0");
+        }
+        sendResponseHeaders(401, headers, true);
     }
 
     /**
