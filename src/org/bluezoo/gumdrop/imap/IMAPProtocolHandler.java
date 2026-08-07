@@ -267,13 +267,14 @@ public class IMAPProtocolHandler
     private static final long IDLE_POLL_INTERVAL_MS = 1000L;
 
     /**
-     * Timeout for the CountDownLatch awaits in {@link #writeFully} and
-     * {@link #finishAsyncWriter}, run on the shared StorageExecutor pool
-     * (see {@link #submitStorage}). Without a timeout, an
-     * AsyncMessageWriter completion handler that never fires (a stuck or
-     * silently-dropped I/O callback) would pin a pool thread forever;
-     * since the pool is small and shared across every protocol's blocking
-     * work, a handful of stuck APPENDs can exhaust it entirely.
+     * Timeout for the CountDownLatch await in {@link #finishAsyncWriter},
+     * run on the shared StorageExecutor pool (see {@link #submitStorage}).
+     * finish() does genuine blocking file I/O on whatever thread calls it,
+     * so blocking a pool thread here is by design; the timeout is a safety
+     * net against a completion handler that never fires (a stuck or
+     * silently-dropped I/O callback), since the pool is small and shared
+     * across every protocol's blocking work - a handful of stuck APPENDs
+     * could otherwise exhaust it entirely.
      */
     private static final long STORAGE_WRITE_TIMEOUT_SECONDS = 30L;
 
@@ -3440,17 +3441,26 @@ public class IMAPProtocolHandler
         }
         final long expectedUidValidity = uidValidity;
 
+        if (writer != null) {
+            // writer.write() is genuinely asynchronous (backed by
+            // AsynchronousFileChannel under Maildir, completed on the JDK's
+            // own async I/O threads, not ours) - chain off its own
+            // completion handler here on the loop thread rather than
+            // blocking a StorageExecutor thread waiting on a different
+            // thread pool to finish work it isn't doing. Only the actual
+            // blocking file I/O in finish()/mb.close() is submitted to
+            // StorageExecutor, matching this method's doc comment.
+            finishAppendViaWriter(tag, messageSize, mb, writer, bufferedData,
+                    expectedUidValidity);
+            return;
+        }
+
         submitStorage(new Callable<Long>() {
             @Override
             public Long call() throws Exception {
                 try {
                     long uid;
-                    if (writer != null) {
-                        if (bufferedData.length > 0) {
-                            writeFully(writer, bufferedData);
-                        }
-                        uid = finishAsyncWriter(writer);
-                    } else if (buffered) {
+                    if (buffered) {
                         mb.startAppendMessage(flags, date);
                         if (bufferedData.length > 0) {
                             mb.appendMessageContent(
@@ -3464,13 +3474,6 @@ public class IMAPProtocolHandler
                     return Long.valueOf(uid);
                 } catch (Exception e) {
                     try {
-                        if (writer != null) {
-                            writer.abort();
-                        }
-                    } catch (Exception ignored) {
-                        // Best-effort cleanup
-                    }
-                    try {
                         mb.close(false);
                     } catch (IOException ce) {
                         LOGGER.log(Level.FINE,
@@ -3479,7 +3482,93 @@ public class IMAPProtocolHandler
                     throw e;
                 }
             }
-        }, new StorageExecutor.Callback<Long>() {
+        }, appendCompletionCallback(tag, messageSize, expectedUidValidity));
+    }
+
+    /**
+     * Finalises an APPEND that used the streaming {@link AsyncMessageWriter}.
+     * Flushes any final buffered bytes via the writer's own async write()
+     * (no blocking wait - see {@link #finishAppend}), then, once that
+     * completes, submits the writer's finish() and mb.close() to
+     * StorageExecutor since those do real blocking file I/O.
+     */
+    private void finishAppendViaWriter(final String tag,
+            final long messageSize, final Mailbox mb,
+            final AsyncMessageWriter writer, final byte[] bufferedData,
+            final long expectedUidValidity) {
+        CompletionHandler<Integer, ByteBuffer> onFlushed =
+                new CompletionHandler<Integer, ByteBuffer>() {
+            @Override
+            public void completed(Integer result, ByteBuffer attachment) {
+                submitStorage(new Callable<Long>() {
+                    @Override
+                    public Long call() throws Exception {
+                        try {
+                            long uid = finishAsyncWriter(writer);
+                            mb.close(false);
+                            return Long.valueOf(uid);
+                        } catch (Exception e) {
+                            try {
+                                writer.abort();
+                            } catch (Exception ignored) {
+                                // Best-effort cleanup
+                            }
+                            try {
+                                mb.close(false);
+                            } catch (IOException ce) {
+                                LOGGER.log(Level.FINE,
+                                        "Error closing append mailbox", ce);
+                            }
+                            throw e;
+                        }
+                    }
+                }, appendCompletionCallback(tag, messageSize,
+                        expectedUidValidity));
+            }
+
+            @Override
+            public void failed(final Throwable exc, ByteBuffer attachment) {
+                // write()'s completion handler may run on the async I/O
+                // implementation's own thread, not the loop thread; marshal
+                // back before touching session/session-response state.
+                endpoint.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            writer.abort();
+                        } catch (Exception ignored) {
+                            // Best-effort cleanup
+                        }
+                        try {
+                            mb.close(false);
+                        } catch (IOException ce) {
+                            LOGGER.log(Level.FINE,
+                                    "Error closing append mailbox", ce);
+                        }
+                        appendCompletionCallback(tag, messageSize,
+                                expectedUidValidity).failed(exc);
+                    }
+                });
+            }
+        };
+
+        if (bufferedData.length > 0) {
+            writer.write(ByteBuffer.wrap(bufferedData), onFlushed);
+        } else {
+            onFlushed.completed(0, ByteBuffer.wrap(bufferedData));
+        }
+    }
+
+    /**
+     * Builds the shared tagged-response callback for a completed or failed
+     * APPEND, used by both the buffered-fallback path in
+     * {@link #finishAppend} and the streaming-writer path in
+     * {@link #finishAppendViaWriter}.
+     */
+    private StorageExecutor.Callback<Long> appendCompletionCallback(
+            final String tag, final long messageSize,
+            final long expectedUidValidity) {
+        return new StorageExecutor.Callback<Long>() {
             @Override
             public void completed(Long uid) {
                 QuotaManager quotaManager = server.getQuotaManager();
@@ -3518,37 +3607,7 @@ public class IMAPProtocolHandler
                             "Failed to send APPEND error", e2);
                 }
             }
-        });
-    }
-
-    private static void writeFully(AsyncMessageWriter writer, byte[] data)
-            throws Exception {
-        final AtomicReference<Throwable> errRef =
-                new AtomicReference<Throwable>();
-        final CountDownLatch latch = new CountDownLatch(1);
-        writer.write(ByteBuffer.wrap(data),
-                new CompletionHandler<Integer, ByteBuffer>() {
-            @Override
-            public void completed(Integer result, ByteBuffer attachment) {
-                latch.countDown();
-            }
-
-            @Override
-            public void failed(Throwable exc, ByteBuffer attachment) {
-                errRef.set(exc);
-                latch.countDown();
-            }
-        });
-        if (!latch.await(STORAGE_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            throw new IOException(L10N.getString("imap.err.append_failed"));
-        }
-        if (errRef.get() != null) {
-            Throwable t = errRef.get();
-            if (t instanceof Exception) {
-                throw (Exception) t;
-            }
-            throw new IOException(t);
-        }
+        };
     }
 
     private static long finishAsyncWriter(AsyncMessageWriter writer)
