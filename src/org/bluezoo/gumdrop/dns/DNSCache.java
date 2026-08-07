@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * In-memory cache for DNS responses.
@@ -59,6 +60,17 @@ public class DNSCache {
     private final Object expiryLock = new Object();
     private final int maxEntries;
     private final int negativeTTL;
+
+    /**
+     * Number of accumulated tombstones that must build up before a poll of
+     * the expiry queue triggers a sweep. A TTL refresh or explicit removal
+     * marks the superseded EvictionEntry cancelled in O(1) instead of doing
+     * a linear PriorityQueue.remove(); this bounds how many tombstones can
+     * accumulate between sweeps. Mirrors ScheduledTimer's PURGE_THRESHOLD.
+     */
+    private static final int PURGE_THRESHOLD = 256;
+
+    private final AtomicInteger deadCount = new AtomicInteger();
 
     /**
      * Creates a new DNS cache with default settings.
@@ -259,6 +271,7 @@ public class DNSCache {
         synchronized (expiryLock) {
             expiryQueue.clear();
             keyToEvictionEntry.clear();
+            deadCount.set(0);
         }
     }
 
@@ -297,9 +310,13 @@ public class DNSCache {
                 int toRemove = maxEntries / 10;
                 int removed = 0;
                 synchronized (expiryLock) {
+                    purgeCancelledIfNeeded();
                     EvictionEntry evictionEntry;
                     while (removed < toRemove
                             && (evictionEntry = expiryQueue.poll()) != null) {
+                        if (evictionEntry.cancelled) {
+                            continue;
+                        }
                         // Only drop the index mapping if it still points at the
                         // entry we polled (it may have been refreshed since).
                         keyToEvictionEntry.remove(evictionEntry.key, evictionEntry);
@@ -316,11 +333,12 @@ public class DNSCache {
         EvictionEntry evictionEntry = new EvictionEntry(key, entry);
         cache.put(key, entry);
         synchronized (expiryLock) {
-            // Drop any prior eviction entry for this key (e.g. a TTL refresh)
-            // so the queue does not accumulate stale duplicates.
+            // Mark any prior eviction entry for this key (e.g. a TTL refresh)
+            // cancelled rather than doing a linear PriorityQueue.remove(); it
+            // is skipped lazily when polled or swept.
             EvictionEntry prev = keyToEvictionEntry.put(key, evictionEntry);
             if (prev != null) {
-                expiryQueue.remove(prev);
+                markCancelled(prev);
             }
             expiryQueue.add(evictionEntry);
         }
@@ -331,9 +349,42 @@ public class DNSCache {
             synchronized (expiryLock) {
                 EvictionEntry evictionEntry = keyToEvictionEntry.remove(key);
                 if (evictionEntry != null) {
-                    expiryQueue.remove(evictionEntry);
+                    markCancelled(evictionEntry);
                 }
             }
+        }
+    }
+
+    /**
+     * Marks an eviction entry cancelled (lock already held) and wakes a
+     * sweep once enough tombstones have accumulated.
+     */
+    private void markCancelled(EvictionEntry evictionEntry) {
+        evictionEntry.cancelled = true;
+        if (deadCount.incrementAndGet() >= PURGE_THRESHOLD) {
+            purgeCancelledIfNeeded();
+        }
+    }
+
+    /**
+     * Sweeps cancelled entries out of the expiry queue when enough have
+     * accumulated. Must be called with {@link #expiryLock} held. A single
+     * filter-and-rebuild pass, not repeated PriorityQueue.remove() calls
+     * (each of those is itself O(n), making a loop of them O(n^2)).
+     */
+    private void purgeCancelledIfNeeded() {
+        if (deadCount.get() >= PURGE_THRESHOLD) {
+            List<EvictionEntry> live = new ArrayList<>(expiryQueue.size());
+            for (EvictionEntry e : expiryQueue) {
+                if (!e.cancelled) {
+                    live.add(e);
+                }
+            }
+            if (live.size() != expiryQueue.size()) {
+                expiryQueue.clear();
+                expiryQueue.addAll(live);
+            }
+            deadCount.set(0);
         }
     }
 
@@ -343,6 +394,7 @@ public class DNSCache {
     private static final class EvictionEntry {
         final CacheKey key;
         final CacheEntry entry;
+        volatile boolean cancelled;
 
         EvictionEntry(CacheKey key, CacheEntry entry) {
             this.key = key;
