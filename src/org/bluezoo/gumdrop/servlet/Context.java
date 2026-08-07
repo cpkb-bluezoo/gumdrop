@@ -1145,7 +1145,16 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
     void invalidateSessions(boolean force) {
         long now = System.currentTimeMillis();
-        if (sessionsLastInvalidated + 1000 < now && !force) { // 1 second elapsed
+        // Throttle to at most once per second unless forced (e.g. on
+        // destroy()). The condition previously read the other way round
+        // ("now - sessionsLastInvalidated < 1000" was written as
+        // "sessionsLastInvalidated + 1000 < now"), so it returned early
+        // once *more* than a second had passed rather than less — after
+        // the first second of uptime this branch was permanently true,
+        // sessionsLastInvalidated was never reassigned, and
+        // invalidateExpiredSessions() never ran again for the life of the
+        // process. Sessions accumulated forever.
+        if (!force && now - sessionsLastInvalidated < 1000) {
             return;
         }
         sessionsLastInvalidated = now;
