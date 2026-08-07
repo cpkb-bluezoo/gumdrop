@@ -462,20 +462,43 @@ class Stream implements HTTPResponseState {
                                     + "encoding already set");
                             i.remove();
                         } else {
-                        // RFC 9112 section 6.2 / RFC 9110 section 8.6
+                        // RFC 9112 section 6.2 / RFC 9110 section 8.6: a
+                        // malformed Content-Length, or a second one that
+                        // conflicts with the first, makes the request's
+                        // framing ambiguous. Silently dropping the header
+                        // and continuing (the old behaviour) can desync a
+                        // front-end proxy's view of the body boundary from
+                        // gumdrop's, letting the tail of the "body" be
+                        // reparsed as the start of a smuggled request. RFC
+                        // 9112 section 6.3 requires rejecting the request
+                        // instead.
                         long parsed = HTTPUtils.validateContentLength(value);
                         if (parsed < 0) {
-                            LOGGER.fine(MessageFormat.format(
-                                    "Ignoring invalid Content-Length: {0}",
+                            LOGGER.warning(MessageFormat.format(
+                                    "Rejecting invalid Content-Length: {0}",
                                     value));
-                            i.remove();
+                            try {
+                                sendError(400);
+                            } catch (ProtocolException e) {
+                                LOGGER.warning(MessageFormat.format(
+                                        L10N.getString("warn.invalid_content_length"),
+                                        value));
+                            }
+                            return;
                         } else if (hasExplicitContentLength
                                 && parsed != contentLength) {
                             LOGGER.warning(MessageFormat.format(
-                                    "Ignoring conflicting Content-Length: {0} "
-                                            + "(using {1})",
+                                    "Rejecting conflicting Content-Length: {0} "
+                                            + "vs {1}",
                                     parsed, contentLength));
-                            i.remove();
+                            try {
+                                sendError(400);
+                            } catch (ProtocolException e) {
+                                LOGGER.warning(MessageFormat.format(
+                                        L10N.getString("warn.invalid_content_length"),
+                                        value));
+                            }
+                            return;
                         } else {
                             contentLength = parsed;
                             hasExplicitContentLength = true;
