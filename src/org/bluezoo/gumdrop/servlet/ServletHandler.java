@@ -296,6 +296,13 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         }
     }
 
+    // Above this many buffered-but-unsent bytes for the stream, writeBody()
+    // blocks the calling (worker) thread until the transport drains below
+    // it, rather than letting the transport's pending-data queue grow
+    // without bound while a slow/unresponsive peer never opens its
+    // flow-control window (issue #123).
+    private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
+
     void writeBody(ByteBuffer buf) {
         // Must deep copy - duplicate() shares the backing array which gets reused
         int length = buf.remaining();
@@ -305,19 +312,67 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         contentLength += (long) length;
 
         ensureBodyStarted();
+        if (state.pendingResponseBytes() > PENDING_RESPONSE_HIGH_WATERMARK) {
+            awaitWritable();
+        }
         // Fire-and-forget: state.execute() preserves submission order (it
         // is backed by the connection's SelectorLoop task queue), so this
         // chunk is guaranteed to be sent before any later writeBody() call
         // or the final endResponse() completion, without the worker
-        // thread needing to wait for each individual chunk. Per-chunk
-        // backpressure against a slow peer is the transport layer's
-        // responsibility (see issue #123 for HTTP/2's pending-data queue).
+        // thread needing to wait for each individual chunk in the normal
+        // case.
         state.execute(new Runnable() {
             @Override
             public void run() {
                 state.responseBodyContent(copy);
             }
         });
+    }
+
+    // How long writeBody() will block waiting for the transport to drain
+    // before giving up on a stalled/dead peer and cancelling the stream.
+    private static final long PENDING_RESPONSE_WAIT_TIMEOUT_MS = 30000L;
+
+    /**
+     * Blocks the calling (worker) thread until the transport signals it
+     * can accept more response body data, or {@link
+     * #PENDING_RESPONSE_WAIT_TIMEOUT_MS} elapses. Marshalled through
+     * {@code state.execute()} since {@code onWritable()} must be called
+     * on the connection's SelectorLoop thread.
+     *
+     * <p>A timeout means the peer has stopped acknowledging data for
+     * that long (e.g. a dead connection that hasn't been detected yet) —
+     * the stream is cancelled rather than leaving the worker thread
+     * blocked indefinitely.
+     */
+    private void awaitWritable() {
+        final CountDownLatch latch = new CountDownLatch(1);
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        latch.countDown();
+                    }
+                });
+            }
+        });
+        try {
+            if (!latch.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                LOGGER.log(Level.WARNING,
+                        "Timed out waiting for response backpressure to clear; cancelling stream");
+                state.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        state.onWritable(null);
+                        state.cancel();
+                    }
+                });
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** Sends response headers to the network, at most once, lazily. */

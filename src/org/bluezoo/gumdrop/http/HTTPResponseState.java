@@ -305,6 +305,24 @@ public interface HTTPResponseState {
     void onWritable(Runnable callback);
 
     /**
+     * Returns the number of response body bytes currently buffered
+     * because the transport can't accept more right now (e.g. the
+     * HTTP/2 flow-control send window is closed).
+     *
+     * <p>Producers that write response body faster than the transport
+     * can drain it (e.g. a servlet writing a large streaming response)
+     * should check this before writing more and, if it's high, wait for
+     * {@link #onWritable(Runnable)} — otherwise buffered data can grow
+     * without bound while the peer is slow or unresponsive.
+     *
+     * @return the number of buffered, unsent response body bytes; 0 if
+     *      none or not applicable to this transport
+     */
+    default int pendingResponseBytes() {
+        return 0;
+    }
+
+    /**
      * Pauses delivery of request body events
      * ({@link HTTPRequestHandler#requestBodyContent}).
      *

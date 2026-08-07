@@ -132,4 +132,19 @@ interface HTTPConnectionLike {
      * @param streamId the stream to resume
      */
     void resumeRead(int streamId);
+
+    /**
+     * Returns the number of response body bytes currently buffered for
+     * the given stream because the flow-control send window is closed
+     * (HTTP/2) or the transport write buffer is full.
+     *
+     * <p>Callers use this to apply backpressure to a producer (e.g. a
+     * servlet worker thread) before queuing more data, rather than
+     * buffering an unbounded amount of unsent response body.
+     *
+     * @param streamId the stream to query
+     * @return the number of buffered, unsent bytes; 0 if none or not
+     *      applicable to this transport
+     */
+    int pendingResponseBytes(int streamId);
 }

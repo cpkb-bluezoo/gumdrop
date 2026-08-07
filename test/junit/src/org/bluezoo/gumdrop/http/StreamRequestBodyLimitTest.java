@@ -73,6 +73,7 @@ public class StreamRequestBodyLimitTest {
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }
+        @Override public int pendingResponseBytes(int streamId) { return 0; }
     }
 
     @Test
