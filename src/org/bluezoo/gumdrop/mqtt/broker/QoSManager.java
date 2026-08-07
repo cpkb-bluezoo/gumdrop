@@ -83,21 +83,38 @@ public class QoSManager {
     private final ConcurrentHashMap<Integer, InFlightMessage> inbound =
             new ConcurrentHashMap<>();
 
+    /** Sentinel returned by {@link #nextPacketId()} when the entire
+     * 1-65535 packet identifier space is currently in use. */
+    public static final int NO_PACKET_ID_AVAILABLE = -1;
+
     /**
      * Allocates the next packet identifier (1-65535, wrapping).
+     *
+     * <p>If every identifier is currently in use (65535 QoS 1/2 messages
+     * awaiting acknowledgment for this session — a misbehaving or
+     * malicious peer that never acks), this previously spun the calling
+     * thread in a tight, unbounded loop forever (a livelock pinning a
+     * CPU core, since the id space never frees up on its own without the
+     * caller backing off). It now makes at most one pass over the id
+     * space and returns {@link #NO_PACKET_ID_AVAILABLE} instead, letting
+     * the caller apply backpressure (e.g. skip/defer this delivery).
+     *
+     * @return an id in 1-65535, or {@link #NO_PACKET_ID_AVAILABLE} if
+     *      none are free
      */
     public int nextPacketId() {
-        int id;
-        do {
+        for (int attempts = 0; attempts < 65535; attempts++) {
             int current;
             int next;
             do {
                 current = nextPacketId.get();
                 next = (current >= 65535) ? 1 : current + 1;
             } while (!nextPacketId.compareAndSet(current, next));
-            id = next;
-        } while (outbound.containsKey(id) || inbound.containsKey(id));
-        return id;
+            if (!outbound.containsKey(next) && !inbound.containsKey(next)) {
+                return next;
+            }
+        }
+        return NO_PACKET_ID_AVAILABLE;
     }
 
     /**

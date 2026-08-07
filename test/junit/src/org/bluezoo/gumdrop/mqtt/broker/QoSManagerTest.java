@@ -112,6 +112,22 @@ public class QoSManagerTest {
         assertEquals(0, mgr.inboundCount());
     }
 
+    @Test(timeout = 5000)
+    public void testPacketIdExhaustionReturnsSentinelInsteadOfSpinning() {
+        // Fill the entire 1-65535 id space so no id is free. Previously
+        // nextPacketId() spun in an unbounded loop here (livelock); it
+        // must now return promptly with NO_PACKET_ID_AVAILABLE instead of
+        // hanging the calling thread. The @Test timeout is a backstop in
+        // case a regression reintroduces the infinite loop.
+        for (int i = 1; i <= 65535; i++) {
+            mgr.trackOutbound(new QoSManager.InFlightMessage(
+                    i, "t",
+                    new InMemoryMessageStore.InMemoryContent(new byte[0]),
+                    QoS.AT_LEAST_ONCE));
+        }
+        assertEquals(QoSManager.NO_PACKET_ID_AVAILABLE, mgr.nextPacketId());
+    }
+
     @Test
     public void testUnknownPacketIdReturnsNull() {
         assertNull(mgr.completeQoS1Outbound(999));
