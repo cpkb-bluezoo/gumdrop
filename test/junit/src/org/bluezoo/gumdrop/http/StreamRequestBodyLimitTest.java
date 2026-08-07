@@ -69,6 +69,7 @@ public class StreamRequestBodyLimitTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return maxRequestBodySize; }
+        @Override public HTTPAuthenticationProvider getAuthenticationProvider() { return null; }
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }
