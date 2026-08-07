@@ -196,7 +196,7 @@ public class FTPListener extends TCPListener {
      * @return true if AUTH TLS is supported, false otherwise
      */
     public boolean isSTARTTLSAvailable() {
-        return context != null;
+        return isTLSConfigured();
     }
 
     /**

@@ -49,7 +49,9 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPEndpoint;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.TransportFactory;
 
 /**
  * Coordinates FTP data connections as specified in RFC 959 sections 3.2–3.3.
@@ -784,22 +786,63 @@ public class FTPDataConnectionCoordinator {
         });
     }
 
+    /**
+     * Registers a data connection's socket channel with the control
+     * connection's SelectorLoop, TLS-protecting it (RFC 4217 §7 PROT P)
+     * when {@link #dataProtection} is enabled.
+     *
+     * <p>Unlike the control connection's own AUTH TLS (an in-band upgrade
+     * of an already-open connection), PROT P data connections are
+     * TLS-protected from their very first byte — there is no separate
+     * handshake command on the data channel — so this always requests an
+     * immediately-secure endpoint when protection is on, regardless of
+     * whether the control connection itself used implicit or explicit
+     * TLS. The SSL engine is built from the same {@link
+     * TCPTransportFactory} (and therefore the same keystore/context) that
+     * secured the control connection, via {@link
+     * FTPListener#getTransportFactory()}.
+     */
+    private TCPEndpoint registerDataEndpoint(SocketChannel dataSc,
+            ProtocolHandler dataHandler, SelectorLoop loop) throws IOException {
+        dataSc.configureBlocking(false);
+
+        TCPEndpoint dataEndpoint;
+        if (dataProtection) {
+            FTPListener server = controlConnection.getServer();
+            TransportFactory factory =
+                    server != null ? server.getTransportFactory() : null;
+            if (!(factory instanceof TCPTransportFactory)) {
+                throw new IOException(
+                        "PROT P is active but no TLS-capable transport "
+                                + "factory is available for the data connection");
+            }
+            dataEndpoint = ((TCPTransportFactory) factory)
+                    .createServerEndpoint(dataSc, dataHandler, true);
+        } else {
+            dataEndpoint = new TCPEndpoint(dataHandler);
+            dataEndpoint.setChannel(dataSc);
+            dataEndpoint.init();
+        }
+
+        loop.registerTCP(dataSc, dataEndpoint);
+        return dataEndpoint;
+    }
+
     private void registerDownloadHandler(Endpoint controlEndpoint,
             AsynchronousFileChannel asyncChannel,
             PendingTransfer transfer, TransferCallback callback)
             throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
-        dataSc.configureBlocking(false);
 
         DownloadTransferHandler downloadHandler =
                 new DownloadTransferHandler(asyncChannel, transfer, callback);
-        TCPEndpoint dataEndpoint = new TCPEndpoint(downloadHandler);
-        dataEndpoint.setChannel(dataSc);
-        dataEndpoint.init();
-        loop.registerTCP(dataSc, dataEndpoint);
+        TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, downloadHandler, loop);
         downloadHandler.setEndpoint(dataEndpoint);
-        downloadHandler.writeNextChunk();
+        if (!dataEndpoint.isSecure()) {
+            downloadHandler.writeNextChunk();
+        }
+        // else: deferred to DownloadTransferHandler.securityEstablished()
     }
 
     /**
@@ -912,16 +955,15 @@ public class FTPDataConnectionCoordinator {
             TransferCallback callback) throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
-        dataSc.configureBlocking(false);
 
         ListingTransferHandler listingHandler =
                 new ListingTransferHandler(listingBuffer, transfer, callback);
-        TCPEndpoint dataEndpoint = new TCPEndpoint(listingHandler);
-        dataEndpoint.setChannel(dataSc);
-        dataEndpoint.init();
-        loop.registerTCP(dataSc, dataEndpoint);
+        TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, listingHandler, loop);
         listingHandler.setEndpoint(dataEndpoint);
-        listingHandler.sendNextChunk();
+        if (!dataEndpoint.isSecure()) {
+            listingHandler.sendNextChunk();
+        }
+        // else: deferred to ListingTransferHandler.securityEstablished()
     }
 
     /**
@@ -1076,16 +1118,12 @@ public class FTPDataConnectionCoordinator {
             TransferCallback callback) throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
-        dataSc.configureBlocking(false);
 
         UploadTransferHandler uploadHandler =
                 new UploadTransferHandler(
                         openResult.channel, transfer, callback,
                         openResult.initialPosition);
-        TCPEndpoint dataEndpoint = new TCPEndpoint(uploadHandler);
-        dataEndpoint.setChannel(dataSc);
-        dataEndpoint.init();
-        loop.registerTCP(dataSc, dataEndpoint);
+        TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, uploadHandler, loop);
         uploadHandler.setEndpoint(dataEndpoint);
     }
 
@@ -1149,6 +1187,13 @@ public class FTPDataConnectionCoordinator {
 
         @Override
         public void securityEstablished(SecurityInfo info) {
+            // RFC 4217 §7 PROT P: connected() fires as soon as the raw TCP
+            // accept completes, before this endpoint's (server-role) TLS
+            // handshake does. Writing then closing before the handshake
+            // finishes would abort it mid-flight — see registerListingHandler,
+            // which only calls sendNextChunk() directly for plaintext
+            // connections and defers to this callback otherwise.
+            sendNextChunk();
         }
 
         @Override
@@ -1303,7 +1348,13 @@ public class FTPDataConnectionCoordinator {
 
         @Override
         public void securityEstablished(SecurityInfo info) {
-            // Not used for data connections
+            // RFC 4217 §7 PROT P: connected() fires as soon as the raw TCP
+            // accept completes, before this endpoint's (server-role) TLS
+            // handshake does. Writing then closing before the handshake
+            // finishes would abort it mid-flight — see registerDownloadHandler,
+            // which only calls writeNextChunk() directly for plaintext
+            // connections and defers to this callback otherwise.
+            writeNextChunk();
         }
 
         @Override

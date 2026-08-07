@@ -292,7 +292,40 @@ public class TCPTransportFactory extends TransportFactory {
     public TCPEndpoint createServerEndpoint(SocketChannel channel,
                                             ProtocolHandler handler)
             throws IOException {
+        return createServerEndpoint(channel, handler, secure);
+    }
+
+    /**
+     * Creates a server-side TCPEndpoint for an accepted connection, with
+     * an explicit choice of whether TLS is active immediately —
+     * independent of this factory's own {@link #setSecure(boolean)}
+     * setting.
+     *
+     * <p>Used by protocols where a secondary connection must be
+     * TLS-protected from its first byte even though the primary
+     * connection this factory was configured for negotiates TLS in-band
+     * (e.g. FTP's data connection under RFC 4217 §7 PROT P, opened via a
+     * control connection whose own TLS was itself an explicit AUTH TLS
+     * upgrade rather than implicit). The SSL engine is still built from
+     * this factory's configured keystore/context.
+     *
+     * @param channel the accepted socket channel
+     * @param handler the protocol handler
+     * @param secure true if TLS should be active immediately on this
+     *      endpoint, regardless of this factory's own secure setting
+     * @return the new endpoint
+     * @throws IOException if initialisation fails
+     */
+    public TCPEndpoint createServerEndpoint(SocketChannel channel,
+                                            ProtocolHandler handler,
+                                            boolean secure)
+            throws IOException {
         SSLEngine engine = createServerSSLEngine(channel);
+        if (secure && engine == null) {
+            throw new IOException(
+                    "No TLS context configured on this transport factory; "
+                            + "cannot create a secure endpoint");
+        }
         TCPEndpoint endpoint = new TCPEndpoint(handler, engine, secure);
         endpoint.setFactory(this);
         endpoint.setChannel(channel);

@@ -1178,7 +1178,16 @@ public class FTPClientProtocolHandler
             String command = (append ? "APPE " : "STOR ") + pathname;
             FTPState newState = append ? FTPState.APPE_SENT : FTPState.STOR_SENT;
             sendCommand(command, newState);
-            callback.handleReadyToSend(this);
+            if (!ep.isSecure()) {
+                callback.handleReadyToSend(this);
+            }
+            // If secure (RFC 4217 PROT P), connected() fires as soon as the
+            // raw TCP connection completes — before the TLS handshake does.
+            // Signalling ready here would let the caller write()+finish()
+            // (i.e. close()) before the handshake finishes, aborting it
+            // mid-flight and silently discarding the write. Wait for
+            // securityEstablished() instead, which fires once the
+            // handshake genuinely completes.
         }
 
         @Override
@@ -1188,6 +1197,7 @@ public class FTPClientProtocolHandler
 
         @Override
         public void securityEstablished(SecurityInfo info) {
+            callback.handleReadyToSend(this);
         }
 
         @Override

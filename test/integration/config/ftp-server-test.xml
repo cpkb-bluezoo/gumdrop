@@ -1,0 +1,19 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  FTP server integration test configuration (issue #105).
+
+  A read-write SimpleFTPService (no realm, so any username with a
+  non-empty password is accepted) backed by a scratch directory, with a
+  keystore configured so AUTH TLS (RFC 4217) can be exercised as an
+  explicit upgrade on the same plaintext listener.
+-->
+<gumdrop>
+    <service id="ftpServerTestService" class="org.bluezoo.gumdrop.ftp.file.SimpleFTPService">
+        <property name="root-directory">test/integration/ftp-server-data</property>
+        <property name="read-only">false</property>
+        <listener class="org.bluezoo.gumdrop.ftp.FTPListener"
+                  name="ftp" port="18022" addresses="127.0.0.1"
+                  keystore-file="test/integration/certs/ftp-test-keystore.p12"
+                  keystore-pass="testpass"/>
+    </service>
+</gumdrop>
