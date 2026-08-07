@@ -869,6 +869,12 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
         int packetId = 0;
         if (qos != QoS.AT_MOST_ONCE) {
             packetId = targetSession.getQoSManager().nextPacketId();
+            if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
+                LOGGER.log(Level.WARNING,
+                        "No free MQTT packet identifiers for session; dropping delivery of "
+                        + topic);
+                return;
+            }
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(
                     packetId, topic,
                     new org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore
@@ -924,6 +930,12 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
             int packetId = 0;
             if (effectiveQoS != QoS.AT_MOST_ONCE) {
                 packetId = targetSession.getQoSManager().nextPacketId();
+                if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
+                    LOGGER.log(Level.WARNING,
+                            "No free MQTT packet identifiers for session; skipping delivery of "
+                            + topic);
+                    continue;
+                }
                 QoSManager.InFlightMessage inFlight =
                         new QoSManager.InFlightMessage(
                                 packetId, topic, content, effectiveQoS);
@@ -976,6 +988,12 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
         int packetId = 0;
         if (qos != QoS.AT_MOST_ONCE && session != null) {
             packetId = session.getQoSManager().nextPacketId();
+            if (packetId == QoSManager.NO_PACKET_ID_AVAILABLE) {
+                LOGGER.log(Level.WARNING,
+                        "No free MQTT packet identifiers for session; dropping delivery of "
+                        + topic);
+                return;
+            }
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(
                     packetId, topic, content, qos);
             session.getQoSManager().trackOutbound(inFlight);
