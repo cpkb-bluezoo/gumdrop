@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -55,9 +56,11 @@ import javax.security.sasl.SaslServer;
 
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -1539,19 +1542,39 @@ public class SMTPProtocolHandler
                 resetAuthState();
                 return;
             }
-            String username = authString.substring(firstNull + 1, secondNull);
+            final String username = authString.substring(firstNull + 1, secondNull);
             String password = authString.substring(secondNull + 1);
             if (username.isEmpty() || password.isEmpty()) {
                 reply(535, "5.7.8 Authentication credentials invalid");
                 resetAuthState();
                 return;
             }
-            if (authenticateUser(username, password)) {
-                notifyAuthenticationSuccess(username, "PLAIN");
-            } else {
-                notifyAuthenticationFailure(username, "PLAIN");
-            }
-            resetAuthState();
+            authenticateUserAsync(username, password, new StorageExecutor.Callback<Boolean>() {
+                @Override
+                public void completed(Boolean authenticated) {
+                    try {
+                        if (authenticated) {
+                            notifyAuthenticationSuccess(username, "PLAIN");
+                        } else {
+                            notifyAuthenticationFailure(username, "PLAIN");
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to complete AUTH PLAIN", e);
+                    }
+                    resetAuthState();
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    LOGGER.log(Level.WARNING, "AUTH PLAIN authentication check failed", t);
+                    try {
+                        notifyAuthenticationFailure(username, "PLAIN");
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to send AUTH failure", e);
+                    }
+                    resetAuthState();
+                }
+            });
         } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
@@ -1948,30 +1971,54 @@ public class SMTPProtocolHandler
                         resetAuthState();
                         return;
                     }
-                    if (authenticateUser(pendingAuthUsername, password)) {
-                        authenticatedUser = pendingAuthUsername;
-                        authMechanism = "LOGIN";
-                        if (helloHandler != null) {
-                            Principal principal = new Principal() {
-                                @Override
-                                public String getName() {
-                                    return pendingAuthUsername;
+                    final String loginUsername = pendingAuthUsername;
+                    authenticateUserAsync(loginUsername, password,
+                            new StorageExecutor.Callback<Boolean>() {
+                        @Override
+                        public void completed(Boolean authenticated0) {
+                            try {
+                                if (authenticated0) {
+                                    authenticatedUser = loginUsername;
+                                    authMechanism = "LOGIN";
+                                    if (helloHandler != null) {
+                                        Principal principal = new Principal() {
+                                            @Override
+                                            public String getName() {
+                                                return loginUsername;
+                                            }
+                                            @Override
+                                            public String toString() {
+                                                return loginUsername;
+                                            }
+                                        };
+                                        helloHandler.authenticated(
+                                                SMTPProtocolHandler.this, principal);
+                                    } else {
+                                        authenticated = true;
+                                        recordAuthenticationSuccess(loginUsername, "LOGIN");
+                                        reply(235, "2.7.0 Authentication successful");
+                                    }
+                                } else {
+                                    notifyAuthenticationFailure(loginUsername, "LOGIN");
                                 }
-                                @Override
-                                public String toString() {
-                                    return pendingAuthUsername;
-                                }
-                            };
-                            helloHandler.authenticated(SMTPProtocolHandler.this, principal);
-                        } else {
-                            authenticated = true;
-                            recordAuthenticationSuccess(pendingAuthUsername, "LOGIN");
-                            reply(235, "2.7.0 Authentication successful");
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING, "Failed to complete AUTH LOGIN", e);
+                            }
+                            resetAuthState();
                         }
-                    } else {
-                        notifyAuthenticationFailure(pendingAuthUsername, "LOGIN");
-                    }
-                    resetAuthState();
+
+                        @Override
+                        public void failed(Throwable t) {
+                            LOGGER.log(Level.WARNING,
+                                    "AUTH LOGIN authentication check failed", t);
+                            try {
+                                notifyAuthenticationFailure(loginUsername, "LOGIN");
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING, "Failed to send AUTH failure", e);
+                            }
+                            resetAuthState();
+                        }
+                    });
                     break;
                 }
                 case CRAM_MD5_RESPONSE:
@@ -2075,11 +2122,73 @@ public class SMTPProtocolHandler
         processOAuthBearerResponse(data);
     }
 
-    private boolean authenticateUser(String username, String password) {
-        if (getRealm() == null) {
-            return false;
+    /**
+     * Verifies a username/password off the SelectorLoop thread.
+     *
+     * <p>{@link Realm#passwordMatch} blocks synchronously for LDAP/OAuth
+     * realms (network round trip to the directory/token server). Calling
+     * it directly from the loop thread would stall every other
+     * connection multiplexed on this loop for the duration, and since the
+     * realm's own client connection is bound to this same loop, could
+     * self-deadlock outright: the loop thread would block waiting for a
+     * response only that same (blocked) loop thread can deliver. Running
+     * the check on {@link StorageExecutor} instead means the loop thread
+     * is never the one waiting (issue #122).
+     *
+     * @param callback receives the result on the loop thread
+     */
+    private void authenticateUserAsync(final String username,
+            final String password,
+            final StorageExecutor.Callback<Boolean> callback) {
+        final Realm realm = getRealm();
+        if (realm == null) {
+            callback.completed(Boolean.FALSE);
+            return;
         }
-        return getRealm().passwordMatch(username, password);
+        submitStorage(new Callable<Boolean>() {
+            @Override
+            public Boolean call() {
+                return realm.passwordMatch(username, password);
+            }
+        }, callback);
+    }
+
+    /**
+     * Runs blocking auth/storage work off the SelectorLoop and delivers
+     * the outcome on this connection's loop thread.
+     */
+    private <T> void submitStorage(final Callable<T> op,
+            final StorageExecutor.Callback<T> callback) {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec =
+                (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null || endpoint == null) {
+            T result;
+            try {
+                result = op.call();
+            } catch (Throwable t) {
+                callback.failed(t);
+                return;
+            }
+            callback.completed(result);
+            return;
+        }
+        // Pause reads while the check is in flight so a pipelined command
+        // cannot race the result; resumed before the callback runs.
+        endpoint.pauseRead();
+        exec.submit(endpoint, op, new StorageExecutor.Callback<T>() {
+            @Override
+            public void completed(T result) {
+                endpoint.resumeRead();
+                callback.completed(result);
+            }
+
+            @Override
+            public void failed(Throwable t) {
+                endpoint.resumeRead();
+                callback.failed(t);
+            }
+        });
     }
 
     private void resetAuthState() {
