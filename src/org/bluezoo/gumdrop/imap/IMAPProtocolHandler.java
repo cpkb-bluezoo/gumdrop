@@ -1377,33 +1377,55 @@ public class IMAPProtocolHandler
             return;
         }
 
-        String username = parts[0];
-        String password = parts[1];
+        final String username = parts[0];
+        final String password = parts[1];
 
-        if (!authenticateUser(username, password)) {
-            sendTaggedNo(tag, "[AUTHENTICATIONFAILED] "
-                    + L10N.getString("imap.err.auth_failed"));
-            return;
-        }
-
-        authenticatedUser = username;
-
-        // Opening the mail store is blocking disk I/O; offload it (via
-        // proceed() when a handler is set, or directly otherwise) and send
-        // the completion reply on the loop thread once the store is open.
-        openMailStoreAsync(username, "PASSWORD", tag, new Runnable() {
+        authenticateUserAsync(username, password, new StorageExecutor.Callback<Boolean>() {
             @Override
-            public void run() {
+            public void completed(Boolean authenticated) {
+                if (!authenticated) {
+                    sendLoginFailed(tag);
+                    return;
+                }
+                authenticatedUser = username;
                 try {
-                    sendTaggedOk(tag, "[CAPABILITY "
-                            + server.getCapabilities(true, endpoint.isSecure())
-                            + "] " + L10N.getString("imap.login_complete"));
+                    // Opening the mail store is blocking disk I/O; offload it
+                    // (via proceed() when a handler is set, or directly
+                    // otherwise) and send the completion reply on the loop
+                    // thread once the store is open.
+                    openMailStoreAsync(username, "PASSWORD", tag, new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                sendTaggedOk(tag, "[CAPABILITY "
+                                        + server.getCapabilities(true, endpoint.isSecure())
+                                        + "] " + L10N.getString("imap.login_complete"));
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING,
+                                        "Failed to send LOGIN completion", e);
+                            }
+                        }
+                    });
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING,
-                            "Failed to send LOGIN completion", e);
+                    LOGGER.log(Level.WARNING, "Failed to open mail store", e);
                 }
             }
+
+            @Override
+            public void failed(Throwable t) {
+                LOGGER.log(Level.WARNING, "LOGIN authentication check failed", t);
+                sendLoginFailed(tag);
+            }
         });
+    }
+
+    private void sendLoginFailed(String tag) {
+        try {
+            sendTaggedNo(tag, "[AUTHENTICATIONFAILED] "
+                    + L10N.getString("imap.err.auth_failed"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send LOGIN failure", e);
+        }
     }
 
     // RFC 9051 section 6.2.2 — AUTHENTICATE command (SASL, RFC 4422)
@@ -1736,14 +1758,33 @@ public class IMAPProtocolHandler
         try {
             byte[] decoded = SASLUtils.decodeBase64(credentials);
             String[] parts = SASLUtils.parsePlainCredentials(decoded);
-            String username = parts[1];
+            final String username = parts[1];
             String password = parts[2];
 
-            if (authenticateUser(username, password)) {
-                openMailStoreThenAuthOk(username, "PLAIN");
-            } else {
-                authFailed();
-            }
+            authenticateUserAsync(username, password, new StorageExecutor.Callback<Boolean>() {
+                @Override
+                public void completed(Boolean authenticated) {
+                    try {
+                        if (authenticated) {
+                            openMailStoreThenAuthOk(username, "PLAIN");
+                        } else {
+                            authFailed();
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to complete PLAIN auth", e);
+                    }
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    LOGGER.log(Level.WARNING, "PLAIN authentication check failed", t);
+                    try {
+                        authFailed();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                    }
+                }
+            });
         } catch (IllegalArgumentException e) {
             authFailed();
         }
@@ -1762,12 +1803,32 @@ public class IMAPProtocolHandler
     private void processLoginPassword(String line) throws IOException {
         try {
             String password = SASLUtils.decodeBase64ToString(line);
+            final String username = pendingAuthUsername;
 
-            if (authenticateUser(pendingAuthUsername, password)) {
-                openMailStoreThenAuthOk(pendingAuthUsername, "LOGIN");
-            } else {
-                authFailed();
-            }
+            authenticateUserAsync(username, password, new StorageExecutor.Callback<Boolean>() {
+                @Override
+                public void completed(Boolean authenticated) {
+                    try {
+                        if (authenticated) {
+                            openMailStoreThenAuthOk(username, "LOGIN");
+                        } else {
+                            authFailed();
+                        }
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to complete LOGIN auth", e);
+                    }
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    LOGGER.log(Level.WARNING, "LOGIN authentication check failed", t);
+                    try {
+                        authFailed();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                    }
+                }
+            });
         } catch (IllegalArgumentException e) {
             authFailed();
         }
@@ -2029,12 +2090,38 @@ public class IMAPProtocolHandler
         }
     }
 
-    private boolean authenticateUser(String username, String password) {
-        Realm realm = getRealm();
+    /**
+     * Verifies a username/password off the SelectorLoop thread.
+     *
+     * <p>{@link Realm#passwordMatch} blocks synchronously for LDAP/OAuth
+     * realms (it waits on the network round trip to the directory/token
+     * server). Calling it directly from the loop thread previously both
+     * stalled every other connection multiplexed on this loop for the
+     * duration, and — because {@link #getRealm()} binds the realm's
+     * client connection to this same loop via {@code forSelectorLoop} —
+     * could self-deadlock outright: the loop thread would block waiting
+     * for a response that can only be delivered by that same (blocked)
+     * loop thread. Running the check on {@link StorageExecutor} instead
+     * means the loop thread is never the one waiting, so it stays free to
+     * process the realm's own network I/O and deliver the response
+     * (issue #122).
+     *
+     * @param callback receives the result on the loop thread
+     */
+    private void authenticateUserAsync(final String username,
+            final String password,
+            final StorageExecutor.Callback<Boolean> callback) {
+        final Realm realm = getRealm();
         if (realm == null) {
-            return false;
+            callback.completed(Boolean.FALSE);
+            return;
         }
-        return realm.passwordMatch(username, password);
+        submitStorage(new Callable<Boolean>() {
+            @Override
+            public Boolean call() {
+                return realm.passwordMatch(username, password);
+            }
+        }, callback);
     }
 
     private void openMailStore(String username) throws IOException {

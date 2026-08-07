@@ -820,52 +820,83 @@ public class POP3ProtocolHandler
         enforceLoginDelay(new Runnable() {
             @Override
             public void run() {
-                try {
-                    Realm realm = getRealm();
-                    if (realm == null) {
+                final Realm realm = getRealm();
+                if (realm == null) {
+                    try {
                         sendERR(L10N.getString(
                                 "pop3.err.auth_not_configured"));
                         closeEndpoint();
-                        return;
+                    } catch (IOException e) {
+                        LOGGER.log(Level.SEVERE,
+                                "Error during PASS authentication", e);
+                        closeEndpoint();
                     }
+                    return;
+                }
 
-                    if (realm.passwordMatch(passUsername, args)) {
-                        openMailboxAsync(passUsername, new Runnable() {
-                            @Override
-                            public void run() {
-                                state = POP3State.TRANSACTION;
-                                if (LOGGER.isLoggable(Level.INFO)) {
-                                    LOGGER.info(
-                                            "POP3 USER/PASS auth successful: "
+                // Realm.passwordMatch() blocks synchronously for LDAP/OAuth
+                // realms (network round trip to the directory/token
+                // server). Running it inline on this SelectorLoop thread
+                // would stall every other connection on the loop and, since
+                // the realm's own client connection is bound to this same
+                // loop, could self-deadlock outright (issue #122). Offload
+                // it to StorageExecutor so the loop thread is never the one
+                // waiting.
+                submitStorage(new Callable<Boolean>() {
+                    @Override
+                    public Boolean call() {
+                        return realm.passwordMatch(passUsername, args);
+                    }
+                }, new StorageExecutor.Callback<Boolean>() {
+                    @Override
+                    public void completed(Boolean authenticated) {
+                        try {
+                            if (authenticated) {
+                                openMailboxAsync(passUsername, new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        state = POP3State.TRANSACTION;
+                                        if (LOGGER.isLoggable(Level.INFO)) {
+                                            LOGGER.info(
+                                                    "POP3 USER/PASS auth successful: "
+                                                            + passUsername);
+                                        }
+                                        recordAuthenticationSuccess("USER/PASS");
+                                        try {
+                                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                                        } catch (IOException e) {
+                                            LOGGER.log(Level.WARNING,
+                                                    "Failed to send PASS success", e);
+                                        }
+                                    }
+                                });
+                            } else {
+                                failedAuthAttempts++;
+                                lastFailedAuthTime = System.currentTimeMillis();
+                                if (LOGGER.isLoggable(Level.WARNING)) {
+                                    LOGGER.warning(
+                                            "POP3 USER/PASS auth failed: "
                                                     + passUsername);
                                 }
-                                recordAuthenticationSuccess("USER/PASS");
-                                try {
-                                    sendOK(L10N.getString("pop3.mailbox_opened"));
-                                } catch (IOException e) {
-                                    LOGGER.log(Level.WARNING,
-                                            "Failed to send PASS success", e);
-                                }
+                                recordAuthenticationFailure("USER/PASS",
+                                        passUsername);
+                                username = null;
+                                sendERR(L10N.getString("pop3.err.auth_failed"));
                             }
-                        });
-                    } else {
-                        failedAuthAttempts++;
-                        lastFailedAuthTime = System.currentTimeMillis();
-                        if (LOGGER.isLoggable(Level.WARNING)) {
-                            LOGGER.warning(
-                                    "POP3 USER/PASS auth failed: "
-                                            + passUsername);
+                        } catch (IOException e) {
+                            LOGGER.log(Level.SEVERE,
+                                    "Error during PASS authentication", e);
+                            closeEndpoint();
                         }
-                        recordAuthenticationFailure("USER/PASS",
-                                passUsername);
-                        username = null;
-                        sendERR(L10N.getString("pop3.err.auth_failed"));
                     }
-                } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE,
-                            "Error during PASS authentication", e);
-                    closeEndpoint();
-                }
+
+                    @Override
+                    public void failed(Throwable t) {
+                        LOGGER.log(Level.SEVERE,
+                                "Error during PASS authentication", t);
+                        closeEndpoint();
+                    }
+                });
             }
         });
     }
@@ -1778,50 +1809,82 @@ public class POP3ProtocolHandler
     // ── SASL helpers ──
 
     private void authenticateAndOpenMailbox(
-            String user, String password, String mechanism,
-            Runnable onFailure) {
+            final String user, final String password, final String mechanism,
+            final Runnable onFailure) {
         enforceLoginDelay(new Runnable() {
             @Override
             public void run() {
-                try {
-                    Realm realm = getRealm();
-                    if (realm == null) {
+                final Realm realm = getRealm();
+                if (realm == null) {
+                    try {
                         sendERR(L10N.getString(
                                 "pop3.err.auth_not_configured"));
-                        return;
+                    } catch (IOException e) {
+                        LOGGER.log(Level.SEVERE,
+                                "Error during authentication", e);
+                        closeEndpoint();
                     }
-
-                    if (realm.passwordMatch(user, password)) {
-                        // Password verified; open the mailbox off-loop. On open
-                        // failure openMailboxAsync sends -ERR itself.
-                        openMailboxAsync(user, new Runnable() {
-                            @Override
-                            public void run() {
-                                username = user;
-                                state = POP3State.TRANSACTION;
-                                recordAuthenticationSuccess(
-                                        "AUTH " + mechanism);
-                                try {
-                                    sendOK(L10N.getString("pop3.mailbox_opened"));
-                                } catch (IOException e) {
-                                    LOGGER.log(Level.WARNING,
-                                            "Failed to send AUTH success", e);
-                                }
-                            }
-                        });
-                        return;
-                    }
-
-                    failedAuthAttempts++;
-                    lastFailedAuthTime = System.currentTimeMillis();
-                    recordAuthenticationFailure(
-                            "AUTH " + mechanism, user);
-                    onFailure.run();
-                } catch (IOException e) {
-                    LOGGER.log(Level.SEVERE,
-                            "Error during authentication", e);
-                    closeEndpoint();
+                    return;
                 }
+
+                // Realm.passwordMatch() blocks synchronously for LDAP/OAuth
+                // realms (network round trip to the directory/token
+                // server). Running it inline on this SelectorLoop thread
+                // would stall every other connection on the loop and, since
+                // the realm's own client connection is bound to this same
+                // loop, could self-deadlock outright (issue #122). Offload
+                // it to StorageExecutor so the loop thread is never the one
+                // waiting.
+                submitStorage(new Callable<Boolean>() {
+                    @Override
+                    public Boolean call() {
+                        return realm.passwordMatch(user, password);
+                    }
+                }, new StorageExecutor.Callback<Boolean>() {
+                    @Override
+                    public void completed(Boolean authenticated) {
+                        try {
+                            if (authenticated) {
+                                // Password verified; open the mailbox off-loop.
+                                // On open failure openMailboxAsync sends -ERR
+                                // itself.
+                                openMailboxAsync(user, new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        username = user;
+                                        state = POP3State.TRANSACTION;
+                                        recordAuthenticationSuccess(
+                                                "AUTH " + mechanism);
+                                        try {
+                                            sendOK(L10N.getString("pop3.mailbox_opened"));
+                                        } catch (IOException e) {
+                                            LOGGER.log(Level.WARNING,
+                                                    "Failed to send AUTH success", e);
+                                        }
+                                    }
+                                });
+                                return;
+                            }
+
+                            failedAuthAttempts++;
+                            lastFailedAuthTime = System.currentTimeMillis();
+                            recordAuthenticationFailure(
+                                    "AUTH " + mechanism, user);
+                            onFailure.run();
+                        } catch (IOException e) {
+                            LOGGER.log(Level.SEVERE,
+                                    "Error during authentication", e);
+                            closeEndpoint();
+                        }
+                    }
+
+                    @Override
+                    public void failed(Throwable t) {
+                        LOGGER.log(Level.SEVERE,
+                                "Error during authentication", t);
+                        closeEndpoint();
+                    }
+                });
             }
         });
     }
