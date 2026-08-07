@@ -107,8 +107,9 @@ public class Gumdrop {
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
     static final Logger LOGGER = Logger.getLogger(Gumdrop.class.getName());
 
-    // Singleton instance
-    private static Gumdrop instance;
+    // Singleton instance. Volatile so the unlocked fast-path read in
+    // getInstance(File) below is safe once construction has completed.
+    private static volatile Gumdrop instance;
 
     // Services (own and manage their listeners)
     private final List services;
@@ -185,6 +186,13 @@ public class Gumdrop {
      * @return the singleton Gumdrop instance
      */
     public static Gumdrop getInstance(File gumdroprc) {
+        // Unlocked fast path: once the singleton is constructed, every
+        // subsequent call (e.g. the per-request idle-timeout reset on the
+        // HTTP hot path) hits this and never contends the class lock.
+        Gumdrop result = instance;
+        if (result != null) {
+            return result;
+        }
         synchronized (Gumdrop.class) {
             if (instance == null) {
                 int workerCount;

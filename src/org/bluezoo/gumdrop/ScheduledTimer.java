@@ -21,7 +21,8 @@
 
 package org.bluezoo.gumdrop;
 
-import java.util.Iterator;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.PriorityQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -116,6 +117,7 @@ final class ScheduledTimer implements Runnable {
     @Override
     public void run() {
         active = true;
+        TimerEntry toDispatch = null;
 
         while (active) {
             lock.lock();
@@ -149,9 +151,12 @@ final class ScheduledTimer implements Runnable {
                 long delay = next.fireTime - now;
 
                 if (delay <= 0) {
-                    // Timer has fired - remove and dispatch
+                    // Timer has fired - remove now, but dispatch after the
+                    // lock is released below: dispatchTimer ultimately calls
+                    // Selector.wakeup(), a syscall, and must not run while
+                    // holding the lock that schedule()/cancel() need.
                     queue.poll();
-                    dispatchTimer(next);
+                    toDispatch = next;
                 } else {
                     // Wait until fire time (or new entry)
                     condition.awaitNanos(delay * 1_000_000);
@@ -163,6 +168,11 @@ final class ScheduledTimer implements Runnable {
                 }
             } finally {
                 lock.unlock();
+            }
+
+            if (toDispatch != null) {
+                dispatchTimer(toDispatch);
+                toDispatch = null;
             }
         }
 
@@ -247,10 +257,20 @@ final class ScheduledTimer implements Runnable {
      */
     private void purgeCancelledIfNeeded() {
         if (deadCount.get() >= PURGE_THRESHOLD) {
-            for (Iterator<TimerEntry> it = queue.iterator(); it.hasNext(); ) {
-                if (it.next().isCancelled()) {
-                    it.remove();
+            // A single-pass filter-and-rebuild, not repeated
+            // PriorityQueue.iterator().remove() calls: each of those is
+            // itself O(n) (it has to re-sift the heap), so a loop of them
+            // over a queue with many tombstones is O(n^2). Draining into a
+            // list and re-offering only the live entries is O(n log n).
+            List<TimerEntry> live = new ArrayList<TimerEntry>(queue.size());
+            for (TimerEntry entry : queue) {
+                if (!entry.isCancelled()) {
+                    live.add(entry);
                 }
+            }
+            if (live.size() != queue.size()) {
+                queue.clear();
+                queue.addAll(live);
             }
             deadCount.set(0);
         }
