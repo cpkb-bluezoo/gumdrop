@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -264,6 +265,13 @@ public class HTTPProtocolHandler
             new LinkedHashMap<Integer, Runnable>();
     private final Map<Integer, PendingData> h2PendingData =
             new LinkedHashMap<Integer, PendingData>();
+    // Mirrors the byte count queued in h2PendingData per stream, but as an
+    // AtomicInteger so it can be read from another thread (e.g. a servlet
+    // worker thread applying backpressure) without touching h2PendingData
+    // itself, which is only ever safe to access from the SelectorLoop
+    // thread (see #123).
+    private final Map<Integer, AtomicInteger> h2PendingBytes =
+            new ConcurrentHashMap<Integer, AtomicInteger>();
 
     private int clientStreamId = INITIAL_CLIENT_STREAM_ID;
     private int serverStreamId = INITIAL_SERVER_STREAM_ID;
@@ -817,7 +825,9 @@ public class HTTPProtocolHandler
     private void sendH2Data(int streamId, ByteBuffer buf, boolean endStream) {
         PendingData pending = h2PendingData.get(streamId);
         if (pending != null) {
+            int enqueued = buf.remaining();
             pending.enqueue(buf, endStream);
+            pendingBytesCounter(streamId).addAndGet(enqueued);
             return;
         }
 
@@ -834,14 +844,36 @@ public class HTTPProtocolHandler
             buf.position(buf.position() + window);
             buf.limit(savedLimit);
             sendH2DataDirect(streamId, slice, false);
+            int enqueued = buf.remaining();
             pending = acquirePendingData();
             pending.enqueue(buf, endStream);
             h2PendingData.put(streamId, pending);
+            pendingBytesCounter(streamId).addAndGet(enqueued);
         } else {
+            int enqueued = buf.remaining();
             pending = acquirePendingData();
             pending.enqueue(buf, endStream);
             h2PendingData.put(streamId, pending);
+            pendingBytesCounter(streamId).addAndGet(enqueued);
         }
+    }
+
+    private AtomicInteger pendingBytesCounter(int streamId) {
+        AtomicInteger counter = h2PendingBytes.get(streamId);
+        if (counter == null) {
+            counter = new AtomicInteger();
+            AtomicInteger existing = h2PendingBytes.putIfAbsent(streamId, counter);
+            if (existing != null) {
+                counter = existing;
+            }
+        }
+        return counter;
+    }
+
+    @Override
+    public int pendingResponseBytes(int streamId) {
+        AtomicInteger counter = h2PendingBytes.get(streamId);
+        return counter == null ? 0 : counter.get();
     }
 
     // RFC 9113 section 4.2: DATA frames MUST NOT exceed SETTINGS_MAX_FRAME_SIZE
@@ -872,6 +904,7 @@ public class HTTPProtocolHandler
             return;
         }
 
+        AtomicInteger counter = h2PendingBytes.get(streamId);
         int available = h2FlowControl.availableSendWindow(streamId);
         while (available > 0 && !pending.isEmpty()) {
             ByteBuffer head = pending.buffers.peek();
@@ -880,6 +913,9 @@ public class HTTPProtocolHandler
                 pending.buffers.poll();
                 h2FlowControl.consumeSendWindow(streamId, headRemaining);
                 available -= headRemaining;
+                if (counter != null) {
+                    counter.addAndGet(-headRemaining);
+                }
                 boolean fin = pending.endStream && pending.isEmpty();
                 try {
                     sendH2DataDirect(streamId, head, fin);
@@ -894,12 +930,16 @@ public class HTTPProtocolHandler
                 head.position(head.position() + available);
                 head.limit(savedLimit);
                 sendH2DataDirect(streamId, slice, false);
+                if (counter != null) {
+                    counter.addAndGet(-available);
+                }
                 available = 0;
             }
         }
 
         if (pending.isEmpty()) {
             h2PendingData.remove(streamId);
+            h2PendingBytes.remove(streamId);
             releasePendingData(pending);
             Runnable cb = h2WriteCallbacks.remove(streamId);
             if (cb != null) {
@@ -1472,6 +1512,7 @@ public class HTTPProtocolHandler
                             h2FlowControl.closeStream(sid);
                         }
                         h2WriteCallbacks.remove(sid);
+                        h2PendingBytes.remove(sid);
                         PendingData removed = h2PendingData.remove(sid);
                         if (removed != null) {
                             releasePendingData(removed);
@@ -2209,6 +2250,9 @@ public class HTTPProtocolHandler
                     streamCount));
         }
         activeStreams.clear();
+        h2WriteCallbacks.clear();
+        h2PendingData.clear();
+        h2PendingBytes.clear();
     }
 
     // ── H2FrameHandler implementation ──

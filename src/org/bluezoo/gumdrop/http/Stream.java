@@ -1531,6 +1531,11 @@ class Stream implements HTTPResponseState {
     }
 
     @Override
+    public int pendingResponseBytes() {
+        return connection.pendingResponseBytes(streamId);
+    }
+
+    @Override
     public void pauseRequestBody() {
         connection.pauseRead(streamId);
     }
