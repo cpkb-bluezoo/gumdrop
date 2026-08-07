@@ -32,9 +32,13 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFileAttributes;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -251,55 +255,78 @@ public class BasicFTPFileSystem implements FTPFileSystem {
         }
     }
     
+    // System.getProperty("user.name") does not change at runtime; reading it
+    // once here instead of per listed file avoids a redundant lookup per
+    // entry on the fallback (non-POSIX) path below.
+    private static final String FALLBACK_OWNER = System.getProperty("user.name");
+    private static final String FALLBACK_GROUP = "users";
+
     /**
      * Creates FTPFileInfo from a local file path.
+     *
+     * <p>Uses a single {@link Files#readAttributes(Path, Class, java.nio.file.LinkOption...)}
+     * call to get type, size, mtime, owner, group, and real POSIX mode bits
+     * at once, instead of the ~11 independent stat/access syscalls
+     * ({@code Files.exists}, {@code isDirectory}, {@code getLastModifiedTime},
+     * {@code size}, plus {@code isReadable}/{@code isWritable}/
+     * {@code isExecutable} three times each for the old approximated
+     * permission string) the previous implementation issued per file. Falls
+     * back to {@link BasicFileAttributes} plus the old
+     * {@code isReadable}/{@code isWritable}/{@code isExecutable}
+     * approximation (still only 3 access calls instead of 7) on filesystems
+     * without POSIX attribute support.
      */
     private FTPFileInfo createFileInfo(Path filePath) throws IOException {
-        if (!Files.exists(filePath)) {
+        try {
+            PosixFileAttributes attrs =
+                    Files.readAttributes(filePath, PosixFileAttributes.class);
+            String name = filePath.getFileName().toString();
+            String owner = (attrs.owner() != null)
+                    ? attrs.owner().getName() : FALLBACK_OWNER;
+            String group = (attrs.group() != null)
+                    ? attrs.group().getName() : FALLBACK_GROUP;
+            String permissions = PosixFilePermissions.toString(attrs.permissions());
+            Instant lastModified = attrs.lastModifiedTime().toInstant();
+
+            if (attrs.isDirectory()) {
+                return new FTPFileInfo(name, lastModified, owner, group, permissions);
+            }
+            return new FTPFileInfo(name, attrs.size(), lastModified, owner, group, permissions);
+        } catch (NoSuchFileException e) {
             return null;
-        }
-        
-        String name = filePath.getFileName().toString();
-        boolean isDirectory = Files.isDirectory(filePath);
-        Instant lastModified = Files.getLastModifiedTime(filePath).toInstant();
-        String owner = System.getProperty("user.name");
-        String group = "users";
-        
-        // Generate Unix-style permissions string
-        String permissions = generatePermissionsString(filePath);
-        
-        if (isDirectory) {
-            // Use directory constructor
-            return new FTPFileInfo(name, lastModified, owner, group, permissions);
-        } else {
-            // Use file constructor with size
-            long size = Files.size(filePath);
-            return new FTPFileInfo(name, size, lastModified, owner, group, permissions);
+        } catch (UnsupportedOperationException e) {
+            return createFileInfoFallback(filePath);
         }
     }
-    
+
     /**
-     * Generates a Unix-style permission string for a file/directory.
+     * Non-POSIX fallback (e.g. Windows filesystems), still a single
+     * {@link BasicFileAttributes} stat plus 3 access checks for the
+     * (approximated, process-access-based) permission string rather than
+     * the original 4 stats + 7 access checks.
      */
-    private String generatePermissionsString(Path filePath) {
-        StringBuilder perms = new StringBuilder(9);
-        
-        // Owner permissions
-        perms.append(Files.isReadable(filePath) ? 'r' : '-');
-        perms.append(Files.isWritable(filePath) ? 'w' : '-');
-        perms.append(Files.isExecutable(filePath) ? 'x' : '-');
-        
-        // Group permissions (simplified - same as owner)
-        perms.append(Files.isReadable(filePath) ? 'r' : '-');
-        perms.append(Files.isWritable(filePath) ? 'w' : '-');
-        perms.append(Files.isExecutable(filePath) ? 'x' : '-');
-        
-        // Other permissions (simplified - read-only)
-        perms.append(Files.isReadable(filePath) ? 'r' : '-');
-        perms.append('-'); // No write for others
-        perms.append('-'); // No execute for others
-        
-        return perms.toString();
+    private FTPFileInfo createFileInfoFallback(Path filePath) throws IOException {
+        BasicFileAttributes attrs;
+        try {
+            attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
+        } catch (NoSuchFileException e) {
+            return null;
+        }
+
+        String name = filePath.getFileName().toString();
+        Instant lastModified = attrs.lastModifiedTime().toInstant();
+
+        boolean r = Files.isReadable(filePath);
+        boolean w = Files.isWritable(filePath);
+        boolean x = Files.isExecutable(filePath);
+        String permissions = "" + (r ? 'r' : '-') + (w ? 'w' : '-') + (x ? 'x' : '-')
+                + (r ? 'r' : '-') + (w ? 'w' : '-') + (x ? 'x' : '-')
+                + (r ? 'r' : '-') + '-' + '-';
+
+        if (attrs.isDirectory()) {
+            return new FTPFileInfo(name, lastModified, FALLBACK_OWNER, FALLBACK_GROUP, permissions);
+        }
+        return new FTPFileInfo(name, attrs.size(), lastModified, FALLBACK_OWNER, FALLBACK_GROUP, permissions);
     }
     
     @Override
