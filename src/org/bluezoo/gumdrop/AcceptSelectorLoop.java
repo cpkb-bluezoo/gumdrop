@@ -404,8 +404,8 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void acceptListener(TCPListener server, SocketChannel sc,
-            SocketAddress remoteAddress) throws IOException {
+    private void acceptListener(TCPListener server, final SocketChannel sc,
+            final SocketAddress remoteAddress) throws IOException {
         if (!server.acceptConnection(remoteAddress)) {
             logRejection(remoteAddress);
             sc.close();
@@ -413,22 +413,55 @@ public class AcceptSelectorLoop implements Runnable {
         }
 
         sc.configureBlocking(false);
-        SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
-        TCPEndpoint endpoint = server.newEndpoint(sc, workerLoop);
+        final SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
         // Record admission: increments the listener's connection counters and
         // consumes a rate-limit token. The endpoint releases this accounting
-        // exactly once when it closes.
+        // exactly once when it closes. Lightweight and independent of the
+        // endpoint, so it stays on the accept thread.
         server.connectionOpened(remoteAddress);
-        endpoint.setListener(server, remoteAddress);
-        endpoint.connected();
-        workerLoop.register(sc, endpoint);
 
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            String message = Gumdrop.L10N.getString("info.accepted");
-            message = MessageFormat.format(message,
-                    String.valueOf(remoteAddress));
-            LOGGER.finest(message);
-        }
+        // Everything else - protocol handler construction, SSLEngine
+        // creation, buffer pool acquisition in TCPEndpoint.init(), and the
+        // handler's connected() callback (which for text protocols writes
+        // the greeting banner and for HTTP arms the idle timer) - is real
+        // per-connection work that must not run serially on the single
+        // accept thread. Defer it onto the worker loop that will actually
+        // own this connection. setSelectorLoop() is called here, before
+        // connected(), so that a handler which schedules an
+        // establishment-timeout timer from within connected() gets the
+        // per-loop timer rather than falling back to the shared
+        // process-wide one (which only register() would otherwise assign,
+        // one selector iteration later).
+        final TCPListener listener = server;
+        workerLoop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                TCPEndpoint endpoint;
+                try {
+                    endpoint = listener.newEndpoint(sc, workerLoop);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Error setting up accepted connection", e);
+                    try {
+                        sc.close();
+                    } catch (IOException closeEx) {
+                        // Ignore close errors
+                    }
+                    return;
+                }
+                endpoint.setSelectorLoop(workerLoop);
+                endpoint.setListener(listener, remoteAddress);
+                endpoint.connected();
+                workerLoop.register(sc, endpoint);
+
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    String message = Gumdrop.L10N.getString("info.accepted");
+                    message = MessageFormat.format(message,
+                            String.valueOf(remoteAddress));
+                    LOGGER.finest(message);
+                }
+            }
+        });
     }
 
     private void logRejection(SocketAddress remoteAddress) {
