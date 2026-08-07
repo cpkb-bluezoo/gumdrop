@@ -924,23 +924,30 @@ public class MboxMailbox implements Mailbox {
 
     /**
      * Indexes any new messages not yet in the search index.
+     *
+     * <p>UID equals message number for mbox, and {@link MessageIndex#addEntry}
+     * already keeps {@code uidNext} advanced to one past the highest indexed
+     * UID, so it tells us exactly where the already-indexed prefix ends.
+     * That means we can jump straight to the new tail instead of walking
+     * every message in the mailbox with a per-message lookup on every open
+     * — the common case being that nothing changed since the index was
+     * last saved and there are zero new messages, but the full scan cost
+     * previously scaled with total mailbox size regardless (issue #124).
      */
     private void indexNewMessages() {
         if (searchIndex == null) {
             return;
         }
-        
-        for (int i = 0; i < messages.size(); i++) {
+
+        int firstNewIndex = (int) (searchIndex.getUidNext() - 1);
+        for (int i = Math.max(firstNewIndex, 0); i < messages.size(); i++) {
             MboxMessageDescriptor msg = messages.get(i);
             long uid = i + 1; // UID is message number for mbox
-            
-            if (searchIndex.getEntryByUid(uid) == null) {
-                // Message not indexed, add it
-                try {
-                    addMessageToSearchIndex(msg, uid, EnumSet.noneOf(Flag.class), null);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to index message " + (i + 1), e);
-                }
+
+            try {
+                addMessageToSearchIndex(msg, uid, EnumSet.noneOf(Flag.class), null);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to index message " + (i + 1), e);
             }
         }
     }

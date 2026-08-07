@@ -281,4 +281,38 @@ public class MboxMailboxTest {
             mbox.close(false);
         }
     }
+
+    // Regression test for issue #124: indexNewMessages() previously walked
+    // every message in the mailbox on every open, even when the persisted
+    // search index was already fully up to date. Appending a message
+    // externally (simulating another MTA delivering mail) and reopening
+    // exercises the loadOrBuildSearchIndex -> indexNewMessages path; the
+    // new message must be found via the search index without requiring a
+    // full rebuild.
+    @Test
+    public void testSearchFindsMessageAppendedBetweenOpens() throws IOException {
+        MboxMailbox mbox = openSampleMailbox(false);
+        mbox.close(false);
+
+        String newMsg =
+                "From third@example.com Wed Jan  3 00:00:00 2025\r\n" +
+                "From: third@example.com\r\n" +
+                "To: recipient@example.com\r\n" +
+                "Subject: Third message\r\n" +
+                "\r\n" +
+                "Hello, this is message three.\r\n";
+        Files.write(mboxFile, newMsg.getBytes(StandardCharsets.US_ASCII),
+                java.nio.file.StandardOpenOption.APPEND);
+
+        MboxMailbox reopened = new MboxMailbox(mboxFile, "test", true);
+        try {
+            assertEquals(3, reopened.getMessageCount());
+            List<Integer> matches = reopened.search(
+                    org.bluezoo.gumdrop.mailbox.SearchCriteria.subject("Third message"));
+            assertEquals(1, matches.size());
+            assertEquals(Integer.valueOf(3), matches.get(0));
+        } finally {
+            reopened.close(false);
+        }
+    }
 }
