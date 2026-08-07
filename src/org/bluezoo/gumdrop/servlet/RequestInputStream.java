@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
-import java.io.PipedInputStream;
 import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -33,8 +32,8 @@ import javax.servlet.ReadListener;
 
 /**
  * ServletInputStream implementation for a request with async read support.
- * 
- * <p>This implementation wraps a {@link PipedInputStream} that receives
+ *
+ * <p>This implementation wraps a {@link RequestBodyStream} that receives
  * data from the HTTP connection layer. It supports the Servlet 3.1
  * non-blocking read API through {@link ReadListener}.
  *
@@ -42,17 +41,17 @@ import javax.servlet.ReadListener;
  */
 class RequestInputStream extends ServletInputStream {
 
-    private static final ResourceBundle L10N = 
+    private static final ResourceBundle L10N =
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
     private static final Logger LOGGER = Logger.getLogger(RequestInputStream.class.getName());
 
-    private final PipedInputStream in;
+    private final RequestBodyStream in;
     final AtomicBoolean finished = new AtomicBoolean(false);
     ReadListener readListener;
     private volatile boolean listenerRegistered = false;
     private volatile boolean allDataReadNotified = false;
 
-    RequestInputStream(PipedInputStream in) {
+    RequestInputStream(RequestBodyStream in) {
         this.in = in;
     }
 
@@ -142,16 +141,12 @@ class RequestInputStream extends ServletInputStream {
      * 
      * @return true if data is available
      */
-    @Override 
+    @Override
     public boolean isReady() {
-        try {
-            if (finished.get()) {
-                return false; // pipe is closed
-            }
-            return in.available() > 0; // available() will not block
-        } catch (IOException e) {
-            return false;
+        if (finished.get()) {
+            return false; // stream is closed
         }
+        return in.available() > 0; // available() will not block
     }
 
     /**
