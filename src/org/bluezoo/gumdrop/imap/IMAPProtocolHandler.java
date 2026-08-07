@@ -57,6 +57,7 @@ import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -264,6 +265,17 @@ public class IMAPProtocolHandler
     private String idleTag = null;
     private TimerHandle idleTimerHandle;
     private static final long IDLE_POLL_INTERVAL_MS = 1000L;
+
+    /**
+     * Timeout for the CountDownLatch awaits in {@link #writeFully} and
+     * {@link #finishAsyncWriter}, run on the shared StorageExecutor pool
+     * (see {@link #submitStorage}). Without a timeout, an
+     * AsyncMessageWriter completion handler that never fires (a stuck or
+     * silently-dropped I/O callback) would pin a pool thread forever;
+     * since the pool is small and shared across every protocol's blocking
+     * work, a handful of stuck APPENDs can exhaust it entirely.
+     */
+    private static final long STORAGE_WRITE_TIMEOUT_SECONDS = 30L;
 
     // Mailbox update tracking for EXPUNGE detection
     private List<String> lastReportedUIDs;
@@ -3527,7 +3539,9 @@ public class IMAPProtocolHandler
                 latch.countDown();
             }
         });
-        latch.await();
+        if (!latch.await(STORAGE_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IOException(L10N.getString("imap.err.append_failed"));
+        }
         if (errRef.get() != null) {
             Throwable t = errRef.get();
             if (t instanceof Exception) {
@@ -3556,7 +3570,9 @@ public class IMAPProtocolHandler
                 latch.countDown();
             }
         });
-        latch.await();
+        if (!latch.await(STORAGE_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            throw new IOException(L10N.getString("imap.err.append_failed"));
+        }
         if (errRef.get() != null) {
             Throwable t = errRef.get();
             if (t instanceof Exception) {
