@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -899,35 +900,22 @@ public class FTPDataConnectionCoordinator {
             return;
         }
 
-        final TransferType transferType = transfer.getType();
-        exec.submit(controlEndpoint, new Callable<ByteBuffer>() {
+        exec.submit(controlEndpoint, new Callable<List<FTPFileInfo>>() {
             @Override
-            public ByteBuffer call() throws IOException {
+            public List<FTPFileInfo> call() throws IOException {
                 List<FTPFileInfo> files = fs.listDirectory(
                         transfer.getPath(), transfer.getMetadata());
                 if (files == null) {
                     throw new IOException("Failed to list directory: "
                             + transfer.getPath());
                 }
-                StringBuilder listing = new StringBuilder();
-                for (FTPFileInfo file : files) {
-                    if (transferType == TransferType.NAME_LIST) {
-                        listing.append(file.getName());
-                    } else if (transferType == TransferType.MACHINE_LISTING) {
-                        listing.append(file.formatAsMLSEntry());
-                    } else {
-                        listing.append(file.formatAsListingLine());
-                    }
-                    listing.append("\r\n");
-                }
-                return ByteBuffer.wrap(
-                        listing.toString().getBytes(StandardCharsets.UTF_8));
+                return files;
             }
-        }, new StorageExecutor.Callback<ByteBuffer>() {
+        }, new StorageExecutor.Callback<List<FTPFileInfo>>() {
             @Override
-            public void completed(ByteBuffer listingBuffer) {
+            public void completed(List<FTPFileInfo> files) {
                 try {
-                    registerListingHandler(controlEndpoint, listingBuffer,
+                    registerListingHandler(controlEndpoint, files,
                             transfer, callback);
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
@@ -951,13 +939,13 @@ public class FTPDataConnectionCoordinator {
     }
 
     private void registerListingHandler(Endpoint controlEndpoint,
-            ByteBuffer listingBuffer, PendingTransfer transfer,
+            List<FTPFileInfo> files, PendingTransfer transfer,
             TransferCallback callback) throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
 
         ListingTransferHandler listingHandler =
-                new ListingTransferHandler(listingBuffer, transfer, callback);
+                new ListingTransferHandler(files, transfer, callback);
         TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, listingHandler, loop);
         listingHandler.setEndpoint(dataEndpoint);
         if (!dataEndpoint.isSecure()) {
@@ -1134,15 +1122,27 @@ public class FTPDataConnectionCoordinator {
     private class ListingTransferHandler
             implements ProtocolHandler, Runnable {
 
-        private final ByteBuffer listingBuffer;
+        private final Iterator<FTPFileInfo> files;
+        private final TransferType transferType;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
         private Endpoint dataEndpoint;
 
-        ListingTransferHandler(ByteBuffer listingBuffer,
+        // A formatted line that didn't fully fit in the last pooled buffer
+        // and must be finished before formatting any further entries. Lines
+        // are formatted one at a time as the buffer is filled, rather than
+        // building the whole directory listing into one StringBuilder ->
+        // String -> byte[] up front and holding that single buffer for the
+        // entire life of the transfer - mirrors the pooled, write-paced
+        // pattern DownloadTransferHandler already uses for file transfers.
+        private byte[] carry;
+        private int carryOffset;
+
+        ListingTransferHandler(List<FTPFileInfo> files,
                 PendingTransfer transfer,
                 TransferCallback callback) {
-            this.listingBuffer = listingBuffer;
+            this.files = files.iterator();
+            this.transferType = transfer.getType();
             this.transfer = transfer;
             this.callback = callback;
         }
@@ -1157,20 +1157,66 @@ public class FTPDataConnectionCoordinator {
         }
 
         void sendNextChunk() {
-            if (!listingBuffer.hasRemaining()) {
-                finishListing();
-                return;
+            ByteBuffer buf = ByteBufferPool.acquire(TRANSFER_BUFFER_SIZE);
+            fillBuffer(buf);
+            buf.flip();
+            if (buf.hasRemaining()) {
+                totalBytesTransferred += buf.remaining();
+                dataEndpoint.send(buf);
             }
-            dataEndpoint.send(listingBuffer);
-            if (listingBuffer.hasRemaining()) {
+            ByteBufferPool.release(buf);
+
+            if (carry != null || files.hasNext()) {
                 dataEndpoint.onWriteReady(this);
             } else {
                 finishListing();
             }
         }
 
+        /**
+         * Fills {@code buf} with as many formatted entries as fit, carrying
+         * over any partially-written line to the next call.
+         */
+        private void fillBuffer(ByteBuffer buf) {
+            if (carry != null) {
+                int n = Math.min(buf.remaining(), carry.length - carryOffset);
+                buf.put(carry, carryOffset, n);
+                carryOffset += n;
+                if (carryOffset >= carry.length) {
+                    carry = null;
+                    carryOffset = 0;
+                } else {
+                    return;
+                }
+            }
+            while (files.hasNext() && buf.hasRemaining()) {
+                byte[] lineBytes = formatLine(files.next())
+                        .getBytes(StandardCharsets.UTF_8);
+                if (lineBytes.length <= buf.remaining()) {
+                    buf.put(lineBytes);
+                } else {
+                    int n = buf.remaining();
+                    buf.put(lineBytes, 0, n);
+                    carry = lineBytes;
+                    carryOffset = n;
+                    return;
+                }
+            }
+        }
+
+        private String formatLine(FTPFileInfo file) {
+            String body;
+            if (transferType == TransferType.NAME_LIST) {
+                body = file.getName();
+            } else if (transferType == TransferType.MACHINE_LISTING) {
+                body = file.formatAsMLSEntry();
+            } else {
+                body = file.formatAsListingLine();
+            }
+            return body + "\r\n";
+        }
+
         private void finishListing() {
-            totalBytesTransferred = listingBuffer.capacity();
             dataEndpoint.onWriteReady(null);
             dataEndpoint.close();
             notifyTransferHandler(true);

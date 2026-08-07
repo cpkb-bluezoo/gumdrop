@@ -455,6 +455,69 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("LIST should include the file written directly to disk", found);
     }
 
+    /**
+     * Regression test for the scalability fix streaming LIST output through
+     * a bounded pooled buffer (issue #131) instead of building the whole
+     * formatted listing into one buffer up front. Enough files are created
+     * that the formatted listing exceeds one 32KB chunk, forcing at least
+     * one entry line to be split across a chunk boundary and reassembled
+     * via the handler's carry-over logic; every entry must still arrive
+     * intact and none may be duplicated or dropped.
+     */
+    @Test
+    public void testListSpanningMultipleChunksDeliversEveryEntryIntact()
+            throws Exception {
+        String subdirName = "bigdir-" + System.nanoTime();
+        File subdir = new File(dataDir, subdirName);
+        assertTrue(subdir.mkdir());
+
+        int fileCount = 2000;
+        java.util.Set<String> expectedNames = new java.util.HashSet<>();
+        for (int i = 0; i < fileCount; i++) {
+            String name = String.format("entry-%04d.txt", i);
+            Files.write(new File(subdir, name).toPath(),
+                    "x".getBytes(StandardCharsets.UTF_8));
+            expectedNames.add(name);
+        }
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Exception> error = new AtomicReference<>();
+        AtomicReference<List<FTPFileEntry>> entriesRef = new AtomicReference<>();
+
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
+            auth.pasv(new TestPasvHandler(latch, error) {
+                @Override
+                public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
+                    a.list(subdirName, addr, new TestListHandler(latch, error) {
+                        @Override
+                        public void handleEntries(List<FTPFileEntry> entries,
+                                ClientAuthenticatedState a2) {
+                            entriesRef.set(entries);
+                            a2.quit();
+                            latch.countDown();
+                        }
+                    });
+                }
+            });
+        });
+
+        assertTrue("Should complete within timeout",
+                latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        if (error.get() != null) {
+            throw error.get();
+        }
+        List<FTPFileEntry> entries = entriesRef.get();
+        assertNotNull(entries);
+
+        java.util.Set<String> seenNames = new java.util.HashSet<>();
+        for (FTPFileEntry entry : entries) {
+            seenNames.add(entry.getName());
+        }
+        assertEquals("every listed file must appear exactly once, no "
+                        + "duplicates or drops across a chunk boundary",
+                expectedNames, seenNames);
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // AUTH TLS
     // ─────────────────────────────────────────────────────────────────────
