@@ -1753,8 +1753,10 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         return null;
     }
 
-    @Override public synchronized RequestDispatcher getRequestDispatcher(String path) {
-        invalidateSessions(false);
+    @Override public RequestDispatcher getRequestDispatcher(String path) {
+        synchronized (this) {
+            invalidateSessions(false);
+        }
         // Strip anchor
         int hi = path.indexOf('#');
         if (hi != -1) {
@@ -1767,15 +1769,22 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             queryString = path.substring(qi + 1);
             path = path.substring(0, qi);
         }
-        // Locate the target servlet
+        // Locate the target servlet. Take a snapshot of welcomeFiles while
+        // holding the lock so the disk-probing fallback below (which may
+        // need it again) doesn't race with a concurrent reload() mutating
+        // the live list in place.
         ServletMatch match = new ServletMatch();
-        matchServletMapping(path, match);
-        if (match.servletDef == null) {
-            for (String welcomeFile : welcomeFiles) {
-                String welcomePath = path + welcomeFile;
-                matchServletMapping(welcomePath, match);
-                if (match.servletDef != null) {
-                    break;
+        List<String> welcomeFilesSnapshot;
+        synchronized (this) {
+            welcomeFilesSnapshot = new ArrayList<>(welcomeFiles);
+            matchServletMapping(path, match);
+            if (match.servletDef == null) {
+                for (String welcomeFile : welcomeFilesSnapshot) {
+                    String welcomePath = path + welcomeFile;
+                    matchServletMapping(welcomePath, match);
+                    if (match.servletDef != null) {
+                        break;
+                    }
                 }
             }
         }
@@ -1789,12 +1798,16 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             match.pathInfo = "/".equals(path) ? null : path;
             // DefaultServlet will just look for resources via getResource.
             // Ensure that if the resource doesn't exist we try welcome
-            // files.
+            // files. This probes the filesystem/JAR entries, so it is
+            // deliberately done outside the context-wide lock (#121):
+            // holding it here would block every other request's
+            // servlet/filter lookups on this context for the duration of
+            // the disk I/O.
             try {
                 URL resource = getResource(path);
                 if (resource == null) {
                     String pathDir = path.endsWith("/") ? path : path + "/";
-                    for (String welcomeFile : welcomeFiles) {
+                    for (String welcomeFile : welcomeFilesSnapshot) {
                         String welcomePath = pathDir + welcomeFile;
                         resource = getResource(welcomePath);
                         if (resource != null) {
@@ -1816,35 +1829,37 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
         // Locate applicable filters
         Map<FilterDef,FilterMatch> requestFilters = new LinkedHashMap<>();
-        for (FilterMapping filterMapping : filterMappings) {
-            String filterName = filterMapping.filterName;
-            FilterDef filterDef = filterMapping.filterDef;
-            if (filterDef == null) {
-                continue;
-            }
-            if (!filterMapping.servletDefs.isEmpty() && filterMapping.servletDefs.contains(servletDef)) {
-                requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
-            } else {
-                for (String pattern : filterMapping.urlPatterns) {
-                    if (pattern.equals(path)) {
-                        // 1. exact match
-                        requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
-                    } else if (pattern.endsWith("/*") && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
-                        // 2. match path prefix
-                        requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.PATH));
-                    } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
-                        // 3. extension
-                        requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXTENSION));
+        List<FilterMatch> filterMatches = new ArrayList();
+        synchronized (this) {
+            for (FilterMapping filterMapping : filterMappings) {
+                String filterName = filterMapping.filterName;
+                FilterDef filterDef = filterMapping.filterDef;
+                if (filterDef == null) {
+                    continue;
+                }
+                if (!filterMapping.servletDefs.isEmpty() && filterMapping.servletDefs.contains(servletDef)) {
+                    requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
+                } else {
+                    for (String pattern : filterMapping.urlPatterns) {
+                        if (pattern.equals(path)) {
+                            // 1. exact match
+                            requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
+                        } else if (pattern.endsWith("/*") && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
+                            // 2. match path prefix
+                            requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.PATH));
+                        } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
+                            // 3. extension
+                            requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXTENSION));
+                        }
                     }
                 }
             }
-        }
-        // Build list of filter matches in filter order
-        List<FilterMatch> filterMatches = new ArrayList();
-        for (FilterDef filterDef : filterDefs.values()) {
-            FilterMatch filterMatch = requestFilters.get(filterDef);
-            if (filterMatch != null) { // requestFilters contains this filter
-                filterMatches.add(filterMatch);
+            // Build list of filter matches in filter order
+            for (FilterDef filterDef : filterDefs.values()) {
+                FilterMatch filterMatch = requestFilters.get(filterDef);
+                if (filterMatch != null) { // requestFilters contains this filter
+                    filterMatches.add(filterMatch);
+                }
             }
         }
         return new ContextRequestDispatcher(this, match, queryString, filterMatches, false);
