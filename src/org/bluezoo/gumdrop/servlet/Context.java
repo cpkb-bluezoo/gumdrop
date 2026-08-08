@@ -1680,6 +1680,15 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                     while (jarEntries.hasMoreElements()) {
                         JarEntry jarEntry = jarEntries.nextElement();
                         String entryName = jarEntry.getName();
+                        // Reject a malicious/malformed lib-jar entry (e.g.
+                        // containing "../") here, at the point the
+                        // untrusted archive-entry name is first read - same
+                        // guard as getWarIndex() for the WAR's own entries
+                        // (issue #173: this second, separate archive scan
+                        // was missed by that earlier fix).
+                        if (!isSafeArchiveEntryName(entryName)) {
+                            continue;
+                        }
                         if (entryName.startsWith(prefix)) {
                             String tail = entryName.substring(prefix.length());
                             int si = tail.indexOf('/');
