@@ -315,10 +315,33 @@ public final class StorageExecutor {
     }
 
     /**
-     * Shuts the pool down, interrupting in-flight operations. Any pending
-     * results are dropped.
+     * How long {@link #shutdown()} waits for in-flight operations to
+     * actually stop before giving up. Blocking (synchronous) file I/O does
+     * not respond to {@link Thread#interrupt()}, so a task already inside
+     * {@code operation.call()} can outlive {@code shutdownNow()} by however
+     * long that I/O takes; this bounds how long callers wait for it.
+     */
+    private static final long SHUTDOWN_AWAIT_MS = 5000L;
+
+    /**
+     * Shuts the pool down, interrupting in-flight operations, and waits
+     * (up to {@link #SHUTDOWN_AWAIT_MS}) for worker threads to actually
+     * terminate before returning.
+     *
+     * <p>Without this wait, {@link #shutdown()} could return while a
+     * worker thread was still running a task that started before shutdown
+     * (interrupt does not preempt blocking I/O) - callers that assume "the
+     * pool is gone" immediately afterward, notably tests that reuse the
+     * static {@link #workThreadObserver} across a shutdown/restart cycle,
+     * could otherwise observe a stale task from the old pool completing
+     * after a new pool has already started and reassigned the observer.
      */
     void shutdown() {
         executor.shutdownNow();
+        try {
+            executor.awaitTermination(SHUTDOWN_AWAIT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

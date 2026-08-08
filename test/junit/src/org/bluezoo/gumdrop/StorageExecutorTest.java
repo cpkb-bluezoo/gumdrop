@@ -210,6 +210,53 @@ public class StorageExecutorTest {
         }
     }
 
+    /**
+     * Regression test: {@code shutdown()} must not return while a worker
+     * thread is still running a task, since a task already inside {@code
+     * operation.call()} does not respond to {@code shutdownNow()}'s
+     * interrupt if it is blocked in synchronous I/O. A caller that reuses
+     * process-wide state across a shutdown/restart cycle (e.g. tests using
+     * {@link StorageExecutor#workThreadObserver}, or Gumdrop.shutdown()
+     * followed by Gumdrop.start()) needs "shutdown() returned" to actually
+     * mean the old pool's threads are gone, not just interrupted.
+     */
+    @Test(timeout = 10000)
+    public void testShutdownWaitsForInFlightTaskToFinish() throws Exception {
+        StorageExecutor exec = new StorageExecutor(1, 1);
+        final CountDownLatch taskStarted = new CountDownLatch(1);
+        final CountDownLatch taskFinished = new CountDownLatch(1);
+        final long busyMillis = 300L;
+
+        exec.submit(endpoint, new Callable<Void>() {
+            @Override
+            public Void call() {
+                taskStarted.countDown();
+                // Simulate blocking, non-interruptible I/O (a real
+                // synchronous file read would not respond to interrupt()
+                // either): spin for a fixed duration without ever checking
+                // interrupted status, so shutdownNow()'s interrupt alone
+                // cannot make this task stop any sooner.
+                long deadline = System.nanoTime()
+                        + TimeUnit.MILLISECONDS.toNanos(busyMillis);
+                while (System.nanoTime() < deadline) {
+                    // busy-wait
+                }
+                taskFinished.countDown();
+                return null;
+            }
+        }, new NoopCallback<Void>());
+
+        assertTrue("task never started", taskStarted.await(5, TimeUnit.SECONDS));
+        // shutdown() is called while the task is still busy-spinning (well
+        // within the busyMillis window), so this genuinely races against a
+        // task still in flight rather than one that already finished.
+        exec.shutdown();
+
+        assertTrue("shutdown() must not return until the in-flight task "
+                + "has actually finished, not merely been interrupted",
+                taskFinished.await(0, TimeUnit.MILLISECONDS));
+    }
+
     private static final class NoopCallback<T>
             implements StorageExecutor.Callback<T> {
         @Override public void completed(T result) { }
