@@ -103,4 +103,26 @@ public class DefaultServletSecurityTest {
         assertFalse(location.toLowerCase().startsWith("http://"));
         assertFalse(location.toLowerCase().startsWith("https://"));
     }
+
+    @Test
+    public void testCollectionRedirectLocationCollapsesLeadingDoubleSlash() {
+        // A Location value starting with "//" has no scheme of its own but
+        // is still interpreted by browsers as a protocol-relative absolute
+        // URL to an attacker-chosen host - the standard bypass for a "just
+        // make it relative" open-redirect fix. Must be collapsed to a
+        // single leading "/", not merely lack an explicit scheme.
+        String location = DefaultServlet.buildCollectionRedirectLocation(
+                "", "//evil.example/phish", null);
+        assertFalse("must not start with '//': " + location,
+                location.startsWith("//"));
+        assertEquals("/evil.example/phish/", location);
+    }
+
+    @Test
+    public void testCollectionRedirectLocationCollapsesManyLeadingSlashes() {
+        String location = DefaultServlet.buildCollectionRedirectLocation(
+                null, "////evil.example/phish", null);
+        assertFalse(location.startsWith("//"));
+        assertEquals("/evil.example/phish/", location);
+    }
 }

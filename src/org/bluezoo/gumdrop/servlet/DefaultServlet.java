@@ -72,6 +72,14 @@ public class DefaultServlet extends HttpServlet {
      * client-supplied {@code Host} header back into an absolute URL via
      * {@code getRequestURL()}. Avoids building a security-relevant header
      * value from unvalidated request data - see issue #175.
+     *
+     * <p>Collapses a leading {@code //} (or more) down to a single
+     * {@code /}: a {@code Location} value starting with {@code //} has no
+     * scheme of its own but is still interpreted by browsers as a
+     * protocol-relative <em>absolute</em> URL (same scheme, attacker
+     * -chosen host) - the standard bypass for a "just make it relative"
+     * open-redirect fix, so merely omitting the scheme/host is not
+     * sufficient on its own.
      */
     static String buildCollectionRedirectLocation(String contextPath,
             String path, String queryString) {
@@ -79,7 +87,12 @@ public class DefaultServlet extends HttpServlet {
         if (contextPath != null) {
             location.append(contextPath);
         }
-        location.append(path).append('/');
+        location.append(path);
+        while (location.length() > 1
+                && location.charAt(0) == '/' && location.charAt(1) == '/') {
+            location.deleteCharAt(0);
+        }
+        location.append('/');
         if (queryString != null) {
             location.append('?').append(queryString);
         }
