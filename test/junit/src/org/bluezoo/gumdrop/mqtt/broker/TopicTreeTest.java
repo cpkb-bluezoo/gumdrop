@@ -138,4 +138,71 @@ public class TopicTreeTest {
         assertTrue(tree.matchWithMaxQoS("a//b").containsKey("c1"));
         assertFalse(tree.matchWithMaxQoS("a/b").containsKey("c1"));
     }
+
+    // ─── Reverse-index / pruning regression tests (issue #144) ──────────
+
+    @Test
+    public void testUnsubscribeThenResubscribeSameFilter() {
+        // Exercises node pruning (unsubscribe should remove the now-empty
+        // path) followed by re-creation of that same path.
+        tree.subscribe("a/b/c", "c1", QoS.AT_MOST_ONCE);
+        tree.unsubscribe("a/b/c", "c1");
+        assertTrue(tree.matchWithMaxQoS("a/b/c").isEmpty());
+
+        tree.subscribe("a/b/c", "c1", QoS.AT_LEAST_ONCE);
+        Map<String, QoS> result = tree.matchWithMaxQoS("a/b/c");
+        assertEquals(QoS.AT_LEAST_ONCE, result.get("c1"));
+    }
+
+    @Test
+    public void testUnsubscribeDoesNotPruneSharedAncestor() {
+        // "a/b" and "a/c" share the "a" node - unsubscribing c1 from "a/b"
+        // must not disturb c2's subscription to "a/c".
+        tree.subscribe("a/b", "c1", QoS.AT_MOST_ONCE);
+        tree.subscribe("a/c", "c2", QoS.AT_MOST_ONCE);
+
+        tree.unsubscribe("a/b", "c1");
+
+        assertTrue(tree.matchWithMaxQoS("a/b").isEmpty());
+        assertTrue(tree.matchWithMaxQoS("a/c").containsKey("c2"));
+    }
+
+    @Test
+    public void testUnsubscribeAllThenResubscribe() {
+        tree.subscribe("a/b", "c1", QoS.AT_MOST_ONCE);
+        tree.subscribe("c/d/e", "c1", QoS.AT_LEAST_ONCE);
+
+        tree.unsubscribeAll("c1");
+        assertTrue(tree.matchWithMaxQoS("a/b").isEmpty());
+        assertTrue(tree.matchWithMaxQoS("c/d/e").isEmpty());
+
+        // Client can subscribe again after a full unsubscribeAll, and the
+        // reverse index (clientFilters) must reflect the new subscription
+        // so a subsequent unsubscribeAll finds it.
+        tree.subscribe("a/b", "c1", QoS.AT_MOST_ONCE);
+        assertTrue(tree.matchWithMaxQoS("a/b").containsKey("c1"));
+        tree.unsubscribeAll("c1");
+        assertTrue(tree.matchWithMaxQoS("a/b").isEmpty());
+    }
+
+    @Test
+    public void testUnsubscribeAllOnlyAffectsThatClient() {
+        tree.subscribe("a/b", "c1", QoS.AT_MOST_ONCE);
+        tree.subscribe("a/b", "c2", QoS.AT_LEAST_ONCE);
+        tree.subscribe("x/y", "c2", QoS.EXACTLY_ONCE);
+
+        tree.unsubscribeAll("c1");
+
+        Map<String, QoS> result = tree.matchWithMaxQoS("a/b");
+        assertFalse(result.containsKey("c1"));
+        assertEquals(QoS.AT_LEAST_ONCE, result.get("c2"));
+        assertTrue(tree.matchWithMaxQoS("x/y").containsKey("c2"));
+    }
+
+    @Test
+    public void testUnsubscribeUnknownFilterIsNoOp() {
+        tree.subscribe("a/b", "c1", QoS.AT_MOST_ONCE);
+        tree.unsubscribe("never/subscribed", "c1");
+        assertTrue(tree.matchWithMaxQoS("a/b").containsKey("c1"));
+    }
 }
