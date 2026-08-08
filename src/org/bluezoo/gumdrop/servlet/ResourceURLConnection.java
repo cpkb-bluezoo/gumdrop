@@ -88,16 +88,16 @@ public class ResourceURLConnection extends URLConnection {
                 return;
             }
         } else {
-            // WAR file - check entry in WAR first
-            try (JarFile warFile = new JarFile(context.root)) {
-                JarEntry jarEntry = warFile.getJarEntry(path);
-                if (jarEntry != null) {
-                    warEntryName = path;
-                    connected = true;
-                    return;
-                }
+            // WAR file - check entry in WAR first, via the shared kept-open
+            // handle rather than reopening the WAR for every connect().
+            JarFile warFile = context.getWarJarFile();
+            JarEntry jarEntry = warFile.getJarEntry(path);
+            if (jarEntry != null) {
+                warEntryName = path;
+                connected = true;
+                return;
             }
-            
+
             // Check JARs in WEB-INF/lib for META-INF/resources
             if (searchLibJars(path)) {
                 connected = true;
@@ -127,13 +127,12 @@ public class ResourceURLConnection extends URLConnection {
             if (jarFile == null) {
                 continue;
             }
-            try (JarFile jar = new JarFile(jarFile)) {
-                JarEntry entry = jar.getJarEntry(jarResourcePath);
-                if (entry != null && !entry.isDirectory()) {
-                    libJarFile = jarFile;
-                    libJarEntryName = jarResourcePath;
-                    return true;
-                }
+            JarFile jar = context.getCachedJarFile(jarFile);
+            JarEntry entry = jar.getJarEntry(jarResourcePath);
+            if (entry != null && !entry.isDirectory()) {
+                libJarFile = jarFile;
+                libJarEntryName = jarResourcePath;
+                return true;
             }
         }
         return false;
@@ -152,15 +151,15 @@ public class ResourceURLConnection extends URLConnection {
         if (file != null) {
             return file.length();
         } else if (warEntryName != null) {
-            try (JarFile warFile = new JarFile(context.root)) {
-                JarEntry jarEntry = warFile.getJarEntry(warEntryName);
+            try {
+                JarEntry jarEntry = context.getWarJarFile().getJarEntry(warEntryName);
                 return (jarEntry != null) ? jarEntry.getSize() : -1L;
             } catch (IOException e) {
                 return -1L;
             }
         } else if (libJarFile != null) {
-            try (JarFile jar = new JarFile(libJarFile)) {
-                JarEntry entry = jar.getJarEntry(libJarEntryName);
+            try {
+                JarEntry entry = context.getCachedJarFile(libJarFile).getJarEntry(libJarEntryName);
                 return (entry != null) ? entry.getSize() : -1L;
             } catch (IOException e) {
                 return -1L;
@@ -177,15 +176,15 @@ public class ResourceURLConnection extends URLConnection {
         if (file != null) {
             return file.lastModified();
         } else if (warEntryName != null) {
-            try (JarFile warFile = new JarFile(context.root)) {
-                JarEntry jarEntry = warFile.getJarEntry(warEntryName);
+            try {
+                JarEntry jarEntry = context.getWarJarFile().getJarEntry(warEntryName);
                 return (jarEntry != null) ? jarEntry.getTime() : -1L;
             } catch (IOException e) {
                 return -1L;
             }
         } else if (libJarFile != null) {
-            try (JarFile jar = new JarFile(libJarFile)) {
-                JarEntry entry = jar.getJarEntry(libJarEntryName);
+            try {
+                JarEntry entry = context.getCachedJarFile(libJarFile).getJarEntry(libJarEntryName);
                 return (entry != null) ? entry.getTime() : -1L;
             } catch (IOException e) {
                 return -1L;

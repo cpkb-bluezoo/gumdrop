@@ -149,6 +149,165 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     ServletService service;
     byte[] digest; // MD5 digest of web.xml
 
+    // ── Resource lookup caches (issue #137) ──
+    //
+    // getResource/getResourcePaths used to reopen the WAR (new JarFile(root))
+    // and, on a miss, fully enumerate every entry just to find WEB-INF/lib/
+    // *.jar files - on every static-file request, since DefaultServlet calls
+    // getResource up to three times per request. warJarFile is opened once
+    // and kept open for the life of the context; warIndex is built from a
+    // single enumeration pass on first use and cached thereafter, serving
+    // subsequent directory-listing lookups from a map instead of rescanning.
+    // Lib jar JarFile handles are cached the same way rather than reopened
+    // per lookup.
+    private JarFile warJarFile;
+    private volatile WarIndex warIndex;
+    private final Map<File, JarFile> libJarFileCache = new ConcurrentHashMap<>();
+
+    /**
+     * Cached index over a WAR-packaged context's entries: which entries are
+     * the immediate children of a given directory path, and which are
+     * WEB-INF/lib/*.jar files. Built once, from one enumeration pass.
+     */
+    private static final class WarIndex {
+        final Map<String, Set<String>> childrenByDir;
+        final List<String> libJarEntryNames;
+
+        WarIndex(Map<String, Set<String>> childrenByDir, List<String> libJarEntryNames) {
+            this.childrenByDir = childrenByDir;
+            this.libJarEntryNames = libJarEntryNames;
+        }
+    }
+
+    /**
+     * Returns the cached, kept-open {@link JarFile} for this WAR-packaged
+     * context's root, opening it once on first use.
+     */
+    synchronized JarFile getWarJarFile() throws IOException {
+        if (warJarFile == null) {
+            warJarFile = new JarFile(root);
+        }
+        return warJarFile;
+    }
+
+    /**
+     * Returns the cached {@link WarIndex}, building it from a single
+     * enumeration pass over the WAR the first time it is needed.
+     */
+    private WarIndex getWarIndex() throws IOException {
+        WarIndex index = warIndex;
+        if (index != null) {
+            return index;
+        }
+        synchronized (this) {
+            index = warIndex;
+            if (index != null) {
+                return index;
+            }
+            Map<String, Set<String>> childrenByDir = new HashMap<>();
+            List<String> libJarEntryNames = new ArrayList<>();
+            String libPath = "WEB-INF/lib/";
+            JarFile warFile = getWarJarFile();
+            Enumeration<JarEntry> i = warFile.entries();
+            while (i.hasMoreElements()) {
+                String entry = i.nextElement().getName();
+                // Reject a malicious/malformed WAR entry (e.g. containing
+                // "../") here, at the point the untrusted archive-entry
+                // name is first read, rather than downstream where it is
+                // later used to build a filesystem path (Zip Slip /
+                // CWE-22) - entries this filters out are simply excluded
+                // from the index, never resolvable via getResource(Paths).
+                if (!isSafeArchiveEntryName(entry)) {
+                    continue;
+                }
+                // Directory-marker entries (trailing '/') are skipped, not
+                // bucketed under their parent: the original per-request scan
+                // this replaces matched children via entry.indexOf('/',
+                // entryPath.length()) == -1, which a directory entry like
+                // "a/b/" never satisfies (the trailing slash itself is the
+                // extra '/' found), so such entries were always excluded -
+                // replicate that exactly rather than changing the behavior.
+                if (!entry.endsWith("/")) {
+                    int lastSlash = entry.lastIndexOf('/');
+                    String parentDir = (lastSlash == -1) ? "" : entry.substring(0, lastSlash + 1);
+                    childrenByDir.computeIfAbsent(parentDir, k -> new LinkedHashSet<>()).add(entry);
+                }
+                if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")
+                        && entry.indexOf('/', libPath.length()) == -1) {
+                    libJarEntryNames.add(entry);
+                }
+            }
+            index = new WarIndex(childrenByDir, libJarEntryNames);
+            warIndex = index;
+            return index;
+        }
+    }
+
+    /**
+     * Returns whether a raw archive entry name is safe to use in building
+     * an index/filesystem path: no absolute path, no {@code ..} segment,
+     * no embedded NUL. Guards against a crafted WAR/lib-jar entry escaping
+     * the context root (Zip Slip, CWE-22) via {@code contextClassLoader
+     * .getFile(...)} or similar downstream filesystem operations.
+     */
+    private static boolean isSafeArchiveEntryName(String entry) {
+        if (entry.isEmpty() || entry.charAt(0) == '/' || entry.indexOf('\0') >= 0) {
+            return false;
+        }
+        for (String part : entry.split("/", -1)) {
+            if ("..".equals(part)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Returns a cached, kept-open {@link JarFile} for a lib jar, opening it
+     * once rather than reopening it per lookup.
+     */
+    JarFile getCachedJarFile(File file) throws IOException {
+        JarFile jar = libJarFileCache.get(file);
+        if (jar != null) {
+            return jar;
+        }
+        synchronized (libJarFileCache) {
+            jar = libJarFileCache.get(file);
+            if (jar != null) {
+                return jar;
+            }
+            jar = new JarFile(file);
+            libJarFileCache.put(file, jar);
+            return jar;
+        }
+    }
+
+    /**
+     * Closes cached WAR/lib-jar handles opened for resource lookups.
+     * Called from {@link #destroy()}.
+     */
+    private void closeResourceCaches() {
+        synchronized (this) {
+            if (warJarFile != null) {
+                try {
+                    warJarFile.close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error closing WAR file", e);
+                }
+                warJarFile = null;
+            }
+            warIndex = null;
+        }
+        for (JarFile jar : libJarFileCache.values()) {
+            try {
+                jar.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Error closing lib jar", e);
+            }
+        }
+        libJarFileCache.clear();
+    }
+
     Map<String,Realm> realms = new LinkedHashMap<>();
 
     Map<String,String> initParams = new LinkedHashMap<>();
@@ -1139,6 +1298,8 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             resource.close();
         }
 
+        closeResourceCaches();
+
         thread.setContextClassLoader(loader);
         initialized = false;
     }
@@ -1492,27 +1653,16 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                 }
             }
         } else { // war file
-            try (JarFile warFile = new JarFile(root)) {
-                Enumeration<JarEntry> i = warFile.entries();
-                if (i != null) {
-                    while (i.hasMoreElements()) {
-                        JarEntry jarEntry = i.nextElement();
-                        String entry = jarEntry.getName();
-                        // entries in root
-                        if (entry.startsWith(entryPath) && !entry.equals(entryPath)) {
-                            // check that it is directly contained in entryPath
-                            if (entry.indexOf('/', entryPath.length()) == -1) {
-                                ret.add("/" + entry);
-                            }
-                        }
-                        // entries in jar in WEB-INF/lib
-                        if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")) {
-                            // Check that jar is directly contained in lib
-                            if (entry.indexOf('/', libPath.length()) == -1) {
-                                libJarFiles.add(contextClassLoader.getFile(entry));
-                            }
-                        }
+            try {
+                WarIndex index = getWarIndex();
+                Set<String> children = index.childrenByDir.get(entryPath);
+                if (children != null) {
+                    for (String entry : children) {
+                        ret.add("/" + entry);
                     }
+                }
+                for (String entry : index.libJarEntryNames) {
+                    libJarFiles.add(contextClassLoader.getFile(entry));
                 }
             } catch (IOException e) {
                 String message = L10N.getString("err.reading_jar");
@@ -1524,7 +1674,8 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             // Search resources in lib jar files (Servlet 3.0 spec section 4.6)
             String prefix = "META-INF/resources" + path;
             for (File file : libJarFiles) {
-                try (JarFile jarFile = new JarFile(file)) {
+                try {
+                    JarFile jarFile = getCachedJarFile(file);
                     Enumeration<JarEntry> jarEntries = jarFile.entries();
                     while (jarEntries.hasMoreElements()) {
                         JarEntry jarEntry = jarEntries.nextElement();
@@ -1607,25 +1758,15 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                 }
             }
         } else { // war file
-            try (JarFile warFile = new JarFile(root)) {
+            try {
+                JarFile warFile = getWarJarFile();
                 JarEntry jarEntry = warFile.getJarEntry(entryPath);
                 if (jarEntry != null) {
                     // entry in root
                     found = true;
                 } else {
-                    Enumeration<JarEntry> i = warFile.entries();
-                    if (i != null) {
-                        while (i.hasMoreElements()) {
-                            jarEntry = i.nextElement();
-                            String entry = jarEntry.getName();
-                            // entries in jar in WEB-INF/lib
-                            if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")) {
-                                // Check that jar is directly contained in lib
-                                if (entry.indexOf('/', libPath.length()) == -1) {
-                                    libJarFiles.add(contextClassLoader.getFile(entry));
-                                }
-                            }
-                        }
+                    for (String entry : getWarIndex().libJarEntryNames) {
+                        libJarFiles.add(contextClassLoader.getFile(entry));
                     }
                 }
             } catch (IOException e) {
@@ -1635,10 +1776,15 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             }
         }
         if (!found) {
-            // Search resources in lib jar files
-            entryPath = "WEB-INF/resources/" + entryPath;
+            // Search resources in lib jar files (Servlet 3.0 spec section
+            // 4.6: META-INF/resources/, matching getResourceAsStream and
+            // getResourcePaths below - this used the wrong "WEB-INF/
+            // resources/" prefix before, so this branch could never
+            // actually find anything).
+            entryPath = "META-INF/resources/" + entryPath;
             for (File file : libJarFiles) {
-                try (JarFile jarFile = new JarFile(file)) {
+                try {
+                    JarFile jarFile = getCachedJarFile(file);
                     JarEntry jarEntry = jarFile.getJarEntry(entryPath);
                     if (jarEntry != null) {
                         found = true;
@@ -1709,40 +1855,30 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                     }
                 }
             } else { // war file
-                JarFile warFile = new JarFile(root); // NB we cannot auto-close the jarfile, use JarInputStream
-                JarEntry jarEntry = warFile.getJarEntry(entryPath);
-                if (jarEntry != null) {
-                    // entry in war file
+                // Probe via the shared, kept-open cache first (a fast
+                // central-directory index lookup, not a reopen or
+                // enumeration); only open a dedicated JarFile - which the
+                // returned JarInputStream takes ownership of and closes -
+                // once we know there is actually a hit.
+                JarFile cachedWarFile = getWarJarFile();
+                if (cachedWarFile.getJarEntry(entryPath) != null) {
+                    JarFile warFile = new JarFile(root); // NB we cannot auto-close the jarfile, use JarInputStream
+                    JarEntry jarEntry = warFile.getJarEntry(entryPath);
                     return new JarInputStream(warFile, jarEntry);
-                } else {
-                    Enumeration<JarEntry> i = warFile.entries();
-                    if (i != null) {
-                        while (i.hasMoreElements()) {
-                            jarEntry = i.nextElement();
-                            String entry = jarEntry.getName();
-                            // entries in jar in WEB-INF/lib
-                            if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")) {
-                                // Check that jar is directly contained in lib
-                                if (entry.indexOf('/', libPath.length()) == -1) {
-                                    libJarFiles.add(contextClassLoader.getFile(entry));
-                                }
-                            }
-                        }
-                    }
-                    // now close it
-                    warFile.close();
+                }
+                for (String entry : getWarIndex().libJarEntryNames) {
+                    libJarFiles.add(contextClassLoader.getFile(entry));
                 }
             }
             // Nothing matched so far
             // Search resources in lib jar files (Servlet 3.0 spec section 4.6)
             String jarResourcePath = "META-INF/resources/" + entryPath;
             for (File file : libJarFiles) {
-                JarFile jarFile = new JarFile(file); // NB we cannot auto-close it, use JarInputStream
-                JarEntry jarEntry = jarFile.getJarEntry(jarResourcePath);
-                if (jarEntry != null) {
+                JarFile cachedJarFile = getCachedJarFile(file);
+                if (cachedJarFile.getJarEntry(jarResourcePath) != null) {
+                    JarFile jarFile = new JarFile(file); // NB we cannot auto-close it, use JarInputStream
+                    JarEntry jarEntry = jarFile.getJarEntry(jarResourcePath);
                     return new JarInputStream(jarFile, jarEntry);
-                } else {
-                    jarFile.close();
                 }
             }
         } catch (IOException e) {

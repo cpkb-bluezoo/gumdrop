@@ -421,11 +421,23 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     void endResponse() {
+        endResponse(null);
+    }
+
+    /**
+     * Finishes the response, invoking {@code onComplete} (if non-null)
+     * once the network send has actually finished, rather than blocking
+     * the calling (worker pool) thread until then.
+     *
+     * @param onComplete callback run after the response has been sent, or
+     *      null; may run on the connection's SelectorLoop thread
+     */
+    void endResponse(Runnable onComplete) {
         responseComplete = true;
         // Covers the empty-body case (headers were never sent because
         // writeBody() was never called).
         ensureHeadersSent();
-        sendResponse();
+        sendResponse(onComplete);
     }
 
     Supplier<Map<String, String>> getTrailerFieldsSupplier() {
@@ -486,28 +498,44 @@ class ServletHandler extends DefaultHTTPRequestHandler {
      * via {@link SelectorLoop#invokeLater(Runnable)} so that transport
      * implementations (e.g. HTTP/3 / QUIC) that are not thread-safe are
      * only ever called from their owning I/O thread.
+     *
+     * <p>Fire-and-forget: the calling (worker pool) thread is not blocked
+     * waiting for the send to finish, including any TLS/socket work that
+     * entails — worker threads are the scarce, bounded resource, and
+     * parking one per in-flight response for the duration of a network
+     * write (which depends on the client's download speed) halves usable
+     * pool capacity under load. {@code onComplete}, if non-null, runs once
+     * the send has actually finished, standing in for whatever
+     * worker-thread-owned cleanup used to run immediately after the old
+     * blocking call.
+     *
+     * @param onComplete callback run after the response has been sent, or
+     *      null; may run on the connection's SelectorLoop thread, never on
+     *      the calling thread
      */
-    private void sendResponse() {
+    private void sendResponse(final Runnable onComplete) {
         SelectorLoop loop = state.getSelectorLoop();
         if (loop == null) {
-            sendResponseDirect();
+            try {
+                sendResponseDirect();
+            } finally {
+                if (onComplete != null) {
+                    onComplete.run();
+                }
+            }
             return;
         }
-        final CountDownLatch latch = new CountDownLatch(1);
         loop.invokeLater(new Runnable() {
             public void run() {
                 try {
                     sendResponseDirect();
                 } finally {
-                    latch.countDown();
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
                 }
             }
         });
-        try {
-            latch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     /**
