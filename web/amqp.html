@@ -1,0 +1,511 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>AMQP Client - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop AMQP Client</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop provides a fully asynchronous AMQP 0-9-1 client for publishing and
+consuming messages against a broker such as RabbitMQ. Like all Gumdrop
+clients, the AMQP client uses non-blocking I/O and callbacks, and integrates
+directly with the framework's <code>SelectorLoop</code> event-driven
+architecture rather than pulling in a separate client thread model.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#basic-usage">Basic Usage</a></li>
+<li><a href="#selector-affinity">SelectorLoop Affinity</a></li>
+<li><a href="#operations">Supported Operations</a></li>
+<li><a href="#publishing">Publishing</a></li>
+<li><a href="#consuming">Consuming</a></li>
+<li><a href="#transactions">Transactions &amp; Confirms</a></li>
+<li><a href="#tls">TLS Connections</a></li>
+<li><a href="#authentication">Authentication</a></li>
+<li><a href="#recovery">Automatic Connection Recovery</a></li>
+<li><a href="#examples">Server Integration Examples</a></li>
+</ul>
+
+<h3 id="architecture">Architecture</h3>
+
+<p>
+The AMQP client follows the same patterns as other Gumdrop clients (Redis,
+LDAP, SMTP). It uses AMQP 0-9-1 framing for wire-level communication, with a
+streaming, no-copy frame parser (<code>AMQPFrameParser</code>) modeled on
+Gumdrop's HTTP/2 frame parser, so it never assumes a full frame or message
+body has arrived in a single read.
+</p>
+
+<h4>Key Components</h4>
+
+<ul>
+<li><code>org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery</code> - the
+recommended entry point: wraps a connection with automatic reconnection and
+topology/consumer replay</li>
+<li><code>org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler</code> -
+low-level endpoint handler implementing the AMQP 0-9-1 protocol for a single
+connection (no auto-reconnect)</li>
+<li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientConnection</code> -
+interface for opening channels and closing the connection</li>
+<li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientChannel</code> -
+interface exposing exchange/queue declaration, binding, publish, consume,
+ack/nack/reject, transactions, flow control, and publisher confirms</li>
+<li><code>org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler</code> -
+entry point callback fired once, on the first successful connection</li>
+<li><code>org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener</code> -
+optional callback for connection-lost/reconnecting/recovered lifecycle events</li>
+<li>Codec classes (<code>AMQPFrame</code>, <code>AMQPMethod</code>,
+<code>FieldTable</code>, <code>BasicProperties</code>, and per-class method
+codecs such as <code>ExchangeMethods</code>, <code>QueueMethods</code>,
+<code>BasicMethods</code>) - AMQP 0-9-1 wire encoding/decoding</li>
+</ul>
+
+<p>
+The client targets publish/consume workloads rather than broker
+administration: <code>exchange.delete</code>, <code>queue.unbind</code>,
+<code>queue.purge</code>, and <code>queue.delete</code> are deliberately not
+exposed. Exchange types (<code>direct</code>, <code>fanout</code>,
+<code>topic</code>, <code>headers</code>, or broker plugin types), queue
+declaration, and routing-key bindings to exchanges (including the default
+exchange <code>""</code>, which routes by queue name) are fully supported.
+</p>
+
+<h4>Asynchronous Model</h4>
+
+<p>
+All AMQP operations are asynchronous. When you call an operation such as
+<code>queueDeclare</code> or <code>basicPublish</code>, it immediately
+encodes and sends the corresponding method frame, then returns. When the
+broker's reply arrives, your callback is invoked on the connection's
+SelectorLoop thread.
+</p>
+
+<h3 id="basic-usage">Basic Usage</h3>
+
+<p>
+Connect to a broker and declare a queue, then start consuming from it, using
+<code>AMQPClientRecovery</code>:
+</p>
+
+<pre>
+AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+        .credentials("guest", "guest")
+        .virtualHost("/")
+        .recoveryListener(myListener); // optional
+
+client.connect(new RecoveryHandler() {
+    public void onFirstConnect(ClientConnection connection) {
+        connection.channelOpen(1, new ServerChannelOpenHandler() {
+            public void handleChannelOpenOk(ClientChannel channel) {
+                channel.queueDeclare("my-queue", true, false, false, null,
+                        new ServerQueueDeclareHandler() {
+                            public void handleQueueDeclareOk(
+                                    String queue, long msgCount, long consumerCount) { }
+                        });
+                channel.basicConsume("my-queue", "", false, false, null,
+                        myDeliveryHandler, new ServerConsumeHandler() {
+                            public void handleConsumeOk(String consumerTag) { }
+                        });
+            }
+        });
+    }
+});
+</pre>
+
+<p>
+<code>AMQPClientRecovery</code> hides the full connection handshake
+(protocol header, <code>connection.start</code>/<code>start-ok</code>,
+<code>tune</code>/<code>tune-ok</code>, <code>open</code>/<code>open-ok</code>)
+behind the stored host, port, credentials, virtual host, and TLS
+configuration. <code>onFirstConnect</code> fires exactly once, only for the
+initial successful connection - subsequent reconnects go straight to replay
+(see <a href="#recovery">Automatic Connection Recovery</a>).
+</p>
+
+<h3 id="selector-affinity">SelectorLoop Affinity</h3>
+
+<p>
+Like other Gumdrop clients, <code>AMQPClientRecovery</code> can be pinned to
+a specific worker <code>SelectorLoop</code> so that connection I/O runs on
+the same event-loop thread as the code driving it:
+</p>
+
+<pre>
+SelectorLoop loop = ((Request) req).getEndpoint().getSelectorLoop();
+AMQPClientRecovery client = new AMQPClientRecovery(loop, "broker.example.com", 5672)
+        .credentials("guest", "guest");
+</pre>
+
+<p>
+If no <code>SelectorLoop</code> is supplied, the client uses Gumdrop's
+default/shared loop. One deliberate deviation from the affinity model: the
+reconnect backoff timer itself does <em>not</em> run on a
+<code>SelectorLoop</code> timer, because idle worker loops (and their
+pending timers) can be torn down once there are no active clients, services,
+or listeners - which is exactly the state of a bare reconnecting client
+during a backoff window. Instead, reconnect delays run on a small dedicated
+daemon thread (<code>gumdrop-amqp-recovery</code>); the actual reconnect
+attempt itself still goes through the normal <code>ClientEndpoint.connect</code>
+path on the configured <code>SelectorLoop</code>.
+</p>
+
+<h3 id="operations">Supported Operations</h3>
+
+<p>
+Operations exposed on <code>ClientConnection</code>:
+</p>
+
+<ul>
+<li><code>channelOpen(channelId, ServerChannelOpenHandler)</code></li>
+<li><code>close(replyCode, replyText, ServerCloseHandler)</code></li>
+</ul>
+
+<p>
+Operations exposed on <code>ClientChannel</code>:
+</p>
+
+<ul>
+<li><code>close(...)</code> &#8594; <code>ServerChannelCloseHandler</code></li>
+<li><code>exchangeDeclare(...)</code> &#8594; <code>ServerExchangeDeclareHandler</code></li>
+<li><code>queueDeclare(...)</code> &#8594; <code>ServerQueueDeclareHandler</code></li>
+<li><code>queueBind(...)</code> &#8594; <code>ServerQueueBindHandler</code></li>
+<li><code>basicPublish(exchange, routingKey, mandatory, properties, bodySize)</code>
+- returns a streaming <code>PublishBody</code> writer</li>
+<li><code>basicConsume(queue, consumerTag, noAck, exclusive, arguments, DeliveryHandler, ServerConsumeHandler)</code></li>
+<li><code>basicCancel(consumerTag, ServerCancelHandler)</code></li>
+<li><code>basicAck(deliveryTag, multiple)</code>,
+<code>basicNack(deliveryTag, multiple, requeue)</code> (RabbitMQ extension),
+<code>basicReject(deliveryTag, requeue)</code></li>
+<li><code>txSelect</code> / <code>txCommit</code> / <code>txRollback</code>
+&#8594; <code>ServerTxSelectHandler</code> / <code>ServerTxCommitHandler</code> /
+<code>ServerTxRollbackHandler</code></li>
+<li><code>setFlowListener(FlowListener)</code> (broker-initiated
+<code>channel.flow</code>, always auto-acknowledged) and
+<code>flow(active, ServerFlowHandler)</code> (client-initiated)</li>
+<li><code>confirmSelect(ServerConfirmSelectHandler)</code> (RabbitMQ
+extension) and <code>setConfirmListener(ConfirmListener)</code></li>
+</ul>
+
+<h3 id="publishing">Publishing</h3>
+
+<p>
+<code>basicPublish</code> returns a streaming body writer, so message bodies
+are sent as a sequence of chunked frames rather than materialized as a
+single buffer - useful for large payloads:
+</p>
+
+<pre>
+PublishBody body = channel.basicPublish("my-exchange", "routing.key",
+        false, properties, payload.length);
+body.write(ByteBuffer.wrap(payload));
+body.finish();
+</pre>
+
+<p>
+The returned <code>PublishBody</code> also exposes
+<code>getSequenceNumber()</code>, which correlates the publish with the
+delivery tag reported by a subsequent publisher confirm (see
+<a href="#transactions">Transactions &amp; Confirms</a>).
+</p>
+
+<h3 id="consuming">Consuming</h3>
+
+<p>
+Register a <code>DeliveryHandler</code> with <code>basicConsume</code> to
+receive messages for the lifetime of the consumer. Deliveries stream to the
+handler as they arrive; call <code>basicAck</code>,
+<code>basicNack</code>, or <code>basicReject</code> from within the handler
+once a message has been processed (unless the consumer was declared with
+<code>noAck</code>):
+</p>
+
+<pre>
+channel.basicConsume("my-queue", "", false, false, null,
+        new DeliveryHandler() {
+            @Override
+            public void handleDelivery(String consumerTag, long deliveryTag,
+                    boolean redelivered, String exchange, String routingKey,
+                    BasicProperties properties, byte[] body) {
+                try {
+                    process(body);
+                    channel.basicAck(deliveryTag, false);
+                } catch (Exception e) {
+                    channel.basicNack(deliveryTag, false, true);
+                }
+            }
+        },
+        new ServerConsumeHandler() {
+            @Override
+            public void handleConsumeOk(String consumerTag) { }
+        });
+</pre>
+
+<h3 id="transactions">Transactions &amp; Confirms</h3>
+
+<p>
+The channel supports both classic AMQP transactions
+(<code>txSelect</code>/<code>txCommit</code>/<code>txRollback</code>) and
+RabbitMQ's lighter-weight publisher confirms
+(<code>confirmSelect</code> + <code>setConfirmListener</code>), which
+acknowledge published messages individually rather than requiring a full
+transaction round-trip:
+</p>
+
+<pre>
+channel.confirmSelect(new ServerConfirmSelectHandler() {
+    @Override
+    public void handleConfirmSelectOk() {
+        channel.setConfirmListener(new ConfirmListener() {
+            @Override
+            public void handleAck(long deliveryTag, boolean multiple) {
+                // message(s) up to deliveryTag confirmed by the broker
+            }
+
+            @Override
+            public void handleNack(long deliveryTag, boolean multiple) {
+                // message(s) up to deliveryTag rejected by the broker
+            }
+        });
+    }
+});
+</pre>
+
+<h3 id="tls">TLS Connections</h3>
+
+<p>
+The client supports implicit TLS (AMQPS, typically port 5671), configured on
+<code>AMQPClientRecovery</code> before connecting:
+</p>
+
+<pre>
+AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5671)
+        .credentials("guest", "guest")
+        .setSecure(true)
+        .setKeystoreFile("/path/to/keystore.p12")
+        .setKeystorePass("changeit")
+        .setKeystoreFormat("PKCS12");
+</pre>
+
+<p>
+A custom <code>SSLContext</code> or <code>TrustManager</code> may be
+supplied instead via <code>setSSLContext</code> / <code>setTrustManager</code>
+for full control over certificate validation. There is no STARTTLS-equivalent
+negotiation; TLS is established at connect time.
+</p>
+
+<h3 id="authentication">Authentication</h3>
+
+<p>
+The client authenticates using SASL <code>PLAIN</code>, the only mechanism
+currently implemented, sent as part of the <code>connection.start-ok</code>
+handshake once credentials are supplied via <code>credentials(username,
+password)</code>.
+</p>
+
+<h3 id="recovery">Automatic Connection Recovery</h3>
+
+<p>
+<code>AMQPClientRecovery</code> automatically reconnects when the connection
+is lost - whether from a broker-initiated close, a transport error, or an
+<code>IOException</code> at connect time:
+</p>
+
+<ul>
+<li>Reconnect delays follow a configurable <code>RecoveryPolicy</code>:
+exponential backoff, 1 second initial delay by default, doubling each
+attempt, capped at 30 seconds, with unlimited attempts unless a maximum is
+set via <code>withMaxAttempts</code></li>
+<li>On a successful reconnect (not the first connect), every exchange,
+queue, and binding that had been declared is redeclared, and every consumer
+is re-registered in its original order, so <code>ClientChannel</code>
+references the application already holds become live again with no code
+changes required</li>
+<li>An optional <code>RecoveryListener</code> surfaces lifecycle events:
+<code>onConnectionLost(cause)</code>, <code>onReconnecting(attempt, delay)</code>,
+<code>onRecovered()</code>, and <code>onRecoveryFailed(cause)</code></li>
+<li><code>close()</code> stops further reconnect attempts and closes the
+current endpoint</li>
+</ul>
+
+<pre>
+AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+        .credentials("guest", "guest")
+        .recoveryPolicy(RecoveryPolicy.exponentialBackoff()
+                .withInitialDelay(1000)
+                .withMaxDelay(30000)
+                .withMaxAttempts(-1)) // unlimited
+        .recoveryListener(new RecoveryListener() {
+            @Override
+            public void onConnectionLost(Throwable cause) {
+                LOGGER.warning("AMQP connection lost: " + cause);
+            }
+
+            @Override
+            public void onReconnecting(int attempt, long delayMillis) {
+                LOGGER.info("Reconnecting to broker, attempt " + attempt);
+            }
+
+            @Override
+            public void onRecovered() {
+                LOGGER.info("AMQP connection recovered");
+            }
+
+            @Override
+            public void onRecoveryFailed(Throwable cause) {
+                LOGGER.severe("AMQP recovery failed: " + cause);
+            }
+        });
+</pre>
+
+<h3 id="examples">Server Integration Examples</h3>
+
+<h4>Publishing Events from a Servlet</h4>
+
+<pre>
+public class OrderServlet extends HttpServlet {
+
+    private final AMQPClientRecovery amqp;
+    private volatile ClientChannel channel;
+
+    public OrderServlet() {
+        amqp = new AMQPClientRecovery("broker.example.com", 5672)
+                .credentials("app", "secret")
+                .virtualHost("/orders");
+        amqp.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel ch) {
+                        channel = ch;
+                        channel.exchangeDeclare("orders", "topic", true, false,
+                                false, null, new ServerExchangeDeclareHandler() {
+                                    @Override
+                                    public void handleExchangeDeclareOk() { }
+                                });
+                    }
+                });
+            }
+        });
+    }
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
+            throws IOException {
+        byte[] payload = toJson(req).getBytes(UTF_8);
+        BasicProperties props = new BasicProperties.Builder()
+                .contentType("application/json")
+                .deliveryMode(2) // persistent
+                .build();
+        PublishBody body = channel.basicPublish("orders", "order.created",
+                false, props, payload.length);
+        body.write(ByteBuffer.wrap(payload));
+        body.finish();
+        resp.setStatus(202);
+    }
+}
+</pre>
+
+<h4>Worker Queue Consumer with Confirms</h4>
+
+<pre>
+public class OrderWorker {
+
+    public void start() {
+        AMQPClientRecovery amqp = new AMQPClientRecovery("broker.example.com", 5672)
+                .credentials("worker", "secret")
+                .virtualHost("/orders");
+
+        amqp.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channel.queueDeclare("order-processing", true, false,
+                                false, null, new ServerQueueDeclareHandler() {
+                                    @Override
+                                    public void handleQueueDeclareOk(
+                                            String queue, long msgCount, long consumerCount) {
+                                        channel.queueBind("order-processing", "orders",
+                                                "order.created", null,
+                                                new ServerQueueBindHandler() {
+                                                    @Override
+                                                    public void handleQueueBindOk() {
+                                                        consume(channel);
+                                                    }
+                                                });
+                                    }
+                                });
+                    }
+                });
+            }
+        });
+    }
+
+    private void consume(ClientChannel channel) {
+        channel.basicConsume("order-processing", "", false, false, null,
+                new DeliveryHandler() {
+                    @Override
+                    public void handleDelivery(String consumerTag, long deliveryTag,
+                            boolean redelivered, String exchange, String routingKey,
+                            BasicProperties properties, byte[] body) {
+                        try {
+                            processOrder(body);
+                            channel.basicAck(deliveryTag, false);
+                        } catch (Exception e) {
+                            channel.basicNack(deliveryTag, false, true);
+                        }
+                    }
+                },
+                new ServerConsumeHandler() {
+                    @Override
+                    public void handleConsumeOk(String consumerTag) { }
+                });
+    }
+}
+</pre>
+
+<hr/>
+
+<p>
+<a href="index.html">&larr; Back to Main Page</a> |
+<a href="redis.html">Redis Client</a> |
+<a href="ldap.html">LDAP Client &amp; Realm</a> |
+<a href="mqtt.html">MQTT Server &amp; Client</a>
+</p>
+
+<p class='server-info'>Gumdrop AMQP Client</p>
+
+</body>
+</html>

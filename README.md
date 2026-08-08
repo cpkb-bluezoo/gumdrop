@@ -441,6 +441,16 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
         - role/group membership via memberOf attribute
         - certificate-to-user mapping (binary or subject DN mode)
         - Active Directory compatible
+- AMQP client
+    - AMQP 0-9-1 client for publishing and consuming messages against
+      brokers such as RabbitMQ
+    - exchange/queue declaration, binding, publish, and consume
+    - publisher confirms and classic transactions (tx.select/commit/rollback)
+    - streaming, chunked message body publishing (no full-buffer materialization)
+    - automatic connection recovery with configurable exponential backoff,
+      and transparent replay of exchanges, queues, bindings, and consumers
+    - implicit TLS (AMQPS) and SASL PLAIN authentication
+    - SelectorLoop affinity for server integration
 - Redis client
     - RESP2 and RESP3 protocol support (HELLO for protocol negotiation)
     - Redis 6+ ACL auth, CLIENT SETNAME/GETNAME/ID, RESET
