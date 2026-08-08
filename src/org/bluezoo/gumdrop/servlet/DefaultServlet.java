@@ -55,17 +55,35 @@ public class DefaultServlet extends HttpServlet {
         String path = getPath(request);
         // Ensure that collections terminate in "/"
         if (!path.endsWith("/") && isCollection(path)) {
-            String url = request.getRequestURL() + "/";
-            String queryString = request.getQueryString();
-            if (queryString != null) {
-                url += "?" + queryString;
-            }
             response.setStatus(HttpServletResponse.SC_MOVED_PERMANENTLY);
-            response.setHeader("Location", url);
+            response.setHeader("Location", buildCollectionRedirectLocation(
+                    request.getContextPath(), path, request.getQueryString()));
             response.setHeader("path", path);
             return;
         }
         super.service(request, response);
+    }
+
+    /**
+     * Builds the {@code Location} value for the trailing-slash redirect
+     * above, as a path-relative reference (RFC 7231 section 7.1.2 permits
+     * a relative reference in {@code Location}; the client resolves it
+     * against the request's own effective URI) instead of echoing the
+     * client-supplied {@code Host} header back into an absolute URL via
+     * {@code getRequestURL()}. Avoids building a security-relevant header
+     * value from unvalidated request data - see issue #175.
+     */
+    static String buildCollectionRedirectLocation(String contextPath,
+            String path, String queryString) {
+        StringBuilder location = new StringBuilder();
+        if (contextPath != null) {
+            location.append(contextPath);
+        }
+        location.append(path).append('/');
+        if (queryString != null) {
+            location.append('?').append(queryString);
+        }
+        return location.toString();
     }
 
     protected void doOptions(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
