@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -88,6 +89,8 @@ public class HTTP3ServerHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(HTTP3ServerHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     /** H3 event type: HEADERS frame received. */
     static final int H3_EVENT_HEADERS = 0;
@@ -182,7 +185,7 @@ public class HTTP3ServerHandler
                 quicheConn, h3Config);
 
         if (h3Conn == 0) {
-            LOGGER.severe("Failed to create h3 connection");
+            LOGGER.severe(L10N.getString("severe.h3_connection_failed"));
         }
     }
 

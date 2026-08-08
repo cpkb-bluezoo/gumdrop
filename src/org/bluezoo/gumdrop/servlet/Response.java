@@ -36,6 +36,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.time.ZoneId;
+import java.text.MessageFormat;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
@@ -466,8 +467,8 @@ class Response implements HttpServletResponse {
             // CR/LF) rather than propagating the exception to the servlet.
             // This prevents HTTP response splitting/header injection via
             // unsanitized header values.
-            LOGGER.warning("Ignoring invalid HTTP header '" + name + "': "
-                    + e.getMessage());
+            LOGGER.warning(MessageFormat.format(
+                    Context.L10N.getString("warn.ignoring_invalid_header"), name, e.getMessage()));
         }
     }
 

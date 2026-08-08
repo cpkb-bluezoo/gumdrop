@@ -91,16 +91,24 @@ public final class MQTTPacketEncoder {
         buf.put((byte) ver.getProtocolLevel());
 
         int connectFlags = 0;
-        if (packet.isCleanSession()) connectFlags |= 0x02;
+        if (packet.isCleanSession()) {
+            connectFlags |= 0x02;
+        }
         if (packet.isWillFlag()) {
             connectFlags |= 0x04;
             if (packet.getWillQoS() != null) {
                 connectFlags |= (packet.getWillQoS().getValue() << 3);
             }
-            if (packet.isWillRetain()) connectFlags |= 0x20;
+            if (packet.isWillRetain()) {
+                connectFlags |= 0x20;
+            }
         }
-        if (packet.getPassword() != null) connectFlags |= 0x40;
-        if (packet.getUsername() != null) connectFlags |= 0x80;
+        if (packet.getPassword() != null) {
+            connectFlags |= 0x40;
+        }
+        if (packet.getUsername() != null) {
+            connectFlags |= 0x80;
+        }
         buf.put((byte) connectFlags);
         buf.putShort((short) packet.getKeepAlive());
 
@@ -171,7 +179,9 @@ public final class MQTTPacketEncoder {
                                            MQTTVersion version) {
         boolean v5 = version == MQTTVersion.V5_0;
         byte[] topicBytes = utf8Bytes(topic);
-        if (payload == null) payload = new byte[0];
+        if (payload == null) {
+            payload = new byte[0];
+        }
 
         int remainingLength = 2 + topicBytes.length;
         if (qos > 0) {
@@ -184,9 +194,13 @@ public final class MQTTPacketEncoder {
         remainingLength += payload.length;
 
         int flags = 0;
-        if (dup) flags |= 0x08;
+        if (dup) {
+            flags |= 0x08;
+        }
         flags |= (qos << 1);
-        if (retain) flags |= 0x01;
+        if (retain) {
+            flags |= 0x01;
+        }
 
         int totalLen = 1 + VariableLengthEncoding.encodedLength(remainingLength)
                 + remainingLength;
@@ -248,9 +262,13 @@ public final class MQTTPacketEncoder {
         int remainingLength = variableHeaderLen + (int) payloadSize;
 
         int flags = 0;
-        if (dup) flags |= 0x08;
+        if (dup) {
+            flags |= 0x08;
+        }
         flags |= (qos << 1);
-        if (retain) flags |= 0x01;
+        if (retain) {
+            flags |= 0x01;
+        }
 
         int headerLen = 1
                 + VariableLengthEncoding.encodedLength(remainingLength)

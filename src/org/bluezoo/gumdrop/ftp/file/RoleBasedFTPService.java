@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.ftp.file;
 
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
@@ -72,6 +74,7 @@ public class RoleBasedFTPService extends FTPService {
 
     private static final Logger LOGGER =
             Logger.getLogger(RoleBasedFTPService.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private FTPFileSystem fileSystem;
     private Path rootDirectory;
@@ -165,9 +168,9 @@ public class RoleBasedFTPService extends FTPService {
             }
             fileSystem = new BasicFTPFileSystem(rootDirectory, readOnly);
         }
-        LOGGER.info("RoleBasedFTPService initialised: realm="
-                + getRealm().getClass().getSimpleName()
-                + ", quota=" + (quotaManager != null));
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.role_based_ftp_service_initialised"),
+                getRealm().getClass().getSimpleName(), quotaManager != null));
     }
 
     @Override

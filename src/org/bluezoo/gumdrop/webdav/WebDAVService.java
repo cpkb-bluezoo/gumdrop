@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
@@ -51,6 +53,8 @@ public class WebDAVService extends HTTPService {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebDAVService.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
     private Path rootPath = Paths.get(".");
     private boolean allowWrite = false;
@@ -175,8 +179,8 @@ public class WebDAVService extends HTTPService {
         } else {
             store.setMode(DeadPropertyStore.Mode.AUTO);
         }
-        LOGGER.info("Dead property storage: "
-                + store.getMode());
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.dead_property_storage"), store.getMode()));
         return store;
     }
 
@@ -210,12 +214,12 @@ public class WebDAVService extends HTTPService {
             }
 
             if (allowWrite && !Files.isWritable(realPath)) {
-                LOGGER.warning("Root path is not writable but "
-                        + "write operations are enabled: " + realPath);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.root_path_not_writable"), realPath));
             }
 
-            LOGGER.info("File server root validated: " + realPath
-                    + " (write: " + allowWrite + ")");
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.file_server_root_validated"), realPath, allowWrite));
 
         } catch (IOException e) {
             throw new IllegalArgumentException(

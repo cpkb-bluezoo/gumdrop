@@ -214,13 +214,16 @@ public class MboxMailboxStore implements MailboxStore {
         MailboxWatcher watcher = gumdrop.getMailboxWatcher();
         for (String mailboxName : names) {
             try {
-                Path mboxFilePath = resolveMailboxPath(mailboxName);
-                Path indexPath = mboxFilePath.resolveSibling(mboxFilePath.getFileName() + ".gidx");
-                boolean isInbox = INBOX.equalsIgnoreCase(mailboxName);
+                final Path mboxFilePath = resolveMailboxPath(mailboxName);
+                final Path indexPath = mboxFilePath.resolveSibling(mboxFilePath.getFileName() + ".gidx");
+                final boolean isInbox = INBOX.equalsIgnoreCase(mailboxName);
                 final String mbName = mailboxName;
-                final MailboxIndexer.IndexWork work = () -> {
-                    Mailbox mb = openMailbox(mbName, false);
-                    mb.close(false);
+                final MailboxIndexer.IndexWork work = new MailboxIndexer.IndexWork() {
+                    @Override
+                    public void run() throws Exception {
+                        Mailbox mb = openMailbox(mbName, false);
+                        mb.close(false);
+                    }
                 };
                 long lastModified;
                 try {
@@ -236,14 +239,17 @@ public class MboxMailboxStore implements MailboxStore {
                 if (watcher != null) {
                     Path parent = mboxFilePath.getParent();
                     String fileName = mboxFilePath.getFileName().toString();
-                    watcher.register(parent, fileName, changed -> {
-                        long lm;
-                        try {
-                            lm = Files.getLastModifiedTime(mboxFilePath).toMillis();
-                        } catch (IOException e) {
-                            lm = System.currentTimeMillis();
+                    watcher.register(parent, fileName, new MailboxWatcher.ChangeListener() {
+                        @Override
+                        public void onChange(String changed) {
+                            long lm;
+                            try {
+                                lm = Files.getLastModifiedTime(mboxFilePath).toMillis();
+                            } catch (IOException e) {
+                                lm = System.currentTimeMillis();
+                            }
+                            indexer.submitBackground(new MailboxIndexKey(indexPath), isInbox, lm, work);
                         }
-                        indexer.submitBackground(new MailboxIndexKey(indexPath), isInbox, lm, work);
                     });
                 }
             } catch (Exception e) {

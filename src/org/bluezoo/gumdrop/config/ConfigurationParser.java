@@ -32,10 +32,12 @@ import org.xml.sax.helpers.DefaultHandler;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -58,6 +60,8 @@ import java.util.logging.Logger;
 public class ConfigurationParser extends DefaultHandler {
     
     private static final Logger LOGGER = Logger.getLogger(ConfigurationParser.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.config.L10N");
 
     /** Prefix of {@code ${ENV:NAME}} / {@code ${ENV:NAME:default}} placeholders. */
     private static final String ENV_PREFIX = "${ENV:";
@@ -154,8 +158,9 @@ public class ConfigurationParser extends DefaultHandler {
         } else {
             // Unknown element - log warning
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("Unknown element: " + name + " at line " + 
-                              (locator != null ? locator.getLineNumber() : "?"));
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.unknown_config_element"),
+                        name, locator != null ? locator.getLineNumber() : "?"));
             }
         }
     }
@@ -636,9 +641,8 @@ public class ConfigurationParser extends DefaultHandler {
                 sb.append(def);
             } else {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Environment variable " + name
-                            + " referenced in configuration is not set;"
-                            + " substituting empty string");
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.env_var_not_set"), name));
                 }
             }
             i = close + 1;

@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code tx.rollback-ok}. */
+/**
+ * Receives {@code tx.rollback-ok}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerTxRollbackHandler {
     void handleTxRollbackOk();
 }

@@ -70,6 +70,10 @@ public final class DirectByteBufferPool {
 
     private DirectByteBufferPool() { }
 
+    // Unchecked: Java forbids creating a generic array directly
+    // (new ArrayBlockingQueue<ByteBuffer>[N]); the raw-array-then-cast
+    // idiom is the standard workaround, safe here since every element is
+    // immediately populated below with an ArrayBlockingQueue<ByteBuffer>.
     @SuppressWarnings("unchecked")
     private static ArrayBlockingQueue<ByteBuffer>[] createBuckets() {
         ArrayBlockingQueue<ByteBuffer>[] buckets =

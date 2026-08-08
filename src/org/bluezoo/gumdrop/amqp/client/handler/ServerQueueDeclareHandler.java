@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code queue.declare-ok}. */
+/**
+ * Receives {@code queue.declare-ok}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerQueueDeclareHandler {
 
     /**

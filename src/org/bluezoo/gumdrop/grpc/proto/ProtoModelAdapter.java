@@ -81,7 +81,9 @@ public class ProtoModelAdapter implements ProtobufHandler {
     @Override
     public void handleVarint(int fieldNumber, long value) {
         FieldDescriptor fd = currentField(fieldNumber);
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         Object val;
         switch (fd.getType()) {
@@ -119,7 +121,9 @@ public class ProtoModelAdapter implements ProtobufHandler {
     @Override
     public void handleFixed64(int fieldNumber, long value) {
         FieldDescriptor fd = currentField(fieldNumber);
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         Object val;
         if (fd.getType() == FieldType.DOUBLE) {
@@ -137,7 +141,9 @@ public class ProtoModelAdapter implements ProtobufHandler {
     @Override
     public void handleFixed32(int fieldNumber, int value) {
         FieldDescriptor fd = currentField(fieldNumber);
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         Object val;
         if (fd.getType() == FieldType.FLOAT) {
@@ -155,7 +161,9 @@ public class ProtoModelAdapter implements ProtobufHandler {
     @Override
     public void handleBytes(int fieldNumber, ByteBuffer data) {
         FieldDescriptor fd = currentField(fieldNumber);
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         Object val;
         if (fd.getType() == FieldType.STRING) {
@@ -185,11 +193,15 @@ public class ProtoModelAdapter implements ProtobufHandler {
         MessageContext ctx = messageStack.peek();
         FieldDescriptor fd = ctx != null ? ctx.message.getFieldByNumber(fieldNumber)
                 : null;
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         String typeName = fd.getMessageTypeName();
         MessageDescriptor nested = protoFile.getMessage(typeName);
-        if (nested == null) return;
+        if (nested == null) {
+            return;
+        }
 
         try {
             handler.startField(fd.getName(), typeName);
@@ -202,7 +214,9 @@ public class ProtoModelAdapter implements ProtobufHandler {
 
     @Override
     public void endMessage() {
-        if (messageStack.isEmpty()) return;
+        if (messageStack.isEmpty()) {
+            return;
+        }
 
         MessageContext ctx = messageStack.pop();
         try {

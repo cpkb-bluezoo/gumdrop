@@ -62,6 +62,8 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketClientProtocolHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.websocket.L10N");
 
     private final WebSocketEventHandler eventHandler;
 
@@ -125,7 +127,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
         }
 
         if (!WebSocketHandshake.validateUpgradeResponse(websocketKey, headers)) {
-            LOGGER.warning("WebSocket upgrade response validation failed");
+            LOGGER.warning(L10N.getString("warn.upgrade_response_validation_failed"));
             eventHandler.error(new IOException("Invalid WebSocket upgrade response"));
             return false;
         }

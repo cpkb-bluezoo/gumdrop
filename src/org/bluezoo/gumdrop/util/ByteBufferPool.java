@@ -63,6 +63,10 @@ public final class ByteBufferPool {
 
     private ByteBufferPool() { }
 
+    // Unchecked: Java forbids creating a generic array directly
+    // (new ArrayDeque<ByteBuffer>[N]); the raw-array-then-cast idiom is
+    // the standard workaround, safe here since every element is
+    // immediately populated below with an ArrayDeque<ByteBuffer>.
     @SuppressWarnings("unchecked")
     private static ArrayDeque<ByteBuffer>[] createBuckets() {
         ArrayDeque<ByteBuffer>[] buckets = new ArrayDeque[BUCKET_COUNT];

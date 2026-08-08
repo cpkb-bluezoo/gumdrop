@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.health;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -50,6 +52,8 @@ public class HealthService implements Service {
 
     private static final Logger LOGGER =
             Logger.getLogger(HealthService.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.health.L10N");
 
     private int port = HealthListener.DEFAULT_PORT;
     private String addresses;
@@ -100,7 +104,7 @@ public class HealthService implements Service {
         listener.start();
         listeners.add(listener);
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("Health/readiness endpoint listening on port " + port);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.health_listening"), port));
         }
     }
 

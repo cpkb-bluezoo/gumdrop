@@ -383,8 +383,8 @@ public class LDAPRealm implements Realm {
             } else if ("subject".equals(certLookupMode)) {
                 username = findUserBySubjectDN(certificate);
             } else {
-                LOGGER.warning("Unknown certLookupMode: "
-                        + certLookupMode);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.unknown_cert_lookup_mode"), certLookupMode));
                 return null;
             }
 
@@ -670,8 +670,7 @@ public class LDAPRealm implements Realm {
     private String findUserBySubjectDN(X509Certificate certificate)
             throws Exception {
         if (certSubjectFilter == null) {
-            LOGGER.warning("certSubjectFilter not configured for "
-                    + "subject lookup mode");
+            LOGGER.warning(L10N.getString("warn.cert_subject_filter_not_configured"));
             return null;
         }
 

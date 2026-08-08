@@ -341,8 +341,7 @@ public class POP3Listener extends TCPListener {
         }
 
         if (mailboxFactory == null) {
-            LOGGER.warning("No mailbox factory configured"
-                    + " - POP3 endpoint will not be functional");
+            LOGGER.warning(POP3ProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
         }
 
         if (isMetricsEnabled()) {

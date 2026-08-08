@@ -33,8 +33,10 @@ import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -125,6 +127,8 @@ public class HTTPClient implements AltSvcListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(HTTPClient.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
     private final String host;
     private final int port;
@@ -916,8 +920,9 @@ public class HTTPClient implements AltSvcListener {
         }
 
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("Alt-Svc discovered h3 endpoint: "
-                    + (altHost != null ? altHost : host) + ":" + altPort);
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.altsvc_h3_discovered"),
+                    altHost != null ? altHost : host, altPort));
         }
 
         h3UpgradeInProgress = true;
@@ -1373,9 +1378,7 @@ public class HTTPClient implements AltSvcListener {
             throws Exception {
         TrustManager[] tm = null;
         if (skipVerify) {
-            LOGGER.warning("TLS certificate verification disabled " +
-                    "(skipVerify=true). " +
-                    "This is insecure and should not be used in production.");
+            LOGGER.warning(L10N.getString("warn.tls_verification_disabled"));
             tm = new TrustManager[] {
                 new X509TrustManager() {
                     @Override

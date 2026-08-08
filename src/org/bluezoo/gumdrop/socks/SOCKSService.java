@@ -100,6 +100,10 @@ public abstract class SOCKSService implements Service {
         listeners.add(listener);
     }
 
+    // Rawtypes: the configuration parser reflectively invokes this bean
+    // setter with a raw List of parsed config objects, filtered below by
+    // instanceof - the parameter can't be generically typed since the
+    // parser has no compile-time knowledge of the target element type.
     @SuppressWarnings("rawtypes")
     public void setListeners(List list) {
         for (int i = 0; i < list.size(); i++) {

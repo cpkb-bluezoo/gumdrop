@@ -122,7 +122,9 @@ public class MQTTFrameParser {
         while (buf.hasRemaining()) {
             switch (state) {
                 case IDLE:
-                    if (!processIdle(buf)) return;
+                    if (!processIdle(buf)) {
+                        return;
+                    }
                     break;
                 case PUBLISH_HEADER:
                     processPublishHeader(buf);
@@ -141,7 +143,9 @@ public class MQTTFrameParser {
     private boolean processIdle(ByteBuffer buf) {
         int startPos = buf.position();
 
-        if (buf.remaining() < 2) return false;
+        if (buf.remaining() < 2) {
+            return false;
+        }
 
         int fixedHeader = buf.get(startPos) & 0xFF;
         int typeValue = (fixedHeader >> 4) & 0x0F;
@@ -222,7 +226,9 @@ public class MQTTFrameParser {
             if (pubHeaderLen >= pubHeaderBuf.length) {
                 int newSize = Math.min(pubRemainingLength + 1,
                         pubHeaderBuf.length * 2);
-                if (newSize <= pubHeaderBuf.length) break;
+                if (newSize <= pubHeaderBuf.length) {
+                    break;
+                }
                 byte[] grown = new byte[newSize];
                 System.arraycopy(pubHeaderBuf, 0, grown, 0, pubHeaderLen);
                 pubHeaderBuf = grown;
@@ -231,7 +237,9 @@ public class MQTTFrameParser {
             int space = pubHeaderBuf.length - pubHeaderLen;
             int forPacket = pubRemainingLength - pubHeaderLen;
             int toCopy = Math.min(buf.remaining(), Math.min(forPacket, space));
-            if (toCopy <= 0) break;
+            if (toCopy <= 0) {
+                break;
+            }
 
             buf.get(pubHeaderBuf, pubHeaderLen, toCopy);
             pubHeaderLen += toCopy;
@@ -269,9 +277,13 @@ public class MQTTFrameParser {
     private int tryParsePublishHeader() {
         ByteBuffer buf = ByteBuffer.wrap(pubHeaderBuf, 0, pubHeaderLen);
 
-        if (buf.remaining() < 2) return -1;
+        if (buf.remaining() < 2) {
+            return -1;
+        }
         int topicLen = ((buf.get(0) & 0xFF) << 8) | (buf.get(1) & 0xFF);
-        if (buf.remaining() < 2 + topicLen) return -1;
+        if (buf.remaining() < 2 + topicLen) {
+            return -1;
+        }
         buf.getShort();
         byte[] topicBytes = new byte[topicLen];
         buf.get(topicBytes);
@@ -279,23 +291,31 @@ public class MQTTFrameParser {
         int qos = (pubFlags >> 1) & 0x03;
         int packetId = 0;
         if (qos > 0) {
-            if (buf.remaining() < 2) return -1;
+            if (buf.remaining() < 2) {
+                return -1;
+            }
             packetId = buf.getShort() & 0xFFFF;
         }
 
         MQTTProperties props = MQTTProperties.EMPTY;
         if (version == MQTTVersion.V5_0) {
             int propStart = buf.position();
-            if (!buf.hasRemaining()) return -1;
+            if (!buf.hasRemaining()) {
+                return -1;
+            }
             int propLen = VariableLengthEncoding.decode(buf);
-            if (propLen == VariableLengthEncoding.NEEDS_MORE_DATA) return -1;
+            if (propLen == VariableLengthEncoding.NEEDS_MORE_DATA) {
+                return -1;
+            }
             if (propLen == VariableLengthEncoding.MALFORMED) {
                 handler.parseError(L10N.getString("err.malformed_publish_props"));
                 state = State.IDLE;
                 pubHeaderBuf = null;
                 return -1;
             }
-            if (buf.remaining() < propLen) return -1;
+            if (buf.remaining() < propLen) {
+                return -1;
+            }
             buf.position(propStart);
             props = MQTTProperties.decode(buf);
         }
@@ -337,6 +357,10 @@ public class MQTTFrameParser {
     // Non-PUBLISH event dispatch
     // ─────────────────────────────────────────────────────────────────────
 
+    // Unused: flags is part of the fixed header for every packet type (MQTT
+    // v5 spec section 2.1.3) and kept in the dispatch signature for
+    // symmetry with the PUBLISH path even though only PUBLISH's flags
+    // (dup/qos/retain, decoded separately) currently carry meaning.
     private void dispatchNonPublish(MQTTPacketType type,
                                     @SuppressWarnings("unused") int flags,
                                     ByteBuffer payload) {

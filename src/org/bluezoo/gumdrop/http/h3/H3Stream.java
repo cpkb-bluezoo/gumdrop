@@ -186,8 +186,8 @@ class H3Stream implements HTTPResponseState {
                     || (!"CONNECT".equals(method)
                         && (headers.getValue(":scheme") == null
                             || requestTarget == null))) {
-                LOGGER.warning("Malformed request: missing required "
-                        + "pseudo-headers on stream " + streamId);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.malformed_request_missing_pseudo_headers"), streamId));
                 sendErrorResponse(400);
                 return;
             }
@@ -986,8 +986,8 @@ class H3Stream implements HTTPResponseState {
                     connection.flushQuic();
                     return false;
                 } else {
-                    LOGGER.warning("h3 send_body error: " + result
-                            + " stream=" + streamId);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.h3_send_body_error"), result, streamId));
                     for (ByteBuffer b : pendingWriteQueue) {
                         ByteBufferPool.release(b);
                     }
@@ -1004,8 +1004,8 @@ class H3Stream implements HTTPResponseState {
                     h3Conn, quicheConn, streamId,
                     EMPTY_BUFFER.duplicate(), 0, true);
             if (result < 0 && result != GumdropNative.QUICHE_ERR_DONE) {
-                LOGGER.warning("h3 send_body FIN error: " + result
-                        + " stream=" + streamId);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.h3_send_body_fin_error"), result, streamId));
             }
             pendingFin = false;
             connection.flushQuic();
@@ -1047,8 +1047,8 @@ class H3Stream implements HTTPResponseState {
                 enqueue(data, fin);
                 return;
             } else {
-                LOGGER.warning("h3 send_body error: " + result
-                        + " stream=" + streamId);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.h3_send_body_error"), result, streamId));
                 return;
             }
         }
@@ -1057,8 +1057,8 @@ class H3Stream implements HTTPResponseState {
             int result = GumdropNative.quiche_h3_send_body(
                     h3Conn, quicheConn, streamId, data, 0, true);
             if (result < 0 && result != GumdropNative.QUICHE_ERR_DONE) {
-                LOGGER.warning("h3 send_body FIN error: " + result
-                        + " stream=" + streamId);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.h3_send_body_fin_error"), result, streamId));
             }
         }
         connection.flushQuic();

@@ -558,7 +558,7 @@ public class DNSResolver {
      */
     public void resolve(String hostname, final ResolveCallback callback) {
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info("[DNS] resolve(" + hostname + ")");
+            LOGGER.info(MessageFormat.format(L10N.getString("info.dns_resolve"), hostname));
         }
         if (hostname == null || hostname.isEmpty()) {
             callback.onError("Empty hostname");
@@ -570,7 +570,7 @@ public class DNSResolver {
         InetAddress literalV4 = HostsFile.parseLiteralIPv4(hostname);
         if (literalV4 != null) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info("[DNS] literal IPv4: " + literalV4);
+                LOGGER.info(MessageFormat.format(L10N.getString("info.dns_literal_v4"), literalV4));
             }
             deliverResolved(Collections.singletonList(literalV4), callback);
             return;
@@ -578,7 +578,7 @@ public class DNSResolver {
         InetAddress literalV6 = HostsFile.parseLiteralIPv6(hostname);
         if (literalV6 != null) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info("[DNS] literal IPv6: " + literalV6);
+                LOGGER.info(MessageFormat.format(L10N.getString("info.dns_literal_v6"), literalV6));
             }
             deliverResolved(Collections.singletonList(literalV6), callback);
             return;
@@ -588,7 +588,7 @@ public class DNSResolver {
         List<InetAddress> hostsResult = HostsFile.lookup(hostname);
         if (hostsResult != null && !hostsResult.isEmpty()) {
             if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                LOGGER.info("[DNS] hosts file: " + hostsResult);
+                LOGGER.info(MessageFormat.format(L10N.getString("info.dns_hosts_file"), hostsResult));
             }
             deliverResolved(hostsResult, callback);
             return;
@@ -611,7 +611,7 @@ public class DNSResolver {
             }
             if (!localhost.isEmpty()) {
                 if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                    LOGGER.info("[DNS] built-in localhost: " + localhost);
+                    LOGGER.info(MessageFormat.format(L10N.getString("info.dns_builtin_localhost"), localhost));
                 }
                 deliverResolved(localhost, callback);
                 return;
@@ -620,7 +620,7 @@ public class DNSResolver {
 
         // 4. DNS query (async)
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info("[DNS] falling through to query A/AAAA for " + hostname);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.dns_query_fallthrough"), hostname));
         }
         final DualQueryCollector collector =
                 new DualQueryCollector(callback);
@@ -631,14 +631,15 @@ public class DNSResolver {
     private void deliverResolved(final List<InetAddress> result,
                                  final ResolveCallback callback) {
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
-            LOGGER.info("[DNS] deliverResolved " + result + " (selectorLoop=" + (selectorLoop != null) + ")");
+            LOGGER.info(MessageFormat.format(L10N.getString("info.dns_deliver_resolved"),
+                    result, selectorLoop != null));
         }
         if (selectorLoop != null) {
             selectorLoop.invokeLater(new Runnable() {
                 @Override
                 public void run() {
                     if (Boolean.getBoolean("gumdrop.dns.debug")) {
-                        LOGGER.info("[DNS] invoking onResolved callback");
+                        LOGGER.info(L10N.getString("info.dns_invoking_callback"));
                     }
                     callback.onResolved(result);
                 }

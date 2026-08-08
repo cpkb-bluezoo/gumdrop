@@ -19,6 +19,7 @@
 package org.bluezoo.gumdrop.servlet.jsp;
 
 import java.io.IOException;
+import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -50,6 +51,8 @@ import org.bluezoo.gumdrop.servlet.Context;
 public class JSPServlet extends HttpServlet {
 
     private static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet.jsp");
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
     // Cache compiled JSP servlets to avoid recompilation on every request
     private final ConcurrentHashMap<String, Servlet> compiledServletCache = new ConcurrentHashMap<>();
@@ -168,7 +171,7 @@ public class JSPServlet extends HttpServlet {
     public void clearCache() {
         compiledServletCache.clear();
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("Cleared JSP servlet cache");
+            LOGGER.info(L10N.getString("info.jsp_cache_cleared"));
         }
     }
     

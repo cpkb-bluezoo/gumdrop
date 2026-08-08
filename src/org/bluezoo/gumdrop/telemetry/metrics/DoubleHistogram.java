@@ -208,8 +208,12 @@ public final class DoubleHistogram implements Instrument {
         synchronized void record(double value) {
             totalCount++;
             sum += value;
-            if (value < min) min = value;
-            if (value > max) max = value;
+            if (value < min) {
+                min = value;
+            }
+            if (value > max) {
+                max = value;
+            }
 
             // Find bucket
             int bucket = findBucket(value);

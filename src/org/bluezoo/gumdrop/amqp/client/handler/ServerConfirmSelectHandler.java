@@ -28,6 +28,7 @@ package org.bluezoo.gumdrop.amqp.client.handler;
  * PublishBody#getSequenceNumber}), and the broker will send a {@code
  * basic.ack} or {@code basic.nack} for it — delivered to any {@link
  * ConfirmListener} registered via {@link ClientChannel#setConfirmListener}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface ServerConfirmSelectHandler {
     void handleConfirmSelectOk();

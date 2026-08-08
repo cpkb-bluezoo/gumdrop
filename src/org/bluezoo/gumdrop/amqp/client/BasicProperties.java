@@ -192,39 +192,95 @@ public final class BasicProperties {
 
     private int flags() {
         int flags = 0;
-        if (contentType != null) flags |= FLAG_CONTENT_TYPE;
-        if (contentEncoding != null) flags |= FLAG_CONTENT_ENCODING;
-        if (headers != null) flags |= FLAG_HEADERS;
-        if (deliveryMode != null) flags |= FLAG_DELIVERY_MODE;
-        if (priority != null) flags |= FLAG_PRIORITY;
-        if (correlationId != null) flags |= FLAG_CORRELATION_ID;
-        if (replyTo != null) flags |= FLAG_REPLY_TO;
-        if (expiration != null) flags |= FLAG_EXPIRATION;
-        if (messageId != null) flags |= FLAG_MESSAGE_ID;
-        if (timestamp != null) flags |= FLAG_TIMESTAMP;
-        if (type != null) flags |= FLAG_TYPE;
-        if (userId != null) flags |= FLAG_USER_ID;
-        if (appId != null) flags |= FLAG_APP_ID;
-        if (reserved != null) flags |= FLAG_RESERVED;
+        if (contentType != null) {
+            flags |= FLAG_CONTENT_TYPE;
+        }
+        if (contentEncoding != null) {
+            flags |= FLAG_CONTENT_ENCODING;
+        }
+        if (headers != null) {
+            flags |= FLAG_HEADERS;
+        }
+        if (deliveryMode != null) {
+            flags |= FLAG_DELIVERY_MODE;
+        }
+        if (priority != null) {
+            flags |= FLAG_PRIORITY;
+        }
+        if (correlationId != null) {
+            flags |= FLAG_CORRELATION_ID;
+        }
+        if (replyTo != null) {
+            flags |= FLAG_REPLY_TO;
+        }
+        if (expiration != null) {
+            flags |= FLAG_EXPIRATION;
+        }
+        if (messageId != null) {
+            flags |= FLAG_MESSAGE_ID;
+        }
+        if (timestamp != null) {
+            flags |= FLAG_TIMESTAMP;
+        }
+        if (type != null) {
+            flags |= FLAG_TYPE;
+        }
+        if (userId != null) {
+            flags |= FLAG_USER_ID;
+        }
+        if (appId != null) {
+            flags |= FLAG_APP_ID;
+        }
+        if (reserved != null) {
+            flags |= FLAG_RESERVED;
+        }
         return flags;
     }
 
     private int propertyListSize() {
         int size = 0;
-        if (contentType != null) size += FieldTable.shortStringEncodedSize(contentType);
-        if (contentEncoding != null) size += FieldTable.shortStringEncodedSize(contentEncoding);
-        if (headers != null) size += 4 + headers.encodedContentSize();
-        if (deliveryMode != null) size += 1;
-        if (priority != null) size += 1;
-        if (correlationId != null) size += FieldTable.shortStringEncodedSize(correlationId);
-        if (replyTo != null) size += FieldTable.shortStringEncodedSize(replyTo);
-        if (expiration != null) size += FieldTable.shortStringEncodedSize(expiration);
-        if (messageId != null) size += FieldTable.shortStringEncodedSize(messageId);
-        if (timestamp != null) size += 8;
-        if (type != null) size += FieldTable.shortStringEncodedSize(type);
-        if (userId != null) size += FieldTable.shortStringEncodedSize(userId);
-        if (appId != null) size += FieldTable.shortStringEncodedSize(appId);
-        if (reserved != null) size += FieldTable.shortStringEncodedSize(reserved);
+        if (contentType != null) {
+            size += FieldTable.shortStringEncodedSize(contentType);
+        }
+        if (contentEncoding != null) {
+            size += FieldTable.shortStringEncodedSize(contentEncoding);
+        }
+        if (headers != null) {
+            size += 4 + headers.encodedContentSize();
+        }
+        if (deliveryMode != null) {
+            size += 1;
+        }
+        if (priority != null) {
+            size += 1;
+        }
+        if (correlationId != null) {
+            size += FieldTable.shortStringEncodedSize(correlationId);
+        }
+        if (replyTo != null) {
+            size += FieldTable.shortStringEncodedSize(replyTo);
+        }
+        if (expiration != null) {
+            size += FieldTable.shortStringEncodedSize(expiration);
+        }
+        if (messageId != null) {
+            size += FieldTable.shortStringEncodedSize(messageId);
+        }
+        if (timestamp != null) {
+            size += 8;
+        }
+        if (type != null) {
+            size += FieldTable.shortStringEncodedSize(type);
+        }
+        if (userId != null) {
+            size += FieldTable.shortStringEncodedSize(userId);
+        }
+        if (appId != null) {
+            size += FieldTable.shortStringEncodedSize(appId);
+        }
+        if (reserved != null) {
+            size += FieldTable.shortStringEncodedSize(reserved);
+        }
         return size;
     }
 

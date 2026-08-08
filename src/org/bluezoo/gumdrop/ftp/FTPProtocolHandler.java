@@ -357,7 +357,7 @@ public class FTPProtocolHandler
         // FTP's control channel is always line-based (data transfers use a
         // separate connection, handled entirely outside this lexer), so
         // this is structurally unreachable.
-        LOGGER.warning("Unexpected rawBytes() call on FTP server lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_server"));
     }
 
     @Override
@@ -367,11 +367,11 @@ public class FTPProtocolHandler
         try {
             reply(500, L10N.getString("ftp.err.line_too_long"));
             if (endpoint != null && endpoint.getRemoteAddress() != null) {
-                LOGGER.warning("FTP command line too long from "
-                        + endpoint.getRemoteAddress());
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.command_line_too_long"), endpoint.getRemoteAddress()));
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error sending line-too-long reply", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.line_too_long_reply_failed"), e);
         }
     }
 
@@ -2577,7 +2577,8 @@ public class FTPProtocolHandler
             recordStartTLSSuccess();
 
             if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info("AUTH " + mechanism + " upgrade initiated for " + getRemoteSocketAddress());
+                LOGGER.info(MessageFormat.format(
+                        L10N.getString("info.auth_upgrade_initiated"), mechanism, getRemoteSocketAddress()));
             }
 
         } catch (Exception e) {

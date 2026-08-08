@@ -24,12 +24,14 @@ package org.bluezoo.gumdrop.config;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -54,6 +56,7 @@ import java.util.logging.Logger;
 public class ComponentRegistry {
     
     private static final Logger LOGGER = Logger.getLogger(ComponentRegistry.class.getName());
+    static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.config.L10N");
     
     private final Map<String, ComponentDefinition> definitions = new LinkedHashMap<>();
     private final Map<String, Object> singletons = new ConcurrentHashMap<>();
@@ -168,14 +171,16 @@ public class ComponentRegistry {
      */
     public void shutdown() {
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("Shutting down component registry (" + singletons.size() + " singletons)");
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.shutting_down_registry"), singletons.size()));
         }
-        
+
         for (Map.Entry<String, Object> entry : singletons.entrySet()) {
             try {
                 invokeLifecycleMethod(entry.getValue(), "destroy");
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error destroying component: " + entry.getKey(), e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.component_destroy_error"), entry.getKey()), e);
             }
         }
         singletons.clear();
@@ -245,8 +250,9 @@ public class ComponentRegistry {
                              target.getClass().getSimpleName());
             }
         } else {
-            LOGGER.warning("No setter found for property: " + propertyName + 
-                          " on " + target.getClass().getName());
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.no_setter_found"),
+                    propertyName, target.getClass().getName()));
         }
     }
     

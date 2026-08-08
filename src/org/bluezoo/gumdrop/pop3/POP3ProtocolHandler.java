@@ -443,7 +443,7 @@ public class POP3ProtocolHandler
     public void rawBytes(ByteBuffer slice) {
         // POP3's control channel is always line-based; the lexer never
         // enters a raw escape, so this is structurally unreachable.
-        LOGGER.warning("Unexpected rawBytes() call on POP3 server lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_server"));
     }
 
     @Override
@@ -1999,7 +1999,7 @@ public class POP3ProtocolHandler
         pendingOpenUser = null;
         pendingOpenSuccess = null;
         if (user == null) {
-            LOGGER.warning("POP3 authenticate proceed() with no pending open");
+            LOGGER.warning(L10N.getString("warn.pop3_authenticate_no_pending_open"));
             return;
         }
         try {

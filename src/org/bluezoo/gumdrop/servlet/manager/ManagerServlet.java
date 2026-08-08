@@ -278,11 +278,15 @@ public class ManagerServlet extends HttpServlet {
     private String buildFilterMappings(FilterReg fd) {
         StringBuilder mappings = new StringBuilder();
         for (String servletName : fd.getServletNameMappings()) {
-            if (mappings.length() > 0) mappings.append(" ");
+            if (mappings.length() > 0) {
+                mappings.append(" ");
+            }
             mappings.append("→").append(servletName);
         }
         for (String urlPattern : fd.getUrlPatternMappings()) {
-            if (mappings.length() > 0) mappings.append(" ");
+            if (mappings.length() > 0) {
+                mappings.append(" ");
+            }
             mappings.append(urlPattern);
         }
         return mappings.toString();
@@ -351,7 +355,9 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private static String escapeHtml(String text) {
-        if (text == null) return "";
+        if (text == null) {
+            return "";
+        }
         return text.replace("&", "&amp;")
                    .replace("<", "&lt;")
                    .replace(">", "&gt;")

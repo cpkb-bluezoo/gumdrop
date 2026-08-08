@@ -25,6 +25,7 @@ package org.bluezoo.gumdrop.websocket;
  * RFC 6455 §7.4.1 — thrown when a frame's declared payload exceeds the
  * configured maximum message size. The connection should be closed with
  * code 1009 (Message Too Big).
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class WebSocketMessageTooBigException extends WebSocketProtocolException {
 

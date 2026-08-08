@@ -73,8 +73,12 @@ public class TopicTree {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof SubscriptionEntry)) return false;
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof SubscriptionEntry)) {
+                return false;
+            }
             SubscriptionEntry that = (SubscriptionEntry) o;
             return clientId.equals(that.clientId);
         }
@@ -125,8 +129,15 @@ public class TopicTree {
         // Remove any existing subscription for this client (to update QoS)
         current.subscribers.remove(new SubscriptionEntry(clientId, qos));
         current.subscribers.add(new SubscriptionEntry(clientId, qos));
-        clientFilters.computeIfAbsent(clientId, k -> ConcurrentHashMap.newKeySet())
-                .add(topicFilter);
+        Set<String> filters = clientFilters.get(clientId);
+        if (filters == null) {
+            filters = ConcurrentHashMap.newKeySet();
+            Set<String> existingFilters = clientFilters.putIfAbsent(clientId, filters);
+            if (existingFilters != null) {
+                filters = existingFilters;
+            }
+        }
+        filters.add(topicFilter);
     }
 
     /**

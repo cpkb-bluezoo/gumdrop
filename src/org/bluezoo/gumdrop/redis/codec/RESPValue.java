@@ -403,6 +403,9 @@ public final class RESPValue {
      *
      * @return the elements, or null if not an array-like type
      */
+    // Unchecked: value's runtime type is enforced by this class's own
+    // constructors/parser to match `type`, so the cast is safe whenever
+    // the type check above passes, though not statically provable.
     @SuppressWarnings("unchecked")
     public List<RESPValue> asArray() {
         if (type == RESPType.ARRAY || type == RESPType.SET || type == RESPType.PUSH) {
@@ -458,6 +461,8 @@ public final class RESPValue {
      *
      * @return the map entries, or null if not a map
      */
+    // Unchecked: value's runtime type is enforced by this class's own
+    // constructors/parser to match `type` (see asArray()).
     @SuppressWarnings("unchecked")
     public Map<RESPValue, RESPValue> asMap() {
         if (type != RESPType.MAP) {
@@ -500,6 +505,8 @@ public final class RESPValue {
      *
      * @return the push elements, or null if not a push type
      */
+    // Unchecked: value's runtime type is enforced by this class's own
+    // constructors/parser to match `type` (see asArray()).
     @SuppressWarnings("unchecked")
     public List<RESPValue> asPush() {
         if (type != RESPType.PUSH) {
@@ -530,6 +537,10 @@ public final class RESPValue {
         if (type == null) {
             return "null";
         }
+        // The unchecked casts below (ARRAY/MAP/SET/PUSH) all rely on the
+        // same invariant as asArray()/asMap()/asPush(): value's runtime
+        // type is enforced by this class's own constructors/parser to
+        // match `type`, verified here by the enclosing switch case.
         switch (type) {
             case SIMPLE_STRING:
                 return "+" + value;

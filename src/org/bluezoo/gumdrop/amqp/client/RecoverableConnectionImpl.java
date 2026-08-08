@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerCloseHandler;
@@ -68,7 +69,7 @@ final class RecoverableConnectionImpl implements ClientConnection {
         for (final RecoverableChannelImpl channel : channels.values()) {
             live.channelOpen(channel.getChannelId(), new ServerChannelOpenHandler() {
                 @Override
-                public void handleChannelOpenOk(org.bluezoo.gumdrop.amqp.client.handler.ClientChannel newRealChannel) {
+                public void handleChannelOpenOk(ClientChannel newRealChannel) {
                     channel.rebind(newRealChannel);
                     countDown();
                 }
@@ -100,13 +101,18 @@ final class RecoverableConnectionImpl implements ClientConnection {
         }
         l.channelOpen(channelId, new ServerChannelOpenHandler() {
             @Override
-            public void handleChannelOpenOk(org.bluezoo.gumdrop.amqp.client.handler.ClientChannel realChannel) {
+            public void handleChannelOpenOk(ClientChannel realChannel) {
                 // Stop tracking (and therefore stop replaying on future
                 // reconnects) this channel once it's closed for good,
                 // whether by the application or unsolicited by the
                 // broker — see RecoverableChannelImpl.internalCloseListener.
                 RecoverableChannelImpl recoverable = new RecoverableChannelImpl(channelId, realChannel,
-                        () -> channels.remove(channelId));
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                channels.remove(channelId);
+                            }
+                        });
                 channels.put(channelId, recoverable);
                 handler.handleChannelOpenOk(recoverable);
             }

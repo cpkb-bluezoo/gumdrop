@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code channel.flow-ok} for a client-initiated {@code channel.flow}. */
+/**
+ * Receives {@code channel.flow-ok} for a client-initiated {@code channel.flow}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerFlowHandler {
 
     /** @param active echoes back the {@code active} value the broker accepted */

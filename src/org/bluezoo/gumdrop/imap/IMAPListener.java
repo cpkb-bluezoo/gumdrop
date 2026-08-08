@@ -492,13 +492,11 @@ public class IMAPListener extends TCPListener {
         }
 
         if (mailboxFactory == null) {
-            LOGGER.warning("No mailbox factory configured"
-                    + " - IMAP endpoint will not be functional");
+            LOGGER.warning(IMAPProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
         }
 
         if (realm == null) {
-            LOGGER.warning("No realm configured"
-                    + " - IMAP authentication will not work");
+            LOGGER.warning(IMAPProtocolHandler.L10N.getString("warn.no_realm_configured"));
         }
 
         if (isMetricsEnabled()) {

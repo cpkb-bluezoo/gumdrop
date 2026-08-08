@@ -38,9 +38,11 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.logging.Level;
@@ -64,6 +66,8 @@ final class DeadPropertyStore {
 
     private static final Logger LOGGER =
             Logger.getLogger(DeadPropertyStore.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
     /** xattr name prefix for dead properties. */
     private static final String XATTR_PREFIX = "user.webdav.";
@@ -184,7 +188,8 @@ final class DeadPropertyStore {
 
                     @Override
                     public void onError(String error) {
-                        LOGGER.warning("Sidecar read failed: " + error);
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.sidecar_read_failed"), error));
                         callback.onProperties(merged);
                     }
                 });

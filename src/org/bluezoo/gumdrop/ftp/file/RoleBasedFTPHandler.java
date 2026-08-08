@@ -257,9 +257,9 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         if (LOGGER.isLoggable(Level.INFO)) {
             String direction = upload ? "uploaded" : "downloaded";
             String status = success ? "completed" : "failed";
-            LOGGER.info("Transfer " + status + ": " + direction + " " + path +
-                       " (" + totalBytesTransferred + " bytes) by " + 
-                       metadata.getAuthenticatedUser());
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.role_based_transfer_completed"),
+                    status, direction, path, totalBytesTransferred, metadata.getAuthenticatedUser()));
         }
     }
     
@@ -424,8 +424,8 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         if (LOGGER.isLoggable(Level.INFO)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";
-            LOGGER.info("FTP authentication successful: user=" + username + 
-                       ", from=" + clientHost);
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.role_based_auth_success"), username, clientHost));
         }
     }
     
@@ -433,7 +433,8 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         if (LOGGER.isLoggable(Level.WARNING)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";
-            LOGGER.warning("FTP authentication failed: from=" + clientHost + ", reason=" + reason);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.role_based_auth_failed"), clientHost, reason));
         }
     }
 }

@@ -57,9 +57,11 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.text.MessageFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
@@ -88,6 +90,8 @@ import java.util.logging.Logger;
 public class MaildirMailbox implements Mailbox {
 
     private static final Logger LOGGER = Logger.getLogger(MaildirMailbox.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.mailbox.L10N");
 
     private static final byte LF = '\n';
     private static final byte CR = '\r';
@@ -1482,12 +1486,12 @@ public class MaildirMailbox implements Mailbox {
                     LOGGER.fine("Loaded search index for " + name);
                     return;
                 } else {
-                    LOGGER.info("Search index inconsistent with mailbox, rebuilding");
+                    LOGGER.info(L10N.getString("info.search_index_inconsistent"));
                 }
             } catch (MessageIndex.CorruptIndexException e) {
-                LOGGER.log(Level.WARNING, "Corrupt search index, rebuilding", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.corrupt_search_index"), e);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to load search index, rebuilding", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.search_index_load_failed"), e);
             }
         }
 
@@ -1511,7 +1515,12 @@ public class MaildirMailbox implements Mailbox {
             }
             indexer.ensureFreshBlocking(new MailboxIndexKey(indexPath),
                     "INBOX".equalsIgnoreCase(name), lastModified,
-                    this::rebuildSearchIndex);
+                    new MailboxIndexer.IndexWork() {
+                        @Override
+                        public void run() throws Exception {
+                            rebuildSearchIndex();
+                        }
+                    });
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             rebuildSearchIndex();
@@ -1584,12 +1593,13 @@ public class MaildirMailbox implements Mailbox {
             try {
                 addMessageToSearchIndex(msg, msg.getFlags(), null);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to index message " + msg.getMessageNumber(), e);
+                LOGGER.log(Level.WARNING, MessageFormat.format(
+                        L10N.getString("warn.index_message_failed"), msg.getMessageNumber()), e);
             }
         }
-        
-        LOGGER.info("Built search index with " + searchIndex.getEntryCount() + 
-            " entries for " + name);
+
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.search_index_built"), searchIndex.getEntryCount(), name));
     }
 
     /**

@@ -223,13 +223,21 @@ public class DefaultPageContext extends PageContext {
 
     @Override
     public int getAttributesScope(String name) {
-        if (pageAttributes.containsKey(name)) return PAGE_SCOPE;
-        if (request.getAttribute(name) != null) return REQUEST_SCOPE;
+        if (pageAttributes.containsKey(name)) {
+            return PAGE_SCOPE;
+        }
+        if (request.getAttribute(name) != null) {
+            return REQUEST_SCOPE;
+        }
         
         HttpSession session = getSession();
-        if (session != null && session.getAttribute(name) != null) return SESSION_SCOPE;
+        if (session != null && session.getAttribute(name) != null) {
+            return SESSION_SCOPE;
+        }
         
-        if (getServletContext().getAttribute(name) != null) return APPLICATION_SCOPE;
+        if (getServletContext().getAttribute(name) != null) {
+            return APPLICATION_SCOPE;
+        }
         
         return 0; // Not found
     }

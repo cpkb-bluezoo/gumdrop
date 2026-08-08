@@ -63,7 +63,9 @@ public class ComponentReference {
         if (this == obj) {
             return true;
         }
-        if (!(obj instanceof ComponentReference)) return false;
+        if (!(obj instanceof ComponentReference)) {
+            return false;
+        }
         ComponentReference other = (ComponentReference) obj;
         return refId.equals(other.refId);
     }

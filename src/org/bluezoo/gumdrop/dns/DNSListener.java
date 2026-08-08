@@ -124,7 +124,7 @@ public class DNSListener extends UDPListener {
         @Override
         public void receive(ByteBuffer data) {
             if (service == null) {
-                LOGGER.warning("DNS datagram received but no service set");
+                LOGGER.warning(DNSMessage.L10N.getString("warn.dns_no_service_set"));
                 return;
             }
             InetSocketAddress source =

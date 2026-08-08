@@ -42,5 +42,6 @@
  * @see org.bluezoo.gumdrop.websocket.client.WebSocketClient
  * @see org.bluezoo.gumdrop.websocket.WebSocketEventHandler
  * @see org.bluezoo.gumdrop.websocket.WebSocketSession
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 package org.bluezoo.gumdrop.websocket.client;

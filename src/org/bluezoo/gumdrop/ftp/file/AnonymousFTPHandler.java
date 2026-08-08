@@ -28,6 +28,8 @@ import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
 import org.bluezoo.gumdrop.ftp.FTPFileSystem;
 
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 /**
@@ -49,6 +51,7 @@ import java.util.logging.Logger;
 public class AnonymousFTPHandler implements FTPConnectionHandler {
     
     private static final Logger LOGGER = Logger.getLogger(AnonymousFTPHandler.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final FTPFileSystem fileSystem;
     private String welcomeMessage;
@@ -68,7 +71,8 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     
     @Override
     public String connected(FTPConnectionMetadata metadata) {
-        LOGGER.info("Anonymous FTP connection from " + metadata.getClientAddress());
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.anon_ftp_connection"), metadata.getClientAddress()));
         return welcomeMessage != null ? welcomeMessage : 
                "Welcome to Anonymous FTP Server - Login with 'anonymous' and your email address";
     }
@@ -93,8 +97,8 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
             return FTPAuthenticationResult.INVALID_PASSWORD;
         }
         
-        LOGGER.info("Anonymous user authenticated from " + metadata.getClientAddress() + 
-                   " (email: " + password + ")");
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.anon_ftp_authenticated"), metadata.getClientAddress(), password));
         return FTPAuthenticationResult.SUCCESS;
     }
     
@@ -108,12 +112,13 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
                                FTPConnectionMetadata metadata) {
         if (upload) {
             // Anonymous FTP typically doesn't allow uploads
-            LOGGER.warning("Upload attempt blocked for anonymous user from " + 
-                          metadata.getClientAddress() + ": " + path);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.anon_upload_attempt_blocked"), metadata.getClientAddress(), path));
         } else {
             String sizeStr = (size >= 0) ? " (" + size + " bytes)" : "";
-            LOGGER.info("Anonymous download starting: " + path + sizeStr + 
-                       " from " + metadata.getClientAddress());
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.anon_download_starting"),
+                    path, sizeStr, metadata.getClientAddress()));
         }
     }
     
@@ -122,9 +127,9 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
                                long totalBytesTransferred, FTPConnectionMetadata metadata) {
         // Log significant download progress for statistics
         if (!upload && totalBytesTransferred % (10 * 1024 * 1024) == 0) { // Every 10MB
-            LOGGER.info("Anonymous download progress: " + path + 
-                       " - " + (totalBytesTransferred / (1024 * 1024)) + " MB from " + 
-                       metadata.getClientAddress());
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.anon_download_progress"),
+                    path, totalBytesTransferred / (1024 * 1024), metadata.getClientAddress()));
         }
     }
     
@@ -132,26 +137,27 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     public void transferCompleted(String path, boolean upload, long totalBytesTransferred, 
                                 boolean success, FTPConnectionMetadata metadata) {
         if (upload) {
-            LOGGER.warning("Upload blocked for anonymous user from " + 
-                          metadata.getClientAddress() + ": " + path);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.anon_upload_blocked"), metadata.getClientAddress(), path));
         } else {
             String status = success ? "completed" : "failed";
-            LOGGER.info("Anonymous download " + status + ": " + path + 
-                       " - " + (totalBytesTransferred / 1024) + " KB from " + 
-                       metadata.getClientAddress());
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.anon_download_finished"),
+                    status, path, totalBytesTransferred / 1024, metadata.getClientAddress()));
         }
     }
     
     @Override
     public FTPFileOperationResult handleSiteCommand(String command, FTPConnectionMetadata metadata) {
         // Anonymous users typically don't get SITE commands
-        LOGGER.info("SITE command denied for anonymous user from " + 
-                   metadata.getClientAddress() + ": " + command);
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.anon_site_denied"), metadata.getClientAddress(), command));
         return FTPFileOperationResult.ACCESS_DENIED;
     }
     
     @Override
     public void disconnected(FTPConnectionMetadata metadata) {
-        LOGGER.info("Anonymous FTP connection closed from " + metadata.getClientAddress());
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.anon_ftp_disconnected"), metadata.getClientAddress()));
     }
 }

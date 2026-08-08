@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code queue.bind-ok}. */
+/**
+ * Receives {@code queue.bind-ok}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerQueueBindHandler {
     void handleQueueBindOk();
 }

@@ -21,7 +21,9 @@
 
 package org.bluezoo.gumdrop.servlet.jndi;
 
+import java.text.MessageFormat;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 
@@ -44,6 +46,8 @@ import java.util.logging.Logger;
 public class BasicJCAConnectionFactory {
     
     private static final Logger LOGGER = Logger.getLogger(BasicJCAConnectionFactory.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jndi.L10N");
     
     private final ConnectionFactory config;
     private final Map<String, Object> connectionPool;
@@ -61,7 +65,8 @@ public class BasicJCAConnectionFactory {
         // Initialize connection pool configuration from properties
         initializePoolConfiguration();
         
-        LOGGER.info("Created Basic JCA ConnectionFactory: " + config.jndiName);
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.jca_connection_factory_created"), config.jndiName));
     }
     
     /**
@@ -74,7 +79,8 @@ public class BasicJCAConnectionFactory {
             try {
                 maxPoolSize = Integer.parseInt(properties.get("maxPoolSize"));
             } catch (NumberFormatException e) {
-                LOGGER.warning("Invalid maxPoolSize property: " + properties.get("maxPoolSize"));
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.invalid_max_pool_size"), properties.get("maxPoolSize")));
             }
         }
         
@@ -82,7 +88,8 @@ public class BasicJCAConnectionFactory {
             try {
                 initialPoolSize = Integer.parseInt(properties.get("initialPoolSize"));
             } catch (NumberFormatException e) {
-                LOGGER.warning("Invalid initialPoolSize property: " + properties.get("initialPoolSize"));
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.invalid_initial_pool_size"), properties.get("initialPoolSize")));
             }
         }
     }

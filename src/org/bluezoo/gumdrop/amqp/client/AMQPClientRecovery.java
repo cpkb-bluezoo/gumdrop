@@ -26,6 +26,8 @@ import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,10 +41,14 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientTuned;
 import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
 
 /**
  * AMQP client facade with automatic reconnect and topology recovery.
@@ -61,13 +67,22 @@ import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
  *         .virtualHost("/")
  *         .recoveryListener(myListener); // optional
  *
- * client.connect(connection -> {
- *     connection.channelOpen(1, channel -> {
- *         channel.queueDeclare("my-queue", true, false, false, null,
- *                 (queue, msgCount, consumerCount) -> { });
- *         channel.basicConsume("my-queue", "", false, false, null,
- *                 myDeliveryHandler, consumerTag -> { });
- *     });
+ * client.connect(new RecoveryHandler() {
+ *     public void onFirstConnect(ClientConnection connection) {
+ *         connection.channelOpen(1, new ServerChannelOpenHandler() {
+ *             public void handleChannelOpenOk(ClientChannel channel) {
+ *                 channel.queueDeclare("my-queue", true, false, false, null,
+ *                         new ServerQueueDeclareHandler() {
+ *                             public void handleQueueDeclareOk(
+ *                                     String queue, long msgCount, long consumerCount) { }
+ *                         });
+ *                 channel.basicConsume("my-queue", "", false, false, null,
+ *                         myDeliveryHandler, new ServerConsumeHandler() {
+ *                             public void handleConsumeOk(String consumerTag) { }
+ *                         });
+ *             }
+ *         });
+ *     }
  * });
  * }</pre>
  *
@@ -116,11 +131,16 @@ public class AMQPClientRecovery {
      * {@link ClientEndpoint#connect} path like any other connection.
      */
     private static final ScheduledExecutorService RETRY_EXECUTOR =
-            Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "gumdrop-amqp-recovery");
-                t.setDaemon(true);
-                return t;
-            });
+            Executors.newSingleThreadScheduledExecutor(new RecoveryThreadFactory());
+
+    private static final class RecoveryThreadFactory implements ThreadFactory {
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(r, "gumdrop-amqp-recovery");
+            t.setDaemon(true);
+            return t;
+        }
+    }
 
     private final String host;
     private final InetAddress hostAddress;
@@ -146,7 +166,7 @@ public class AMQPClientRecovery {
     private volatile boolean closed;
     private volatile AMQPClientProtocolHandler currentHandler;
     private volatile ClientEndpoint currentEndpoint;
-    private volatile java.util.concurrent.ScheduledFuture<?> pendingRetry;
+    private volatile ScheduledFuture<?> pendingRetry;
 
     public AMQPClientRecovery(String host, int port) {
         this(null, host, port);
@@ -310,13 +330,18 @@ public class AMQPClientRecovery {
             listener.onReconnecting(attempt, delay);
         }
 
-        pendingRetry = RETRY_EXECUTOR.schedule(() -> doConnect(false), delay, TimeUnit.MILLISECONDS);
+        pendingRetry = RETRY_EXECUTOR.schedule(new Runnable() {
+            @Override
+            public void run() {
+                doConnect(false);
+            }
+        }, delay, TimeUnit.MILLISECONDS);
     }
 
     /** Closes the connection and stops reconnecting. */
     public void close() {
         closed = true;
-        java.util.concurrent.ScheduledFuture<?> retry = pendingRetry;
+        ScheduledFuture<?> retry = pendingRetry;
         if (retry != null) {
             retry.cancel(false);
         }
@@ -341,20 +366,30 @@ public class AMQPClientRecovery {
         @Override
         public void handleStart(FieldTable serverProperties, String mechanisms, String locales,
                 ClientHandshake handshake) {
-            handshake.startOk(username, password, (channelMax, frameMax, heartbeat, tuned) -> {
-                tuned.open(virtualHost, connection -> {
-                    attempt = 0;
-                    recoverableConnection.bind(connection);
-                    if (first) {
-                        appHandler.onFirstConnect(recoverableConnection);
-                    } else {
-                        recoverableConnection.reopenAndReplayAll(() -> {
-                            if (listener != null) {
-                                listener.onRecovered();
+            handshake.startOk(username, password, new ServerTuneHandler() {
+                @Override
+                public void handleTune(int channelMax, long frameMax, int heartbeat,
+                        ClientTuned tuned) {
+                    tuned.open(virtualHost, new ServerOpenHandler() {
+                        @Override
+                        public void handleOpenOk(ClientConnection connection) {
+                            attempt = 0;
+                            recoverableConnection.bind(connection);
+                            if (first) {
+                                appHandler.onFirstConnect(recoverableConnection);
+                            } else {
+                                recoverableConnection.reopenAndReplayAll(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (listener != null) {
+                                            listener.onRecovered();
+                                        }
+                                    }
+                                });
                             }
-                        });
-                    }
-                });
+                        }
+                    });
+                }
             });
         }
 

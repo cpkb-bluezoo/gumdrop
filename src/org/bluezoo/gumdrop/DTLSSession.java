@@ -140,7 +140,7 @@ final class DTLSSession {
 
                 case BUFFER_UNDERFLOW:
                     // Incomplete datagram - shouldn't happen with UDP
-                    LOGGER.warning("DTLS buffer underflow - incomplete datagram?");
+                    LOGGER.warning(Gumdrop.L10N.getString("warn.dtls_buffer_underflow"));
                     return null;
 
                 case CLOSED:

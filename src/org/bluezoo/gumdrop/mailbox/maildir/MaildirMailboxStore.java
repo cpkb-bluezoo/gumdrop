@@ -177,13 +177,16 @@ public class MaildirMailboxStore implements MailboxStore {
         MailboxWatcher watcher = gumdrop.getMailboxWatcher();
         for (String mailboxName : names) {
             try {
-                Path maildirPath = resolveMailboxPath(mailboxName);
-                Path indexPath = maildirPath.resolve(".gidx");
-                boolean isInbox = INBOX.equalsIgnoreCase(mailboxName);
+                final Path maildirPath = resolveMailboxPath(mailboxName);
+                final Path indexPath = maildirPath.resolve(".gidx");
+                final boolean isInbox = INBOX.equalsIgnoreCase(mailboxName);
                 final String mbName = mailboxName;
-                final MailboxIndexer.IndexWork work = () -> {
-                    Mailbox mb = openMailbox(mbName, false);
-                    mb.close(false);
+                final MailboxIndexer.IndexWork work = new MailboxIndexer.IndexWork() {
+                    @Override
+                    public void run() throws Exception {
+                        Mailbox mb = openMailbox(mbName, false);
+                        mb.close(false);
+                    }
                 };
                 long lastModified;
                 try {
@@ -197,14 +200,17 @@ public class MaildirMailboxStore implements MailboxStore {
                 // another process still triggers a background catch-up
                 // index job even without a live session (issue #163).
                 if (watcher != null) {
-                    MailboxWatcher.ChangeListener onChange = changed -> {
-                        long lm;
-                        try {
-                            lm = Files.getLastModifiedTime(maildirPath).toMillis();
-                        } catch (IOException e) {
-                            lm = System.currentTimeMillis();
+                    MailboxWatcher.ChangeListener onChange = new MailboxWatcher.ChangeListener() {
+                        @Override
+                        public void onChange(String changed) {
+                            long lm;
+                            try {
+                                lm = Files.getLastModifiedTime(maildirPath).toMillis();
+                            } catch (IOException e) {
+                                lm = System.currentTimeMillis();
+                            }
+                            indexer.submitBackground(new MailboxIndexKey(indexPath), isInbox, lm, work);
                         }
-                        indexer.submitBackground(new MailboxIndexKey(indexPath), isInbox, lm, work);
                     };
                     watcher.register(maildirPath.resolve("cur"), null, onChange);
                     watcher.register(maildirPath.resolve("new"), null, onChange);

@@ -61,5 +61,6 @@
  *
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html">MQTT 3.1.1</a>
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html">MQTT 5.0</a>
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 package org.bluezoo.gumdrop.mqtt;

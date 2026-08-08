@@ -116,9 +116,15 @@ public final class VariableLengthEncoding {
      * @return 1, 2, 3, or 4
      */
     public static int encodedLength(int value) {
-        if (value <= 127) return 1;
-        if (value <= 16383) return 2;
-        if (value <= 2097151) return 3;
+        if (value <= 127) {
+            return 1;
+        }
+        if (value <= 16383) {
+            return 2;
+        }
+        if (value <= 2097151) {
+            return 3;
+        }
         return 4;
     }
 }

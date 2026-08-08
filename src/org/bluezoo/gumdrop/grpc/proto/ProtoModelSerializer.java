@@ -87,10 +87,14 @@ public class ProtoModelSerializer {
      * @throws IOException if an I/O error occurs
      */
     public void field(ProtobufWriter writer, String name, Object value) throws IOException {
-        if (value == null) return;
+        if (value == null) {
+            return;
+        }
 
         FieldDescriptor fd = currentField(name);
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         int num = fd.getNumber();
         FieldType type = fd.getType();
@@ -150,7 +154,9 @@ public class ProtoModelSerializer {
      */
     public void startField(String name, String typeName) {
         FieldDescriptor fd = currentField(name);
-        if (fd == null) return;
+        if (fd == null) {
+            return;
+        }
 
         MessageDescriptor nested = protoFile.getMessage(typeName);
         if (nested == null && typeName != null && typeName.startsWith(".")) {
@@ -182,13 +188,17 @@ public class ProtoModelSerializer {
     public void messageField(ProtobufWriter writer, String name, String typeName,
                              MessageContent content) throws IOException {
         FieldDescriptor fd = currentField(name);
-        if (fd == null || content == null) return;
+        if (fd == null || content == null) {
+            return;
+        }
 
         MessageDescriptor nested = protoFile.getMessage(typeName);
         if (nested == null && typeName.startsWith(".")) {
             nested = protoFile.getMessage(typeName.substring(1));
         }
-        if (nested == null) return;
+        if (nested == null) {
+            return;
+        }
 
         messageStack.push(nested);
         try {
@@ -205,9 +215,13 @@ public class ProtoModelSerializer {
 
     private FieldDescriptor currentField(String name) {
         MessageDescriptor msg = messageStack.peek();
-        if (msg == null) return null;
+        if (msg == null) {
+            return null;
+        }
         for (FieldDescriptor fd : msg.getFields()) {
-            if (fd.getName().equals(name)) return fd;
+            if (fd.getName().equals(name)) {
+                return fd;
+            }
         }
         return null;
     }

@@ -909,8 +909,8 @@ class Request implements HttpServletRequest {
                     }
                     addParameter(accum, body.substring(start));
                 } catch (IOException e) {
-                    Context.LOGGER.warning("Failed to parse form parameters: "
-                            + e.getMessage());
+                    Context.LOGGER.warning(MessageFormat.format(
+                            Context.L10N.getString("warn.form_parameters_parse_failed"), e.getMessage()));
                 }
             }
         }

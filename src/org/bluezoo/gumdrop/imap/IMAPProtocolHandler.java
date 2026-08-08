@@ -4188,6 +4188,9 @@ public class IMAPProtocolHandler
             }
         }, new StorageExecutor.Callback<Object>() {
             @Override
+            // Unchecked: the Callable above returns a List<Long> exactly
+            // when useQresync is true (checked below), so this generic
+            // erasure cast is safe by construction, not statically provable.
             @SuppressWarnings("unchecked")
             public void completed(Object result) {
                 try {
