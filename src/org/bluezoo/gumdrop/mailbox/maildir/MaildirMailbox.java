@@ -223,15 +223,17 @@ public class MaildirMailbox implements Mailbox {
                     uid = uidList.assignUid(baseFilename);
                 }
 
-                // Precompute header/body boundary off the SelectorLoop
-                // (mailbox open/scan runs on StorageExecutor).
-                long bodyOffset = detectBodyOffset(filePath);
+                // Body offset is left unresolved here (UNKNOWN_BODY_OFFSET)
+                // rather than eagerly scanned: scanning every file in cur/
+                // means an open/list/UIDL-only client (never fetching a
+                // body) still pays a FileChannel.open + up to 8KB read per
+                // message. ensureBodyOffset() resolves and caches it lazily
+                // on first actual content access instead.
                 MaildirMessageDescriptor descriptor = new MaildirMessageDescriptor(
                     0, // Message number assigned later
                     uid,
                     filePath,
-                    parsed,
-                    bodyOffset
+                    parsed
                 );
                 scanned.add(descriptor);
             } catch (IllegalArgumentException e) {
