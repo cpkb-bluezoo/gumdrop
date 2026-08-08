@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.mailbox.mbox;
 
+import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
+import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
@@ -53,11 +55,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -137,8 +142,52 @@ public class MboxMailbox implements Mailbox {
     private final MessageIndexBuilder indexBuilder;
 
     /**
+     * Per-canonical-path in-JVM gate so that a second {@code MboxMailbox}
+     * on the same file in this process blocks and queues behind the first
+     * rather than racing straight to {@link FileChannel#lock()} and
+     * getting an {@link java.nio.channels.OverlappingFileLockException} -
+     * Java file locks are per-JVM, so the OS lock alone does not make two
+     * same-process sessions for one mailbox (e.g. a phone and a desktop
+     * both polling) queue gracefully; it makes the second one crash.
+     * Reference-counted so an unused entry is not leaked once every
+     * session on a path has closed.
+     *
+     * <p>A binary {@link Semaphore}, not a {@link
+     * java.util.concurrent.locks.ReentrantLock}: a mailbox session's open
+     * and close can legitimately run on different {@code StorageExecutor}
+     * worker threads, and unlike a lock, a semaphore has no
+     * owner-thread requirement for release.
+     */
+    private static final Map<Path, JvmMailboxGate> JVM_GATES = new HashMap<>();
+
+    private static final class JvmMailboxGate {
+        final Semaphore permit = new Semaphore(1);
+        int refCount;
+    }
+
+    private Path gatePath;
+    private JvmMailboxGate gate;
+
+    private static synchronized JvmMailboxGate acquireGateRef(Path canonicalPath) {
+        JvmMailboxGate g = JVM_GATES.get(canonicalPath);
+        if (g == null) {
+            g = new JvmMailboxGate();
+            JVM_GATES.put(canonicalPath, g);
+        }
+        g.refCount++;
+        return g;
+    }
+
+    private static synchronized void releaseGateRef(Path canonicalPath, JvmMailboxGate g) {
+        g.refCount--;
+        if (g.refCount == 0) {
+            JVM_GATES.remove(canonicalPath, g);
+        }
+    }
+
+    /**
      * Creates and opens an mbox mailbox.
-     * 
+     *
      * @param mboxFile the mbox file path
      * @param name the mailbox name
      * @param readOnly true to open in read-only mode
@@ -151,7 +200,7 @@ public class MboxMailbox implements Mailbox {
         this.deletedMessages = new HashSet<>();
         this.messages = new ArrayList<>();
         this.indexBuilder = new MessageIndexBuilder();
-        
+
         // Create file if it doesn't exist
         if (!Files.exists(mboxFile)) {
             if (readOnly) {
@@ -159,24 +208,46 @@ public class MboxMailbox implements Mailbox {
             }
             Files.createFile(mboxFile);
         }
-        
-        // Open the file
-        String mode = readOnly ? "r" : "rw";
-        raf = new RandomAccessFile(mboxFile.toFile(), mode);
-        channel = raf.getChannel();
-        
-        // Acquire lock
-        lock = readOnly ? channel.lock(0, Long.MAX_VALUE, true) : channel.lock();
-        if (lock == null) {
-            raf.close();
-            throw new IOException("Could not acquire lock on mailbox: " + mboxFile);
+
+        // Block/queue behind any other same-JVM session on this file
+        // instead of racing to the OS lock below.
+        gatePath = mboxFile.toRealPath();
+        gate = acquireGateRef(gatePath);
+        try {
+            gate.permit.acquire();
+        } catch (InterruptedException e) {
+            releaseGateRef(gatePath, gate);
+            gate = null;
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted waiting for mailbox: " + mboxFile, e);
         }
-        
-        // Index the messages
-        indexMessages();
-        
-        // Load or build search index
-        loadOrBuildSearchIndex();
+
+        boolean initialized = false;
+        try {
+            // Open the file
+            String mode = readOnly ? "r" : "rw";
+            raf = new RandomAccessFile(mboxFile.toFile(), mode);
+            channel = raf.getChannel();
+
+            // Acquire lock
+            lock = readOnly ? channel.lock(0, Long.MAX_VALUE, true) : channel.lock();
+            if (lock == null) {
+                raf.close();
+                throw new IOException("Could not acquire lock on mailbox: " + mboxFile);
+            }
+
+            // Index the messages
+            indexMessages();
+
+            // Load or build search index
+            loadOrBuildSearchIndex();
+            initialized = true;
+        } finally {
+            if (!initialized) {
+                gate.permit.release();
+                releaseGateRef(gatePath, gate);
+            }
+        }
     }
 
     @Override
@@ -220,6 +291,11 @@ public class MboxMailbox implements Mailbox {
             if (raf != null) {
                 raf.close();
                 raf = null;
+            }
+            if (gate != null) {
+                gate.permit.release();
+                releaseGateRef(gatePath, gate);
+                gate = null;
             }
         }
     }
@@ -270,51 +346,69 @@ public class MboxMailbox implements Mailbox {
 
     @Override
     public ReadableByteChannel getMessageContent(int messageNumber) throws IOException {
-        if (messageNumber < 1 || messageNumber > messages.size()) {
-            throw new IOException("Invalid message number: " + messageNumber);
-        }
-        if (deletedMessages.contains(messageNumber)) {
-            throw new IOException("Message is deleted: " + messageNumber);
-        }
-        
-        MboxMessageDescriptor msg = messages.get(messageNumber - 1);
-        byte[] content = readMessageContent(msg.getStartOffset(), msg.getEndOffset());
-        
-        // Unescape ">From " lines
-        content = unescapeFromLines(content);
-        
+        byte[] content = unescapedContentForMessage(messageNumber);
         ByteBuffer buffer = ByteBuffer.wrap(content);
         return new ByteBufferChannel(buffer);
     }
 
+    /**
+     * Opens a buffered async content reader for the message (POP3 RETR/TOP
+     * fast path). mbox has no per-message file to hand an
+     * AsynchronousFileChannel over (unlike Maildir), so this still loads
+     * the whole message on the calling StorageExecutor worker - but as a
+     * single unescaped copy handed straight to {@link
+     * BufferedAsyncMessageContent}, instead of the caller falling back to
+     * {@code getMessageContent} plus draining the resulting channel through
+     * an intermediate {@code ByteArrayOutputStream} (a third copy, on top
+     * of the {@code readMessageContent}/{@code unescapeFromLines} pair
+     * here).
+     */
     @Override
-    public ReadableByteChannel getMessageTop(int messageNumber, int bodyLines) throws IOException {
+    public AsyncMessageContent openAsyncContent(int messageNumber) throws IOException {
+        byte[] content = unescapedContentForMessage(messageNumber);
+        return new BufferedAsyncMessageContent(content);
+    }
+
+    @Override
+    public long getMessageTopEndOffset(int messageNumber, int bodyLines)
+            throws IOException {
+        byte[] content = unescapedContentForMessage(messageNumber);
+        return computeTopEndOffset(content, bodyLines);
+    }
+
+    /**
+     * Reads and unescapes a message's full content. Shared by
+     * {@link #getMessageContent}, {@link #openAsyncContent}, and
+     * {@link #getMessageTopEndOffset}.
+     */
+    private byte[] unescapedContentForMessage(int messageNumber) throws IOException {
         if (messageNumber < 1 || messageNumber > messages.size()) {
             throw new IOException("Invalid message number: " + messageNumber);
         }
         if (deletedMessages.contains(messageNumber)) {
             throw new IOException("Message is deleted: " + messageNumber);
         }
-        
+
         MboxMessageDescriptor msg = messages.get(messageNumber - 1);
         byte[] content = readMessageContent(msg.getStartOffset(), msg.getEndOffset());
-        content = unescapeFromLines(content);
-        
-        // Find the end of headers (blank line)
+        return unescapeFromLines(content);
+    }
+
+    /**
+     * Finds the byte offset (into already-unescaped content) after the
+     * header/body blank line plus {@code bodyLines} further lines.
+     */
+    private int computeTopEndOffset(byte[] content, int bodyLines) {
         int headerEnd = findBlankLine(content);
         if (headerEnd < 0) {
             headerEnd = content.length;
         }
-        
-        // Include headers + blank line
+
         int resultEnd = headerEnd;
-        
-        // Add requested body lines
         if (bodyLines > 0 && headerEnd < content.length) {
             int pos = headerEnd;
             int linesFound = 0;
             while (pos < content.length && linesFound < bodyLines) {
-                // Find next line ending
                 int lineEnd = pos;
                 while (lineEnd < content.length && content[lineEnd] != LF) {
                     lineEnd++;
@@ -327,10 +421,17 @@ public class MboxMailbox implements Mailbox {
             }
             resultEnd = pos;
         }
-        
+        return resultEnd;
+    }
+
+    @Override
+    public ReadableByteChannel getMessageTop(int messageNumber, int bodyLines) throws IOException {
+        byte[] content = unescapedContentForMessage(messageNumber);
+        int resultEnd = computeTopEndOffset(content, bodyLines);
+
         byte[] result = new byte[resultEnd];
         System.arraycopy(content, 0, result, 0, resultEnd);
-        
+
         ByteBuffer buffer = ByteBuffer.wrap(result);
         return new ByteBufferChannel(buffer);
     }
@@ -646,6 +747,12 @@ public class MboxMailbox implements Mailbox {
 
     /**
      * Unescapes ">From " lines back to "From " lines in message body.
+     *
+     * <p>Scans for line starts and bulk-{@code write(byte[], off, len)}s
+     * the unchanged spans between matches, instead of the previous
+     * byte-at-a-time loop through {@link ByteArrayOutputStream#write(int)}
+     * (a {@code synchronized} method) - a 25MB attachment with no escaped
+     * lines is now one bulk write instead of 25 million synchronized calls.
      */
     private byte[] unescapeFromLines(byte[] content) {
         // Find where headers end
@@ -653,42 +760,44 @@ public class MboxMailbox implements Mailbox {
         if (headerEnd < 0 || headerEnd >= content.length) {
             return content; // No body to unescape
         }
-        
+
         ByteArrayOutputStream out = new ByteArrayOutputStream(content.length);
-        
+
         // Copy headers as-is
         out.write(content, 0, headerEnd);
-        
-        // Process body, unescaping ">From " at line starts
+
+        // Process body, unescaping ">From " at line starts. spanStart marks
+        // the beginning of a run of unchanged bytes not yet flushed; it is
+        // only written out (and reset) when a match forces a substitution,
+        // so a body with no escaped lines is copied in a single write().
+        int spanStart = headerEnd;
         boolean atLineStart = true;
-        for (int i = headerEnd; i < content.length; i++) {
-            if (atLineStart && i + ESCAPED_FROM_PREFIX.length <= content.length) {
-                boolean match = true;
-                for (int j = 0; j < ESCAPED_FROM_PREFIX.length; j++) {
-                    if (content[i + j] != ESCAPED_FROM_PREFIX[j]) {
-                        match = false;
-                        break;
-                    }
+        int i = headerEnd;
+        while (i < content.length) {
+            if (atLineStart && matchesAt(content, i, ESCAPED_FROM_PREFIX)) {
+                if (i > spanStart) {
+                    out.write(content, spanStart, i - spanStart);
                 }
-                if (match) {
-                    // Skip the ">" and write "From "
-                    i++; // Skip ">"
-                    out.write(content, i, FROM_PREFIX.length);
-                    i += FROM_PREFIX.length - 1; // -1 because loop will increment
-                    atLineStart = false;
-                    continue;
-                }
+                out.write(FROM_PREFIX, 0, FROM_PREFIX.length);
+                i += ESCAPED_FROM_PREFIX.length;
+                spanStart = i;
+                atLineStart = false;
+                continue;
             }
-            
-            out.write(content[i]);
             atLineStart = (content[i] == LF);
+            i++;
         }
-        
+        if (i > spanStart) {
+            out.write(content, spanStart, i - spanStart);
+        }
+
         return out.toByteArray();
     }
 
     /**
-     * Escapes "From " lines to ">From " in message body.
+     * Escapes "From " lines to ">From " in message body. Bulk-copies
+     * unchanged spans between matches; see {@link #unescapeFromLines} for
+     * why.
      */
     private byte[] escapeFromLines(byte[] content) {
         // Find where headers end
@@ -696,37 +805,50 @@ public class MboxMailbox implements Mailbox {
         if (headerEnd < 0 || headerEnd >= content.length) {
             return content; // No body to escape
         }
-        
+
         ByteArrayOutputStream out = new ByteArrayOutputStream(content.length + 100);
-        
+
         // Copy headers as-is
         out.write(content, 0, headerEnd);
-        
-        // Process body, escaping "From " at line starts
+
+        int spanStart = headerEnd;
         boolean atLineStart = true;
-        for (int i = headerEnd; i < content.length; i++) {
-            if (atLineStart && i + FROM_PREFIX.length <= content.length) {
-                boolean match = true;
-                for (int j = 0; j < FROM_PREFIX.length; j++) {
-                    if (content[i + j] != FROM_PREFIX[j]) {
-                        match = false;
-                        break;
-                    }
+        int i = headerEnd;
+        while (i < content.length) {
+            if (atLineStart && matchesAt(content, i, FROM_PREFIX)) {
+                if (i > spanStart) {
+                    out.write(content, spanStart, i - spanStart);
                 }
-                if (match) {
-                    // Write ">From " instead of "From "
-                    out.write(ESCAPED_FROM_PREFIX, 0, ESCAPED_FROM_PREFIX.length);
-                    i += FROM_PREFIX.length - 1; // -1 because loop will increment
-                    atLineStart = false;
-                    continue;
-                }
+                out.write(ESCAPED_FROM_PREFIX, 0, ESCAPED_FROM_PREFIX.length);
+                i += FROM_PREFIX.length;
+                spanStart = i;
+                atLineStart = false;
+                continue;
             }
-            
-            out.write(content[i]);
             atLineStart = (content[i] == LF);
+            i++;
         }
-        
+        if (i > spanStart) {
+            out.write(content, spanStart, i - spanStart);
+        }
+
         return out.toByteArray();
+    }
+
+    /**
+     * Returns whether {@code content} contains {@code prefix} starting at
+     * {@code pos}.
+     */
+    private static boolean matchesAt(byte[] content, int pos, byte[] prefix) {
+        if (pos + prefix.length > content.length) {
+            return false;
+        }
+        for (int j = 0; j < prefix.length; j++) {
+            if (content[pos + j] != prefix[j]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
