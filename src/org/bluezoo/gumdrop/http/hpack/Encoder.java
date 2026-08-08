@@ -174,8 +174,10 @@ public class Encoder extends HPACKConstants {
                     }
                 } else { // literal header field new name
                     byte[] rname = name.toLowerCase().getBytes(US_ASCII); // raw bytes, always lowercase
-                    byte[] hname = Huffman.encode(rname); // Huffman encoded bytes
-                    boolean useHuffman = autoHuffman && (hname.length < rname.length);
+                    // Skip the Huffman attempt entirely when disabled,
+                    // instead of always computing and discarding it.
+                    byte[] hname = autoHuffman ? Huffman.encode(rname) : null;
+                    boolean useHuffman = hname != null && hname.length < rname.length;
                     byte hbit = (byte) (useHuffman ? 0x80 : 0);
                     int nameLength = useHuffman ? hname.length : rname.length;
                     if (indexed) { // with incremental indexing
@@ -189,8 +191,8 @@ public class Encoder extends HPACKConstants {
                 }
                 // value payload
                 byte[] rvalue = value.getBytes(US_ASCII); // raw bytes
-                byte[] hvalue = Huffman.encode(rvalue); // huffman encoded bytes
-                boolean useHuffman = autoHuffman && (hvalue.length < rvalue.length);
+                byte[] hvalue = autoHuffman ? Huffman.encode(rvalue) : null;
+                boolean useHuffman = hvalue != null && hvalue.length < rvalue.length;
                 byte hbit = (byte) (useHuffman ? 0x80 : 0);
                 int valueLength = useHuffman ? hvalue.length : rvalue.length;
                 encodeInteger(buf, hbit, valueLength, 7);

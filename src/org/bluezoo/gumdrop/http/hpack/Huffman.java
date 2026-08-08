@@ -21,12 +21,8 @@
 
 package org.bluezoo.gumdrop.http.hpack;
 
-import org.bluezoo.util.ByteArrays;
-
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.Arrays;
 
 /**
  * Huffman decoder and encoder for HPACK string literals
@@ -35,368 +31,372 @@ import java.util.TreeMap;
  * <p>Uses the static Huffman code defined in RFC 7541 Appendix B.
  * Builds an in-memory decoding trie from the predefined codes.
  *
+ * <p>Both the decoding trie and the encoding table are backed by
+ * primitive arrays rather than boxed objects/maps: {@link #decode}
+ * walks a flat {@code int[]}-indexed trie instead of chasing {@code
+ * HuffmanNode} object pointers and writing each decoded byte through a
+ * {@code synchronized ByteArrayOutputStream.write(int)} call, and
+ * {@link #encode} looks a byte's code up via a direct array index
+ * ({@code CODE_BITS[value]}/{@code CODE_LENGTH[value]}) instead of a
+ * {@code Map<Short, ...>} lookup that autoboxes every input byte. This
+ * is the per-header CPU/allocation cost of every HTTP/2 request and
+ * response, so both paths avoid boxing and per-symbol object
+ * allocation on the hot path.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7541#appendix-B">RFC 7541 Appendix B</a>
  */
 public class Huffman {
 
-    // Represents a node in the Huffman decoding tree (trie).
-    private static class HuffmanNode {
+    // Index used for the EOS pseudo-symbol in the CODE_BITS/CODE_LENGTH
+    // tables and as the decoded "value" placeholder - actual byte values
+    // are 0-255, so 256 is unambiguous.
+    private static final int EOS_INDEX = 0x100;
 
-        // The decoded byte value if this is a leaf node. -1 if not a leaf or not yet decoded.
-        // 0x100 (256) is used as a placeholder for the End-of-String (EOS) symbol.
-        short value = -1;
+    // Huffman code (right-aligned) and bit length for each of the 256
+    // possible byte values, plus EOS_INDEX. Parallel primitive arrays
+    // instead of a Map<Short, HuffmanCodeInfo> so encode() never
+    // autoboxes the input byte to look up its code.
+    private static final int[] CODE_BITS = new int[EOS_INDEX + 1];
+    private static final byte[] CODE_LENGTH = new byte[EOS_INDEX + 1];
 
-        // Flag to indicate if this node represents a valid end of a Huffman code.
-        // This is important because some codes are prefixes of others, but only
-        // a leaf node that is also a 'terminal' node should yield a character.
-        boolean terminal;
 
-        // Child node for bit 0
-        HuffmanNode left;
+    // Flat array-based trie for decoding: node 0 is the root. child index
+    // -1 means "no such child". Backed by primitive arrays instead of
+    // HuffmanNode objects so decode() walks array indices (cache-friendly,
+    // no per-node object header/pointer-chasing) rather than heap
+    // pointers.
+    private static int[] leftChild = new int[512];
+    private static int[] rightChild = new int[512];
+    private static short[] nodeValue = new short[512];
+    private static boolean[] nodeTerminal = new boolean[512];
+    private static int nodeCount;
 
-        // Child node for bit 1
-        HuffmanNode right;
-    }
+    private static final int ROOT = newNode();
 
-    // Record to hold a Huffman code value and its bit length.
-    private static class HuffmanCodeInfo {
-
-        // value data
-        int bits;
-
-        // number of bits
-        short numBits;
-
-        HuffmanCodeInfo(int bits, short numBits) {
-            this.bits = bits;
-            this.numBits = numBits;
+    private static int newNode() {
+        if (nodeCount == leftChild.length) {
+            int newCap = leftChild.length * 2;
+            leftChild = Arrays.copyOf(leftChild, newCap);
+            rightChild = Arrays.copyOf(rightChild, newCap);
+            nodeValue = Arrays.copyOf(nodeValue, newCap);
+            nodeTerminal = Arrays.copyOf(nodeTerminal, newCap);
         }
+        int id = nodeCount++;
+        leftChild[id] = -1;
+        rightChild[id] = -1;
+        nodeValue[id] = -1;
+        nodeTerminal[id] = false;
+        return id;
     }
 
-    // The root of the static Huffman decoding tree.
-    private static final HuffmanNode ROOT = new HuffmanNode();
+    /**
+     * Builds the array-based Huffman decoding trie from CODE_BITS/
+     * CODE_LENGTH.
+     */
+    private static void buildHuffmanTree() {
+        for (int codeValue = 0; codeValue <= EOS_INDEX; codeValue++) {
+            byte numBits = CODE_LENGTH[codeValue];
+            if (numBits == 0) {
+                continue; // not a real entry (shouldn't happen; every index 0-256 is populated)
+            }
+            int codeBits = CODE_BITS[codeValue];
+            int currentNode = ROOT;
 
-    // We use a short value of 0x100 (256) to represent EOS, as actual byte values are 0-255.
-    private static final short EOS_VALUE_PLACEHOLDER = 0x100;
-
-    // Static block to initialize the Huffman decoding tree.
-    // This table contains a subset of common ASCII characters and the EOS symbol
-    // as defined in RFC 7541, Appendix B
-    // In a full implementation, the entire table would be used.
-    private static final Map<Short, HuffmanCodeInfo> HPACK_HUFFMAN_CODES = new TreeMap<>();
-
-    // Helper to convert binary string to int
-    private static int binaryStringToInt(String binaryString) {
-        return Integer.parseInt(binaryString, 2);
+            // Iterate through bits from MSB to LSB of the Huffman code
+            for (int i = 0; i < numBits; i++) {
+                int bit = (codeBits >> (numBits - 1 - i)) & 1;
+                if (bit == 0) {
+                    if (leftChild[currentNode] == -1) {
+                        // Not "leftChild[currentNode] = newNode()" in one
+                        // statement: the array reference for the
+                        // assignment target is captured before newNode()
+                        // runs, so if newNode() grows the arrays (field
+                        // reassigned to a new array), the write would land
+                        // in the stale, discarded array instead of the new
+                        // one referenced by the field afterward.
+                        int child = newNode();
+                        leftChild[currentNode] = child;
+                    }
+                    currentNode = leftChild[currentNode];
+                } else {
+                    if (rightChild[currentNode] == -1) {
+                        int child = newNode();
+                        rightChild[currentNode] = child;
+                    }
+                    currentNode = rightChild[currentNode];
+                }
+            }
+            nodeTerminal[currentNode] = true;
+            nodeValue[currentNode] = (short) codeValue;
+        }
     }
 
     static {
         // Table from RFC 7541, Appendix B
-        HPACK_HUFFMAN_CODES.put((short) 0, new HuffmanCodeInfo(0x1ff8, (short) 13));
-        HPACK_HUFFMAN_CODES.put((short) 1, new HuffmanCodeInfo(0x7fffd8, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 2, new HuffmanCodeInfo(0xfffffe2, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 3, new HuffmanCodeInfo(0xfffffe3, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 4, new HuffmanCodeInfo(0xfffffe4, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 5, new HuffmanCodeInfo(0xfffffe5, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 6, new HuffmanCodeInfo(0xfffffe6, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 7, new HuffmanCodeInfo(0xfffffe7, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 8, new HuffmanCodeInfo(0xfffffe8, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 9, new HuffmanCodeInfo(0xffffea, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 10, new HuffmanCodeInfo(0x3ffffffc, (short) 30));
-        HPACK_HUFFMAN_CODES.put((short) 11, new HuffmanCodeInfo(0xfffffe9, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 12, new HuffmanCodeInfo(0xfffffea, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 13, new HuffmanCodeInfo(0x3ffffffd, (short) 30));
-        HPACK_HUFFMAN_CODES.put((short) 14, new HuffmanCodeInfo(0xfffffeb, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 15, new HuffmanCodeInfo(0xfffffec, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 16, new HuffmanCodeInfo(0xfffffed, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 17, new HuffmanCodeInfo(0xfffffee, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 18, new HuffmanCodeInfo(0xfffffef, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 19, new HuffmanCodeInfo(0xffffff0, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 20, new HuffmanCodeInfo(0xffffff1, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 21, new HuffmanCodeInfo(0xffffff2, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 22, new HuffmanCodeInfo(0x3ffffffe, (short) 30));
-        HPACK_HUFFMAN_CODES.put((short) 23, new HuffmanCodeInfo(0xffffff3, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 24, new HuffmanCodeInfo(0xffffff4, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 25, new HuffmanCodeInfo(0xffffff5, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 26, new HuffmanCodeInfo(0xffffff6, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 27, new HuffmanCodeInfo(0xffffff7, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 28, new HuffmanCodeInfo(0xffffff8, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 29, new HuffmanCodeInfo(0xffffff9, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 30, new HuffmanCodeInfo(0xffffffa, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 31, new HuffmanCodeInfo(0xffffffb, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 32, new HuffmanCodeInfo(0x14, (short) 6)); // ' '
-        HPACK_HUFFMAN_CODES.put((short) 33, new HuffmanCodeInfo(0x3f8, (short) 10)); // '!'
-        HPACK_HUFFMAN_CODES.put((short) 34, new HuffmanCodeInfo(0x3f9, (short) 10)); // '"'
-        HPACK_HUFFMAN_CODES.put((short) 35, new HuffmanCodeInfo(0xffa, (short) 12)); // '#'
-        HPACK_HUFFMAN_CODES.put((short) 36, new HuffmanCodeInfo(0x1ff9, (short) 13)); // '$'
-        HPACK_HUFFMAN_CODES.put((short) 37, new HuffmanCodeInfo(0x15, (short) 6)); // '%'
-        HPACK_HUFFMAN_CODES.put((short) 38, new HuffmanCodeInfo(0xf8, (short) 8)); // '&'
-        HPACK_HUFFMAN_CODES.put((short) 39, new HuffmanCodeInfo(0x7fa, (short) 11)); // '''
-        HPACK_HUFFMAN_CODES.put((short) 40, new HuffmanCodeInfo(0x3fa, (short) 10)); // '('
-        HPACK_HUFFMAN_CODES.put((short) 41, new HuffmanCodeInfo(0x3fb, (short) 10)); // ')'
-        HPACK_HUFFMAN_CODES.put((short) 42, new HuffmanCodeInfo(0xf9, (short) 8)); // '*'
-        HPACK_HUFFMAN_CODES.put((short) 43, new HuffmanCodeInfo(0x7fb, (short) 11)); // '+'
-        HPACK_HUFFMAN_CODES.put((short) 44, new HuffmanCodeInfo(0xfa, (short) 8)); // ','
-        HPACK_HUFFMAN_CODES.put((short) 45, new HuffmanCodeInfo(0x16, (short) 6)); // '-'
-        HPACK_HUFFMAN_CODES.put((short) 46, new HuffmanCodeInfo(0x17, (short) 6)); // '.'
-        HPACK_HUFFMAN_CODES.put((short) 47, new HuffmanCodeInfo(0x18, (short) 6)); // '/'
-        HPACK_HUFFMAN_CODES.put((short) 48, new HuffmanCodeInfo(0x0, (short) 5)); // '0'
-        HPACK_HUFFMAN_CODES.put((short) 49, new HuffmanCodeInfo(0x1, (short) 5)); // '1'
-        HPACK_HUFFMAN_CODES.put((short) 50, new HuffmanCodeInfo(0x2, (short) 5)); // '2'
-        HPACK_HUFFMAN_CODES.put((short) 51, new HuffmanCodeInfo(0x19, (short) 6)); // '3'
-        HPACK_HUFFMAN_CODES.put((short) 52, new HuffmanCodeInfo(0x1a, (short) 6)); // '4'
-        HPACK_HUFFMAN_CODES.put((short) 53, new HuffmanCodeInfo(0x1b, (short) 6)); // '5'
-        HPACK_HUFFMAN_CODES.put((short) 54, new HuffmanCodeInfo(0x1c, (short) 6)); // '6'
-        HPACK_HUFFMAN_CODES.put((short) 55, new HuffmanCodeInfo(0x1d, (short) 6)); // '7'
-        HPACK_HUFFMAN_CODES.put((short) 56, new HuffmanCodeInfo(0x1e, (short) 6)); // '8'
-        HPACK_HUFFMAN_CODES.put((short) 57, new HuffmanCodeInfo(0x1f, (short) 6)); // '9'
-        HPACK_HUFFMAN_CODES.put((short) 58, new HuffmanCodeInfo(0x5c, (short) 7)); // ':'
-        HPACK_HUFFMAN_CODES.put((short) 59, new HuffmanCodeInfo(0xfb, (short) 8)); // ';'
-        HPACK_HUFFMAN_CODES.put((short) 60, new HuffmanCodeInfo(0x7ffc, (short) 15)); // '<'
-        HPACK_HUFFMAN_CODES.put((short) 61, new HuffmanCodeInfo(0x20, (short) 6)); // '='
-        HPACK_HUFFMAN_CODES.put((short) 62, new HuffmanCodeInfo(0xffb, (short) 12)); // '>'
-        HPACK_HUFFMAN_CODES.put((short) 63, new HuffmanCodeInfo(0x3fc, (short) 10)); // '?'
-        HPACK_HUFFMAN_CODES.put((short) 64, new HuffmanCodeInfo(0x1ffa, (short) 13)); // '@'
-        HPACK_HUFFMAN_CODES.put((short) 65, new HuffmanCodeInfo(0x21, (short) 6)); // 'A'
-        HPACK_HUFFMAN_CODES.put((short) 66, new HuffmanCodeInfo(0x5d, (short) 7)); // 'B'
-        HPACK_HUFFMAN_CODES.put((short) 67, new HuffmanCodeInfo(0x5e, (short) 7)); // 'C'
-        HPACK_HUFFMAN_CODES.put((short) 68, new HuffmanCodeInfo(0x5f, (short) 7)); // 'D'
-        HPACK_HUFFMAN_CODES.put((short) 69, new HuffmanCodeInfo(0x60, (short) 7)); // 'E'
-        HPACK_HUFFMAN_CODES.put((short) 70, new HuffmanCodeInfo(0x61, (short) 7)); // 'F'
-        HPACK_HUFFMAN_CODES.put((short) 71, new HuffmanCodeInfo(0x62, (short) 7)); // 'G'
-        HPACK_HUFFMAN_CODES.put((short) 72, new HuffmanCodeInfo(0x63, (short) 7)); // 'H'
-        HPACK_HUFFMAN_CODES.put((short) 73, new HuffmanCodeInfo(0x64, (short) 7)); // 'I'
-        HPACK_HUFFMAN_CODES.put((short) 74, new HuffmanCodeInfo(0x65, (short) 7)); // 'J'
-        HPACK_HUFFMAN_CODES.put((short) 75, new HuffmanCodeInfo(0x66, (short) 7)); // 'K'
-        HPACK_HUFFMAN_CODES.put((short) 76, new HuffmanCodeInfo(0x67, (short) 7)); // 'L'
-        HPACK_HUFFMAN_CODES.put((short) 77, new HuffmanCodeInfo(0x68, (short) 7)); // 'M'
-        HPACK_HUFFMAN_CODES.put((short) 78, new HuffmanCodeInfo(0x69, (short) 7)); // 'N'
-        HPACK_HUFFMAN_CODES.put((short) 79, new HuffmanCodeInfo(0x6a, (short) 7)); // 'O'
-        HPACK_HUFFMAN_CODES.put((short) 80, new HuffmanCodeInfo(0x6b, (short) 7)); // 'P'
-        HPACK_HUFFMAN_CODES.put((short) 81, new HuffmanCodeInfo(0x6c, (short) 7)); // 'Q'
-        HPACK_HUFFMAN_CODES.put((short) 82, new HuffmanCodeInfo(0x6d, (short) 7)); // 'R'
-        HPACK_HUFFMAN_CODES.put((short) 83, new HuffmanCodeInfo(0x6e, (short) 7)); // 'S'
-        HPACK_HUFFMAN_CODES.put((short) 84, new HuffmanCodeInfo(0x6f, (short) 7)); // 'T'
-        HPACK_HUFFMAN_CODES.put((short) 85, new HuffmanCodeInfo(0x70, (short) 7)); // 'U'
-        HPACK_HUFFMAN_CODES.put((short) 86, new HuffmanCodeInfo(0x71, (short) 7)); // 'V'
-        HPACK_HUFFMAN_CODES.put((short) 87, new HuffmanCodeInfo(0x72, (short) 7)); // 'W'
-        HPACK_HUFFMAN_CODES.put((short) 88, new HuffmanCodeInfo(0xfc, (short) 8)); // 'X'
-        HPACK_HUFFMAN_CODES.put((short) 89, new HuffmanCodeInfo(0x73, (short) 7)); // 'Y'
-        HPACK_HUFFMAN_CODES.put((short) 90, new HuffmanCodeInfo(0xfd, (short) 8)); // 'Z'
-        HPACK_HUFFMAN_CODES.put((short) 91, new HuffmanCodeInfo(0x1ffb, (short) 13)); // '['
-        HPACK_HUFFMAN_CODES.put((short) 92, new HuffmanCodeInfo(0x7fff0, (short) 19)); // '\'
-        HPACK_HUFFMAN_CODES.put((short) 93, new HuffmanCodeInfo(0x1ffc, (short) 13)); // ']'
-        HPACK_HUFFMAN_CODES.put((short) 94, new HuffmanCodeInfo(0x3ffc, (short) 14)); // '^'
-        HPACK_HUFFMAN_CODES.put((short) 95, new HuffmanCodeInfo(0x22, (short) 6)); // '_'
-        HPACK_HUFFMAN_CODES.put((short) 96, new HuffmanCodeInfo(0x7ffd, (short) 15)); // '`'
-        HPACK_HUFFMAN_CODES.put((short) 97, new HuffmanCodeInfo(0x3, (short) 5)); // 'a'
-        HPACK_HUFFMAN_CODES.put((short) 98, new HuffmanCodeInfo(0x23, (short) 6)); // 'b'
-        HPACK_HUFFMAN_CODES.put((short) 99, new HuffmanCodeInfo(0x4, (short) 5)); // 'c'
-        HPACK_HUFFMAN_CODES.put((short) 100, new HuffmanCodeInfo(0x24, (short) 6)); // 'd'
-        HPACK_HUFFMAN_CODES.put((short) 101, new HuffmanCodeInfo(0x5, (short) 5)); // 'e'
-        HPACK_HUFFMAN_CODES.put((short) 102, new HuffmanCodeInfo(0x25, (short) 6)); // 'f'
-        HPACK_HUFFMAN_CODES.put((short) 103, new HuffmanCodeInfo(0x26, (short) 6)); // 'g'
-        HPACK_HUFFMAN_CODES.put((short) 104, new HuffmanCodeInfo(0x27, (short) 6)); // 'h'
-        HPACK_HUFFMAN_CODES.put((short) 105, new HuffmanCodeInfo(0x6, (short) 5)); // 'i'
-        HPACK_HUFFMAN_CODES.put((short) 106, new HuffmanCodeInfo(0x74, (short) 7)); // 'j'
-        HPACK_HUFFMAN_CODES.put((short) 107, new HuffmanCodeInfo(0x75, (short) 7)); // 'k'
-        HPACK_HUFFMAN_CODES.put((short) 108, new HuffmanCodeInfo(0x28, (short) 6)); // 'l'
-        HPACK_HUFFMAN_CODES.put((short) 109, new HuffmanCodeInfo(0x29, (short) 6)); // 'm'
-        HPACK_HUFFMAN_CODES.put((short) 110, new HuffmanCodeInfo(0x2a, (short) 6)); // 'n'
-        HPACK_HUFFMAN_CODES.put((short) 111, new HuffmanCodeInfo(0x7, (short) 5)); // 'o'
-        HPACK_HUFFMAN_CODES.put((short) 112, new HuffmanCodeInfo(0x2b, (short) 6)); // 'p'
-        HPACK_HUFFMAN_CODES.put((short) 113, new HuffmanCodeInfo(0x76, (short) 7)); // 'q'
-        HPACK_HUFFMAN_CODES.put((short) 114, new HuffmanCodeInfo(0x2c, (short) 6)); // 'r'
-        HPACK_HUFFMAN_CODES.put((short) 115, new HuffmanCodeInfo(0x8, (short) 5)); // 's'
-        HPACK_HUFFMAN_CODES.put((short) 116, new HuffmanCodeInfo(0x9, (short) 5)); // 't'
-        HPACK_HUFFMAN_CODES.put((short) 117, new HuffmanCodeInfo(0x2d, (short) 6)); // 'u'
-        HPACK_HUFFMAN_CODES.put((short) 118, new HuffmanCodeInfo(0x77, (short) 7)); // 'v'
-        HPACK_HUFFMAN_CODES.put((short) 119, new HuffmanCodeInfo(0x78, (short) 7)); // 'w'
-        HPACK_HUFFMAN_CODES.put((short) 120, new HuffmanCodeInfo(0x79, (short) 7)); // 'x'
-        HPACK_HUFFMAN_CODES.put((short) 121, new HuffmanCodeInfo(0x7a, (short) 7)); // 'y'
-        HPACK_HUFFMAN_CODES.put((short) 122, new HuffmanCodeInfo(0x7b, (short) 7)); // 'z'
-        HPACK_HUFFMAN_CODES.put((short) 123, new HuffmanCodeInfo(0x7ffe, (short) 15)); // '{'
-        HPACK_HUFFMAN_CODES.put((short) 124, new HuffmanCodeInfo(0x7fc, (short) 11)); // '|'
-        HPACK_HUFFMAN_CODES.put((short) 125, new HuffmanCodeInfo(0x3ffd, (short) 14)); // '}'
-        HPACK_HUFFMAN_CODES.put((short) 126, new HuffmanCodeInfo(0x1ffd, (short) 13)); // '~'
-        HPACK_HUFFMAN_CODES.put((short) 127, new HuffmanCodeInfo(0xffffffc, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 128, new HuffmanCodeInfo(0xfffe6, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 129, new HuffmanCodeInfo(0x3fffd2, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 130, new HuffmanCodeInfo(0xfffe7, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 131, new HuffmanCodeInfo(0xfffe8, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 132, new HuffmanCodeInfo(0x3fffd3, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 133, new HuffmanCodeInfo(0x3fffd4, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 134, new HuffmanCodeInfo(0x3fffd5, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 135, new HuffmanCodeInfo(0x7fffd9, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 136, new HuffmanCodeInfo(0x3fffd6, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 137, new HuffmanCodeInfo(0x7fffda, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 138, new HuffmanCodeInfo(0x7fffdb, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 139, new HuffmanCodeInfo(0x7fffdc, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 140, new HuffmanCodeInfo(0x7fffdd, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 141, new HuffmanCodeInfo(0x7fffde, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 142, new HuffmanCodeInfo(0xffffeb, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 143, new HuffmanCodeInfo(0x7fffdf, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 144, new HuffmanCodeInfo(0xffffec, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 145, new HuffmanCodeInfo(0xffffed, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 146, new HuffmanCodeInfo(0x3fffd7, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 147, new HuffmanCodeInfo(0x7fffe0, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 148, new HuffmanCodeInfo(0xffffee, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 149, new HuffmanCodeInfo(0x7fffe1, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 150, new HuffmanCodeInfo(0x7fffe2, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 151, new HuffmanCodeInfo(0x7fffe3, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 152, new HuffmanCodeInfo(0x7fffe4, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 153, new HuffmanCodeInfo(0x1fffdc, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 154, new HuffmanCodeInfo(0x3fffd8, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 155, new HuffmanCodeInfo(0x7fffe5, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 156, new HuffmanCodeInfo(0x3fffd9, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 157, new HuffmanCodeInfo(0x7fffe6, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 158, new HuffmanCodeInfo(0x7fffe7, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 159, new HuffmanCodeInfo(0xffffef, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 160, new HuffmanCodeInfo(0x3fffda, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 161, new HuffmanCodeInfo(0x1fffdd, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 162, new HuffmanCodeInfo(0xfffe9, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 163, new HuffmanCodeInfo(0x3fffdb, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 164, new HuffmanCodeInfo(0x3fffdc, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 165, new HuffmanCodeInfo(0x7fffe8, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 166, new HuffmanCodeInfo(0x7fffe9, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 167, new HuffmanCodeInfo(0x1fffde, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 168, new HuffmanCodeInfo(0x7fffea, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 169, new HuffmanCodeInfo(0x3fffdd, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 170, new HuffmanCodeInfo(0x3fffde, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 171, new HuffmanCodeInfo(0xfffff0, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 172, new HuffmanCodeInfo(0x1fffdf, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 173, new HuffmanCodeInfo(0x3fffdf, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 174, new HuffmanCodeInfo(0x7fffeb, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 175, new HuffmanCodeInfo(0x7fffec, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 176, new HuffmanCodeInfo(0x1fffe0, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 177, new HuffmanCodeInfo(0x1fffe1, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 178, new HuffmanCodeInfo(0x3fffe0, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 179, new HuffmanCodeInfo(0x1fffe2, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 180, new HuffmanCodeInfo(0x7fffed, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 181, new HuffmanCodeInfo(0x3fffe1, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 182, new HuffmanCodeInfo(0x7fffee, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 183, new HuffmanCodeInfo(0x7fffef, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 184, new HuffmanCodeInfo(0xfffea, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 185, new HuffmanCodeInfo(0x3fffe2, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 186, new HuffmanCodeInfo(0x3fffe3, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 187, new HuffmanCodeInfo(0x3fffe4, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 188, new HuffmanCodeInfo(0x7ffff0, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 189, new HuffmanCodeInfo(0x3fffe5, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 190, new HuffmanCodeInfo(0x3fffe6, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 191, new HuffmanCodeInfo(0x7ffff1, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 192, new HuffmanCodeInfo(0x3ffffe0, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 193, new HuffmanCodeInfo(0x3ffffe1, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 194, new HuffmanCodeInfo(0xfffeb, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 195, new HuffmanCodeInfo(0x7fff1, (short) 19));
-        HPACK_HUFFMAN_CODES.put((short) 196, new HuffmanCodeInfo(0x3fffe7, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 197, new HuffmanCodeInfo(0x7ffff2, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 198, new HuffmanCodeInfo(0x3fffe8, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 199, new HuffmanCodeInfo(0x1ffffec, (short) 25));
-        HPACK_HUFFMAN_CODES.put((short) 200, new HuffmanCodeInfo(0x3ffffe2, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 201, new HuffmanCodeInfo(0x3ffffe3, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 202, new HuffmanCodeInfo(0x3ffffe4, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 203, new HuffmanCodeInfo(0x7ffffde, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 204, new HuffmanCodeInfo(0x7ffffdf, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 205, new HuffmanCodeInfo(0x3ffffe5, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 206, new HuffmanCodeInfo(0xfffff1, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 207, new HuffmanCodeInfo(0x1ffffed, (short) 25));
-        HPACK_HUFFMAN_CODES.put((short) 208, new HuffmanCodeInfo(0x7fff2, (short) 19));
-        HPACK_HUFFMAN_CODES.put((short) 209, new HuffmanCodeInfo(0x1fffe3, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 210, new HuffmanCodeInfo(0x3ffffe6, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 211, new HuffmanCodeInfo(0x7ffffe0, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 212, new HuffmanCodeInfo(0x7ffffe1, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 213, new HuffmanCodeInfo(0x3ffffe7, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 214, new HuffmanCodeInfo(0x7ffffe2, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 215, new HuffmanCodeInfo(0xfffff2, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 216, new HuffmanCodeInfo(0x1fffe4, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 217, new HuffmanCodeInfo(0x1fffe5, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 218, new HuffmanCodeInfo(0x3ffffe8, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 219, new HuffmanCodeInfo(0x3ffffe9, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 220, new HuffmanCodeInfo(0xffffffd, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 221, new HuffmanCodeInfo(0x7ffffe3, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 222, new HuffmanCodeInfo(0x7ffffe4, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 223, new HuffmanCodeInfo(0x7ffffe5, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 224, new HuffmanCodeInfo(0xfffec, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 225, new HuffmanCodeInfo(0xfffff3, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 226, new HuffmanCodeInfo(0xfffed, (short) 20));
-        HPACK_HUFFMAN_CODES.put((short) 227, new HuffmanCodeInfo(0x1fffe6, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 228, new HuffmanCodeInfo(0x3fffe9, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 229, new HuffmanCodeInfo(0x1fffe7, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 230, new HuffmanCodeInfo(0x1fffe8, (short) 21));
-        HPACK_HUFFMAN_CODES.put((short) 231, new HuffmanCodeInfo(0x7ffff3, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 232, new HuffmanCodeInfo(0x3fffea, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 233, new HuffmanCodeInfo(0x3fffeb, (short) 22));
-        HPACK_HUFFMAN_CODES.put((short) 234, new HuffmanCodeInfo(0x1ffffee, (short) 25));
-        HPACK_HUFFMAN_CODES.put((short) 235, new HuffmanCodeInfo(0x1ffffef, (short) 25));
-        HPACK_HUFFMAN_CODES.put((short) 236, new HuffmanCodeInfo(0xfffff4, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 237, new HuffmanCodeInfo(0xfffff5, (short) 24));
-        HPACK_HUFFMAN_CODES.put((short) 238, new HuffmanCodeInfo(0x3ffffea, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 239, new HuffmanCodeInfo(0x7ffff4, (short) 23));
-        HPACK_HUFFMAN_CODES.put((short) 240, new HuffmanCodeInfo(0x3ffffeb, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 241, new HuffmanCodeInfo(0x7ffffe6, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 242, new HuffmanCodeInfo(0x3ffffec, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 243, new HuffmanCodeInfo(0x3ffffed, (short) 26));
-        HPACK_HUFFMAN_CODES.put((short) 244, new HuffmanCodeInfo(0x7ffffe7, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 245, new HuffmanCodeInfo(0x7ffffe8, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 246, new HuffmanCodeInfo(0x7ffffe9, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 247, new HuffmanCodeInfo(0x7ffffea, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 248, new HuffmanCodeInfo(0x7ffffeb, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 249, new HuffmanCodeInfo(0xffffffe, (short) 28));
-        HPACK_HUFFMAN_CODES.put((short) 250, new HuffmanCodeInfo(0x7ffffec, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 251, new HuffmanCodeInfo(0x7ffffed, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 252, new HuffmanCodeInfo(0x7ffffee, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 253, new HuffmanCodeInfo(0x7ffffef, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 254, new HuffmanCodeInfo(0x7fffff0, (short) 27));
-        HPACK_HUFFMAN_CODES.put((short) 255, new HuffmanCodeInfo(0x3ffffee, (short) 26));
+        CODE_BITS[0] = 0x1ff8; CODE_LENGTH[0] = (byte) 13;
+        CODE_BITS[1] = 0x7fffd8; CODE_LENGTH[1] = (byte) 23;
+        CODE_BITS[2] = 0xfffffe2; CODE_LENGTH[2] = (byte) 28;
+        CODE_BITS[3] = 0xfffffe3; CODE_LENGTH[3] = (byte) 28;
+        CODE_BITS[4] = 0xfffffe4; CODE_LENGTH[4] = (byte) 28;
+        CODE_BITS[5] = 0xfffffe5; CODE_LENGTH[5] = (byte) 28;
+        CODE_BITS[6] = 0xfffffe6; CODE_LENGTH[6] = (byte) 28;
+        CODE_BITS[7] = 0xfffffe7; CODE_LENGTH[7] = (byte) 28;
+        CODE_BITS[8] = 0xfffffe8; CODE_LENGTH[8] = (byte) 28;
+        CODE_BITS[9] = 0xffffea; CODE_LENGTH[9] = (byte) 24;
+        CODE_BITS[10] = 0x3ffffffc; CODE_LENGTH[10] = (byte) 30;
+        CODE_BITS[11] = 0xfffffe9; CODE_LENGTH[11] = (byte) 28;
+        CODE_BITS[12] = 0xfffffea; CODE_LENGTH[12] = (byte) 28;
+        CODE_BITS[13] = 0x3ffffffd; CODE_LENGTH[13] = (byte) 30;
+        CODE_BITS[14] = 0xfffffeb; CODE_LENGTH[14] = (byte) 28;
+        CODE_BITS[15] = 0xfffffec; CODE_LENGTH[15] = (byte) 28;
+        CODE_BITS[16] = 0xfffffed; CODE_LENGTH[16] = (byte) 28;
+        CODE_BITS[17] = 0xfffffee; CODE_LENGTH[17] = (byte) 28;
+        CODE_BITS[18] = 0xfffffef; CODE_LENGTH[18] = (byte) 28;
+        CODE_BITS[19] = 0xffffff0; CODE_LENGTH[19] = (byte) 28;
+        CODE_BITS[20] = 0xffffff1; CODE_LENGTH[20] = (byte) 28;
+        CODE_BITS[21] = 0xffffff2; CODE_LENGTH[21] = (byte) 28;
+        CODE_BITS[22] = 0x3ffffffe; CODE_LENGTH[22] = (byte) 30;
+        CODE_BITS[23] = 0xffffff3; CODE_LENGTH[23] = (byte) 28;
+        CODE_BITS[24] = 0xffffff4; CODE_LENGTH[24] = (byte) 28;
+        CODE_BITS[25] = 0xffffff5; CODE_LENGTH[25] = (byte) 28;
+        CODE_BITS[26] = 0xffffff6; CODE_LENGTH[26] = (byte) 28;
+        CODE_BITS[27] = 0xffffff7; CODE_LENGTH[27] = (byte) 28;
+        CODE_BITS[28] = 0xffffff8; CODE_LENGTH[28] = (byte) 28;
+        CODE_BITS[29] = 0xffffff9; CODE_LENGTH[29] = (byte) 28;
+        CODE_BITS[30] = 0xffffffa; CODE_LENGTH[30] = (byte) 28;
+        CODE_BITS[31] = 0xffffffb; CODE_LENGTH[31] = (byte) 28;
+        CODE_BITS[32] = 0x14; CODE_LENGTH[32] = (byte) 6; // ' '
+        CODE_BITS[33] = 0x3f8; CODE_LENGTH[33] = (byte) 10; // '!'
+        CODE_BITS[34] = 0x3f9; CODE_LENGTH[34] = (byte) 10; // '"'
+        CODE_BITS[35] = 0xffa; CODE_LENGTH[35] = (byte) 12; // '#'
+        CODE_BITS[36] = 0x1ff9; CODE_LENGTH[36] = (byte) 13; // '$'
+        CODE_BITS[37] = 0x15; CODE_LENGTH[37] = (byte) 6; // '%'
+        CODE_BITS[38] = 0xf8; CODE_LENGTH[38] = (byte) 8; // '&'
+        CODE_BITS[39] = 0x7fa; CODE_LENGTH[39] = (byte) 11; // '''
+        CODE_BITS[40] = 0x3fa; CODE_LENGTH[40] = (byte) 10; // '('
+        CODE_BITS[41] = 0x3fb; CODE_LENGTH[41] = (byte) 10; // ')'
+        CODE_BITS[42] = 0xf9; CODE_LENGTH[42] = (byte) 8; // '*'
+        CODE_BITS[43] = 0x7fb; CODE_LENGTH[43] = (byte) 11; // '+'
+        CODE_BITS[44] = 0xfa; CODE_LENGTH[44] = (byte) 8; // ','
+        CODE_BITS[45] = 0x16; CODE_LENGTH[45] = (byte) 6; // '-'
+        CODE_BITS[46] = 0x17; CODE_LENGTH[46] = (byte) 6; // '.'
+        CODE_BITS[47] = 0x18; CODE_LENGTH[47] = (byte) 6; // '/'
+        CODE_BITS[48] = 0x0; CODE_LENGTH[48] = (byte) 5; // '0'
+        CODE_BITS[49] = 0x1; CODE_LENGTH[49] = (byte) 5; // '1'
+        CODE_BITS[50] = 0x2; CODE_LENGTH[50] = (byte) 5; // '2'
+        CODE_BITS[51] = 0x19; CODE_LENGTH[51] = (byte) 6; // '3'
+        CODE_BITS[52] = 0x1a; CODE_LENGTH[52] = (byte) 6; // '4'
+        CODE_BITS[53] = 0x1b; CODE_LENGTH[53] = (byte) 6; // '5'
+        CODE_BITS[54] = 0x1c; CODE_LENGTH[54] = (byte) 6; // '6'
+        CODE_BITS[55] = 0x1d; CODE_LENGTH[55] = (byte) 6; // '7'
+        CODE_BITS[56] = 0x1e; CODE_LENGTH[56] = (byte) 6; // '8'
+        CODE_BITS[57] = 0x1f; CODE_LENGTH[57] = (byte) 6; // '9'
+        CODE_BITS[58] = 0x5c; CODE_LENGTH[58] = (byte) 7; // ':'
+        CODE_BITS[59] = 0xfb; CODE_LENGTH[59] = (byte) 8; // ';'
+        CODE_BITS[60] = 0x7ffc; CODE_LENGTH[60] = (byte) 15; // '<'
+        CODE_BITS[61] = 0x20; CODE_LENGTH[61] = (byte) 6; // '='
+        CODE_BITS[62] = 0xffb; CODE_LENGTH[62] = (byte) 12; // '>'
+        CODE_BITS[63] = 0x3fc; CODE_LENGTH[63] = (byte) 10; // '?'
+        CODE_BITS[64] = 0x1ffa; CODE_LENGTH[64] = (byte) 13; // '@'
+        CODE_BITS[65] = 0x21; CODE_LENGTH[65] = (byte) 6; // 'A'
+        CODE_BITS[66] = 0x5d; CODE_LENGTH[66] = (byte) 7; // 'B'
+        CODE_BITS[67] = 0x5e; CODE_LENGTH[67] = (byte) 7; // 'C'
+        CODE_BITS[68] = 0x5f; CODE_LENGTH[68] = (byte) 7; // 'D'
+        CODE_BITS[69] = 0x60; CODE_LENGTH[69] = (byte) 7; // 'E'
+        CODE_BITS[70] = 0x61; CODE_LENGTH[70] = (byte) 7; // 'F'
+        CODE_BITS[71] = 0x62; CODE_LENGTH[71] = (byte) 7; // 'G'
+        CODE_BITS[72] = 0x63; CODE_LENGTH[72] = (byte) 7; // 'H'
+        CODE_BITS[73] = 0x64; CODE_LENGTH[73] = (byte) 7; // 'I'
+        CODE_BITS[74] = 0x65; CODE_LENGTH[74] = (byte) 7; // 'J'
+        CODE_BITS[75] = 0x66; CODE_LENGTH[75] = (byte) 7; // 'K'
+        CODE_BITS[76] = 0x67; CODE_LENGTH[76] = (byte) 7; // 'L'
+        CODE_BITS[77] = 0x68; CODE_LENGTH[77] = (byte) 7; // 'M'
+        CODE_BITS[78] = 0x69; CODE_LENGTH[78] = (byte) 7; // 'N'
+        CODE_BITS[79] = 0x6a; CODE_LENGTH[79] = (byte) 7; // 'O'
+        CODE_BITS[80] = 0x6b; CODE_LENGTH[80] = (byte) 7; // 'P'
+        CODE_BITS[81] = 0x6c; CODE_LENGTH[81] = (byte) 7; // 'Q'
+        CODE_BITS[82] = 0x6d; CODE_LENGTH[82] = (byte) 7; // 'R'
+        CODE_BITS[83] = 0x6e; CODE_LENGTH[83] = (byte) 7; // 'S'
+        CODE_BITS[84] = 0x6f; CODE_LENGTH[84] = (byte) 7; // 'T'
+        CODE_BITS[85] = 0x70; CODE_LENGTH[85] = (byte) 7; // 'U'
+        CODE_BITS[86] = 0x71; CODE_LENGTH[86] = (byte) 7; // 'V'
+        CODE_BITS[87] = 0x72; CODE_LENGTH[87] = (byte) 7; // 'W'
+        CODE_BITS[88] = 0xfc; CODE_LENGTH[88] = (byte) 8; // 'X'
+        CODE_BITS[89] = 0x73; CODE_LENGTH[89] = (byte) 7; // 'Y'
+        CODE_BITS[90] = 0xfd; CODE_LENGTH[90] = (byte) 8; // 'Z'
+        CODE_BITS[91] = 0x1ffb; CODE_LENGTH[91] = (byte) 13; // '['
+        CODE_BITS[92] = 0x7fff0; CODE_LENGTH[92] = (byte) 19; // '\'
+        CODE_BITS[93] = 0x1ffc; CODE_LENGTH[93] = (byte) 13; // ']'
+        CODE_BITS[94] = 0x3ffc; CODE_LENGTH[94] = (byte) 14; // '^'
+        CODE_BITS[95] = 0x22; CODE_LENGTH[95] = (byte) 6; // '_'
+        CODE_BITS[96] = 0x7ffd; CODE_LENGTH[96] = (byte) 15; // '`'
+        CODE_BITS[97] = 0x3; CODE_LENGTH[97] = (byte) 5; // 'a'
+        CODE_BITS[98] = 0x23; CODE_LENGTH[98] = (byte) 6; // 'b'
+        CODE_BITS[99] = 0x4; CODE_LENGTH[99] = (byte) 5; // 'c'
+        CODE_BITS[100] = 0x24; CODE_LENGTH[100] = (byte) 6; // 'd'
+        CODE_BITS[101] = 0x5; CODE_LENGTH[101] = (byte) 5; // 'e'
+        CODE_BITS[102] = 0x25; CODE_LENGTH[102] = (byte) 6; // 'f'
+        CODE_BITS[103] = 0x26; CODE_LENGTH[103] = (byte) 6; // 'g'
+        CODE_BITS[104] = 0x27; CODE_LENGTH[104] = (byte) 6; // 'h'
+        CODE_BITS[105] = 0x6; CODE_LENGTH[105] = (byte) 5; // 'i'
+        CODE_BITS[106] = 0x74; CODE_LENGTH[106] = (byte) 7; // 'j'
+        CODE_BITS[107] = 0x75; CODE_LENGTH[107] = (byte) 7; // 'k'
+        CODE_BITS[108] = 0x28; CODE_LENGTH[108] = (byte) 6; // 'l'
+        CODE_BITS[109] = 0x29; CODE_LENGTH[109] = (byte) 6; // 'm'
+        CODE_BITS[110] = 0x2a; CODE_LENGTH[110] = (byte) 6; // 'n'
+        CODE_BITS[111] = 0x7; CODE_LENGTH[111] = (byte) 5; // 'o'
+        CODE_BITS[112] = 0x2b; CODE_LENGTH[112] = (byte) 6; // 'p'
+        CODE_BITS[113] = 0x76; CODE_LENGTH[113] = (byte) 7; // 'q'
+        CODE_BITS[114] = 0x2c; CODE_LENGTH[114] = (byte) 6; // 'r'
+        CODE_BITS[115] = 0x8; CODE_LENGTH[115] = (byte) 5; // 's'
+        CODE_BITS[116] = 0x9; CODE_LENGTH[116] = (byte) 5; // 't'
+        CODE_BITS[117] = 0x2d; CODE_LENGTH[117] = (byte) 6; // 'u'
+        CODE_BITS[118] = 0x77; CODE_LENGTH[118] = (byte) 7; // 'v'
+        CODE_BITS[119] = 0x78; CODE_LENGTH[119] = (byte) 7; // 'w'
+        CODE_BITS[120] = 0x79; CODE_LENGTH[120] = (byte) 7; // 'x'
+        CODE_BITS[121] = 0x7a; CODE_LENGTH[121] = (byte) 7; // 'y'
+        CODE_BITS[122] = 0x7b; CODE_LENGTH[122] = (byte) 7; // 'z'
+        CODE_BITS[123] = 0x7ffe; CODE_LENGTH[123] = (byte) 15; // '{'
+        CODE_BITS[124] = 0x7fc; CODE_LENGTH[124] = (byte) 11; // '|'
+        CODE_BITS[125] = 0x3ffd; CODE_LENGTH[125] = (byte) 14; // '}'
+        CODE_BITS[126] = 0x1ffd; CODE_LENGTH[126] = (byte) 13; // '~'
+        CODE_BITS[127] = 0xffffffc; CODE_LENGTH[127] = (byte) 28;
+        CODE_BITS[128] = 0xfffe6; CODE_LENGTH[128] = (byte) 20;
+        CODE_BITS[129] = 0x3fffd2; CODE_LENGTH[129] = (byte) 22;
+        CODE_BITS[130] = 0xfffe7; CODE_LENGTH[130] = (byte) 20;
+        CODE_BITS[131] = 0xfffe8; CODE_LENGTH[131] = (byte) 20;
+        CODE_BITS[132] = 0x3fffd3; CODE_LENGTH[132] = (byte) 22;
+        CODE_BITS[133] = 0x3fffd4; CODE_LENGTH[133] = (byte) 22;
+        CODE_BITS[134] = 0x3fffd5; CODE_LENGTH[134] = (byte) 22;
+        CODE_BITS[135] = 0x7fffd9; CODE_LENGTH[135] = (byte) 23;
+        CODE_BITS[136] = 0x3fffd6; CODE_LENGTH[136] = (byte) 22;
+        CODE_BITS[137] = 0x7fffda; CODE_LENGTH[137] = (byte) 23;
+        CODE_BITS[138] = 0x7fffdb; CODE_LENGTH[138] = (byte) 23;
+        CODE_BITS[139] = 0x7fffdc; CODE_LENGTH[139] = (byte) 23;
+        CODE_BITS[140] = 0x7fffdd; CODE_LENGTH[140] = (byte) 23;
+        CODE_BITS[141] = 0x7fffde; CODE_LENGTH[141] = (byte) 23;
+        CODE_BITS[142] = 0xffffeb; CODE_LENGTH[142] = (byte) 24;
+        CODE_BITS[143] = 0x7fffdf; CODE_LENGTH[143] = (byte) 23;
+        CODE_BITS[144] = 0xffffec; CODE_LENGTH[144] = (byte) 24;
+        CODE_BITS[145] = 0xffffed; CODE_LENGTH[145] = (byte) 24;
+        CODE_BITS[146] = 0x3fffd7; CODE_LENGTH[146] = (byte) 22;
+        CODE_BITS[147] = 0x7fffe0; CODE_LENGTH[147] = (byte) 23;
+        CODE_BITS[148] = 0xffffee; CODE_LENGTH[148] = (byte) 24;
+        CODE_BITS[149] = 0x7fffe1; CODE_LENGTH[149] = (byte) 23;
+        CODE_BITS[150] = 0x7fffe2; CODE_LENGTH[150] = (byte) 23;
+        CODE_BITS[151] = 0x7fffe3; CODE_LENGTH[151] = (byte) 23;
+        CODE_BITS[152] = 0x7fffe4; CODE_LENGTH[152] = (byte) 23;
+        CODE_BITS[153] = 0x1fffdc; CODE_LENGTH[153] = (byte) 21;
+        CODE_BITS[154] = 0x3fffd8; CODE_LENGTH[154] = (byte) 22;
+        CODE_BITS[155] = 0x7fffe5; CODE_LENGTH[155] = (byte) 23;
+        CODE_BITS[156] = 0x3fffd9; CODE_LENGTH[156] = (byte) 22;
+        CODE_BITS[157] = 0x7fffe6; CODE_LENGTH[157] = (byte) 23;
+        CODE_BITS[158] = 0x7fffe7; CODE_LENGTH[158] = (byte) 23;
+        CODE_BITS[159] = 0xffffef; CODE_LENGTH[159] = (byte) 24;
+        CODE_BITS[160] = 0x3fffda; CODE_LENGTH[160] = (byte) 22;
+        CODE_BITS[161] = 0x1fffdd; CODE_LENGTH[161] = (byte) 21;
+        CODE_BITS[162] = 0xfffe9; CODE_LENGTH[162] = (byte) 20;
+        CODE_BITS[163] = 0x3fffdb; CODE_LENGTH[163] = (byte) 22;
+        CODE_BITS[164] = 0x3fffdc; CODE_LENGTH[164] = (byte) 22;
+        CODE_BITS[165] = 0x7fffe8; CODE_LENGTH[165] = (byte) 23;
+        CODE_BITS[166] = 0x7fffe9; CODE_LENGTH[166] = (byte) 23;
+        CODE_BITS[167] = 0x1fffde; CODE_LENGTH[167] = (byte) 21;
+        CODE_BITS[168] = 0x7fffea; CODE_LENGTH[168] = (byte) 23;
+        CODE_BITS[169] = 0x3fffdd; CODE_LENGTH[169] = (byte) 22;
+        CODE_BITS[170] = 0x3fffde; CODE_LENGTH[170] = (byte) 22;
+        CODE_BITS[171] = 0xfffff0; CODE_LENGTH[171] = (byte) 24;
+        CODE_BITS[172] = 0x1fffdf; CODE_LENGTH[172] = (byte) 21;
+        CODE_BITS[173] = 0x3fffdf; CODE_LENGTH[173] = (byte) 22;
+        CODE_BITS[174] = 0x7fffeb; CODE_LENGTH[174] = (byte) 23;
+        CODE_BITS[175] = 0x7fffec; CODE_LENGTH[175] = (byte) 23;
+        CODE_BITS[176] = 0x1fffe0; CODE_LENGTH[176] = (byte) 21;
+        CODE_BITS[177] = 0x1fffe1; CODE_LENGTH[177] = (byte) 21;
+        CODE_BITS[178] = 0x3fffe0; CODE_LENGTH[178] = (byte) 22;
+        CODE_BITS[179] = 0x1fffe2; CODE_LENGTH[179] = (byte) 21;
+        CODE_BITS[180] = 0x7fffed; CODE_LENGTH[180] = (byte) 23;
+        CODE_BITS[181] = 0x3fffe1; CODE_LENGTH[181] = (byte) 22;
+        CODE_BITS[182] = 0x7fffee; CODE_LENGTH[182] = (byte) 23;
+        CODE_BITS[183] = 0x7fffef; CODE_LENGTH[183] = (byte) 23;
+        CODE_BITS[184] = 0xfffea; CODE_LENGTH[184] = (byte) 20;
+        CODE_BITS[185] = 0x3fffe2; CODE_LENGTH[185] = (byte) 22;
+        CODE_BITS[186] = 0x3fffe3; CODE_LENGTH[186] = (byte) 22;
+        CODE_BITS[187] = 0x3fffe4; CODE_LENGTH[187] = (byte) 22;
+        CODE_BITS[188] = 0x7ffff0; CODE_LENGTH[188] = (byte) 23;
+        CODE_BITS[189] = 0x3fffe5; CODE_LENGTH[189] = (byte) 22;
+        CODE_BITS[190] = 0x3fffe6; CODE_LENGTH[190] = (byte) 22;
+        CODE_BITS[191] = 0x7ffff1; CODE_LENGTH[191] = (byte) 23;
+        CODE_BITS[192] = 0x3ffffe0; CODE_LENGTH[192] = (byte) 26;
+        CODE_BITS[193] = 0x3ffffe1; CODE_LENGTH[193] = (byte) 26;
+        CODE_BITS[194] = 0xfffeb; CODE_LENGTH[194] = (byte) 20;
+        CODE_BITS[195] = 0x7fff1; CODE_LENGTH[195] = (byte) 19;
+        CODE_BITS[196] = 0x3fffe7; CODE_LENGTH[196] = (byte) 22;
+        CODE_BITS[197] = 0x7ffff2; CODE_LENGTH[197] = (byte) 23;
+        CODE_BITS[198] = 0x3fffe8; CODE_LENGTH[198] = (byte) 22;
+        CODE_BITS[199] = 0x1ffffec; CODE_LENGTH[199] = (byte) 25;
+        CODE_BITS[200] = 0x3ffffe2; CODE_LENGTH[200] = (byte) 26;
+        CODE_BITS[201] = 0x3ffffe3; CODE_LENGTH[201] = (byte) 26;
+        CODE_BITS[202] = 0x3ffffe4; CODE_LENGTH[202] = (byte) 26;
+        CODE_BITS[203] = 0x7ffffde; CODE_LENGTH[203] = (byte) 27;
+        CODE_BITS[204] = 0x7ffffdf; CODE_LENGTH[204] = (byte) 27;
+        CODE_BITS[205] = 0x3ffffe5; CODE_LENGTH[205] = (byte) 26;
+        CODE_BITS[206] = 0xfffff1; CODE_LENGTH[206] = (byte) 24;
+        CODE_BITS[207] = 0x1ffffed; CODE_LENGTH[207] = (byte) 25;
+        CODE_BITS[208] = 0x7fff2; CODE_LENGTH[208] = (byte) 19;
+        CODE_BITS[209] = 0x1fffe3; CODE_LENGTH[209] = (byte) 21;
+        CODE_BITS[210] = 0x3ffffe6; CODE_LENGTH[210] = (byte) 26;
+        CODE_BITS[211] = 0x7ffffe0; CODE_LENGTH[211] = (byte) 27;
+        CODE_BITS[212] = 0x7ffffe1; CODE_LENGTH[212] = (byte) 27;
+        CODE_BITS[213] = 0x3ffffe7; CODE_LENGTH[213] = (byte) 26;
+        CODE_BITS[214] = 0x7ffffe2; CODE_LENGTH[214] = (byte) 27;
+        CODE_BITS[215] = 0xfffff2; CODE_LENGTH[215] = (byte) 24;
+        CODE_BITS[216] = 0x1fffe4; CODE_LENGTH[216] = (byte) 21;
+        CODE_BITS[217] = 0x1fffe5; CODE_LENGTH[217] = (byte) 21;
+        CODE_BITS[218] = 0x3ffffe8; CODE_LENGTH[218] = (byte) 26;
+        CODE_BITS[219] = 0x3ffffe9; CODE_LENGTH[219] = (byte) 26;
+        CODE_BITS[220] = 0xffffffd; CODE_LENGTH[220] = (byte) 28;
+        CODE_BITS[221] = 0x7ffffe3; CODE_LENGTH[221] = (byte) 27;
+        CODE_BITS[222] = 0x7ffffe4; CODE_LENGTH[222] = (byte) 27;
+        CODE_BITS[223] = 0x7ffffe5; CODE_LENGTH[223] = (byte) 27;
+        CODE_BITS[224] = 0xfffec; CODE_LENGTH[224] = (byte) 20;
+        CODE_BITS[225] = 0xfffff3; CODE_LENGTH[225] = (byte) 24;
+        CODE_BITS[226] = 0xfffed; CODE_LENGTH[226] = (byte) 20;
+        CODE_BITS[227] = 0x1fffe6; CODE_LENGTH[227] = (byte) 21;
+        CODE_BITS[228] = 0x3fffe9; CODE_LENGTH[228] = (byte) 22;
+        CODE_BITS[229] = 0x1fffe7; CODE_LENGTH[229] = (byte) 21;
+        CODE_BITS[230] = 0x1fffe8; CODE_LENGTH[230] = (byte) 21;
+        CODE_BITS[231] = 0x7ffff3; CODE_LENGTH[231] = (byte) 23;
+        CODE_BITS[232] = 0x3fffea; CODE_LENGTH[232] = (byte) 22;
+        CODE_BITS[233] = 0x3fffeb; CODE_LENGTH[233] = (byte) 22;
+        CODE_BITS[234] = 0x1ffffee; CODE_LENGTH[234] = (byte) 25;
+        CODE_BITS[235] = 0x1ffffef; CODE_LENGTH[235] = (byte) 25;
+        CODE_BITS[236] = 0xfffff4; CODE_LENGTH[236] = (byte) 24;
+        CODE_BITS[237] = 0xfffff5; CODE_LENGTH[237] = (byte) 24;
+        CODE_BITS[238] = 0x3ffffea; CODE_LENGTH[238] = (byte) 26;
+        CODE_BITS[239] = 0x7ffff4; CODE_LENGTH[239] = (byte) 23;
+        CODE_BITS[240] = 0x3ffffeb; CODE_LENGTH[240] = (byte) 26;
+        CODE_BITS[241] = 0x7ffffe6; CODE_LENGTH[241] = (byte) 27;
+        CODE_BITS[242] = 0x3ffffec; CODE_LENGTH[242] = (byte) 26;
+        CODE_BITS[243] = 0x3ffffed; CODE_LENGTH[243] = (byte) 26;
+        CODE_BITS[244] = 0x7ffffe7; CODE_LENGTH[244] = (byte) 27;
+        CODE_BITS[245] = 0x7ffffe8; CODE_LENGTH[245] = (byte) 27;
+        CODE_BITS[246] = 0x7ffffe9; CODE_LENGTH[246] = (byte) 27;
+        CODE_BITS[247] = 0x7ffffea; CODE_LENGTH[247] = (byte) 27;
+        CODE_BITS[248] = 0x7ffffeb; CODE_LENGTH[248] = (byte) 27;
+        CODE_BITS[249] = 0xffffffe; CODE_LENGTH[249] = (byte) 28;
+        CODE_BITS[250] = 0x7ffffec; CODE_LENGTH[250] = (byte) 27;
+        CODE_BITS[251] = 0x7ffffed; CODE_LENGTH[251] = (byte) 27;
+        CODE_BITS[252] = 0x7ffffee; CODE_LENGTH[252] = (byte) 27;
+        CODE_BITS[253] = 0x7ffffef; CODE_LENGTH[253] = (byte) 27;
+        CODE_BITS[254] = 0x7fffff0; CODE_LENGTH[254] = (byte) 27;
+        CODE_BITS[255] = 0x3ffffee; CODE_LENGTH[255] = (byte) 26;
 
         // The special EOS symbol (End-of-String) is represented by 31 ones.
         // This is a sentinel value, not a decodable character.
-        HPACK_HUFFMAN_CODES.put(EOS_VALUE_PLACEHOLDER, new HuffmanCodeInfo(0x3fffffff, (short) 30));
+        CODE_BITS[EOS_INDEX] = 0x3fffffff; CODE_LENGTH[EOS_INDEX] = (byte) 30;
 
         buildHuffmanTree();
     }
-
-    /**
-     * Builds the Huffman decoding tree from the predefined HPACK Huffman codes.
-     */
-    private static void buildHuffmanTree() {
-        for (Map.Entry<Short, HuffmanCodeInfo> entry : HPACK_HUFFMAN_CODES.entrySet()) {
-            short value = entry.getKey();
-            HuffmanCodeInfo codeInfo = entry.getValue();
-            int codeBits = codeInfo.bits;
-            short numBits = codeInfo.numBits;
-            HuffmanNode currentNode = ROOT;
-
-            // Iterate through bits from MSB to LSB of the Huffman code
-            for (short i = 0; i < numBits; i++) {
-                // Extract the bit at current position (from MSB of the code)
-                int bit = (codeBits >> (numBits - 1 - i)) & 1;
-
-                if (bit == 0) {
-                    if (currentNode.left == null) {
-                        currentNode.left = new HuffmanNode();
-                    }
-                    currentNode = currentNode.left;
-                } else { // bit == 1
-                    if (currentNode.right == null) {
-                        currentNode.right = new HuffmanNode();
-                    }
-                    currentNode = currentNode.right;
-                }
-            }
-            // Mark the end of a code path.
-            if (value != EOS_VALUE_PLACEHOLDER) {
-                currentNode.terminal = true;
-                currentNode.value = value;
-            } else {
-                // Mark the EOS node as terminal, but its value is the EOS special placeholder.
-                currentNode.terminal = true;
-                currentNode.value = EOS_VALUE_PLACEHOLDER;
-            }
-        }
-    }
-
     /**
      * Decodes an array of HPACK Huffman-encoded bytes into plaintext bytes.
      *
@@ -407,46 +407,40 @@ public class Huffman {
      */
     public static byte[] decode(byte[] encodedBytes) throws IOException {
 
-        ByteArrayOutputStream decodedStream = new ByteArrayOutputStream();
-        HuffmanNode currentNode = ROOT;
+        // Decoded output can never be longer than the input (the shortest
+        // HPACK code is 5 bits, i.e. <= 1.6 output bytes per input byte at
+        // best, so a same-size buffer, grown if ever needed, avoids
+        // reallocating for the common case).
+        byte[] out = new byte[Math.max(16, encodedBytes.length)];
+        int outLen = 0;
+        int currentNode = ROOT;
         int lastDecodedBitPosition = 0;
 
         for (int i = 0; i < encodedBytes.length; i++) {
-            byte currentByte = encodedBytes[i];
+            int currentByte = encodedBytes[i];
 
             // Process each bit in the current byte, from MSB to LSB
             for (int bitIndex = 7; bitIndex >= 0; bitIndex--) {
-                // Get the current bit (0 or 1)
                 int bit = (currentByte >> bitIndex) & 1;
 
-                // Traverse the Huffman tree
-                if (bit == 0) {
-                    if (currentNode.left == null) {
-                        throw new IOException("Malformed Huffman data: Invalid bit sequence (0)");
-                    }
-                    currentNode = currentNode.left;
-                } else { // bit == 1
-                    if (currentNode.right == null) {
-                        throw new IOException("Malformed Huffman data: Invalid bit sequence (1)");
-                    }
-                    currentNode = currentNode.right;
+                currentNode = (bit == 0) ? leftChild[currentNode] : rightChild[currentNode];
+                if (currentNode == -1) {
+                    throw new IOException("Malformed Huffman data: Invalid bit sequence (" + bit + ")");
                 }
 
-                // If we reached a terminal node
-                if (currentNode.terminal) {
+                if (nodeTerminal[currentNode]) {
+                    short value = nodeValue[currentNode];
                     // RFC 7541, Section 5.2: "A Huffman-encoded string literal containing the EOS
                     // symbol MUST be treated as a decoding error."
-                    if (currentNode.value != -1 && currentNode.value == EOS_VALUE_PLACEHOLDER) {
+                    if (value == EOS_INDEX) {
                         throw new IOException(
                                 "Decoding error: EOS symbol found within string literal.");
                     }
 
-                    // If it's a regular character, write it to the output stream
-                    if (currentNode.value == -1) {
-                        // Should not happen if buildHuffmanTree is correct and marks all terminals
-                        throw new IOException("Malformed Huffman data: Terminal node has no value");
+                    if (outLen == out.length) {
+                        out = Arrays.copyOf(out, out.length * 2);
                     }
-                    decodedStream.write((byte) currentNode.value);
+                    out[outLen++] = (byte) value;
                     currentNode = ROOT; // Reset to root for the next character
 
                     lastDecodedBitPosition = (i * 8) + (7 - bitIndex) + 1;
@@ -485,7 +479,7 @@ public class Huffman {
             }
         }
 
-        return decodedStream.toByteArray();
+        return Arrays.copyOf(out, outLen);
     }
 
     /**
@@ -501,18 +495,9 @@ public class Huffman {
         BitBuffer bitBuffer = new BitBuffer();
 
         for (byte b : plaintextBytes) {
-            short charValue = (short) (b & 0xFF); // Convert byte to unsigned short
-            HuffmanCodeInfo codeInfo = HPACK_HUFFMAN_CODES.get(charValue);
-            if (codeInfo == null) {
-                // All 256 bytes are represented above
-                throw new IllegalStateException(
-                        "Character '"
-                                + (char) b
-                                + "' (byte value: "
-                                + charValue
-                                + ") not found in Huffman encoding table.");
-            }
-            bitBuffer.appendBits(codeInfo.bits, codeInfo.numBits);
+            int charValue = b & 0xFF; // Convert byte to unsigned int index; no boxing
+            byte numBits = CODE_LENGTH[charValue];
+            bitBuffer.appendBits(CODE_BITS[charValue], numBits);
         }
 
         // BitBuffer.toByteArray will pad any remaining bits with 1
@@ -524,7 +509,8 @@ public class Huffman {
      */
     private static class BitBuffer {
 
-        private final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        private byte[] bytes = new byte[64];
+        private int byteLen = 0;
         private int currentByte = 0;
         private int bitsInCurrentByte = 0;
 
@@ -552,10 +538,17 @@ public class Huffman {
             bitsInCurrentByte++;
 
             if (bitsInCurrentByte == 8) {
-                byteStream.write((byte) currentByte);
+                append((byte) currentByte);
                 currentByte = 0;
                 bitsInCurrentByte = 0;
             }
+        }
+
+        private void append(byte b) {
+            if (byteLen == bytes.length) {
+                bytes = Arrays.copyOf(bytes, bytes.length * 2);
+            }
+            bytes[byteLen++] = b;
         }
 
         /**
@@ -570,9 +563,9 @@ public class Huffman {
                 currentByte =
                         (currentByte << (8 - bitsInCurrentByte))
                                 | ((1 << (8 - bitsInCurrentByte)) - 1);
-                byteStream.write((byte) currentByte);
+                append((byte) currentByte);
             }
-            return byteStream.toByteArray();
+            return Arrays.copyOf(bytes, byteLen);
         }
     }
 
