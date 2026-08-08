@@ -21,11 +21,14 @@
 
 package org.bluezoo.gumdrop.mailbox.mbox;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.ParsedMessageContext;
 import org.bluezoo.gumdrop.mailbox.SearchCriteria;
@@ -213,13 +216,29 @@ public class MboxMailbox implements Mailbox {
         // instead of racing to the OS lock below.
         gatePath = mboxFile.toRealPath();
         gate = acquireGateRef(gatePath);
-        try {
-            gate.permit.acquire();
-        } catch (InterruptedException e) {
-            releaseGateRef(gatePath, gate);
-            gate = null;
-            Thread.currentThread().interrupt();
-            throw new IOException("Interrupted waiting for mailbox: " + mboxFile, e);
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        if (indexer != null && indexer.isCurrentThread()) {
+            // Running on the single MailboxIndexer worker thread (a
+            // background warming job): never block here. A concurrent
+            // live opener already holding this gate may itself be
+            // waiting on THIS thread via ensureFreshBlocking() to finish
+            // its own index rebuild - blocking would deadlock. Warming an
+            // already-in-use mailbox is redundant anyway, so just skip.
+            if (!gate.permit.tryAcquire()) {
+                releaseGateRef(gatePath, gate);
+                gate = null;
+                throw new IOException("Mailbox busy, skipping background warm: " + mboxFile);
+            }
+        } else {
+            try {
+                gate.permit.acquire();
+            } catch (InterruptedException e) {
+                releaseGateRef(gatePath, gate);
+                gate = null;
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted waiting for mailbox: " + mboxFile, e);
+            }
         }
 
         boolean initialized = false;
@@ -994,15 +1013,26 @@ public class MboxMailbox implements Mailbox {
 
     /**
      * Loads the search index from disk, or builds it if not present/corrupt.
+     *
+     * <p>The cheap incremental path (an existing, valid index that just
+     * needs {@link #indexNewMessages()} to catch up a handful of new
+     * messages) stays inline - it is already fast (issue #124). A full
+     * {@link #rebuildSearchIndex()} - parsing every message from scratch -
+     * is routed through the shared {@link MailboxIndexer} instead of
+     * running inline, so it is prioritized against other mailboxes'
+     * indexing work rather than unconditionally blocking whichever client
+     * happened to trigger this open (issue #163). This call still blocks
+     * until the rebuild completes either way: a SELECT/APPEND/SEARCH must
+     * never proceed against a stale or partial index.
      */
     private void loadOrBuildSearchIndex() {
         Path indexPath = getSearchIndexPath();
-        
+
         // Try to load existing index
         if (Files.exists(indexPath)) {
             try {
                 searchIndex = MessageIndex.load(indexPath);
-                
+
                 // Validate index is consistent with mailbox
                 if (validateSearchIndex()) {
                     // Index any new messages that aren't in the index
@@ -1018,9 +1048,36 @@ public class MboxMailbox implements Mailbox {
                 LOGGER.log(Level.WARNING, "Failed to load search index, rebuilding", e);
             }
         }
-        
-        // Build new index
-        rebuildSearchIndex();
+
+        // Build new index, via the shared background indexer when available.
+        // If we're already running ON the indexer's own worker thread (a
+        // background warming job opened this mailbox and its index also
+        // turns out to need a rebuild), do it inline instead of submitting
+        // a second job that thread would have to wait on itself to run.
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        if (indexer == null || indexer.isCurrentThread()) {
+            rebuildSearchIndex();
+            return;
+        }
+        try {
+            long lastModified;
+            try {
+                lastModified = Files.getLastModifiedTime(mboxFile).toMillis();
+            } catch (IOException e) {
+                lastModified = 0L;
+            }
+            indexer.ensureFreshBlocking(new MailboxIndexKey(indexPath),
+                    "INBOX".equalsIgnoreCase(name), lastModified,
+                    this::rebuildSearchIndex);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            rebuildSearchIndex();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Background index rebuild failed, rebuilding inline", e);
+            rebuildSearchIndex();
+        }
     }
 
     /**

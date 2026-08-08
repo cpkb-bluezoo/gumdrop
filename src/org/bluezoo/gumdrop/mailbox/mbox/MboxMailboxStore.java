@@ -21,10 +21,14 @@
 
 package org.bluezoo.gumdrop.mailbox.mbox;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
+import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -180,9 +184,71 @@ public class MboxMailboxStore implements MailboxStore {
         loadSubscriptions();
         
         this.open = true;
-        
+
+        // Eagerly warm search indexes for this user's mailboxes in the
+        // background rather than only rebuilding lazily on first SELECT
+        // (issue #163). Submitted unconditionally for every mailbox: a
+        // mailbox whose index is already current is cheap to confirm
+        // (loadOrBuildSearchIndex()'s fast incremental path), so no
+        // separate staleness pre-check is needed here.
+        enqueueEagerIndexWarming();
+
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Opened mail store for user: " + username);
+        }
+    }
+
+    private void enqueueEagerIndexWarming() {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        if (indexer == null) {
+            return;
+        }
+        List<String> names;
+        try {
+            names = listMailboxes("", "*");
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "Could not enumerate mailboxes for eager index warming", e);
+            return;
+        }
+        MailboxWatcher watcher = gumdrop.getMailboxWatcher();
+        for (String mailboxName : names) {
+            try {
+                Path mboxFilePath = resolveMailboxPath(mailboxName);
+                Path indexPath = mboxFilePath.resolveSibling(mboxFilePath.getFileName() + ".gidx");
+                boolean isInbox = INBOX.equalsIgnoreCase(mailboxName);
+                final String mbName = mailboxName;
+                final MailboxIndexer.IndexWork work = () -> {
+                    Mailbox mb = openMailbox(mbName, false);
+                    mb.close(false);
+                };
+                long lastModified;
+                try {
+                    lastModified = Files.getLastModifiedTime(mboxFilePath).toMillis();
+                } catch (IOException e) {
+                    lastModified = 0L;
+                }
+                indexer.submitBackground(new MailboxIndexKey(indexPath), isInbox, lastModified, work);
+
+                // Persistent watch so mail delivered by another process
+                // (no live session touching this mailbox) still triggers
+                // a background catch-up index job (issue #163).
+                if (watcher != null) {
+                    Path parent = mboxFilePath.getParent();
+                    String fileName = mboxFilePath.getFileName().toString();
+                    watcher.register(parent, fileName, changed -> {
+                        long lm;
+                        try {
+                            lm = Files.getLastModifiedTime(mboxFilePath).toMillis();
+                        } catch (IOException e) {
+                            lm = System.currentTimeMillis();
+                        }
+                        indexer.submitBackground(new MailboxIndexKey(indexPath), isInbox, lm, work);
+                    });
+                }
+            } catch (Exception e) {
+                LOGGER.log(Level.FINE, "Skipping eager index warm for " + mailboxName, e);
+            }
         }
     }
 

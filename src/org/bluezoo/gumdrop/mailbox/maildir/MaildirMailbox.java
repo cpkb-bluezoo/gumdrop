@@ -21,11 +21,14 @@
 
 package org.bluezoo.gumdrop.mailbox.maildir;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.ParsedMessageContext;
 import org.bluezoo.gumdrop.mailbox.SearchCriteria;
@@ -58,6 +61,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -142,6 +146,44 @@ public class MaildirMailbox implements Mailbox {
     private Map<Long, Long> expungedUids;
 
     /**
+     * Per-canonical-path in-JVM gate so that a second {@code MaildirMailbox}
+     * on the same directory in this process blocks and queues behind the
+     * first rather than racing straight into {@link #scanMessages()} /
+     * {@link MaildirUidList#save()} concurrently - unlike mbox, maildir has
+     * no OS file lock protecting a session, so two same-process opens for
+     * one mailbox (e.g. a live client SELECT racing an eager background
+     * index-warming job, see issue #163) can otherwise corrupt or lose
+     * writes to {@code .uidlist}. Mirrors {@code MboxMailbox}'s
+     * {@code JVM_GATES}.
+     */
+    private static final Map<Path, JvmMailboxGate> JVM_GATES = new HashMap<>();
+
+    private static final class JvmMailboxGate {
+        final Semaphore permit = new Semaphore(1);
+        int refCount;
+    }
+
+    private Path gatePath;
+    private JvmMailboxGate gate;
+
+    private static synchronized JvmMailboxGate acquireGateRef(Path canonicalPath) {
+        JvmMailboxGate g = JVM_GATES.get(canonicalPath);
+        if (g == null) {
+            g = new JvmMailboxGate();
+            JVM_GATES.put(canonicalPath, g);
+        }
+        g.refCount++;
+        return g;
+    }
+
+    private static synchronized void releaseGateRef(Path canonicalPath, JvmMailboxGate g) {
+        g.refCount--;
+        if (g.refCount == 0) {
+            JVM_GATES.remove(canonicalPath, g);
+        }
+    }
+
+    /**
      * Opens a Maildir mailbox.
      *
      * @param maildirPath the path to the Maildir directory
@@ -170,21 +212,60 @@ public class MaildirMailbox implements Mailbox {
             Files.createDirectories(tmpPath);
         }
 
-        // Load UID list and keywords
-        uidList.load();
-        keywords.load();
+        // Block/queue behind any other same-JVM session on this maildir
+        // instead of racing into concurrent scans/uidlist writes below.
+        gatePath = maildirPath.toRealPath();
+        gate = acquireGateRef(gatePath);
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        if (indexer != null && indexer.isCurrentThread()) {
+            // Running on the single MailboxIndexer worker thread (a
+            // background warming job): never block here. A concurrent
+            // live opener already holding this gate may itself be
+            // waiting on THIS thread via ensureFreshBlocking() to finish
+            // its own index rebuild - blocking would deadlock. Warming an
+            // already-in-use mailbox is redundant anyway, so just skip.
+            if (!gate.permit.tryAcquire()) {
+                releaseGateRef(gatePath, gate);
+                gate = null;
+                throw new IOException("Mailbox busy, skipping background warm: " + maildirPath);
+            }
+        } else {
+            try {
+                gate.permit.acquire();
+            } catch (InterruptedException e) {
+                releaseGateRef(gatePath, gate);
+                gate = null;
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted waiting for mailbox: " + maildirPath, e);
+            }
+        }
 
-        // Scan and index messages
-        scanMessages();
+        boolean initialized = false;
+        try {
+            // Load UID list and keywords
+            uidList.load();
+            keywords.load();
 
-        // Load MODSEQ data (CONDSTORE/QRESYNC)
-        this.uidModSeq = new HashMap<>();
-        this.expungedUids = new HashMap<>();
-        loadModSeqData();
-        loadExpungedData();
+            // Scan and index messages
+            scanMessages();
 
-        // Load or build search index
-        loadOrBuildSearchIndex();
+            // Load MODSEQ data (CONDSTORE/QRESYNC)
+            this.uidModSeq = new HashMap<>();
+            this.expungedUids = new HashMap<>();
+            loadModSeqData();
+            loadExpungedData();
+
+            // Load or build search index
+            loadOrBuildSearchIndex();
+            initialized = true;
+        } finally {
+            if (!initialized) {
+                gate.permit.release();
+                releaseGateRef(gatePath, gate);
+                gate = null;
+            }
+        }
     }
 
     /**
@@ -330,37 +411,45 @@ public class MaildirMailbox implements Mailbox {
 
     @Override
     public void close(boolean expunge) throws IOException {
-        if (expunge) {
-            doExpunge();
-        } else {
-            // Clear deletion marks
-            deletedMessages.clear();
-        }
-
-        // Save metadata
-        if (!readOnly) {
-            if (uidList.isDirty()) {
-                uidList.save();
-            }
-            if (keywords.isDirty()) {
-                keywords.save();
-            }
-            if (modSeqDirty) {
-                saveModSeqData();
-                modSeqDirty = false;
+        try {
+            if (expunge) {
+                doExpunge();
+            } else {
+                // Clear deletion marks
+                deletedMessages.clear();
             }
 
-            // Save search index if modified
-            if (searchIndex != null && searchIndex.isDirty()) {
-                try {
-                    searchIndex.save();
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to save search index", e);
+            // Save metadata
+            if (!readOnly) {
+                if (uidList.isDirty()) {
+                    uidList.save();
+                }
+                if (keywords.isDirty()) {
+                    keywords.save();
+                }
+                if (modSeqDirty) {
+                    saveModSeqData();
+                    modSeqDirty = false;
+                }
+
+                // Save search index if modified
+                if (searchIndex != null && searchIndex.isDirty()) {
+                    try {
+                        searchIndex.save();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.WARNING, "Failed to save search index", e);
+                    }
                 }
             }
-        }
 
-        searchIndex = null;
+            searchIndex = null;
+        } finally {
+            if (gate != null) {
+                gate.permit.release();
+                releaseGateRef(gatePath, gate);
+                gate = null;
+            }
+        }
     }
 
     @Override
@@ -1366,15 +1455,26 @@ public class MaildirMailbox implements Mailbox {
 
     /**
      * Loads the search index from disk, or builds it if not present/corrupt.
+     *
+     * <p>The cheap incremental path (an existing, valid index that just
+     * needs {@link #indexNewMessages()} to catch up a handful of new
+     * messages) stays inline. A full {@link #rebuildSearchIndex()} -
+     * parsing every message from scratch - is routed through the shared
+     * {@link MailboxIndexer} instead of running inline, so it is
+     * prioritized against other mailboxes' indexing work rather than
+     * unconditionally blocking whichever client happened to trigger this
+     * open (issue #163). This call still blocks until the rebuild
+     * completes either way: a SELECT/APPEND/SEARCH must never proceed
+     * against a stale or partial index.
      */
     private void loadOrBuildSearchIndex() {
         Path indexPath = getSearchIndexPath();
-        
+
         // Try to load existing index
         if (Files.exists(indexPath)) {
             try {
                 searchIndex = MessageIndex.load(indexPath);
-                
+
                 // Validate index is consistent with mailbox
                 if (validateSearchIndex()) {
                     // Index any new messages that aren't in the index
@@ -1390,9 +1490,36 @@ public class MaildirMailbox implements Mailbox {
                 LOGGER.log(Level.WARNING, "Failed to load search index, rebuilding", e);
             }
         }
-        
-        // Build new index
-        rebuildSearchIndex();
+
+        // Build new index, via the shared background indexer when available.
+        // If we're already running ON the indexer's own worker thread (a
+        // background warming job opened this mailbox and its index also
+        // turns out to need a rebuild), do it inline instead of submitting
+        // a second job that thread would have to wait on itself to run.
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        if (indexer == null || indexer.isCurrentThread()) {
+            rebuildSearchIndex();
+            return;
+        }
+        try {
+            long lastModified;
+            try {
+                lastModified = Files.getLastModifiedTime(maildirPath).toMillis();
+            } catch (IOException e) {
+                lastModified = 0L;
+            }
+            indexer.ensureFreshBlocking(new MailboxIndexKey(indexPath),
+                    "INBOX".equalsIgnoreCase(name), lastModified,
+                    this::rebuildSearchIndex);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            rebuildSearchIndex();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Background index rebuild failed, rebuilding inline", e);
+            rebuildSearchIndex();
+        }
     }
 
     /**
