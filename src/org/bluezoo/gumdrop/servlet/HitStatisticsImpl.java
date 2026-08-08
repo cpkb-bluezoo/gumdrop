@@ -23,32 +23,47 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 
+import java.util.concurrent.atomic.LongAdder;
+
 /**
  * Hit statistics for a context.
- * We have to synchronize against this object when updating or retrieving
- * values.
+ *
+ * <p>{@code addHit} is called on every response commit, i.e. on the hot
+ * request path for every concurrent request in this context - a {@link
+ * LongAdder} per status-code bucket avoids the contention a shared
+ * monitor (or a single AtomicLong per bucket) would create under
+ * concurrent load, at the cost of {@link #getTotal}/{@link #getHits}
+ * (called only for the occasional manager-UI stats page) being merely
+ * eventually-consistent rather than atomic snapshots.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class HitStatisticsImpl extends HitStatistics {
 
-    private long[] hits = new long[6];
+    private final LongAdder[] hits;
+
+    HitStatisticsImpl() {
+        hits = new LongAdder[6];
+        for (int i = 0; i < hits.length; i++) {
+            hits[i] = new LongAdder();
+        }
+    }
 
     @Override public long getTotal() {
         long acc = 0L;
-        for (long hit : hits) {
-            acc += hit;
+        for (LongAdder hit : hits) {
+            acc += hit.sum();
         }
         return acc;
     }
 
     @Override public long getHits(int type) {
-        return hits[type];
+        return hits[type].sum();
     }
 
     void addHit(int status) {
         int type = status / 100;
-        hits[type]++;
+        hits[type].increment();
     }
 
 }
