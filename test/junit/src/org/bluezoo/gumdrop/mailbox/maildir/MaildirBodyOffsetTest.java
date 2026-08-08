@@ -112,14 +112,24 @@ public class MaildirBodyOffsetTest {
             assertEquals(1, mailbox.getMessageCount());
             MaildirMessageDescriptor desc =
                     (MaildirMessageDescriptor) mailbox.getMessage(1);
-            assertTrue(desc.hasResolvedBodyOffset());
-            assertEquals(expectedOffset, desc.getBodyOffset());
+            // Scanning cur/ at mailbox open no longer eagerly reads every
+            // file to resolve its body offset (issue #133) - it stays
+            // unresolved until something actually needs the content.
+            assertFalse("scan must not eagerly resolve body offset",
+                    desc.hasResolvedBodyOffset());
 
             try (org.bluezoo.gumdrop.mailbox.AsyncMessageContent async =
                          mailbox.openAsyncContent(1)) {
                 assertEquals(expectedOffset, async.bodyOffset());
                 assertEquals(content.length(), async.size());
             }
+
+            // openAsyncContent() must have resolved and cached it back onto
+            // the in-memory descriptor for subsequent lookups.
+            MaildirMessageDescriptor resolved =
+                    (MaildirMessageDescriptor) mailbox.getMessage(1);
+            assertTrue(resolved.hasResolvedBodyOffset());
+            assertEquals(expectedOffset, resolved.getBodyOffset());
         } finally {
             mailbox.close(false);
         }
@@ -145,13 +155,17 @@ public class MaildirBodyOffsetTest {
 
         MaildirMailbox mailbox = new MaildirMailbox(maildir, "INBOX", false);
         try {
-            MaildirMessageDescriptor desc =
-                    (MaildirMessageDescriptor) mailbox.getMessage(1);
-            assertTrue("scan-time cache must resolve body offset",
-                    desc.hasResolvedBodyOffset());
-
+            // Body offset is unresolved until first content access (issue
+            // #133); resolve it here via openAsyncContent so the loop below
+            // is actually exercising the "already cached" fast path it's
+            // meant to test, not a cold resolve.
             org.bluezoo.gumdrop.mailbox.AsyncMessageContent async =
                     mailbox.openAsyncContent(1);
+            MaildirMessageDescriptor desc =
+                    (MaildirMessageDescriptor) mailbox.getMessage(1);
+            assertTrue("openAsyncContent must resolve and cache body offset",
+                    desc.hasResolvedBodyOffset());
+
             // Close the channel so any blocking async-file wait / AFC read would fail.
             async.close();
 
