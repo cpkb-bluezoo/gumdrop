@@ -123,6 +123,41 @@ public class SelectorLoop implements Runnable {
         return thread != null && thread.isAlive();
     }
 
+    /**
+     * Returns the number of channels (TCP connections, datagram
+     * registrations, etc.) currently registered on this loop - used by
+     * {@link Gumdrop#nextWorkerLoop()} to pick the least-loaded loop
+     * instead of assigning purely round-robin, which never rebalances
+     * when connection lifetimes vary widely (issue #139).
+     *
+     * <p>Reads {@link Selector#keys()}'s size directly rather than
+     * maintaining a separate counter: keys are cancelled from many
+     * different code paths (EOF, write error, explicit close, ...), so a
+     * hand-maintained increment/decrement counter would be one more place
+     * to keep in sync and risk drifting; the selector's own key set can't
+     * drift by construction. A few callers scanning this concurrently
+     * with the loop thread mutating the set is safe for a size query -
+     * only concurrent iteration needs external synchronization - and a
+     * load estimate that lags by up to one loop iteration is more than
+     * precise enough for this coarse rebalancing heuristic.
+     *
+     * @return the number of registered channels, or 0 before the loop has
+     *      started
+     */
+    public int getConnectionCount() {
+        Selector s = selector;
+        if (s == null) {
+            return 0;
+        }
+        try {
+            return s.keys().size();
+        } catch (java.nio.channels.ClosedSelectorException e) {
+            // Closed concurrently between the null-check and keys() - the
+            // loop is shutting down, treat it as unloaded.
+            return 0;
+        }
+    }
+
     @Override
     public void run() {
         active = true;

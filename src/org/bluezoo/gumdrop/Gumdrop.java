@@ -948,19 +948,42 @@ public class Gumdrop {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the next worker SelectorLoop using round-robin assignment.
+     * Returns the least-loaded worker SelectorLoop, breaking ties
+     * round-robin.
+     *
+     * <p>Pure round-robin assignment never rebalances: for protocols with
+     * widely varying connection lifetimes (e.g. IMAP IDLE sessions
+     * alongside short-lived HTTP requests), long-lived connections can
+     * accumulate unevenly across loops with no mechanism to migrate or
+     * even out the skew (issue #139). Scanning every loop's current
+     * {@link SelectorLoop#getConnectionCount()} on each call is cheap -
+     * this runs once per accept/outbound-connection, not per request -
+     * and the scan starts from the next round-robin position so loops
+     * that are equally (un)loaded, such as at startup, are still spread
+     * evenly rather than always favoring index 0.
      *
      * <p>Thread-safe for use from AcceptSelectorLoop, datagram registration,
      * and client connections that need a SelectorLoop.
      *
-     * @return the next SelectorLoop in round-robin order
+     * @return the least-loaded SelectorLoop
      */
     public SelectorLoop nextWorkerLoop() {
+        int n = workerLoops.length;
         // Math.floorMod keeps the index non-negative once the counter wraps
         // past Integer.MAX_VALUE; a plain % would yield a negative index and
         // an ArrayIndexOutOfBoundsException after ~2.1 billion assignments.
-        int idx = Math.floorMod(nextWorker.getAndIncrement(), workerLoops.length);
-        return workerLoops[idx];
+        int start = Math.floorMod(nextWorker.getAndIncrement(), n);
+        SelectorLoop best = workerLoops[start];
+        int bestLoad = best.getConnectionCount();
+        for (int i = 1; i < n; i++) {
+            SelectorLoop candidate = workerLoops[Math.floorMod(start + i, n)];
+            int load = candidate.getConnectionCount();
+            if (load < bestLoad) {
+                best = candidate;
+                bestLoad = load;
+            }
+        }
+        return best;
     }
 
     /**
