@@ -346,7 +346,14 @@ public class AcceptSelectorLoop implements Runnable {
 
         SocketChannel sc;
         try {
-            while ((sc = ssc.accept()) != null) {
+            // A RawAcceptHandler may legitimately close its own listening
+            // socket from within accepted() - e.g. FTP passive mode
+            // closing its one-shot PASV/EPSV listener as soon as the
+            // single expected data connection arrives (issue #145).
+            // Re-checking isOpen() lets the loop exit normally in that
+            // case instead of calling accept() on an already-closed
+            // channel and logging a spurious warning below.
+            while (ssc.isOpen() && (sc = ssc.accept()) != null) {
                 try {
                     SocketAddress remoteAddress = sc.getRemoteAddress();
 

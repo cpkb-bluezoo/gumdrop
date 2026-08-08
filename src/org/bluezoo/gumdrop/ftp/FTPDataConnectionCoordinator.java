@@ -213,17 +213,30 @@ public class FTPDataConnectionCoordinator {
      */
     public synchronized int setupPassiveMode(int port) throws IOException {
         cleanup(); // Clean up any existing setup
-        
+
         passiveConnector = new FTPDataServer(controlConnection, port, this);
-        
+
         // Bind the socket synchronously so we know the port immediately
         java.nio.channels.ServerSocketChannel ssc = java.nio.channels.ServerSocketChannel.open();
         ssc.configureBlocking(false);
-        
-        // Bind to the requested port (0 for system-assigned)
-        InetSocketAddress bindAddress = new InetSocketAddress(port);
-        ssc.bind(bindAddress);
-        
+
+        if (port == 0) {
+            // System-assigned, unless the listener restricts passive mode
+            // to a configured port range (issue #145) - e.g. deployments
+            // behind a firewall that only forwards a fixed range.
+            FTPListener server = controlConnection.getServer();
+            int minPort = (server != null) ? server.getPasvMinPort() : 0;
+            int maxPort = (server != null) ? server.getPasvMaxPort() : 0;
+            if (minPort > 0 && maxPort >= minPort) {
+                bindWithinRange(ssc, minPort, maxPort);
+            } else {
+                ssc.bind(new InetSocketAddress(0));
+            }
+        } else {
+            // An explicitly requested port bypasses the configured range.
+            ssc.bind(new InetSocketAddress(port));
+        }
+
         // Get the actual bound port
         passivePort = ((InetSocketAddress) ssc.getLocalAddress()).getPort();
         passiveConnector.notifyBound(ssc);
@@ -239,7 +252,28 @@ public class FTPDataConnectionCoordinator {
         
         return passivePort;
     }
-    
+
+    /**
+     * Binds {@code ssc} to the first available port in {@code [minPort,
+     * maxPort]}, trying each in turn.
+     *
+     * @throws IOException if no port in the range is available
+     */
+    private static void bindWithinRange(
+            java.nio.channels.ServerSocketChannel ssc, int minPort, int maxPort)
+            throws IOException {
+        for (int p = minPort; p <= maxPort; p++) {
+            try {
+                ssc.bind(new InetSocketAddress(p));
+                return;
+            } catch (IOException e) {
+                // Port in use or unavailable; try the next one.
+            }
+        }
+        throw new IOException("No available port in configured PASV port range ["
+                + minPort + "-" + maxPort + "]");
+    }
+
     /**
      * Configures active mode data connection (RFC 959 section 4.1.2 PORT).
      * Stores the client's address for a later outbound connection.
