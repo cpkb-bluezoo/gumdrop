@@ -24,6 +24,9 @@ package org.bluezoo.gumdrop.amqp.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -34,6 +37,7 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
+import javax.security.auth.Subject;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
@@ -49,6 +53,8 @@ import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerOpenHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
+import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SASLUtils;
 
 /**
  * AMQP client facade with automatic reconnect and topology recovery.
@@ -111,6 +117,7 @@ import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
 public class AMQPClientRecovery {
 
     private static final Logger LOGGER = Logger.getLogger(AMQPClientRecovery.class.getName());
+    private static final ResourceBundle L10N = AMQPClientProtocolHandler.L10N;
 
     /**
      * Deliberately <strong>not</strong> gumdrop's own timer/{@link
@@ -159,6 +166,12 @@ public class AMQPClientRecovery {
     private Path keystoreFile;
     private String keystorePass;
     private String keystoreFormat;
+
+    /** SASL mechanism to authenticate with; defaults to PLAIN (issue #188). */
+    private String mechanism = "PLAIN";
+    private Subject gssapiSubject;
+    private String gssapiServicePrincipal;
+    private ExecutorService gssapiExecutor;
 
     private RecoveryHandler appHandler;
     private RecoverableConnectionImpl recoverableConnection;
@@ -210,6 +223,45 @@ public class AMQPClientRecovery {
 
     public AMQPClientRecovery recoveryListener(RecoveryListener listener) {
         this.listener = listener;
+        return this;
+    }
+
+    /**
+     * Sets the SASL mechanism to authenticate with (issue #188): one of
+     * {@code "PLAIN"} (the default), {@code "AMQPLAIN"}, {@code
+     * "EXTERNAL"}, or {@code "GSSAPI"}.
+     *
+     * <p>{@code PLAIN} and {@code AMQPLAIN} use the credentials set via
+     * {@link #credentials}. {@code EXTERNAL} relies on the client
+     * certificate presented during TLS handshake (requires {@link
+     * #setSecure} plus a configured keystore) and ignores credentials.
+     * {@code GSSAPI} requires {@link #gssapiCredentials} to also be
+     * called.
+     *
+     * @param mechanism the SASL mechanism name
+     */
+    public AMQPClientRecovery mechanism(String mechanism) {
+        this.mechanism = mechanism;
+        return this;
+    }
+
+    /**
+     * Configures {@code GSSAPI} (Kerberos) authentication (issue #188).
+     * Required when {@link #mechanism} is set to {@code "GSSAPI"}.
+     *
+     * @param subject the JAAS Subject with Kerberos credentials (from
+     *        keytab login or {@code kinit})
+     * @param servicePrincipal the broker's service principal name (e.g.
+     *        {@code "amqp@broker.example.com"})
+     * @param executor worker executor for the potentially blocking KDC
+     *        contact made by the first challenge evaluation; never called
+     *        on the connection's own event-loop thread
+     */
+    public AMQPClientRecovery gssapiCredentials(Subject subject, String servicePrincipal,
+            ExecutorService executor) {
+        this.gssapiSubject = subject;
+        this.gssapiServicePrincipal = servicePrincipal;
+        this.gssapiExecutor = executor;
         return this;
     }
 
@@ -310,21 +362,22 @@ public class AMQPClientRecovery {
             return;
         }
         recoverableConnection.markDisconnected();
-        LOGGER.log(Level.WARNING, "AMQP connection lost", cause);
+        LOGGER.log(Level.WARNING, L10N.getString("warn.connection_lost"), cause);
         if (listener != null) {
             listener.onConnectionLost(cause);
         }
         attempt++;
         int maxAttempts = policy.getMaxAttempts();
         if (maxAttempts > 0 && attempt > maxAttempts) {
-            LOGGER.log(Level.SEVERE, "Giving up reconnecting after " + attempt + " attempts", cause);
+            LOGGER.log(Level.SEVERE,
+                    MessageFormat.format(L10N.getString("err.recovery_failed"), attempt), cause);
             if (listener != null) {
                 listener.onRecoveryFailed(cause);
             }
             return;
         }
         long delay = policy.delayFor(attempt);
-        LOGGER.log(Level.INFO, "Reconnecting in {0}ms (attempt {1})",
+        LOGGER.log(Level.INFO, L10N.getString("info.reconnecting"),
                 new Object[] { delay, attempt });
         if (listener != null) {
             listener.onReconnecting(attempt, delay);
@@ -366,7 +419,13 @@ public class AMQPClientRecovery {
         @Override
         public void handleStart(FieldTable serverProperties, String mechanisms, String locales,
                 ClientHandshake handshake) {
-            handshake.startOk(username, password, new ServerTuneHandler() {
+            if (!"PLAIN".equalsIgnoreCase(mechanism) && !isMechanismOffered(mechanisms, mechanism)) {
+                scheduleReconnect(new IOException(MessageFormat.format(
+                        L10N.getString("err.sasl_mechanism_not_offered"), mechanism, mechanisms)));
+                return;
+            }
+
+            ServerTuneHandler tuneHandler = new ServerTuneHandler() {
                 @Override
                 public void handleTune(int channelMax, long frameMax, int heartbeat,
                         ClientTuned tuned) {
@@ -390,7 +449,38 @@ public class AMQPClientRecovery {
                         }
                     });
                 }
-            });
+            };
+
+            if ("AMQPLAIN".equalsIgnoreCase(mechanism)) {
+                handshake.startOk(new AMQPLainClientMechanism(username, password), tuneHandler);
+            } else if ("EXTERNAL".equalsIgnoreCase(mechanism)) {
+                handshake.startOk(SASLUtils.createClient("EXTERNAL", username, password, host), tuneHandler);
+            } else if ("GSSAPI".equalsIgnoreCase(mechanism)) {
+                String principal = (gssapiServicePrincipal != null) ? gssapiServicePrincipal : host;
+                SASLClientMechanism client = SASLUtils.createClient(
+                        "GSSAPI", username, password, principal, gssapiSubject);
+                if (client == null) {
+                    scheduleReconnect(new IOException(
+                            "GSSAPI mechanism requires gssapiCredentials(subject, servicePrincipal, executor)"));
+                    return;
+                }
+                handshake.startOk(client, tuneHandler, gssapiExecutor);
+            } else {
+                handshake.startOk(username, password, tuneHandler);
+            }
+        }
+
+        /** RFC 4422 §3.1 — {@code mechanisms} is a space-separated list. */
+        private boolean isMechanismOffered(String mechanisms, String wanted) {
+            if (mechanisms == null || wanted == null) {
+                return false;
+            }
+            for (String offered : mechanisms.split(" ")) {
+                if (offered.equalsIgnoreCase(wanted)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         @Override

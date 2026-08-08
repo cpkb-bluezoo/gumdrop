@@ -141,6 +141,29 @@ final class ConnectionMethods {
         return buf;
     }
 
+    /**
+     * {@code connection.secure} (10,20) — sent by the server when a
+     * multi-step SASL mechanism (e.g. GSSAPI) needs another challenge
+     * after {@code start-ok}, before it is ready to send {@code tune}.
+     */
+    static byte[] decodeSecure(ByteBuffer payload) {
+        int len = payload.getInt();
+        byte[] challenge = new byte[len];
+        payload.get(challenge);
+        return challenge;
+    }
+
+    /** {@code connection.secure-ok} (10,21) — sent by the client. */
+    static ByteBuffer encodeSecureOk(byte[] response) {
+        ByteBuffer buf = ByteBuffer.allocate(4 + 4 + response.length);
+        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
+        buf.putShort((short) AMQPMethod.CONNECTION_SECURE_OK);
+        buf.putInt(response.length);
+        buf.put(response);
+        buf.flip();
+        return buf;
+    }
+
     /** {@code connection.tune} (10,30) — sent by the server. */
     static final class Tune {
         final int channelMax;

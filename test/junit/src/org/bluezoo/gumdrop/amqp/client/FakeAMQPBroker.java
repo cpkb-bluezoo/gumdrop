@@ -344,7 +344,7 @@ final class FakeAMQPBroker implements AutoCloseable {
         private void sendConnectionStart() {
             FieldTable serverProps = new FieldTable().put("product", "gumdrop-fake-broker");
             send(AMQPFrame.TYPE_METHOD, 0,
-                    ConnectionMethods.encodeStart(0, 9, serverProps, "PLAIN", "en_US"));
+                    ConnectionMethods.encodeStart(0, 9, serverProps, "PLAIN AMQPLAIN EXTERNAL", "en_US"));
         }
 
         @Override
@@ -368,7 +368,8 @@ final class FakeAMQPBroker implements AutoCloseable {
                 switch (methodId) {
                     case AMQPMethod.CONNECTION_START_OK: {
                         ConnectionMethods.StartOk startOk = ConnectionMethods.decodeStartOk(payload);
-                        if (requiredUsername != null && !credentialsMatch(startOk.response)) {
+                        if (requiredUsername != null
+                                && !credentialsMatch(startOk.mechanism, startOk.response)) {
                             send(AMQPFrame.TYPE_METHOD, 0,
                                     ConnectionMethods.encodeClose(530, "NOT_ALLOWED - invalid credentials"));
                             return;
@@ -502,7 +503,17 @@ final class FakeAMQPBroker implements AutoCloseable {
             return buf;
         }
 
-        private boolean credentialsMatch(byte[] response) {
+        /** Issue #188 — also accepts AMQPLAIN, matching what the real client now offers. */
+        private boolean credentialsMatch(String mechanism, byte[] response) {
+            if ("AMQPLAIN".equals(mechanism)) {
+                try {
+                    FieldTable table = FieldTable.decode(ByteBuffer.wrap(response), response.length);
+                    return requiredUsername.equals(table.get("LOGIN"))
+                            && requiredPassword.equals(table.get("PASSWORD"));
+                } catch (AMQPProtocolException e) {
+                    return false;
+                }
+            }
             String s = new String(response, StandardCharsets.UTF_8);
             String[] parts = s.split("\0", -1);
             if (parts.length != 3) {

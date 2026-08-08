@@ -449,7 +449,8 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
     - streaming, chunked message body publishing (no full-buffer materialization)
     - automatic connection recovery with configurable exponential backoff,
       and transparent replay of exchanges, queues, bindings, and consumers
-    - implicit TLS (AMQPS) and SASL PLAIN authentication
+    - implicit TLS (AMQPS) and SASL PLAIN, AMQPLAIN, EXTERNAL, and GSSAPI
+      (Kerberos) authentication mechanisms
     - SelectorLoop affinity for server integration
 - Redis client
     - RESP2 and RESP3 protocol support (HELLO for protocol negotiation)

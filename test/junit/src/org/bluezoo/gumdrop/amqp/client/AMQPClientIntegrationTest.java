@@ -94,6 +94,46 @@ public class AMQPClientIntegrationTest {
         assertEquals(1, channel.getChannelId());
     }
 
+    /** Issue #188 — AMQPLAIN authenticates end-to-end against a broker that requires it. */
+    @Test
+    public void testConnectWithAMQPLainMechanism() throws Exception {
+        broker.requireCredentials("appuser", "s3cret");
+        client = new AMQPClientRecovery("localhost", broker.getPort())
+                .credentials("appuser", "s3cret")
+                .mechanism("AMQPLAIN");
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
+        client.connect(connection -> connection.channelOpen(1, channel -> {
+            channelRef.set(channel);
+            latch.countDown();
+        }));
+
+        ClientChannel channel = await(latch, channelRef);
+        assertEquals(1, channel.getChannelId());
+    }
+
+    /** Issue #188 — a mechanism the broker never advertises fails fast rather than silently falling back to PLAIN. */
+    @Test
+    public void testUnofferedMechanismDoesNotSilentlyFallBackToPlain() throws Exception {
+        client = new AMQPClientRecovery("localhost", broker.getPort())
+                .credentials("guest", "guest")
+                .mechanism("X-NOT-OFFERED")
+                .recoveryPolicy(new RecoveryPolicy().withMaxAttempts(1));
+
+        CountDownLatch failedLatch = new CountDownLatch(1);
+        client.recoveryListener(new RecoveryListener() {
+            @Override
+            public void onRecoveryFailed(Exception cause) {
+                failedLatch.countDown();
+            }
+        });
+        client.connect(connection -> fail("should never reach onFirstConnect with an unoffered mechanism"));
+
+        assertTrue("expected recovery to give up after the unoffered mechanism keeps failing",
+                failedLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+    }
+
     @Test
     public void testDeclareBindPublishConsumeRoundTrip() throws Exception {
         client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");

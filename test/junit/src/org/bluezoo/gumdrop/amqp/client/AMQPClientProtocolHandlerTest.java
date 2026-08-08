@@ -31,6 +31,7 @@ import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -827,6 +828,150 @@ public class AMQPClientProtocolHandlerTest {
         String receivedBody() {
             return new String(body.toByteArray(), StandardCharsets.US_ASCII);
         }
+    }
+
+    // ── SASL mechanisms (issue #188) ──
+
+    private static ByteBuffer serverSecureFrame(byte[] challenge) {
+        ByteBuffer args = ByteBuffer.allocate(4 + 4 + challenge.length);
+        args.putShort((short) AMQPMethod.CLASS_CONNECTION);
+        args.putShort((short) AMQPMethod.CONNECTION_SECURE);
+        args.putInt(challenge.length);
+        args.put(challenge);
+        args.flip();
+        return AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, args);
+    }
+
+    /** A trivial two-step mechanism: sends an empty initial response, then echoes the challenge back. */
+    private static final class TwoStepMechanism implements org.bluezoo.gumdrop.auth.SASLClientMechanism {
+        private int step;
+        private boolean complete;
+
+        @Override
+        public String getMechanismName() { return "X-TWOSTEP"; }
+
+        @Override
+        public boolean hasInitialResponse() { return true; }
+
+        @Override
+        public byte[] evaluateChallenge(byte[] challenge) {
+            step++;
+            if (step == 1) {
+                return new byte[0];
+            }
+            complete = true;
+            return challenge;
+        }
+
+        @Override
+        public boolean isComplete() { return complete; }
+    }
+
+    @Test
+    public void testStartOkSentWithAMQPLainMechanism() throws AMQPProtocolException {
+        connect();
+        feed(serverStartFrame());
+        recording.lastHandshake.startOk(new AMQPLainClientMechanism("guest", "guest"),
+                new ServerTuneHandler() {
+                    @Override
+                    public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) { }
+                });
+
+        ByteBuffer sent = lastSentMethodArgs(AMQPMethod.CLASS_CONNECTION, AMQPMethod.CONNECTION_START_OK);
+        int tableLen = sent.getInt();
+        FieldTable clientProperties = FieldTable.decode(sent, tableLen);
+        assertEquals("gumdrop", clientProperties.get("product"));
+        String mechanism = FieldTable.getShortString(sent);
+        assertEquals("AMQPLAIN", mechanism);
+    }
+
+    @Test
+    public void testMultiStepMechanismRespondsToConnectionSecure() {
+        connect();
+        feed(serverStartFrame());
+        final List<Boolean> tuned = new ArrayList<>();
+        recording.lastHandshake.startOk(new TwoStepMechanism(), new ServerTuneHandler() {
+            @Override
+            public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tunedState) {
+                tuned.add(Boolean.TRUE);
+            }
+        });
+
+        // First frame out is start-ok with an empty initial response.
+        ByteBuffer startOkArgs = lastSentMethodArgs(AMQPMethod.CLASS_CONNECTION, AMQPMethod.CONNECTION_START_OK);
+
+        // Broker asks for another round via connection.secure.
+        byte[] challenge = "round-two".getBytes(StandardCharsets.US_ASCII);
+        feed(serverSecureFrame(challenge));
+
+        ByteBuffer secureOkArgs = lastSentMethodArgs(AMQPMethod.CLASS_CONNECTION, AMQPMethod.CONNECTION_SECURE_OK);
+        int len = secureOkArgs.getInt();
+        byte[] echoed = new byte[len];
+        secureOkArgs.get(echoed);
+        assertArrayEquals(challenge, echoed);
+
+        assertTrue("handshake must not be tuned before connection.tune arrives", tuned.isEmpty());
+        feed(serverTuneFrame(0, 131072, 0));
+        assertEquals(1, tuned.size());
+    }
+
+    @Test
+    public void testGssapiStyleMechanismOffloadedToExecutor() throws AMQPProtocolException {
+        connect();
+        feed(serverStartFrame());
+        final List<Thread> evaluatedOn = new ArrayList<>();
+        org.bluezoo.gumdrop.auth.SASLClientMechanism recordingMechanism =
+                new org.bluezoo.gumdrop.auth.SASLClientMechanism() {
+                    private boolean complete;
+
+                    @Override
+                    public String getMechanismName() { return "X-RECORD"; }
+
+                    @Override
+                    public boolean hasInitialResponse() { return true; }
+
+                    @Override
+                    public byte[] evaluateChallenge(byte[] challenge) {
+                        evaluatedOn.add(Thread.currentThread());
+                        complete = true;
+                        return new byte[0];
+                    }
+
+                    @Override
+                    public boolean isComplete() { return complete; }
+                };
+
+        final Thread testThread = Thread.currentThread();
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            recording.lastHandshake.startOk(recordingMechanism,
+                    new ServerTuneHandler() {
+                        @Override
+                        public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) { }
+                    },
+                    executor);
+            // Wait for the offloaded evaluation to complete and hop back via endpoint.execute (synchronous in StubEndpoint).
+            long deadline = System.currentTimeMillis() + 2000;
+            while (evaluatedOn.isEmpty() && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(5);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        } finally {
+            executor.shutdown();
+        }
+
+        assertEquals(1, evaluatedOn.size());
+        assertNotEquals("challenge evaluation must be offloaded off the calling thread",
+                testThread, evaluatedOn.get(0));
+
+        ByteBuffer sent = lastSentMethodArgs(AMQPMethod.CLASS_CONNECTION, AMQPMethod.CONNECTION_START_OK);
+        int tableLen = sent.getInt();
+        FieldTable.decode(sent, tableLen);
+        assertEquals("X-RECORD", FieldTable.getShortString(sent));
     }
 
     // ── Stubs ──
