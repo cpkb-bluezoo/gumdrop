@@ -28,6 +28,8 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
@@ -428,38 +430,55 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
         Thread[] threads = new Thread[numThreads];
         final boolean[] results = new boolean[numThreads];
 
-        for (int i = 0; i < numThreads; i++) {
-            final int index = i;
-            threads[i] = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        String request = "GET /test/hello?thread=" + index + " HTTP/1.1\r\n" +
-                                        "Host: localhost\r\n" +
-                                        "Connection: close\r\n" +
-                                        "\r\n";
+        // A worker thread that dies to an uncaught Error (e.g. the
+        // ContextClassLoader LinkageError race from issue #164, where two
+        // threads both try to defineClass() the same not-yet-loaded
+        // servlet class) does not throw back to this test - it silently
+        // prints to stderr and vanishes from the pool, and the request it
+        // was serving never gets a response. Install a default handler so
+        // that failure mode fails this test instead of passing silently.
+        final List<Throwable> uncaught = new CopyOnWriteArrayList<>();
+        Thread.UncaughtExceptionHandler previousHandler = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> uncaught.add(e));
+        try {
+            for (int i = 0; i < numThreads; i++) {
+                final int index = i;
+                threads[i] = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            String request = "GET /test/hello?thread=" + index + " HTTP/1.1\r\n" +
+                                            "Host: localhost\r\n" +
+                                            "Connection: close\r\n" +
+                                            "\r\n";
 
-                        HTTPClientHelper.HTTPResponse response = 
-                            HTTPClientHelper.sendRequest("127.0.0.1", TEST_PORT, request);
-                        
-                        results[index] = (response.statusCode == 200 || response.statusCode == 404);
-                    } catch (Exception e) {
-                        results[index] = false;
+                            HTTPClientHelper.HTTPResponse response =
+                                HTTPClientHelper.sendRequest("127.0.0.1", TEST_PORT, request);
+
+                            results[index] = (response.statusCode == 200 || response.statusCode == 404);
+                        } catch (Exception e) {
+                            results[index] = false;
+                        }
                     }
-                }
-            });
-            threads[i].start();
-        }
+                });
+                threads[i].start();
+            }
 
-        // Wait for all threads
-        for (Thread thread : threads) {
-            thread.join(10000);
+            // Wait for all threads
+            for (Thread thread : threads) {
+                thread.join(10000);
+            }
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler);
         }
 
         // Check results
         for (int i = 0; i < numThreads; i++) {
             assertTrue("Concurrent request " + i + " should complete", results[i]);
         }
+
+        assertTrue("no server worker thread should have died to an uncaught error: " + uncaught,
+                uncaught.isEmpty());
     }
 
     // ============== Helper Methods ==============

@@ -58,6 +58,13 @@ import java.util.logging.Level;
  */
 final class ContextClassLoader extends ClassLoader {
 
+    static {
+        // Required for getClassLoadingLock(name) to return a genuine
+        // per-class-name lock; without this it silently returns `this`,
+        // which would serialize loading of unrelated classes too.
+        ClassLoader.registerAsParallelCapable();
+    }
+
     private final ContainerClassLoader parent;
     private final ClassLoader fallbackParent; // For test environments
     private final Context context;
@@ -90,37 +97,46 @@ final class ContextClassLoader extends ClassLoader {
     }
 
     @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        // Check if class has already been loaded
-        Class<?> t = findLoadedClass(name);
-        if (t != null) {
-            return t;
-        }
-        if (manager) {
-            // Use container classloader
-            return super.loadClass(name, resolve);
-        } else {
-            // DefaultServlet is loaded by container classloader
-            if (DefaultServlet.class.getName().equals(name)) {
-                return DefaultServlet.class;
-            }
-            // Check if this is an assignment loaded during introspection
-            // scanning. These are classes found in the context
-            InputStream in = assignments.remove(name);
-            if (in != null) {
-                byte[] data = loadClassData(in, name);
-                return defineClass(name, data, 0, data.length);
-                // XXX ProtectionDomain?
-            }
-            // Check if class is located in the context
-            t = findContextClass(name);
+        // Per-class-name lock (the same one the JDK's own ClassLoader.
+        // loadClass uses internally) so two threads racing to load the
+        // same not-yet-loaded class serialize on the load-and-define
+        // below, instead of both reaching defineClass() and one throwing
+        // LinkageError: duplicate class definition. Locking per-name
+        // rather than on the whole ContextClassLoader instance means
+        // concurrent loads of *different* classes are unaffected.
+        synchronized (getClassLoadingLock(name)) {
+            // Check if class has already been loaded
+            Class<?> t = findLoadedClass(name);
             if (t != null) {
                 return t;
             }
-            // Dependency or JRE bootstrap class
-            if (parent == null || !parent.isContainerClass(name)) {
+            if (manager) {
+                // Use container classloader
                 return super.loadClass(name, resolve);
+            } else {
+                // DefaultServlet is loaded by container classloader
+                if (DefaultServlet.class.getName().equals(name)) {
+                    return DefaultServlet.class;
+                }
+                // Check if this is an assignment loaded during introspection
+                // scanning. These are classes found in the context
+                InputStream in = assignments.remove(name);
+                if (in != null) {
+                    byte[] data = loadClassData(in, name);
+                    return defineClass(name, data, 0, data.length);
+                    // XXX ProtectionDomain?
+                }
+                // Check if class is located in the context
+                t = findContextClass(name);
+                if (t != null) {
+                    return t;
+                }
+                // Dependency or JRE bootstrap class
+                if (parent == null || !parent.isContainerClass(name)) {
+                    return super.loadClass(name, resolve);
+                }
+                throw new ClassNotFoundException(name);
             }
-            throw new ClassNotFoundException(name);
         }
     }
 
