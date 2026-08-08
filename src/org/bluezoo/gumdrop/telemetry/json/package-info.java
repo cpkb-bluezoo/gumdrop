@@ -47,5 +47,6 @@
  *
  * @see org.bluezoo.gumdrop.telemetry.TelemetryExporter
  * @see org.bluezoo.gumdrop.telemetry.TelemetryConfig
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 package org.bluezoo.gumdrop.telemetry.json;

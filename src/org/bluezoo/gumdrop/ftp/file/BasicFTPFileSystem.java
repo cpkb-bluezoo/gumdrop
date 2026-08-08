@@ -40,8 +40,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -71,6 +73,7 @@ import java.util.logging.Logger;
 public class BasicFTPFileSystem implements FTPFileSystem {
     
     private static final Logger LOGGER = Logger.getLogger(BasicFTPFileSystem.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final Path rootPath;
     /** Cached {@link Path#toRealPath()} of {@link #rootPath}; computed at construction. */
@@ -116,8 +119,9 @@ public class BasicFTPFileSystem implements FTPFileSystem {
         this.canonicalRoot = canonical;
         
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("BasicFTPFileSystem initialized with root: " + rootPath + 
-                       (readOnly ? " (read-only)" : " (read-write)"));
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.basic_ftp_fs_initialized"),
+                    rootPath, readOnly ? L10N.getString("info.read_only") : L10N.getString("info.read_write")));
         }
     }
     
@@ -520,10 +524,12 @@ public class BasicFTPFileSystem implements FTPFileSystem {
             return FTPFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
-            LOGGER.log(Level.WARNING, "Security violation in rename: " + fromPath + " -> " + toPath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.rename_security_violation"), fromPath, toPath), e);
             return FTPFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error renaming file: " + fromPath + " -> " + toPath, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.rename_error"), fromPath, toPath), e);
             return FTPFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }

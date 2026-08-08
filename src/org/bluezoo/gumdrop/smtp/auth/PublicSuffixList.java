@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -66,6 +67,8 @@ import java.util.logging.Logger;
 class PublicSuffixList {
 
     private static final Logger LOGGER = Logger.getLogger(PublicSuffixList.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.auth.L10N");
     private static final String RESOURCE = "public_suffix_list.dat";
 
     /** Lazily-initialized singleton; resource parsing happens once per JVM. */
@@ -85,9 +88,7 @@ class PublicSuffixList {
     private PublicSuffixList() {
         try (InputStream in = PublicSuffixList.class.getResourceAsStream(RESOURCE)) {
             if (in == null) {
-                LOGGER.warning("public_suffix_list.dat resource not found on classpath; "
-                        + "DMARC organizational domain computation will fall back to the "
-                        + "last-two-labels heuristic for every domain");
+                LOGGER.warning(L10N.getString("warn.public_suffix_list_not_found"));
                 return;
             }
             parse(in);

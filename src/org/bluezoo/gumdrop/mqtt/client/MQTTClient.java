@@ -58,8 +58,11 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore;
  *     public void connectionLost(Exception cause) { ... }
  *     public void subscribeAcknowledged(int id, int[] qos) { ... }
  *     public void publishComplete(int id) { ... }
- * }, (topic, payload, qos, retain) -> {
- *     System.out.println("Received: " + topic);
+ * }, new MQTTMessageListener() {
+ *     public void messageReceived(String topic, MQTTMessageContent content,
+ *             int qos, boolean retain) {
+ *         System.out.println("Received: " + topic);
+ *     }
  * });
  * }</pre>
  *

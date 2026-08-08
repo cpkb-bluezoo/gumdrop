@@ -285,13 +285,14 @@ public class HTTPClientProtocolHandler
             // RFC 9113 section 9.1: start idle timer
             resetIdleTimeout();
             if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info("[HTTPClient] connected to " + host + ":" + port + ", calling onConnected");
+                LOGGER.info(MessageFormat.format(
+                        L10N.getString("info.debug_connected"), host, port));
             }
             if (handler != null) {
                 handler.onConnected(ep);
             }
             if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info("[HTTPClient] onConnected returned");
+                LOGGER.info(L10N.getString("info.debug_on_connected_returned"));
             }
         }
         // For secure connections, wait for securityEstablished()
@@ -349,7 +350,8 @@ public class HTTPClientProtocolHandler
     @Override
     public void receive(ByteBuffer data) {
         if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info("[HTTPClient] receive() " + data.remaining() + " bytes, parseState=" + parseState);
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.debug_receive"), data.remaining(), parseState));
         }
         // RFC 9113 section 9.1: reset idle timer on activity
         resetIdleTimeout();
@@ -839,7 +841,8 @@ public class HTTPClientProtocolHandler
     // RFC 9112 section 3.2 / RFC 9110 section 7.2: Host header required
     private void sendHTTP11Request(HTTPStream request, boolean hasBody) {
         if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info("[HTTPClient] sendHTTP11Request " + request.getMethod() + " " + request.getPath());
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.debug_send_http11_request"), request.getMethod(), request.getPath()));
         }
         StringBuilder sb = new StringBuilder();
 
@@ -1157,7 +1160,8 @@ public class HTTPClientProtocolHandler
                 handleChunkDataBytes(slice);
                 break;
             default:
-                LOGGER.warning("Unexpected rawBytes() call in state " + parseState);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.unexpected_raw_bytes_in_state"), parseState));
         }
     }
 
@@ -1176,8 +1180,8 @@ public class HTTPClientProtocolHandler
 
     private void reportHeaderTooLarge() {
         fatalParseError = true;
-        LOGGER.warning("Response header size exceeds limit ("
-                + maxResponseHeaderSize + " bytes)");
+        LOGGER.warning(MessageFormat.format(
+                L10N.getString("warn.response_header_too_large"), maxResponseHeaderSize));
         failAllStreams(new IOException("Response header too large"));
         close();
     }
@@ -1223,7 +1227,8 @@ public class HTTPClientProtocolHandler
 
         String line = new String(lineBytes, StandardCharsets.UTF_8);
         if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info("[HTTPClient] parseStatusLine: " + line);
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.debug_parse_status_line"), line));
         }
 
         int firstSpace = line.indexOf(' ');
@@ -1350,7 +1355,7 @@ public class HTTPClientProtocolHandler
                         || responseStatus == HTTPStatus.NO_CONTENT
                         || responseStatus == HTTPStatus.NOT_MODIFIED) {
                     if (Boolean.getBoolean("gumdrop.http.debug")) {
-                        LOGGER.info("[HTTPClient] no body (HEAD/204/304), completeResponse");
+                        LOGGER.info(L10N.getString("info.debug_no_body"));
                     }
                     completeResponse();
                 } else {
@@ -1361,8 +1366,8 @@ public class HTTPClientProtocolHandler
                     String contentLengthStr =
                             responseHeaders.getValue("content-length");
                     if (Boolean.getBoolean("gumdrop.http.debug")) {
-                        LOGGER.info("[HTTPClient] body type: transferEncoding=" + transferEncoding
-                                + " contentLength=" + contentLengthStr);
+                        LOGGER.info(MessageFormat.format(
+                                L10N.getString("info.debug_body_type"), transferEncoding, contentLengthStr));
                     }
 
                     // RFC 9112 section 6.2: a message with both
@@ -1370,9 +1375,7 @@ public class HTTPClientProtocolHandler
                     // a smuggling attack — log a warning and ignore
                     // Content-Length (Transfer-Encoding takes priority)
                     if (transferEncoding != null && contentLengthStr != null) {
-                        LOGGER.warning("Response has both Transfer-Encoding"
-                                + " and Content-Length — ignoring Content-Length"
-                                + " (RFC 9112 section 6.2)");
+                        LOGGER.warning(L10N.getString("warn.transfer_encoding_and_content_length"));
                         contentLengthStr = null;
                     }
 
@@ -1382,7 +1385,7 @@ public class HTTPClientProtocolHandler
                         chunkedEncoding = true;
                         parseState = ParseState.CHUNK_SIZE;
                         if (Boolean.getBoolean("gumdrop.http.debug")) {
-                            LOGGER.info("[HTTPClient] chunked, startResponseBody");
+                            LOGGER.info(L10N.getString("info.debug_chunked_start"));
                         }
                         if (responseHandler != null) {
                             responseHandler.startResponseBody();
@@ -1391,8 +1394,8 @@ public class HTTPClientProtocolHandler
                         // RFC 9110 section 8.6: validate Content-Length
                         contentLength = validateContentLength(contentLengthStr);
                         if (contentLength < 0) {
-                            LOGGER.warning("Invalid Content-Length: "
-                                    + contentLengthStr);
+                            LOGGER.warning(MessageFormat.format(
+                                    L10N.getString("warn.invalid_content_length"), contentLengthStr));
                             if (responseHandler != null) {
                                 responseHandler.failed(new IOException(
                                         "Invalid Content-Length"));
@@ -1401,7 +1404,8 @@ public class HTTPClientProtocolHandler
                         } else if (contentLength > 0) {
                             parseState = ParseState.BODY;
                             if (Boolean.getBoolean("gumdrop.http.debug")) {
-                                LOGGER.info("[HTTPClient] Content-Length=" + contentLength + ", startResponseBody");
+                                LOGGER.info(MessageFormat.format(
+                                        L10N.getString("info.debug_content_length_start"), contentLength));
                             }
                             if (responseHandler != null) {
                                 responseHandler.startResponseBody();
@@ -1463,8 +1467,8 @@ public class HTTPClientProtocolHandler
 
         int len = slice.remaining();
         if (Boolean.getBoolean("gumdrop.http.debug")) {
-            LOGGER.info("[HTTPClient] handleBodyBytes: contentLength=" + contentLength
-                    + " bytesReceived=" + bytesReceived + " chunk=" + len);
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.debug_handle_body_bytes"), contentLength, bytesReceived, len));
         }
 
         if (responseHandler != null) {
@@ -1481,7 +1485,7 @@ public class HTTPClientProtocolHandler
 
         if (bytesReceived >= contentLength) {
             if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info("[HTTPClient] handleBodyBytes: body complete, endResponseBody+completeResponse");
+                LOGGER.info(L10N.getString("info.debug_body_complete"));
             }
             if (discardingBody) {
                 completeBodyDiscard();
@@ -1641,11 +1645,11 @@ public class HTTPClientProtocolHandler
 
         if (responseHandler != null) {
             if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info("[HTTPClient] completeResponse calling responseHandler.close()");
+                LOGGER.info(L10N.getString("info.debug_calling_handler_close"));
             }
             responseHandler.close();
             if (Boolean.getBoolean("gumdrop.http.debug")) {
-                LOGGER.info("[HTTPClient] responseHandler.close() returned");
+                LOGGER.info(L10N.getString("info.debug_handler_close_returned"));
             }
         }
 

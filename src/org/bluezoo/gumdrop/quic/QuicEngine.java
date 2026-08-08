@@ -30,9 +30,11 @@ import java.security.SecureRandom;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
+import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -82,6 +84,8 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     private static final Logger LOGGER =
             Logger.getLogger(QuicEngine.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -185,7 +189,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         try {
             source = (InetSocketAddress) channel.receive(recvBuf);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Error receiving QUIC packet", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.recv_error"), e);
             return;
         }
 
@@ -210,9 +214,9 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         // Parse QUIC header to extract version, DCID, SCID, and token
         byte[] headerInfo = GumdropNative.quiche_header_info(recvBuf, len);
         if (headerInfo == null) {
-            LOGGER.severe("Failed to parse QUIC header from " + source
-                    + " (" + len + " bytes, "
-                    + (isLongHeader ? "Long" : "Short") + " header)");
+            LOGGER.severe(MessageFormat.format(
+                    L10N.getString("severe.parse_header_failed"),
+                    source, len, isLongHeader ? "Long" : "Short"));
             return;
         }
 
@@ -272,16 +276,17 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             conn = acceptConnection(dcid, version, source);
             if (conn == null) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Failed to accept QUIC connection from "
-                            + source + ", version=0x"
-                            + Integer.toHexString(version));
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.accept_connection_failed"),
+                            source, Integer.toHexString(version)));
                 }
                 return;
             }
         }
 
         if (conn == null) {
-            LOGGER.severe("No connection for DCID " + connKey);
+            LOGGER.severe(MessageFormat.format(
+                    L10N.getString("severe.no_connection_for_dcid"), connKey));
             return;
         }
 
@@ -296,8 +301,8 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
         if (rc < 0) {
             if (rc != GumdropNative.QUICHE_ERR_DONE) {
-                LOGGER.severe("QUIC recv error: "
-                        + GumdropNative.errorString(rc));
+                LOGGER.severe(MessageFormat.format(
+                        L10N.getString("severe.recv_error"), GumdropNative.errorString(rc)));
             }
             return;
         }
@@ -342,8 +347,8 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         int written = GumdropNative.quiche_negotiate_version(
                 peerScid, dcid, sendBuf, sendBuf.capacity());
         if (written < 0) {
-            LOGGER.warning("Failed to write Version Negotiation packet: "
-                    + written);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.version_negotiation_write_failed"), written));
             return;
         }
         sendBuf.limit(written);
@@ -374,7 +379,7 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
         long ssl = GumdropNative.ssl_new(factory.getSslCtx());
         if (ssl == 0) {
-            LOGGER.warning("Failed to create SSL for new QUIC connection");
+            LOGGER.warning(L10N.getString("warn.ssl_create_failed"));
             return null;
         }
 
@@ -432,8 +437,8 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             }
 
             if (written < 0) {
-                LOGGER.warning("quiche_conn_send error: "
-                        + GumdropNative.errorString(written));
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.conn_send_error"), GumdropNative.errorString(written)));
                 break;
             }
 
@@ -466,8 +471,8 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             try {
                 int sent = channel.send(sendBuf, dest);
                 if (sent != written) {
-                    LOGGER.warning("channel.send returned " + sent
-                            + " (expected " + written + ") to " + dest);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.channel_send_mismatch"), sent, written, dest));
                 }
                 packetCount++;
                 totalBytes += written;

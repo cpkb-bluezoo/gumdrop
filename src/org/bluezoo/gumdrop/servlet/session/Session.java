@@ -167,6 +167,9 @@ class Session implements HttpSession {
     }
 
     @Override
+    // Deprecated: HttpSession.getSessionContext() is deprecated by the
+    // Servlet API itself (always returns null since 2.1); implementing it
+    // at all requires referencing the deprecated HttpSessionContext type.
     @SuppressWarnings("deprecation")
     public HttpSessionContext getSessionContext() {
         return null; // deprecated
@@ -183,6 +186,9 @@ class Session implements HttpSession {
     }
 
     @Override
+    // Unchecked: HttpSession.getAttributeNames() returns Enumeration<String>;
+    // IteratorEnumeration is used raw here (its element type is erased at
+    // the keySet() source anyway), which is an unchecked-but-legal override.
     @SuppressWarnings("rawtypes")
     public synchronized Enumeration getAttributeNames() {
         return new IteratorEnumeration(attributes.keySet());

@@ -52,6 +52,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -61,6 +62,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
@@ -86,6 +88,8 @@ import java.util.logging.Logger;
 class FileHandler extends DefaultHTTPRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(FileHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
     private static final HTTPDateFormat dateFormat = new HTTPDateFormat();
 
@@ -236,8 +240,8 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 // declared Content-Length or transfer encoding.
                 if (!webdavBodyTooLarge) {
                     webdavBodyTooLarge = true;
-                    LOGGER.warning("WebDAV request body exceeds maximum of "
-                            + MAX_WEBDAV_REQUEST_BODY + " bytes; rejecting");
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.request_body_too_large"), MAX_WEBDAV_REQUEST_BODY));
                 }
                 return;
             }
@@ -695,7 +699,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
             List<String[]> errors = collectionDelete();
             if (errors.isEmpty()) {
                 plan.status = HTTPStatus.NO_CONTENT;
-                LOGGER.info("Deleted collection: " + path);
+                LOGGER.info(MessageFormat.format(L10N.getString("info.deleted_collection"), path));
             } else {
                 plan.multiStatus = errors;
             }
@@ -708,7 +712,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 deadPropertyStore.deleteProperties(path);
             }
             plan.status = HTTPStatus.NO_CONTENT;
-            LOGGER.info("Deleted file: " + path);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.deleted_file"), path));
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to delete file: " + path, e);
             plan.status = HTTPStatus.FORBIDDEN;
@@ -961,7 +965,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
         state.headers(response);
         state.complete();
 
-        LOGGER.info("PUT completed for file: " + path);
+        LOGGER.info(MessageFormat.format(L10N.getString("info.put_completed"), path));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1124,7 +1128,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
         }
         try {
             Files.createDirectory(path);
-            LOGGER.info("Created collection: " + path);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.created_collection"), path));
             return HTTPStatus.CREATED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to create collection: " + path, e);
@@ -1193,7 +1197,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
                     deadPropertyStore.copyProperties(path, destPath);
                 }
             }
-            LOGGER.info("Copied " + path + " to " + destPath);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.copied"), path, destPath));
             return destExists ? HTTPStatus.NO_CONTENT : HTTPStatus.CREATED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to copy: " + path, e);
@@ -1283,7 +1287,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 }
             }
 
-            LOGGER.info("Moved " + path + " to " + destPath);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.moved"), path, destPath));
             return destExists ? HTTPStatus.NO_CONTENT : HTTPStatus.CREATED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to move: " + path, e);
@@ -1352,7 +1356,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
             response.status(HTTPStatus.NO_CONTENT);
             state.headers(response);
             state.complete();
-            LOGGER.info("Unlocked: " + path);
+            LOGGER.info(MessageFormat.format(L10N.getString("info.unlocked"), path));
         } else {
             sendError(state, HTTPStatus.CONFLICT);
         }
@@ -2217,7 +2221,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
         state.responseBodyContent(ByteBuffer.wrap(body));
         state.endResponseBody();
         state.complete();
-        LOGGER.info("Locked: " + path + " with token " + lock.getToken());
+        LOGGER.info(MessageFormat.format(L10N.getString("info.locked"), path, lock.getToken()));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -2505,12 +2509,12 @@ class FileHandler extends DefaultHTTPRequestHandler {
         }
 
         if (requestPath.contains("\0")) {
-            LOGGER.warning("Rejected path containing null bytes");
+            LOGGER.warning(L10N.getString("warn.rejected_null_byte_path"));
             return null;
         }
 
         if (requestPath.length() > 2048) {
-            LOGGER.warning("Rejected overly long path");
+            LOGGER.warning(L10N.getString("warn.rejected_overly_long_path"));
             return null;
         }
 
@@ -2550,8 +2554,8 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 }
 
                 if (isDangerousPathComponent(decodedComponent)) {
-                    LOGGER.warning("Rejected dangerous path component: "
-                            + decodedComponent);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.rejected_dangerous_path_component"), decodedComponent));
                     return null;
                 }
 

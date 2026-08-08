@@ -268,7 +268,7 @@ public class FTPClientProtocolHandler
         // file content flows over the separate data connection — so the
         // lexer never enters a raw escape and this is structurally
         // unreachable.
-        LOGGER.warning("Unexpected rawBytes() call on FTP client lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
     }
 
     @Override
@@ -276,7 +276,7 @@ public class FTPClientProtocolHandler
         // FTPClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server —
         // so this is structurally unreachable.
-        LOGGER.warning("Unexpected tokenTooLong() call on FTP client lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
     }
 
     private static String decodeAscii(ByteBuffer window) {
@@ -764,8 +764,8 @@ public class FTPClientProtocolHandler
                 break;
             default:
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unexpected response in state "
-                            + state + ": " + code + " " + message);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.unexpected_response_in_state"), state, code, message));
                 }
         }
     }
@@ -1088,11 +1088,20 @@ public class FTPClientProtocolHandler
         }
         String content = message.substring(start + 1, end);
         char delim = content.charAt(0);
-        String[] parts = content.split(java.util.regex.Pattern.quote(String.valueOf(delim)), -1);
-        for (int i = parts.length - 1; i >= 0; i--) {
-            if (!parts[i].isEmpty()) {
-                return Integer.parseInt(parts[i]);
+        // Walk delim-separated fields from the end (manual parsing rather
+        // than java.util.regex, per project style) taking the last
+        // non-empty field as the port.
+        int fieldEnd = content.length();
+        while (fieldEnd > 0) {
+            int sep = content.lastIndexOf(delim, fieldEnd - 1);
+            String field = content.substring(sep + 1, fieldEnd);
+            if (!field.isEmpty()) {
+                return Integer.parseInt(field);
             }
+            if (sep < 0) {
+                break;
+            }
+            fieldEnd = sep;
         }
         throw new IllegalArgumentException("no port found in EPSV reply");
     }
@@ -1325,7 +1334,8 @@ public class FTPClientProtocolHandler
 
     private void handleError(FTPException error) {
         if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning("FTP client error: " + error.getMessage());
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.ftp_client_error"), error.getMessage()));
         }
         state = FTPState.ERROR;
         handler.onError(error);

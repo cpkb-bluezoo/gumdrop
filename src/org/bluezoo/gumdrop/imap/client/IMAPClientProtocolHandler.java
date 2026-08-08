@@ -24,9 +24,11 @@ package org.bluezoo.gumdrop.imap.client;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -106,6 +108,8 @@ public class IMAPClientProtocolHandler
     private static final Logger LOGGER =
             Logger.getLogger(
                     IMAPClientProtocolHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
     private static final String CRLF = "\r\n";
 
@@ -229,7 +233,7 @@ public class IMAPClientProtocolHandler
     @Override
     public void disconnected() {
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("IMAP client disconnected");
+            LOGGER.info(L10N.getString("info.imap_client_disconnected"));
         }
         state = IMAPState.CLOSED;
         handler.onDisconnected();
@@ -299,7 +303,7 @@ public class IMAPClientProtocolHandler
         // (Integer.MAX_VALUE) — this client trusts the remote server, same
         // as POP3ClientLexer/SMTPClientLexer — so this is structurally
         // unreachable.
-        LOGGER.warning("Unexpected tokenTooLong() call on IMAP client lexer");
+        LOGGER.warning(L10N.getString("warn.imap_unexpected_token_too_long"));
     }
 
     private void dispatchLine() {
@@ -1483,8 +1487,8 @@ public class IMAPClientProtocolHandler
         if (currentTag == null
                 || !currentTag.equals(response.getTag())) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("Tag mismatch: expected "
-                        + currentTag + ", got " + response.getTag());
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.imap_tag_mismatch"), currentTag, response.getTag()));
             }
             return;
         }
@@ -1570,8 +1574,8 @@ public class IMAPClientProtocolHandler
                 break;
             default:
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unexpected tagged response "
-                            + "in state " + state + ": " + response);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.imap_unexpected_tagged_response"), state, response));
                 }
         }
     }

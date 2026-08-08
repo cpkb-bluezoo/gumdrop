@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.text.MessageFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -51,6 +52,8 @@ import java.util.logging.Logger;
 public class StreamPriorityTree {
     
     private static final Logger LOGGER = Logger.getLogger(StreamPriorityTree.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
     
     /**
      * Stream 0 is the root of the dependency tree (connection-level).
@@ -169,8 +172,8 @@ public class StreamPriorityTree {
         
         // Prevent circular dependencies
         if (wouldCreateCircularDependency(streamId, dependsOn)) {
-            LOGGER.warning("Ignoring priority update that would create circular dependency: stream " + 
-                streamId + " depends on " + dependsOn);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.circular_priority_dependency"), streamId, dependsOn));
             return;
         }
         

@@ -215,8 +215,12 @@ public class ProtoFileParser {
         }
         String ident = nextFullIdent();
         if (ident != null) {
-            if (ident.equals("true")) return true;
-            if (ident.equals("false")) return false;
+            if (ident.equals("true")) {
+                return true;
+            }
+            if (ident.equals("false")) {
+                return false;
+            }
             return ident;
         }
         throw parseError(L10N.getString("err.expected_string"));
@@ -245,7 +249,9 @@ public class ProtoFileParser {
             }
 
             String tok = nextIdentifier();
-            if (tok == null) break;
+            if (tok == null) {
+                break;
+            }
 
             switch (tok) {
                 case "option":
@@ -267,16 +273,22 @@ public class ProtoFileParser {
                     break;
                 case "map":
                     FieldDescriptor mapField = parseMapField(fullName, fieldNumbers);
-                    if (mapField != null) msgBuilder.addField(mapField);
+                    if (mapField != null) {
+                        msgBuilder.addField(mapField);
+                    }
                     break;
                 case "repeated":
                 case "optional":
                     FieldDescriptor optField = parseField(tok, fullName, fieldNumbers);
-                    if (optField != null) msgBuilder.addField(optField);
+                    if (optField != null) {
+                        msgBuilder.addField(optField);
+                    }
                     break;
                 default:
                     FieldDescriptor field = parseField(null, fullName, fieldNumbers, tok);
-                    if (field != null) msgBuilder.addField(field);
+                    if (field != null) {
+                        msgBuilder.addField(field);
+                    }
                     break;
             }
             skipWhitespaceAndComments();
@@ -448,11 +460,16 @@ public class ProtoFileParser {
             }
 
             String tok = nextIdentifier();
-            if (tok == null) break;
+            if (tok == null) {
+                break;
+            }
 
             if (tok.equals("option") || tok.equals("reserved")) {
-                if (tok.equals("option")) parseOption();
-                else parseReserved();
+                if (tok.equals("option")) {
+                    parseOption();
+                } else {
+                    parseReserved();
+                }
             } else {
                 String valueName = tok;
                 expect('=');
@@ -489,7 +506,9 @@ public class ProtoFileParser {
             }
 
             String tok = nextIdentifier();
-            if (tok == null) break;
+            if (tok == null) {
+                break;
+            }
 
             if (tok.equals("option")) {
                 parseOption();
@@ -589,8 +608,12 @@ public class ProtoFileParser {
                 char next = input.charAt(pos + 1);
                 if (next == '/') {
                     pos += 2;
-                    while (pos < input.length() && input.charAt(pos) != '\n') pos++;
-                    if (pos < input.length()) pos++;
+                    while (pos < input.length() && input.charAt(pos) != '\n') {
+                        pos++;
+                    }
+                    if (pos < input.length()) {
+                        pos++;
+                    }
                     line++;
                     column = 1;
                 } else if (next == '*') {
@@ -600,7 +623,9 @@ public class ProtoFileParser {
                             pos += 2;
                             break;
                         }
-                        if (input.charAt(pos) == '\n') line++;
+                        if (input.charAt(pos) == '\n') {
+                            line++;
+                        }
                         pos++;
                     }
                 } else {
@@ -614,13 +639,19 @@ public class ProtoFileParser {
 
     private String nextIdentifier() throws ProtoParseException {
         skipWhitespaceAndComments();
-        if (pos >= input.length()) return null;
+        if (pos >= input.length()) {
+            return null;
+        }
         char c = input.charAt(pos);
-        if (!Character.isLetter(c) && c != '_') return null;
+        if (!Character.isLetter(c) && c != '_') {
+            return null;
+        }
         int start = pos;
         while (pos < input.length()) {
             c = input.charAt(pos);
-            if (!Character.isLetterOrDigit(c) && c != '_') break;
+            if (!Character.isLetterOrDigit(c) && c != '_') {
+                break;
+            }
             pos++;
             column++;
         }
@@ -630,13 +661,17 @@ public class ProtoFileParser {
     private String nextFullIdent() throws ProtoParseException {
         StringBuilder sb = new StringBuilder();
         String part = nextIdentifier();
-        if (part == null) return null;
+        if (part == null) {
+            return null;
+        }
         sb.append(part);
         skipWhitespaceAndComments();
         while (pos < input.length() && peek() == '.') {
             consume();
             part = nextIdentifier();
-            if (part == null) break;
+            if (part == null) {
+                break;
+            }
             sb.append('.').append(part);
             skipWhitespaceAndComments();
         }
@@ -655,7 +690,9 @@ public class ProtoFileParser {
     private String nextString() throws ProtoParseException {
         skipWhitespaceAndComments();
         char quote = peek();
-        if (quote != '"' && quote != '\'') return null;
+        if (quote != '"' && quote != '\'') {
+            return null;
+        }
         consume();
         StringBuilder sb = new StringBuilder();
         while (pos < input.length()) {
@@ -667,7 +704,9 @@ public class ProtoFileParser {
             }
             if (c == '\\') {
                 consume();
-                if (pos >= input.length()) throw parseError(L10N.getString("err.unexpected_eof"));
+                if (pos >= input.length()) {
+                    throw parseError(L10N.getString("err.unexpected_eof"));
+                }
                 c = input.charAt(pos);
                 switch (c) {
                     case 'n': sb.append('\n'); break;
@@ -690,8 +729,12 @@ public class ProtoFileParser {
     private Number nextNumber() throws ProtoParseException {
         skipWhitespaceAndComments();
         int start = pos;
-        if (peek() == '-' || peek() == '+') consume();
-        while (pos < input.length() && Character.isDigit(peek())) consume();
+        if (peek() == '-' || peek() == '+') {
+            consume();
+        }
+        while (pos < input.length() && Character.isDigit(peek())) {
+            consume();
+        }
         if (pos == start || (pos == start + 1 && (input.charAt(start) == '-' || input.charAt(start) == '+'))) {
             throw parseError(L10N.getString("err.expected_number"));
         }

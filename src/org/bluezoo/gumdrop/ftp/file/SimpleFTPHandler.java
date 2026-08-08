@@ -29,6 +29,9 @@ import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
 import org.bluezoo.gumdrop.ftp.FTPFileSystem;
 
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -49,6 +52,7 @@ import java.util.logging.Logger;
 public class SimpleFTPHandler implements FTPConnectionHandler {
     
     private static final Logger LOGGER = Logger.getLogger(SimpleFTPHandler.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final FTPFileSystem fileSystem;
     private final Realm realm;
@@ -66,8 +70,10 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
     public String connected(FTPConnectionMetadata metadata) {
         String clientHost = metadata.getClientAddress() != null ? 
                            metadata.getClientAddress().getHostString() : "unknown";
-        LOGGER.info("FTP connection from " + clientHost + 
-                   (realm != null ? " (Realm authentication)" : " (Simple authentication)"));
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_connection"),
+                clientHost,
+                realm != null ? L10N.getString("info.realm_auth") : L10N.getString("info.simple_auth")));
         return null; // Use default welcome message
     }
     
@@ -92,10 +98,12 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
                 boolean authenticated = realm.passwordMatch(username.trim(), password);
                 
                 if (authenticated) {
-                    LOGGER.info("User '" + username + "' authenticated via Realm from " + clientHost);
+                    LOGGER.info(MessageFormat.format(
+                            L10N.getString("info.simple_ftp_realm_auth_success"), username, clientHost));
                     return FTPAuthenticationResult.SUCCESS;
                 } else {
-                    LOGGER.warning("Authentication failed from " + clientHost);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.simple_ftp_auth_failed"), clientHost));
                     return FTPAuthenticationResult.INVALID_PASSWORD;
                 }
             } else {
@@ -103,14 +111,15 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
                 if (password.trim().isEmpty()) {
                     return FTPAuthenticationResult.INVALID_PASSWORD;
                 }
-                
-                LOGGER.info("User '" + username + "' authenticated (simple mode) from " + clientHost);
+
+                LOGGER.info(MessageFormat.format(
+                        L10N.getString("info.simple_ftp_simple_auth_success"), username, clientHost));
                 return FTPAuthenticationResult.SUCCESS;
             }
-            
+
         } catch (Exception e) {
-            LOGGER.log(java.util.logging.Level.WARNING, 
-                      "Authentication error from " + clientHost, e);
+            LOGGER.log(Level.WARNING, MessageFormat.format(
+                    L10N.getString("warn.simple_ftp_auth_error"), clientHost), e);
             return FTPAuthenticationResult.INVALID_PASSWORD;
         }
     }
@@ -125,8 +134,9 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
                                FTPConnectionMetadata metadata) {
         String direction = upload ? "upload" : "download";
         String sizeStr = (size >= 0) ? " (" + size + " bytes)" : "";
-        LOGGER.info("Starting " + direction + " of " + path + sizeStr + 
-                   " for user " + metadata.getAuthenticatedUser());
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_transfer_starting"),
+                direction, path, sizeStr, metadata.getAuthenticatedUser()));
     }
     
     @Override
@@ -135,8 +145,9 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
         // Log progress every 1MB for demo purposes
         if (totalBytesTransferred % (1024 * 1024) == 0) {
             String direction = upload ? "upload" : "download";
-            LOGGER.info("Transfer progress: " + direction + " of " + path + 
-                       " - " + totalBytesTransferred + " bytes");
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.simple_ftp_transfer_progress"),
+                    direction, path, totalBytesTransferred));
         }
     }
     
@@ -145,15 +156,16 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
                                 boolean success, FTPConnectionMetadata metadata) {
         String direction = upload ? "upload" : "download";
         String status = success ? "completed" : "failed";
-        LOGGER.info("Transfer " + status + ": " + direction + " of " + path + 
-                   " - " + totalBytesTransferred + " bytes for user " + 
-                   metadata.getAuthenticatedUser());
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_transfer_completed"),
+                status, direction, path, totalBytesTransferred, metadata.getAuthenticatedUser()));
     }
     
     @Override
     public FTPFileOperationResult handleSiteCommand(String command, FTPConnectionMetadata metadata) {
         // Demo SITE command handling
-        LOGGER.info("SITE command from " + metadata.getAuthenticatedUser() + ": " + command);
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_site_command"), metadata.getAuthenticatedUser(), command));
         
         if (command.toUpperCase().startsWith("HELP")) {
             return FTPFileOperationResult.SUCCESS;
@@ -164,7 +176,8 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void disconnected(FTPConnectionMetadata metadata) {
-        LOGGER.info("FTP connection closed from " + metadata.getClientAddress() + 
-                   " (user: " + metadata.getAuthenticatedUser() + ")");
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_disconnected"),
+                metadata.getClientAddress(), metadata.getAuthenticatedUser()));
     }
 }

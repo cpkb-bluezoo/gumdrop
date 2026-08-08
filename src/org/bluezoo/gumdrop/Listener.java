@@ -777,7 +777,8 @@ public abstract class Listener {
         try {
             return Long.parseLong(numPart.trim()) * multiplier;
         } catch (NumberFormatException e) {
-            LOGGER.warning("Invalid duration format: " + duration);
+            LOGGER.warning(MessageFormat.format(
+                    Gumdrop.L10N.getString("warn.invalid_duration_format"), duration));
             return 0;
         }
     }

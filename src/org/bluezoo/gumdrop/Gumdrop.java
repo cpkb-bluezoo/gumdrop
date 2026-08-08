@@ -906,8 +906,8 @@ public class Gumdrop {
             return;
         }
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("Draining " + remaining
-                    + " in-flight connection(s), up to " + timeoutMs + "ms");
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.draining_connections"), remaining, timeoutMs));
         }
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (remaining > 0 && System.currentTimeMillis() < deadline) {
@@ -921,11 +921,11 @@ public class Gumdrop {
         }
         if (remaining > 0) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("Drain timeout reached with " + remaining
-                        + " connection(s) still active; forcing close");
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.drain_timeout"), remaining));
             }
         } else if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("All in-flight connections drained");
+            LOGGER.info(L10N.getString("info.drain_complete"));
         }
     }
 
@@ -1126,7 +1126,8 @@ public class Gumdrop {
             try {
                 gumdrop.setDrainTimeoutMs(Long.parseLong(drainEnv.trim()));
             } catch (NumberFormatException e) {
-                LOGGER.warning("Invalid GUMDROP_DRAIN_TIMEOUT_MS: " + drainEnv);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.invalid_drain_timeout_env"), drainEnv));
             }
         }
 

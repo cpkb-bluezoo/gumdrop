@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code exchange.declare-ok}. */
+/**
+ * Receives {@code exchange.declare-ok}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerExchangeDeclareHandler {
     void handleExchangeDeclareOk();
 }

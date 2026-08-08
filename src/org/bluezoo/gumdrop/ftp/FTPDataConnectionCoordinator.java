@@ -32,6 +32,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.ArrayDeque;
 import java.util.Iterator;
 import java.util.List;
@@ -290,9 +291,9 @@ public class FTPDataConnectionCoordinator {
             InetAddress dataAddress = InetAddress.getByName(host);
             if (!isActiveDataAddressAllowed(dataAddress)) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Active mode data address " + dataAddress
-                            + " does not match control connection from "
-                            + controlClientAddress + "; rejecting");
+                    LOGGER.warning(MessageFormat.format(
+                            FTPProtocolHandler.L10N.getString("warn.active_mode_address_mismatch"),
+                            dataAddress, controlClientAddress));
                 }
                 return false;
             }
@@ -354,9 +355,9 @@ public class FTPDataConnectionCoordinator {
                 SocketChannel sc = dataConnection.getChannel();
                 InetAddress dataAddr = ((InetSocketAddress) sc.getRemoteAddress()).getAddress();
                 if (!controlClientAddress.equals(dataAddr)) {
-                    LOGGER.warning("Data connection from " + dataAddr
-                            + " does not match control connection from "
-                            + controlClientAddress + "; rejecting");
+                    LOGGER.warning(MessageFormat.format(
+                            FTPProtocolHandler.L10N.getString("warn.data_connection_address_mismatch"),
+                            dataAddr, controlClientAddress));
                     dataConnection.close();
                     return;
                 }
@@ -701,7 +702,7 @@ public class FTPDataConnectionCoordinator {
             waitingContinuation = null;
             connectionTimeout = null;
         }
-        LOGGER.warning("Timeout waiting for FTP client data connection");
+        LOGGER.warning(FTPProtocolHandler.L10N.getString("warn.data_connection_timeout"));
         cleanup();
         callback.transferFailed(
                 new IOException("Timeout waiting for client data connection"));

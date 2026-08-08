@@ -480,7 +480,7 @@ public class SMTPProtocolHandler
         // SMTP's command channel is always line-based; DATA/BDAT content is
         // handled directly from receive(), never as a lexer raw escape, so
         // this is structurally unreachable.
-        LOGGER.warning("Unexpected rawBytes() call on SMTP server lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_server"));
     }
 
     @Override

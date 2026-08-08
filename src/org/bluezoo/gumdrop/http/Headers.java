@@ -64,7 +64,12 @@ public class Headers extends ArrayList<Header> {
             Map<String,List<Header>> built = new HashMap<>();
             for (Header header : this) {
                 String key = header.getName().toLowerCase(Locale.ROOT);
-                built.computeIfAbsent(key, k -> new ArrayList<>()).add(header);
+                List<Header> forName = built.get(key);
+                if (forName == null) {
+                    forName = new ArrayList<>();
+                    built.put(key, forName);
+                }
+                forName.add(header);
             }
             index = built;
             indexModCount = modCount;

@@ -161,7 +161,9 @@ public class MQTTClientProtocolHandler
     @Override
     public void connAck(boolean sessionPresent, int returnCode,
                         MQTTProperties properties) {
-        if (state != State.AWAITING_CONNACK) return;
+        if (state != State.AWAITING_CONNACK) {
+            return;
+        }
 
         if (returnCode == CONNACK_ACCEPTED) {
             state = State.CONNECTED;
@@ -181,7 +183,9 @@ public class MQTTClientProtocolHandler
     public void startPublish(boolean dup, int qos, boolean retain,
                              String topicName, int packetId,
                              MQTTProperties properties, int payloadLength) {
-        if (state != State.CONNECTED) return;
+        if (state != State.CONNECTED) {
+            return;
+        }
 
         rxPubQoS = qos;
         rxPubRetain = retain;
@@ -210,7 +214,9 @@ public class MQTTClientProtocolHandler
 
     @Override
     public void endPublish() {
-        if (rxPubWriter == null) return;
+        if (rxPubWriter == null) {
+            return;
+        }
 
         MQTTMessageContent content;
         try {

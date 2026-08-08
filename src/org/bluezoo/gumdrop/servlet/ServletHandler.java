@@ -30,6 +30,7 @@ import org.bluezoo.gumdrop.http.HTTPStatus;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -552,7 +553,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
                     try {
                         trailerFields = trailerFieldsSupplier.get();
                     } catch (Exception e) {
-                        LOGGER.warning("Error getting trailer fields: " + e.getMessage());
+                        LOGGER.warning(MessageFormat.format(
+                                Context.L10N.getString("warn.trailer_fields_error"), e.getMessage()));
                     }
                 }
                 if (trailerFields != null && !trailerFields.isEmpty()) {

@@ -22,12 +22,14 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -67,6 +69,8 @@ public class HTTP3ClientHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(HTTP3ClientHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     /** Default QPACK max dynamic table capacity. */
     private static final long DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096;
@@ -136,7 +140,7 @@ public class HTTP3ClientHandler
                 quicheConn, h3Config);
 
         if (h3Conn == 0) {
-            LOGGER.severe("Failed to create h3 client connection");
+            LOGGER.severe(L10N.getString("severe.h3_client_connection_failed"));
         }
     }
 
@@ -241,8 +245,8 @@ public class HTTP3ClientHandler
                 pendingWrites.put(Long.valueOf(streamId), pw);
                 return;
             } else {
-                LOGGER.warning("h3 send_body error: " + result
-                        + " stream=" + streamId);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.h3_send_body_error"), result, streamId));
                 return;
             }
         }
@@ -252,8 +256,8 @@ public class HTTP3ClientHandler
                     h3Conn, quicheConn, streamId, data, 0, true);
             if (result < 0
                     && result != GumdropNative.QUICHE_ERR_DONE) {
-                LOGGER.warning("h3 send_body FIN error: " + result
-                        + " stream=" + streamId);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.h3_send_body_fin_error"), result, streamId));
             }
         }
         flushQuic();
@@ -446,8 +450,8 @@ public class HTTP3ClientHandler
                         flushQuic();
                         return;
                     } else {
-                        LOGGER.warning("h3 send_body error: " + result
-                                + " stream=" + streamId);
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.h3_send_body_error"), result, streamId));
                         pw.buffers.clear();
                         pw.fin = false;
                         it.remove();
@@ -463,8 +467,8 @@ public class HTTP3ClientHandler
                         ByteBuffer.allocate(0), 0, true);
                 if (result < 0
                         && result != GumdropNative.QUICHE_ERR_DONE) {
-                    LOGGER.warning("h3 send_body FIN error: " + result
-                            + " stream=" + streamId);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.h3_send_body_fin_error"), result, streamId));
                 }
                 flushQuic();
             }

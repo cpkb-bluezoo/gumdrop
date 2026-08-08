@@ -239,7 +239,8 @@ public class OAuthRealm implements Realm {
         try {
             LOGGER.setLevel(Level.parse(logLevel));
         } catch (IllegalArgumentException e) {
-            LOGGER.warning("Invalid log level '" + logLevel + "', using INFO");
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.invalid_log_level"), logLevel));
         }
         String msg = MessageFormat.format(L10N.getString("info.oauth.init"), authorizationServerUrl, serverHost, serverPort, useHttps, cacheEnabled, roleScopeMapping.size());
         LOGGER.info(msg);

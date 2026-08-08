@@ -29,8 +29,10 @@ import java.nio.ByteBuffer;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -60,6 +62,8 @@ public final class QuicConnection {
 
     private static final Logger LOGGER =
             Logger.getLogger(QuicConnection.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     private final QuicEngine engine;
     private final long connPtr;
@@ -279,8 +283,8 @@ public final class QuicConnection {
     private void notifyClientHandshakeComplete() {
         String pinned = engine.getFactory().getPinnedCertFingerprint();
         if (pinned != null && !verifyCertFingerprint(pinned)) {
-            LOGGER.severe("QUIC server certificate fingerprint mismatch"
-                    + " for " + remoteAddress);
+            LOGGER.severe(MessageFormat.format(
+                    L10N.getString("severe.cert_fingerprint_mismatch"), remoteAddress));
             close();
             return;
         }

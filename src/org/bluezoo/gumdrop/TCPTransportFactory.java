@@ -219,9 +219,9 @@ public class TCPTransportFactory extends TransportFactory {
                 if (isSNIEnabled()) {
                     km = wrapWithSNIKeyManager(km);
                     if (LOGGER.isLoggable(Level.INFO)) {
-                        LOGGER.info("SNI enabled with " +
-                                sniHostnameToAlias.size() +
-                                " hostname mapping(s)");
+                        LOGGER.info(MessageFormat.format(
+                                Gumdrop.L10N.getString("info.sni_enabled"),
+                                sniHostnameToAlias.size()));
                     }
                 }
 
@@ -361,6 +361,9 @@ public class TCPTransportFactory extends TransportFactory {
             try {
                 Class<?> extOpts = Class.forName(
                         "jdk.net.ExtendedSocketOptions");
+                // Unchecked: TCP_FASTOPEN_CONNECT is documented by the JDK
+                // as a SocketOption<Boolean>; reflection erases that to
+                // SocketOption<?>, so the cast can't be statically verified.
                 @SuppressWarnings("unchecked")
                 java.net.SocketOption<Boolean> tfo =
                         (java.net.SocketOption<Boolean>)

@@ -317,7 +317,8 @@ public class QuicTransportFactory extends TransportFactory {
         initQuicheConfig();
 
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("QuicTransportFactory started: " + getDescription());
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.quic_transport_factory_started"), getDescription()));
         }
     }
 
@@ -395,7 +396,7 @@ public class QuicTransportFactory extends TransportFactory {
 
         quicheConfigV2 = createQuicheConfig(QUICHE_PROTOCOL_VERSION_2);
         if (quicheConfigV2 != 0) {
-            LOGGER.info("QUIC v2 (RFC 9369) support enabled");
+            LOGGER.info(L10N.getString("info.quic_v2_enabled"));
         }
     }
 

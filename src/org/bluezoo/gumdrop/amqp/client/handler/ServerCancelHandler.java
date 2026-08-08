@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code basic.cancel-ok}. */
+/**
+ * Receives {@code basic.cancel-ok}.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerCancelHandler {
     void handleCancelOk(String consumerTag);
 }

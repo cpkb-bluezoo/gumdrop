@@ -387,7 +387,7 @@ public class HTTPProtocolHandler
         // we shouldn't receive data yet (securityEstablished should be called first)
         if ((state == State.PRI_SETTINGS || state == State.HTTP2 
                 || state == State.HTTP2_CONTINUATION) && h2Parser == null) {
-            LOGGER.warning("Received data in HTTP/2 state but parser not initialized");
+            LOGGER.warning(L10N.getString("warn.h2_data_before_parser_init"));
             closeEndpoint();
             return;
         }
@@ -455,8 +455,8 @@ public class HTTPProtocolHandler
             // RFC 9113 section 9.2.2: reject non-AEAD cipher suites
             // for TLS 1.2 (TLS 1.3 only has AEAD suites)
             if (info != null && isBlockedH2CipherSuite(info)) {
-                LOGGER.warning("Blocked HTTP/2 cipher suite: "
-                        + info.getCipherSuite());
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.blocked_h2_cipher_suite"), info.getCipherSuite()));
                 h2Parser = new H2Parser(this);
                 h2Writer = new H2Writer(new EndpointChannel());
                 version = HTTPVersion.HTTP_2_0;
@@ -543,7 +543,8 @@ public class HTTPProtocolHandler
                 handleChunkedDataBytes(slice);
                 break;
             default:
-                LOGGER.warning("Unexpected rawBytes() call in state " + state);
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.unexpected_raw_bytes_in_state"), state));
         }
     }
 
@@ -1450,8 +1451,12 @@ public class HTTPProtocolHandler
         }
         StringBuilder sb = new StringBuilder();
         for (String m : methods) {
-            if ("PRI".equals(m)) continue;
-            if (sb.length() > 0) sb.append(", ");
+            if ("PRI".equals(m)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
             sb.append(m);
         }
         return sb.toString();
@@ -1923,7 +1928,7 @@ public class HTTPProtocolHandler
     private void receiveFrameData(ByteBuffer buf) {
         if (h2Parser == null) {
             // HTTP/2 not initialized yet - this shouldn't happen
-            LOGGER.warning("Received HTTP/2 frame data but parser not initialized");
+            LOGGER.warning(L10N.getString("warn.h2_frame_data_before_parser_init"));
             closeEndpoint();
             return;
         }
@@ -2087,7 +2092,7 @@ public class HTTPProtocolHandler
                 @Override
                 public void run() {
                     if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.warning("SETTINGS ACK timeout — sending GOAWAY");
+                        LOGGER.warning(L10N.getString("warn.settings_ack_timeout"));
                     }
                     sendGoaway(H2FrameHandler.ERROR_SETTINGS_TIMEOUT);
                 }
@@ -2583,8 +2588,9 @@ public class HTTPProtocolHandler
     @Override
     public void frameError(int errorCode, int streamId, String message) {
         if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning("Frame error: " + message + " (error="
-                    + H2FrameHandler.errorToString(errorCode) + ", stream=" + streamId + ")");
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.frame_error"),
+                    message, H2FrameHandler.errorToString(errorCode), streamId));
         }
         if (streamId == 0 || errorCode == H2FrameHandler.ERROR_PROTOCOL_ERROR
                 || errorCode == H2FrameHandler.ERROR_FRAME_SIZE_ERROR) {

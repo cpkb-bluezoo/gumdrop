@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.smtp;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -156,8 +157,8 @@ public class SimpleRelayService extends SMTPService {
         }
 
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("SimpleRelayService initialized, hostname="
-                    + hostname);
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.simple_relay_service_initialized"), hostname));
         }
     }
 

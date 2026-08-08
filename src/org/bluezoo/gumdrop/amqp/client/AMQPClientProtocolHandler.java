@@ -125,9 +125,12 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
             new HashMap<Integer, ArrayDeque<Object>>();
 
     private void pushPendingChannelCallback(int channelId, Object callback) {
-        pendingChannelCallbacks
-                .computeIfAbsent(channelId, k -> new ArrayDeque<Object>())
-                .addLast(callback);
+        ArrayDeque<Object> queue = pendingChannelCallbacks.get(channelId);
+        if (queue == null) {
+            queue = new ArrayDeque<Object>();
+            pendingChannelCallbacks.put(channelId, queue);
+        }
+        queue.addLast(callback);
     }
 
     /** Returns the oldest still-pending callback for the channel, or null if none. */

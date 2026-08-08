@@ -21,7 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
-/** Receives {@code tx.select-ok}: the channel is now transactional. */
+/**
+ * Receives {@code tx.select-ok}: the channel is now transactional.
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
 public interface ServerTxSelectHandler {
     void handleTxSelectOk();
 }

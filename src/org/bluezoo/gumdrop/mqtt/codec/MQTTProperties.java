@@ -83,26 +83,36 @@ public class MQTTProperties {
     // -- Typed accessors --
 
     public Integer getIntegerProperty(int id) {
-        if (properties == null) return null;
+        if (properties == null) {
+            return null;
+        }
         Object val = properties.get(id);
         return val instanceof Integer ? (Integer) val : null;
     }
 
     public String getStringProperty(int id) {
-        if (properties == null) return null;
+        if (properties == null) {
+            return null;
+        }
         Object val = properties.get(id);
         return val instanceof String ? (String) val : null;
     }
 
     public byte[] getBinaryProperty(int id) {
-        if (properties == null) return null;
+        if (properties == null) {
+            return null;
+        }
         Object val = properties.get(id);
         return val instanceof byte[] ? (byte[]) val : null;
     }
 
+    // Unchecked: USER_PROPERTY is only ever stored as a List<String[]>, by
+    // this class's own setter/decoder (see addUserProperty, decode()).
     @SuppressWarnings("unchecked")
     public List<String[]> getUserProperties() {
-        if (properties == null) return null;
+        if (properties == null) {
+            return null;
+        }
         Object val = properties.get(USER_PROPERTY);
         return val instanceof List ? (List<String[]>) val : null;
     }
@@ -124,6 +134,8 @@ public class MQTTProperties {
         properties.put(id, value);
     }
 
+    // Unchecked: USER_PROPERTY is only ever stored as a List<String[]>, by
+    // this method and the decoder (see getUserProperties, decode()).
     @SuppressWarnings("unchecked")
     public void addUserProperty(String key, String value) {
         ensureMap();
@@ -148,12 +160,16 @@ public class MQTTProperties {
      * variable-length integer that encodes this length).
      */
     public int encodedLength() {
-        if (isEmpty()) return 0;
+        if (isEmpty()) {
+            return 0;
+        }
         int len = 0;
         for (Map.Entry<Integer, Object> entry : properties.entrySet()) {
             int id = entry.getKey();
             Object val = entry.getValue();
             if (id == USER_PROPERTY && val instanceof List) {
+                // Unchecked: USER_PROPERTY is only ever stored as a
+                // List<String[]>, verified by the instanceof check above.
                 @SuppressWarnings("unchecked")
                 List<String[]> pairs = (List<String[]>) val;
                 for (String[] pair : pairs) {
@@ -176,12 +192,16 @@ public class MQTTProperties {
     public void encode(ByteBuffer buf) {
         int propLen = encodedLength();
         VariableLengthEncoding.encode(buf, propLen);
-        if (propLen == 0) return;
+        if (propLen == 0) {
+            return;
+        }
 
         for (Map.Entry<Integer, Object> entry : properties.entrySet()) {
             int id = entry.getKey();
             Object val = entry.getValue();
             if (id == USER_PROPERTY && val instanceof List) {
+                // Unchecked: USER_PROPERTY is only ever stored as a
+                // List<String[]>, verified by the instanceof check above.
                 @SuppressWarnings("unchecked")
                 List<String[]> pairs = (List<String[]>) val;
                 for (String[] pair : pairs) {
@@ -204,7 +224,9 @@ public class MQTTProperties {
      */
     public static MQTTProperties decode(ByteBuffer buf) {
         int propLen = VariableLengthEncoding.decode(buf);
-        if (propLen <= 0) return EMPTY;
+        if (propLen <= 0) {
+            return EMPTY;
+        }
 
         int endPos = buf.position() + propLen;
         MQTTProperties props = new MQTTProperties();

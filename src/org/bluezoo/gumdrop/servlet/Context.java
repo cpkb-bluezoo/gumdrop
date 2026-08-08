@@ -230,7 +230,12 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                 if (!entry.endsWith("/")) {
                     int lastSlash = entry.lastIndexOf('/');
                     String parentDir = (lastSlash == -1) ? "" : entry.substring(0, lastSlash + 1);
-                    childrenByDir.computeIfAbsent(parentDir, k -> new LinkedHashSet<>()).add(entry);
+                    Set<String> children = childrenByDir.get(parentDir);
+                    if (children == null) {
+                        children = new LinkedHashSet<>();
+                        childrenByDir.put(parentDir, children);
+                    }
+                    children.add(entry);
                 }
                 if (entry.startsWith(libPath) && entry.toLowerCase().endsWith(".jar")
                         && entry.indexOf('/', libPath.length()) == -1) {
@@ -645,7 +650,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             servletMappings.add(jspServletMapping);
             
             if (LOGGER.isLoggable(Level.INFO)) {
-                LOGGER.info("Automatically configured JSP servlet for *.jsp and *.jspx files");
+                LOGGER.info(L10N.getString("info.jsp_servlet_auto_configured"));
             }
         }
 
@@ -2559,7 +2564,8 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                     jspInputStream.close();
                 } catch (IOException e) {
                     // Log but don't fail
-                    LOGGER.warning("Failed to close JSP input stream for: " + path);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.jsp_input_stream_close_failed"), path));
                 }
             }
 
@@ -2820,7 +2826,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             // Use javax.tools.JavaCompiler for compilation
             javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
             if (compiler == null) {
-                LOGGER.severe("No Java compiler available in runtime");
+                LOGGER.severe(L10N.getString("severe.no_java_compiler"));
                 return false;
             }
 
@@ -2841,7 +2847,9 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             String gumdropBuildPath = System.getProperty("gumdrop.build.path", "build");
             File buildDir = new File(gumdropBuildPath);
             if (buildDir.exists()) {
-                if (classpath.length() > 0) classpath.append(File.pathSeparator);
+                if (classpath.length() > 0) {
+                    classpath.append(File.pathSeparator);
+                }
                 classpath.append(buildDir.getAbsolutePath());
             }
             
@@ -2877,7 +2885,9 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             // Add WEB-INF/classes directory
             File webInfClasses = new File(root, "WEB-INF" + File.separator + "classes");
             if (webInfClasses.exists()) {
-                if (classpath.length() > 0) classpath.append(File.pathSeparator);
+                if (classpath.length() > 0) {
+                    classpath.append(File.pathSeparator);
+                }
                 classpath.append(webInfClasses.getAbsolutePath());
             }
 

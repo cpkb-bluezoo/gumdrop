@@ -160,17 +160,29 @@ public final class Attributes {
 
     @Override
     public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
         Attributes other = (Attributes) obj;
-        if (hashCode != other.hashCode) return false;
-        if (attributes.size() != other.attributes.size()) return false;
+        if (hashCode != other.hashCode) {
+            return false;
+        }
+        if (attributes.size() != other.attributes.size()) {
+            return false;
+        }
 
         for (int i = 0; i < attributes.size(); i++) {
             Attribute a = attributes.get(i);
             Attribute b = other.attributes.get(i);
-            if (!a.getKey().equals(b.getKey())) return false;
-            if (!Objects.equals(a.getValue(), b.getValue())) return false;
+            if (!a.getKey().equals(b.getKey())) {
+                return false;
+            }
+            if (!Objects.equals(a.getValue(), b.getValue())) {
+                return false;
+            }
         }
         return true;
     }
@@ -187,7 +199,9 @@ public final class Attributes {
         }
         StringBuilder sb = new StringBuilder("{");
         for (int i = 0; i < attributes.size(); i++) {
-            if (i > 0) sb.append(", ");
+            if (i > 0) {
+                sb.append(", ");
+            }
             Attribute attr = attributes.get(i);
             sb.append(attr.getKey()).append("=").append(attr.getValue());
         }

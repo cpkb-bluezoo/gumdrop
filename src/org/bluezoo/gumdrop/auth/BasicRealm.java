@@ -210,7 +210,9 @@ public class BasicRealm extends DefaultHandler implements Realm {
                 return storedDigest.length == 32 && MessageDigest.isEqual(storedDigest, computed);
             } else if (stored.startsWith("{SSHA}")) {
                 byte[] decoded = Base64.getDecoder().decode(stored.substring(6));
-                if (decoded.length < 21) return false;
+                if (decoded.length < 21) {
+                    return false;
+                }
                 byte[] digest = new byte[20];
                 byte[] salt = new byte[decoded.length - 20];
                 System.arraycopy(decoded, 0, digest, 0, 20);
@@ -222,7 +224,9 @@ public class BasicRealm extends DefaultHandler implements Realm {
                 return MessageDigest.isEqual(digest, computed);
             } else if (stored.startsWith("{SSHA256}")) {
                 byte[] decoded = Base64.getDecoder().decode(stored.substring(9));
-                if (decoded.length < 33) return false;
+                if (decoded.length < 33) {
+                    return false;
+                }
                 byte[] digest = new byte[32];
                 byte[] salt = new byte[decoded.length - 32];
                 System.arraycopy(decoded, 0, digest, 0, 32);
@@ -455,8 +459,8 @@ public class BasicRealm extends DefaultHandler implements Realm {
             }
             return sb.toString();
         } catch (NoSuchAlgorithmException | CertificateEncodingException e) {
-            LOGGER.warning("Failed to compute certificate fingerprint: "
-                    + e.getMessage());
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.cert_fingerprint_failed"), e.getMessage()));
             return null;
         }
     }
@@ -582,8 +586,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
     private void logPlaintextPasswordWarning() {
         for (String pwd : passwords.values()) {
             if (pwd != null && !isHashedPassword(pwd)) {
-                LOGGER.warning("BasicRealm loaded with plaintext passwords; "
-                        + "use LDAPRealm or hashed passwords for production.");
+                LOGGER.warning(L10N.getString("warn.plaintext_passwords"));
                 return;
             }
         }

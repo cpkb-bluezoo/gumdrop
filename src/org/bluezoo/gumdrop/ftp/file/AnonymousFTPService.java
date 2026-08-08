@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.ftp.file;
 
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
@@ -53,6 +55,7 @@ public class AnonymousFTPService extends FTPService {
 
     private static final Logger LOGGER =
             Logger.getLogger(AnonymousFTPService.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private Path rootDirectory;
     private String welcomeMessage;
@@ -90,8 +93,8 @@ public class AnonymousFTPService extends FTPService {
                     "rootDirectory must be configured");
         }
         fileSystem = new BasicFTPFileSystem(rootDirectory, true);
-        LOGGER.info("AnonymousFTPService initialised: root="
-                + rootDirectory);
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.anon_ftp_service_initialised"), rootDirectory));
     }
 
     @Override

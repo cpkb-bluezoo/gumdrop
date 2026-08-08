@@ -304,7 +304,7 @@ public class SMTPClientProtocolHandler
         // SMTP client responses are always line-based; DATA/BDAT content is
         // written by the client, never received, so the lexer never enters
         // a raw escape and this is structurally unreachable.
-        LOGGER.warning("Unexpected rawBytes() call on SMTP client lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
     }
 
     @Override
@@ -312,7 +312,7 @@ public class SMTPClientProtocolHandler
         // SMTPClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server, same
         // as POP3ClientLexer — so this is structurally unreachable.
-        LOGGER.warning("Unexpected tokenTooLong() call on SMTP client lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
     }
 
     private static String decodeAscii(ByteBuffer window) {

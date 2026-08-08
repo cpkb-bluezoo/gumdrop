@@ -22,6 +22,8 @@
 package org.bluezoo.gumdrop.ftp.file;
 
 import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TCPListener;
@@ -54,6 +56,7 @@ public class SimpleFTPService extends FTPService {
 
     private static final Logger LOGGER =
             Logger.getLogger(SimpleFTPService.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private Path rootDirectory;
     private boolean readOnly = false;
@@ -91,9 +94,9 @@ public class SimpleFTPService extends FTPService {
                     "rootDirectory must be configured");
         }
         fileSystem = new BasicFTPFileSystem(rootDirectory, readOnly);
-        LOGGER.info("SimpleFTPService initialised: root=" + rootDirectory
-                + ", readOnly=" + readOnly
-                + ", realm=" + (getRealm() != null));
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_service_initialised"),
+                rootDirectory, readOnly, getRealm() != null));
     }
 
     @Override

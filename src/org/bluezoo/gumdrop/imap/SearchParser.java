@@ -554,8 +554,12 @@ public class SearchParser {
         pos++; // consume '}'
         
         // Skip CRLF after literal marker
-        if (pos < length && input.charAt(pos) == '\r') pos++;
-        if (pos < length && input.charAt(pos) == '\n') pos++;
+        if (pos < length && input.charAt(pos) == '\r') {
+            pos++;
+        }
+        if (pos < length && input.charAt(pos) == '\n') {
+            pos++;
+        }
         
         if (pos + literalLength > length) {
             throw new ParseException("Literal extends beyond input", pos);

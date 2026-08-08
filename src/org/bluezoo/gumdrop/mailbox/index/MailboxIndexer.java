@@ -74,7 +74,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class MailboxIndexer {
+public final class MailboxIndexer implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(MailboxIndexer.class.getName());
 
@@ -84,7 +84,6 @@ public final class MailboxIndexer {
      * whichever thread is blocked in {@link #ensureFreshBlocking}, or
      * logged and dropped for a background job with nothing waiting.
      */
-    @FunctionalInterface
     public interface IndexWork {
         void run() throws Exception;
     }
@@ -96,7 +95,7 @@ public final class MailboxIndexer {
     private volatile boolean running = true;
 
     public MailboxIndexer() {
-        worker = new Thread(this::runLoop, "gumdrop-mailbox-indexer");
+        worker = new Thread(this, "gumdrop-mailbox-indexer");
         worker.setDaemon(true);
         worker.start();
     }
@@ -182,15 +181,23 @@ public final class MailboxIndexer {
      */
     public void submitBackground(MailboxIndexKey key, boolean isInbox,
             long lastModified, IndexWork work) {
-        pendingBackground.compute(key, (k, existing) -> {
+        while (true) {
+            Job existing = pendingBackground.get(key);
             if (existing != null && !existing.cancelled) {
-                return existing;
+                return;
             }
-            Job job = new Job(k, isInbox, lastModified, work, false,
+            Job job = new Job(key, isInbox, lastModified, work, false,
                     sequence.incrementAndGet());
-            queue.offer(job);
-            return job;
-        });
+            boolean replaced = (existing == null)
+                    ? (pendingBackground.putIfAbsent(key, job) == null)
+                    : pendingBackground.replace(key, existing, job);
+            if (replaced) {
+                queue.offer(job);
+                return;
+            }
+            // Lost a race with another submitBackground/ensureFreshBlocking
+            // call for this key; retry against the current state.
+        }
     }
 
     /**
@@ -212,7 +219,8 @@ public final class MailboxIndexer {
         worker.interrupt();
     }
 
-    private void runLoop() {
+    @Override
+    public void run() {
         while (running) {
             Job job;
             try {

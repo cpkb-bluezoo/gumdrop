@@ -423,7 +423,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
     @Override
     public void endPublish() {
-        if (pubWriter == null) return;
+        if (pubWriter == null) {
+            return;
+        }
 
         MQTTMessageContent content;
         try {
@@ -498,7 +500,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
     @Override
     public void pubAck(int packetId, int reasonCode,
                        MQTTProperties properties) {
-        if (state != State.CONNECTED) return;
+        if (state != State.CONNECTED) {
+            return;
+        }
         resetKeepAliveTimer();
         if (session != null) {
             session.getQoSManager().completeQoS1Outbound(packetId);
@@ -508,7 +512,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
     @Override
     public void pubRec(int packetId, int reasonCode,
                        MQTTProperties properties) {
-        if (state != State.CONNECTED) return;
+        if (state != State.CONNECTED) {
+            return;
+        }
         resetKeepAliveTimer();
         if (session != null) {
             session.getQoSManager().receivedPubRec(packetId);
@@ -520,7 +526,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
     @Override
     public void pubRel(int packetId, int reasonCode,
                        MQTTProperties properties) {
-        if (state != State.CONNECTED) return;
+        if (state != State.CONNECTED) {
+            return;
+        }
         resetKeepAliveTimer();
         if (session != null) {
             QoSManager.InFlightMessage msg =
@@ -537,7 +545,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
     @Override
     public void pubComp(int packetId, int reasonCode,
                         MQTTProperties properties) {
-        if (state != State.CONNECTED) return;
+        if (state != State.CONNECTED) {
+            return;
+        }
         resetKeepAliveTimer();
         if (session != null) {
             session.getQoSManager().completePubComp(packetId);
@@ -564,13 +574,17 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
     @Override
     public void subscribeFilter(String topicFilter, int qos) {
-        if (subscribeTx == null) return;
+        if (subscribeTx == null) {
+            return;
+        }
         subscribeTx.addFilter(topicFilter, qos);
     }
 
     @Override
     public void endSubscribe() {
-        if (subscribeTx == null) return;
+        if (subscribeTx == null) {
+            return;
+        }
         subscribeTx.end();
         subscribeTx = null;
     }
@@ -622,7 +636,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
     @Override
     public void pingReq() {
-        if (state != State.CONNECTED) return;
+        if (state != State.CONNECTED) {
+            return;
+        }
         resetKeepAliveTimer();
         sendPacket(MQTTPacketEncoder.encodePingResp());
     }
@@ -677,7 +693,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
         @Override
         public void acceptConnection() {
-            if (resolved) return;
+            if (resolved) {
+                return;
+            }
             resolved = true;
             completeConnect(packet, clientId);
         }
@@ -694,7 +712,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
         @Override
         public void reject(int returnCode) {
-            if (resolved) return;
+            if (resolved) {
+                return;
+            }
             resolved = true;
             state = State.DISCONNECTING;
             sendConnAck(false, returnCode);
@@ -722,14 +742,18 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
         @Override
         public void allowPublish() {
-            if (resolved) return;
+            if (resolved) {
+                return;
+            }
             resolved = true;
             completePublish(topicName, qos, retain, packetId, content);
         }
 
         @Override
         public void rejectPublish() {
-            if (resolved) return;
+            if (resolved) {
+                return;
+            }
             resolved = true;
             content.release();
             MQTTProtocolHandler.this.rejectPublish(qos, packetId);
@@ -798,7 +822,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
                 @Override
                 public void grantSubscription(QoS grantedQoS) {
-                    if (resolved) return;
+                    if (resolved) {
+                        return;
+                    }
                     resolved = true;
                     subscriptionManager.subscribe(session.getClientId(),
                             topicFilters.get(index), grantedQoS);
@@ -810,7 +836,9 @@ public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
                 @Override
                 public void rejectSubscription() {
-                    if (resolved) return;
+                    if (resolved) {
+                        return;
+                    }
                     resolved = true;
                     returnCodes.set(index, SUBACK_FAILURE);
                     pending--;

@@ -58,7 +58,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class MailboxWatcher {
+public final class MailboxWatcher implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(MailboxWatcher.class.getName());
 
@@ -66,7 +66,6 @@ public final class MailboxWatcher {
      * Notified when a watched directory reports a change to a file
      * matching this registration's filter.
      */
-    @FunctionalInterface
     public interface ChangeListener {
         void onChange(String fileName);
     }
@@ -92,7 +91,7 @@ public final class MailboxWatcher {
 
     public MailboxWatcher() throws IOException {
         watchService = FileSystems.getDefault().newWatchService();
-        thread = new Thread(this::runLoop, "gumdrop-mailbox-watcher");
+        thread = new Thread(this, "gumdrop-mailbox-watcher");
         thread.setDaemon(true);
         thread.start();
     }
@@ -109,20 +108,30 @@ public final class MailboxWatcher {
      */
     public void register(Path directory, String fileNameFilter, ChangeListener listener) {
         Path dir = directory.toAbsolutePath().normalize();
-        WatchedDir wd = watched.computeIfAbsent(dir, d -> {
-            try {
-                d.register(watchService,
-                        StandardWatchEventKinds.ENTRY_CREATE,
-                        StandardWatchEventKinds.ENTRY_MODIFY,
-                        StandardWatchEventKinds.ENTRY_DELETE);
-                return new WatchedDir();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Could not watch directory: " + d, e);
-                return null;
+        WatchedDir wd;
+        synchronized (watched) {
+            wd = watched.get(dir);
+            if (wd == null) {
+                wd = registerDirectory(dir);
+                if (wd == null) {
+                    return;
+                }
+                watched.put(dir, wd);
             }
-        });
-        if (wd != null) {
-            wd.registrations.add(new Registration(fileNameFilter, listener));
+        }
+        wd.registrations.add(new Registration(fileNameFilter, listener));
+    }
+
+    private WatchedDir registerDirectory(Path dir) {
+        try {
+            dir.register(watchService,
+                    StandardWatchEventKinds.ENTRY_CREATE,
+                    StandardWatchEventKinds.ENTRY_MODIFY,
+                    StandardWatchEventKinds.ENTRY_DELETE);
+            return new WatchedDir();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Could not watch directory: " + dir, e);
+            return null;
         }
     }
 
@@ -136,7 +145,8 @@ public final class MailboxWatcher {
         }
     }
 
-    private void runLoop() {
+    @Override
+    public void run() {
         while (running) {
             WatchKey key;
             try {

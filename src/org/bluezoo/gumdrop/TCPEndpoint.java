@@ -590,9 +590,9 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      */
     private void handleNetOutOverflow() {
         if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning("Outbound buffer exceeded maximum size ("
-                    + getMaxNetOutSize() + " bytes) for " + getRemoteAddress()
-                    + "; closing connection (peer not reading)");
+            LOGGER.warning(MessageFormat.format(
+                    Gumdrop.L10N.getString("warn.outbound_buffer_overflow"),
+                    getMaxNetOutSize(), getRemoteAddress()));
         }
         close();
     }

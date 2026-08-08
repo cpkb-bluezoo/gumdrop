@@ -24,9 +24,11 @@ package org.bluezoo.gumdrop.pop3.client;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -98,6 +100,8 @@ public class POP3ClientProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(POP3ClientProtocolHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
     private static final String CRLF = "\r\n";
 
@@ -195,7 +199,7 @@ public class POP3ClientProtocolHandler
     @Override
     public void disconnected() {
         if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info("POP3 client disconnected");
+            LOGGER.info(L10N.getString("info.pop3_client_disconnected"));
         }
         state = POP3State.CLOSED;
         handler.onDisconnected();
@@ -270,14 +274,14 @@ public class POP3ClientProtocolHandler
     public void rawBytes(ByteBuffer slice) {
         // RETR/TOP content bypasses this lexer entirely (see
         // POP3ClientLexer's class Javadoc) — structurally unreachable.
-        LOGGER.warning("Unexpected rawBytes() call on POP3 client lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
     }
 
     @Override
     public void tokenTooLong() {
         // maxTokenLength is Integer.MAX_VALUE for this lexer (no cap);
         // structurally unreachable.
-        LOGGER.warning("Unexpected tokenTooLong() call on POP3 client lexer");
+        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
     }
 
     private boolean isDataLineState() {
@@ -352,7 +356,8 @@ public class POP3ClientProtocolHandler
             if (status == null) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     String line = hadSp ? (wordText + " " + text) : wordText;
-                    LOGGER.warning("Unparseable POP3 response: " + line);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.unparseable_pop3_response"), line));
                 }
                 return;
             }
@@ -712,8 +717,8 @@ public class POP3ClientProtocolHandler
                 break;
             default:
                 if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning("Unexpected response in state "
-                            + state + ": " + response);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.unexpected_response_in_state"), state, response));
                 }
         }
     }

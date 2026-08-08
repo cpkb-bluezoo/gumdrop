@@ -645,11 +645,14 @@ class Stream implements HTTPResponseState {
             if (factory != null) {
                 String path = headers.getPath();
                 if (Boolean.getBoolean("gumdrop.http.debug")) {
-                    LOGGER.info("Stream: createHandler path=" + path);
+                    LOGGER.info(MessageFormat.format(
+                            L10N.getString("info.stream_create_handler_path"), path));
                 }
                 handler = factory.createHandler(this, headers);
                 if (Boolean.getBoolean("gumdrop.http.debug")) {
-                    LOGGER.info("Stream: createHandler returned " + (handler != null ? handler.getClass().getSimpleName() : "null"));
+                    LOGGER.info(MessageFormat.format(
+                            L10N.getString("info.stream_create_handler_returned"),
+                            handler != null ? handler.getClass().getSimpleName() : "null"));
                 }
                 if (handler != null) {
                     handler.headers(this, headers);
@@ -756,13 +759,15 @@ class Stream implements HTTPResponseState {
                 // RFC 9113 section 8.3: pseudo-headers MUST appear
                 // before regular headers
                 if (pastPseudo) {
-                    LOGGER.warning("Pseudo-header after regular header: " + name);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.pseudo_header_after_regular"), name));
                     return false;
                 }
                 // RFC 9113 section 8.3: each pseudo-header MUST appear
                 // at most once
                 if (!seenPseudo.add(name)) {
-                    LOGGER.warning("Duplicate pseudo-header: " + name);
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.duplicate_pseudo_header"), name));
                     return false;
                 }
                 if (":method".equals(name)) {
@@ -785,8 +790,8 @@ class Stream implements HTTPResponseState {
         // RFC 9113 section 8.3.1: all other requests MUST include
         // :method, :scheme, and :path
         if (!hasMethod || !hasScheme || !hasPath) {
-            LOGGER.warning("Missing required pseudo-header(s): method="
-                    + hasMethod + " scheme=" + hasScheme + " path=" + hasPath);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.missing_pseudo_headers"), hasMethod, hasScheme, hasPath));
             return false;
         }
         return true;

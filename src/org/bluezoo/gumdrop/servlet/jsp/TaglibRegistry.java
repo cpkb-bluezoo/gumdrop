@@ -29,8 +29,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.text.MessageFormat;
 import java.util.Collection;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -61,6 +63,8 @@ import java.util.logging.Logger;
 public class TaglibRegistry {
 
     private static final Logger LOGGER = Logger.getLogger(TaglibRegistry.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
 
     private final ServletContext servletContext;
     private final Map<String, TagLibraryDescriptor> taglibCache = new ConcurrentHashMap<>();
@@ -102,7 +106,8 @@ public class TaglibRegistry {
             taglibCache.put(uri, tld);
             LOGGER.fine("Resolved taglib URI '" + uri + "' to TLD: " + tld.getShortName());
         } else {
-            LOGGER.warning("Failed to resolve taglib URI: " + uri);
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("warn.taglib_uri_resolve_failed"), uri));
         }
 
         return tld;

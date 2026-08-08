@@ -224,7 +224,9 @@ public class CIDRNetwork {
         if (this == obj) {
             return true;
         }
-        if (obj == null || getClass() != obj.getClass()) return false;
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
         
         CIDRNetwork other = (CIDRNetwork) obj;
         return originalCIDR.equals(other.originalCIDR);
