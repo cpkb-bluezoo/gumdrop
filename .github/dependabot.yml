@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Keep GitHub Actions workflow steps (actions/checkout, actions/setup-java,
+  # etc.) current. Nothing was doing this before - only Dependabot security
+  # updates were enabled, which only fires on a known CVE, not routine
+  # version staleness or Node runtime deprecations.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # central/gumdrop-pom.xml declares the published jar's real runtime
+  # dependencies (gonzalez, jsonparser, javax.servlet-api, javax.mail, ...).
+  # The root pom.xml and the other central/*-pom.xml files currently have no
+  # <dependency> entries, but are included so newly added dependencies are
+  # picked up automatically without touching this config again.
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "maven"
+    directory: "/central"
+    schedule:
+      interval: "weekly"
