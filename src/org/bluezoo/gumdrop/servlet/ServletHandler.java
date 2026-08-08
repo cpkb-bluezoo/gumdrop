@@ -289,10 +289,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
         // Update hit statistics
         if (request.context != null) {
-            HitStatisticsImpl hitStatistics = request.context.hitStatistics;
-            synchronized (hitStatistics) {
-                hitStatistics.addHit(statusCode);
-            }
+            request.context.hitStatistics.addHit(statusCode);
         }
     }
 

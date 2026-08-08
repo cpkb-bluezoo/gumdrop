@@ -310,8 +310,13 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
     Map<String,Realm> realms = new LinkedHashMap<>();
 
-    Map<String,String> initParams = new LinkedHashMap<>();
-    Map<String,Object> attributes = new LinkedHashMap<>();
+    // ConcurrentHashMap rather than a synchronized LinkedHashMap: both are
+    // read on the hot per-request path (getInitParameter, getAttribute -
+    // the latter especially common in application code) and a shared
+    // monitor there is pure contention for no benefit, since neither
+    // needs cross-key/ordering atomicity with its own reads (issue #140).
+    Map<String,String> initParams = new ConcurrentHashMap<>();
+    Map<String,Object> attributes = new ConcurrentHashMap<>();
     Map<String,Filter> filters = new LinkedHashMap<>();
     Map<String,Servlet> servlets = new LinkedHashMap<>();
 
@@ -2114,7 +2119,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         return "gumdrop/" + Gumdrop.VERSION;
     }
 
-    @Override public synchronized String getInitParameter(String name) {
+    @Override public String getInitParameter(String name) {
         String ret = initParams.get(name);
         if (ret != null) {
             return ret;
@@ -2123,7 +2128,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         return (initParam != null) ? initParam.value : null;
     }
 
-    @Override public synchronized Enumeration<String> getInitParameterNames() {
+    @Override public Enumeration<String> getInitParameterNames() {
         Set<String> ret = new LinkedHashSet<>();
         ret.addAll(contextParams.keySet());
         ret.addAll(initParams.keySet());
@@ -2138,11 +2143,11 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         return true;
     }
 
-    @Override public synchronized Object getAttribute(String name) {
+    @Override public Object getAttribute(String name) {
         return attributes.get(name);
     }
 
-    @Override public synchronized Enumeration<String> getAttributeNames() {
+    @Override public Enumeration<String> getAttributeNames() {
         return new IteratorEnumeration(attributes.keySet());
     }
 
@@ -2150,21 +2155,19 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         if (value == null) {
             removeAttribute(name);
         } else {
-            synchronized (this) {
-                Object oldValue = attributes.put(name, value);
-                ServletContextAttributeEvent event = new ServletContextAttributeEvent(this, name, value);
-                for (ServletContextAttributeListener l : servletContextAttributeListeners) {
-                    if (oldValue == null) {
-                        l.attributeAdded(event);
-                    } else {
-                        l.attributeReplaced(event);
-                    }
+            Object oldValue = attributes.put(name, value);
+            ServletContextAttributeEvent event = new ServletContextAttributeEvent(this, name, value);
+            for (ServletContextAttributeListener l : servletContextAttributeListeners) {
+                if (oldValue == null) {
+                    l.attributeAdded(event);
+                } else {
+                    l.attributeReplaced(event);
                 }
             }
         }
     }
 
-    @Override public synchronized void removeAttribute(String name) {
+    @Override public void removeAttribute(String name) {
         Object oldValue = attributes.remove(name);
         ServletContextAttributeEvent event = new ServletContextAttributeEvent(this, name, oldValue);
         for (ServletContextAttributeListener l : servletContextAttributeListeners) {
