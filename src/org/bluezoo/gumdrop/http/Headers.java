@@ -23,8 +23,12 @@ package org.bluezoo.gumdrop.http;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * A collection of HTTP headers with convenience methods for header access.
@@ -38,6 +42,40 @@ import java.util.List;
 public class Headers extends ArrayList<Header> {
 
     private static final long serialVersionUID = 1L;
+
+    /**
+     * Lazily-built name -&gt; headers index (see issue #141), keyed by
+     * lower-cased header name. Callers mutate this list directly via
+     * inherited {@code ArrayList} methods (add, remove, iterator.remove,
+     * etc.) that this class does not override, so rather than try to keep
+     * the index precisely in sync with every mutation, it is invalidated
+     * wholesale by comparing against {@link java.util.AbstractList#modCount}
+     * (bumped by every structural change, including ones made through
+     * inherited methods) and rebuilt in O(n) the next time it's consulted.
+     * Lookups are then O(1) as long as consumers don't interleave a
+     * mutation between every pair of lookups, which is the normal case
+     * (headers are parsed once, then looked up repeatedly per request).
+     */
+    private transient Map<String,List<Header>> index;
+    private transient int indexModCount = -1;
+
+    private Map<String,List<Header>> index() {
+        if (index == null || indexModCount != modCount) {
+            Map<String,List<Header>> built = new HashMap<>();
+            for (Header header : this) {
+                String key = header.getName().toLowerCase(Locale.ROOT);
+                built.computeIfAbsent(key, k -> new ArrayList<>()).add(header);
+            }
+            index = built;
+            indexModCount = modCount;
+        }
+        return index;
+    }
+
+    private List<Header> indexed(String name) {
+        List<Header> found = index().get(name.toLowerCase(Locale.ROOT));
+        return found != null ? found : Collections.emptyList();
+    }
 
     /**
      * Creates an empty headers collection.
@@ -72,12 +110,8 @@ public class Headers extends ArrayList<Header> {
      * @return the header value, or null if no header with that name exists
      */
     public String getValue(String name) {
-        for (Header header : this) {
-            if (name.equalsIgnoreCase(header.getName())) {
-                return header.getValue();
-            }
-        }
-        return null;
+        List<Header> found = indexed(name);
+        return found.isEmpty() ? null : found.get(0).getValue();
     }
 
     /**
@@ -89,12 +123,10 @@ public class Headers extends ArrayList<Header> {
      */
     public List<String> getValues(String name) {
         List<String> values = new ArrayList<>();
-        for (Header header : this) {
-            if (name.equalsIgnoreCase(header.getName())) {
-                String value = header.getValue();
-                if (value != null) {
-                    values.add(value);
-                }
+        for (Header header : indexed(name)) {
+            String value = header.getValue();
+            if (value != null) {
+                values.add(value);
             }
         }
         return values;
@@ -108,12 +140,8 @@ public class Headers extends ArrayList<Header> {
      * @return the header, or null if no header with that name exists
      */
     public Header getHeader(String name) {
-        for (Header header : this) {
-            if (name.equalsIgnoreCase(header.getName())) {
-                return header;
-            }
-        }
-        return null;
+        List<Header> found = indexed(name);
+        return found.isEmpty() ? null : found.get(0);
     }
 
     /**
@@ -124,13 +152,7 @@ public class Headers extends ArrayList<Header> {
      * @return a list of headers (may be empty, never null)
      */
     public List<Header> getHeaders(String name) {
-        List<Header> headers = new ArrayList<>();
-        for (Header header : this) {
-            if (name.equalsIgnoreCase(header.getName())) {
-                headers.add(header);
-            }
-        }
-        return headers;
+        return new ArrayList<>(indexed(name));
     }
 
     /**
@@ -141,12 +163,7 @@ public class Headers extends ArrayList<Header> {
      * @return true if the header exists
      */
     public boolean containsName(String name) {
-        for (Header header : this) {
-            if (name.equalsIgnoreCase(header.getName())) {
-                return true;
-            }
-        }
-        return false;
+        return !indexed(name).isEmpty();
     }
 
     /**
@@ -203,15 +220,13 @@ public class Headers extends ArrayList<Header> {
      */
     public String getCombinedValue(String name) {
         StringBuilder combined = null;
-        for (Header header : this) {
-            if (name.equalsIgnoreCase(header.getName())) {
-                String value = header.getValue();
-                if (value != null) {
-                    if (combined == null) {
-                        combined = new StringBuilder(value);
-                    } else {
-                        combined.append(", ").append(value);
-                    }
+        for (Header header : indexed(name)) {
+            String value = header.getValue();
+            if (value != null) {
+                if (combined == null) {
+                    combined = new StringBuilder(value);
+                } else {
+                    combined.append(", ").append(value);
                 }
             }
         }
