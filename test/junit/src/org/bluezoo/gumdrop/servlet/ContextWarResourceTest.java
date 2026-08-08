@@ -201,6 +201,55 @@ public class ContextWarResourceTest {
         }
     }
 
+    /**
+     * Regression test for issue #173: a prior Zip Slip fix sanitized the
+     * WAR-level entry scan (getWarIndex()) but missed this second, separate
+     * archive-entry enumeration - getResourcePaths()'s searchJars block,
+     * which reads entries *inside* a lib jar under WEB-INF/lib/ (not the
+     * WAR itself). A well-formed lib jar filename containing a malicious
+     * entry (e.g. from a crafted/compromised dependency) must not have that
+     * entry's name flow into the returned resource path set.
+     */
+    @Test
+    public void testMaliciousLibJarInternalEntryIsIgnored() throws Exception {
+        File maliciousWar = File.createTempFile("gumdrop-test-evil-lib", ".war");
+        maliciousWar.deleteOnExit();
+        try {
+            byte[] maliciousLibJarBytes = buildJar(new String[][] {
+                {"META-INF/resources/good.html", "<html>good</html>"},
+                {"META-INF/resources/../../../../tmp/evil.html", "evil"},
+            });
+
+            try (JarOutputStream out = new JarOutputStream(
+                    Files.newOutputStream(maliciousWar.toPath()))) {
+                putEntry(out, "index.html", "<html>index</html>");
+                // The lib jar's own filename is well-formed; the traversal
+                // is in an entry *inside* it.
+                putEntry(out, "WEB-INF/lib/evil-lib.jar", maliciousLibJarBytes);
+            }
+
+            Container container = new Container();
+            container.init();
+            Context evilContext = new Context(container, "/evil-lib", maliciousWar);
+
+            Set<String> rootPaths = evilContext.getResourcePaths("/");
+            assertNotNull(rootPaths);
+            assertTrue("the legitimate lib-jar resource must still be found",
+                    rootPaths.contains("/good.html"));
+            // Without the fix, this entry produces a literal "/.." result
+            // (prefix-stripping the traversal entry's name yields ".."):
+            // the unguarded loop must not surface it.
+            for (String p : rootPaths) {
+                assertFalse("indexed path must not contain a parent-directory "
+                        + "traversal segment: " + p, p.contains(".."));
+            }
+
+            evilContext.destroy();
+        } finally {
+            maliciousWar.delete();
+        }
+    }
+
     @Test
     public void testRepeatedCallsAreConsistent() throws Exception {
         // Exercises the cached WarIndex / kept-open JarFile handles across
