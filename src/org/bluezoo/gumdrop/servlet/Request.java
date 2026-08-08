@@ -871,16 +871,21 @@ class Request implements HttpServletRequest {
      * Parse the request parameters (SRV.4.1).
      */
     private void parseParameters() {
+        // Accumulate into Lists first rather than growing a String[] by one
+        // element per repeated value (O(k^2) for k values of one name) -
+        // see issue #142. Converted to the String[]-valued map the Servlet
+        // API contract requires once, below.
+        Map<String,List<String>> accum = new LinkedHashMap<>();
         // Parameters specified in query-string
         if (queryString != null) {
             int start = 0;
             int end = queryString.indexOf('&', start);
             while (end > start) {
-                addParameter(parameters, queryString.substring(start, end));
+                addParameter(accum, queryString.substring(start, end));
                 start = end + 1;
                 end = queryString.indexOf('&', start);
             }
-            addParameter(parameters, queryString.substring(start));
+            addParameter(accum, queryString.substring(start));
         }
         // Parameters in x-www-form-urlencoded POST body
         if ("POST".equals(method)) {
@@ -898,21 +903,24 @@ class Request implements HttpServletRequest {
                     int start = 0;
                     int end = body.indexOf('&', start);
                     while (end > start) {
-                        addParameter(parameters, body.substring(start, end));
+                        addParameter(accum, body.substring(start, end));
                         start = end + 1;
                         end = body.indexOf('&', start);
                     }
-                    addParameter(parameters, body.substring(start));
+                    addParameter(accum, body.substring(start));
                 } catch (IOException e) {
                     Context.LOGGER.warning("Failed to parse form parameters: "
                             + e.getMessage());
                 }
             }
         }
+        for (Map.Entry<String,List<String>> entry : accum.entrySet()) {
+            parameters.put(entry.getKey(), entry.getValue().toArray(new String[0]));
+        }
         parametersParsed = true;
     }
 
-    static void addParameter(Map<String,String[]> parameters, String param) {
+    static void addParameter(Map<String,List<String>> parameters, String param) {
         try {
             param = URLDecoder.decode(param, "UTF-8");
         } catch (UnsupportedEncodingException e) {
@@ -933,17 +941,13 @@ class Request implements HttpServletRequest {
         addParameter(parameters, paramName, paramValue);
     }
 
-    static void addParameter(Map<String,String[]> parameters, String name, String value) {
-        String[] values = parameters.get(name);
+    static void addParameter(Map<String,List<String>> parameters, String name, String value) {
+        List<String> values = parameters.get(name);
         if (values == null) {
-            values = new String[] {value};
-        } else {
-            String[] values2 = new String[values.length + 1];
-            System.arraycopy(values, 0, values2, 0, values.length);
-            values2[values.length] = value;
-            values = values2;
+            values = new ArrayList<>();
+            parameters.put(name, values);
         }
-        parameters.put(name, values);
+        values.add(value);
     }
 
     @Override public String getProtocol() {

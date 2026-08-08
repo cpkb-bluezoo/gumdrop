@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import javax.servlet.DispatcherType;
@@ -121,16 +122,21 @@ class FilterRequest extends HttpServletRequestWrapper {
      * Parse the request parameters (SRV.4.1, SRV.8.1.1).
      */
     private void parseParameters() {
+        // Accumulate into Lists first rather than growing a String[] by one
+        // element per repeated value (O(k^2) for k values of one name) -
+        // see issue #142. Converted to the String[]-valued map the Servlet
+        // API contract requires once, below.
+        Map<String,List<String>> accum = new LinkedHashMap<>();
         // Parameters specified in query-string
         if (queryString != null) {
             int start = 0;
             int end = queryString.indexOf('&', start);
             while (end > start) {
-                Request.addParameter(parameters, queryString.substring(start, end));
+                Request.addParameter(accum, queryString.substring(start, end));
                 start = end + 1;
                 end = queryString.indexOf('&', start);
             }
-            Request.addParameter(parameters, queryString.substring(start));
+            Request.addParameter(accum, queryString.substring(start));
         }
         // Parameters specified in original request
         Map originalParameters = super.getParameterMap();
@@ -139,10 +145,14 @@ class FilterRequest extends HttpServletRequestWrapper {
             String key = (String) entry.getKey();
             String[] values = (String[]) entry.getValue();
             for (int j = 0; j < values.length; j++) {
-                Request.addParameter(parameters, key, values[j]);
+                Request.addParameter(accum, key, values[j]);
             }
         }
-        parameters = Collections.unmodifiableMap(parameters);
+        Map<String,String[]> built = new LinkedHashMap<>();
+        for (Map.Entry<String,List<String>> entry : accum.entrySet()) {
+            built.put(entry.getKey(), entry.getValue().toArray(new String[0]));
+        }
+        parameters = Collections.unmodifiableMap(built);
         parametersParsed = true;
     }
 
