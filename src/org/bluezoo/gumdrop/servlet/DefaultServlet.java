@@ -58,7 +58,6 @@ public class DefaultServlet extends HttpServlet {
             response.setStatus(HttpServletResponse.SC_MOVED_PERMANENTLY);
             response.setHeader("Location", buildCollectionRedirectLocation(
                     request.getContextPath(), path, request.getQueryString()));
-            response.setHeader("path", path);
             return;
         }
         super.service(request, response);
