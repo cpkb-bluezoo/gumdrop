@@ -211,6 +211,15 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             Enumeration<JarEntry> i = warFile.entries();
             while (i.hasMoreElements()) {
                 String entry = i.nextElement().getName();
+                // Reject a malicious/malformed WAR entry (e.g. containing
+                // "../") here, at the point the untrusted archive-entry
+                // name is first read, rather than downstream where it is
+                // later used to build a filesystem path (Zip Slip /
+                // CWE-22) - entries this filters out are simply excluded
+                // from the index, never resolvable via getResource(Paths).
+                if (!isSafeArchiveEntryName(entry)) {
+                    continue;
+                }
                 // Directory-marker entries (trailing '/') are skipped, not
                 // bucketed under their parent: the original per-request scan
                 // this replaces matched children via entry.indexOf('/',
@@ -232,6 +241,25 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             warIndex = index;
             return index;
         }
+    }
+
+    /**
+     * Returns whether a raw archive entry name is safe to use in building
+     * an index/filesystem path: no absolute path, no {@code ..} segment,
+     * no embedded NUL. Guards against a crafted WAR/lib-jar entry escaping
+     * the context root (Zip Slip, CWE-22) via {@code contextClassLoader
+     * .getFile(...)} or similar downstream filesystem operations.
+     */
+    private static boolean isSafeArchiveEntryName(String entry) {
+        if (entry.isEmpty() || entry.charAt(0) == '/' || entry.indexOf('\0') >= 0) {
+            return false;
+        }
+        for (String part : entry.split("/", -1)) {
+            if ("..".equals(part)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

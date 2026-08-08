@@ -143,6 +143,64 @@ public class ContextWarResourceTest {
         assertTrue(paths.contains("/sub/nested.html"));
     }
 
+    /**
+     * Regression test for a CodeQL Zip Slip / CWE-22 finding on the WAR
+     * index build (getWarIndex()): a crafted archive entry name containing
+     * ".." must never be indexed or otherwise flow toward a filesystem
+     * path, since the index is later consulted by contextClassLoader
+     * .getFile(...) to extract lib jar entries to disk.
+     */
+    @Test
+    public void testMaliciousEntryNameWithParentTraversalIsIgnored()
+            throws Exception {
+        File maliciousWar = File.createTempFile("gumdrop-test-evil", ".war");
+        maliciousWar.deleteOnExit();
+        try {
+            try (JarOutputStream out = new JarOutputStream(
+                    Files.newOutputStream(maliciousWar.toPath()))) {
+                putEntry(out, "index.html", "<html>index</html>");
+                // A path-traversal entry name, as a crafted/malicious WAR
+                // might contain, and an absolute-path entry - both must be
+                // rejected before ever reaching a filesystem operation.
+                putEntry(out, "../../../tmp/evil.txt", "evil");
+                putEntry(out, "WEB-INF/lib/../../../../tmp/evil.jar",
+                        buildJar(new String[][] {
+                            {"META-INF/resources/evil.html", "evil"},
+                        }));
+            }
+
+            Container container = new Container();
+            container.init();
+            Context evilContext = new Context(container, "/evil", maliciousWar);
+
+            // Must not throw, and must not index the malicious entries.
+            Set<String> rootPaths = evilContext.getResourcePaths("/");
+            assertNotNull(rootPaths);
+            assertTrue(rootPaths.contains("/index.html"));
+            for (String p : rootPaths) {
+                assertFalse("indexed path must not contain a parent-directory "
+                        + "traversal segment: " + p, p.contains(".."));
+            }
+
+            Set<String> libPaths = evilContext.getResourcePaths("/WEB-INF/lib/");
+            if (libPaths != null) {
+                for (String p : libPaths) {
+                    assertFalse("indexed lib jar path must not contain a "
+                            + "parent-directory traversal segment: " + p,
+                            p.contains(".."));
+                }
+            }
+
+            // The resource "smuggled" via the traversal entry must not be
+            // reachable through the normal lookup API either.
+            assertNull(evilContext.getResource("/evil.html"));
+
+            evilContext.destroy();
+        } finally {
+            maliciousWar.delete();
+        }
+    }
+
     @Test
     public void testRepeatedCallsAreConsistent() throws Exception {
         // Exercises the cached WarIndex / kept-open JarFile handles across
