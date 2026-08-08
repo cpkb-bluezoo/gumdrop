@@ -151,8 +151,13 @@ public class JSPServlet extends HttpServlet {
             
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "JSP processing error for " + jspPath, e);
-            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, 
-                "JSP processing error: " + e.getMessage());
+            // Full detail (including e.getMessage(), which can contain
+            // internal file paths/class names/compiler output) stays in
+            // the server log above; the client only gets a generic
+            // message (CWE-209 - information exposure through an error
+            // message).
+            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                "Internal server error processing JSP request");
         }
     }
     
