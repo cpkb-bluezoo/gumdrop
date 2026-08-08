@@ -94,6 +94,14 @@ public class TopicTree {
     private final Node root = new Node();
 
     /**
+     * Reverse index: client id -&gt; the set of topic filters that client
+     * currently has subscribed, so {@link #unsubscribeAll} can remove
+     * exactly those paths (issue #144) instead of walking the whole tree
+     * per disconnecting client.
+     */
+    private final Map<String, Set<String>> clientFilters = new ConcurrentHashMap<>();
+
+    /**
      * Adds a subscription for the given topic filter.
      *
      * @param topicFilter the topic filter (may contain + and # wildcards)
@@ -117,6 +125,8 @@ public class TopicTree {
         // Remove any existing subscription for this client (to update QoS)
         current.subscribers.remove(new SubscriptionEntry(clientId, qos));
         current.subscribers.add(new SubscriptionEntry(clientId, qos));
+        clientFilters.computeIfAbsent(clientId, k -> ConcurrentHashMap.newKeySet())
+                .add(topicFilter);
     }
 
     /**
@@ -126,29 +136,67 @@ public class TopicTree {
      * @param clientId the subscriber's client identifier
      */
     public void unsubscribe(String topicFilter, String clientId) {
-        String[] levels = topicFilter.split("/", -1);
-        Node current = root;
-        for (String level : levels) {
-            Node child = current.children.get(level);
-            if (child == null) return;
-            current = child;
+        unsubscribePath(topicFilter, clientId);
+        Set<String> filters = clientFilters.get(clientId);
+        if (filters != null) {
+            filters.remove(topicFilter);
+            if (filters.isEmpty()) {
+                clientFilters.remove(clientId, filters);
+            }
         }
-        removeSubscriber(current.subscribers, clientId);
     }
 
     /**
      * Removes all subscriptions for the given client.
      *
+     * <p>Uses the {@link #clientFilters} reverse index to remove exactly
+     * the paths this client subscribed to - O(filters subscribed by this
+     * client), not O(tree size) - see issue #144.
+     *
      * @param clientId the client identifier
      */
     public void unsubscribeAll(String clientId) {
-        unsubscribeAllRecursive(root, clientId);
+        Set<String> filters = clientFilters.remove(clientId);
+        if (filters != null) {
+            for (String topicFilter : filters) {
+                unsubscribePath(topicFilter, clientId);
+            }
+        }
     }
 
-    private void unsubscribeAllRecursive(Node node, String clientId) {
-        removeSubscriber(node.subscribers, clientId);
-        for (Node child : node.children.values()) {
-            unsubscribeAllRecursive(child, clientId);
+    /**
+     * Walks down to the node for {@code topicFilter}, removes {@code
+     * clientId}'s subscription there, then prunes any now-empty nodes
+     * (no subscribers, no children) back up the path - otherwise the tree
+     * only ever grows under connection churn (issue #144).
+     *
+     * <p>Pruning uses {@code ConcurrentHashMap.remove(key, value)}, an
+     * atomic compare-and-remove keyed on the exact {@code Node} instance
+     * observed empty, so a concurrent {@link #subscribe} that lands on the
+     * same node is never silently dropped by a stale prune - the removal
+     * only succeeds if that Node is still the one mapped at that key.
+     */
+    private void unsubscribePath(String topicFilter, String clientId) {
+        String[] levels = topicFilter.split("/", -1);
+        List<Node> path = new ArrayList<>(levels.length + 1);
+        path.add(root);
+        Node current = root;
+        for (String level : levels) {
+            Node child = current.children.get(level);
+            if (child == null) {
+                return;
+            }
+            path.add(child);
+            current = child;
+        }
+        removeSubscriber(current.subscribers, clientId);
+        for (int i = levels.length; i > 0; i--) {
+            Node node = path.get(i);
+            if (!node.subscribers.isEmpty() || !node.children.isEmpty()) {
+                break;
+            }
+            Node parent = path.get(i - 1);
+            parent.children.remove(levels[i - 1], node);
         }
     }
 

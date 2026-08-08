@@ -73,6 +73,22 @@ public class RetainedMessageStore {
             new ConcurrentHashMap<>();
 
     /**
+     * Trie node indexing retained messages by literal topic level, so
+     * {@link #match} can walk directly to the matching subset instead of
+     * scanning every retained topic (issue #143). This is the mirror image
+     * of {@link TopicTree}: there, wildcard-capable subscriber filters are
+     * indexed and matched against a literal publish topic; here, literal
+     * retained topics are indexed and matched against a (possibly
+     * wildcard-capable) subscribe topic filter.
+     */
+    private static class Node {
+        final ConcurrentHashMap<String, Node> children = new ConcurrentHashMap<>();
+        volatile RetainedMessage retained;
+    }
+
+    private final Node root = new Node();
+
+    /**
      * Sets or removes a retained message for the given topic.
      *
      * <p>If the content is null or has zero size, the retained message
@@ -90,12 +106,14 @@ public class RetainedMessageStore {
             if (old != null) {
                 old.getContent().release();
             }
+            removeFromTrie(topic);
         } else {
-            RetainedMessage old = store.put(topic,
-                    new RetainedMessage(topic, content, qos));
+            RetainedMessage message = new RetainedMessage(topic, content, qos);
+            RetainedMessage old = store.put(topic, message);
             if (old != null) {
                 old.getContent().release();
             }
+            addToTrie(topic, message);
         }
     }
 
@@ -114,12 +132,98 @@ public class RetainedMessageStore {
      */
     public List<RetainedMessage> match(String topicFilter) {
         List<RetainedMessage> result = new ArrayList<>();
-        for (Map.Entry<String, RetainedMessage> entry : store.entrySet()) {
-            if (topicMatches(topicFilter, entry.getKey())) {
-                result.add(entry.getValue());
+        String[] filterLevels = topicFilter.split("/", -1);
+        matchRecursive(root, filterLevels, 0, result);
+        return result;
+    }
+
+    private void matchRecursive(Node node, String[] filterLevels, int depth,
+            List<RetainedMessage> result) {
+        if (depth == filterLevels.length) {
+            if (node.retained != null) {
+                result.add(node.retained);
+            }
+            return;
+        }
+        String fl = filterLevels[depth];
+        if ("#".equals(fl)) {
+            // Matches this node and all descendants (zero or more levels).
+            // $-topics don't match a root-level # (depth 0 only).
+            collectAll(node, depth == 0, result);
+        } else if ("+".equals(fl)) {
+            // $-topics don't match a root-level + (depth 0 only).
+            for (Map.Entry<String, Node> entry : node.children.entrySet()) {
+                if (depth == 0 && entry.getKey().startsWith("$")) {
+                    continue;
+                }
+                matchRecursive(entry.getValue(), filterLevels, depth + 1, result);
+            }
+        } else {
+            Node child = node.children.get(fl);
+            if (child != null) {
+                matchRecursive(child, filterLevels, depth + 1, result);
             }
         }
-        return result;
+    }
+
+    private void collectAll(Node node, boolean skipDollarChildren,
+            List<RetainedMessage> result) {
+        if (node.retained != null) {
+            result.add(node.retained);
+        }
+        for (Map.Entry<String, Node> entry : node.children.entrySet()) {
+            if (skipDollarChildren && entry.getKey().startsWith("$")) {
+                continue;
+            }
+            collectAll(entry.getValue(), false, result);
+        }
+    }
+
+    private void addToTrie(String topic, RetainedMessage message) {
+        String[] levels = topic.split("/", -1);
+        Node current = root;
+        for (String level : levels) {
+            Node child = current.children.get(level);
+            if (child == null) {
+                child = new Node();
+                Node existing = current.children.putIfAbsent(level, child);
+                if (existing != null) {
+                    child = existing;
+                }
+            }
+            current = child;
+        }
+        current.retained = message;
+    }
+
+    /**
+     * Clears the retained message at {@code topic}'s trie node and prunes
+     * any now-empty nodes (no retained message, no children) back up the
+     * path, so the trie doesn't grow without bound under topic churn - same
+     * approach as {@link TopicTree#unsubscribe}.
+     */
+    private void removeFromTrie(String topic) {
+        String[] levels = topic.split("/", -1);
+        List<Node> path = new ArrayList<>(levels.length + 1);
+        path.add(root);
+        Node current = root;
+        for (String level : levels) {
+            Node child = current.children.get(level);
+            if (child == null) {
+                return;
+            }
+            path.add(child);
+            current = child;
+        }
+        current.retained = null;
+        for (int i = levels.length; i > 0; i--) {
+            Node node = path.get(i);
+            if (node.retained != null || !node.children.isEmpty()) {
+                break;
+            }
+            Node parent = path.get(i - 1);
+            parent.children.remove(levels[i - 1], node);
+        }
     }
 
     /**
@@ -127,6 +231,8 @@ public class RetainedMessageStore {
      */
     public void clear() {
         store.clear();
+        root.children.clear();
+        root.retained = null;
     }
 
     /**
@@ -134,30 +240,5 @@ public class RetainedMessageStore {
      */
     public int size() {
         return store.size();
-    }
-
-    static boolean topicMatches(String filter, String topic) {
-        String[] filterLevels = filter.split("/", -1);
-        String[] topicLevels = topic.split("/", -1);
-
-        // $-topics don't match root wildcards
-        if (topic.startsWith("$") &&
-                (filterLevels[0].equals("+") || filterLevels[0].equals("#"))) {
-            return false;
-        }
-
-        for (int i = 0; i < filterLevels.length; i++) {
-            String fl = filterLevels[i];
-            if ("#".equals(fl)) {
-                return true;
-            }
-            if (i >= topicLevels.length) {
-                return false;
-            }
-            if (!"+".equals(fl) && !fl.equals(topicLevels[i])) {
-                return false;
-            }
-        }
-        return filterLevels.length == topicLevels.length;
     }
 }
