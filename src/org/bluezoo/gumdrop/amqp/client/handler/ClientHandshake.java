@@ -21,21 +21,67 @@
 
 package org.bluezoo.gumdrop.amqp.client.handler;
 
+import java.util.concurrent.ExecutorService;
+
+import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+
 /**
  * State after {@code connection.start} — send credentials via
  * {@code start-ok}.
+ *
+ * <p>SASL {@code PLAIN} is offered as a direct convenience overload since
+ * it is the mechanism almost all brokers require at minimum. For
+ * {@code AMQPLAIN}, {@code EXTERNAL}, or {@code GSSAPI} (issue #188), pass
+ * a {@link SASLClientMechanism} obtained from
+ * {@link org.bluezoo.gumdrop.auth.SASLUtils#createClient} (or, for
+ * {@code AMQPLAIN}, from the AMQP client package itself) instead — the
+ * protocol handler drives it through {@code start-ok} and, if the broker
+ * demands further rounds via {@code connection.secure}, through as many
+ * {@code secure-ok} exchanges as the mechanism requires.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface ClientHandshake {
 
     /**
-     * Authenticates with SASL PLAIN (the only mechanism this client
-     * implements today) and waits for {@code connection.tune}.
+     * Authenticates with SASL {@code PLAIN} and waits for
+     * {@code connection.tune}.
      *
      * @param username the username
      * @param password the password
      * @param handler receives {@code tune} once the server responds
      */
     void startOk(String username, String password, ServerTuneHandler handler);
+
+    /**
+     * Authenticates with an arbitrary non-blocking SASL mechanism (e.g.
+     * {@code AMQPLAIN} or {@code EXTERNAL}) and waits for
+     * {@code connection.tune}.
+     *
+     * <p>Not for {@code GSSAPI} — its first challenge evaluation may
+     * block on KDC contact; use
+     * {@link #startOk(SASLClientMechanism, ServerTuneHandler, ExecutorService)}
+     * instead.
+     *
+     * @param saslClient the SASL mechanism driving the exchange
+     * @param handler receives {@code tune} once the server responds
+     */
+    void startOk(SASLClientMechanism saslClient, ServerTuneHandler handler);
+
+    /**
+     * Authenticates with an arbitrary SASL mechanism, offloading each
+     * {@link SASLClientMechanism#evaluateChallenge} call to
+     * {@code executor} before dispatching the resulting frame back on the
+     * connection's event loop.
+     *
+     * <p>Required for {@code GSSAPI}, whose first challenge evaluation may
+     * contact the KDC via blocking socket I/O; safe to use for any other
+     * mechanism too.
+     *
+     * @param saslClient the SASL mechanism driving the exchange
+     * @param handler receives {@code tune} once the server responds
+     * @param executor worker executor for blocking challenge evaluation
+     */
+    void startOk(SASLClientMechanism saslClient, ServerTuneHandler handler, ExecutorService executor);
+
 }

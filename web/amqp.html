@@ -84,6 +84,10 @@ ack/nack/reject, transactions, flow control, and publisher confirms</li>
 entry point callback fired once, on the first successful connection</li>
 <li><code>org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener</code> -
 optional callback for connection-lost/reconnecting/recovered lifecycle events</li>
+<li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake</code> -
+sends credentials via <code>start-ok</code>, either as a PLAIN username/password
+convenience or as an arbitrary <code>SASLClientMechanism</code> (AMQPLAIN,
+EXTERNAL, GSSAPI)</li>
 <li>Codec classes (<code>AMQPFrame</code>, <code>AMQPMethod</code>,
 <code>FieldTable</code>, <code>BasicProperties</code>, and per-class method
 codecs such as <code>ExchangeMethods</code>, <code>QueueMethods</code>,
@@ -326,10 +330,59 @@ negotiation; TLS is established at connect time.
 <h3 id="authentication">Authentication</h3>
 
 <p>
-The client authenticates using SASL <code>PLAIN</code>, the only mechanism
-currently implemented, sent as part of the <code>connection.start-ok</code>
-handshake once credentials are supplied via <code>credentials(username,
-password)</code>.
+The client supports SASL <code>PLAIN</code> (the default), <code>AMQPLAIN</code>
+(RabbitMQ's field-table-encoded credentials), <code>EXTERNAL</code> (TLS
+client certificate), and <code>GSSAPI</code> (Kerberos). Select a mechanism
+with <code>mechanism(...)</code>; the broker's advertised mechanism list is
+validated against the request before authenticating, so an unsupported
+choice fails clearly rather than silently falling back to <code>PLAIN</code>:
+</p>
+
+<pre>
+AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+        .credentials("appuser", "s3cret")
+        .mechanism("AMQPLAIN");
+</pre>
+
+<p>
+<code>EXTERNAL</code> relies on the client certificate presented during the
+TLS handshake (see <a href="#tls">TLS Connections</a>) and ignores
+credentials:
+</p>
+
+<pre>
+AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5671)
+        .setSecure(true)
+        .setKeystoreFile(Paths.get("/path/to/client-cert.p12"))
+        .setKeystorePass("changeit")
+        .mechanism("EXTERNAL");
+</pre>
+
+<p>
+<code>GSSAPI</code> requires a JAAS <code>Subject</code> obtained from a
+keytab login (or <code>kinit</code>), the broker's service principal name,
+and a worker executor — the first challenge evaluation may block on KDC
+contact, so it must never run on the connection's own event-loop thread:
+</p>
+
+<pre>
+Subject subject = loginWithKeytab("amqp-client@EXAMPLE.COM", "/etc/keytabs/amqp-client.keytab");
+ExecutorService kerberosExecutor = Executors.newSingleThreadExecutor();
+
+AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+        .mechanism("GSSAPI")
+        .gssapiCredentials(subject, "amqp@broker.example.com", kerberosExecutor);
+</pre>
+
+<p>
+For lower-level control (or mechanisms this convenience API doesn't cover),
+<code>ClientHandshake</code> accepts any <code>SASLClientMechanism</code>
+directly — see <code>org.bluezoo.gumdrop.auth.SASLUtils#createClient</code>
+— via <code>startOk(SASLClientMechanism, ServerTuneHandler)</code> or, for
+blocking mechanisms, <code>startOk(SASLClientMechanism, ServerTuneHandler,
+ExecutorService)</code>. Multi-step mechanisms are handled transparently:
+the client responds to as many <code>connection.secure</code> challenges as
+the broker sends before <code>connection.tune</code>.
 </p>
 
 <h3 id="recovery">Automatic Connection Recovery</h3>

@@ -39,7 +39,7 @@
  *       {@code BasicMethods}, {@code TxMethods}, {@code ConfirmMethods}).</li>
  *   <li>{@link org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler}: the
  *       connection and channel lifecycle — protocol header, {@code
- *       connection.start}/{@code start-ok} (SASL PLAIN), {@code tune}/
+ *       connection.start}/{@code start-ok}, {@code tune}/
  *       {@code tune-ok}, {@code open}/{@code open-ok}, {@code channel.open}/
  *       {@code open-ok}, graceful and unsolicited close on both; exchange/
  *       queue declaration and binding; publish ({@link
@@ -81,6 +81,19 @@
  *       basic.deliver} already covers strictly better in an async client,
  *       down to the one-at-a-time case via {@code basic.qos}
  *       prefetch=1.</li>
+ *   <li>SASL authentication (issue #188): {@code PLAIN} (the default),
+ *       {@code AMQPLAIN} (RabbitMQ's field-table-encoded credentials —
+ *       {@link org.bluezoo.gumdrop.amqp.client.AMQPLainClientMechanism},
+ *       package-private since it is broker-specific rather than an
+ *       IANA-registered mechanism), {@code EXTERNAL} (TLS client
+ *       certificate), and {@code GSSAPI} (Kerberos, worker-thread
+ *       offloaded for KDC contact) — all driven through {@link
+ *       org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake}'s
+ *       {@link org.bluezoo.gumdrop.auth.SASLClientMechanism}-based
+ *       overloads, reusing {@link org.bluezoo.gumdrop.auth.SASLUtils}
+ *       for every mechanism except {@code AMQPLAIN}. Multi-step
+ *       mechanisms are supported via {@code connection.secure}/{@code
+ *       secure-ok} round trips before {@code tune}.</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

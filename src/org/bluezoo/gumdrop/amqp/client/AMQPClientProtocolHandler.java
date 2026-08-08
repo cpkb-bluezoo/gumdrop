@@ -21,11 +21,13 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
+import java.util.concurrent.ExecutorService;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -57,6 +59,8 @@ import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
+import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SASLUtils;
 
 /**
  * AMQP 0-9-1 client protocol handler (issue #154).
@@ -81,13 +85,21 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
 
     private static final Logger LOGGER =
             Logger.getLogger(AMQPClientProtocolHandler.class.getName());
+    static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.amqp.client.L10N");
 
     /** AMQP 0-9-1 protocol header, sent immediately on connect. */
     private static final byte[] PROTOCOL_HEADER =
             { 'A', 'M', 'Q', 'P', 0, 0, 9, 1 };
 
     private enum State {
-        DISCONNECTED, AWAITING_START, AWAITING_TUNE, AWAITING_OPEN_OK, OPEN, CLOSED
+        DISCONNECTED, AWAITING_START, AWAITING_SECURE_OR_TUNE, AWAITING_OPEN_OK, OPEN, CLOSED
+    }
+
+    /** Result callback for a (possibly offloaded) {@link SASLClientMechanism#evaluateChallenge} call. */
+    private interface ChallengeCallback {
+        void onResponse(byte[] response);
+        void onFailure(IOException e);
     }
 
     private final ConnectionReady handler;
@@ -102,6 +114,17 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
 
     /** Pending connection-level callback (ServerTuneHandler / ServerOpenHandler / ServerCloseHandler). */
     private Object pendingConnectionCallback;
+
+    /**
+     * The in-progress SASL exchange, non-null between {@code start-ok} and
+     * the terminating {@code tune} (or a fatal {@code close}). Needed
+     * because a multi-step mechanism (e.g. GSSAPI) receives further
+     * {@code connection.secure} challenges after {@code start-ok} and
+     * before {@code tune} — see issue #188.
+     */
+    private SASLClientMechanism pendingSaslClient;
+    /** Worker executor for {@link #pendingSaslClient}, or null to evaluate challenges inline. */
+    private ExecutorService pendingSaslExecutor;
 
     private final Map<Integer, ChannelImpl> channels = new HashMap<Integer, ChannelImpl>();
     /**
@@ -217,7 +240,7 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
     public void headerFrame(int channel, ByteBuffer payload) {
         ChannelImpl ch = channels.get(channel);
         if (ch == null) {
-            LOGGER.log(Level.WARNING, "Content-header frame on unknown channel {0}", channel);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.header_frame_unknown_channel"), channel);
             return;
         }
         try {
@@ -231,7 +254,7 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
     public void bodyFrame(int channel, ByteBuffer payload) {
         ChannelImpl ch = channels.get(channel);
         if (ch == null) {
-            LOGGER.log(Level.WARNING, "Content-body frame on unknown channel {0}", channel);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.body_frame_unknown_channel"), channel);
             return;
         }
         try {
@@ -254,7 +277,18 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
     }
 
     private void protocolError(AMQPProtocolException e) {
-        LOGGER.log(Level.WARNING, "AMQP protocol error", e);
+        LOGGER.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
+        handler.onError(e);
+        if (endpoint != null) {
+            endpoint.close();
+        }
+    }
+
+    /** SASL exchange failed (mechanism evaluation threw, or offloaded evaluation failed). */
+    private void failSasl(IOException e) {
+        LOGGER.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
+        pendingSaslClient = null;
+        pendingSaslExecutor = null;
         handler.onError(e);
         if (endpoint != null) {
             endpoint.close();
@@ -272,6 +306,9 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
         switch (methodId) {
             case AMQPMethod.CONNECTION_START:
                 handleStart(payload);
+                break;
+            case AMQPMethod.CONNECTION_SECURE:
+                handleSecure(payload);
                 break;
             case AMQPMethod.CONNECTION_TUNE:
                 handleTune(payload);
@@ -301,28 +338,127 @@ public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHand
                 new ClientHandshake() {
                     @Override
                     public void startOk(String username, String password, ServerTuneHandler tuneHandler) {
-                        sendStartOk(username, password, tuneHandler);
+                        sendStartOk(SASLUtils.createClient("PLAIN", username, password, null),
+                                tuneHandler, null);
+                    }
+
+                    @Override
+                    public void startOk(SASLClientMechanism saslClient, ServerTuneHandler tuneHandler) {
+                        sendStartOk(saslClient, tuneHandler, null);
+                    }
+
+                    @Override
+                    public void startOk(SASLClientMechanism saslClient, ServerTuneHandler tuneHandler,
+                            ExecutorService executor) {
+                        sendStartOk(saslClient, tuneHandler, executor);
                     }
                 });
     }
 
-    private void sendStartOk(String username, String password, ServerTuneHandler tuneHandler) {
-        byte[] response = ("\0" + username + "\0" + password).getBytes(StandardCharsets.UTF_8);
+    private void sendStartOk(final SASLClientMechanism saslClient, final ServerTuneHandler tuneHandler,
+            final ExecutorService executor) {
+        pendingSaslClient = saslClient;
+        pendingSaslExecutor = executor;
+        pendingConnectionCallback = tuneHandler;
+        if (saslClient.hasInitialResponse()) {
+            evaluateChallenge(new byte[0], new ChallengeCallback() {
+                @Override
+                public void onResponse(byte[] response) {
+                    sendStartOkFrame(response);
+                }
+
+                @Override
+                public void onFailure(IOException e) {
+                    failSasl(e);
+                }
+            });
+        } else {
+            sendStartOkFrame(new byte[0]);
+        }
+    }
+
+    private void sendStartOkFrame(byte[] response) {
         FieldTable clientProperties = new FieldTable()
                 .put("product", "gumdrop")
                 .put("platform", "Java");
-        ByteBuffer args = ConnectionMethods.encodeStartOk(clientProperties, "PLAIN", response, "en_US");
+        ByteBuffer args = ConnectionMethods.encodeStartOk(
+                clientProperties, pendingSaslClient.getMechanismName(), response, "en_US");
         endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, args));
-        state = State.AWAITING_TUNE;
-        pendingConnectionCallback = tuneHandler;
+        state = State.AWAITING_SECURE_OR_TUNE;
+    }
+
+    /**
+     * {@code connection.secure} — the broker wants another round of the
+     * SASL exchange before it will send {@code tune} (issue #188; needed
+     * by multi-step mechanisms such as GSSAPI).
+     */
+    private void handleSecure(ByteBuffer payload) throws AMQPProtocolException {
+        if (state != State.AWAITING_SECURE_OR_TUNE || pendingSaslClient == null) {
+            throw new AMQPProtocolException("connection.secure in state " + state);
+        }
+        byte[] challenge = ConnectionMethods.decodeSecure(payload);
+        evaluateChallenge(challenge, new ChallengeCallback() {
+            @Override
+            public void onResponse(byte[] response) {
+                ByteBuffer args = ConnectionMethods.encodeSecureOk(response);
+                endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, args));
+            }
+
+            @Override
+            public void onFailure(IOException e) {
+                failSasl(e);
+            }
+        });
+    }
+
+    /**
+     * Evaluates a SASL challenge against {@link #pendingSaslClient},
+     * offloading to {@link #pendingSaslExecutor} when one is configured
+     * (required for GSSAPI, whose first evaluation may block on KDC
+     * contact) and dispatching the result back onto the connection's
+     * event loop either way.
+     */
+    private void evaluateChallenge(final byte[] challenge, final ChallengeCallback callback) {
+        final SASLClientMechanism client = pendingSaslClient;
+        if (pendingSaslExecutor != null) {
+            pendingSaslExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        final byte[] response = client.evaluateChallenge(challenge);
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                callback.onResponse(response);
+                            }
+                        });
+                    } catch (final IOException e) {
+                        endpoint.execute(new Runnable() {
+                            @Override
+                            public void run() {
+                                callback.onFailure(e);
+                            }
+                        });
+                    }
+                }
+            });
+        } else {
+            try {
+                callback.onResponse(client.evaluateChallenge(challenge));
+            } catch (IOException e) {
+                callback.onFailure(e);
+            }
+        }
     }
 
     private void handleTune(ByteBuffer payload) throws AMQPProtocolException {
-        if (state != State.AWAITING_TUNE || !(pendingConnectionCallback instanceof ServerTuneHandler)) {
+        if (state != State.AWAITING_SECURE_OR_TUNE || !(pendingConnectionCallback instanceof ServerTuneHandler)) {
             throw new AMQPProtocolException("connection.tune in state " + state);
         }
         ServerTuneHandler tuneHandler = (ServerTuneHandler) pendingConnectionCallback;
         pendingConnectionCallback = null;
+        pendingSaslClient = null;
+        pendingSaslExecutor = null;
 
         ConnectionMethods.Tune tune = ConnectionMethods.decodeTune(payload);
         negotiatedChannelMax = tune.channelMax;
