@@ -401,6 +401,10 @@ class Response implements HttpServletResponse {
         handler.endResponse();
     }
 
+    private void doEndResponse(Runnable onComplete) {
+        handler.endResponse(onComplete);
+    }
+
     /**
      * Sends a temporary redirect (302) to the specified location, resolving a
      * relative location against the current request URI.
@@ -669,6 +673,15 @@ class Response implements HttpServletResponse {
     // Called by worker thread once servlet processing is complete
     void endResponse() {
         doEndResponse();
+    }
+
+    /**
+     * As {@link #endResponse()}, but {@code onComplete} runs once the
+     * response has actually been sent instead of the caller blocking for
+     * that — see {@link ServletHandler#endResponse(Runnable)}.
+     */
+    void endResponse(Runnable onComplete) {
+        doEndResponse(onComplete);
     }
 
     public boolean isCommitted() {

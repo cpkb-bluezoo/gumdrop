@@ -61,10 +61,10 @@ class RequestHandler implements Runnable {
     }
 
     public void run() {
-        long t1 = System.currentTimeMillis();
+        final long t1 = System.currentTimeMillis();
         ClassLoader loader = Thread.currentThread().getContextClassLoader();
-        Request request = handler.getRequest();
-        Response response = handler.getResponse();
+        final Request request = handler.getRequest();
+        final Response response = handler.getResponse();
         try {
             ContextRequestDispatcher dispatcher = getRequestDispatcher(request, response);
             if (dispatcher == null) {
@@ -93,22 +93,53 @@ class RequestHandler implements Runnable {
             Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(loader);
-            
+
             // Only complete the response if async was NOT started
             // If async was started, the AsyncContext.complete() will handle it
             if (!request.isAsyncStarted()) {
+                // endResponse() is fire-and-forget: it schedules the
+                // network send on the connection's SelectorLoop and
+                // returns immediately instead of blocking this worker
+                // thread until the write (including any TLS/socket work)
+                // finishes - worker threads are the scarce, bounded
+                // resource. Access logging, which used to run
+                // synchronously right after the blocking send completed,
+                // now runs from this completion callback instead, at the
+                // same point in the response's actual lifecycle. If
+                // scheduling itself fails, logCompletion() still runs
+                // exactly once, from the finally below, matching the
+                // previous behaviour of always logging regardless of a
+                // flush/send error.
+                boolean scheduled = false;
                 try {
                     response.flushBuffer();
-                    response.endResponse();
+                    response.endResponse(new Runnable() {
+                        @Override
+                        public void run() {
+                            logCompletion(t1, request, response);
+                        }
+                    });
+                    scheduled = true;
                 } catch (ClosedChannelException e) {
                     // ignore
                 } catch (IOException e) {
                     Context.LOGGER.log(Level.SEVERE, e.getMessage(), e);
+                } finally {
+                    if (!scheduled) {
+                        logCompletion(t1, request, response);
+                    }
                 }
+            } else {
+                // Async: the response isn't complete yet (AsyncContext
+                // .complete() will finish it later), so this log entry
+                // reflects dispatch completion, not response completion -
+                // unchanged from before this fix.
+                logCompletion(t1, request, response);
             }
         }
-        long t2 = System.currentTimeMillis();
-        // System.err.println(getName() + ": " + (t2 - t1) + "ms");
+    }
+
+    private void logCompletion(long t1, Request request, Response response) {
         String logEntry = createLogEntry(t1, request, response);
         service.log(logEntry);
     }
