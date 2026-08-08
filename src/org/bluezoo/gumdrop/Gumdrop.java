@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop;
 
 import java.io.File;
+import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -39,6 +40,8 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
+import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
+import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
@@ -130,6 +133,8 @@ public class Gumdrop {
     private final AtomicInteger nextWorker;
     private ScheduledTimer scheduledTimer;
     private StorageExecutor storageExecutor;
+    private MailboxIndexer mailboxIndexer;
+    private MailboxWatcher mailboxWatcher;
 
     // Configurator (manages DI lifecycle)
     private GumdropConfigurator configurator;
@@ -575,6 +580,24 @@ public class Gumdrop {
             storageExecutor = StorageExecutor.createDefault();
         }
 
+        // Dedicated background thread that rebuilds mailbox search indexes
+        // off a priority queue, separate from storageExecutor so indexing
+        // work can never starve (or be starved by) APPEND/FETCH/SEARCH.
+        if (mailboxIndexer == null) {
+            mailboxIndexer = new MailboxIndexer();
+        }
+
+        // Watches mailbox directories so external changes (mail delivered
+        // by another process) trigger a background catch-up index job
+        // even without any live session touching that mailbox.
+        if (mailboxWatcher == null) {
+            try {
+                mailboxWatcher = new MailboxWatcher();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Could not start mailbox filesystem watcher", e);
+            }
+        }
+
         // Parse /etc/hosts (or Windows hosts) once off the selector so the
         // first DNSResolver.resolve after accept cannot stall a reactor
         // thread on cold hosts-file I/O.
@@ -789,6 +812,18 @@ public class Gumdrop {
             storageExecutor = null;
         }
 
+        // Stop the mailbox indexer
+        if (mailboxIndexer != null) {
+            mailboxIndexer.shutdown();
+            mailboxIndexer = null;
+        }
+
+        // Stop the mailbox filesystem watcher
+        if (mailboxWatcher != null) {
+            mailboxWatcher.shutdown();
+            mailboxWatcher = null;
+        }
+
         // Shutdown configurator (destroy singleton components)
         if (configurator != null) {
             configurator.shutdown();
@@ -980,6 +1015,31 @@ public class Gumdrop {
      */
     public StorageExecutor getStorageExecutor() {
         return storageExecutor;
+    }
+
+    /**
+     * Returns the shared background mailbox indexer used to rebuild/refresh
+     * mailbox search indexes off a priority queue rather than inline on
+     * whichever thread happens to trigger it.
+     *
+     * @return the mailbox indexer, or null if the server has not been started
+     * @see MailboxIndexer#ensureFreshBlocking
+     */
+    public MailboxIndexer getMailboxIndexer() {
+        return mailboxIndexer;
+    }
+
+    /**
+     * Returns the shared mailbox filesystem watcher used to notice external
+     * changes to mailbox directories and trigger background catch-up
+     * indexing, or null if the server has not been started or the watcher
+     * could not be created.
+     *
+     * @return the mailbox watcher, or null
+     * @see MailboxWatcher#register
+     */
+    public MailboxWatcher getMailboxWatcher() {
+        return mailboxWatcher;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
