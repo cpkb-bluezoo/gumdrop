@@ -76,6 +76,13 @@ class FTPDataServer implements AcceptSelectorLoop.RawAcceptHandler {
      */
     @Override
     public void accepted(SocketChannel sc) throws IOException {
+        // Only one data connection is ever expected per PASV/EPSV session
+        // (RFC 959 section 4.1.2) - close the listening socket (and free
+        // its ephemeral port) as soon as that connection arrives, rather
+        // than holding it open until the next PASV/EPSV or session close
+        // (issue #145). coordinator.cleanup() calling stop() again later
+        // is a harmless no-op once serverChannel is already null.
+        stop();
         FTPDataConnection dataConnection = new FTPDataConnection(sc, coordinator);
         coordinator.acceptDataConnection(dataConnection);
     }

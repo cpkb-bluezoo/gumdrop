@@ -60,6 +60,10 @@ import org.bluezoo.gumdrop.auth.Realm;
  *       permit PORT/EPRT to specify a data address other than the
  *       control client's IP (default {@code false}; see RFC 4217
  *       section 10)</li>
+ *   <li>{@code pasv-min-port} / {@code pasv-max-port} &ndash; restrict
+ *       passive-mode (PASV/EPSV) data listeners to this port range,
+ *       for deployments behind a firewall that only forwards a fixed
+ *       range (default: unrestricted, OS-assigned)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -89,6 +93,8 @@ public class FTPListener extends TCPListener {
     protected FTPConnectionHandlerFactory handlerFactory;
     private boolean requireTLSForData = false;
     private boolean allowActiveModeBounce = false;
+    private int pasvMinPort = 0;
+    private int pasvMaxPort = 0;
     private Realm realm;
 
     // Back-reference to the owning service (null when used standalone)
@@ -170,6 +176,49 @@ public class FTPListener extends TCPListener {
      */
     public boolean isAllowActiveModeBounce() {
         return allowActiveModeBounce;
+    }
+
+    /**
+     * Sets the lowest port number to use for passive-mode (PASV/EPSV)
+     * data listeners. Used together with {@link #setPasvMaxPort} to
+     * restrict passive data connections to a fixed range, for
+     * deployments behind a firewall that only forwards a limited set of
+     * ports. 0 (the default) means unrestricted, OS-assigned.
+     *
+     * @param port the lowest passive-mode port, or 0 for unrestricted
+     */
+    public void setPasvMinPort(int port) {
+        this.pasvMinPort = port;
+    }
+
+    /**
+     * Returns the lowest port number used for passive-mode data
+     * listeners, or 0 if unrestricted.
+     *
+     * @return the lowest passive-mode port, or 0
+     */
+    public int getPasvMinPort() {
+        return pasvMinPort;
+    }
+
+    /**
+     * Sets the highest port number to use for passive-mode (PASV/EPSV)
+     * data listeners. See {@link #setPasvMinPort}.
+     *
+     * @param port the highest passive-mode port, or 0 for unrestricted
+     */
+    public void setPasvMaxPort(int port) {
+        this.pasvMaxPort = port;
+    }
+
+    /**
+     * Returns the highest port number used for passive-mode data
+     * listeners, or 0 if unrestricted.
+     *
+     * @return the highest passive-mode port, or 0
+     */
+    public int getPasvMaxPort() {
+        return pasvMaxPort;
     }
 
     /**
