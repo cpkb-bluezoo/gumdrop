@@ -31,10 +31,17 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
+import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 
 /**
  * UDP transport implementation of {@link Endpoint}.
@@ -85,6 +92,20 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
 
     private boolean secure;
     private volatile boolean closing;
+
+    /**
+     * DTLS sessions keyed by peer address (issue #190). A single bound
+     * datagram socket serves every peer in server mode, so unlike TCP/TLS
+     * (one {@code SSLEngine} per connection) DTLS needs one session per
+     * remote address here. Client mode only ever has one entry, keyed by
+     * {@link #remoteAddress}. Unused (stays empty) when {@link #secure}
+     * is false. Reads and writes all happen on this endpoint's own
+     * SelectorLoop thread (as with everything else on {@code Endpoint}),
+     * including timer callbacks -- see {@link Endpoint#scheduleTimer} --
+     * so a plain {@link HashMap} is sufficient.
+     */
+    private final Map<InetSocketAddress, DTLSSession> dtlsSessions =
+            new HashMap<InetSocketAddress, DTLSSession>();
 
     private Trace trace;
 
@@ -139,6 +160,43 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         netIn = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
     }
 
+    /**
+     * Initiates the DTLS handshake for a secure client-mode endpoint
+     * (issue #190). Unlike a server, which waits passively for a
+     * {@code ClientHello}, a DTLS client must send one proactively, so
+     * this is called explicitly by {@link UDPTransportFactory#connect}
+     * right after the endpoint is set up -- lazily creating the session
+     * on first receive (as server mode does in {@link #netReceive}) would
+     * never actually send anything.
+     */
+    void startClientDtlsHandshake() {
+        if (secure && clientMode && remoteAddress != null) {
+            getOrCreateDtlsSession(remoteAddress);
+        }
+    }
+
+    /**
+     * Returns the existing DTLS session for {@code peer}, or creates and
+     * begins the handshake for a new one.
+     */
+    private DTLSSession getOrCreateDtlsSession(InetSocketAddress peer) {
+        DTLSSession existing = dtlsSessions.get(peer);
+        if (existing != null) {
+            return existing;
+        }
+        SSLContext dtlsContext = ((UDPTransportFactory) factory).getDTLSContext();
+        if (dtlsContext == null) {
+            throw new IllegalStateException(
+                    "Secure UDP endpoint has no DTLS context configured");
+        }
+        SSLEngine engine = dtlsContext.createSSLEngine(peer.getHostString(), peer.getPort());
+        engine.setUseClientMode(clientMode);
+        DTLSSession created = new DTLSSession(engine, this, peer);
+        dtlsSessions.put(peer, created);
+        created.beginHandshake();
+        return created;
+    }
+
     // -- Endpoint implementation --
 
     @Override
@@ -158,10 +216,41 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     /**
      * Sends a datagram to a specific destination (server mode).
      *
+     * <p>For a secure endpoint (issue #190), {@code data} is treated as
+     * plaintext and transparently DTLS-encrypted for {@code dest}'s
+     * session before being put on the wire -- callers never handle DTLS
+     * records directly. If the session for {@code dest} has not finished
+     * its handshake yet (or has failed/closed), the data is dropped; the
+     * {@code data} buffer is not retained after this call.
+     *
      * @param data the datagram payload
      * @param dest the destination address
      */
     public void sendTo(ByteBuffer data, InetSocketAddress dest) {
+        if (secure) {
+            DTLSSession session = getOrCreateDtlsSession(dest);
+            ByteBuffer encrypted = session.wrap(data);
+            if (encrypted == null) {
+                return;
+            }
+            try {
+                sendRawDatagram(encrypted, dest);
+            } finally {
+                ByteBufferPool.release(encrypted);
+            }
+            return;
+        }
+        sendRawDatagram(data, dest);
+    }
+
+    /**
+     * Queues a datagram for the wire exactly as given, with no DTLS
+     * involvement -- used both for plaintext endpoints and internally by
+     * {@link DTLSSession} to send already-encrypted records (handshake
+     * flights, application data, {@code close_notify}). Never call this
+     * directly with plaintext on a secure endpoint; use {@link #sendTo}.
+     */
+    void sendRawDatagram(ByteBuffer data, InetSocketAddress dest) {
         ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
         copy.put(data);
         copy.flip();
@@ -189,12 +278,23 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         }
         closing = true;
 
+        if (secure) {
+            // Copy first: DTLSSession.close() calls back into
+            // removeDtlsSession(), which would otherwise mutate
+            // dtlsSessions while this loop is iterating it.
+            for (DTLSSession dtlsSession
+                    : new ArrayList<DTLSSession>(dtlsSessions.values())) {
+                dtlsSession.close();
+            }
+        }
+
         if (channel != null) {
             try {
                 channel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error closing datagram channel", e);
+                String message = MessageFormat.format(
+                        Gumdrop.L10N.getString("err.close"), "datagram channel");
+                LOGGER.log(Level.WARNING, message, e);
             }
         }
         if (key != null) {
@@ -236,7 +336,15 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
 
     @Override
     public SecurityInfo getSecurityInfo() {
-        // DTLS security info would go here when DTLS is implemented
+        if (secure && remoteAddress != null) {
+            DTLSSession session = dtlsSessions.get(remoteAddress);
+            if (session != null) {
+                SecurityInfo info = session.getSecurityInfo();
+                if (info != null) {
+                    return info;
+                }
+            }
+        }
         return NullSecurityInfo.INSTANCE;
     }
 
@@ -329,13 +437,66 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * Called by the SelectorLoop when a datagram is received.
      */
     void netReceive(ByteBuffer data, InetSocketAddress source) {
-        if (clientMode) {
-            handler.receive(data);
-        } else {
+        if (!clientMode) {
             // For server mode, set the source so the handler can reply
             remoteAddress = source;
-            handler.receive(data);
         }
+
+        if (secure) {
+            DTLSSession session = getOrCreateDtlsSession(source);
+            ByteBuffer plaintext = session.unwrap(data);
+            if (plaintext != null) {
+                // A DTLS datagram is one complete, self-contained record;
+                // unlike a TCP byte stream there is no partial-message
+                // carry-over for the handler to leave unconsumed, so this
+                // pooled buffer's lifetime ends when receive() returns.
+                try {
+                    handler.receive(plaintext);
+                } finally {
+                    ByteBufferPool.release(plaintext);
+                }
+            }
+            // plaintext == null: handshake still in progress (any
+            // handshake response has already been sent by DTLSSession
+            // itself), or the record carried no application data.
+            return;
+        }
+
+        handler.receive(data);
+    }
+
+    /**
+     * Called by {@link DTLSSession} once its handshake completes.
+     */
+    void notifyDtlsHandshakeComplete(InetSocketAddress peer, SecurityInfo info) {
+        handler.securityEstablished(info);
+    }
+
+    /**
+     * Called by {@link DTLSSession} when its handshake fails permanently
+     * (e.g. retransmit attempts exhausted). In client mode -- where the
+     * endpoint has exactly one peer -- this is fatal to the endpoint and
+     * surfaces as {@link ProtocolHandler#error}. In server mode, a single
+     * misbehaving/unreachable peer must not take down the listener for
+     * every other peer it's serving, so the failure is only logged and
+     * that peer's session is dropped.
+     */
+    void onDtlsSessionFailed(InetSocketAddress peer, Exception cause) {
+        dtlsSessions.remove(peer);
+        if (clientMode) {
+            handler.error(cause);
+        } else if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.log(Level.WARNING, cause.getMessage(), cause);
+        }
+    }
+
+    /**
+     * Called by {@link DTLSSession} once it is closed (either a normal
+     * {@code close_notify} exchange or after {@link #onDtlsSessionFailed}),
+     * so the endpoint stops tracking it.
+     */
+    void removeDtlsSession(InetSocketAddress peer) {
+        dtlsSessions.remove(peer);
     }
 
     /**
