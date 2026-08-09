@@ -295,21 +295,115 @@ public class BERDecoder {
         valueOffset = 0;
     }
 
+    /**
+     * Parses the children of a constructed element directly out of its
+     * already-fully-received value bytes (issue #195).
+     *
+     * <p>{@code data} is a complete, self-contained TLV sequence -- there
+     * is no partial/incremental data to tolerate the way {@link
+     * #decode()} must for the top-level stream, so this walks it with a
+     * plain recursive-descent parse ({@link #parseOneElement}) instead of
+     * spinning up a whole new {@code BERDecoder} (with its own {@link
+     * ByteBufferPool}-backed scratch buffer and streaming state machine)
+     * per nesting level. A deeply nested constructed value (e.g. an LDAP
+     * search filter with many nested AND/OR/NOT terms) previously meant
+     * one extra decoder object and one extra pooled-buffer
+     * acquire-and-copy per level of nesting; this makes no allocation at
+     * all beyond the {@link ASN1Element}s and leaf value byte arrays the
+     * result must own regardless.
+     */
     private List<ASN1Element> parseChildren(byte[] data) throws ASN1Exception {
         List<ASN1Element> children = new ArrayList<ASN1Element>();
-        BERDecoder childDecoder = new BERDecoder(data.length);
-        childDecoder.receive(ByteBuffer.wrap(data));
-        
-        ASN1Element child;
-        while ((child = childDecoder.next()) != null) {
-            children.add(child);
+        int pos = 0;
+        int end = data.length;
+        while (pos < end) {
+            pos = parseOneElement(data, pos, end, children);
         }
-        
-        if (childDecoder.hasPartialData()) {
+        return children;
+    }
+
+    /**
+     * Parses one complete TLV element from {@code data[pos..end)},
+     * appends it to {@code children} (recursing into {@link
+     * #parseChildren} in all but name for a constructed element's own
+     * children), and returns the offset immediately past it.
+     *
+     * <p>Mirrors {@link #decodeTag}/{@link #decodeTagMulti}/{@link
+     * #decodeLength}/{@link #decodeLengthMulti} exactly (same tag/length
+     * encoding rules, same limits), just as a single-pass array walk
+     * rather than a state machine spread across possibly-multiple
+     * {@link #receive} calls -- appropriate here since all of {@code
+     * data} is already available at once.
+     */
+    private int parseOneElement(byte[] data, int pos, int end, List<ASN1Element> children)
+            throws ASN1Exception {
+        if (pos >= end) {
+            throw new ASN1Exception("Truncated element in constructed type");
+        }
+        int elementTag = data[pos++] & 0xFF;
+        if ((elementTag & 0x1F) == 0x1F) {
+            // Multi-byte tag
+            boolean more = true;
+            while (more) {
+                if (pos >= end) {
+                    throw new ASN1Exception("Truncated tag in constructed type");
+                }
+                int b = data[pos++] & 0xFF;
+                elementTag = (elementTag << 8) | b;
+                more = (b & 0x80) != 0;
+            }
+        }
+
+        if (pos >= end) {
+            throw new ASN1Exception("Truncated length in constructed type");
+        }
+        int lengthByte = data[pos++] & 0xFF;
+        int elementLength;
+        if (lengthByte == 0x80) {
+            throw new ASN1Exception("Indefinite length encoding not supported");
+        } else if ((lengthByte & 0x80) == 0) {
+            // Short form
+            elementLength = lengthByte;
+        } else {
+            // Long form
+            int lengthBytesRemainingLocal = lengthByte & 0x7F;
+            if (lengthBytesRemainingLocal > 4) {
+                throw new ASN1Exception("Length too large: " + lengthBytesRemainingLocal + " bytes");
+            }
+            elementLength = 0;
+            for (int i = 0; i < lengthBytesRemainingLocal; i++) {
+                if (pos >= end) {
+                    throw new ASN1Exception("Truncated length in constructed type");
+                }
+                elementLength = (elementLength << 8) | (data[pos++] & 0xFF);
+            }
+        }
+
+        if (elementLength > 10 * 1024 * 1024) {
+            // Sanity check - 10MB max, matching startValue()
+            throw new ASN1Exception("Value too large: " + elementLength + " bytes");
+        }
+        if (pos + elementLength > end) {
             throw new ASN1Exception("Incomplete child element in constructed type");
         }
-        
-        return children;
+
+        ASN1Element element;
+        if (ASN1Type.isConstructed(elementTag)) {
+            List<ASN1Element> nestedChildren = new ArrayList<ASN1Element>();
+            int childPos = pos;
+            int childEnd = pos + elementLength;
+            while (childPos < childEnd) {
+                childPos = parseOneElement(data, childPos, childEnd, nestedChildren);
+            }
+            element = new ASN1Element(elementTag, nestedChildren);
+        } else {
+            byte[] value = new byte[elementLength];
+            System.arraycopy(data, pos, value, 0, elementLength);
+            element = new ASN1Element(elementTag, value);
+        }
+
+        children.add(element);
+        return pos + elementLength;
     }
 }
 
