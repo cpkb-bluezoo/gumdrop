@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -85,7 +86,11 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     // Remote address (for client mode)
     private InetSocketAddress remoteAddress;
 
-    // Network I/O
+    // Network I/O. Pooled (issue #193) rather than a fresh heap
+    // allocation, both to reduce GC pressure and, being a genuinely
+    // direct buffer, to avoid the JVM's internal bounce-copy through a
+    // temporary direct buffer on every datagram read/write that a heap
+    // buffer would otherwise force.
     ByteBuffer netIn;
     final Deque<PendingDatagram> pendingDatagrams =
             new ConcurrentLinkedDeque<PendingDatagram>();
@@ -157,7 +162,7 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     }
 
     void init() {
-        netIn = ByteBuffer.allocate(DEFAULT_BUFFER_SIZE);
+        netIn = DirectByteBufferPool.acquire(DEFAULT_BUFFER_SIZE);
     }
 
     /**
@@ -304,6 +309,11 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         Gumdrop gumdrop = Gumdrop.getInstance();
         if (gumdrop != null) {
             gumdrop.removeChannelHandler(this);
+        }
+
+        if (netIn != null) {
+            DirectByteBufferPool.release(netIn);
+            netIn = null;
         }
 
         handler.disconnected();
