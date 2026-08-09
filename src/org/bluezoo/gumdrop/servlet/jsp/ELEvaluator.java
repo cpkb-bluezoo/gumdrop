@@ -31,6 +31,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -198,127 +199,273 @@ public class ELEvaluator {
     
     /**
      * Evaluates a single EL expression.
+     *
+     * <p>Parsing an expression into a {@link ParsedNode} (issue #191) --
+     * repeatedly scanning the string for operator positions via {@link
+     * #findOperator}/{@link #findBinaryOperator}, which is the expensive
+     * part -- happens once per distinct expression string and is cached
+     * in {@link #EXPRESSION_CACHE}; only the dynamic part (the actual
+     * bean/property lookups and operator application, which must reflect
+     * this evaluation's live request/page state) runs on every call.
+     * This matters most inside a JSP iteration tag, where the same
+     * expression string is otherwise re-parsed from scratch on every row
+     * of every request.
      */
     private Object evaluateExpression(String expr) throws Exception {
         if (expr.isEmpty()) {
             return "";
         }
-        
+        // Access-ordered LinkedHashMap mutates its internal structure on
+        // get() too (that's how it tracks recency), so both the lookup
+        // and the insert-on-miss must be synchronized, not just the put.
+        ParsedNode node;
+        synchronized (EXPRESSION_CACHE) {
+            node = EXPRESSION_CACHE.get(expr);
+        }
+        if (node == null) {
+            node = parseExpression(expr);
+            synchronized (EXPRESSION_CACHE) {
+                EXPRESSION_CACHE.put(expr, node);
+            }
+        }
+        return evaluateNode(node);
+    }
+
+    /**
+     * Applies a previously-parsed decision, recursing into {@link
+     * #evaluateExpression} for sub-expressions (which will itself be a
+     * cache hit for any sub-expression already seen).
+     */
+    private Object evaluateNode(ParsedNode node) throws Exception {
+        switch (node.kind) {
+            case TERNARY: {
+                Object condition = evaluateExpression(node.left);
+                return toBoolean(condition)
+                        ? evaluateExpression(node.right)
+                        : evaluateExpression(node.third);
+            }
+            case OR: {
+                Object left = evaluateExpression(node.left);
+                Object right = evaluateExpression(node.right);
+                return toBoolean(left) || toBoolean(right);
+            }
+            case AND: {
+                Object left = evaluateExpression(node.left);
+                Object right = evaluateExpression(node.right);
+                return toBoolean(left) && toBoolean(right);
+            }
+            case COMPARE: {
+                Object left = evaluateExpression(node.left);
+                Object right = evaluateExpression(node.right);
+                return compare(left, right, node.op);
+            }
+            case ARITHMETIC: {
+                Object left = evaluateExpression(node.left);
+                Object right = evaluateExpression(node.right);
+                return arithmetic(left, right, node.op);
+            }
+            case NOT:
+                return !toBoolean(evaluateExpression(node.left));
+            case EMPTY:
+                return isEmpty(evaluateExpression(node.left));
+            case PAREN:
+                return evaluateExpression(node.left);
+            case LITERAL:
+                return node.literal;
+            case VALUE:
+                return evaluateValueExpression(node.parts);
+            default:
+                throw new IllegalStateException("Unhandled ParsedNode.Kind: " + node.kind);
+        }
+    }
+
+    /**
+     * Parses (without evaluating) a single EL expression, mirroring the
+     * dispatch {@link #evaluateExpression} used before caching was added
+     * (issue #191) -- same operator scanning, same precedence, same
+     * literal handling, just building a {@link ParsedNode} to reuse
+     * instead of evaluating inline.
+     */
+    private ParsedNode parseExpression(String expr) {
         // Handle ternary operator
         int questionMark = findOperator(expr, '?');
         if (questionMark > 0) {
             int colon = findOperator(expr.substring(questionMark + 1), ':');
             if (colon > 0) {
                 colon += questionMark + 1;
-                Object condition = evaluateExpression(expr.substring(0, questionMark).trim());
-                if (toBoolean(condition)) {
-                    return evaluateExpression(expr.substring(questionMark + 1, colon).trim());
-                } else {
-                    return evaluateExpression(expr.substring(colon + 1).trim());
-                }
+                return ParsedNode.ternary(
+                        expr.substring(0, questionMark).trim(),
+                        expr.substring(questionMark + 1, colon).trim(),
+                        expr.substring(colon + 1).trim());
             }
         }
-        
+
         // Handle logical OR (check keyword 'or' first since it's longer)
         int orOp = findBinaryOperator(expr, "or", null);
         if (orOp > 0) {
-            Object left = evaluateExpression(expr.substring(0, orOp).trim());
-            Object right = evaluateExpression(expr.substring(orOp + 2).trim());
-            return toBoolean(left) || toBoolean(right);
+            return ParsedNode.binary(ParsedNode.Kind.OR,
+                    expr.substring(0, orOp).trim(), null, expr.substring(orOp + 2).trim());
         }
         orOp = findBinaryOperator(expr, "||", null);
         if (orOp > 0) {
-            Object left = evaluateExpression(expr.substring(0, orOp).trim());
-            Object right = evaluateExpression(expr.substring(orOp + 2).trim());
-            return toBoolean(left) || toBoolean(right);
+            return ParsedNode.binary(ParsedNode.Kind.OR,
+                    expr.substring(0, orOp).trim(), null, expr.substring(orOp + 2).trim());
         }
-        
+
         // Handle logical AND (check keyword 'and' first since it's longer)
         int andOp = findBinaryOperator(expr, "and", null);
         if (andOp > 0) {
-            Object left = evaluateExpression(expr.substring(0, andOp).trim());
-            Object right = evaluateExpression(expr.substring(andOp + 3).trim());
-            return toBoolean(left) && toBoolean(right);
+            return ParsedNode.binary(ParsedNode.Kind.AND,
+                    expr.substring(0, andOp).trim(), null, expr.substring(andOp + 3).trim());
         }
         andOp = findBinaryOperator(expr, "&&", null);
         if (andOp > 0) {
-            Object left = evaluateExpression(expr.substring(0, andOp).trim());
-            Object right = evaluateExpression(expr.substring(andOp + 2).trim());
-            return toBoolean(left) && toBoolean(right);
+            return ParsedNode.binary(ParsedNode.Kind.AND,
+                    expr.substring(0, andOp).trim(), null, expr.substring(andOp + 2).trim());
         }
-        
+
         // Handle comparison operators
         String[] compOps = {"==", "!=", "<=", ">=", "<", ">", "eq", "ne", "le", "ge", "lt", "gt"};
         for (String op : compOps) {
             int opPos = findBinaryOperator(expr, op, null);
             if (opPos > 0) {
-                Object left = evaluateExpression(expr.substring(0, opPos).trim());
-                Object right = evaluateExpression(expr.substring(opPos + op.length()).trim());
-                return compare(left, right, op);
+                return ParsedNode.binary(ParsedNode.Kind.COMPARE,
+                        expr.substring(0, opPos).trim(), op, expr.substring(opPos + op.length()).trim());
             }
         }
-        
+
         // Handle arithmetic operators
         String[] arithOps = {"+", "-", "*", "/", "%", "div", "mod"};
         for (String op : arithOps) {
             int opPos = findBinaryOperator(expr, op, null);
             if (opPos > 0) {
-                Object left = evaluateExpression(expr.substring(0, opPos).trim());
-                Object right = evaluateExpression(expr.substring(opPos + op.length()).trim());
-                return arithmetic(left, right, op);
+                return ParsedNode.binary(ParsedNode.Kind.ARITHMETIC,
+                        expr.substring(0, opPos).trim(), op, expr.substring(opPos + op.length()).trim());
             }
         }
-        
+
         // Handle NOT operator
         if (expr.startsWith("!") || expr.startsWith("not ")) {
             int start = expr.startsWith("!") ? 1 : 4;
-            Object value = evaluateExpression(expr.substring(start).trim());
-            return !toBoolean(value);
+            return ParsedNode.unary(ParsedNode.Kind.NOT, expr.substring(start).trim());
         }
-        
+
         // Handle empty operator
         if (expr.startsWith("empty ")) {
-            Object value = evaluateExpression(expr.substring(6).trim());
-            return isEmpty(value);
+            return ParsedNode.unary(ParsedNode.Kind.EMPTY, expr.substring(6).trim());
         }
-        
+
         // Handle parentheses
         if (expr.startsWith("(") && expr.endsWith(")")) {
-            return evaluateExpression(expr.substring(1, expr.length() - 1).trim());
+            return ParsedNode.unary(ParsedNode.Kind.PAREN, expr.substring(1, expr.length() - 1).trim());
         }
-        
+
         // Handle literals
         if (expr.startsWith("'") && expr.endsWith("'")) {
-            return expr.substring(1, expr.length() - 1);
+            return ParsedNode.literal(expr.substring(1, expr.length() - 1));
         }
         if (expr.startsWith("\"") && expr.endsWith("\"")) {
-            return expr.substring(1, expr.length() - 1);
+            return ParsedNode.literal(expr.substring(1, expr.length() - 1));
         }
         if ("true".equals(expr)) {
-            return Boolean.TRUE;
+            return ParsedNode.literal(Boolean.TRUE);
         }
         if ("false".equals(expr)) {
-            return Boolean.FALSE;
+            return ParsedNode.literal(Boolean.FALSE);
         }
         if ("null".equals(expr)) {
-            return null;
+            return ParsedNode.literal(null);
         }
-        
+
         // Try to parse as number
         try {
             if (expr.indexOf('.') >= 0) {
-                return Double.parseDouble(expr);
+                return ParsedNode.literal(Double.valueOf(expr));
             } else {
-                return Long.parseLong(expr);
+                return ParsedNode.literal(Long.valueOf(expr));
             }
         } catch (NumberFormatException e) {
             // Not a number, continue
         }
-        
+
         // Handle property/method access
-        return evaluateValueExpression(expr);
+        return ParsedNode.value(splitExpression(expr));
     }
-    
+
+    /**
+     * The result of {@link #parseExpression}: which branch of the
+     * dispatch matched, and the (already trimmed) sub-expression strings
+     * or literal value it matched with. Cached in {@link
+     * #EXPRESSION_CACHE} keyed by the exact expression string.
+     */
+    private static final class ParsedNode {
+
+        private enum Kind {
+            TERNARY, OR, AND, COMPARE, ARITHMETIC, NOT, EMPTY, PAREN, LITERAL, VALUE
+        }
+
+        final Kind kind;
+        final String left;
+        final String right;
+        final String third; // ternary "else" branch only
+        final String op; // COMPARE/ARITHMETIC operator text only
+        final Object literal; // LITERAL only
+        final List<String> parts; // VALUE only (pre-split by splitExpression)
+
+        private ParsedNode(Kind kind, String left, String right, String third,
+                String op, Object literal, List<String> parts) {
+            this.kind = kind;
+            this.left = left;
+            this.right = right;
+            this.third = third;
+            this.op = op;
+            this.literal = literal;
+            this.parts = parts;
+        }
+
+        static ParsedNode ternary(String cond, String thenExpr, String elseExpr) {
+            return new ParsedNode(Kind.TERNARY, cond, thenExpr, elseExpr, null, null, null);
+        }
+
+        static ParsedNode binary(Kind kind, String left, String op, String right) {
+            return new ParsedNode(kind, left, right, null, op, null, null);
+        }
+
+        static ParsedNode unary(Kind kind, String operand) {
+            return new ParsedNode(kind, operand, null, null, null, null, null);
+        }
+
+        static ParsedNode literal(Object value) {
+            return new ParsedNode(Kind.LITERAL, null, null, null, null, value, null);
+        }
+
+        static ParsedNode value(List<String> parts) {
+            return new ParsedNode(Kind.VALUE, null, null, null, null, null, parts);
+        }
+    }
+
+    /**
+     * Bounded, shared cache of parsed expressions (issue #191). Static
+     * (not per-{@code ELEvaluator} instance) since generated JSP code
+     * constructs a new evaluator per call site -- an instance-level cache
+     * would never see a repeat lookup. Bounded by eviction of the
+     * least-recently-used entry past {@link #EXPRESSION_CACHE_MAX_SIZE}
+     * rather than left unbounded, since expression strings are supplied
+     * by whatever JSPs happen to be deployed rather than a fixed set
+     * gumdrop controls.
+     */
+    private static final int EXPRESSION_CACHE_MAX_SIZE = 4096;
+
+    // Package-private (not private) so ELEvaluatorTest can assert on cache
+    // occupancy directly rather than through reflection.
+    static final Map<String, ParsedNode> EXPRESSION_CACHE =
+            new LinkedHashMap<String, ParsedNode>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, ParsedNode> eldest) {
+                    return size() > EXPRESSION_CACHE_MAX_SIZE;
+                }
+            };
+
     /**
      * Finds a binary operator in the expression, respecting parentheses and strings.
      */
@@ -403,12 +550,12 @@ public class ELEvaluator {
     }
     
     /**
-     * Evaluates a value expression (property access chain).
+     * Evaluates a value expression (property access chain) from its
+     * already-split parts -- splitting is pure string work over the
+     * dot-separated path, done once by {@link #parseExpression} and
+     * cached in the {@link ParsedNode}, not repeated per evaluation.
      */
-    private Object evaluateValueExpression(String expr) throws Exception {
-        // Split on dots, but respect brackets
-        List<String> parts = splitExpression(expr);
-        
+    private Object evaluateValueExpression(List<String> parts) throws Exception {
         if (parts.isEmpty()) {
             return null;
         }

@@ -364,6 +364,104 @@ public class ELEvaluatorTest {
         evaluator.evaluateTemplate("Hello ${name");
     }
 
+    // ===== Expression Cache Tests (issue #191) =====
+    //
+    // ELEvaluator.EXPRESSION_CACHE is a shared static cache (package-private
+    // for exactly this purpose), so these tests clear it in @Before/@After
+    // to avoid depending on -- or polluting -- state left by other tests
+    // in this class or others in the same JVM.
+
+    @Before
+    public void clearExpressionCacheBefore() {
+        synchronized (ELEvaluator.EXPRESSION_CACHE) {
+            ELEvaluator.EXPRESSION_CACHE.clear();
+        }
+    }
+
+    @Test
+    public void testRepeatedEvaluationCachesParsedExpression() throws Exception {
+        // A bare identifier parses straight to a VALUE node with no
+        // sub-expression recursion, so it produces exactly one cache
+        // entry -- other tests below evaluate compound expressions
+        // (e.g. "x + 1"), which also cache their "x" and "1"
+        // sub-expressions as independent entries; that's intentional
+        // (see testDistinctExpressionsEachGetOwnCacheEntry) but would
+        // make an exact-count assertion here fragile.
+        pageContext.setAttribute("x", 5, PageContext.PAGE_SCOPE);
+        assertEquals(0, cacheSize());
+
+        Object first = evaluator.evaluate("${x}");
+        assertEquals(1, cacheSize());
+
+        Object second = evaluator.evaluate("${x}");
+        assertEquals("cache must not grow on a repeat lookup of the same expression",
+                1, cacheSize());
+        assertEquals(first, second);
+    }
+
+    @Test
+    public void testDistinctExpressionsEachGetOwnCacheEntry() throws Exception {
+        // "x + 1" caches three entries -- itself plus its "x" and "1"
+        // sub-expressions -- and "x + 2" adds two more ("x" is already
+        // cached from the first evaluation), for five total. Repeating
+        // "x + 1" must not add a sixth.
+        pageContext.setAttribute("x", 5, PageContext.PAGE_SCOPE);
+        evaluator.evaluate("${x + 1}");
+        evaluator.evaluate("${x + 2}");
+        int afterTwoDistinctExpressions = cacheSize();
+        evaluator.evaluate("${x + 1}"); // repeat; must not grow the cache further
+        assertEquals("repeating an already-evaluated expression must not add entries",
+                afterTwoDistinctExpressions, cacheSize());
+        assertTrue("two distinct top-level expressions must add at least two entries",
+                afterTwoDistinctExpressions >= 2);
+    }
+
+    @Test
+    public void testCacheIsSharedAcrossEvaluatorInstances() throws Exception {
+        // Mirrors the real JSP rendering path: generated code constructs a
+        // fresh ELEvaluator per call site, so the cache must be effective
+        // across instances, not just within one -- an instance-level cache
+        // would never see a repeat lookup in practice.
+        pageContext.setAttribute("x", 5, PageContext.PAGE_SCOPE);
+        evaluator.evaluate("${x}");
+        assertEquals(1, cacheSize());
+
+        ELEvaluator anotherEvaluator = new ELEvaluator(pageContext);
+        anotherEvaluator.evaluate("${x}");
+        assertEquals("a second evaluator instance evaluating the same expression "
+                + "must hit the existing cache entry, not add a new one",
+                1, cacheSize());
+    }
+
+    @Test
+    public void testCachedResultReflectsCurrentDynamicState() throws Exception {
+        // The parsed *structure* is cached, but bean/property lookups must
+        // still run fresh on every evaluation -- caching must never freeze
+        // the result of a previous evaluation. arithmetic() always
+        // computes in double, per toDouble()/arithmetic() below.
+        pageContext.setAttribute("x", 5, PageContext.PAGE_SCOPE);
+        assertEquals(6.0, (Double) evaluator.evaluate("${x + 1}"), 0.001);
+
+        pageContext.setAttribute("x", 100, PageContext.PAGE_SCOPE);
+        assertEquals(101.0, (Double) evaluator.evaluate("${x + 1}"), 0.001);
+    }
+
+    @Test
+    public void testCacheDoesNotGrowUnboundedlyPastConfiguredMaximum() throws Exception {
+        pageContext.setAttribute("x", 1, PageContext.PAGE_SCOPE);
+        for (int i = 0; i < 5000; i++) {
+            evaluator.evaluate("${x + " + i + "}");
+        }
+        assertTrue("cache must be bounded rather than growing without limit",
+                cacheSize() <= 4096);
+    }
+
+    private static int cacheSize() {
+        synchronized (ELEvaluator.EXPRESSION_CACHE) {
+            return ELEvaluator.EXPRESSION_CACHE.size();
+        }
+    }
+
     // ===== Test Bean Class =====
 
     public static class TestBean {

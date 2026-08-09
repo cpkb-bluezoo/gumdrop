@@ -1259,6 +1259,17 @@ map entries (<code>${map['key']}</code>), list/array elements (<code>${list[0]}<
 <li><b>Method invocation</b> - <code>${bean.method(arg)}</code></li>
 </ul>
 
+<p>
+Parsing an expression string into its operator structure -- as opposed to
+evaluating it against the current page/request state, which must run fresh
+every time -- is cached: a given expression string is scanned for operator
+positions and literal/property structure only once, in a bounded, shared
+cache, and reused on every subsequent evaluation of that same string. This
+matters most inside iteration tags such as <code>&lt;c:forEach&gt;</code>,
+where the same expression (e.g. <code>${item.name}</code>) would otherwise
+be re-parsed from scratch on every row of every request.
+</p>
+
 <h4>Tag Libraries</h4>
 
 <p>
