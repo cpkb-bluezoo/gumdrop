@@ -50,10 +50,9 @@
 #                               MUST NOT be a SNAPSHOT version - Maven
 #                               Central does not accept snapshot publishes
 #                               at all, so this script refuses to run
-#                               against one (build.xml is currently pinned
-#                               to 2.1-SNAPSHOT; bump it, and all three
-#                               central/*-pom.xml files, together when a
-#                               real release is cut).
+#                               against one (bump build.xml's version, and
+#                               all three central/*-pom.xml files, together
+#                               when cutting a new release).
 #   PUBLISHING_TYPE          - AUTOMATIC or USER_MANAGED (default:
 #                               AUTOMATIC - goes live on Central as soon as
 #                               validation passes, no manual "Publish" click

@@ -43,6 +43,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Maven Central publishing workflow and `SECURITY.md` vulnerability
   disclosure policy added.
 - Dependabot configuration added for automated dependency update PRs.
+- **DTLS support for UDP listeners** (issue #190): `UDPEndpoint` now
+  maintains one DTLS session per peer address, so a single bound socket
+  serves many concurrent DTLS clients (DNS-over-DTLS, RFC 8094, in
+  particular). Includes RFC 6347 §4.2.4 handshake flight retransmission
+  with exponential backoff, and `securityEstablished(SecurityInfo)` now
+  actually fires for DTLS, backed by the same `JSSESecurityInfo` used for
+  TCP/TLS.
 
 ### Changed
 
@@ -89,6 +96,34 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   bundle mechanism with English, French, Spanish, and German translations.
 - Routine dependency version bumps (Maven compiler, javadoc, antrun,
   source, and jar plugins) via Dependabot (#166–#171).
+- **EL expression parsing is now cached** (issue #191): `ELEvaluator` used
+  to re-scan an expression string for operator positions on every single
+  evaluation, with no caching at any level — costly inside JSP iteration
+  tags, which re-evaluate the same expression once per row of every
+  request. Parsing is now cached in a bounded, shared structure keyed by
+  the expression string; the actual bean/property lookups and operator
+  application still run fresh on every evaluation, so caching cannot
+  return stale data.
+- **HTTP Digest nonce/cnonce tracking is now bounded, and no longer
+  serialises unrelated requests through one lock** (issue #192): both
+  maps previously grew without bound under sustained Digest-authenticated
+  traffic; nonces now expire after five minutes (matching common server
+  defaults) with opportunistic eviction. The client-nonce replay check
+  moved off a single shared `synchronized` block onto a
+  `ConcurrentHashMap`, so it no longer contends across every connection
+  an auth provider instance serves.
+- **`UDPEndpoint`'s receive buffer is now a pooled direct buffer**
+  (issue #193), matching `TCPEndpoint`'s read/write path, instead of a
+  plain heap allocation that forced the JVM's internal direct-buffer
+  bounce-copy on every datagram.
+- **`Container.getContextByPath` is now an indexed lookup** (issue #194)
+  instead of an unindexed linear scan with `String.startsWith` over every
+  deployed context on every request.
+- **LDAP `BERDecoder` no longer allocates a decoder and pooled buffer per
+  nesting level** (issue #195): constructed (nested) BER values are now
+  parsed in place via plain recursive descent over the already-received
+  bytes, rather than spinning up a whole new `BERDecoder` per level of
+  nesting — relevant to deeply nested LDAP search filters.
 
 ### Fixed
 

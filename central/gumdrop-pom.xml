@@ -20,11 +20,11 @@
   .github/workflows/release-to-github-packages.yml) that does not consume
   any of these three files.
 
-  NOTE: version is 2.1-SNAPSHOT, matching build.xml's current state
-  honestly - Maven Central does not accept SNAPSHOT publishes at all, so
-  scripts/publish-to-central.sh refuses to run while this remains a
-  SNAPSHOT version. Bump this (and build.xml's "version" property, and the
-  other two POMs in this directory) together when a real release is cut.
+  NOTE: version must always match build.xml's "version" property and the
+  other two POMs in this directory - scripts/publish-to-central.sh
+  cross-checks all four and refuses to run on a mismatch, and refuses to
+  run at all on a SNAPSHOT version (Maven Central does not accept them).
+  Bump all four together when a real release is cut.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -33,7 +33,7 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop</artifactId>
-    <version>2.1-SNAPSHOT</version>
+    <version>2.1.0</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop</name>
