@@ -87,6 +87,16 @@ public class UDPTransportFactory extends TransportFactory {
     }
 
     /**
+     * Returns the JSSE {@code SSLContext} configured for DTLSv1.2, or
+     * null if this factory was not configured with a keystore (issue
+     * #190). Used by {@link UDPEndpoint} to create a per-peer
+     * {@code SSLEngine} on demand.
+     */
+    SSLContext getDTLSContext() {
+        return dtlsContext;
+    }
+
+    /**
      * Loads TrustManagers from the configured truststore.
      * If no truststore is configured, returns null (JVM default truststore).
      */
@@ -249,6 +259,9 @@ public class UDPTransportFactory extends TransportFactory {
         gumdrop.addChannelHandler(endpoint);
 
         handler.connected(endpoint);
+        // Issue #190: a DTLS client must send the initial ClientHello
+        // proactively; a server instead waits and reacts on first receive.
+        endpoint.startClientDtlsHandshake();
 
         return endpoint;
     }

@@ -1,6 +1,6 @@
 /*
  * DTLSSession.java
- * Copyright (C) 2025 Chris Burdess
+ * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -25,13 +25,20 @@ import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.util.ByteBufferPool;
+
 /**
- * Manages DTLS wrap/unwrap operations for a datagram connection.
+ * Manages DTLS wrap/unwrap operations for one peer of a datagram
+ * connection (issue #190).
  *
  * <p>Unlike TLS over TCP, DTLS operates on individual datagrams rather than
  * a continuous byte stream. Each datagram is independently encrypted/decrypted.
@@ -39,15 +46,38 @@ import java.util.logging.Logger;
  * <p>Key differences from TCP TLS:
  * <ul>
  * <li>No stream reassembly - each datagram is self-contained</li>
- * <li>DTLS handles retransmission of handshake messages internally</li>
+ * <li>Handshake flights may be lost and must be retransmitted by the
+ *     application (this class), per RFC 6347 §4.2.4</li>
  * <li>No guaranteed ordering - datagrams may arrive out of order</li>
  * </ul>
+ *
+ * <p>The scratch buffers ({@code netOut}, {@code appIn}) are acquired once
+ * from {@link ByteBufferPool} and reused for the life of the session; the
+ * per-call buffers this class hands back to its caller (decrypted
+ * application data from {@link #unwrap}, encrypted records from
+ * {@link #wrap}, and retransmittable handshake flight records) are also
+ * pool-sourced rather than freshly allocated per datagram. Handshake flight
+ * buffers are held until the peer's next datagram arrives (confirming the
+ * flight was received) or a retransmit gives up, then released back to the
+ * pool.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 final class DTLSSession {
 
     private static final Logger LOGGER = Logger.getLogger(DTLSSession.class.getName());
+
+    /**
+     * RFC 6347 §4.2.4.1 — initial retransmission timeout 1s, doubling on
+     * each retry up to a minimum ceiling of 60s. The final two entries
+     * are both 60s so a session gets two full-length tries at the ceiling
+     * before giving up, rather than failing immediately on reaching it.
+     */
+    private static final long[] RETRANSMIT_TIMEOUTS_MS =
+            { 1000L, 2000L, 4000L, 8000L, 16000L, 32000L, 60000L, 60000L };
+
+    /** A genuine zero-remaining buffer; see the comment at its NEED_WRAP use site. */
+    private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
 
     private final SSLEngine engine;
     private final SSLSession session;
@@ -56,16 +86,24 @@ final class DTLSSession {
     // Reference to parent for sending handshake messages
     private final UDPEndpoint endpoint;
 
-    // Buffers for DTLS operations
-    private ByteBuffer netIn;
+    // Buffers for DTLS operations; acquired once and reused for the life
+    // of this session (not per-datagram).
     private ByteBuffer netOut;
     private ByteBuffer appIn;
 
     private boolean handshakeComplete;
     private boolean closed;
 
+    private final long handshakeStartTime;
+    private SecurityInfo securityInfo;
+
+    // -- Handshake flight retransmission (RFC 6347 §4.2.4) --
+    private final List<ByteBuffer> currentFlight = new ArrayList<ByteBuffer>();
+    private int retransmitAttempt;
+    private TimerHandle retransmitTimer;
+
     /**
-     * Creates a DTLS session.
+     * Creates a DTLS session for one peer.
      *
      * @param engine the SSLEngine for DTLS operations
      * @param endpoint the datagram endpoint for sending handshake data
@@ -76,6 +114,7 @@ final class DTLSSession {
         this.session = engine.getSession();
         this.endpoint = endpoint;
         this.remoteAddress = remoteAddress;
+        this.handshakeStartTime = System.currentTimeMillis();
         initBuffers();
     }
 
@@ -83,13 +122,17 @@ final class DTLSSession {
         int netSize = Math.max(32768, session.getPacketBufferSize());
         int appSize = Math.max(32768, session.getApplicationBufferSize());
 
-        netIn = ByteBuffer.allocate(netSize);
-        netOut = ByteBuffer.allocate(netSize);
-        appIn = ByteBuffer.allocate(appSize);
+        netOut = ByteBufferPool.acquire(netSize);
+        appIn = ByteBufferPool.acquire(appSize);
     }
 
     /**
-     * Initiates the DTLS handshake (for client-side).
+     * Initiates the DTLS handshake. Must be called for both client-side
+     * and server-side sessions immediately after construction: for a
+     * client engine this sends the initial {@code ClientHello}; for a
+     * server engine this simply puts the engine into the
+     * {@code NEED_UNWRAP} state so it is ready to process one when it
+     * arrives.
      */
     void beginHandshake() {
         if (handshakeComplete || closed) {
@@ -115,6 +158,12 @@ final class DTLSSession {
             return null;
         }
 
+        // Any datagram from the peer means our last-sent flight (if any)
+        // got through far enough to provoke a reply; stop retransmitting it.
+        cancelRetransmitTimer();
+        releaseFlightBuffers();
+        retransmitAttempt = 0;
+
         try {
             // DTLS datagrams are self-contained, so we process each one individually
             appIn.clear();
@@ -126,7 +175,7 @@ final class DTLSSession {
                     processHandshakeStatus(result.getHandshakeStatus());
                     if (appIn.position() > 0) {
                         appIn.flip();
-                        ByteBuffer data = ByteBuffer.allocate(appIn.remaining());
+                        ByteBuffer data = ByteBufferPool.acquire(appIn.remaining());
                         data.put(appIn);
                         data.flip();
                         return data;
@@ -135,7 +184,7 @@ final class DTLSSession {
 
                 case BUFFER_OVERFLOW:
                     // Application buffer too small
-                    appIn = ByteBuffer.allocate(appIn.capacity() * 2);
+                    growAppIn();
                     return unwrap(datagram);
 
                 case BUFFER_UNDERFLOW:
@@ -144,7 +193,7 @@ final class DTLSSession {
                     return null;
 
                 case CLOSED:
-                    closed = true;
+                    handleClosed();
                     return null;
             }
         } catch (SSLException e) {
@@ -175,7 +224,7 @@ final class DTLSSession {
                     processHandshakeStatus(result.getHandshakeStatus());
                     if (netOut.position() > 0) {
                         netOut.flip();
-                        ByteBuffer encrypted = ByteBuffer.allocate(netOut.remaining());
+                        ByteBuffer encrypted = ByteBufferPool.acquire(netOut.remaining());
                         encrypted.put(netOut);
                         encrypted.flip();
                         return encrypted;
@@ -184,11 +233,11 @@ final class DTLSSession {
 
                 case BUFFER_OVERFLOW:
                     // Network buffer too small
-                    netOut = ByteBuffer.allocate(netOut.capacity() * 2);
+                    growNetOut();
                     return wrap(data);
 
                 case CLOSED:
-                    closed = true;
+                    handleClosed();
                     return null;
 
                 default:
@@ -200,6 +249,18 @@ final class DTLSSession {
         }
     }
 
+    private void growAppIn() {
+        int newSize = appIn.capacity() * 2;
+        ByteBufferPool.release(appIn);
+        appIn = ByteBufferPool.acquire(newSize);
+    }
+
+    private void growNetOut() {
+        int newSize = netOut.capacity() * 2;
+        ByteBufferPool.release(netOut);
+        netOut = ByteBufferPool.acquire(newSize);
+    }
+
     /**
      * Processes the handshake status and performs any required actions.
      */
@@ -209,48 +270,176 @@ final class DTLSSession {
 
             switch (hs) {
                 case NEED_TASK:
-                    // Run delegated tasks
+                    // Run delegated tasks. No wrap()/unwrap() call happens
+                    // here, so re-querying the engine directly below is
+                    // correct (unlike the other cases -- see the note there).
                     Runnable task;
                     while ((task = engine.getDelegatedTask()) != null) {
                         task.run();
                     }
+                    hs = engine.getHandshakeStatus();
                     break;
 
-                case NEED_WRAP:
-                    // Need to send handshake data
+                case NEED_WRAP: {
+                    // Need to send handshake data. EMPTY_BUFFER (not a
+                    // pooled buffer) is passed as the source: a real
+                    // zero-remaining buffer, signalling "no application
+                    // data, handshake message only" -- a pooled buffer
+                    // would come back with position 0/limit at its full
+                    // (non-zero) bucket capacity, which is not the same
+                    // thing and would confuse the engine.
                     netOut.clear();
-                    ByteBuffer empty = ByteBuffer.allocate(0);
-                    SSLEngineResult result = engine.wrap(empty, netOut);
+                    SSLEngineResult result = engine.wrap(EMPTY_BUFFER, netOut);
 
                     if (netOut.position() > 0) {
                         netOut.flip();
-                        ByteBuffer handshakeData = ByteBuffer.allocate(netOut.remaining());
+                        ByteBuffer handshakeData = ByteBufferPool.acquire(netOut.remaining());
                         handshakeData.put(netOut);
                         handshakeData.flip();
-                        sendHandshakeData(handshakeData);
+                        // Retained (not released) until the peer's next
+                        // datagram or a retransmit give-up, so it can be
+                        // resent verbatim if this flight is lost.
+                        currentFlight.add(handshakeData);
+                        sendHandshakeData(handshakeData.duplicate());
                     }
+                    // Take the status from this call's own result, not a
+                    // fresh engine.getHandshakeStatus() query: JSSE only
+                    // reports FINISHED on the result of the exact call
+                    // that completed the handshake (e.g. the wrap() that
+                    // sends the client's/server's own Finished message) --
+                    // a later separate query can already read back
+                    // NOT_HANDSHAKING instead, silently skipping the
+                    // securityEstablished notification below.
+                    hs = result.getHandshakeStatus();
                     break;
+                }
 
                 case NEED_UNWRAP:
-                    // Need more data from remote - return and wait
-                    // Also handles NEED_UNWRAP_AGAIN (Java 9+) for DTLS buffered data
+                    // Need more data from remote - arm the retransmit
+                    // timer for the flight just sent (if any) and return;
+                    // wait for the peer.
+                    scheduleRetransmit();
                     return;
+
+                case NEED_UNWRAP_AGAIN: {
+                    // DTLS-specific: the engine has already-buffered data
+                    // (e.g. a coalesced flight) to reprocess without new
+                    // network input.
+                    appIn.clear();
+                    SSLEngineResult result = engine.unwrap(EMPTY_BUFFER, appIn);
+                    if (result.getStatus() == SSLEngineResult.Status.BUFFER_OVERFLOW) {
+                        growAppIn();
+                    }
+                    // See the NEED_WRAP case above for why this must come
+                    // from the call's own result, not a fresh query.
+                    hs = result.getHandshakeStatus();
+                    break;
+                }
 
                 default:
                     // Handle any unknown status (including future additions)
                     return;
             }
-
-            hs = engine.getHandshakeStatus();
         }
 
-        if (hs == SSLEngineResult.HandshakeStatus.FINISHED && !handshakeComplete) {
+        // NOT_HANDSHAKING is included here for the same reason noted at
+        // the NEED_WRAP/NEED_UNWRAP_AGAIN cases: depending on which call
+        // completes the handshake, its result may already have moved
+        // past the one-shot FINISHED signal by the time this checks it.
+        if ((hs == SSLEngineResult.HandshakeStatus.FINISHED
+                || hs == SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
+                && !handshakeComplete) {
             handshakeComplete = true;
+            cancelRetransmitTimer();
+            releaseFlightBuffers();
+            securityInfo = new JSSESecurityInfo(engine, handshakeStartTime);
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("DTLS handshake complete with " + remoteAddress +
-                           ", protocol=" + engine.getApplicationProtocol());
+                String message = MessageFormat.format(
+                        Gumdrop.L10N.getString("info.dtls_handshake_complete"),
+                        remoteAddress, engine.getSession().getProtocol());
+                LOGGER.fine(message);
             }
+            endpoint.notifyDtlsHandshakeComplete(remoteAddress, securityInfo);
         }
+    }
+
+    /**
+     * Resends the current handshake flight after a timeout, per RFC 6347
+     * §4.2.4. Gives up (failing the session) once
+     * {@link #RETRANSMIT_TIMEOUTS_MS} is exhausted.
+     */
+    private void scheduleRetransmit() {
+        if (currentFlight.isEmpty() || closed || handshakeComplete) {
+            return;
+        }
+        cancelRetransmitTimer();
+        if (retransmitAttempt >= RETRANSMIT_TIMEOUTS_MS.length) {
+            String message = MessageFormat.format(
+                    Gumdrop.L10N.getString("warn.dtls_handshake_timeout"),
+                    remoteAddress, Integer.valueOf(retransmitAttempt));
+            LOGGER.warning(message);
+            fail(message);
+            return;
+        }
+        long timeoutMs = RETRANSMIT_TIMEOUTS_MS[retransmitAttempt];
+        retransmitTimer = endpoint.scheduleTimer(timeoutMs, new Runnable() {
+            @Override
+            public void run() {
+                onRetransmitTimeout();
+            }
+        });
+    }
+
+    private void onRetransmitTimeout() {
+        retransmitTimer = null;
+        if (closed || handshakeComplete || currentFlight.isEmpty()) {
+            return;
+        }
+        retransmitAttempt++;
+        for (ByteBuffer flightRecord : currentFlight) {
+            sendHandshakeData(flightRecord.duplicate());
+        }
+        scheduleRetransmit();
+    }
+
+    private void cancelRetransmitTimer() {
+        if (retransmitTimer != null) {
+            retransmitTimer.cancel();
+            retransmitTimer = null;
+        }
+    }
+
+    private void releaseFlightBuffers() {
+        for (ByteBuffer flightRecord : currentFlight) {
+            ByteBufferPool.release(flightRecord);
+        }
+        currentFlight.clear();
+    }
+
+    /** Handshake or session failure that isn't a normal peer-initiated close. */
+    private void fail(String reason) {
+        closed = true;
+        cancelRetransmitTimer();
+        releaseFlightBuffers();
+        releaseScratchBuffers();
+        endpoint.onDtlsSessionFailed(remoteAddress, new IOException(reason));
+    }
+
+    /** Common cleanup for a {@code CLOSED} engine status observed during unwrap/wrap. */
+    private void handleClosed() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        cancelRetransmitTimer();
+        releaseFlightBuffers();
+        releaseScratchBuffers();
+        endpoint.removeDtlsSession(remoteAddress);
+    }
+
+    private void releaseScratchBuffers() {
+        ByteBufferPool.release(netOut);
+        ByteBufferPool.release(appIn);
     }
 
     /**
@@ -258,7 +447,7 @@ final class DTLSSession {
      */
     private void sendHandshakeData(ByteBuffer data) {
         if (endpoint != null) {
-            endpoint.sendTo(data, remoteAddress);
+            endpoint.sendRawDatagram(data, remoteAddress);
         }
     }
 
@@ -270,6 +459,14 @@ final class DTLSSession {
     }
 
     /**
+     * Returns the negotiated security parameters, or null before the
+     * handshake completes.
+     */
+    SecurityInfo getSecurityInfo() {
+        return securityInfo;
+    }
+
+    /**
      * Closes the DTLS session.
      */
     void close() {
@@ -277,24 +474,29 @@ final class DTLSSession {
             return;
         }
         closed = true;
+        cancelRetransmitTimer();
+        releaseFlightBuffers();
 
         try {
             engine.closeOutbound();
 
             // Send close_notify
             netOut.clear();
-            ByteBuffer empty = ByteBuffer.allocate(0);
-            engine.wrap(empty, netOut);
+            SSLEngineResult result = engine.wrap(EMPTY_BUFFER, netOut);
 
             if (netOut.position() > 0) {
                 netOut.flip();
-                ByteBuffer closeNotify = ByteBuffer.allocate(netOut.remaining());
+                ByteBuffer closeNotify = ByteBufferPool.acquire(netOut.remaining());
                 closeNotify.put(netOut);
                 closeNotify.flip();
                 sendHandshakeData(closeNotify);
+                ByteBufferPool.release(closeNotify);
             }
         } catch (SSLException e) {
             LOGGER.log(Level.WARNING, "Error sending DTLS close_notify", e);
+        } finally {
+            releaseScratchBuffers();
+            endpoint.removeDtlsSession(remoteAddress);
         }
     }
 
@@ -306,4 +508,3 @@ final class DTLSSession {
     }
 
 }
-

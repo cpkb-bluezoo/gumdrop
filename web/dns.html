@@ -119,9 +119,16 @@ The server maintains an in-memory cache to reduce upstream queries:
 <h4>DTLS Support</h4>
 
 <p>
-For secure DNS (DNS over DTLS), the server can be configured with TLS
-credentials. DTLS session state is maintained per remote address, providing
-encrypted DNS for privacy-conscious deployments.
+For secure DNS (DNS over DTLS, RFC 8094), the server can be configured with
+TLS credentials via the same <code>secure</code>/<code>keystoreFile</code>/
+<code>keystorePass</code> properties used for DoT. DTLS session state (one
+<code>SSLEngine</code> handshake per peer) is maintained per remote address on
+the shared UDP socket, so a single <code>DNSListener</code> serves many
+concurrent DTLS clients without one client's handshake interfering with
+another's. Handshake flights are retransmitted with exponential backoff
+(RFC 6347 &sect;4.2.4) when a client is slow or a packet is lost, and a
+handshake that never completes is dropped without affecting any other
+client's session.
 </p>
 
 <h4>Upstream TCP Fallback</h4>
