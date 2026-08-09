@@ -40,6 +40,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.logging.Level;
 
 import javax.naming.InitialContext;
@@ -56,6 +58,22 @@ import javax.servlet.ServletException;
 public class Container implements ManagerContainerService, ClusterContainer {
 
     final List<Context> contexts = new ArrayList<>();
+
+    /**
+     * Index of {@link #contexts} by context path, for {@link
+     * #getContextByPath} (issue #194). Kept in sync with {@code
+     * contexts} at the same two mutation points ({@link #addContext},
+     * {@link #setContexts}) rather than rebuilt per lookup: contexts are
+     * only ever added at deploy time, while {@code getContextByPath} is
+     * called on every request, so paying an O(log n) insert at deploy
+     * time to get an O(log n)-typical lookup on the hot path (instead of
+     * the O(n) linear scan it replaces) is the right trade. A {@link
+     * ConcurrentSkipListMap} rather than a plain {@link
+     * java.util.TreeMap} since reads happen concurrently from request
+     * threads while this could in principle be mutated by a hot-deploy.
+     */
+    private final NavigableMap<String, Context> contextsByPath = new ConcurrentSkipListMap<>();
+
     final Map<String,Realm> realms = new LinkedHashMap<>();
     final List<Resource> resources = new ArrayList<>();
     boolean started = false;
@@ -96,11 +114,16 @@ public class Container implements ManagerContainerService, ClusterContainer {
 
     public void addContext(Context context) {
         contexts.add(context);
+        contextsByPath.put(context.contextPath, context);
     }
-    
+
     public void setContexts(List<Context> contextList) {
         contexts.clear();
         contexts.addAll(contextList);
+        contextsByPath.clear();
+        for (Context context : contextList) {
+            contextsByPath.put(context.contextPath, context);
+        }
     }
 
     public void addRealm(String name, Realm realm) {
@@ -284,20 +307,27 @@ public class Container implements ManagerContainerService, ClusterContainer {
         }
     }
 
+    /**
+     * Locates the context with the longest matching context path
+     * (issue #194).
+     *
+     * <p>Among all context paths in {@link #contextsByPath} that are a
+     * prefix of {@code path}, the longest one is also the
+     * lexicographically greatest -- one prefix string is always less
+     * than any longer string it is a prefix of. So starting from {@code
+     * floorEntry(path)} (the greatest key {@code <= path}) and walking
+     * to strictly smaller keys until one actually is a prefix finds the
+     * longest match first, without scanning every deployed context.
+     */
     Context getContextByPath(String path) {
-        // locate context with longest matching context path
-        int longest = -1;
-        Context match = null;
-        for (Context context : contexts) {
-            if (path.startsWith(context.contextPath)) {
-                int len = context.contextPath.length();
-                if (len > longest) {
-                    longest = len;
-                    match = context;
-                }
+        Map.Entry<String, Context> entry = contextsByPath.floorEntry(path);
+        while (entry != null) {
+            if (path.startsWith(entry.getKey())) {
+                return entry.getValue();
             }
+            entry = contextsByPath.lowerEntry(entry.getKey());
         }
-        return match;
+        return null;
     }
 
     /**
