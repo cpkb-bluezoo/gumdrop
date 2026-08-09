@@ -35,6 +35,7 @@ import java.util.Base64;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -103,9 +104,43 @@ public abstract class HTTPAuthenticationProvider {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final byte COLON = 0x3a;
 
-    // Nonce management for Digest authentication
-    private final Map<String, AtomicInteger> nonces = new ConcurrentHashMap<String, AtomicInteger>();
-    private final Set<String> cnonces = new HashSet<String>();
+    /**
+     * RFC 7616 does not mandate a specific nonce lifetime; five minutes
+     * matches common server defaults (e.g. Apache httpd's
+     * {@code AuthDigestNonceLifetime}). A client whose nonce has expired
+     * simply gets a fresh challenge on its next request -- {@link
+     * #getNonceCount} already treats an unrecognised (including
+     * evicted) nonce as invalid, so eviction is just enforcing this
+     * lifetime rather than a new failure mode.
+     */
+    private static final long NONCE_TTL_MS = 5L * 60L * 1000L;
+
+    /**
+     * Once {@link #nonces} plus {@link #cnonces} together exceed this
+     * many tracked entries, a sweep removes anything past {@link
+     * #NONCE_TTL_MS}. Keeps both maps bounded under sustained traffic
+     * (or a client deliberately churning 401 challenges) without needing
+     * a dedicated background thread: the sweep piggybacks on whatever
+     * request happens to push the count over the threshold.
+     */
+    private static final int EVICTION_SWEEP_THRESHOLD = 10_000;
+
+    /** A tracked nonce: its replay count plus when it was issued, for TTL eviction. */
+    private static final class NonceEntry {
+        final AtomicInteger count = new AtomicInteger(0);
+        final long createdAt = System.currentTimeMillis();
+    }
+
+    // Nonce management for Digest authentication (RFC 7616 section 3.3).
+    // Both maps are bounded by opportunistic TTL eviction -- see
+    // evictExpiredIfNeeded() -- rather than left to grow without limit.
+    // cnonces uses a ConcurrentHashMap keyed by cnonce+nc (the value is
+    // just the insertion time, for eviction) instead of a synchronized
+    // HashSet, so replay checks for different cnonces no longer
+    // contend on one global lock across every connection this provider
+    // instance serves.
+    private final Map<String, NonceEntry> nonces = new ConcurrentHashMap<String, NonceEntry>();
+    private final Map<String, Long> cnonces = new ConcurrentHashMap<String, Long>();
 
     /**
      * Authentication result containing outcome and principal information.
@@ -844,33 +879,74 @@ public abstract class HTTPAuthenticationProvider {
 
     /**
      * Registers a new nonce for replay attack prevention.
-     * 
+     *
      * @param nonce the nonce to register
      */
     private void newNonce(String nonce) {
-        nonces.put(nonce, new AtomicInteger(0));
+        nonces.put(nonce, new NonceEntry());
+        evictExpiredIfNeeded();
     }
 
     /**
      * Gets and increments the nonce count for replay attack prevention.
-     * 
+     * An expired nonce is treated the same as an unknown one -- the
+     * caller (see {@link #authenticateDigest}) responds with a fresh
+     * challenge either way.
+     *
      * @param nonce the nonce to look up
-     * @return the incremented nonce count, or -1 if the nonce is unknown
+     * @return the incremented nonce count, or -1 if the nonce is unknown or expired
      */
     private int getNonceCount(String nonce) {
-        AtomicInteger nonceCount = nonces.get(nonce);
-        return (nonceCount == null) ? -1 : nonceCount.incrementAndGet();
+        NonceEntry entry = nonces.get(nonce);
+        if (entry == null) {
+            return -1;
+        }
+        if (System.currentTimeMillis() - entry.createdAt > NONCE_TTL_MS) {
+            nonces.remove(nonce);
+            return -1;
+        }
+        return entry.count.incrementAndGet();
     }
 
     /**
      * Checks if a client nonce has been seen before (replay attack prevention).
-     * 
+     *
      * @param cnonce the client nonce concatenated with nonce count
      * @return true if this is a new cnonce, false if it was already seen
      */
     private boolean seenCnonce(String cnonce) {
-        synchronized (cnonces) {
-            return cnonces.add(cnonce);
+        boolean isNew = cnonces.putIfAbsent(cnonce, System.currentTimeMillis()) == null;
+        evictExpiredIfNeeded();
+        return isNew;
+    }
+
+    /**
+     * Opportunistically sweeps entries older than {@link #NONCE_TTL_MS}
+     * out of {@link #nonces} and {@link #cnonces} once their combined
+     * size passes {@link #EVICTION_SWEEP_THRESHOLD}, so both stay
+     * bounded under sustained Digest traffic without a dedicated
+     * background thread.
+     */
+    private void evictExpiredIfNeeded() {
+        if (nonces.size() + cnonces.size() < EVICTION_SWEEP_THRESHOLD) {
+            return;
+        }
+        long cutoff = System.currentTimeMillis() - NONCE_TTL_MS;
+
+        Iterator<Map.Entry<String, NonceEntry>> nonceIterator = nonces.entrySet().iterator();
+        while (nonceIterator.hasNext()) {
+            Map.Entry<String, NonceEntry> entry = nonceIterator.next();
+            if (entry.getValue().createdAt < cutoff) {
+                nonceIterator.remove();
+            }
+        }
+
+        Iterator<Map.Entry<String, Long>> cnonceIterator = cnonces.entrySet().iterator();
+        while (cnonceIterator.hasNext()) {
+            Map.Entry<String, Long> entry = cnonceIterator.next();
+            if (entry.getValue() < cutoff) {
+                cnonceIterator.remove();
+            }
         }
     }
 
