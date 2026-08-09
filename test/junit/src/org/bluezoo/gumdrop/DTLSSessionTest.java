@@ -26,6 +26,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -33,7 +34,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
-import java.security.cert.X509Certificate;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -42,8 +42,7 @@ import java.util.List;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 
 import static org.junit.Assert.*;
 
@@ -57,8 +56,11 @@ import static org.junit.Assert.*;
  * peer's {@code DTLSSession.unwrap}, and intercepts timer scheduling so
  * retransmission can be driven deterministically by the test rather than
  * real wall-clock time. No sockets, no {@link Gumdrop} bootstrap, and no
- * checked-in test fixtures: the self-signed keystore is generated fresh
- * via {@code keytool} in {@link #generateKeystore}.
+ * checked-in test fixtures: a throwaway self-signed keystore, and a
+ * matching truststore that trusts exactly that one certificate (not an
+ * accept-all {@code TrustManager} -- CodeQL flags that pattern for good
+ * reason, and a real trust store is no more code here), are generated
+ * fresh via {@code keytool} in {@link #generateKeystore}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -69,28 +71,13 @@ public class DTLSSessionTest {
     private static final InetSocketAddress SERVER_ADDR = new InetSocketAddress("127.0.0.1", 2);
 
     private static Path keystorePath;
-
-    private static final X509TrustManager ACCEPT_ALL = new X509TrustManager() {
-        @Override
-        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-        }
-
-        @Override
-        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-        }
-
-        @Override
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
-    };
+    private static Path truststorePath;
 
     @BeforeClass
     public static void generateKeystore() throws Exception {
-        keystorePath = Files.createTempFile("dtls-session-test", ".p12");
+        keystorePath = Files.createTempFile("dtls-session-test-keystore", ".p12");
         Files.delete(keystorePath); // keytool must create the file itself
-        ProcessBuilder pb = new ProcessBuilder(
-                "keytool", "-genkeypair",
+        runKeytool("-genkeypair",
                 "-alias", "dtlstest",
                 "-keyalg", "RSA", "-keysize", "2048",
                 "-validity", "30",
@@ -99,6 +86,33 @@ public class DTLSSessionTest {
                 "-storetype", "PKCS12",
                 "-storepass", PASSWORD,
                 "-keypass", PASSWORD);
+
+        Path certPath = Files.createTempFile("dtls-session-test-cert", ".pem");
+        runKeytool("-exportcert",
+                "-alias", "dtlstest",
+                "-keystore", keystorePath.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", PASSWORD,
+                "-rfc",
+                "-file", certPath.toString());
+
+        truststorePath = Files.createTempFile("dtls-session-test-truststore", ".p12");
+        Files.delete(truststorePath);
+        runKeytool("-importcert",
+                "-alias", "dtlstest",
+                "-file", certPath.toString(),
+                "-keystore", truststorePath.toString(),
+                "-storetype", "PKCS12",
+                "-storepass", PASSWORD,
+                "-noprompt");
+        Files.delete(certPath);
+    }
+
+    private static void runKeytool(String... args) throws Exception {
+        String[] command = new String[args.length + 1];
+        command[0] = "keytool";
+        System.arraycopy(args, 0, command, 1, args.length);
+        ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(true);
         Process process = pb.start();
         StringBuilder output = new StringBuilder();
@@ -117,15 +131,22 @@ public class DTLSSessionTest {
         if (keystorePath != null) {
             Files.deleteIfExists(keystorePath);
         }
+        if (truststorePath != null) {
+            Files.deleteIfExists(truststorePath);
+        }
+    }
+
+    private static KeyStore loadKeyStore(Path path) throws Exception {
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (InputStream in = Files.newInputStream(path)) {
+            keyStore.load(in, PASSWORD.toCharArray());
+        }
+        return keyStore;
     }
 
     private static SSLContext buildServerContext() throws Exception {
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (java.io.InputStream in = Files.newInputStream(keystorePath)) {
-            keyStore.load(in, PASSWORD.toCharArray());
-        }
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, PASSWORD.toCharArray());
+        kmf.init(loadKeyStore(keystorePath), PASSWORD.toCharArray());
 
         SSLContext context = SSLContext.getInstance("DTLSv1.2");
         context.init(kmf.getKeyManagers(), null, null);
@@ -133,8 +154,11 @@ public class DTLSSessionTest {
     }
 
     private static SSLContext buildClientContext() throws Exception {
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(loadKeyStore(truststorePath));
+
         SSLContext context = SSLContext.getInstance("DTLSv1.2");
-        context.init(null, new TrustManager[] { ACCEPT_ALL }, null);
+        context.init(null, tmf.getTrustManagers(), null);
         return context;
     }
 
