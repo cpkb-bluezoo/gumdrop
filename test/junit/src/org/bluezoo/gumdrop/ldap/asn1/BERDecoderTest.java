@@ -28,6 +28,8 @@ import java.nio.ByteBuffer;
 
 /**
  * Unit tests for BERDecoder.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class BERDecoderTest {
 
@@ -401,6 +403,84 @@ public class BERDecoderTest {
         assertEquals(2, inner.getChildCount());
         assertEquals(2, inner.getChild(0).asInt());
         assertEquals(3, inner.getChild(1).asInt());
+    }
+
+    // ===== Deep nesting (issue #195) =====
+    //
+    // parseChildren() used to construct a whole new BERDecoder (with its
+    // own ByteBufferPool-backed scratch buffer) per level of constructed
+    // nesting; it's now a plain recursive-descent walk over the already-
+    // received bytes with no per-level allocation of that kind. These
+    // tests aren't a microbenchmark -- they lock in that decoding still
+    // produces the correct tree (and still rejects malformed input) at a
+    // nesting depth deep enough that the old approach would have created
+    // dozens of decoder/buffer pairs for a single top-level element.
+
+    /**
+     * Builds {@code depth} levels of SEQUENCE (0x30) wrapping a single
+     * INTEGER leaf (value {@code leafValue}, encoded as one byte), all
+     * within short-form (single-byte) length encoding.
+     */
+    private static byte[] buildNestedSequence(int depth, int leafValue) {
+        byte[] leaf = {0x02, 0x01, (byte) leafValue}; // INTEGER, length 1, value
+        byte[] current = leaf;
+        for (int i = 0; i < depth; i++) {
+            byte[] wrapped = new byte[2 + current.length];
+            wrapped[0] = 0x30; // SEQUENCE
+            wrapped[1] = (byte) current.length;
+            System.arraycopy(current, 0, wrapped, 2, current.length);
+            current = wrapped;
+        }
+        return current;
+    }
+
+    @Test
+    public void testDeeplyNestedSequenceDecodesToCorrectLeafValue() throws ASN1Exception {
+        int depth = 50; // keeps every level's length within the short-form (<128) range
+        byte[] data = buildNestedSequence(depth, 42);
+
+        BERDecoder decoder = new BERDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+
+        ASN1Element element = decoder.next();
+        assertNotNull(element);
+        for (int i = 0; i < depth; i++) {
+            assertTrue("level " + i + " should be constructed", element.isConstructed());
+            assertEquals(1, element.getChildCount());
+            element = element.getChild(0);
+        }
+        assertFalse("innermost element should be primitive", element.isConstructed());
+        assertEquals(42, element.asInt());
+    }
+
+    @Test(expected = ASN1Exception.class)
+    public void testTruncatedNestedElementStillRejected() throws ASN1Exception {
+        // Outer SEQUENCE (tag 0x30, length 2) is itself complete -- its
+        // whole 2-byte value (0x02, 0x03) is received, so the top-level
+        // decoder finishes it and hands off to parseChildren(). Within
+        // that value, though, the child claims tag INTEGER (0x02) with
+        // length 3 but the parent only has 0 bytes left for it: this is
+        // the "child's own declared length overruns the parent's
+        // already-fully-received value" case parseOneElement's pos +
+        // elementLength > end check exists for -- distinct from simply
+        // not having received enough top-level bytes yet, which the
+        // streaming decoder correctly just waits out rather than
+        // rejecting.
+        byte[] data = {0x30, 0x02, 0x02, 0x03};
+
+        BERDecoder decoder = new BERDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    @Test(expected = ASN1Exception.class)
+    public void testNestedIndefiniteLengthStillRejected() throws ASN1Exception {
+        // SEQUENCE (length 2) whose sole child claims indefinite-length
+        // encoding (0x80) -- unsupported both at the top level and,
+        // after this change, at any nesting depth.
+        byte[] data = {0x30, 0x02, 0x02, (byte) 0x80};
+
+        BERDecoder decoder = new BERDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
     }
 }
 
