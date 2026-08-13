@@ -73,6 +73,32 @@ public class DoQClientTransport implements DNSClientTransport {
     private SelectorLoop loop;
     private DNSClientTransportHandler handler;
     private String serverKey;
+    private String pinnedCertFingerprint;
+    private java.nio.file.Path caFile;
+
+    /**
+     * Pins the expected server certificate fingerprint instead of
+     * relying on the platform CA trust store, e.g. to trust a private
+     * or self-signed CA. Must be called before {@link #open}.
+     *
+     * @param fingerprint colon-separated hex with optional
+     *                    "SHA-256:" prefix
+     * @see org.bluezoo.gumdrop.TransportFactory#setPinnedCertFingerprint
+     */
+    public void setPinnedCertFingerprint(String fingerprint) {
+        this.pinnedCertFingerprint = fingerprint;
+    }
+
+    /**
+     * Sets a CA certificate file to trust instead of the platform
+     * default trust store. Must be called before {@link #open}.
+     *
+     * @param caFile the CA certificate file path
+     * @see org.bluezoo.gumdrop.TransportFactory#setCaFile(java.nio.file.Path)
+     */
+    public void setCaFile(java.nio.file.Path caFile) {
+        this.caFile = caFile;
+    }
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
@@ -88,6 +114,12 @@ public class DoQClientTransport implements DNSClientTransport {
         factory.setApplicationProtocols("doq");
         // RFC 9250 section 4.5: enable early data for 0-RTT
         factory.setEarlyDataEnabled(true);
+        if (pinnedCertFingerprint != null) {
+            factory.setPinnedCertFingerprint(pinnedCertFingerprint);
+        }
+        if (caFile != null) {
+            factory.setCaFile(caFile);
+        }
         factory.start();
         engine = factory.connect(server, port,
                 new QuicEngine.ConnectionAcceptedHandler() {

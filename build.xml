@@ -764,6 +764,17 @@
     <integration-junit includes='**/grpc/pygrpc/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run DNS client tests against a real, locally-running AdGuard
+       Home instance, covering every transport the client supports
+       (plain UDP/TCP, DoT, DoH, DoQ): same rationale as the targets
+       above, and likewise deliberately NOT a dependency of
+       'integration-test'. See AdGuardTestSupport's class Javadoc for
+       how to build and start the matching container. -->
+  <target name='integration-test-dns-adguard' depends='integration-build'
+          description='Run DNS client tests against a local real AdGuard Home instance (not part of integration-test)'>
+    <integration-junit includes='**/dns/adguard/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>

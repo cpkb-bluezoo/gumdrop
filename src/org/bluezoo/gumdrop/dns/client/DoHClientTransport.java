@@ -81,6 +81,8 @@ public class DoHClientTransport implements DNSClientTransport {
     private volatile boolean connected;
 
     private String path = DEFAULT_PATH;
+    private javax.net.ssl.SSLContext sslContext;
+    private javax.net.ssl.X509TrustManager trustManager;
 
     private static ScheduledExecutorService createTimerExecutor() {
         ScheduledThreadPoolExecutor exec =
@@ -109,6 +111,29 @@ public class DoHClientTransport implements DNSClientTransport {
         return path;
     }
 
+    /**
+     * Sets an externally-configured SSL context for the underlying
+     * HTTPS connection, e.g. to trust a private or self-signed CA
+     * instead of the platform default trust store. Must be called
+     * before {@link #open}.
+     *
+     * @param sslContext the SSL context
+     */
+    public void setSSLContext(javax.net.ssl.SSLContext sslContext) {
+        this.sslContext = sslContext;
+    }
+
+    /**
+     * Sets a custom trust manager for TLS certificate verification on
+     * the underlying HTTPS connection. Must be called before {@link
+     * #open}.
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     */
+    public void setTrustManager(javax.net.ssl.X509TrustManager trustManager) {
+        this.trustManager = trustManager;
+    }
+
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
                      DNSClientTransportHandler handler) throws IOException {
@@ -118,6 +143,12 @@ public class DoHClientTransport implements DNSClientTransport {
         }
         httpClient = new HTTPClient(server.getHostAddress(), port);
         httpClient.setSecure(true);
+        if (sslContext != null) {
+            httpClient.setSSLContext(sslContext);
+        }
+        if (trustManager != null) {
+            httpClient.setTrustManager(trustManager);
+        }
         httpClient.connect(new HTTPClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
