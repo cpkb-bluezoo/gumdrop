@@ -682,6 +682,17 @@
     <integration-junit includes='**/amqp/rabbitmq/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run SMTP client tests against a real, locally-running Postfix
+       instance: same rationale as integration-test-amqp-rabbitmq
+       above (a wire-compatible but independent implementation catches
+       bugs a same-lineage fake server can't), and likewise deliberately
+       NOT a dependency of 'integration-test'. See PostfixTestSupport's
+       class Javadoc for how to build and start a matching container. -->
+  <target name='integration-test-smtp-postfix' depends='integration-build'
+          description='Run SMTP client tests against a local real Postfix instance (not part of integration-test)'>
+    <integration-junit includes='**/smtp/postfix/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>

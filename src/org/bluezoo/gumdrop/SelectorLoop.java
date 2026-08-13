@@ -387,8 +387,16 @@ public class SelectorLoop implements Runnable {
 
             // Notify the write-complete callback (backpressure support).
             // Runs on this SelectorLoop thread, safe for further I/O.
+            // onWriteReady() is documented as one-shot, so clear the field
+            // before invoking: any later OP_WRITE readiness (e.g. from an
+            // unrelated write racing in) must not replay this callback a
+            // second time. Clearing before, not after, running it also
+            // means a callback that re-registers its own next callback
+            // (as pacing loops for large uploads typically do) doesn't
+            // have its new registration immediately wiped out.
             Runnable writeCallback = endpoint.getWriteCompleteCallback();
             if (writeCallback != null) {
+                endpoint.setWriteCompleteCallback(null);
                 writeCallback.run();
             }
 

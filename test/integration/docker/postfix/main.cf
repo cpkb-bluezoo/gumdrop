@@ -1,0 +1,39 @@
+# main.cf for gumdrop's Postfix SMTP client integration test instance.
+#
+# Local delivery only: this box does not relay anywhere. It accepts mail
+# for its own hostname/domain and drops it straight into /var/mail via
+# the local(8) delivery agent (mbox format).
+
+myhostname = postfix-test
+mydomain = test.gumdrop.local
+myorigin = $mydomain
+mydestination = $myhostname, localhost.$mydomain, localhost, $mydomain
+inet_interfaces = all
+inet_protocols = ipv4
+mynetworks = 0.0.0.0/0
+mailbox_command =
+home_mailbox =
+mail_spool_directory = /var/mail
+
+# Accept large-ish messages so the client's chunked body-write path (long
+# messages sent across multiple onDeliveryBodyChunk-style writes) has
+# something to exercise; still well short of postfix's own hard cap.
+message_size_limit = 10485760
+
+# STARTTLS (RFC 3207): offered, not required, so both the plaintext and
+# TLS-upgrade paths can be exercised against the same instance.
+smtpd_tls_cert_file = /etc/postfix/tls/cert.pem
+smtpd_tls_key_file = /etc/postfix/tls/key.pem
+smtpd_tls_security_level = may
+smtpd_tls_loglevel = 1
+
+smtp_tls_security_level = none
+
+# No auth required -- this is a closed test network (mynetworks above),
+# not a submission-port scenario.
+smtpd_relay_restrictions = permit_mynetworks, reject_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
+
+biff = no
+append_dot_mydomain = no
+compatibility_level = 3.6
