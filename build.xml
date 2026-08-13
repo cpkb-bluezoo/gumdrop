@@ -509,6 +509,12 @@
         </fileset>
       </batchtest>
       <formatter type="plain" />
+      <!-- Also stream full per-test failure detail (stack traces,
+           assertion messages) straight to the console, not just the
+           per-class summary line: otherwise a CI failure gives no way
+           to tell what actually broke without re-running locally, since
+           CI doesn't upload the file-based reports above as artifacts. -->
+      <formatter type="plain" usefile="false" />
       <!--formatter type="xml" /-->
     </junit>
   </target>
