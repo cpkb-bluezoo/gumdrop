@@ -1,0 +1,29 @@
+// Minimal Echo service for gumdrop's gRPC client integration tests.
+// Deliberately simple (no google.protobuf.Any, no streaming) so it's a
+// clean test of gumdrop's schema-driven ProtoModelSerializer/Adapter
+// against a real, independent gRPC server (Python grpcio), rather than
+// also exercising harder edge cases at the same time.
+syntax = "proto3";
+
+package gumdroptest;
+
+message EchoRequest {
+  string message = 1;
+  int32 repeat_count = 2;
+}
+
+message EchoResponse {
+  string message = 1;
+  int32 length = 2;
+}
+
+message FailRequest {
+  string reason = 1;
+}
+
+service Echo {
+  rpc SayEcho(EchoRequest) returns (EchoResponse);
+  // Always returns a gRPC error (INVALID_ARGUMENT), for exercising the
+  // client's error path against a real server's actual error framing.
+  rpc AlwaysFail(FailRequest) returns (EchoResponse);
+}

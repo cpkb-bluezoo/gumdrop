@@ -753,6 +753,17 @@
     <integration-junit includes='**/mqtt/mosquitto/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run gRPC client tests against a real, locally-running Python
+       (grpcio) gRPC server implementing a small custom Echo service:
+       same rationale as the targets above, and likewise deliberately
+       NOT a dependency of 'integration-test'. See PyGrpcTestSupport's
+       class Javadoc for how to build and start the matching container,
+       and for why a custom server was needed here specifically. -->
+  <target name='integration-test-grpc-pygrpc' depends='integration-build'
+          description='Run gRPC client tests against a local real Python gRPC server (not part of integration-test)'>
+    <integration-junit includes='**/grpc/pygrpc/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>

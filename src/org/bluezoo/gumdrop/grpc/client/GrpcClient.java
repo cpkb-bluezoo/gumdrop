@@ -109,6 +109,8 @@ public class GrpcClient {
         private ProtobufParser protobufParser;
         private ProtoModelAdapter protoAdapter;
         private ProtoMessageHandler messageHandler;
+        private String grpcStatus;
+        private String grpcMessage;
 
         StreamingResponseHandler(GrpcResponseHandler handler, ProtoFile protoFile,
                 String defaultResponseTypeName) {
@@ -133,6 +135,22 @@ public class GrpcClient {
 
         @Override
         public void header(String name, String value) {
+            // gRPC delivers the RPC-level outcome as trailers (grpc-status /
+            // grpc-message, gRPC HTTP/2 protocol spec), not as the HTTP
+            // status -- a 200 OK with zero body bytes plus a non-zero
+            // grpc-status is a normal, successful-at-the-HTTP-layer error
+            // response (e.g. an RPC that aborts before writing any
+            // message). Without capturing these, such a response fell
+            // through to endResponseBody()'s generic "Incomplete gRPC
+            // response frame" failure, discarding the real status code and
+            // message. header() is called for both leading and trailing
+            // headers (see HTTPResponseHandler's Javadoc), so match by
+            // name rather than assuming position.
+            if ("grpc-status".equalsIgnoreCase(name)) {
+                grpcStatus = value;
+            } else if ("grpc-message".equalsIgnoreCase(name)) {
+                grpcMessage = value;
+            }
         }
 
         @Override
@@ -171,13 +189,72 @@ public class GrpcClient {
             if (failed || frameParser == null) {
                 return;
             }
-            if (frameParser.hasPartialFrame() || !frameParser.isMessageCompleted()) {
+            // A genuinely truncated frame (bytes cut off mid-message) is
+            // always wrong regardless of what the trailers turn out to
+            // say, so that check stays here. An incomplete *message* is
+            // not necessarily wrong on its own, though: a trailers-only
+            // error response (no DATA frame at all, e.g. an RPC that
+            // aborts immediately) legitimately never starts one -- so
+            // that check is deferred to close(), once grpc-status has
+            // actually arrived, rather than treated as a framing error.
+            if (frameParser.hasPartialFrame()) {
                 fail(new GrpcException("Incomplete gRPC response frame"));
             }
         }
 
         @Override
         public void close() {
+            if (failed) {
+                return;
+            }
+            if (grpcStatus != null && !"0".equals(grpcStatus)) {
+                String message = grpcMessage != null ? decodeGrpcMessage(grpcMessage) : null;
+                fail(new GrpcException("gRPC error " + grpcStatus
+                        + (message != null && !message.isEmpty() ? ": " + message : "")));
+                return;
+            }
+            // frameParser is null for a "Trailers-Only" response (gRPC
+            // HTTP/2 protocol spec): no DATA frame at all, :status and
+            // grpc-status/grpc-message combined into the single response
+            // HEADERS frame, since startResponseBody() (which creates it)
+            // is only called when the initial HEADERS frame doesn't also
+            // carry END_STREAM. A successful grpc-status here with no
+            // frameParser and no message ever delivered is itself a
+            // protocol violation (a unary RPC must return exactly one
+            // message on success), not a client-side framing bug -- but
+            // is left unflagged rather than guessed at, since gumdrop's
+            // gRPC client only handles unary calls today and a well-behaved
+            // server won't produce this combination.
+            if (frameParser != null && !frameParser.isMessageCompleted()) {
+                fail(new GrpcException("Incomplete gRPC response frame"));
+            }
+        }
+
+        /**
+         * Decodes a grpc-message trailer value (gRPC HTTP/2 protocol spec
+         * "Percent-Encoding"): bytes outside printable ASCII minus '%' are
+         * escaped as %XX, and the decoded bytes are UTF-8.
+         */
+        private String decodeGrpcMessage(String encoded) {
+            if (encoded.indexOf('%') < 0) {
+                return encoded;
+            }
+            byte[] raw = new byte[encoded.length()];
+            int len = 0;
+            for (int i = 0; i < encoded.length(); i++) {
+                char c = encoded.charAt(i);
+                if (c == '%' && i + 2 < encoded.length()) {
+                    int hi = Character.digit(encoded.charAt(i + 1), 16);
+                    int lo = Character.digit(encoded.charAt(i + 2), 16);
+                    if (hi >= 0 && lo >= 0) {
+                        raw[len++] = (byte) ((hi << 4) | lo);
+                        i += 2;
+                        continue;
+                    }
+                }
+                raw[len++] = (byte) c;
+            }
+            return new String(raw, 0, len, java.nio.charset.StandardCharsets.UTF_8);
         }
 
         @Override
