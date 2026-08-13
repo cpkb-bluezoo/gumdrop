@@ -202,26 +202,39 @@ public class TCPTransportFactory extends TransportFactory {
     public void start() {
         super.start();
 
-        if (secure && sslContext == null &&
-                (keystoreFile == null || keystorePass == null)) {
-            String message = Gumdrop.L10N.getString("err.no_keystore");
-            throw new RuntimeException(
-                    "Secure TCP factory requires keystore: " + message);
-        }
-
-        if (sslContext == null && keystoreFile != null &&
-                keystorePass != null) {
+        // A keystore is only required to present a certificate -- needed
+        // for a secure *server* endpoint (which has to identify itself to
+        // connecting clients), not for a secure *client* connection that
+        // only verifies the peer via a TrustManager and offers no
+        // certificate of its own (the common case: a TLS client talking
+        // to a broker/server, no mutual TLS involved). This factory can't
+        // know at start() time whether it will go on to be used for
+        // connect() (client) or createServerEndpoint() (server), so it
+        // must not refuse to start just because no keystore was given --
+        // createServerEndpoint() enforces the keystore requirement itself,
+        // at the point where it's actually load-bearing (issue: a secure
+        // AMQP client with only setTrustManager() and no keystore/keypass
+        // failed to start at all, even though it never needed to present
+        // a certificate). A STARTTLS-capable *server* also needs this
+        // built eagerly even though it starts out with secure=false (the
+        // initial connection is plaintext, upgraded later on demand), so
+        // this must still trigger whenever a keystore was configured, not
+        // just when secure is set.
+        if (sslContext == null && (secure || (keystoreFile != null && keystorePass != null))) {
             try {
                 sslContext = SSLContext.getInstance("TLS");
-                KeyManager[] km = TLSUtils.loadKeyManagers(
-                        keystoreFile, keystorePass, keystoreFormat);
+                KeyManager[] km = null;
+                if (keystoreFile != null && keystorePass != null) {
+                    km = TLSUtils.loadKeyManagers(
+                            keystoreFile, keystorePass, keystoreFormat);
 
-                if (isSNIEnabled()) {
-                    km = wrapWithSNIKeyManager(km);
-                    if (LOGGER.isLoggable(Level.INFO)) {
-                        LOGGER.info(MessageFormat.format(
-                                Gumdrop.L10N.getString("info.sni_enabled"),
-                                sniHostnameToAlias.size()));
+                    if (isSNIEnabled()) {
+                        km = wrapWithSNIKeyManager(km);
+                        if (LOGGER.isLoggable(Level.INFO)) {
+                            LOGGER.info(MessageFormat.format(
+                                    Gumdrop.L10N.getString("info.sni_enabled"),
+                                    sniHostnameToAlias.size()));
+                        }
                     }
                 }
 
@@ -320,6 +333,16 @@ public class TCPTransportFactory extends TransportFactory {
                                             ProtocolHandler handler,
                                             boolean secure)
             throws IOException {
+        // Unlike start() (which now happily builds a keystore-less,
+        // client-only SSLContext -- see its own comment), a server
+        // endpoint genuinely cannot proceed without a certificate to
+        // present, so that requirement is enforced here instead, where
+        // it's actually load-bearing.
+        if (secure && keystoreFile == null) {
+            String message = Gumdrop.L10N.getString("err.no_keystore");
+            throw new IOException(
+                    "Secure TCP server endpoint requires keystore: " + message);
+        }
         SSLEngine engine = createServerSSLEngine(channel);
         if (secure && engine == null) {
             throw new IOException(
@@ -401,6 +424,33 @@ public class TCPTransportFactory extends TransportFactory {
         boolean connected = channel.connect(remote);
 
         if (connected) {
+            // The OS completed the connect synchronously (common for
+            // loopback/localhost, especially to a port the peer only just
+            // started listening on -- e.g. an FTP data connection to a
+            // freshly-opened PASV port). SelectorLoop.doTcpEndpointConnect()
+            // never runs in this case (there is no OP_CONNECT event to
+            // fire), so its two calls have to happen here instead --
+            // otherwise handler.connected() and the client TLS handshake
+            // never start at all, silently hanging any protocol that
+            // waits for either (issue: PROT P data connections to a local
+            // broker/server would connect but never progress).
+            //
+            // This connect() method can itself be called off the
+            // SelectorLoop thread (e.g. AMQPClientRecovery's reconnect
+            // runs on its own scheduled-executor thread, not any
+            // SelectorLoop), so the ProtocolHandler callbacks below --
+            // which the framework's contract guarantees always run on the
+            // Endpoint's own SelectorLoop thread -- must be dispatched via
+            // invokeLater() rather than called inline; invokeLater() runs
+            // them immediately only when already on that thread.
+            endpoint.setSelectorLoop(loop);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    endpoint.connected();
+                    endpoint.initiateClientTLSHandshake();
+                }
+            });
             loop.register(channel, endpoint);
         } else {
             loop.registerForConnect(channel, endpoint);
