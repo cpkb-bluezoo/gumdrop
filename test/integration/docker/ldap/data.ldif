@@ -1,0 +1,13 @@
+# Test data for gumdrop's LDAP client integration tests: one people
+# container and one test user, loaded via ldapadd at container startup.
+dn: ou=people,dc=test,dc=gumdrop,dc=local
+objectClass: organizationalUnit
+ou: people
+
+dn: uid=jdoe,ou=people,dc=test,dc=gumdrop,dc=local
+objectClass: inetOrgPerson
+uid: jdoe
+cn: John Doe
+sn: Doe
+mail: jdoe@test.gumdrop.local
+userPassword: jdoepass

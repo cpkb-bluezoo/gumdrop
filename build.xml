@@ -723,6 +723,16 @@
     <integration-junit includes='**/socks/danted/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run LDAP client tests against a real, locally-running OpenLDAP
+       (slapd) instance: same rationale as the targets above, and
+       likewise deliberately NOT a dependency of 'integration-test'.
+       See OpenLdapTestSupport's class Javadoc for how to build and
+       start the matching container. -->
+  <target name='integration-test-ldap-openldap' depends='integration-build'
+          description='Run LDAP client tests against a local real OpenLDAP instance (not part of integration-test)'>
+    <integration-junit includes='**/ldap/openldap/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>

@@ -1,0 +1,12 @@
+# Enables StartTLS on the running slapd by pointing cn=config at the
+# self-signed cert generated in the Dockerfile. Applied via ldapmodify
+# against the local ldapi:/// socket (SASL EXTERNAL, i.e. root-on-socket
+# auth) at container startup, since slapd needs to already be running to
+# accept cn=config changes.
+dn: cn=config
+changetype: modify
+add: olcTLSCertificateFile
+olcTLSCertificateFile: /etc/ldap/tls/cert.pem
+-
+add: olcTLSCertificateKeyFile
+olcTLSCertificateKeyFile: /etc/ldap/tls/key.pem
