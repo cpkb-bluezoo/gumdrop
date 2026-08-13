@@ -262,16 +262,17 @@ public final class MailSession extends Resource {
         }
         try {
             String interfaceName = "javax.mail.Provider";
-            Class t = Class.forName(className);
-            Class i = Class.forName(interfaceName);
+            Class<?> t = Class.forName(className);
+            Class<?> i = Class.forName(interfaceName);
             if (!i.isAssignableFrom(t)) {
                 String message = L10N.getString("err.not_assignable");
                 message = MessageFormat.format(message, className, interfaceName);
                 throw new InstantiationException(message);
             }
-            Provider p = (Provider) t.newInstance();
+            Provider p = (Provider) t.getDeclaredConstructor().newInstance();
             session.addProvider(p);
-        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
+                | NoSuchMethodException | java.lang.reflect.InvocationTargetException e) {
             String message = L10N.getString("err.init_resource");
             message = MessageFormat.format(message, className);
             LOGGER.log(Level.SEVERE, message, e);

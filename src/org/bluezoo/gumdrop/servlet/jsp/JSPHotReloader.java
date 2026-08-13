@@ -61,7 +61,7 @@ import org.bluezoo.gumdrop.servlet.Context;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPHotReloader extends Thread {
+public final class JSPHotReloader extends Thread {
 
     private static final Logger LOGGER = Logger.getLogger(JSPHotReloader.class.getName());
     private static final ResourceBundle L10N = 

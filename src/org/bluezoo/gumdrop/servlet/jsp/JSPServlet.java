@@ -50,6 +50,8 @@ import org.bluezoo.gumdrop.servlet.Context;
  */
 public class JSPServlet extends HttpServlet {
 
+    private static final long serialVersionUID = 1L;
+
     private static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet.jsp");
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");

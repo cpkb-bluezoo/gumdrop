@@ -421,9 +421,10 @@ public final class DataSourceDef extends Resource implements DataSource {
             password = properties.getProperty("password");
         }
         try {
-            Class driverClass = Class.forName(className);
-            driver = (Driver) driverClass.newInstance();
-        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+            Class<?> driverClass = Class.forName(className);
+            driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
+                | NoSuchMethodException | java.lang.reflect.InvocationTargetException e) {
             throw new ServletException(e);
         }
     }
@@ -598,11 +599,11 @@ public final class DataSourceDef extends Resource implements DataSource {
         throw new SQLFeatureNotSupportedException();
     }
 
-    @Override public boolean isWrapperFor(Class t) throws SQLException {
+    @Override public boolean isWrapperFor(Class<?> t) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
-    @Override public Object unwrap(Class t) throws SQLException {
+    @Override public <T> T unwrap(Class<T> t) throws SQLException {
         throw new UnsupportedOperationException();
     }
 
@@ -770,11 +771,11 @@ public final class DataSourceDef extends Resource implements DataSource {
             return c.prepareCall(sql, resultSetType, resultSetConcurrency);
         }
 
-        public Map getTypeMap() throws SQLException {
+        public Map<String, Class<?>> getTypeMap() throws SQLException {
             return c.getTypeMap();
         }
 
-        public void setTypeMap(Map map) throws SQLException {
+        public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
             c.setTypeMap(map);
         }
 
@@ -871,11 +872,11 @@ public final class DataSourceDef extends Resource implements DataSource {
             return c.createBlob();
         }
 
-        public boolean isWrapperFor(Class t) throws SQLException {
+        public boolean isWrapperFor(Class<?> t) throws SQLException {
             return c.isWrapperFor(t);
         }
 
-        public Object unwrap(Class t) throws SQLException {
+        public <T> T unwrap(Class<T> t) throws SQLException {
             return c.unwrap(t);
         }
 

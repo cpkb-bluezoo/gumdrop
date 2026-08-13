@@ -468,7 +468,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
     public void setHref(String href) {
         pendingGroupRefs = new LinkedHashMap<String, String>();
         try {
-            URL cwd = new File(".").toURL();
+            URL cwd = new File(".").toURI().toURL();
             URL url = new URL(cwd, href);
             XMLParseUtils.parseURL(url, this, null);
             

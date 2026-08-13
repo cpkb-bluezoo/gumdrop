@@ -132,7 +132,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             if (match.pathInfo != null) {
                 uri.append(match.pathInfo);
             }
-            Map attrs = new HashMap();
+            Map<String,Object> attrs = new HashMap<String,Object>();
             attrs.put("javax.servlet.forward.request_uri", hq.getRequestURI());
             attrs.put("javax.servlet.forward.context_path", hq.getContextPath());
             attrs.put("javax.servlet.forward.servlet_path", hq.getServletPath());
@@ -170,7 +170,7 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             if (match.pathInfo != null) {
                 uri.append(match.pathInfo);
             }
-            Map attrs = new HashMap();
+            Map<String,Object> attrs = new HashMap<String,Object>();
             attrs.put("javax.servlet.include.request_uri", hq.getRequestURI());
             attrs.put("javax.servlet.include.context_path", hq.getContextPath());
             attrs.put("javax.servlet.include.servlet_path", hq.getServletPath());

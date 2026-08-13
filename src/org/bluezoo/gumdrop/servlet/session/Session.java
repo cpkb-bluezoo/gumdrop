@@ -181,20 +181,18 @@ class Session implements HttpSession {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public Object getValue(String name) {
         return getAttribute(name);
     }
 
     @Override
-    // Unchecked: HttpSession.getAttributeNames() returns Enumeration<String>;
-    // IteratorEnumeration is used raw here (its element type is erased at
-    // the keySet() source anyway), which is an unchecked-but-legal override.
-    @SuppressWarnings("rawtypes")
-    public synchronized Enumeration getAttributeNames() {
-        return new IteratorEnumeration(attributes.keySet());
+    public synchronized Enumeration<String> getAttributeNames() {
+        return new IteratorEnumeration<String>(attributes.keySet());
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public synchronized String[] getValueNames() {
         List<String> list = new ArrayList<>(attributes.keySet());
         String[] ret = new String[list.size()];
@@ -228,6 +226,7 @@ class Session implements HttpSession {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public void putValue(String name, Object value) {
         setAttribute(name, value);
     }
@@ -252,6 +251,7 @@ class Session implements HttpSession {
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public void removeValue(String name) {
         removeAttribute(name);
     }

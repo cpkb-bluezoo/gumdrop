@@ -59,6 +59,12 @@ public interface Service {
      *
      * @return a list of listener endpoints, never null
      */
+    // Raw type is intentional here: implementations return lists of
+    // different concrete Listener subtypes (e.g. List<MQTTListener>,
+    // List<SOCKSListener>), and this method is implemented by several
+    // service classes outside the scope of this change; parameterizing
+    // it would ripple unrelated [unchecked] warnings into those classes.
+    @SuppressWarnings("rawtypes")
     List getListeners();
 
     /**

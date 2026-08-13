@@ -1006,7 +1006,8 @@ public class ELEvaluator {
      * Map implementation for accessing scope attributes.
      */
     private static class ScopeMap extends HashMap<String, Object> {
-        private final PageContext pageContext;
+        private static final long serialVersionUID = 1L;
+        private final transient PageContext pageContext;
         private final int scope;
         
         ScopeMap(PageContext pageContext, int scope) {
@@ -1024,7 +1025,8 @@ public class ELEvaluator {
      * Map implementation for accessing request parameters.
      */
     private static class ParameterMap extends HashMap<String, Object> {
-        private final HttpServletRequest request;
+        private static final long serialVersionUID = 1L;
+        private final transient HttpServletRequest request;
         private final boolean multiple;
         
         ParameterMap(HttpServletRequest request, boolean multiple) {
@@ -1045,7 +1047,8 @@ public class ELEvaluator {
      * Map implementation for accessing request headers.
      */
     private static class HeaderMap extends HashMap<String, Object> {
-        private final HttpServletRequest request;
+        private static final long serialVersionUID = 1L;
+        private final transient HttpServletRequest request;
         private final boolean multiple;
         
         HeaderMap(HttpServletRequest request, boolean multiple) {
@@ -1071,8 +1074,9 @@ public class ELEvaluator {
      * Map implementation for accessing cookies.
      */
     private static class CookieMap extends HashMap<String, Object> {
-        private final HttpServletRequest request;
-        
+        private static final long serialVersionUID = 1L;
+        private final transient HttpServletRequest request;
+
         CookieMap(HttpServletRequest request) {
             this.request = request;
         }
@@ -1095,8 +1099,9 @@ public class ELEvaluator {
      * Map implementation for accessing init parameters.
      */
     private static class InitParamMap extends HashMap<String, Object> {
-        private final ServletContext context;
-        
+        private static final long serialVersionUID = 1L;
+        private final transient ServletContext context;
+
         InitParamMap(ServletContext context) {
             this.context = context;
         }
@@ -1111,6 +1116,8 @@ public class ELEvaluator {
      * Exception thrown when EL evaluation fails.
      */
     public static class ELException extends Exception {
+        private static final long serialVersionUID = 1L;
+
         public ELException(String message) {
             super(message);
         }

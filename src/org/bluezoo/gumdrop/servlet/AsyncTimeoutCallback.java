@@ -1,6 +1,6 @@
 /*
- * WebSocketMessageTooBigException.java
- * Copyright (C) 2026 Chris Burdess
+ * AsyncTimeoutCallback.java
+ * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -19,19 +19,17 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.websocket;
+package org.bluezoo.gumdrop.servlet;
 
 /**
- * RFC 6455 §7.4.1 — thrown when a frame's declared payload exceeds the
- * configured maximum message size. The connection should be closed with
- * code 1009 (Message Too Big).
+ * Callback interface for async timeout handling.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class WebSocketMessageTooBigException extends WebSocketProtocolException {
+interface AsyncTimeoutCallback {
 
-    private static final long serialVersionUID = 1L;
-
-    public WebSocketMessageTooBigException(String message) {
-        super(message);
-    }
+    /**
+     * Called when the timeout fires.
+     */
+    void onTimeout();
 }

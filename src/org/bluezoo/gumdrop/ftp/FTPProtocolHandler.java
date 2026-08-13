@@ -78,7 +78,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see FTPListener
  * @see https://www.rfc-editor.org/rfc/rfc959
  */
-public class FTPProtocolHandler
+public final class FTPProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<FTPServerLexer.Token>,
                    FTPControlConnection {
 

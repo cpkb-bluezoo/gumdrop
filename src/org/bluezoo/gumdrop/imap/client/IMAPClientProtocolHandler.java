@@ -97,7 +97,7 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
  * @see ServerGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
-public class IMAPClientProtocolHandler
+public final class IMAPClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<IMAPClientLexer.Token>,
         LiteralTracker.Callback,
         ClientNotAuthenticatedState, ClientPostStarttls,

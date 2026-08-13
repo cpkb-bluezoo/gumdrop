@@ -35,7 +35,7 @@ public class QuotaExceededException extends Exception {
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.quota.L10N");
     
     private final String username;
-    private final Quota quota;
+    private final transient Quota quota;
     private final long requestedBytes;
     
     /**

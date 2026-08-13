@@ -309,7 +309,7 @@ public class ConfigurationParser extends DefaultHandler {
         }
 
         try {
-            Class clazz = Class.forName(className);
+            Class<?> clazz = Class.forName(className);
             ComponentDefinition listenerDef =
                     new ComponentDefinition(null, clazz);
 
@@ -347,7 +347,7 @@ public class ConfigurationParser extends DefaultHandler {
             PropertyDefinition listenersProp = null;
             for (int i = 0; i < parentDef.getProperties().size(); i++) {
                 PropertyDefinition prop =
-                        (PropertyDefinition) parentDef.getProperties()
+                        parentDef.getProperties()
                                 .get(i);
                 if ("listeners".equals(prop.getName())) {
                     listenersProp = prop;

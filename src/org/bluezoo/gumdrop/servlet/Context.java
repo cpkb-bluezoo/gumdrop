@@ -125,7 +125,7 @@ import javax.xml.ws.WebServiceRefs;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Context extends DeploymentDescriptor implements ManagerContextService, SessionContext, Comparator<WebFragment> {
+public final class Context extends DeploymentDescriptor implements ManagerContextService, SessionContext, Comparator<WebFragment> {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -1147,7 +1147,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                         String name = it.getName();
                         try {
                             Class<?> t = contextClassLoader.loadClass(className);
-                            Object target = t.newInstance();
+                            Object target = t.getDeclaredConstructor().newInstance();
                             try {
                                 Field field = t.getField(name);
                                 field.set(target, source);
@@ -1163,7 +1163,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                                     }
                                 }
                             }
-                        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+                        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
                             String message = Context.L10N.getString("err.init_resource");
                             Context.LOGGER.log(Level.SEVERE, message, e);
                         }
@@ -1632,7 +1632,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             return null;
         }
         String libPath = "WEB-INF/lib/";
-        Set<String> ret = new LinkedHashSet();
+        Set<String> ret = new LinkedHashSet<>();
         List<File> libJarFiles = new ArrayList<>(); // list of jar files to search WEB-INF/resources
         if (root.isDirectory()) {
             if (File.separatorChar != '/') {
@@ -1984,7 +1984,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
 
         // Locate applicable filters
         Map<FilterDef,FilterMatch> requestFilters = new LinkedHashMap<>();
-        List<FilterMatch> filterMatches = new ArrayList();
+        List<FilterMatch> filterMatches = new ArrayList<>();
         synchronized (this) {
             for (FilterMapping filterMapping : filterMappings) {
                 String filterName = filterMapping.filterName;
@@ -2088,22 +2088,26 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         return null;
     }
 
+    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
     @Override public Servlet getServlet(String name) throws ServletException {
         return null; // deprecated
     }
 
+    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
     @Override public Enumeration<Servlet> getServlets() {
-        return new IteratorEnumeration(); // deprecated
+        return new IteratorEnumeration<Servlet>(); // deprecated
     }
 
+    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
     @Override public Enumeration<String> getServletNames() {
-        return new IteratorEnumeration(); // deprecated
+        return new IteratorEnumeration<String>(); // deprecated
     }
 
     @Override public void log(String msg) {
         log(msg, null);
     }
 
+    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
     @Override public void log(Exception e, String msg) {
         log(msg, e);
     }
@@ -2137,7 +2141,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         Set<String> ret = new LinkedHashSet<>();
         ret.addAll(contextParams.keySet());
         ret.addAll(initParams.keySet());
-        return new IteratorEnumeration(ret);
+        return new IteratorEnumeration<String>(ret);
     }
 
     @Override public boolean setInitParameter(String name, String value) {
@@ -2153,7 +2157,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
     }
 
     @Override public Enumeration<String> getAttributeNames() {
-        return new IteratorEnumeration(attributes.keySet());
+        return new IteratorEnumeration<String>(attributes.keySet());
     }
 
     @Override public void setAttribute(String name, Object value) {
@@ -2229,6 +2233,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         }
     }
 
+    @SuppressWarnings("unchecked") // the cast is guaranteed by servletDef.className == t.getName()
     public <T extends Servlet> T createServlet(Class<T> t) throws ServletException {
         if (t.getClassLoader() == contextClassLoader) {
             // Find ServletDef by className
@@ -2297,6 +2302,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         }
     }
 
+    @SuppressWarnings("unchecked") // the cast is guaranteed by filterDef.className == t.getName()
     public <T extends Filter> T createFilter(Class<T> t) throws ServletException {
         if (t.getClassLoader() == contextClassLoader) {
             // Find FilterDef by className
@@ -2359,6 +2365,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         return Collections.<SessionTrackingMode>emptySet();
     }
 
+    @SuppressWarnings("unchecked") // caller is responsible for className naming an EventListener
     @Override public void addListener(String className) {
         try {
             addListener((Class<? extends EventListener>) Class.forName(className));
@@ -2372,7 +2379,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
             throw new IllegalStateException();
         }
         // check classloader
-        Class t = listener.getClass();
+        Class<?> t = listener.getClass();
         if (t.getClassLoader() != contextClassLoader) {
             String message = L10N.getString("err.bad_listener");
             message = MessageFormat.format(message, t.getName());
@@ -2424,6 +2431,7 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
         }
     }
 
+    @SuppressWarnings("unchecked") // reloadedClass is verified assignable to listenerClass above
     @Override public <T extends EventListener> T createListener(Class<T> listenerClass) throws ServletException {
         try {
             // Check that listenerClass has been loaded by the
@@ -2439,12 +2447,14 @@ public class Context extends DeploymentDescriptor implements ManagerContextServi
                 }
                 listenerClass = (Class<T>) loadedClass;
             }
-            return listenerClass.newInstance();
+            return listenerClass.getDeclaredConstructor().newInstance();
         } catch (ClassNotFoundException e) {
             throw (ServletException) new ServletException().initCause(e);
         } catch (InstantiationException e) {
             throw (ServletException) new ServletException().initCause(e);
         } catch (IllegalAccessException e) {
+            throw (ServletException) new ServletException().initCause(e);
+        } catch (NoSuchMethodException | InvocationTargetException e) {
             throw (ServletException) new ServletException().initCause(e);
         }
     }

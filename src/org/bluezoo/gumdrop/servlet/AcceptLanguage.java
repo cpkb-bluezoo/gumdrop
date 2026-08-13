@@ -29,7 +29,7 @@ import java.util.Locale;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class AcceptLanguage implements Comparable {
+class AcceptLanguage implements Comparable<Object> {
 
     final String spec;
     final double q;

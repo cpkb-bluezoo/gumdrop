@@ -98,7 +98,7 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4155">RFC 4155 - The application/mbox Media Type</a>
  */
-public class MboxMailbox implements Mailbox {
+public final class MboxMailbox implements Mailbox {
 
     private static final Logger LOGGER = Logger.getLogger(MboxMailbox.class.getName());
     private static final ResourceBundle L10N =

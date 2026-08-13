@@ -33,7 +33,7 @@ import java.util.List;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Trace {
+public final class Trace {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 

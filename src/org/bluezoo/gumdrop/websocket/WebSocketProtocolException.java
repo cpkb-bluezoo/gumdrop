@@ -33,6 +33,8 @@ import java.net.ProtocolException;
  */
 public class WebSocketProtocolException extends ProtocolException {
 
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructs a WebSocketProtocolException with the specified detail message.
      *
@@ -48,6 +50,7 @@ public class WebSocketProtocolException extends ProtocolException {
      * @param message the detail message
      * @param cause the cause of this exception
      */
+    @SuppressWarnings("this-escape") // initCause() call on `this` is safe: it only mutates the cause field inherited from Throwable and is not overridden by any subclass
     public WebSocketProtocolException(String message, Throwable cause) {
         super(message);
         initCause(cause);

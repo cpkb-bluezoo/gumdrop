@@ -56,7 +56,7 @@ import java.util.ResourceBundle;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  */
-public class WebSocketFrame {
+public final class WebSocketFrame {
 
     private static final ResourceBundle L10N = ResourceBundle.getBundle(
         "org.bluezoo.gumdrop.websocket.L10N");
@@ -373,7 +373,7 @@ public class WebSocketFrame {
         // First byte: FIN, RSV1-3, Opcode
         byte firstByte = (byte) opcode;
         if (fin) {
-            firstByte |= 0x80;
+            firstByte |= (byte) 0x80;
         }
         if (rsv1) {
             firstByte |= 0x40;
@@ -389,7 +389,7 @@ public class WebSocketFrame {
         // Second byte: MASK, Payload length
         byte secondByte = 0;
         if (masked) {
-            secondByte |= 0x80;
+            secondByte |= (byte) 0x80;
         }
 
         if (payloadLength < 126) {

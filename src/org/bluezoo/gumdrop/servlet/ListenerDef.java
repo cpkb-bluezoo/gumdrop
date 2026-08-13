@@ -52,8 +52,8 @@ final class ListenerDef implements Description {
         ClassLoader contextLoader = context.getContextClassLoader();
         try {
             thread.setContextClassLoader(contextLoader);
-            Class t = contextLoader.loadClass(className);
-            return (EventListener) t.newInstance();
+            Class<?> t = contextLoader.loadClass(className);
+            return (EventListener) t.getDeclaredConstructor().newInstance();
         } catch (Exception e) {
             if (e instanceof RuntimeException) {
                 throw (RuntimeException) e;

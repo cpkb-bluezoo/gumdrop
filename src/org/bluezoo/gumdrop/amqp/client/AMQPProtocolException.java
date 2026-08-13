@@ -32,6 +32,8 @@ import java.io.IOException;
  */
 public class AMQPProtocolException extends IOException {
 
+    private static final long serialVersionUID = 1L;
+
     public AMQPProtocolException(String message) {
         super(message);
     }

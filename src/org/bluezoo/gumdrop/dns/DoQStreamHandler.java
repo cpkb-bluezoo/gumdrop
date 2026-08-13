@@ -147,7 +147,7 @@ final class DoQStreamHandler implements ProtocolHandler {
             DNSServerMetrics metrics = service.getMetrics();
             if (metrics != null && !query.getQuestions().isEmpty()) {
                 DNSQuestion q =
-                        (DNSQuestion) query.getQuestions().get(0);
+                        query.getQuestions().get(0);
                 metrics.queryReceived(q.getType().name(), "doq");
             }
 

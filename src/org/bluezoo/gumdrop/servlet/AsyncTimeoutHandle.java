@@ -1,5 +1,5 @@
 /*
- * AsyncTimeout.java
+ * AsyncTimeoutHandle.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -22,30 +22,17 @@
 package org.bluezoo.gumdrop.servlet;
 
 /**
- * Callback interface for async timeout handling.
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- */
-interface AsyncTimeoutCallback {
-    
-    /**
-     * Called when the timeout fires.
-     */
-    void onTimeout();
-}
-
-/**
  * Handle for a scheduled async timeout, allowing cancellation.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 interface AsyncTimeoutHandle {
-    
+
     /**
      * Cancels this timeout. If already fired or cancelled, has no effect.
      */
     void cancel();
-    
+
     /**
      * Returns true if this timeout has been cancelled.
      *
@@ -53,4 +40,3 @@ interface AsyncTimeoutHandle {
      */
     boolean isCancelled();
 }
-

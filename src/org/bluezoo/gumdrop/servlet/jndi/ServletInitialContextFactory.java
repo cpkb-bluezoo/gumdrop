@@ -36,7 +36,7 @@ public class ServletInitialContextFactory implements InitialContextFactory {
 
     static ServletInitialContext ctx;
 
-    public Context getInitialContext(Hashtable env) throws NamingException {
+    public Context getInitialContext(Hashtable<?, ?> env) throws NamingException {
         if (ctx == null) {
             ctx = new ServletInitialContext(env);
         }

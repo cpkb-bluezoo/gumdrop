@@ -30,6 +30,8 @@ import java.io.IOException;
  */
 public class POP3Exception extends IOException {
 
+    private static final long serialVersionUID = 1L;
+
     /**
      * Creates a new POP3 exception.
      * 

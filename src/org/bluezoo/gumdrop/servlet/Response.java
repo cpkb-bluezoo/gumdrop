@@ -76,7 +76,7 @@ class Response implements HttpServletResponse {
      * the same name, it will quietly remove any previous header set.
      * This is to conform to RFC 9110.
      */
-    static final Collection<String> MULTIPLE_VALUE = new TreeSet(Arrays.asList(new String[] {
+    static final Collection<String> MULTIPLE_VALUE = new TreeSet<String>(Arrays.asList(new String[] {
         "set-cookie", "link", "prefer", "accept", "accept-charset", "accept-encoding", "allow",
         "accept-language", "cache-control", "connection", "content-encoding", "transfer-encoding", "via",
         "warning"
@@ -208,10 +208,12 @@ class Response implements HttpServletResponse {
         }
     }
 
+    @SuppressWarnings("deprecation")
     public String encodeUrl(String url) {
         return encodeURL(url);
     }
 
+    @SuppressWarnings("deprecation")
     public String encodeRedirectUrl(String url) {
         return encodeRedirectURL(url);
     }
@@ -513,6 +515,7 @@ class Response implements HttpServletResponse {
         }
     }
 
+    @SuppressWarnings("deprecation")
     public void setStatus(int sc, String msg) {
         setStatus(sc);
     }

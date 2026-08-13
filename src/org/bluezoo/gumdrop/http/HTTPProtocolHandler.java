@@ -120,7 +120,7 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  * @see HTTPLineLexer
  * @see HTTPConnectionLike
  */
-public class HTTPProtocolHandler
+public final class HTTPProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<HTTPLineLexer.Token>,
                    H2FrameHandler, HTTPConnectionLike {
 
@@ -1545,6 +1545,7 @@ public class HTTPProtocolHandler
     private static final int MAX_CHUNK_SIZE = 10 * 1024 * 1024;
 
     // RFC 9112 section 3: request-line = method SP request-target SP HTTP-version
+    @SuppressWarnings("fallthrough") // HTTP_1_0 intentionally falls through to default after marking the connection for close
     private void processRequestLine(ByteBuffer line) {
         Stream stream = getStream(clientStreamId);
         int lineLength = line.remaining();
@@ -1617,6 +1618,9 @@ public class HTTPProtocolHandler
             case HTTP_1_0:
                 // RFC 9112 section 9.3: HTTP/1.0 defaults to close
                 stream.closeConnection = true;
+                // Intentional fall-through: HTTP/1.0 requests are handled
+                // like any other request after marking the connection
+                // for close.
             default:
                 stream.addHeader(new Header(":method", method));
                 stream.addHeader(new Header(":path", requestTarget));

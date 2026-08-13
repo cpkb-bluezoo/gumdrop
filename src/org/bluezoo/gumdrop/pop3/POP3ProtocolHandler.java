@@ -129,7 +129,7 @@ import org.bluezoo.util.ByteArrays;
  * @see POP3Listener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
-public class POP3ProtocolHandler
+public final class POP3ProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<POP3ServerLexer.Token>,
                    ConnectedState, AuthenticateState, MailboxStatusState,
                    ListState, RetrieveState, MarkDeletedState, ResetState,
@@ -2155,6 +2155,7 @@ public class POP3ProtocolHandler
     }
 
     @Override
+    @SuppressWarnings("deprecation") // mandated override of deprecated interface method
     public void sendMessage(long size,
                              ReadableByteChannel content,
                              TransactionHandler handler) {
@@ -2238,6 +2239,7 @@ public class POP3ProtocolHandler
     }
 
     @Override
+    @SuppressWarnings("deprecation") // mandated override of deprecated interface method
     public void sendTop(ReadableByteChannel content,
                          TransactionHandler handler) {
         this.transactionHandler = handler;

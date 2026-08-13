@@ -87,7 +87,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.ServerUserReplyHandler;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959 - FTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4217">RFC 4217 - AUTH TLS</a>
  */
-public class FTPClientProtocolHandler
+public final class FTPClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<FTPClientLexer.Token>,
         ClientLoginState, ClientPasswordState, ClientAccountState,
         ClientAuthenticatedState {

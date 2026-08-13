@@ -28,6 +28,8 @@ package org.bluezoo.gumdrop.dns;
  */
 public class DNSFormatException extends Exception {
 
+    private static final long serialVersionUID = 1L;
+
     /**
      * Creates a new DNS format exception.
      *

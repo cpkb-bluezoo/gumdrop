@@ -74,7 +74,7 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageWriter;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
+public final class MQTTProtocolHandler implements ProtocolHandler, MQTTEventHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(MQTTProtocolHandler.class.getName());

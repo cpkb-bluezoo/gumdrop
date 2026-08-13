@@ -41,6 +41,8 @@ package org.bluezoo.gumdrop.ftp.client;
  */
 public class FTPException extends Exception {
 
+    private static final long serialVersionUID = 1L;
+
     /**
      * Creates an FTP exception with message only.
      *

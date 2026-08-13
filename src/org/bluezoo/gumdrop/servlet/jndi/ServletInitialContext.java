@@ -31,6 +31,7 @@ import javax.naming.CompoundName;
 import javax.naming.Context;
 import javax.naming.InvalidNameException;
 import javax.naming.Name;
+import javax.naming.NameClassPair;
 import javax.naming.NameNotFoundException;
 import javax.naming.NameParser;
 import javax.naming.NamingEnumeration;
@@ -50,12 +51,13 @@ public class ServletInitialContext implements Context, NameParser {
         syntax.put("jndi.syntax.direction", "flat");
     }
 
-    final Hashtable env;
-    final Map bindings;
+    final Hashtable<String, Object> env;
+    final Map<String, Binding> bindings;
 
-    public ServletInitialContext(Hashtable env) {
-        this.env = (Hashtable) env.clone();
-        bindings = new LinkedHashMap();
+    @SuppressWarnings("unchecked") // JNDI environment tables are conventionally String -> Object
+    public ServletInitialContext(Hashtable<?, ?> env) {
+        this.env = (Hashtable<String, Object>) env.clone();
+        bindings = new LinkedHashMap<String, Binding>();
     }
 
     public Object lookup(Name name) throws NamingException {
@@ -72,7 +74,7 @@ public class ServletInitialContext implements Context, NameParser {
         if (name == null || !name.startsWith("java:comp/env/")) {
             throw new NameNotFoundException();
         }
-        Binding binding = (Binding) bindings.get(name);
+        Binding binding = bindings.get(name);
         if (binding == null) {
             throw new NameNotFoundException(name);
         }
@@ -138,7 +140,7 @@ public class ServletInitialContext implements Context, NameParser {
                 || !newName.startsWith("java:comp/env/")) {
             throw new InvalidNameException();
         }
-        Binding binding = (Binding) bindings.remove(oldName);
+        Binding binding = bindings.remove(oldName);
         if (binding == null) {
             throw new NameNotFoundException(oldName);
         }
@@ -146,19 +148,19 @@ public class ServletInitialContext implements Context, NameParser {
         bindings.put(newName, binding);
     }
 
-    public NamingEnumeration list(Name name) throws NamingException {
+    public NamingEnumeration<NameClassPair> list(Name name) throws NamingException {
         throw new OperationNotSupportedException();
     }
 
-    public NamingEnumeration list(String name) throws NamingException {
+    public NamingEnumeration<NameClassPair> list(String name) throws NamingException {
         throw new OperationNotSupportedException();
     }
 
-    public NamingEnumeration listBindings(Name name) throws NamingException {
+    public NamingEnumeration<Binding> listBindings(Name name) throws NamingException {
         throw new OperationNotSupportedException();
     }
 
-    public NamingEnumeration listBindings(String name) throws NamingException {
+    public NamingEnumeration<Binding> listBindings(String name) throws NamingException {
         throw new OperationNotSupportedException();
     }
 
@@ -210,8 +212,8 @@ public class ServletInitialContext implements Context, NameParser {
         return env.remove(name);
     }
 
-    public Hashtable getEnvironment() throws NamingException {
-        return (Hashtable) env.clone();
+    public Hashtable<?, ?> getEnvironment() throws NamingException {
+        return (Hashtable<?, ?>) env.clone();
     }
 
     public void close() throws NamingException {}

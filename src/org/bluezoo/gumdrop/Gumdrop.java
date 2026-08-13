@@ -115,7 +115,7 @@ public class Gumdrop {
     private static volatile Gumdrop instance;
 
     // Services (own and manage their listeners)
-    private final List services;
+    private final List<Service> services;
 
     // Server listeners (controls AcceptSelectorLoop lifecycle)
     private final List<TCPListener> serverListeners;
@@ -267,7 +267,7 @@ public class Gumdrop {
             throw new IllegalArgumentException("workerCount must be at least 1");
         }
 
-        this.services = Collections.synchronizedList(new ArrayList());
+        this.services = Collections.synchronizedList(new ArrayList<Service>());
         this.serverListeners =
                 Collections.synchronizedList(new ArrayList<TCPListener>());
         this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
@@ -339,7 +339,7 @@ public class Gumdrop {
      *
      * @return unmodifiable view of the services
      */
-    public List getServices() {
+    public List<Service> getServices() {
         return Collections.unmodifiableList(services);
     }
 
@@ -349,7 +349,7 @@ public class Gumdrop {
      * but not registered for TCP accept.
      */
     private void registerServiceListeners(Service service) {
-        List listeners = service.getListeners();
+        List<?> listeners = service.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             if (listener instanceof TCPListener) {
@@ -367,7 +367,7 @@ public class Gumdrop {
      * Unregisters a service's TCP listeners from the accept loop.
      */
     private void unregisterServiceListeners(Service service) {
-        List listeners = service.getListeners();
+        List<?> listeners = service.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             if (listener instanceof TCPListener) {
@@ -634,7 +634,7 @@ public class Gumdrop {
 
         // Start all registered services and collect their TCP listeners
         for (int i = 0; i < services.size(); i++) {
-            Service service = (Service) services.get(i);
+            Service service = services.get(i);
             service.start();
             registerServiceListeners(service);
         }
@@ -855,7 +855,7 @@ public class Gumdrop {
         // ── Phase 3: force stop ──
         // Stop all services (services stop their own listeners)
         for (int i = 0; i < services.size(); i++) {
-            Service service = (Service) services.get(i);
+            Service service = services.get(i);
             service.stop();
         }
         services.clear();

@@ -215,7 +215,7 @@ class AsyncContextImpl implements AsyncContext {
     @Override
     public <T extends AsyncListener> T createListener(Class<T> clazz) throws ServletException {
         try {
-            return clazz.newInstance();
+            return clazz.getDeclaredConstructor().newInstance();
         } catch (Exception e) {
             throw new ServletException("Cannot create listener", e);
         }

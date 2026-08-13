@@ -68,8 +68,8 @@ public abstract class FTPService implements Service {
     private static final Logger LOGGER =
             Logger.getLogger(FTPService.class.getName());
 
-    private final List listeners = new ArrayList();
-    private final List dynamicListeners = new ArrayList();
+    private final List<FTPListener> listeners = new ArrayList<FTPListener>();
+    private final List<Listener> dynamicListeners = new ArrayList<Listener>();
 
     // ── Service-level configuration ──
 
@@ -93,7 +93,7 @@ public abstract class FTPService implements Service {
      *
      * @param list the list of listener endpoints
      */
-    public void setListeners(List list) {
+    public void setListeners(List<?> list) {
         for (int i = 0; i < list.size(); i++) {
             Object item = list.get(i);
             if (item instanceof FTPListener) {
@@ -103,8 +103,8 @@ public abstract class FTPService implements Service {
     }
 
     @Override
-    public List getListeners() {
-        List all = new ArrayList(listeners);
+    public List<Listener> getListeners() {
+        List<Listener> all = new ArrayList<Listener>(listeners);
         synchronized (dynamicListeners) {
             all.addAll(dynamicListeners);
         }
@@ -280,9 +280,9 @@ public abstract class FTPService implements Service {
      * Stops and removes all dynamic data-connection listeners.
      */
     private void stopDynamicListeners() {
-        List snapshot;
+        List<Listener> snapshot;
         synchronized (dynamicListeners) {
-            snapshot = new ArrayList(dynamicListeners);
+            snapshot = new ArrayList<Listener>(dynamicListeners);
             dynamicListeners.clear();
         }
         for (int i = 0; i < snapshot.size(); i++) {

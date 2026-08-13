@@ -387,6 +387,7 @@ public class OAuthRealm implements Realm {
     }
 
     @Override
+    @SuppressWarnings("deprecation") // mandated override of a deprecated interface method
     public String getPassword(String username) throws UnsupportedOperationException {
         throw new UnsupportedOperationException("OAuth realm does not support password retrieval");
     }

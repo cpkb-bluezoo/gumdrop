@@ -171,7 +171,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see IMAPListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
-public class IMAPProtocolHandler
+public final class IMAPProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<IMAPServerLexer.Token> {
 
     private static final Logger LOGGER =

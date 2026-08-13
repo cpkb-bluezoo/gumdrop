@@ -90,8 +90,8 @@ final class FilterDef implements FilterConfig, FilterReg {
         ClassLoader contextLoader = context.getContextClassLoader();
         try {
             thread.setContextClassLoader(contextLoader);
-            Class t = contextLoader.loadClass(className);
-            Filter filter = (Filter) t.newInstance();
+            Class<?> t = contextLoader.loadClass(className);
+            Filter filter = (Filter) t.getDeclaredConstructor().newInstance();
             filter.init(this);
             return filter;
         } catch (UnavailableException e) {
@@ -162,7 +162,7 @@ final class FilterDef implements FilterConfig, FilterReg {
     }
 
     @Override public Enumeration<String> getInitParameterNames() {
-        return new IteratorEnumeration(initParams.keySet());
+        return new IteratorEnumeration<String>(initParams.keySet());
     }
 
     // -- FilterRegistration.Dynamic --

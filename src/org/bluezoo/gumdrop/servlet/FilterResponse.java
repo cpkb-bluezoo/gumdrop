@@ -55,6 +55,7 @@ class FilterResponse extends HttpServletResponseWrapper {
         super.setStatus(sc);
     }
 
+    @SuppressWarnings("deprecation")
     public void setStatus(int sc, String message) {
         if (ignoreHeaderMutators) {
             return;

@@ -513,6 +513,9 @@ public class QuicTransportFactory extends TransportFactory {
      * @return the created QuicEngine
      * @throws IOException if the channel cannot be opened or bound
      */
+    // Overload is intentional: StreamAcceptHandler and ConnectionAcceptedHandler
+    // are distinct, unrelated functional interfaces for two different accept models.
+    @SuppressWarnings("overloads")
     public QuicEngine createServerEngine(
             InetAddress bindAddress, int port,
             QuicEngine.ConnectionAcceptedHandler handler,

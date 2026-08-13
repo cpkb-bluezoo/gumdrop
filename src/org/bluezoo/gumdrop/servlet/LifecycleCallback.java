@@ -44,9 +44,9 @@ final class LifecycleCallback {
      */
     void execute() {
         try {
-            Class t = Class.forName(className);
+            Class<?> t = Class.forName(className);
             Method m = t.getMethod(methodName);
-            Object o = t.newInstance();
+            Object o = t.getDeclaredConstructor().newInstance();
             m.invoke(o);
         } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
             String message = Context.L10N.getString("err.bad_lifecycle_callback");

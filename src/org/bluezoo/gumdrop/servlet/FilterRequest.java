@@ -47,7 +47,7 @@ class FilterRequest extends HttpServletRequestWrapper {
     final String queryString;
     final Map<String,Object> attrs;
     final DispatcherType dispatcherType;
-    Map parameters;
+    Map<String,String[]> parameters;
     boolean parametersParsed;
 
     FilterRequest(HttpServletRequest request, String uri, String contextPath, ServletMatch match, String queryString, Map<String,Object> attrs, DispatcherType dispatcherType) {
@@ -57,7 +57,7 @@ class FilterRequest extends HttpServletRequestWrapper {
         this.match = match;
         this.queryString = queryString;
         this.attrs = attrs;
-        parameters = new LinkedHashMap();
+        parameters = new LinkedHashMap<String,String[]>();
         this.dispatcherType = dispatcherType;
     }
 
@@ -93,25 +93,25 @@ class FilterRequest extends HttpServletRequestWrapper {
         if (!parametersParsed) {
             parseParameters();
         }
-        String[] values = (String[]) parameters.get(name);
+        String[] values = parameters.get(name);
         return (values == null || values.length == 0) ? null : values[0];
     }
 
-    @Override public Enumeration getParameterNames() {
+    @Override public Enumeration<String> getParameterNames() {
         if (!parametersParsed) {
             parseParameters();
         }
-        return new IteratorEnumeration(parameters.keySet());
+        return new IteratorEnumeration<String>(parameters.keySet());
     }
 
     @Override public String[] getParameterValues(String name) {
         if (!parametersParsed) {
             parseParameters();
         }
-        return (String[]) parameters.get(name);
+        return parameters.get(name);
     }
 
-    @Override public Map getParameterMap() {
+    @Override public Map<String,String[]> getParameterMap() {
         if (!parametersParsed) {
             parseParameters();
         }
@@ -139,11 +139,11 @@ class FilterRequest extends HttpServletRequestWrapper {
             Request.addParameter(accum, queryString.substring(start));
         }
         // Parameters specified in original request
-        Map originalParameters = super.getParameterMap();
-        for (Iterator i = originalParameters.entrySet().iterator(); i.hasNext(); ) {
-            Map.Entry entry = (Map.Entry) i.next();
-            String key = (String) entry.getKey();
-            String[] values = (String[]) entry.getValue();
+        Map<String,String[]> originalParameters = super.getParameterMap();
+        for (Iterator<Map.Entry<String,String[]>> i = originalParameters.entrySet().iterator(); i.hasNext(); ) {
+            Map.Entry<String,String[]> entry = i.next();
+            String key = entry.getKey();
+            String[] values = entry.getValue();
             for (int j = 0; j < values.length; j++) {
                 Request.addParameter(accum, key, values[j]);
             }

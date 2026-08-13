@@ -84,7 +84,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see H3Stream
  * @see QuicConnection
  */
-public class HTTP3ServerHandler
+public final class HTTP3ServerHandler
         implements QuicConnection.ConnectionReadyHandler {
 
     private static final Logger LOGGER =

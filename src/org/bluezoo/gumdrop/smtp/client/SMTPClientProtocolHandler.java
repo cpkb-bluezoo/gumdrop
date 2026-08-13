@@ -99,7 +99,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207 - STARTTLS</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
  */
-public class SMTPClientProtocolHandler
+public final class SMTPClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<SMTPClientLexer.Token>,
         WritableByteChannel, ClientHelloState, ClientSession,
         ClientPostTls, ClientAuthExchange, ClientEnvelope,

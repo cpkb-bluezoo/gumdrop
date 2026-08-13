@@ -121,11 +121,11 @@ public class DNSService implements Service {
     private static final int MAX_DNS_MESSAGE_SIZE =
             DNSMessage.DEFAULT_EDNS_UDP_SIZE;
 
-    private final List listeners = new ArrayList();
+    private final List<Listener> listeners = new ArrayList<Listener>();
 
     // ── Configuration ──
 
-    private final List upstreamServers = new ArrayList();
+    private final List<InetSocketAddress> upstreamServers = new ArrayList<InetSocketAddress>();
     private boolean useSystemResolvers = true;
     private boolean cacheEnabled = true;
     private boolean dnssecEnabled;
@@ -176,7 +176,7 @@ public class DNSService implements Service {
      *
      * @param list the list of listener endpoints
      */
-    public void setListeners(List list) {
+    public void setListeners(List<?> list) {
         for (int i = 0; i < list.size(); i++) {
             Object item = list.get(i);
             if (item instanceof DNSListener) {
@@ -190,7 +190,7 @@ public class DNSService implements Service {
     }
 
     @Override
-    public List getListeners() {
+    public List<Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
     }
 
@@ -381,7 +381,7 @@ public class DNSService implements Service {
             }
 
             if (metrics != null && !query.getQuestions().isEmpty()) {
-                DNSQuestion q = (DNSQuestion) query.getQuestions().get(0);
+                DNSQuestion q = query.getQuestions().get(0);
                 metrics.queryReceived(q.getType().name(), "udp");
             }
 
@@ -487,7 +487,7 @@ public class DNSService implements Service {
                         DNSMessage.RCODE_NXDOMAIN);
             }
 
-            List cached = cache.lookup(question);
+            List<DNSResourceRecord> cached = cache.lookup(question);
             if (cached != null) {
                 if (metrics != null) { metrics.cacheHit(); }
                 if (LOGGER.isLoggable(Level.FINEST)) {
@@ -582,8 +582,7 @@ public class DNSService implements Service {
         queryBytes.get(queryData);
 
         for (int i = 0; i < upstreamServers.size(); i++) {
-            InetSocketAddress upstream =
-                    (InetSocketAddress) upstreamServers.get(i);
+            InetSocketAddress upstream = upstreamServers.get(i);
             long upstreamStart = System.nanoTime();
             try {
                 DatagramSocket socket = new DatagramSocket();
@@ -836,9 +835,9 @@ public class DNSService implements Service {
      * Returns the EDNS cookie option from a query, or null if absent.
      */
     private static byte[] findRequestCookie(DNSMessage query) {
-        List additionals = query.getAdditionals();
+        List<DNSResourceRecord> additionals = query.getAdditionals();
         for (int i = 0; i < additionals.size(); i++) {
-            DNSResourceRecord rr = (DNSResourceRecord) additionals.get(i);
+            DNSResourceRecord rr = additionals.get(i);
             if (rr.getType() == DNSType.OPT) {
                 return DNSCookie.findEdnsOption(rr.getRData(),
                         DNSCookie.EDNS_OPTION_COOKIE);
@@ -856,11 +855,11 @@ public class DNSService implements Service {
                 source.getAddress().getAddress(), clientCookie);
         byte[] cookieOption = buildCookieOptionBytes(
                 clientCookie, serverCookie);
-        List additionals = Collections.singletonList(
+        List<DNSResourceRecord> additionals = Collections.singletonList(
                 DNSResourceRecord.opt(DNSMessage.DEFAULT_EDNS_UDP_SIZE,
                         cookieOption));
-        return query.createResponse(Collections.emptyList(),
-                Collections.emptyList(), additionals);
+        return query.createResponse(Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(), additionals);
     }
 
     /**
@@ -873,7 +872,7 @@ public class DNSService implements Service {
                 source.getAddress().getAddress(), clientCookie);
         byte[] cookieOption = buildCookieOptionBytes(
                 clientCookie, serverCookie);
-        List additionals = mergeCookieIntoAdditionals(
+        List<DNSResourceRecord> additionals = mergeCookieIntoAdditionals(
                 response.getAdditionals(), cookieOption);
         return query.createResponse(response.getAnswers(),
                 response.getAuthorities(), additionals);
@@ -890,11 +889,11 @@ public class DNSService implements Service {
         return buf.array();
     }
 
-    private static List mergeCookieIntoAdditionals(
-            List existing, byte[] cookieOption) {
-        List result = new ArrayList(existing);
+    private static List<DNSResourceRecord> mergeCookieIntoAdditionals(
+            List<DNSResourceRecord> existing, byte[] cookieOption) {
+        List<DNSResourceRecord> result = new ArrayList<DNSResourceRecord>(existing);
         for (int i = 0; i < result.size(); i++) {
-            DNSResourceRecord rr = (DNSResourceRecord) result.get(i);
+            DNSResourceRecord rr = result.get(i);
             if (rr.getType() == DNSType.OPT) {
                 byte[] rdata = rr.getRData();
                 byte[] merged = new byte[rdata.length + cookieOption.length];

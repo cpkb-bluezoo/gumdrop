@@ -89,7 +89,7 @@ public class HealthService implements Service {
     }
 
     @Override
-    public List getListeners() {
+    public List<HealthListener> getListeners() {
         return listeners;
     }
 

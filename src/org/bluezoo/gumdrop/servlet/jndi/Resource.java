@@ -65,15 +65,16 @@ public abstract class Resource {
         String className = getClassName();
         String interfaceName = getInterfaceName();
         try {
-            Class t = Class.forName(className);
-            Class i = Class.forName(interfaceName);
+            Class<?> t = Class.forName(className);
+            Class<?> i = Class.forName(interfaceName);
             if (!i.isAssignableFrom(t)) {
                 String message = L10N.getString("err.not_assignable");
                 message = MessageFormat.format(message, className, interfaceName);
                 throw new InstantiationException(message);
             }
-            return t.newInstance();
-        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+            return t.getDeclaredConstructor().newInstance();
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
+                | NoSuchMethodException | java.lang.reflect.InvocationTargetException e) {
             String message = L10N.getString("err.init_resource");
             message = MessageFormat.format(message, className);
             LOGGER.log(Level.SEVERE, message, e);

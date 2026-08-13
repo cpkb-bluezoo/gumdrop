@@ -111,7 +111,7 @@ public abstract class WebSocketService implements Service {
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketService.class.getName());
 
-    private final List listeners = new ArrayList();
+    private final List<Listener> listeners = new ArrayList<Listener>();
 
     // ── Listener management ──
 
@@ -139,7 +139,7 @@ public abstract class WebSocketService implements Service {
      *
      * @param list the list of listener endpoints
      */
-    public void setListeners(List list) {
+    public void setListeners(List<?> list) {
         for (int i = 0; i < list.size(); i++) {
             Object item = list.get(i);
             if (item instanceof WebSocketListener) {
@@ -151,7 +151,7 @@ public abstract class WebSocketService implements Service {
     }
 
     @Override
-    public List getListeners() {
+    public List<? extends Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
     }
 

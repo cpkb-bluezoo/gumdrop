@@ -51,6 +51,8 @@ import javax.servlet.http.HttpServletResponse;
  */
 public class ManagerServlet extends HttpServlet {
 
+    private static final long serialVersionUID = 1L;
+
     static final String L10N_NAME = "org.bluezoo.gumdrop.servlet.manager.L10N";
     static final Logger LOGGER = Logger.getLogger(ManagerServlet.class.getName());
 

@@ -72,7 +72,7 @@ public abstract class SMTPService implements Service {
     private static final Logger LOGGER =
             Logger.getLogger(SMTPService.class.getName());
 
-    private final List listeners = new ArrayList();
+    private final List<Listener> listeners = new ArrayList<Listener>();
 
     // ── Service-level configuration ──
 
@@ -100,7 +100,7 @@ public abstract class SMTPService implements Service {
      *
      * @param list the list of listener endpoints
      */
-    public void setListeners(List list) {
+    public void setListeners(List<?> list) {
         for (int i = 0; i < list.size(); i++) {
             Object item = list.get(i);
             if (item instanceof SMTPListener) {
@@ -110,7 +110,7 @@ public abstract class SMTPService implements Service {
     }
 
     @Override
-    public List getListeners() {
+    public List<Listener> getListeners() {
         return Collections.unmodifiableList(listeners);
     }
 

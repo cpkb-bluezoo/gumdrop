@@ -50,6 +50,8 @@ import java.util.*;
  */
 public class HTTPDateFormat extends DateFormat {
 
+    private static final long serialVersionUID = 1L;
+
     static final String[] DAYS_OF_WEEK = {null, "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
 
     static final String[] MONTHS = {

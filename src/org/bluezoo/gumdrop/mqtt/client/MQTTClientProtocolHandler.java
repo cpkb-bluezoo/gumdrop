@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageWriter;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MQTTClientProtocolHandler
+public final class MQTTClientProtocolHandler
         implements ProtocolHandler, MQTTEventHandler {
 
     private static final Logger LOGGER =

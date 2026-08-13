@@ -87,7 +87,7 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://en.wikipedia.org/wiki/Maildir">Maildir on Wikipedia</a>
  */
-public class MaildirMailbox implements Mailbox {
+public final class MaildirMailbox implements Mailbox {
 
     private static final Logger LOGGER = Logger.getLogger(MaildirMailbox.class.getName());
     private static final ResourceBundle L10N =

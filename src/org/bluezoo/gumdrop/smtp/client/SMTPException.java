@@ -41,7 +41,9 @@ package org.bluezoo.gumdrop.smtp.client;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public class SMTPException extends Exception {
-    
+
+    private static final long serialVersionUID = 1L;
+
     /**
      * Creates an SMTP exception with message only.
      * 

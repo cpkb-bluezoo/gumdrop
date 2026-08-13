@@ -61,12 +61,12 @@ import org.bluezoo.gumdrop.util.MessageFormatter;
  * @see HTTPService
  * @see Container
  */
-public class ServletService extends HTTPService {
+public final class ServletService extends HTTPService {
 
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
-    static final Map TIME_UNITS = new HashMap();
+    static final Map<TimeUnit, String> TIME_UNITS = new HashMap<TimeUnit, String>();
     static {
         TIME_UNITS.put(TimeUnit.NANOSECONDS, "ns");
         TIME_UNITS.put(TimeUnit.MICROSECONDS, "us");
@@ -279,7 +279,7 @@ public class ServletService extends HTTPService {
         TimeUnit timeUnit = null;
         for (int i = 0; i < TimeUnit.values().length; i++) {
             TimeUnit tu = TimeUnit.values()[i];
-            String suffix = (String) TIME_UNITS.get(tu);
+            String suffix = TIME_UNITS.get(tu);
             if (time.endsWith(suffix)) {
                 timeUnit = tu;
                 time = time.substring(0,
@@ -353,6 +353,7 @@ public class ServletService extends HTTPService {
 
     // ── Request processing ──
 
+    @SuppressWarnings("deprecation") // Logger.logrb(Level,String,String,String,String,Throwable) has no non-deprecated replacement providing this signature
     public void log(String message) {
         if (accessLogger != null) {
             accessLogger.logrb(Level.FINEST, null, null,

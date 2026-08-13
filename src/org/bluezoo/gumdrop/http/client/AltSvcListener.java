@@ -1,5 +1,5 @@
 /*
- * WebSocketMessageTooBigException.java
+ * AltSvcListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,19 +19,20 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.websocket;
+package org.bluezoo.gumdrop.http.client;
 
 /**
- * RFC 6455 §7.4.1 — thrown when a frame's declared payload exceeds the
- * configured maximum message size. The connection should be closed with
- * code 1009 (Message Too Big).
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * Listener interface for Alt-Svc header notifications.
+ *
+ * <p>Implementations receive the raw Alt-Svc header value when it
+ * appears in an HTTP response, enabling protocol upgrade discovery.
  */
-public class WebSocketMessageTooBigException extends WebSocketProtocolException {
+interface AltSvcListener {
 
-    private static final long serialVersionUID = 1L;
-
-    public WebSocketMessageTooBigException(String message) {
-        super(message);
-    }
+    /**
+     * Called when an Alt-Svc header is received in a response.
+     *
+     * @param value the raw Alt-Svc header value
+     */
+    void altSvcReceived(String value);
 }

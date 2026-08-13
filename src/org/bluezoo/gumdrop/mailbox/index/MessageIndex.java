@@ -877,6 +877,7 @@ public class MessageIndex {
      * Exception indicating index corruption.
      */
     public static class CorruptIndexException extends IOException {
+        private static final long serialVersionUID = 1L;
         public CorruptIndexException(String message) {
             super(message);
         }

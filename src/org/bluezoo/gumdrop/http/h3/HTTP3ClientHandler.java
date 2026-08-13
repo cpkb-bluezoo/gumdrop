@@ -64,7 +64,7 @@ import org.bluezoo.gumdrop.GumdropNative;
  * @see H3ClientStream
  * @see QuicConnection
  */
-public class HTTP3ClientHandler
+public final class HTTP3ClientHandler
         implements QuicConnection.ConnectionReadyHandler {
 
     private static final Logger LOGGER =

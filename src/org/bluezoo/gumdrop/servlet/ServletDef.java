@@ -58,7 +58,7 @@ import org.bluezoo.gumdrop.servlet.manager.ServletReg;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class ServletDef implements ServletConfig, Comparable, ServletReg {
+final class ServletDef implements ServletConfig, Comparable<ServletDef>, ServletReg {
 
     Context context;
 
@@ -123,12 +123,8 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
     /**
      * Compare for sorting according to the value of loadOnStartup
      */
-    @Override public int compareTo(Object other) {
-        if (other instanceof ServletDef) {
-            ServletDef servletDef = (ServletDef) other;
-            return loadOnStartup - servletDef.loadOnStartup;
-        }
-        return 0;
+    @Override public int compareTo(ServletDef other) {
+        return loadOnStartup - other.loadOnStartup;
     }
 
     /**
@@ -145,8 +141,8 @@ final class ServletDef implements ServletConfig, Comparable, ServletReg {
         ClassLoader contextLoader = context.getContextClassLoader();
         try {
             thread.setContextClassLoader(contextLoader);
-            Class t = contextLoader.loadClass(className);
-            Servlet servlet = (Servlet) t.newInstance();
+            Class<?> t = contextLoader.loadClass(className);
+            Servlet servlet = (Servlet) t.getDeclaredConstructor().newInstance();
             servlet.init(this);
             return servlet;
         } catch (UnavailableException e) {

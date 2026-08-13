@@ -67,22 +67,6 @@ import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 
 /**
- * Listener interface for Alt-Svc header notifications.
- *
- * <p>Implementations receive the raw Alt-Svc header value when it
- * appears in an HTTP response, enabling protocol upgrade discovery.
- */
-interface AltSvcListener {
-
-    /**
-     * Called when an Alt-Svc header is received in a response.
-     *
-     * @param value the raw Alt-Svc header value
-     */
-    void altSvcReceived(String value);
-}
-
-/**
  * High-level HTTP client facade.
  *
  * <p>This class provides a simple, concrete API for making HTTP requests.
@@ -1071,7 +1055,7 @@ public class HTTPClient implements AltSvcListener {
      */
     public static void main(String[] args) {
         String method = "GET";
-        List requestHeaders = new ArrayList();
+        List<String> requestHeaders = new ArrayList<String>();
         String bodyFile = null;
         String outputFile = null;
         String forceVersion = null;
@@ -1211,7 +1195,7 @@ public class HTTPClient implements AltSvcListener {
             final SelectorLoop loop,
             final String targetHost, final int targetPort,
             final String scheme, final String path,
-            final String method, final List requestHeaders,
+            final String method, final List<String> requestHeaders,
             final String bodyFile, final String outputFile,
             final String forceVersion,
             final String pemCert, final String pemKey,
@@ -1256,7 +1240,7 @@ public class HTTPClient implements AltSvcListener {
 
         final CountDownLatch connectLatch = new CountDownLatch(1);
         final CountDownLatch doneLatch = new CountDownLatch(1);
-        final AtomicReference connectError = new AtomicReference();
+        final AtomicReference<Exception> connectError = new AtomicReference<Exception>();
 
         client.connect(new HTTPClientHandler() {
             @Override
@@ -1284,7 +1268,7 @@ public class HTTPClient implements AltSvcListener {
 
         connectLatch.await();
 
-        Exception connErr = (Exception) connectError.get();
+        Exception connErr = connectError.get();
         if (connErr != null) {
             throw connErr;
         }
@@ -1303,13 +1287,13 @@ public class HTTPClient implements AltSvcListener {
             out = System.out;
         }
 
-        final AtomicReference responseError = new AtomicReference();
+        final AtomicReference<Exception> responseError = new AtomicReference<Exception>();
         final CountDownLatch responseLatch = new CountDownLatch(1);
 
         HTTPRequest req = client.request(method, path);
 
         for (int i = 0; i < requestHeaders.size(); i++) {
-            String hdr = (String) requestHeaders.get(i);
+            String hdr = requestHeaders.get(i);
             int cp = hdr.indexOf(':');
             if (cp > 0) {
                 String name = hdr.substring(0, cp).trim();
@@ -1351,7 +1335,7 @@ public class HTTPClient implements AltSvcListener {
 
         client.close();
 
-        Exception respErr = (Exception) responseError.get();
+        Exception respErr = responseError.get();
         if (respErr != null) {
             throw respErr;
         }
@@ -1425,7 +1409,7 @@ public class HTTPClient implements AltSvcListener {
             final boolean verbose,
             final boolean headersOnly,
             final CountDownLatch doneLatch,
-            final AtomicReference errorRef,
+            final AtomicReference<Exception> errorRef,
             final HTTPClient client) {
         return new DefaultHTTPResponseHandler() {
 

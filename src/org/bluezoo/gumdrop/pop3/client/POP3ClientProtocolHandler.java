@@ -91,7 +91,7 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
  * @see POP3ClientLexer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
-public class POP3ClientProtocolHandler
+public final class POP3ClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<POP3ClientLexer.Token>,
         DotUnstuffer.Callback,
         ClientAuthorizationState, ClientPasswordState,

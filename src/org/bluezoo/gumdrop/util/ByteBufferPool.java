@@ -67,7 +67,7 @@ public final class ByteBufferPool {
     // (new ArrayDeque<ByteBuffer>[N]); the raw-array-then-cast idiom is
     // the standard workaround, safe here since every element is
     // immediately populated below with an ArrayDeque<ByteBuffer>.
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private static ArrayDeque<ByteBuffer>[] createBuckets() {
         ArrayDeque<ByteBuffer>[] buckets = new ArrayDeque[BUCKET_COUNT];
         for (int i = 0; i < BUCKET_COUNT; i++) {

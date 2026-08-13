@@ -405,7 +405,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
     /**
      * Target entity stack.
      */
-    Deque targets = new ArrayDeque();
+    Deque<Object> targets = new ArrayDeque<Object>();
 
     State mode;
     MessageDigest digest;
@@ -496,10 +496,11 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
     public void startDocument() throws SAXException {
         states.clear();
         pushState(State.INIT);
-        targets = new LinkedList();
+        targets = new LinkedList<Object>();
         pushTarget(descriptor);
     }
 
+    @SuppressWarnings("fallthrough") // intentional fall through between related states
     public void startElement(String uri, String localName, String qName, Attributes atts) throws SAXException {
         String name = localName != null && !localName.isEmpty() ? localName : qName;
         State parentState = peekState();
@@ -1240,6 +1241,7 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         pushState(state);
     }
 
+    @SuppressWarnings("fallthrough") // intentional fall through between related states
     public void endElement(String uri, String localName, String qName) throws SAXException {
         String name = localName != null && !localName.isEmpty() ? localName : qName;
         State state = popState();

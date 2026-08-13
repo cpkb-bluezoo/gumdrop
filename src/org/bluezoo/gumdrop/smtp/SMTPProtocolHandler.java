@@ -141,7 +141,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  */
-public class SMTPProtocolHandler
+public final class SMTPProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<SMTPServerLexer.Token>,
                    ConnectedState, HelloState, AuthenticateState,
                    MailFromState, RecipientState, MessageStartState, MessageEndState,

@@ -50,7 +50,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-5.1">RFC 4511 §5.1 — Protocol Encoding</a>
  */
-public class BERDecoder {
+public final class BERDecoder {
 
     // Decoder states
     private static final int STATE_TAG = 0;

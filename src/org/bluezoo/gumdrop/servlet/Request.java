@@ -79,7 +79,7 @@ class Request implements HttpServletRequest {
     boolean secure;
     Headers headers;
     final RequestInputStream in;
-    final Map attributes = new HashMap();
+    final Map<String,Object> attributes = new HashMap<String,Object>();
     Map<String,String[]> parameters = new LinkedHashMap<>();
     boolean parametersParsed;
     String encoding;
@@ -468,7 +468,9 @@ class Request implements HttpServletRequest {
         return Boolean.FALSE == sessionType;
     }
 
-    @Override public boolean isRequestedSessionIdFromUrl() {
+    @Override
+    @SuppressWarnings("deprecation")
+    public boolean isRequestedSessionIdFromUrl() {
         return isRequestedSessionIdFromURL();
     }
 
@@ -1049,10 +1051,10 @@ class Request implements HttpServletRequest {
     @Override public Locale getLocale() {
         String acceptLanguage = getHeader("Accept-Language");
         if (acceptLanguage != null) {
-            List locales = getLocales(acceptLanguage);
+            List<AcceptLanguage> locales = getLocales(acceptLanguage);
             if (!locales.isEmpty()) {
                 Collections.sort(locales);
-                return ((AcceptLanguage) locales.get(0)).toLocale();
+                return locales.get(0).toLocale();
             }
         }
         return null;
@@ -1132,7 +1134,9 @@ class Request implements HttpServletRequest {
         return context.getRequestDispatcher(path);
     }
 
-    @Override public String getRealPath(String path) {
+    @Override
+    @SuppressWarnings("deprecation")
+    public String getRealPath(String path) {
         // Convert to absolute path
         if (!path.startsWith("/")) {
             String ref = (match.pathInfo == null) ? match.servletPath : match.servletPath + match.pathInfo;

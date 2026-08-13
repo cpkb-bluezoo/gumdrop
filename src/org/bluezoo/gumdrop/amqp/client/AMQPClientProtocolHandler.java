@@ -81,7 +81,7 @@ import org.bluezoo.gumdrop.auth.SASLUtils;
  * @see ConnectionReady
  * @see <a href="https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf">AMQP 0-9-1 specification</a>
  */
-public class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHandler {
+public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(AMQPClientProtocolHandler.class.getName());
