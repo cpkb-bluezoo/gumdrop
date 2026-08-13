@@ -743,6 +743,16 @@
     <integration-junit includes='**/redis/redis/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run MQTT client tests against a real, locally-running Eclipse
+       Mosquitto instance: same rationale as the targets above, and
+       likewise deliberately NOT a dependency of 'integration-test'.
+       See MosquittoTestSupport's class Javadoc for how to build and
+       start the matching container. -->
+  <target name='integration-test-mqtt-mosquitto' depends='integration-build'
+          description='Run MQTT client tests against a local real Mosquitto instance (not part of integration-test)'>
+    <integration-junit includes='**/mqtt/mosquitto/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>
