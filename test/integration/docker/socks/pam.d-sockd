@@ -1,0 +1,5 @@
+# PAM service for Dante's "username" SOCKS5 auth method (RFC 1929) --
+# authenticates against the container's own local system accounts
+# (socksuser/sockspass, created in the Dockerfile).
+auth    required   pam_unix.so
+account required   pam_unix.so

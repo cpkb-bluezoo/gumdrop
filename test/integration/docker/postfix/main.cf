@@ -37,3 +37,14 @@ smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination
 biff = no
 append_dot_mydomain = no
 compatibility_level = 3.6
+
+# Postfix resolves the connecting peer's PTR record synchronously before
+# the 220 greeting, purely for Received:-header logging -- fine for a
+# direct host connection (usually instant on loopback), but connections
+# proxied through the socks-danted test containers arrive from a
+# container-network IP with no PTR record, and the resulting DNS lookup
+# can stall for several seconds before timing out, intermittently
+# blowing past client-side timeouts for no protocol-level reason.
+# Skipping the lookup entirely removes that variability; the hostname
+# just logs as "unknown", which nothing here depends on.
+smtpd_peername_lookup = no

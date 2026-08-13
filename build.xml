@@ -711,6 +711,18 @@
     <integration-junit includes='**/ftp/vsftpd/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run SOCKS client tests against a real, locally-running Dante
+       (danted) SOCKS5 proxy, tunnelling to the same Postfix container
+       the smtp-postfix target uses: same rationale as the targets
+       above, and likewise deliberately NOT a dependency of
+       'integration-test'. See DantedTestSupport's class Javadoc for how
+       to build and start the matching containers (proxy + Postfix, on
+       a shared podman network). -->
+  <target name='integration-test-socks-danted' depends='integration-build'
+          description='Run SOCKS client tests against a local real Dante proxy (not part of integration-test)'>
+    <integration-junit includes='**/socks/danted/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>

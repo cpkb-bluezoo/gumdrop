@@ -94,6 +94,16 @@ public class SOCKSClientHandler implements ProtocolHandler {
     private Endpoint endpoint;
     private State state;
 
+    // Bytes left over from a previous receive() call that weren't enough
+    // to complete the current handshake stage (SOCKS is a streaming TCP
+    // protocol; a reply can legally arrive split across multiple reads).
+    // Each handleXxx below already leaves the buffer position unchanged
+    // when it doesn't have enough data yet, so carrying the unconsumed
+    // remainder forward and prepending it to the next call is sufficient
+    // -- without this, a split reply is silently dropped and the
+    // handshake hangs forever waiting for bytes the server already sent.
+    private ByteBuffer pendingHandshakeData;
+
     /**
      * Creates a SOCKS client handler with default config (SOCKS5,
      * no auth).
@@ -147,22 +157,54 @@ public class SOCKSClientHandler implements ProtocolHandler {
 
     @Override
     public void receive(ByteBuffer data) {
-        switch (state) {
-            case AWAITING_METHOD_SELECTION:
-                handleMethodSelection(data);
-                break;
-            case AWAITING_AUTH_RESPONSE:
-                handleAuthResponse(data);
-                break;
-            case AWAITING_CONNECT_REPLY_V4:
-                handleSOCKS4Reply(data);
-                break;
-            case AWAITING_CONNECT_REPLY_V5:
-                handleSOCKS5Reply(data);
-                break;
-            case TUNNEL_ESTABLISHED:
-                innerHandler.receive(data);
-                break;
+        if (state == State.TUNNEL_ESTABLISHED) {
+            innerHandler.receive(data);
+            return;
+        }
+
+        ByteBuffer buf = data;
+        if (pendingHandshakeData != null) {
+            buf = ByteBuffer.allocate(pendingHandshakeData.remaining() + data.remaining());
+            buf.put(pendingHandshakeData);
+            buf.put(data);
+            buf.flip();
+            pendingHandshakeData = null;
+        }
+
+        // Loop rather than a single dispatch: one read can legally
+        // contain more than one handshake stage's worth of bytes (e.g.
+        // the method-select reply and the auth reply arriving in the
+        // same TCP segment), so keep re-dispatching to whatever the
+        // current stage is as long as the previous call actually made
+        // progress and bytes remain.
+        State stateBefore;
+        do {
+            stateBefore = state;
+            switch (state) {
+                case AWAITING_METHOD_SELECTION:
+                    handleMethodSelection(buf);
+                    break;
+                case AWAITING_AUTH_RESPONSE:
+                    handleAuthResponse(buf);
+                    break;
+                case AWAITING_CONNECT_REPLY_V4:
+                    handleSOCKS4Reply(buf);
+                    break;
+                case AWAITING_CONNECT_REPLY_V5:
+                    handleSOCKS5Reply(buf);
+                    break;
+                case TUNNEL_ESTABLISHED:
+                    if (buf.hasRemaining()) {
+                        innerHandler.receive(buf);
+                    }
+                    return;
+            }
+        } while (state != stateBefore && buf.hasRemaining());
+
+        if (buf.hasRemaining()) {
+            pendingHandshakeData = ByteBuffer.allocate(buf.remaining());
+            pendingHandshakeData.put(buf);
+            pendingHandshakeData.flip();
         }
     }
 
