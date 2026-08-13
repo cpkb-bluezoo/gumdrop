@@ -91,6 +91,46 @@ public class RabbitMQRecoveryIntegrationTest {
         CountDownLatch firstConsumeOk = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
 
+        // Registered once, up front, and never cancelled: AMQPClientRecovery
+        // auto-replays it against the reconnected channel (see
+        // RecoverableChannelImpl.rebind()), so re-registering a *second*
+        // consumer on the same queue post-recovery (as an earlier version
+        // of this test did) would leave two consumers competing for
+        // deliveries via RabbitMQ's round-robin dispatch -- and since the
+        // original had no real delivery handler, whichever message it
+        // happened to win would simply vanish, making the assertion below
+        // flaky-to-permanently-hang depending on dispatch order. Reusing
+        // this single, already-replayed consumer for the post-recovery
+        // assertion is both simpler and avoids that race entirely.
+        CountDownLatch deliveredLatch = new CountDownLatch(1);
+        AtomicReference<String> deliveredBody = new AtomicReference<>();
+        DeliveryHandler deliveryHandler = new DeliveryHandler() {
+            private final StringBuilder collected = new StringBuilder();
+
+            @Override
+            public void onDeliveryStart(String consumerTag, long deliveryTag,
+                    boolean redelivered, String exchange, String routingKey) {
+            }
+
+            @Override
+            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
+                    long bodySize) {
+            }
+
+            @Override
+            public void onDeliveryBodyChunk(ByteBuffer chunk) {
+                byte[] b = new byte[chunk.remaining()];
+                chunk.get(b);
+                collected.append(new String(b, StandardCharsets.US_ASCII));
+            }
+
+            @Override
+            public void onDeliveryComplete() {
+                deliveredBody.set(collected.toString());
+                deliveredLatch.countDown();
+            }
+        };
+
         client.connect(connection -> connection.channelOpen(1, channel -> {
             channelRef.set(channel);
             // durable=true, not auto-delete: the connection that declared
@@ -105,7 +145,7 @@ public class RabbitMQRecoveryIntegrationTest {
             // RabbitMQPlaintextIntegrationTest.)
             channel.queueDeclare(queue, true, false, false, null, (q, mc, cc) -> {
                 channel.basicConsume(queue, "", false, false, null,
-                        new NoopDeliveryHandler(),
+                        deliveryHandler,
                         consumerTag -> firstConsumeOk.countDown());
             });
         }));
@@ -132,64 +172,17 @@ public class RabbitMQRecoveryIntegrationTest {
         // re-registered automatically against the new connection. The
         // application's original ClientChannel reference must be live
         // again with no further action -- publish through it and confirm
-        // the message actually arrives, not just that publish() didn't
-        // throw.
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
+        // the message genuinely round-trips through the real broker via
+        // the same (auto-replayed) consumer, not just that publish()
+        // didn't throw and not just that the client-side state machine
+        // thinks it reconnected.
         ClientChannel channel = channelRef.get();
-        PublishBody body = channel.basicPublish("", queue, false, null, 5);
-        body.writeBody(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
+        PublishBody body = channel.basicPublish("", queue, false, null, 13);
+        body.writeBody(ByteBuffer.wrap("post-recovery".getBytes(StandardCharsets.US_ASCII)));
         body.complete(); // must not throw IllegalStateException (channel must be live again)
-
-        // Belt-and-braces beyond the FakeAMQPBroker test: also register a
-        // brand-new consumer against the same (still-existing, since it
-        // wasn't auto-delete) queue and confirm messages genuinely still
-        // flow through the real broker post-recovery, not just that the
-        // client-side state machine thinks it reconnected.
-        channel.basicConsume(queue, "", false, false, null,
-                new DeliveryHandler() {
-                    private final StringBuilder collected = new StringBuilder();
-
-                    @Override
-                    public void onDeliveryStart(String consumerTag, long deliveryTag,
-                            boolean redelivered, String exchange, String routingKey) {
-                    }
-
-                    @Override
-                    public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
-                            long bodySize) {
-                    }
-
-                    @Override
-                    public void onDeliveryBodyChunk(ByteBuffer chunk) {
-                        byte[] b = new byte[chunk.remaining()];
-                        chunk.get(b);
-                        collected.append(new String(b, StandardCharsets.US_ASCII));
-                    }
-
-                    @Override
-                    public void onDeliveryComplete() {
-                        deliveredBody.set(collected.toString());
-                        deliveredLatch.countDown();
-                    }
-                },
-                consumerTag -> {
-                    PublishBody confirmBody = channel.basicPublish("", queue, false, null, 13);
-                    confirmBody.writeBody(ByteBuffer.wrap("post-recovery".getBytes(StandardCharsets.US_ASCII)));
-                    confirmBody.complete();
-                });
 
         assertTrue("post-recovery publish/consume did not complete in time",
                 deliveredLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
         assertEquals("post-recovery", deliveredBody.get());
-    }
-
-    private static final class NoopDeliveryHandler implements DeliveryHandler {
-        @Override public void onDeliveryStart(String consumerTag, long deliveryTag,
-                boolean redelivered, String exchange, String routingKey) { }
-        @Override public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
-                long bodySize) { }
-        @Override public void onDeliveryBodyChunk(ByteBuffer chunk) { }
-        @Override public void onDeliveryComplete() { }
     }
 }

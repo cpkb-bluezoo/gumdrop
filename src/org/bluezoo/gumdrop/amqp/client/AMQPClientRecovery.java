@@ -408,8 +408,38 @@ public class AMQPClientRecovery {
     private final class RecoveryConnectionReady implements ConnectionReady {
         private final boolean first;
 
+        // A broker-initiated close delivers both an AMQP-level
+        // Connection.Close (-> onConnectionClosed) and, moments later, the
+        // underlying TCP EOF for the same now-closing socket (->
+        // onDisconnected) -- occasionally close enough together that both
+        // fire before the first has scheduled its reconnect. Without this
+        // guard each one independently calls scheduleReconnect(), racing
+        // two reconnect attempts against each other over the shared
+        // currentEndpoint/attempt/pendingRetry state and reliably breaking
+        // recovery (issue #203). This instance is created fresh per
+        // connection attempt (see doConnect()), so a plain instance field
+        // is sufficient to recognise "already handled" scoped to exactly
+        // the one connection these notifications are both about.
+        private boolean disconnectHandled;
+
         RecoveryConnectionReady(boolean first) {
             this.first = first;
+        }
+
+        /**
+         * Schedules a reconnect for this connection's loss, unless one was
+         * already scheduled by an earlier disconnect notification for the
+         * same connection attempt (see the disconnectHandled field
+         * comment).
+         */
+        private void scheduleReconnectOnce(Exception cause) {
+            synchronized (this) {
+                if (disconnectHandled) {
+                    return;
+                }
+                disconnectHandled = true;
+            }
+            scheduleReconnect(cause);
         }
 
         @Override
@@ -485,18 +515,18 @@ public class AMQPClientRecovery {
 
         @Override
         public void onConnectionClosed(int replyCode, String replyText) {
-            scheduleReconnect(new IOException(
+            scheduleReconnectOnce(new IOException(
                     "Connection closed by broker: " + replyCode + " " + replyText));
         }
 
         @Override
         public void onDisconnected() {
-            scheduleReconnect(new IOException("Connection closed"));
+            scheduleReconnectOnce(new IOException("Connection closed"));
         }
 
         @Override
         public void onError(Exception cause) {
-            scheduleReconnect(cause);
+            scheduleReconnectOnce(cause);
         }
 
         @Override
