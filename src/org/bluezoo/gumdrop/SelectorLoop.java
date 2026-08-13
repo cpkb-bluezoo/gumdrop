@@ -124,6 +124,20 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
+     * Returns whether the given thread is this loop's own dispatch
+     * thread -- used by {@link Gumdrop#checkAutoShutdown()} to detect a
+     * reentrant shutdown triggered from within a worker loop's own
+     * connection-handling call stack, since {@link #awaitQuiesce} cannot
+     * meaningfully wait for the thread it is called from.
+     *
+     * @param t the thread to check
+     * @return true if {@code t} is this loop's thread
+     */
+    boolean isCurrentThread(Thread t) {
+        return thread == t;
+    }
+
+    /**
      * Returns the number of channels (TCP connections, datagram
      * registrations, etc.) currently registered on this loop - used by
      * {@link Gumdrop#nextWorkerLoop()} to pick the least-loaded loop

@@ -143,6 +143,13 @@ public class Gumdrop {
     private volatile boolean started;
     private volatile boolean acceptLoopRunning;
     private volatile boolean draining;
+
+    // Set by checkAutoShutdown() when it has to dispatch shutdown() to a
+    // separate thread (reentrant call from a worker loop's own thread,
+    // see that method); start() joins it before proceeding, so any
+    // caller of start() is guaranteed to observe a fully-completed
+    // shutdown rather than racing against one still in progress.
+    private volatile Thread pendingAsyncShutdown;
     private volatile boolean ready;
 
     /**
@@ -550,6 +557,8 @@ public class Gumdrop {
      * at start time.
      */
     public void start() {
+        awaitPendingAsyncShutdown();
+
         if (started) {
             return;
         }
@@ -715,8 +724,81 @@ public class Gumdrop {
         }
         if (services.isEmpty() && serverListeners.isEmpty()
                 && activeClients.isEmpty()) {
-            shutdown();
+            if (isWorkerLoopThread(Thread.currentThread())) {
+                // removeClient() can be invoked from a ClientEndpoint's
+                // disconnected()/error() callback, which runs on the
+                // SelectorLoop thread handling that very connection --
+                // making this a reentrant call from a worker loop's own
+                // thread. shutdown() below calls SelectorLoop.awaitQuiesce()
+                // on every loop including this one, and a thread cannot
+                // join itself: awaitQuiesce() short-circuits without
+                // actually waiting, but shutdown() never checks that
+                // return value, so it proceeds believing every loop is
+                // stopped while this one's thread is still alive and
+                // mid-unwind. A concurrent nextWorkerLoop()/start() call
+                // from another thread then sees isRunning()==true (the
+                // thread hasn't exited yet) and hands out a reference to
+                // it -- whatever gets registered on it afterwards is
+                // silently lost the moment this thread finishes exiting
+                // its dispatch loop, since nothing will ever come back to
+                // process it. Running shutdown() off-thread instead lets
+                // awaitQuiesce() perform a real join() for every loop,
+                // closing the window entirely -- provided every path back
+                // into this instance (start(), in practice) waits for
+                // that thread first; see pendingAsyncShutdown and start().
+                Thread shutdownThread = new Thread(this::shutdown, "gumdrop-auto-shutdown");
+                shutdownThread.setDaemon(true);
+                pendingAsyncShutdown = shutdownThread;
+                shutdownThread.start();
+            } else {
+                shutdown();
+            }
         }
+    }
+
+    /**
+     * Blocks until any shutdown() dispatched asynchronously by {@link
+     * #checkAutoShutdown()} has fully completed, so {@link #start()}
+     * never observes (or races against) a shutdown still in progress.
+     *
+     * <p>Loops rather than doing a single {@code join()}: the async
+     * thread is started immediately after {@link #pendingAsyncShutdown}
+     * is assigned, but not atomically with it, so a caller could in
+     * principle observe the field before {@code Thread.start()} has run
+     * -- {@code join()} on a not-yet-started thread returns immediately
+     * (it isn't alive yet) rather than actually waiting, so a single
+     * call could wrongly conclude shutdown is done. Rechecking the
+     * thread's state closes that window without needing the assignment
+     * and the start to be atomic.
+     */
+    private void awaitPendingAsyncShutdown() {
+        Thread pending = pendingAsyncShutdown;
+        while (pending != null) {
+            try {
+                pending.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (pending.getState() == Thread.State.TERMINATED) {
+                pendingAsyncShutdown = null;
+                return;
+            }
+            pending = pendingAsyncShutdown;
+        }
+    }
+
+    /** Whether the given thread is one of the current worker SelectorLoops' own thread. */
+    private boolean isWorkerLoopThread(Thread thread) {
+        SelectorLoop[] loops = workerLoops;
+        if (loops == null) {
+            return false;
+        }
+        for (SelectorLoop loop : loops) {
+            if (loop != null && loop.isCurrentThread(thread)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
