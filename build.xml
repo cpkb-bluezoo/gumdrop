@@ -693,6 +693,18 @@
     <integration-junit includes='**/smtp/postfix/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run FTP client tests against a real, locally-running vsftpd
+       instance: same rationale as the two targets above, and likewise
+       deliberately NOT a dependency of 'integration-test'. Also the
+       only place AUTH TLS/PROT P is exercised against a real TLS
+       handshake and encrypted data channel: FTPClientIntegrationTest's
+       server config is plaintext-only. See VsftpdTestSupport's class
+       Javadoc for how to build and start a matching container. -->
+  <target name='integration-test-ftp-vsftpd' depends='integration-build'
+          description='Run FTP client tests against a local real vsftpd instance (not part of integration-test)'>
+    <integration-junit includes='**/ftp/vsftpd/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>
