@@ -666,8 +666,24 @@
     <integration-junit includes='**/dtls/*IntegrationTest.java'/>
   </target>
 
+  <!-- Run AMQP client tests against a real, locally-running RabbitMQ
+       broker (plaintext + TLS + management API on their usual ports).
+       Deliberately NOT a dependency of 'integration-test' below: unlike
+       every other integration-test-* target, this needs an external
+       service that will never exist in CI. Each test class also probes
+       broker reachability itself and self-skips (via Assume) if it's
+       not there, as a second line of defense; the real point of keeping
+       this out of the aggregate is that a developer running
+       'ant integration-test' shouldn't need RabbitMQ running locally
+       just to get a clean run. See RabbitMQTestSupport's class Javadoc
+       for how to start a matching broker. -->
+  <target name='integration-test-amqp-rabbitmq' depends='integration-build'
+          description='Run AMQP client tests against a local real RabbitMQ broker (not part of integration-test)'>
+    <integration-junit includes='**/amqp/rabbitmq/*IntegrationTest.java'/>
+  </target>
+
   <!-- Generate HTML test reports from XML results -->
-  <target name='integration-report' 
+  <target name='integration-report'
           description='Generate HTML report from integration test results'>
     <mkdir dir='${test}/integration/results/html'/>
     <junitreport todir='${test}/integration/results/reports'>

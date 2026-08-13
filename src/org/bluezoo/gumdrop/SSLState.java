@@ -105,6 +105,15 @@ final class SSLState {
     boolean handshakeStarted;
     boolean closed;
 
+    // RFC 4217-style "client speaks first" protocols (e.g. AMQP's implicit
+    // TLS: the client writes its protocol header the moment connected()
+    // fires, without waiting to read anything first) can call wrap() with
+    // real application data before the handshake has finished -- engine.wrap()
+    // during a handshake does not consume application bytes, so without
+    // buffering here that data would simply vanish. Held until the
+    // handshake completes, then flushed once via flushPendingAppData().
+    private ByteBuffer pendingAppData;
+
     /**
      * Creates a new SSLState for a TCPEndpoint.
      *
@@ -239,6 +248,32 @@ final class SSLState {
         }
 
         try {
+            // Mirrors the same guard in processSSLEvents() (the read/unwrap
+            // path): a client protocol that proactively sends data as soon
+            // as connected() fires -- rather than waiting to read something
+            // from the server first, as most of this codebase's protocols
+            // do -- reaches wrap() before initiateClientTLSHandshake() has
+            // run (SelectorLoop calls connected() and
+            // initiateClientTLSHandshake() as two separate steps, in that
+            // order). Without this, wrap() on an engine that has never had
+            // beginHandshake() called produces no ClientHello at all: the
+            // data silently goes nowhere, and the peer eventually closes
+            // the connection for its own handshake/protocol timeout while
+            // this side just sits there. AMQP's client-speaks-first
+            // handshake (implicit TLS, AMQPS) is what actually exposed
+            // this; HTTPS/SMTPS/IMAPS/POP3S clients in this codebase all
+            // wait to read from the server before writing anything, which
+            // is why they never hit this path early enough to matter.
+            if (!handshakeStarted) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    Object sa = callback().getRemoteAddress();
+                    String message = Gumdrop.L10N.getString("info.ssl_begin_handshake");
+                    message = MessageFormat.format(message, sa);
+                    LOGGER.fine(message);
+                }
+                engine.beginHandshake();
+                handshakeStarted = true;
+            }
             synchronized (netOutLock()) {
                 if (netOut() == null) {
                     // Connection closed concurrently (doClose released the
@@ -247,10 +282,11 @@ final class SSLState {
                 }
                 // Wrap application data into encrypted output
                 boolean done = false;
+                boolean stillHandshaking = false;
                 while (!done && data.hasRemaining()) {
                     // Ensure netOut has space - wrap directly into it
                     ensureNetOutCapacity(session.getPacketBufferSize());
-                    
+
                     SSLEngineResult result = engine.wrap(data, netOut());
 
                     switch (result.getStatus()) {
@@ -275,9 +311,19 @@ final class SSLState {
                         runDelegatedTasks();
                     } else if (hs == SSLEngineResult.HandshakeStatus.NEED_UNWRAP) {
                         done = true;
+                        stillHandshaking = true;
                     }
                 }
-                
+
+                // A handshake still in progress (NEED_UNWRAP, waiting on the
+                // peer) does not consume application bytes from wrap() --
+                // see the pendingAppData field comment. Buffer whatever is
+                // left so it isn't silently dropped; flushed once the
+                // handshake completes.
+                if (stillHandshaking && data.hasRemaining()) {
+                    bufferPendingAppData(data);
+                }
+
                 // Request write if we produced output
                 if (netOut().position() > 0) {
                     requestWrite();
@@ -468,12 +514,46 @@ final class SSLState {
                 LOGGER.finest(message);
             }
             callback().onHandshakeComplete(engine.getApplicationProtocol());
+            flushPendingAppData();
 
             // Process any remaining data
             if (netIn().hasRemaining()) {
                 processApplicationData();
             }
         }
+    }
+
+    /**
+     * Buffers application data that wrap() could not send because the
+     * handshake was still in progress (see the pendingAppData field
+     * comment). Grows the buffer as needed; copies bytes out of the
+     * caller's buffer since it may be reused/released once wrap() returns.
+     */
+    private void bufferPendingAppData(ByteBuffer data) {
+        int needed = data.remaining();
+        if (pendingAppData == null) {
+            pendingAppData = ByteBuffer.allocate(Math.max(needed, DEFAULT_BUFFER_SIZE));
+        } else if (pendingAppData.remaining() < needed) {
+            ByteBuffer grown = ByteBuffer.allocate(pendingAppData.position() + needed);
+            pendingAppData.flip();
+            grown.put(pendingAppData);
+            pendingAppData = grown;
+        }
+        pendingAppData.put(data);
+    }
+
+    /**
+     * Sends any application data that was buffered by wrap() while the
+     * handshake was still in progress, now that it has completed.
+     */
+    private void flushPendingAppData() {
+        if (pendingAppData == null || pendingAppData.position() == 0) {
+            return;
+        }
+        ByteBuffer toSend = pendingAppData;
+        pendingAppData = null;
+        toSend.flip();
+        wrap(toSend);
     }
 
     private void processApplicationData() throws SSLException {
