@@ -68,6 +68,13 @@ public class TestServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Logger LOGGER = Logger.getLogger(TestServlet.class.getName());
 
+    // Fixed target for the forward/include test endpoints below (see
+    // handleForward/handleInclude): only ever exercised with /test/hello
+    // (see ServletServiceIntegrationTest). The request's "target"
+    // parameter is intentionally never used to avoid an unvalidated URL
+    // forward (CWE-552), even in this test-only code.
+    private static final String DEFAULT_FORWARD_TARGET = "/test/hello";
+
     @Override
     public void init() throws ServletException {
         super.init();
@@ -334,11 +341,12 @@ public class TestServlet extends HttpServlet {
      */
     private void handleForward(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
-        String target = req.getParameter("target");
-        if (target == null) {
-            target = "/test/hello";
-        }
-        
+        // Always dispatch to the fixed, known-safe target - the raw
+        // "target" request parameter is never passed to
+        // getRequestDispatcher(), even after validation, to avoid an
+        // unvalidated URL forward (CWE-552).
+        String target = DEFAULT_FORWARD_TARGET;
+
         RequestDispatcher dispatcher = req.getRequestDispatcher(target);
         if (dispatcher != null) {
             dispatcher.forward(req, resp);
@@ -352,11 +360,10 @@ public class TestServlet extends HttpServlet {
      */
     private void handleInclude(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
-        String target = req.getParameter("target");
-        if (target == null) {
-            target = "/test/hello";
-        }
-        
+        // Always dispatch to the fixed, known-safe target - see
+        // handleForward above.
+        String target = DEFAULT_FORWARD_TARGET;
+
         resp.setContentType("text/plain");
         resp.setCharacterEncoding("UTF-8");
         PrintWriter out = resp.getWriter();

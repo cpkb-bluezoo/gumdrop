@@ -6,6 +6,58 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-08-13
+
+### Changed
+
+- **Eliminated the entire `-Xlint:all` compiler warning backlog** (306
+  warnings across ~70 files): raw-type collection usages parameterised,
+  deprecated `Class.newInstance()` calls replaced with
+  `getDeclaredConstructor().newInstance()`, missing `serialVersionUID` added
+  to serializable exception classes, unnecessary `this`-escape risk removed
+  by marking non-subclassed classes `final`, auxiliary classes split into
+  their own source files, and narrowly-scoped `@SuppressWarnings` added
+  (with an explanatory comment) only where a real fix wasn't appropriate
+  (e.g. mandated overrides of deprecated servlet-API interface methods).
+  No behavioural changes; the full unit test suite and release build were
+  verified clean before and after.
+
+### Added
+
+- **Third-party protocol interoperability test suite** (manual, not run in
+  CI): integration tests exercising gumdrop's client protocol handlers
+  against independent third-party server implementations rather than only
+  gumdrop's own server, covering SMTP (Postfix), FTP (vsftpd), SOCKS5
+  (Dante), LDAP (OpenLDAP), Redis (Redis), MQTT (Eclipse Mosquitto), gRPC
+  (Python `grpcio`), and DNS over UDP/TCP/DoT/DoH/DoQ (AdGuard Home).
+- `DoHClientTransport.setSSLContext`/`setTrustManager` and
+  `DoQClientTransport.setPinnedCertFingerprint`/`setCaFile`: allow the DNS
+  client's DoH and DoQ transports to trust a private or self-signed CA
+  instead of the platform default trust store, needed to verify these
+  transports against a real server in integration testing.
+
+### Fixed
+
+- **Gumdrop lifecycle race causing double-disconnect on client shutdown**
+  (issue #203): `Gumdrop.checkAutoShutdown()` could be re-entered from a
+  worker `SelectorLoop`'s own thread while it was mid-shutdown, corrupting
+  shutdown state. Reentrant calls are now dispatched to an async thread,
+  and `Gumdrop.start()` awaits any pending async shutdown before
+  proceeding.
+- **`SelectorLoop` write-ready callback replay bug**: the one-shot
+  `onWriteReady` callback was cleared after invocation rather than before,
+  which could cause a stale callback to be replayed or a re-registering
+  callback to be lost.
+- **SOCKS5 client partial-read handshake failures**: `SOCKSClientHandler`
+  did not handle a handshake reply split across multiple `receive()` calls,
+  causing stalls or errors against servers (such as Dante) that write the
+  method-selection, authentication, and CONNECT replies as separate TCP
+  segments.
+- **gRPC client swallowed real error status on "Trailers-Only" responses**:
+  `GrpcClient` did not capture `grpc-status`/`grpc-message` from a
+  Trailers-Only response (a failure before any message is written), so an
+  RPC that failed immediately was not reported to the caller.
+
 ## [2.1.0] - 2026-08-09
 
 ### Added
