@@ -567,4 +567,165 @@ public class QuicProductionEndToEndTest {
         field.setAccessible(true);
         return (T) field.get(target);
     }
+
+    private static void setPrivateField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    /**
+     * RFC 9000 section 8.1: a server must not send more than 3x what it
+     * has received from a peer whose address isn't yet validated.
+     * Completes a real handshake (after which {@code addressValidated}
+     * should already be true, checked as a sanity baseline), then
+     * reflectively resets the server connection's amplification state to
+     * simulate a not-yet-validated peer with only a small receive budget,
+     * and has the client trigger a response far larger than 3x that
+     * budget -- proving the server withholds it rather than sending an
+     * amplified reply to a peer it hasn't confirmed owns that address.
+     */
+    @Test
+    public void testAntiAmplificationLimitsUnvalidatedServerSending() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final int largeResponseSize = 4000;
+            final CountDownLatch serverReceivedFin = new CountDownLatch(1);
+            final AtomicReference<Endpoint> serverStreamEndpoint = new AtomicReference<Endpoint>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    serverStreamEndpoint.set(endpoint);
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                    byte[] big = new byte[largeResponseSize];
+                                    serverStreamEndpoint.get().send(ByteBuffer.wrap(big));
+                                    serverStreamEndpoint.get().close();
+                                    serverReceivedFin.countDown();
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Server stream error: " + cause);
+                                }
+                            };
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+            final AtomicReference<Endpoint> clientEndpoint = new AtomicReference<Endpoint>();
+            final AtomicReference<Integer> clientReceivedBytes = new AtomicReference<Integer>(0);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientEndpoint.set(endpoint);
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                            clientReceivedBytes.set(clientReceivedBytes.get() + data.remaining());
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
+            assertTrue("A real completed handshake should already have validated the client's address",
+                    getPrivateField(serverConnection, "addressValidated", Boolean.class));
+
+            // Simulate a connection that hasn't validated its peer yet and
+            // has only received a small amount of data from it.
+            long smallReceivedBudget = 20;
+            setPrivateField(serverConnection, "addressValidated", Boolean.FALSE);
+            setPrivateField(serverConnection, "amplificationBytesReceived", Long.valueOf(smallReceivedBudget));
+            setPrivateField(serverConnection, "amplificationBytesSent", Long.valueOf(0L));
+
+            clientEndpoint.get().send(ByteBuffer.wrap("ping".getBytes(StandardCharsets.US_ASCII)));
+            clientEndpoint.get().close();
+            // The server's disconnected() callback above calls send()/close()
+            // synchronously, and both funnel through requestFlush()/flush()
+            // on the same call stack -- so by the time this latch fires, the
+            // gate has already been evaluated for the oversized response at
+            // least once. Checking immediately (rather than after a sleep)
+            // captures that moment, before any later retry/regrowth cycle
+            // (each of which is separately gate-checked in its own right, so
+            // the invariant below holds at any sampled instant, but a delay
+            // risks accumulating enough legitimately-received bytes -- e.g.
+            // the client's own ACKs -- to make the check trivially true
+            // regardless of whether the first attempt was actually withheld).
+            assertTrue("Server should still process the client's FIN and attempt its response",
+                    serverReceivedFin.await(5, TimeUnit.SECONDS));
+
+            long amplificationBytesReceived = getPrivateField(serverConnection, "amplificationBytesReceived", Long.class);
+            long amplificationBytesSent = getPrivateField(serverConnection, "amplificationBytesSent", Long.class);
+            assertTrue("Server must not send more than 3x what it has received from an unvalidated peer "
+                    + "(sent=" + amplificationBytesSent + ", received=" + amplificationBytesReceived + ")",
+                    amplificationBytesSent <= 3 * amplificationBytesReceived);
+            assertTrue("The gate should have actually withheld the oversized response at least initially",
+                    amplificationBytesSent < largeResponseSize);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static QuicConnection getOnlyServerConnection(QuicEngine serverEngine) throws Exception {
+        Map<String, QuicConnection> connections = getPrivateField(serverEngine, "connections", Map.class);
+        return connections.values().iterator().next();
+    }
 }

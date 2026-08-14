@@ -86,6 +86,7 @@ public final class QuicTlsServerEngine
         List<TlsConstants.CipherSuite> ciphers = new ArrayList<TlsConstants.CipherSuite>();
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256);
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384);
+        ciphers.add(TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
         engine.addSupportedCiphers(ciphers);
         engine.addServerExtensions(new QuicTransportParametersExtension(transportParameters));
     }

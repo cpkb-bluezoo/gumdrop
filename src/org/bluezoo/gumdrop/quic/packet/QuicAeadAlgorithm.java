@@ -28,12 +28,15 @@ package org.bluezoo.gumdrop.quic.packet;
  * <p>Every algorithm here uses a 12-byte IV and a 16-byte authentication
  * tag; only the key length and header-protection cipher differ.
  *
- * <p>{@code CHACHA20_POLY1305} (RFC 9001 section 5.4.4 header protection)
- * is not yet implemented -- Initial packets always use
- * {@link #AES_128_GCM} (RFC 9001 section 5.2), so its absence does not
- * block Initial packet protection; it is required before a handshake or
- * 1-RTT connection negotiating {@code TLS_CHACHA20_POLY1305_SHA256} can
- * be supported.
+ * <p>{@code CHACHA20_POLY1305}'s header protection (RFC 9001 section 5.4.4)
+ * is structurally different from the two AES variants: it is not a
+ * block-cipher-ECB encryption of the sample, but the ChaCha20 stream
+ * cipher applied to 5 zero bytes, keyed with the sample's first 4 bytes
+ * (little-endian) as the block counter and its last 12 as the nonce --
+ * see {@link org.bluezoo.gumdrop.quic.packet.PacketProtection#headerProtectionMask}
+ * for the actual branch. Initial packets always use {@link #AES_128_GCM}
+ * regardless (RFC 9001 section 5.2), so this constant only matters once a
+ * handshake or 1-RTT connection negotiates {@code TLS_CHACHA20_POLY1305_SHA256}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9001#section-5.3">RFC 9001 section 5.3</a>
@@ -44,7 +47,18 @@ public enum QuicAeadAlgorithm {
     AES_128_GCM(16, "AES", "AES/GCM/NoPadding", "AES/ECB/NoPadding"),
 
     /** {@code TLS_AES_256_GCM_SHA384}. */
-    AES_256_GCM(32, "AES", "AES/GCM/NoPadding", "AES/ECB/NoPadding");
+    AES_256_GCM(32, "AES", "AES/GCM/NoPadding", "AES/ECB/NoPadding"),
+
+    /**
+     * {@code TLS_CHACHA20_POLY1305_SHA256}. The header-protection
+     * transformation name here ({@code "ChaCha20"}) is informational only
+     * -- unlike the AES constants, {@link PacketProtection#headerProtectionMask}
+     * does not drive it through a generic {@code Cipher.doFinal(sample)}
+     * call, since ChaCha20 header protection needs a
+     * {@code ChaCha20ParameterSpec} (nonce + counter) derived from the
+     * sample rather than the sample itself as cipher input.
+     */
+    CHACHA20_POLY1305(32, "ChaCha20", "ChaCha20-Poly1305", "ChaCha20");
 
     /** RFC 9001 section 5.3: the IV length is 12 bytes for every AEAD algorithm QUIC uses. */
     public static final int IV_LENGTH = 12;

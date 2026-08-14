@@ -22,9 +22,12 @@
 package org.bluezoo.gumdrop.quic.packet;
 
 import java.security.GeneralSecurityException;
+import java.security.spec.AlgorithmParameterSpec;
 
 import javax.crypto.Cipher;
+import javax.crypto.spec.ChaCha20ParameterSpec;
 import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.IvParameterSpec;
 
 /**
  * AEAD packet protection and header protection for QUIC (RFC 9001
@@ -112,13 +115,23 @@ public final class PacketProtection {
         byte[] nonce = computeNonce(keys.getIv(), packetNumber);
         try {
             Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getAeadTransformation());
-            GCMParameterSpec spec = new GCMParameterSpec(QuicAeadAlgorithm.TAG_LENGTH * 8, nonce);
-            cipher.init(Cipher.ENCRYPT_MODE, keys.getAeadKey(), spec);
+            cipher.init(Cipher.ENCRYPT_MODE, keys.getAeadKey(), aeadParameterSpec(keys.getAlgorithm(), nonce));
             cipher.updateAAD(associatedData);
             return cipher.doFinal(plaintext);
         } catch (GeneralSecurityException e) {
             throw new PacketProtectionException("AEAD seal failed", e);
         }
+    }
+
+    // JCE's "ChaCha20-Poly1305" transformation only accepts an
+    // IvParameterSpec (its tag length is fixed at 16 bytes -- QUIC's own
+    // requirement -- so there's nothing to configure); the AES-GCM
+    // transformations need a GCMParameterSpec to carry the tag length
+    // explicitly.
+    private static AlgorithmParameterSpec aeadParameterSpec(QuicAeadAlgorithm algorithm, byte[] nonce) {
+        return algorithm == QuicAeadAlgorithm.CHACHA20_POLY1305
+                ? new IvParameterSpec(nonce)
+                : new GCMParameterSpec(QuicAeadAlgorithm.TAG_LENGTH * 8, nonce);
     }
 
     /**
@@ -142,8 +155,7 @@ public final class PacketProtection {
         byte[] nonce = computeNonce(keys.getIv(), packetNumber);
         try {
             Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getAeadTransformation());
-            GCMParameterSpec spec = new GCMParameterSpec(QuicAeadAlgorithm.TAG_LENGTH * 8, nonce);
-            cipher.init(Cipher.DECRYPT_MODE, keys.getAeadKey(), spec);
+            cipher.init(Cipher.DECRYPT_MODE, keys.getAeadKey(), aeadParameterSpec(keys.getAlgorithm(), nonce));
             cipher.updateAAD(associatedData);
             return cipher.doFinal(ciphertext);
         } catch (GeneralSecurityException e) {
@@ -153,11 +165,17 @@ public final class PacketProtection {
 
     /**
      * Computes the 5-byte header-protection mask from a ciphertext
-     * sample (RFC 9001 section 5.4.3, AES-based header protection).
+     * sample (RFC 9001 section 5.4.3 for AES, section 5.4.4 for ChaCha20).
      *
-     * <p>Only bytes 0-4 of the AES-ECB block are used: byte 0 protects
+     * <p>For the two AES algorithms, only bytes 0-4 of the AES-ECB block
+     * (a direct {@code Cipher.doFinal(sample)}) are used: byte 0 protects
      * the first byte of the packet, bytes 1-4 protect up to 4
-     * packet-number bytes.
+     * packet-number bytes. ChaCha20 is structurally different -- not a
+     * block-cipher encryption of the sample at all, but the ChaCha20
+     * stream cipher applied to 5 zero bytes, keyed with the sample's
+     * first 4 bytes (little-endian) as the initial block counter and its
+     * last 12 bytes as the nonce; the 5-byte keystream output is already
+     * exactly the mask, with nothing to truncate.
      *
      * @param keys the packet-protection keys holding the header-protection key
      * @param sample the 16-byte ciphertext sample (RFC 9001 section 5.4.2)
@@ -172,6 +190,16 @@ public final class PacketProtection {
                     + " bytes, got " + sample.length);
         }
         try {
+            if (keys.getAlgorithm() == QuicAeadAlgorithm.CHACHA20_POLY1305) {
+                int counter = (sample[0] & 0xff) | ((sample[1] & 0xff) << 8)
+                        | ((sample[2] & 0xff) << 16) | ((sample[3] & 0xff) << 24);
+                byte[] nonce = new byte[12];
+                System.arraycopy(sample, 4, nonce, 0, 12);
+                Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getHeaderProtectionTransformation());
+                cipher.init(Cipher.ENCRYPT_MODE, keys.getHeaderProtectionKey(),
+                        new ChaCha20ParameterSpec(nonce, counter));
+                return cipher.doFinal(new byte[5]);
+            }
             Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getHeaderProtectionTransformation());
             cipher.init(Cipher.ENCRYPT_MODE, keys.getHeaderProtectionKey());
             byte[] block = cipher.doFinal(sample);

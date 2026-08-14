@@ -212,6 +212,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final Map<Long, Long> streamDataBlockedOwed = new HashMap<Long, Long>();
     private final java.util.Set<Long> streamDataBlockedSignalled = new java.util.HashSet<Long>();
 
+    // RFC 9000 section 8.1: anti-amplification limit. Server-side only --
+    // a server MUST NOT send more than 3x what it has received from a
+    // peer whose address isn't yet validated, to bound how much this
+    // connection can be used to reflect/amplify traffic at a spoofed
+    // victim address. addressValidated is set true the first time a
+    // Handshake-level packet from the peer is successfully decrypted
+    // (which requires the peer to have actually received and processed
+    // this server's Initial response -- proving the address isn't
+    // spoofed, since an off-path attacker cannot have the Handshake
+    // keys), and never re-checked past that point.
+    private long amplificationBytesReceived;
+    private long amplificationBytesSent;
+    private boolean addressValidated;
+
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
     private boolean established;
@@ -514,6 +528,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     void receive(ByteBuffer datagram) {
         byte[] bytes = new byte[datagram.remaining()];
         datagram.get(bytes);
+        if (isServer && !addressValidated) {
+            amplificationBytesReceived += bytes.length;
+        }
         int offset = 0;
         while (offset < bytes.length) {
             int consumed = receiveOnePacket(bytes, offset);
@@ -600,6 +617,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
             largestReceived[level.ordinal()] = Math.max(largestReceived[level.ordinal()], fullPacketNumber);
             ackOwed[level.ordinal()] = true;
+            if (level == EncryptionLevel.HANDSHAKE) {
+                // RFC 9000 section 8.1: a successfully decrypted Handshake
+                // packet proves the peer holds the Handshake keys, which
+                // requires it to have actually received and processed our
+                // Initial response -- an off-path attacker spoofing the
+                // client's address could not have produced this.
+                addressValidated = true;
+            }
 
             new QuicFrameParser(new FrameDispatcher(level)).receive(ByteBuffer.wrap(plaintext));
         } catch (PacketProtectionException e) {
@@ -1247,7 +1272,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorFirstByte(packet, mask, longHeader);
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
-        engine.sendPacket(this, packet);
+        // RFC 9000 section 8.1: don't send past the anti-amplification
+        // limit while this peer's address isn't yet validated. Loss
+        // detection/retransmission bookkeeping below still happens as
+        // normal either way -- a packet dropped here for this reason is
+        // indistinguishable, from this connection's perspective, from one
+        // dropped in flight, and the existing "a blocked send is treated
+        // like ordinary packet loss" handling (see QuicEngine.sendPacket)
+        // already recovers from that once more receive-side credit arrives.
+        if (!isServer || addressValidated || amplificationBytesSent + packet.length <= 3 * amplificationBytesReceived) {
+            engine.sendPacket(this, packet);
+            if (isServer && !addressValidated) {
+                amplificationBytesSent += packet.length;
+            }
+        } else if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Anti-amplification limit reached (sent=" + amplificationBytesSent
+                    + ", received=" + amplificationBytesReceived + "); withholding packet at " + level
+                    + " until the peer's address is validated");
+        }
 
         boolean ackEliciting = !sentCryptoThisPacket.isEmpty() || !sentStreamThisPacket.isEmpty()
                 || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
@@ -1409,8 +1451,26 @@ public final class QuicConnection implements QuicTlsEngineListener {
     @Override
     public void handshakeSecretsAvailable() {
         TlsConstants.CipherSuite cipher = selectedCipher();
-        hkdf = cipher == TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384 ? Hkdf.sha384() : Hkdf.sha256();
-        aead = cipher == TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384 ? QuicAeadAlgorithm.AES_256_GCM : QuicAeadAlgorithm.AES_128_GCM;
+        // A proper mapping, not a two-way ternary: an unrecognised cipher
+        // must fail loudly rather than silently be treated as AES-128-GCM
+        // (which would derive keys of the wrong length/interpretation and
+        // fail decryption in a confusing way instead of here).
+        switch (cipher) {
+            case TLS_AES_128_GCM_SHA256:
+                hkdf = Hkdf.sha256();
+                aead = QuicAeadAlgorithm.AES_128_GCM;
+                break;
+            case TLS_AES_256_GCM_SHA384:
+                hkdf = Hkdf.sha384();
+                aead = QuicAeadAlgorithm.AES_256_GCM;
+                break;
+            case TLS_CHACHA20_POLY1305_SHA256:
+                hkdf = Hkdf.sha256();
+                aead = QuicAeadAlgorithm.CHACHA20_POLY1305;
+                break;
+            default:
+                throw new IllegalStateException("Unsupported QUIC cipher suite: " + cipher);
+        }
         byte[] clientSecret = tlsEngine.getClientHandshakeTrafficSecret();
         byte[] serverSecret = tlsEngine.getServerHandshakeTrafficSecret();
         deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, clientSecret, serverSecret);
