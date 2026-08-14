@@ -56,7 +56,12 @@ module org.bluezoo.gumdrop {
     // External parsing libraries (internal use only, not re-exported)
     requires org.bluezoo.gonzalez;
     requires org.bluezoo.json;
-    
+
+    // TLS 1.3 handshake engine for QUIC (internal use only, not re-exported).
+    // Pulls in at.favre.lib.hkdf transitively at the module path level; gumdrop
+    // does not reference it directly so it is not named here.
+    requires tech.kwik.agent15;
+
     // Core server framework
     exports org.bluezoo.gumdrop;
     exports org.bluezoo.gumdrop.config;
@@ -105,7 +110,10 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.socks.handler;
 
     exports org.bluezoo.gumdrop.quic;
-    
+    exports org.bluezoo.gumdrop.quic.tls;
+    exports org.bluezoo.gumdrop.quic.packet;
+    exports org.bluezoo.gumdrop.quic.frame;
+
     // Servlet container
     exports org.bluezoo.gumdrop.servlet;
     exports org.bluezoo.gumdrop.servlet.jsp;
