@@ -43,6 +43,8 @@ import tech.kwik.agent15.handshake.CertificateVerifyMessage;
 import tech.kwik.agent15.handshake.ClientHello;
 import tech.kwik.agent15.handshake.FinishedMessage;
 
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+
 /**
  * Bridges Agent15's {@link TlsClientEngine} to gumdrop's QUIC transport:
  * routes handshake message bytes to and from per-level
@@ -50,11 +52,11 @@ import tech.kwik.agent15.handshake.FinishedMessage;
  * completion events to a {@link QuicTlsEngineListener}.
  *
  * <p>The QUIC transport-parameters extension (RFC 9000 section 7.4,
- * RFC 9001 section 8.2) and ALPN are not added to the handshake yet --
- * this class exists to get a bare TLS handshake completing over QUIC
- * CRYPTO frames, not to negotiate QUIC's own parameters. Both are
- * needed before a real connection (rather than this stage's
- * connectivity test) can be established.
+ * RFC 9001 section 8.2) is added to the handshake and its receipt is
+ * surfaced via {@link QuicTlsEngineListener#transportParametersReceived};
+ * validating it against RFC 9000 section 7.3's requirements (e.g. that
+ * it MUST be present, that original_destination_connection_id MUST
+ * match) is not done yet. ALPN is not added yet either.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsServerEngine
@@ -76,9 +78,12 @@ public final class QuicTlsClientEngine
     /**
      * Creates a client-side TLS engine.
      *
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in the ClientHello
+     *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
      */
-    public QuicTlsClientEngine(QuicTlsEngineListener listener) {
+    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener) {
         this.listener = listener;
         this.engine = TlsClientEngineFactory.createClientEngine(this, this);
 
@@ -86,6 +91,7 @@ public final class QuicTlsClientEngine
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256);
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384);
         engine.addSupportedCiphers(ciphers);
+        engine.add(new QuicTransportParametersExtension(transportParameters));
     }
 
     /**
@@ -270,8 +276,13 @@ public final class QuicTlsClientEngine
 
     @Override
     public void extensionsReceived(List<Extension> extensions) throws TlsProtocolException {
-        // No QUIC transport-parameters extension is registered yet
-        // (see the class documentation), so there is nothing to validate here.
+        // RFC 9000 section 7.3 requires this extension to be present;
+        // that is not enforced yet, so a missing extension is silently
+        // ignored rather than closing the connection.
+        TransportParameters transportParameters = QuicTransportParametersExtension.find(extensions);
+        if (transportParameters != null) {
+            listener.transportParametersReceived(transportParameters);
+        }
     }
 
     @Override

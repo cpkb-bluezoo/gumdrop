@@ -157,6 +157,184 @@ public final class QuicFrameWriter {
     }
 
     /**
+     * Returns the encoded length of a STREAM frame carrying
+     * {@code dataLength} bytes, always written with explicit Offset and
+     * Length fields (RFC 9000 section 19.8) for simplicity, regardless
+     * of whether {@code offset} is 0.
+     *
+     * @param streamId the stream identifier
+     * @param offset the byte offset of this data within the stream
+     * @param dataLength the number of stream data bytes
+     * @return the encoded length in bytes
+     */
+    public static int streamLength(long streamId, long offset, int dataLength) {
+        // Type is always TYPE_STREAM_MIN | 0x06 (OFF and LEN bits set) here,
+        // same varint length as TYPE_STREAM_MIN itself (single byte, 0x08-0x0f).
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_STREAM_MIN)
+                + VarInt.encodedLength(streamId)
+                + VarInt.encodedLength(offset)
+                + VarInt.encodedLength(dataLength)
+                + dataLength;
+    }
+
+    /**
+     * Writes a STREAM frame (RFC 9000 section 19.8), always with
+     * explicit Offset and Length fields.
+     *
+     * @param out the destination buffer
+     * @param streamId the stream identifier
+     * @param offset the byte offset of this data within the stream
+     * @param data the stream data
+     * @param fin true if this frame marks the end of the stream
+     */
+    public static void writeStream(ByteBuffer out, long streamId, long offset, byte[] data, boolean fin) {
+        long type = QuicFrameHandler.TYPE_STREAM_MIN | 0x04 | 0x02 | (fin ? 0x01 : 0x00);
+        VarInt.encode(type, out);
+        VarInt.encode(streamId, out);
+        VarInt.encode(offset, out);
+        VarInt.encode(data.length, out);
+        out.put(data);
+    }
+
+    /**
+     * Returns the encoded length of a MAX_DATA frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int maxDataLength(long maximumData) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_MAX_DATA) + VarInt.encodedLength(maximumData);
+    }
+
+    /**
+     * Writes a MAX_DATA frame (RFC 9000 section 19.9).
+     *
+     * @param out the destination buffer
+     * @param maximumData the new connection-level send limit
+     */
+    public static void writeMaxData(ByteBuffer out, long maximumData) {
+        VarInt.encode(QuicFrameHandler.TYPE_MAX_DATA, out);
+        VarInt.encode(maximumData, out);
+    }
+
+    /**
+     * Returns the encoded length of a MAX_STREAM_DATA frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int maxStreamDataLength(long streamId, long maximumStreamData) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_MAX_STREAM_DATA)
+                + VarInt.encodedLength(streamId)
+                + VarInt.encodedLength(maximumStreamData);
+    }
+
+    /**
+     * Writes a MAX_STREAM_DATA frame (RFC 9000 section 19.10).
+     *
+     * @param out the destination buffer
+     * @param streamId the affected stream
+     * @param maximumStreamData the new stream-level send limit
+     */
+    public static void writeMaxStreamData(ByteBuffer out, long streamId, long maximumStreamData) {
+        VarInt.encode(QuicFrameHandler.TYPE_MAX_STREAM_DATA, out);
+        VarInt.encode(streamId, out);
+        VarInt.encode(maximumStreamData, out);
+    }
+
+    /**
+     * Returns the encoded length of a MAX_STREAMS frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int maxStreamsLength(boolean bidirectional, long maximumStreams) {
+        long type = bidirectional ? QuicFrameHandler.TYPE_MAX_STREAMS_BIDI : QuicFrameHandler.TYPE_MAX_STREAMS_UNI;
+        return VarInt.encodedLength(type) + VarInt.encodedLength(maximumStreams);
+    }
+
+    /**
+     * Writes a MAX_STREAMS frame (RFC 9000 section 19.11).
+     *
+     * @param out the destination buffer
+     * @param bidirectional true to write {@link QuicFrameHandler#TYPE_MAX_STREAMS_BIDI},
+     *                      false for {@link QuicFrameHandler#TYPE_MAX_STREAMS_UNI}
+     * @param maximumStreams the new cumulative stream limit
+     */
+    public static void writeMaxStreams(ByteBuffer out, boolean bidirectional, long maximumStreams) {
+        long type = bidirectional ? QuicFrameHandler.TYPE_MAX_STREAMS_BIDI : QuicFrameHandler.TYPE_MAX_STREAMS_UNI;
+        VarInt.encode(type, out);
+        VarInt.encode(maximumStreams, out);
+    }
+
+    /**
+     * Returns the encoded length of a DATA_BLOCKED frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int dataBlockedLength(long maximumData) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_DATA_BLOCKED) + VarInt.encodedLength(maximumData);
+    }
+
+    /**
+     * Writes a DATA_BLOCKED frame (RFC 9000 section 19.12).
+     *
+     * @param out the destination buffer
+     * @param maximumData the connection-level limit at which sending was blocked
+     */
+    public static void writeDataBlocked(ByteBuffer out, long maximumData) {
+        VarInt.encode(QuicFrameHandler.TYPE_DATA_BLOCKED, out);
+        VarInt.encode(maximumData, out);
+    }
+
+    /**
+     * Returns the encoded length of a STREAM_DATA_BLOCKED frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int streamDataBlockedLength(long streamId, long maximumStreamData) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_STREAM_DATA_BLOCKED)
+                + VarInt.encodedLength(streamId)
+                + VarInt.encodedLength(maximumStreamData);
+    }
+
+    /**
+     * Writes a STREAM_DATA_BLOCKED frame (RFC 9000 section 19.13).
+     *
+     * @param out the destination buffer
+     * @param streamId the blocked stream
+     * @param maximumStreamData the stream-level limit at which sending was blocked
+     */
+    public static void writeStreamDataBlocked(ByteBuffer out, long streamId, long maximumStreamData) {
+        VarInt.encode(QuicFrameHandler.TYPE_STREAM_DATA_BLOCKED, out);
+        VarInt.encode(streamId, out);
+        VarInt.encode(maximumStreamData, out);
+    }
+
+    /**
+     * Returns the encoded length of a STREAMS_BLOCKED frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int streamsBlockedLength(boolean bidirectional, long maximumStreams) {
+        long type = bidirectional
+                ? QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI : QuicFrameHandler.TYPE_STREAMS_BLOCKED_UNI;
+        return VarInt.encodedLength(type) + VarInt.encodedLength(maximumStreams);
+    }
+
+    /**
+     * Writes a STREAMS_BLOCKED frame (RFC 9000 section 19.14).
+     *
+     * @param out the destination buffer
+     * @param bidirectional true to write {@link QuicFrameHandler#TYPE_STREAMS_BLOCKED_BIDI},
+     *                      false for {@link QuicFrameHandler#TYPE_STREAMS_BLOCKED_UNI}
+     * @param maximumStreams the stream limit at which opening was blocked
+     */
+    public static void writeStreamsBlocked(ByteBuffer out, boolean bidirectional, long maximumStreams) {
+        long type = bidirectional
+                ? QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI : QuicFrameHandler.TYPE_STREAMS_BLOCKED_UNI;
+        VarInt.encode(type, out);
+        VarInt.encode(maximumStreams, out);
+    }
+
+    /**
      * Returns the encoded length of a CONNECTION_CLOSE frame.
      *
      * @param applicationError true for an application-level close

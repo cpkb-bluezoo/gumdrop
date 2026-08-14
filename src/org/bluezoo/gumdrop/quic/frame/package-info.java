@@ -27,14 +27,12 @@
  * {@link org.bluezoo.gumdrop.quic.frame.QuicFrameHandler}, plus a writer
  * for the same frame types.
  *
- * <p>Only the frames a QUIC handshake needs are implemented so far:
- * PADDING, PING, ACK, CRYPTO, CONNECTION_CLOSE, and HANDSHAKE_DONE.
- * STREAM frames and the flow-control frame family (MAX_DATA,
- * MAX_STREAM_DATA, MAX_STREAMS, *_BLOCKED, NEW_CONNECTION_ID,
- * RETIRE_CONNECTION_ID) are deliberately not implemented yet -- they
- * belong to the "frames, streams, flow control" stage of the QUIC
- * transport work, not the "get a handshake completing" stage this
- * package was built for.
+ * <p>PADDING, PING, ACK, CRYPTO, CONNECTION_CLOSE, HANDSHAKE_DONE,
+ * STREAM, and the flow-control frame family (MAX_DATA,
+ * MAX_STREAM_DATA, MAX_STREAMS, DATA_BLOCKED, STREAM_DATA_BLOCKED,
+ * STREAMS_BLOCKED) are implemented. NEW_CONNECTION_ID,
+ * RETIRE_CONNECTION_ID, PATH_CHALLENGE, and PATH_RESPONSE are not --
+ * connection ID rotation and migration are not supported yet.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9000#section-19">RFC 9000 section 19</a>

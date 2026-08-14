@@ -42,11 +42,13 @@ import tech.kwik.agent15.handshake.FinishedMessage;
 import tech.kwik.agent15.handshake.NewSessionTicketMessage;
 import tech.kwik.agent15.handshake.ServerHello;
 
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+
 /**
  * Bridges Agent15's {@link TlsServerEngine} to gumdrop's QUIC transport,
  * the server-side counterpart of {@link QuicTlsClientEngine}. See that
  * class's documentation for what this stage deliberately does not do
- * yet (QUIC transport parameters, ALPN).
+ * yet (ALPN).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsClientEngine
@@ -71,9 +73,13 @@ public final class QuicTlsServerEngine
      *
      * @param certificateFactory factory holding the server's certificate
      *                           chain and private key
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in EncryptedExtensions
+     *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
      */
-    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory, QuicTlsEngineListener listener) {
+    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
+            TransportParameters transportParameters, QuicTlsEngineListener listener) {
         this.listener = listener;
         this.engine = certificateFactory.createServerEngine(this, this);
 
@@ -81,6 +87,7 @@ public final class QuicTlsServerEngine
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256);
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384);
         engine.addSupportedCiphers(ciphers);
+        engine.addServerExtensions(new QuicTransportParametersExtension(transportParameters));
     }
 
     /**
@@ -236,9 +243,13 @@ public final class QuicTlsServerEngine
 
     @Override
     public void extensionsReceived(List<Extension> extensions) throws TlsProtocolException {
-        // No QUIC transport-parameters extension is registered yet
-        // (see QuicTlsClientEngine's documentation), so there is
-        // nothing to validate here.
+        // RFC 9000 section 7.3 requires this extension to be present;
+        // that is not enforced yet, so a missing extension is silently
+        // ignored rather than closing the connection.
+        TransportParameters transportParameters = QuicTransportParametersExtension.find(extensions);
+        if (transportParameters != null) {
+            listener.transportParametersReceived(transportParameters);
+        }
     }
 
     @Override

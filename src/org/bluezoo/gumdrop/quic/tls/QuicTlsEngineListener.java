@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+
 /**
  * Callback interface through which {@link QuicTlsClientEngine} and
  * {@link QuicTlsServerEngine} notify the QUIC transport of handshake
@@ -69,4 +71,15 @@ public interface QuicTlsEngineListener {
      * HANDSHAKE_DONE frame from the server.
      */
     void handshakeFinished();
+
+    /**
+     * Called when the peer's {@code quic_transport_parameters} extension
+     * (RFC 9001 section 8.2) has been received and decoded: after
+     * ClientHello for a server engine, after EncryptedExtensions for a
+     * client engine. Flow control and stream limits should be
+     * initialised from these values.
+     *
+     * @param transportParameters the peer's transport parameters
+     */
+    void transportParametersReceived(TransportParameters transportParameters);
 }

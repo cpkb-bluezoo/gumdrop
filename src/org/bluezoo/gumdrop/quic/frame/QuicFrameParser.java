@@ -84,6 +84,49 @@ public class QuicFrameParser {
                 if (!parseCryptoFrame(buf)) {
                     return;
                 }
+            } else if (type >= QuicFrameHandler.TYPE_STREAM_MIN && type <= QuicFrameHandler.TYPE_STREAM_MAX) {
+                if (!parseStreamFrame(buf, type)) {
+                    return;
+                }
+            } else if (type == QuicFrameHandler.TYPE_MAX_DATA) {
+                if (!buf.hasRemaining()) {
+                    handler.frameError("MAX_DATA frame underflow");
+                    return;
+                }
+                handler.maxDataFrameReceived(VarInt.decode(buf));
+            } else if (type == QuicFrameHandler.TYPE_MAX_STREAM_DATA) {
+                long[] streamIdAndValue = parseStreamIdAndValue(buf, "MAX_STREAM_DATA");
+                if (streamIdAndValue == null) {
+                    return;
+                }
+                handler.maxStreamDataFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
+            } else if (type == QuicFrameHandler.TYPE_MAX_STREAMS_BIDI
+                    || type == QuicFrameHandler.TYPE_MAX_STREAMS_UNI) {
+                if (!buf.hasRemaining()) {
+                    handler.frameError("MAX_STREAMS frame underflow");
+                    return;
+                }
+                handler.maxStreamsFrameReceived(type == QuicFrameHandler.TYPE_MAX_STREAMS_BIDI, VarInt.decode(buf));
+            } else if (type == QuicFrameHandler.TYPE_DATA_BLOCKED) {
+                if (!buf.hasRemaining()) {
+                    handler.frameError("DATA_BLOCKED frame underflow");
+                    return;
+                }
+                handler.dataBlockedFrameReceived(VarInt.decode(buf));
+            } else if (type == QuicFrameHandler.TYPE_STREAM_DATA_BLOCKED) {
+                long[] streamIdAndValue = parseStreamIdAndValue(buf, "STREAM_DATA_BLOCKED");
+                if (streamIdAndValue == null) {
+                    return;
+                }
+                handler.streamDataBlockedFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
+            } else if (type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI
+                    || type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_UNI) {
+                if (!buf.hasRemaining()) {
+                    handler.frameError("STREAMS_BLOCKED frame underflow");
+                    return;
+                }
+                handler.streamsBlockedFrameReceived(
+                        type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI, VarInt.decode(buf));
             } else if (type == QuicFrameHandler.TYPE_CONNECTION_CLOSE) {
                 if (!parseConnectionCloseFrame(buf, false)) {
                     return;
@@ -158,6 +201,67 @@ public class QuicFrameParser {
 
         handler.cryptoFrameReceived(offset, data);
         return true;
+    }
+
+    // RFC 9000 section 19.8
+    private boolean parseStreamFrame(ByteBuffer buf, long type) {
+        boolean hasOffset = (type & 0x04) != 0;
+        boolean hasLength = (type & 0x02) != 0;
+        boolean fin = (type & 0x01) != 0;
+
+        if (!buf.hasRemaining()) {
+            handler.frameError("STREAM frame underflow");
+            return false;
+        }
+        long streamId = VarInt.decode(buf);
+        long offset = 0;
+        if (hasOffset) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("STREAM frame underflow reading offset");
+                return false;
+            }
+            offset = VarInt.decode(buf);
+        }
+
+        int dataLength;
+        if (hasLength) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("STREAM frame underflow reading length");
+                return false;
+            }
+            long length = VarInt.decode(buf);
+            if (length < 0 || length > buf.remaining()) {
+                handler.frameError("STREAM frame length exceeds payload");
+                return false;
+            }
+            dataLength = (int) length;
+        } else {
+            dataLength = buf.remaining();
+        }
+
+        int savedLimit = buf.limit();
+        buf.limit(buf.position() + dataLength);
+        ByteBuffer data = buf.slice();
+        buf.limit(savedLimit);
+        buf.position(buf.position() + dataLength);
+
+        handler.streamFrameReceived(streamId, offset, fin, data);
+        return true;
+    }
+
+    // RFC 9000 sections 19.10, 19.13: both are {Stream ID (i), Value (i)}
+    private long[] parseStreamIdAndValue(ByteBuffer buf, String frameName) {
+        if (!buf.hasRemaining()) {
+            handler.frameError(frameName + " frame underflow");
+            return null;
+        }
+        long streamId = VarInt.decode(buf);
+        if (!buf.hasRemaining()) {
+            handler.frameError(frameName + " frame underflow reading value");
+            return null;
+        }
+        long value = VarInt.decode(buf);
+        return new long[] { streamId, value };
     }
 
     // RFC 9000 section 19.19

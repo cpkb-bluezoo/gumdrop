@@ -29,8 +29,8 @@ import java.nio.ByteBuffer;
  * {@code org.bluezoo.gumdrop.http.h2.H2FrameHandler} for HTTP/2.
  *
  * <p>Only the frame types listed in the {@code TYPE_*} constants are
- * currently understood; see the package documentation for why STREAM
- * and flow-control frames are not among them yet.
+ * currently understood; see the package documentation for what is
+ * still missing (connection ID management, PATH_CHALLENGE/RESPONSE).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicFrameParser
@@ -47,6 +47,16 @@ public interface QuicFrameHandler {
     long TYPE_ACK = 0x02;               // RFC 9000 section 19.3
     long TYPE_ACK_ECN = 0x03;           // RFC 9000 section 19.3, with ECN counts
     long TYPE_CRYPTO = 0x06;            // RFC 9000 section 19.6
+    long TYPE_STREAM_MIN = 0x08;        // RFC 9000 section 19.8, low 3 bits are OFF/LEN/FIN
+    long TYPE_STREAM_MAX = 0x0f;
+    long TYPE_MAX_DATA = 0x10;          // RFC 9000 section 19.9
+    long TYPE_MAX_STREAM_DATA = 0x11;   // RFC 9000 section 19.10
+    long TYPE_MAX_STREAMS_BIDI = 0x12;  // RFC 9000 section 19.11
+    long TYPE_MAX_STREAMS_UNI = 0x13;   // RFC 9000 section 19.11
+    long TYPE_DATA_BLOCKED = 0x14;      // RFC 9000 section 19.12
+    long TYPE_STREAM_DATA_BLOCKED = 0x15; // RFC 9000 section 19.13
+    long TYPE_STREAMS_BLOCKED_BIDI = 0x16; // RFC 9000 section 19.14
+    long TYPE_STREAMS_BLOCKED_UNI = 0x17;  // RFC 9000 section 19.14
     long TYPE_CONNECTION_CLOSE = 0x1c;  // RFC 9000 section 19.19, transport error
     long TYPE_CONNECTION_CLOSE_APP = 0x1d; // RFC 9000 section 19.19, application error
     long TYPE_HANDSHAKE_DONE = 0x1e;    // RFC 9000 section 19.20
@@ -91,6 +101,64 @@ public interface QuicFrameHandler {
      * @param data the handshake data (a slice - consume or copy before returning)
      */
     void cryptoFrameReceived(long offset, ByteBuffer data);
+
+    /**
+     * Called when a STREAM frame is received (RFC 9000 section 19.8).
+     *
+     * @param streamId the stream identifier
+     * @param offset the byte offset of this data within the stream
+     * @param fin true if this frame marks the end of the stream
+     * @param data the stream data (a slice - consume or copy before returning)
+     */
+    void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data);
+
+    /**
+     * Called when a MAX_DATA frame is received (RFC 9000 section 19.9).
+     *
+     * @param maximumData the new connection-level send limit
+     */
+    void maxDataFrameReceived(long maximumData);
+
+    /**
+     * Called when a MAX_STREAM_DATA frame is received (RFC 9000 section 19.10).
+     *
+     * @param streamId the affected stream
+     * @param maximumStreamData the new stream-level send limit
+     */
+    void maxStreamDataFrameReceived(long streamId, long maximumStreamData);
+
+    /**
+     * Called when a MAX_STREAMS frame is received (RFC 9000 section 19.11).
+     *
+     * @param bidirectional true for {@link #TYPE_MAX_STREAMS_BIDI}, false for
+     *                      {@link #TYPE_MAX_STREAMS_UNI}
+     * @param maximumStreams the new cumulative stream limit
+     */
+    void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams);
+
+    /**
+     * Called when a DATA_BLOCKED frame is received (RFC 9000 section 19.12).
+     *
+     * @param maximumData the connection-level limit at which the peer was blocked
+     */
+    void dataBlockedFrameReceived(long maximumData);
+
+    /**
+     * Called when a STREAM_DATA_BLOCKED frame is received (RFC 9000 section 19.13).
+     *
+     * @param streamId the blocked stream
+     * @param maximumStreamData the stream-level limit at which the peer was blocked
+     */
+    void streamDataBlockedFrameReceived(long streamId, long maximumStreamData);
+
+    /**
+     * Called when a STREAMS_BLOCKED frame is received (RFC 9000 section 19.14).
+     *
+     * @param bidirectional true for {@link #TYPE_STREAMS_BLOCKED_BIDI}, false
+     *                      for {@link #TYPE_STREAMS_BLOCKED_UNI}
+     * @param maximumStreams the stream limit at which the peer was blocked
+     */
+    void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams);
 
     /**
      * Called when a CONNECTION_CLOSE frame is received (RFC 9000

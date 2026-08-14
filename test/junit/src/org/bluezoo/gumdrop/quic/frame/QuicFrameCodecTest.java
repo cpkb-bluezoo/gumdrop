@@ -68,6 +68,44 @@ public class QuicFrameCodecTest {
         }
 
         @Override
+        public void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data) {
+            byte[] copy = new byte[data.remaining()];
+            data.get(copy);
+            events.add("stream:" + streamId + ":" + offset + ":" + fin + ":"
+                    + new String(copy, StandardCharsets.US_ASCII));
+        }
+
+        @Override
+        public void maxDataFrameReceived(long maximumData) {
+            events.add("max_data:" + maximumData);
+        }
+
+        @Override
+        public void maxStreamDataFrameReceived(long streamId, long maximumStreamData) {
+            events.add("max_stream_data:" + streamId + ":" + maximumStreamData);
+        }
+
+        @Override
+        public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
+            events.add("max_streams:" + bidirectional + ":" + maximumStreams);
+        }
+
+        @Override
+        public void dataBlockedFrameReceived(long maximumData) {
+            events.add("data_blocked:" + maximumData);
+        }
+
+        @Override
+        public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
+            events.add("stream_data_blocked:" + streamId + ":" + maximumStreamData);
+        }
+
+        @Override
+        public void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams) {
+            events.add("streams_blocked:" + bidirectional + ":" + maximumStreams);
+        }
+
+        @Override
         public void connectionCloseFrameReceived(boolean applicationError, long errorCode,
                 long frameType, String reason) {
             events.add("close:" + applicationError + ":" + errorCode + ":" + frameType + ":" + reason);
@@ -203,7 +241,7 @@ public class QuicFrameCodecTest {
     @Test
     public void testUnknownFrameTypeReportsError() {
         ByteBuffer buf = ByteBuffer.allocate(1);
-        buf.put((byte) 0x1f); // STREAMS_BLOCKED (bidi) -- not implemented
+        buf.put((byte) 0x18); // NEW_CONNECTION_ID -- not implemented yet
         buf.flip();
 
         RecordingHandler handler = new RecordingHandler();
@@ -211,5 +249,97 @@ public class QuicFrameCodecTest {
 
         assertEquals(1, handler.events.size());
         assertTrue(handler.events.get(0).startsWith("error:"));
+    }
+
+    @Test
+    public void testStreamFrame() {
+        byte[] data = "query bytes".getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.streamLength(4, 10, data.length));
+        QuicFrameWriter.writeStream(buf, 4, 10, data, true);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("stream:4:10:true:query bytes", handler.events.get(0));
+    }
+
+    @Test
+    public void testMaxDataFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.maxDataLength(1_000_000));
+        QuicFrameWriter.writeMaxData(buf, 1_000_000);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("max_data:1000000", handler.events.get(0));
+    }
+
+    @Test
+    public void testMaxStreamDataFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.maxStreamDataLength(4, 500_000));
+        QuicFrameWriter.writeMaxStreamData(buf, 4, 500_000);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("max_stream_data:4:500000", handler.events.get(0));
+    }
+
+    @Test
+    public void testMaxStreamsFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.maxStreamsLength(true, 100));
+        QuicFrameWriter.writeMaxStreams(buf, true, 100);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("max_streams:true:100", handler.events.get(0));
+    }
+
+    @Test
+    public void testDataBlockedFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.dataBlockedLength(1_000_000));
+        QuicFrameWriter.writeDataBlocked(buf, 1_000_000);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("data_blocked:1000000", handler.events.get(0));
+    }
+
+    @Test
+    public void testStreamDataBlockedFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.streamDataBlockedLength(4, 500_000));
+        QuicFrameWriter.writeStreamDataBlocked(buf, 4, 500_000);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("stream_data_blocked:4:500000", handler.events.get(0));
+    }
+
+    @Test
+    public void testStreamsBlockedFrame() {
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.streamsBlockedLength(false, 50));
+        QuicFrameWriter.writeStreamsBlocked(buf, false, 50);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("streams_blocked:false:50", handler.events.get(0));
     }
 }
