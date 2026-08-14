@@ -35,7 +35,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 /**
- * Verifies the static-table-only {@link Encoder}/{@link Decoder}
+ * Verifies the static-table-only {@link SimpleEncoder}/{@link SimpleDecoder}
  * against the RFC 9204 Appendix B.1 worked example (a literal field
  * line with a static name reference -- the only worked example in the
  * RFC that does not touch the dynamic table this implementation
@@ -55,7 +55,7 @@ public class QPACKCodecTest {
     @Test
     public void testDecodeRfc9204AppendixB1() throws ProtocolException {
         byte[] encoded = ByteArrays.toByteArray(RFC_B1_BYTES);
-        List<Header> headers = new Decoder().decode(ByteBuffer.wrap(encoded));
+        List<Header> headers = new SimpleDecoder().decode(ByteBuffer.wrap(encoded));
 
         assertEquals(1, headers.size());
         assertEquals(":path", headers.get(0).getName());
@@ -67,7 +67,7 @@ public class QPACKCodecTest {
         List<Header> headers = new ArrayList<Header>();
         headers.add(new Header(":path", "/index.html"));
 
-        Encoder encoder = new Encoder();
+        SimpleEncoder encoder = new SimpleEncoder();
         encoder.setAutoHuffman(false); // the RFC example encodes the value literally, not Huffman-coded
         ByteBuffer buf = ByteBuffer.allocate(64);
         encoder.encode(buf, headers);
@@ -117,7 +117,7 @@ public class QPACKCodecTest {
         buf.flip();
 
         try {
-            new Decoder().decode(buf);
+            new SimpleDecoder().decode(buf);
             fail("Expected ProtocolException for non-zero Required Insert Count");
         } catch (ProtocolException expected) {
             // expected
@@ -133,7 +133,7 @@ public class QPACKCodecTest {
         buf.flip();
 
         try {
-            new Decoder().decode(buf);
+            new SimpleDecoder().decode(buf);
             fail("Expected ProtocolException for a dynamic table reference");
         } catch (ProtocolException expected) {
             // expected
@@ -141,10 +141,10 @@ public class QPACKCodecTest {
     }
 
     private static List<Header> roundTrip(List<Header> headers) throws ProtocolException {
-        Encoder encoder = new Encoder();
+        SimpleEncoder encoder = new SimpleEncoder();
         ByteBuffer buf = ByteBuffer.allocate(256);
         encoder.encode(buf, headers);
         buf.flip();
-        return new Decoder().decode(buf);
+        return new SimpleDecoder().decode(buf);
     }
 }

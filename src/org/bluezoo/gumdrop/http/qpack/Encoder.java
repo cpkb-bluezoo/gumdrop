@@ -22,83 +22,193 @@
 package org.bluezoo.gumdrop.http.qpack;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.hpack.Huffman;
 
 /**
- * QPACK header encoder (RFC 9204).
+ * Stateful QPACK field-section encoder (RFC 9204 section 4.5), backed
+ * by a real {@link DynamicTable}.
  *
- * <p>Static table only -- see the package documentation for why. Every
- * encoded field section this produces has Required Insert Count 0 and
- * Base 0 (RFC 9204 section 4.5.1), and uses only:
- * <ul>
- * <li>Indexed field line, static table (section 4.5.2)</li>
- * <li>Literal field line with name reference, static table (section 4.5.4)</li>
- * <li>Literal field line with literal name (section 4.5.6)</li>
- * </ul>
+ * <p>Operates in strictly non-blocking mode: it never references an
+ * entry the peer decoder hasn't yet acknowledged, so it always emits
+ * {@code Base = Required Insert Count = Known Received Count} and never
+ * uses post-Base indexing (section 4.5.3/4.5.5) -- a compliant peer
+ * never blocks decoding our field sections, which is why {@link Decoder}
+ * can safely advertise {@code SETTINGS_QPACK_BLOCKED_STREAMS = 0}.
+ *
+ * <p>Not thread-safe: one instance per connection direction.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Decoder
- * @see <a href="https://www.rfc-editor.org/rfc/rfc9204">RFC 9204</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9204#section-4.5">RFC 9204 section 4.5</a>
  */
-public class Encoder extends QPACKConstants {
+public final class Encoder extends QPACKConstants implements DecoderStreamHandler {
 
-    private static final Charset US_ASCII = StandardCharsets.US_ASCII;
+    private static final class OutstandingSection {
+        final long requiredInsertCount;
+        final List<Long> referencedIndices;
+
+        OutstandingSection(long requiredInsertCount, List<Long> referencedIndices) {
+            this.requiredInsertCount = requiredInsertCount;
+            this.referencedIndices = referencedIndices;
+        }
+    }
+
+    private final DynamicTable table;
 
     /**
-     * If true, when writing a literal name or value we will prefer
-     * Huffman encoding if it results in a shorter encoded sequence.
+     * Entries the peer decoder has acknowledged processing through
+     * (RFC 9204 section 2.1.4) -- our non-blocking policy's Base/RIC value.
      */
-    private boolean autoHuffman = true;
+    private long knownReceivedCount;
 
     /**
-     * Set whether to prefer Huffman encoding.
+     * Per-outstanding (not yet acknowledged/cancelled) stream: the
+     * Required Insert Count it was encoded with, and the absolute
+     * indices it references, so {@link #onSectionAcknowledgment}/
+     * {@link #onStreamCancellation} can release the right table refs.
+     */
+    private final Map<Long, OutstandingSection> outstanding = new HashMap<Long, OutstandingSection>();
+
+    /**
+     * Creates an encoder with the given dynamic table capacity.
      *
-     * @param flag if true, use Huffman encoding whenever it is shorter
+     * @param capacity the initial dynamic table capacity in octets
      */
-    public void setAutoHuffman(boolean flag) {
-        this.autoHuffman = flag;
+    public Encoder(int capacity) {
+        this.table = new DynamicTable(capacity);
     }
 
     /**
-     * Writes an encoded field section (RFC 9204 section 4.5.1) for the
-     * given headers to {@code buf}.
+     * Changes the dynamic table's capacity, writing the corresponding
+     * encoder-stream instruction (RFC 9204 section 4.3.1) to {@code out}.
      *
-     * @param buf the buffer to write to
-     * @param headers the headers to write
+     * @param out the destination buffer for the encoder-stream instruction
+     * @param capacity the new capacity in octets
      */
-    public void encode(ByteBuffer buf, List<Header> headers) {
-        // Required Insert Count = 0, Base = 0 (Sign = 0, Delta Base = 0):
-        // this encoder never references the dynamic table, so every
-        // field section prefix is the fixed two-byte sequence 0x00 0x00.
-        PrefixedInteger.encode(buf, 0, 0, 8);
-        PrefixedInteger.encode(buf, 0, 0, 7);
+    public void setCapacity(ByteBuffer out, int capacity) {
+        table.setCapacity(capacity);
+        EncoderStreamWriter.writeSetDynamicTableCapacity(out, capacity);
+    }
 
-        for (Header header : headers) {
-            int index = STATIC_TABLE.indexOf(header);
-            if (index != -1) {
-                // RFC 9204 section 4.5.2: Indexed Field Line, T=1 (static)
-                PrefixedInteger.encode(buf, 0xc0, index, 6);
-                continue;
-            }
+    /**
+     * Encodes one field section for {@code streamId} (the request/
+     * response/push stream it belongs to), writing the field-line bytes
+     * to {@code fieldSection} and any resulting encoder-stream
+     * instructions to {@code encoderInstructions} (often nothing
+     * written at all). Preserve instruction order relative to other
+     * calls to this method when sending them on the encoder stream.
+     *
+     * @param fieldSection the destination buffer for the encoded field section
+     * @param encoderInstructions the destination buffer for any
+     *                            resulting encoder-stream instructions
+     * @param streamId the stream this field section belongs to
+     * @param fields the headers to encode, in wire order
+     */
+    public void encode(ByteBuffer fieldSection, ByteBuffer encoderInstructions,
+            long streamId, List<Header> fields) {
+        long base = knownReceivedCount; // non-blocking policy: Base = RIC = KRC
+        ByteBuffer fieldLines = ByteBuffer.allocate(estimateFieldLinesCapacity(fields));
+        List<Long> referenced = new ArrayList<Long>();
 
+        for (Header header : fields) {
             String name = header.getName();
             String value = header.getValue();
-            int nameIndex = indexOfName(STATIC_TABLE, name);
-            if (nameIndex != -1) {
-                // RFC 9204 section 4.5.4: Literal Field Line with Name
-                // Reference, N=0, T=1 (static)
-                PrefixedInteger.encode(buf, 0x50, nameIndex, 4);
-                writeStringLiteral(buf, value);
+
+            int staticIndex = STATIC_TABLE.indexOf(header);
+            if (staticIndex != -1) {
+                // RFC 9204 section 4.5.2: Indexed Field Line, T=1 (static)
+                PrefixedInteger.encode(fieldLines, 0xc0, staticIndex, 6);
                 continue;
             }
 
-            writeLiteralNameAndValue(buf, name, value);
+            DynamicTable.FindResult dynamicMatch = table.find(name, value, base);
+            if (dynamicMatch != null && dynamicMatch.fullMatch) {
+                table.addRef(dynamicMatch.absoluteIndex);
+                referenced.add(dynamicMatch.absoluteIndex);
+                // RFC 9204 section 4.5.2: Indexed Field Line, T=0 (dynamic),
+                // relative index = base - 1 - absoluteIndex
+                PrefixedInteger.encode(fieldLines, 0x80, base - 1 - dynamicMatch.absoluteIndex, 6);
+                continue;
+            }
+
+            // Not referenceable yet under our non-blocking policy. Emit a
+            // literal for this section; opportunistically insert for
+            // future reuse, unless an equivalent entry is already
+            // in-flight (skip to avoid duplicate insert instructions).
+            DynamicTable.FindResult alreadyPresent = table.find(name, value, table.getInsertCount());
+            boolean insertedNow = false;
+            if (alreadyPresent == null || !alreadyPresent.fullMatch) {
+                long insertedIndex = table.insert(name, value);
+                insertedNow = insertedIndex != -1;
+                if (insertedNow) {
+                    int staticNameIndex = indexOfName(STATIC_TABLE, name);
+                    if (staticNameIndex != -1) {
+                        EncoderStreamWriter.writeInsertWithNameReference(
+                                encoderInstructions, true, staticNameIndex, valueBytes(value));
+                    } else {
+                        EncoderStreamWriter.writeInsertWithLiteralName(
+                                encoderInstructions, nameBytes(name), valueBytes(value));
+                    }
+                }
+            }
+
+            int staticNameIndex = indexOfName(STATIC_TABLE, name);
+            DynamicTable.FindResult dynamicNameMatch = table.find(name, value, base);
+            if (staticNameIndex != -1) {
+                // RFC 9204 section 4.5.4: Literal Field Line with Name
+                // Reference, N=0, T=1 (static)
+                PrefixedInteger.encode(fieldLines, 0x50, staticNameIndex, 4);
+                QPACKStrings.write(fieldLines, valueBytes(value), 7, 0x00);
+            } else if (dynamicNameMatch != null && !dynamicNameMatch.fullMatch) {
+                // RFC 9204 section 4.5.4: Literal Field Line with Name
+                // Reference, N=0, T=0 (dynamic)
+                PrefixedInteger.encode(fieldLines, 0x40, base - 1 - dynamicNameMatch.absoluteIndex, 4);
+                QPACKStrings.write(fieldLines, valueBytes(value), 7, 0x00);
+            } else {
+                // RFC 9204 section 4.5.6: Literal Field Line with Literal Name, N=0
+                QPACKStrings.write(fieldLines, nameBytes(name), 3, 0x20);
+                QPACKStrings.write(fieldLines, valueBytes(value), 7, 0x00);
+            }
         }
+
+        long encodedRic = RequiredInsertCount.encode(base, table.getCapacity());
+        PrefixedInteger.encode(fieldSection, 0, encodedRic, 8);
+        PrefixedInteger.encode(fieldSection, 0, 0, 7); // Base = RIC: sign 0, delta 0
+        fieldLines.flip();
+        fieldSection.put(fieldLines);
+
+        if (!referenced.isEmpty()) {
+            outstanding.put(streamId, new OutstandingSection(base, referenced));
+        }
+    }
+
+    /**
+     * A rough (over-)estimate of the encoded size of a header list,
+     * for sizing the caller-invisible scratch buffer {@link #encode}
+     * uses while building field lines: worst case, every header is a
+     * literal with a literal name, roughly twice its raw UTF-8 length
+     * plus a few bytes of framing overhead each.
+     */
+    private static int estimateFieldLinesCapacity(List<Header> fields) {
+        int estimate = 16;
+        for (Header header : fields) {
+            estimate += 8 + 2 * (header.getName().length() + header.getValue().length());
+        }
+        return estimate;
+    }
+
+    private static byte[] nameBytes(String name) {
+        return name.toLowerCase().getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private static byte[] valueBytes(String value) {
+        return value.getBytes(StandardCharsets.US_ASCII);
     }
 
     private static int indexOfName(List<Header> table, String name) {
@@ -111,33 +221,44 @@ public class Encoder extends QPACKConstants {
         return -1;
     }
 
-    // RFC 9204 section 4.5.6: Literal Field Line with Literal Name, N=0.
-    // Unlike the standalone string-literal format used elsewhere, this
-    // representation's Name Length prefix and Huffman flag share the
-    // same opcode byte as the '001' pattern and the N bit.
-    private void writeLiteralNameAndValue(ByteBuffer buf, String name, String value) {
-        byte[] rawName = name.toLowerCase().getBytes(US_ASCII);
-        byte[] huffmanName = autoHuffman ? Huffman.encode(rawName) : null;
-        boolean useHuffmanName = huffmanName != null && huffmanName.length < rawName.length;
-        int nameHuffmanBit = useHuffmanName ? 0x08 : 0;
-        int nameLength = useHuffmanName ? huffmanName.length : rawName.length;
+    // ── DecoderStreamHandler ──
 
-        PrefixedInteger.encode(buf, 0x20 | nameHuffmanBit, nameLength, 3);
-        buf.put(useHuffmanName ? huffmanName : rawName);
-
-        writeStringLiteral(buf, value);
+    /**
+     * RFC 9204 section 4.4.1: the decoder has fully processed
+     * {@code streamId}'s field section: release its table references
+     * and advance Known Received Count if this section depended on more
+     * insertions than we already knew were received.
+     */
+    @Override
+    public void sectionAcknowledgment(long streamId) {
+        OutstandingSection section = outstanding.remove(streamId);
+        if (section != null) {
+            for (long absoluteIndex : section.referencedIndices) {
+                table.releaseRef(absoluteIndex);
+            }
+            knownReceivedCount = Math.max(knownReceivedCount, section.requiredInsertCount);
+        }
     }
 
-    // RFC 9204 section 4.1.2 (reusing RFC 7541 section 5.2 unmodified):
-    // an 8-bit prefix string literal, H bit + Length + bytes.
-    private void writeStringLiteral(ByteBuffer buf, String value) {
-        byte[] raw = value.getBytes(US_ASCII);
-        byte[] huffman = autoHuffman ? Huffman.encode(raw) : null;
-        boolean useHuffman = huffman != null && huffman.length < raw.length;
-        int huffmanBit = useHuffman ? 0x80 : 0;
-        int length = useHuffman ? huffman.length : raw.length;
+    /**
+     * RFC 9204 section 4.4.2: {@code streamId} was reset/abandoned:
+     * release its table references without advancing Known Received Count.
+     */
+    @Override
+    public void streamCancellation(long streamId) {
+        OutstandingSection section = outstanding.remove(streamId);
+        if (section != null) {
+            for (long absoluteIndex : section.referencedIndices) {
+                table.releaseRef(absoluteIndex);
+            }
+        }
+    }
 
-        PrefixedInteger.encode(buf, huffmanBit, length, 7);
-        buf.put(useHuffman ? huffman : raw);
+    /**
+     * RFC 9204 section 4.4.3: advance Known Received Count directly.
+     */
+    @Override
+    public void insertCountIncrement(long increment) {
+        knownReceivedCount += increment;
     }
 }

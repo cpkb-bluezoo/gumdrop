@@ -52,14 +52,14 @@ final class PrefixedInteger {
      * @param prefixBits the number of low bits of the first byte
      *                   available for the value, 1-8
      */
-    static void encode(ByteBuffer buf, int highBits, int value, int prefixBits) {
+    static void encode(ByteBuffer buf, int highBits, long value, int prefixBits) {
         int prefixMax = (1 << prefixBits) - 1;
         if (value < prefixMax) {
             buf.put((byte) (highBits | value));
             return;
         }
         buf.put((byte) (highBits | prefixMax));
-        int remaining = value - prefixMax;
+        long remaining = value - prefixMax;
         while (remaining >= 128) {
             buf.put((byte) ((remaining % 128) | 0x80));
             remaining /= 128;
