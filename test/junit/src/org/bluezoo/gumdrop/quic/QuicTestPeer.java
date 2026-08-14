@@ -402,7 +402,8 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             }
         }
         if (includeAck) {
-            frameBytes += QuicFrameWriter.ackLength(largestReceived[level.ordinal()], 0, 0);
+            frameBytes += QuicFrameWriter.ackLength(
+                    new long[][] { { largestReceived[level.ordinal()], largestReceived[level.ordinal()] } }, 0);
         }
         if (includeHandshakeDone) {
             frameBytes += QuicFrameWriter.handshakeDoneLength();
@@ -449,7 +450,8 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             }
         }
         if (includeAck) {
-            QuicFrameWriter.writeAck(payload, largestReceived[level.ordinal()], 0, 0);
+            QuicFrameWriter.writeAck(payload,
+                    new long[][] { { largestReceived[level.ordinal()], largestReceived[level.ordinal()] } }, 0);
         }
         if (includeHandshakeDone) {
             QuicFrameWriter.writeHandshakeDone(payload);
@@ -577,7 +579,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         }
 
         @Override
-        public void ackFrameReceived(long largestAcknowledged, long ackDelay, long firstAckRange) {
+        public void ackFrameReceived(long largestAcknowledged, long ackDelay, long[][] ranges) {
             // No retransmission logic in this test harness.
         }
 

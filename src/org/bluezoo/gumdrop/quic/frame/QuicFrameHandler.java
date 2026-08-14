@@ -92,19 +92,21 @@ public interface QuicFrameHandler {
     void pingFrameReceived();
 
     /**
-     * Called when an ACK frame is received (RFC 9000 section 19.3).
-     *
-     * <p>Only the largest acknowledged packet number and the first
-     * (highest) ACK range are reported; additional ACK ranges (gaps)
-     * and ECN counts are parsed, for correctness of frame boundary
-     * detection, but not yet surfaced here.
+     * Called when an ACK frame is received (RFC 9000 section 19.3),
+     * with every acknowledged range resolved from the wire's Gap/ACK
+     * Range Length chain (section 19.3.1). ECN counts are parsed, for
+     * correctness of frame boundary detection, but not yet surfaced
+     * here.
      *
      * @param largestAcknowledged the largest packet number being acknowledged
      * @param ackDelay the ACK Delay field, in the sender's declared units
-     * @param firstAckRange the number of contiguous packets below
-     *                      {@code largestAcknowledged} also being acknowledged
+     * @param ranges every acknowledged packet number range, as
+     *               {@code {low, high}} pairs inclusive of both ends,
+     *               in descending order -- {@code ranges[0]} is the
+     *               highest range and its {@code high} equals
+     *               {@code largestAcknowledged}
      */
-    void ackFrameReceived(long largestAcknowledged, long ackDelay, long firstAckRange);
+    void ackFrameReceived(long largestAcknowledged, long ackDelay, long[][] ranges);
 
     /**
      * Called when a RESET_STREAM frame is received (RFC 9000 section 19.4),

@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.quic.frame;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
@@ -192,13 +194,37 @@ public class QuicFrameParser {
         long ackRangeCount = VarInt.decode(buf);
         long firstAckRange = VarInt.decode(buf);
 
+        long firstLow = largestAcknowledged - firstAckRange;
+        if (firstLow < 0) {
+            handler.frameError("ACK frame's first range computes a negative packet number");
+            return false;
+        }
+        List<long[]> ranges = new ArrayList<long[]>();
+        ranges.add(new long[] { firstLow, largestAcknowledged });
+
+        // RFC 9000 section 19.3.1: each subsequent range is derived from
+        // the previous range's low end (previousSmallest).
+        long previousSmallest = firstLow;
         for (long i = 0; i < ackRangeCount; i++) {
             if (!buf.hasRemaining()) {
                 handler.frameError("ACK frame underflow in range " + i);
                 return false;
             }
-            VarInt.decode(buf); // Gap
-            VarInt.decode(buf); // ACK Range Length
+            long gap = VarInt.decode(buf);
+            if (!buf.hasRemaining()) {
+                handler.frameError("ACK frame underflow reading range " + i + "'s length");
+                return false;
+            }
+            long rangeLength = VarInt.decode(buf);
+
+            long rangeHigh = previousSmallest - gap - 2;
+            long rangeLow = rangeHigh - rangeLength;
+            if (rangeHigh < 0 || rangeLow < 0) {
+                handler.frameError("ACK frame range " + i + " computes a negative packet number");
+                return false;
+            }
+            ranges.add(new long[] { rangeLow, rangeHigh });
+            previousSmallest = rangeLow;
         }
 
         if (withEcnCounts) {
@@ -211,7 +237,7 @@ public class QuicFrameParser {
             VarInt.decode(buf); // ECN-CE Count
         }
 
-        handler.ackFrameReceived(largestAcknowledged, ackDelay, firstAckRange);
+        handler.ackFrameReceived(largestAcknowledged, ackDelay, ranges.toArray(new long[ranges.size()][]));
         return true;
     }
 

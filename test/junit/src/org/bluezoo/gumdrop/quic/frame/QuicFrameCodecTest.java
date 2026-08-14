@@ -58,8 +58,15 @@ public class QuicFrameCodecTest {
         }
 
         @Override
-        public void ackFrameReceived(long largestAcknowledged, long ackDelay, long firstAckRange) {
-            events.add("ack:" + largestAcknowledged + ":" + ackDelay + ":" + firstAckRange);
+        public void ackFrameReceived(long largestAcknowledged, long ackDelay, long[][] ranges) {
+            StringBuilder rangesText = new StringBuilder();
+            for (int i = 0; i < ranges.length; i++) {
+                if (i > 0) {
+                    rangesText.append(',');
+                }
+                rangesText.append(ranges[i][0]).append('-').append(ranges[i][1]);
+            }
+            events.add("ack:" + largestAcknowledged + ":" + ackDelay + ":" + rangesText);
         }
 
         @Override
@@ -199,15 +206,66 @@ public class QuicFrameCodecTest {
 
     @Test
     public void testAckFrame() {
-        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.ackLength(42, 100, 5));
-        QuicFrameWriter.writeAck(buf, 42, 100, 5);
+        long[][] ranges = { { 37, 42 } };
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.ackLength(ranges, 100));
+        QuicFrameWriter.writeAck(buf, ranges, 100);
         buf.flip();
 
         RecordingHandler handler = new RecordingHandler();
         new QuicFrameParser(handler).receive(buf);
 
         assertEquals(1, handler.events.size());
-        assertEquals("ack:42:100:5", handler.events.get(0));
+        assertEquals("ack:42:100:37-42", handler.events.get(0));
+    }
+
+    @Test
+    public void testAckFrameWithGapBetweenRanges() {
+        // Largest=100, first range covers 95-100; a gap (packets 92-94
+        // unacknowledged), then a second range covering 88-91.
+        long[][] ranges = { { 95, 100 }, { 88, 91 } };
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.ackLength(ranges, 0));
+        QuicFrameWriter.writeAck(buf, ranges, 0);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("ack:100:0:95-100,88-91", handler.events.get(0));
+    }
+
+    @Test
+    public void testAckFrameWithMinimalOnePacketGap() {
+        // Largest=50, first range covers 48-50; a one-packet gap (47),
+        // then a second range covering just 45-46.
+        long[][] ranges = { { 48, 50 }, { 45, 46 } };
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.ackLength(ranges, 0));
+        QuicFrameWriter.writeAck(buf, ranges, 0);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("ack:50:0:48-50,45-46", handler.events.get(0));
+    }
+
+    @Test
+    public void testAckFrameNegativePacketNumberReportsError() {
+        // Largest Acknowledged=2, First ACK Range=10: 2-10 is negative.
+        ByteBuffer buf = ByteBuffer.allocate(5);
+        buf.put((byte) 0x02); // TYPE_ACK
+        buf.put((byte) 2);    // Largest Acknowledged
+        buf.put((byte) 0);    // ACK Delay
+        buf.put((byte) 0);    // ACK Range Count
+        buf.put((byte) 10);   // First ACK Range
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertTrue(handler.events.get(0).startsWith("error:"));
     }
 
     @Test

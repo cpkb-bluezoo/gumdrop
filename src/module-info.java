@@ -115,6 +115,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.quic.packet;
     exports org.bluezoo.gumdrop.quic.frame;
     exports org.bluezoo.gumdrop.quic.cid;
+    exports org.bluezoo.gumdrop.quic.recovery;
 
     // Servlet container
     exports org.bluezoo.gumdrop.servlet;

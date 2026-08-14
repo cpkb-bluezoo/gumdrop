@@ -36,10 +36,9 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * and {@link org.bluezoo.gumdrop.quic.packet.PacketProtection#seal}
  * both need the payload length before any frame bytes exist.
  *
- * <p>ACK frames are always written with zero additional ranges and no
- * ECN counts (type {@link QuicFrameHandler#TYPE_ACK}); see
- * {@link QuicFrameHandler#ackFrameReceived} for why that is sufficient
- * for a connection with no packet loss.
+ * <p>ACK frames support arbitrarily many ranges (RFC 9000 section
+ * 19.3.1), but never ECN counts (always type
+ * {@link QuicFrameHandler#TYPE_ACK}, never {@code TYPE_ACK_ECN}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicFrameParser
@@ -92,39 +91,56 @@ public final class QuicFrameWriter {
     }
 
     /**
-     * Returns the encoded length of a single-range ACK frame.
+     * Returns the encoded length of an ACK frame acknowledging {@code ranges}.
      *
-     * @param largestAcknowledged the largest packet number being acknowledged
+     * @param ranges every acknowledged packet number range, as
+     *               {@code {low, high}} pairs inclusive of both ends, in
+     *               descending order -- {@code ranges[0]} is the highest
+     *               range and its {@code high} is the Largest Acknowledged
      * @param ackDelay the ACK Delay field
-     * @param firstAckRange the number of contiguous packets below
-     *                      {@code largestAcknowledged} also being acknowledged
      * @return the encoded length in bytes
      */
-    public static int ackLength(long largestAcknowledged, long ackDelay, long firstAckRange) {
-        return VarInt.encodedLength(QuicFrameHandler.TYPE_ACK)
-                + VarInt.encodedLength(largestAcknowledged)
+    public static int ackLength(long[][] ranges, long ackDelay) {
+        long length = VarInt.encodedLength(QuicFrameHandler.TYPE_ACK)
+                + VarInt.encodedLength(ranges[0][1]) // Largest Acknowledged
                 + VarInt.encodedLength(ackDelay)
-                + VarInt.encodedLength(0L)
-                + VarInt.encodedLength(firstAckRange);
+                + VarInt.encodedLength(ranges.length - 1) // ACK Range Count
+                + VarInt.encodedLength(ranges[0][1] - ranges[0][0]); // First ACK Range
+        long previousLow = ranges[0][0];
+        for (int i = 1; i < ranges.length; i++) {
+            long gap = previousLow - ranges[i][1] - 2;
+            long rangeLength = ranges[i][1] - ranges[i][0];
+            length += VarInt.encodedLength(gap) + VarInt.encodedLength(rangeLength);
+            previousLow = ranges[i][0];
+        }
+        return (int) length;
     }
 
     /**
-     * Writes a single-range ACK frame (RFC 9000 section 19.3), with an
-     * ACK Range Count of zero (no additional ranges) and no ECN counts.
+     * Writes an ACK frame (RFC 9000 section 19.3/19.3.1), with no ECN counts.
      *
      * @param out the destination buffer
-     * @param largestAcknowledged the largest packet number being acknowledged
+     * @param ranges every acknowledged packet number range, as
+     *               {@code {low, high}} pairs inclusive of both ends, in
+     *               descending order -- {@code ranges[0]} is the highest
+     *               range and its {@code high} is the Largest Acknowledged
      * @param ackDelay the ACK Delay field
-     * @param firstAckRange the number of contiguous packets below
-     *                      {@code largestAcknowledged} also being acknowledged
      */
-    public static void writeAck(ByteBuffer out, long largestAcknowledged, long ackDelay,
-            long firstAckRange) {
+    public static void writeAck(ByteBuffer out, long[][] ranges, long ackDelay) {
         VarInt.encode(QuicFrameHandler.TYPE_ACK, out);
-        VarInt.encode(largestAcknowledged, out);
+        VarInt.encode(ranges[0][1], out); // Largest Acknowledged
         VarInt.encode(ackDelay, out);
-        VarInt.encode(0L, out);
-        VarInt.encode(firstAckRange, out);
+        VarInt.encode(ranges.length - 1, out); // ACK Range Count
+        VarInt.encode(ranges[0][1] - ranges[0][0], out); // First ACK Range
+
+        long previousLow = ranges[0][0];
+        for (int i = 1; i < ranges.length; i++) {
+            long gap = previousLow - ranges[i][1] - 2;
+            long rangeLength = ranges[i][1] - ranges[i][0];
+            VarInt.encode(gap, out);
+            VarInt.encode(rangeLength, out);
+            previousLow = ranges[i][0];
+        }
     }
 
     /**
