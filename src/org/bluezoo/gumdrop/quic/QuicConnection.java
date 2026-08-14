@@ -21,468 +21,1186 @@
 
 package org.bluezoo.gumdrop.quic;
 
-import org.bluezoo.gumdrop.GumdropNative;
-
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import tech.kwik.agent15.TlsConstants;
+import tech.kwik.agent15.TlsProtocolException;
+
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.MultiplexedEndpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
+import org.bluezoo.gumdrop.quic.cid.ConnectionIdEntry;
+import org.bluezoo.gumdrop.quic.cid.ConnectionIdManager;
+import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
+import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
+import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
+import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
+import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
+import org.bluezoo.gumdrop.quic.packet.PacketNumberCodec;
+import org.bluezoo.gumdrop.quic.packet.PacketProtection;
+import org.bluezoo.gumdrop.quic.packet.PacketProtectionException;
+import org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys;
+import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
+import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.recovery.LossDetector;
+import org.bluezoo.gumdrop.quic.recovery.SentPacket;
+import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
+import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
 
 /**
- * Represents a single QUIC connection containing multiple streams.
+ * One QUIC connection: owns the TLS 1.3 handshake, packet protection
+ * keys, connection ID lifecycle, loss detection/congestion control, and
+ * every stream on the connection.
  *
- * <p>A QuicConnection wraps a native quiche connection handle and
- * manages the lifecycle of its streams. Each stream is exposed as a
- * {@link QuicStreamEndpoint} that protocol handlers interact with.
+ * <p>This is the pure-Java replacement for the native quiche-backed
+ * implementation, composing the already-built toolkit packages
+ * ({@code quic.tls}, {@code quic.packet}, {@code quic.frame},
+ * {@code quic.cid}, {@code quic.recovery}) the same way
+ * {@code test/.../quic/QuicTestPeer} demonstrated, but driven by real
+ * socket I/O via {@link QuicEngine} instead of hand-called from a test.
  *
- * <p>All quiche calls for this connection happen on the same SelectorLoop
- * thread (thread-safe because quiche connections are single-threaded).
+ * <p>Deliberately out of scope for now (see the QUIC migration plan
+ * document): packet coalescing (one packet per encryption level per
+ * {@link #flush}), Retry/anti-amplification address validation,
+ * connection migration (this connection always addresses the peer using
+ * the connection ID learned during the handshake, even though
+ * {@link ConnectionIdManager} correctly tracks further connection IDs
+ * the peer issues), and out-of-order STREAM data reassembly (delivered
+ * in arrival order only, matching
+ * {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}'s own accepted
+ * limitation for CRYPTO data). Dynamic growth of this endpoint's own
+ * advertised flow-control limits (sending our own MAX_DATA/
+ * MAX_STREAM_DATA updates) is not implemented; received MAX_DATA/
+ * MAX_STREAM_DATA from the peer *is* honoured, since that's needed for
+ * correct send-side backpressure.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see QuicEngine
- * @see QuicStreamEndpoint
  */
-public final class QuicConnection {
+public final class QuicConnection implements QuicTlsEngineListener {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(QuicConnection.class.getName());
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
+    private static final Logger LOGGER = Logger.getLogger(QuicConnection.class.getName());
+
+    /** RFC 9000 section 14.1: every implementation must support at least this size. */
+    static final int MIN_DATAGRAM_SIZE = 1200;
 
     private final QuicEngine engine;
-    private final long connPtr;
-    private final long sslPtr;
+    private final boolean isServer;
     private final InetSocketAddress localAddress;
     private final InetSocketAddress remoteAddress;
-    private final long handshakeStartTime;
+    private QuicTlsEngine tlsEngine;
+    private final TransportParameters localTransportParameters;
+    private final byte[] connectionIdStaticKey;
+    private final long handshakeStartTime = System.currentTimeMillis();
 
-    private final Map<Long, QuicStreamEndpoint> streams =
-            new HashMap<Long, QuicStreamEndpoint>();
+    private final byte[] ourConnectionId;
+
+    /**
+     * The connection ID currently used to address the peer. Learned once
+     * (from the peer's first long-header response's Source Connection ID
+     * for a client; known immediately at accept time for a server) and
+     * used for the connection's whole lifetime -- see the class
+     * documentation on why this never rotates.
+     */
+    private byte[] peerConnectionId;
+    private boolean peerConnectionIdLearned;
+
+    private ConnectionIdManager connectionIdManager;
+    private TransportParameters peerTransportParameters;
+
+    private final EnumMap<EncryptionLevel, PacketProtectionKeys> sendKeys = new EnumMap<EncryptionLevel, PacketProtectionKeys>(
+            EncryptionLevel.class);
+    private final EnumMap<EncryptionLevel, PacketProtectionKeys> recvKeys = new EnumMap<EncryptionLevel, PacketProtectionKeys>(
+            EncryptionLevel.class);
+    private final EnumMap<EncryptionLevel, List<PendingChunk>> pendingCrypto = new EnumMap<EncryptionLevel, List<PendingChunk>>(
+            EncryptionLevel.class);
+    private final EnumMap<EncryptionLevel, Map<Long, List<PendingChunk>>> sentCrypto = new EnumMap<EncryptionLevel, Map<Long, List<PendingChunk>>>(
+            EncryptionLevel.class);
+    private final long[] sendPacketNumber = new long[EncryptionLevel.values().length];
+    private final long[] largestReceived = { -1, -1, -1 };
+    private final boolean[] ackOwed = new boolean[EncryptionLevel.values().length];
+    private final boolean[] discarded = new boolean[EncryptionLevel.values().length];
+    // Set on a Probe Timeout when nothing else was queued to naturally retransmit (RFC 9002 Appendix A.9).
+    private final boolean[] pendingPing = new boolean[EncryptionLevel.values().length];
+
+    // STREAM data pending send, keyed by stream ID; only ever flushed at ONE_RTT.
+    private final Map<Long, List<PendingChunk>> pendingStream = new HashMap<Long, List<PendingChunk>>();
+    private final Map<Long, Long> streamSendOffset = new HashMap<Long, Long>();
+    // packetNumber (ONE_RTT) -> streamId -> chunks sent in that packet, for retransmission on loss.
+    private final Map<Long, Map<Long, List<PendingChunk>>> sentStream = new HashMap<Long, Map<Long, List<PendingChunk>>>();
+    // Each entry: {streamId, applicationErrorCode, finalSize}, owed a RESET_STREAM frame.
+    private final List<long[]> pendingResetStreams = new ArrayList<long[]>();
+
+    private final LossDetector lossDetector;
+    private Hkdf hkdf = Hkdf.sha256();
+    private QuicAeadAlgorithm aead = QuicAeadAlgorithm.AES_128_GCM;
+
+    // RFC 9000 section 2.1: four independent counters by (initiator, directionality).
+    private long nextLocalBidiStreamId;
+    private long nextLocalUniStreamId;
+    private long nextPeerBidiStreamId;
+    private long nextPeerUniStreamId;
+
+    private final Map<Long, QuicStreamEndpoint> streams = new HashMap<Long, QuicStreamEndpoint>();
 
     private StreamAcceptHandler streamAcceptHandler;
-    private ConnectionReadyHandler connectionReadyHandler;
-    private QuicEngine.ConnectionAcceptedHandler
-            clientConnectionAcceptedHandler;
+    private StreamAcceptHandler unidirectionalStreamAcceptHandler;
+    private QuicEngine.ConnectionAcceptedHandler clientConnectionAcceptedHandler;
     private ProtocolHandler clientHandler;
+
+    // Connection- and stream-level send budgets, learned from the peer's
+    // transport parameters and grown by received MAX_DATA/MAX_STREAM_DATA
+    // frames. Our own advertised (receive-side) limits are not grown --
+    // see the class documentation.
+    private long peerMaxData;
+    private final Map<Long, Long> peerMaxStreamData = new HashMap<Long, Long>();
+    private long connectionBytesSent;
+    private final Map<Long, Long> streamBytesSent = new HashMap<Long, Long>();
+
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
     private boolean established;
+    private boolean handshakeConfirmed;
+    private boolean handshakeDoneOwed;
     private boolean closed;
+    private String deferredCloseReason;
 
-    QuicConnection(QuicEngine engine, long connPtr, long sslPtr,
-                   InetSocketAddress localAddress,
-                   InetSocketAddress remoteAddress) {
+    /**
+     * Creates a QUIC connection.
+     *
+     * @param engine the owning engine
+     * @param isServer true if this endpoint is the server
+     * @param localAddress the local socket address
+     * @param remoteAddress the peer's socket address
+     * @param ourConnectionId this endpoint's connection ID (server: freshly
+     *                        generated; client: its own chosen SCID)
+     * @param peerConnectionId the connection ID to address the peer with
+     *                         initially (server: the client's Initial
+     *                         packet SCID, known immediately; client: its
+     *                         own bootstrap {@code clientInitialDcid},
+     *                         corrected once the server's real SCID is learned)
+     * @param initialSecretDcid the Destination Connection ID used to
+     *                          derive Initial secrets (RFC 9001 section
+     *                          5.2) -- the client's Initial packet DCID,
+     *                          whether or not it equals {@code peerConnectionId}
+     * @param localTransportParameters this endpoint's own transport parameters
+     * @param connectionIdStaticKey this engine's static key for
+     *                              {@link org.bluezoo.gumdrop.quic.cid.StatelessResetToken} derivation
+     */
+    QuicConnection(QuicEngine engine, boolean isServer, InetSocketAddress localAddress, InetSocketAddress remoteAddress,
+            byte[] ourConnectionId, byte[] peerConnectionId, byte[] initialSecretDcid,
+            TransportParameters localTransportParameters, byte[] connectionIdStaticKey) {
         this.engine = engine;
-        this.connPtr = connPtr;
-        this.sslPtr = sslPtr;
+        this.isServer = isServer;
         this.localAddress = localAddress;
         this.remoteAddress = remoteAddress;
-        this.handshakeStartTime = System.currentTimeMillis();
+        this.ourConnectionId = ourConnectionId;
+        this.peerConnectionId = peerConnectionId;
+        this.localTransportParameters = localTransportParameters;
+        this.connectionIdStaticKey = connectionIdStaticKey;
+
+        for (EncryptionLevel level : EncryptionLevel.values()) {
+            pendingCrypto.put(level, new ArrayList<PendingChunk>());
+            sentCrypto.put(level, new HashMap<Long, List<PendingChunk>>());
+        }
+
+        byte[] clientSecret = InitialSecrets.clientSecretV1(initialSecretDcid);
+        byte[] serverSecret = InitialSecrets.serverSecretV1(initialSecretDcid);
+        Hkdf initialHkdf = Hkdf.sha256();
+        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(initialHkdf, clientSecret, QuicAeadAlgorithm.AES_128_GCM);
+        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(initialHkdf, serverSecret, QuicAeadAlgorithm.AES_128_GCM);
+        if (isServer) {
+            sendKeys.put(EncryptionLevel.INITIAL, serverKeys);
+            recvKeys.put(EncryptionLevel.INITIAL, clientKeys);
+            nextLocalBidiStreamId = 1;
+            nextLocalUniStreamId = 3;
+            nextPeerBidiStreamId = 0;
+            nextPeerUniStreamId = 2;
+        } else {
+            sendKeys.put(EncryptionLevel.INITIAL, clientKeys);
+            recvKeys.put(EncryptionLevel.INITIAL, serverKeys);
+            nextLocalBidiStreamId = 0;
+            nextLocalUniStreamId = 2;
+            nextPeerBidiStreamId = 1;
+            nextPeerUniStreamId = 3;
+        }
+
+        this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE);
+        this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey);
     }
 
     /**
-     * Returns the native quiche connection pointer.
-     * Used by the HTTP/3 module to create an h3 connection.
+     * Sets the TLS engine driving this connection's handshake. Not
+     * passed to the constructor because the TLS engine's own
+     * constructor needs this connection as its {@link QuicTlsEngineListener}
+     * -- construction is necessarily two-phase.
+     *
+     * @param tlsEngine the TLS engine
      */
-    public long getConnPtr() {
-        return connPtr;
+    void setTlsEngine(QuicTlsEngine tlsEngine) {
+        this.tlsEngine = tlsEngine;
     }
 
-    /**
-     * Returns the owning QuicEngine.
-     */
-    public QuicEngine getEngine() {
+    // ── Identity / accessors ──
+
+    QuicEngine getEngine() {
         return engine;
     }
 
     /**
-     * Returns the local address of this connection.
+     * Returns the SelectorLoop that owns this connection's I/O.
      */
+    public SelectorLoop getSelectorLoop() {
+        return engine.getSelectorLoop();
+    }
+
+    byte[] getOurConnectionId() {
+        return ourConnectionId;
+    }
+
     public SocketAddress getLocalAddress() {
         return localAddress;
     }
 
-    /**
-     * Returns the remote address of this connection.
-     */
     public SocketAddress getRemoteAddress() {
         return remoteAddress;
     }
 
-    /**
-     * Returns security info for this connection.
-     */
     public SecurityInfo getSecurityInfo() {
-        if (securityInfo == null && established) {
-            securityInfo = new QuicSecurityInfo(connPtr, sslPtr,
-                    handshakeStartTime);
+        if (!established) {
+            return null;
+        }
+        if (securityInfo == null) {
+            securityInfo = new QuicSecurityInfo(tlsEngine, isServer, handshakeStartTime);
         }
         return securityInfo;
     }
 
-    void setStreamAcceptHandler(StreamAcceptHandler handler) {
+    public boolean isClosed() {
+        return closed;
+    }
+
+    /**
+     * Registers a handler to accept incoming bidirectional streams (RFC
+     * 9000 section 2.1) from the peer -- new requests, for HTTP/3, or
+     * DoQ's/a generic client's queries.
+     *
+     * @param handler the handler
+     */
+    public void setStreamAcceptHandler(StreamAcceptHandler handler) {
         this.streamAcceptHandler = handler;
     }
 
     /**
-     * Sets a handler that is called when the client handshake completes,
-     * providing the connection itself. Used by HTTP/3 to install a
-     * {@link ConnectionReadyHandler} before any streams are opened.
+     * Registers a handler to accept incoming unidirectional streams (RFC
+     * 9000 section 2.1) from the peer -- HTTP/3's control stream, not
+     * used by {@code StreamAcceptHandler}'s bidi-only consumers (DoQ,
+     * generic clients).
+     *
+     * @param handler the handler
      */
-    void setClientConnectionAcceptedHandler(
-            QuicEngine.ConnectionAcceptedHandler handler) {
+    public void setUnidirectionalStreamAcceptHandler(StreamAcceptHandler handler) {
+        this.unidirectionalStreamAcceptHandler = handler;
+    }
+
+    void setClientConnectionAcceptedHandler(QuicEngine.ConnectionAcceptedHandler handler) {
         this.clientConnectionAcceptedHandler = handler;
     }
 
-    /**
-     * Sets the client-mode endpoint handler that is waiting for the
-     * handshake to complete.
-     *
-     * <p>When the QUIC handshake finishes, a bidirectional stream is
-     * automatically opened and the handler receives
-     * {@link ProtocolHandler#connected(Endpoint)} followed by
-     * {@link ProtocolHandler#securityEstablished(SecurityInfo)}.
-     *
-     * @param handler the handler for the initial client stream
-     */
     void setClientHandler(ProtocolHandler handler) {
         this.clientHandler = handler;
     }
 
     /**
-     * Handler interface for connection-level processing.
+     * Starts the client-side TLS handshake, producing an Initial packet
+     * on the next {@link #flush}.
      *
-     * <p>Used by HTTP/3 where the quiche h3 module processes streams
-     * internally rather than exposing individual stream I/O.
+     * @param serverName the SNI server name
+     * @throws IOException if the handshake cannot be started
      */
-    public interface ConnectionReadyHandler {
-
-        /**
-         * Called after QUIC packets have been received on this connection.
-         * The handler should poll for application-level events.
-         */
-        void onConnectionReady();
+    void startHandshake(String serverName) throws IOException {
+        ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).startHandshake(serverName);
     }
 
-    /**
-     * Sets a connection-level handler that is called after packets
-     * are received. When set, individual stream processing is bypassed
-     * (used by HTTP/3).
-     */
-    public void setConnectionReadyHandler(ConnectionReadyHandler handler) {
-        this.connectionReadyHandler = handler;
-    }
+    // ── Stream lifecycle ──
 
     /**
-     * Processes readable streams after a packet is fed to quiche.
-     * Called by QuicEngine on the SelectorLoop thread.
-     */
-    /**
-     * Checks whether the QUIC handshake has completed and, if so,
-     * transitions the connection to the established state. Per
-     * RFC 9000 section 7.3, the server sends HANDSHAKE_DONE to
-     * confirm handshake completion. Called after flushing outgoing
-     * packets, since quiche may mark the connection as established
-     * only after HANDSHAKE_DONE is queued.
-     */
-    void checkEstablished() {
-        if (!established) {
-            boolean nowEstablished =
-                    GumdropNative.quiche_conn_is_established(connPtr);
-            if (nowEstablished) {
-                established = true;
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("QUIC connection established: "
-                            + remoteAddress);
-                }
-                scheduleTimeout();
-                notifyClientHandshakeComplete();
-                if (connectionReadyHandler != null) {
-                    connectionReadyHandler.onConnectionReady();
-                    engine.flushConnection(this);
-                }
-            }
-        }
-    }
-
-    // RFC 9000 section 2.1 — bidirectional and unidirectional stream types
-    void processReadableStreams(ByteBuffer streamBuf) {
-        if (!established) {
-            boolean nowEstablished =
-                    GumdropNative.quiche_conn_is_established(connPtr);
-            if (nowEstablished) {
-                established = true;
-                scheduleTimeout();
-                notifyClientHandshakeComplete();
-            }
-        }
-
-        // HTTP/3: delegate to the h3 connection handler if set
-        if (connectionReadyHandler != null) {
-            if (established) {
-                connectionReadyHandler.onConnectionReady();
-            }
-            return;
-        }
-
-        long[] readableIds = GumdropNative.quiche_conn_readable(connPtr);
-        for (int i = 0; i < readableIds.length; i++) {
-            long streamId = readableIds[i];
-            QuicStreamEndpoint stream = streams.get(Long.valueOf(streamId));
-
-            if (stream == null) {
-                stream = acceptStream(streamId);
-                if (stream == null) {
-                    continue;
-                }
-            }
-
-            boolean[] fin = new boolean[1];
-            streamBuf.clear();
-            int len = GumdropNative.quiche_conn_stream_recv(
-                    connPtr, streamId, streamBuf,
-                    streamBuf.capacity(), fin);
-
-            if (len > 0) {
-                streamBuf.flip();
-                stream.deliverData(streamBuf);
-            }
-
-            if (fin[0]) {
-                stream.markClosed();
-                stream.getHandler().disconnected();
-                streams.remove(Long.valueOf(streamId));
-            }
-        }
-    }
-
-    /**
-     * Called when the QUIC handshake completes in client mode.
+     * Opens a new locally-initiated bidirectional stream.
      *
-     * <p>If a {@code clientConnectionAcceptedHandler} is set (HTTP/3
-     * mode), it is called with this connection so that the h3 handler
-     * can be installed. Otherwise, a bidirectional stream is auto-opened
-     * and the waiting {@code clientHandler} is notified.
+     * @param handler the handler for the new stream
+     * @return the new stream's endpoint
      */
-    private void notifyClientHandshakeComplete() {
-        String pinned = engine.getFactory().getPinnedCertFingerprint();
-        if (pinned != null && !verifyCertFingerprint(pinned)) {
-            LOGGER.severe(MessageFormat.format(
-                    L10N.getString("severe.cert_fingerprint_mismatch"), remoteAddress));
-            close();
-            return;
-        }
-
-        if (clientConnectionAcceptedHandler != null) {
-            QuicEngine.ConnectionAcceptedHandler ch =
-                    clientConnectionAcceptedHandler;
-            clientConnectionAcceptedHandler = null;
-            ch.connectionAccepted(this);
-            return;
-        }
-        if (clientHandler == null) {
-            return;
-        }
-        ProtocolHandler handler = clientHandler;
-        clientHandler = null;
-        openStream(handler);
-    }
-
-    private boolean verifyCertFingerprint(String expected) {
-        SecurityInfo si = getSecurityInfo();
-        if (si == null) {
-            return false;
-        }
-        Certificate[] certs = si.getPeerCertificates();
-        if (certs == null || certs.length == 0) {
-            return false;
-        }
-        if (!(certs[0] instanceof X509Certificate)) {
-            return false;
-        }
-        try {
-            String actual = PinnedCertTrustManager.computeFingerprint(
-                    (X509Certificate) certs[0]);
-            return expected.equals(actual);
-        } catch (CertificateException e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to compute server cert fingerprint", e);
-            return false;
-        }
+    public Endpoint openStream(ProtocolHandler handler) {
+        long streamId = nextLocalBidiStreamId;
+        nextLocalBidiStreamId += 4;
+        return createStream(streamId, handler);
     }
 
     /**
-     * Accepts a new incoming stream from the peer.
+     * Opens a new locally-initiated unidirectional stream.
+     *
+     * @param handler the handler for the new stream
+     * @return the new stream's endpoint
      */
-    private QuicStreamEndpoint acceptStream(long streamId) {
-        if (streamAcceptHandler == null) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("No stream accept handler for stream "
-                        + streamId);
-            }
-            return null;
-        }
-
-        QuicStreamEndpoint stream = new QuicStreamEndpoint(
-                this, streamId, null);
-        ProtocolHandler handler =
-                streamAcceptHandler.acceptStream(stream);
-        if (handler == null) {
-            return null;
-        }
-
-        QuicStreamEndpoint realStream = new QuicStreamEndpoint(
-                this, streamId, handler);
-        streams.put(Long.valueOf(streamId), realStream);
-        handler.connected(realStream);
-        handler.securityEstablished(getSecurityInfo());
-        return realStream;
+    public Endpoint openUnidirectionalStream(ProtocolHandler handler) {
+        long streamId = nextLocalUniStreamId;
+        nextLocalUniStreamId += 4;
+        return createStream(streamId, handler);
     }
 
-    /**
-     * Opens a new outgoing stream.
-     */
-    Endpoint openStream(ProtocolHandler handler) {
-        // Client-initiated bidi streams use IDs 0, 4, 8, ...
-        // Server-initiated bidi streams use IDs 1, 5, 9, ...
-        // For simplicity, use the next available even ID
-        long streamId = findNextStreamId();
-        QuicStreamEndpoint stream = new QuicStreamEndpoint(
-                this, streamId, handler);
+    private Endpoint createStream(long streamId, ProtocolHandler handler) {
+        QuicStreamEndpoint stream = new QuicStreamEndpoint(this, streamId, handler);
         streams.put(Long.valueOf(streamId), stream);
         handler.connected(stream);
         handler.securityEstablished(getSecurityInfo());
         return stream;
     }
 
-    // RFC 9000 section 2.1 — client-initiated bidi streams use IDs 0, 4, 8, ...
-    private long findNextStreamId() {
-        long maxId = -1;
-        for (Long id : streams.keySet()) {
-            if (id.longValue() > maxId) {
-                maxId = id.longValue();
+    // RFC 9000 section 2.1: low bit 0x02 set means unidirectional.
+    private static boolean isUnidirectional(long streamId) {
+        return (streamId & 0x02) != 0;
+    }
+
+    // Peer-initiated if the low bit (0x01, client/server origin) disagrees with our own role.
+    private boolean isPeerInitiated(long streamId) {
+        boolean clientInitiated = (streamId & 0x01) == 0;
+        return isServer == clientInitiated;
+    }
+
+    private QuicStreamEndpoint acceptStream(long streamId) {
+        boolean unidirectional = isUnidirectional(streamId);
+        StreamAcceptHandler handler = unidirectional ? unidirectionalStreamAcceptHandler : streamAcceptHandler;
+        if (handler == null) {
+            return null;
+        }
+        QuicStreamEndpoint probe = new QuicStreamEndpoint(this, streamId, null);
+        ProtocolHandler protocolHandler = handler.acceptStream(probe);
+        if (protocolHandler == null) {
+            return null;
+        }
+        QuicStreamEndpoint stream = new QuicStreamEndpoint(this, streamId, protocolHandler);
+        streams.put(Long.valueOf(streamId), stream);
+        protocolHandler.connected(stream);
+        protocolHandler.securityEstablished(getSecurityInfo());
+        return stream;
+    }
+
+    /**
+     * Queues data to be sent on a stream at the next {@link #flush}
+     * (RFC 9000 section 19.8 STREAM frames only travel at 1-RTT).
+     *
+     * @param streamId the stream
+     * @param data the data (copied -- the caller's buffer is not retained)
+     * @param fin true if this is the last chunk of the stream
+     */
+    void queueStreamData(long streamId, ByteBuffer data, boolean fin) {
+        byte[] copy = new byte[data.remaining()];
+        data.get(copy);
+        long offset = getAndAdvanceStreamOffset(streamId, copy.length);
+        List<PendingChunk> chunks = pendingStream.get(Long.valueOf(streamId));
+        if (chunks == null) {
+            chunks = new ArrayList<PendingChunk>();
+            pendingStream.put(Long.valueOf(streamId), chunks);
+        }
+        chunks.add(new PendingChunk(offset, copy, fin));
+        requestFlush();
+    }
+
+    private long getAndAdvanceStreamOffset(long streamId, int length) {
+        Long key = Long.valueOf(streamId);
+        long offset = streamSendOffset.containsKey(key) ? streamSendOffset.get(key).longValue() : 0;
+        streamSendOffset.put(key, Long.valueOf(offset + length));
+        return offset;
+    }
+
+    /**
+     * Abruptly terminates a stream's sending part (RESET_STREAM, RFC
+     * 9000 section 19.4).
+     *
+     * @param streamId the stream
+     * @param errorCode the application protocol error code
+     */
+    void resetStream(long streamId, long errorCode) {
+        long finalSize = streamSendOffset.containsKey(Long.valueOf(streamId))
+                ? streamSendOffset.get(Long.valueOf(streamId)).longValue() : 0;
+        pendingResetStreams.add(new long[] { streamId, errorCode, finalSize });
+        pendingStream.remove(Long.valueOf(streamId));
+        requestFlush();
+    }
+
+    void requestFlush() {
+        engine.requestFlush(this);
+    }
+
+    /**
+     * Forgets a stream once both its directions are finished (see
+     * {@link QuicStreamEndpoint#isFullyClosed}) -- called after either
+     * direction finishes, since either order is possible (a fire-and-
+     * forget local {@link QuicStreamEndpoint#close} before the peer's
+     * FIN arrives, or vice versa).
+     */
+    void retireStreamIfFullyClosed(long streamId, QuicStreamEndpoint stream) {
+        if (stream.isFullyClosed()) {
+            streams.remove(Long.valueOf(streamId));
+        }
+    }
+
+    // ── Receive path ──
+
+    /**
+     * Processes a received datagram: one or more coalesced QUIC packets
+     * (RFC 9000 section 12.2), each unprotected, decrypted, and its
+     * frames dispatched.
+     *
+     * @param datagram the received datagram
+     */
+    void receive(ByteBuffer datagram) {
+        byte[] bytes = new byte[datagram.remaining()];
+        datagram.get(bytes);
+        int offset = 0;
+        while (offset < bytes.length) {
+            int consumed = receiveOnePacket(bytes, offset);
+            if (consumed <= 0) {
+                break;
+            }
+            offset += consumed;
+        }
+        requestFlush();
+    }
+
+    // Returns the number of bytes this one packet occupied within
+    // `bytes`, or -1 if it could not be parsed (the rest of the datagram
+    // is then abandoned, matching RFC 9000 section 12.2's allowance to
+    // stop processing a datagram once it can no longer be parsed).
+    private int receiveOnePacket(byte[] bytes, int offset) {
+        boolean longHeader = (bytes[offset] & 0x80) != 0;
+        EncryptionLevel level;
+        int pnOffset;
+        int packetLength;
+        if (longHeader) {
+            byte[] fromOffset = offset == 0 ? bytes : java.util.Arrays.copyOfRange(bytes, offset, bytes.length);
+            LongHeaderPrefix prefix;
+            try {
+                prefix = LongHeaderCodec.parsePrefix(fromOffset);
+            } catch (RuntimeException e) {
+                return -1;
+            }
+            if (prefix.getPacketType() == LongHeaderCodec.TYPE_RETRY || prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT) {
+                return -1; // Retry and 0-RTT are not implemented
+            }
+            level = prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL ? EncryptionLevel.INITIAL : EncryptionLevel.HANDSHAKE;
+            pnOffset = prefix.getPacketNumberOffset();
+            packetLength = pnOffset + (int) prefix.getRemainingLength();
+            if (!peerConnectionIdLearned) {
+                learnPeerConnectionId(prefix.getSourceConnectionId());
+            }
+        } else {
+            level = EncryptionLevel.ONE_RTT;
+            pnOffset = ShortHeaderCodec.packetNumberOffset(ourConnectionId.length);
+            packetLength = bytes.length - offset;
+        }
+        if (packetLength <= pnOffset || offset + packetLength > bytes.length) {
+            return -1;
+        }
+        byte[] packet = new byte[packetLength];
+        System.arraycopy(bytes, offset, packet, 0, packetLength);
+        processPacket(level, packet, pnOffset);
+        return packetLength;
+    }
+
+    // Client-only: the server's connection ID isn't known until its
+    // first long-header response arrives (see the class documentation
+    // on why this never changes again after that).
+    private void learnPeerConnectionId(byte[] scid) {
+        peerConnectionId = scid;
+        peerConnectionIdLearned = true;
+    }
+
+    private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset) {
+        PacketProtectionKeys keys = recvKeys.get(level);
+        if (keys == null) {
+            return; // keys not derived yet at this level; drop
+        }
+        boolean longHeader = level != EncryptionLevel.ONE_RTT;
+        try {
+            byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+            System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
+            byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+            PacketProtection.xorFirstByte(packet, mask, longHeader);
+            int pnLength = (packet[0] & 0x03) + 1;
+            PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+            long truncatedPn = 0;
+            for (int i = 0; i < pnLength; i++) {
+                truncatedPn = (truncatedPn << 8) | (packet[pnOffset + i] & 0xff);
+            }
+            long fullPacketNumber = PacketNumberCodec.decode(largestReceived[level.ordinal()], truncatedPn, pnLength);
+
+            int headerLength = pnOffset + pnLength;
+            byte[] aad = java.util.Arrays.copyOfRange(packet, 0, headerLength);
+            byte[] ciphertext = java.util.Arrays.copyOfRange(packet, headerLength, packet.length);
+            byte[] plaintext = PacketProtection.open(keys, fullPacketNumber, aad, ciphertext);
+
+            largestReceived[level.ordinal()] = Math.max(largestReceived[level.ordinal()], fullPacketNumber);
+            ackOwed[level.ordinal()] = true;
+
+            new QuicFrameParser(new FrameDispatcher(level)).receive(ByteBuffer.wrap(plaintext));
+        } catch (PacketProtectionException e) {
+            LOGGER.log(Level.FINE, "Packet protection failure at " + level + "; dropping", e);
+        }
+    }
+
+
+    /** Per-packet frame dispatcher, one instance per {@link #processPacket} call. */
+    private final class FrameDispatcher implements QuicFrameHandler {
+
+        private final EncryptionLevel level;
+
+        FrameDispatcher(EncryptionLevel level) {
+            this.level = level;
+        }
+
+        @Override
+        public void paddingFrameReceived(int length) {
+        }
+
+        @Override
+        public void pingFrameReceived() {
+        }
+
+        @Override
+        public void ackFrameReceived(long largestAcknowledged, long ackDelay, long[][] ranges) {
+            if (level == EncryptionLevel.HANDSHAKE) {
+                receivedHandshakeAck = true;
+            }
+            LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged, ackDelay,
+                    ranges, peerMaxAckDelay(), System.currentTimeMillis(), peerAddressValidated());
+            for (SentPacket lost : result.getNewlyLost()) {
+                requeueLostPacket(level, lost.getPacketNumber());
             }
         }
-        return maxId < 0 ? 0 : maxId + 4;
-    }
 
-    /**
-     * Sends data on a stream.
-     */
-    void streamSend(long streamId, ByteBuffer data, boolean fin) {
-        GumdropNative.quiche_conn_stream_send(connPtr, streamId,
-                data, data.remaining(), fin);
-        engine.requestFlush();
-    }
-
-    /**
-     * Closes a stream.
-     */
-    void streamClose(long streamId) {
-        ByteBuffer empty = ByteBuffer.allocate(0);
-        GumdropNative.quiche_conn_stream_send(connPtr, streamId,
-                empty, 0, true);
-        streams.remove(Long.valueOf(streamId));
-        engine.requestFlush();
-    }
-
-    /**
-     * RFC 9000 section 4.6: sends RESET_STREAM with the given error code.
-     * RFC 9250 section 4.3 defines DoQ application error codes.
-     */
-    void streamShutdown(long streamId, long errorCode) {
-        GumdropNative.quiche_conn_stream_shutdown(connPtr, streamId,
-                0, errorCode);
-        streams.remove(Long.valueOf(streamId));
-        engine.requestFlush();
-    }
-
-    /**
-     * Schedules the quiche timeout timer. Per RFC 9000 section 10.1,
-     * a connection that remains idle for longer than the negotiated
-     * max_idle_timeout is silently closed.
-     */
-    void scheduleTimeout() {
-        if (timerHandle != null) {
-            timerHandle.cancel();
+        @Override
+        public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
+            QuicStreamEndpoint stream = streams.remove(Long.valueOf(streamId));
+            if (stream != null) {
+                stream.markClosed();
+                stream.getHandler().disconnected();
+            }
         }
-        long timeoutMs =
-                GumdropNative.quiche_conn_timeout_as_millis(connPtr);
-        if (timeoutMs > 0) {
-            timerHandle = engine.scheduleTimer(timeoutMs,
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            onTimeout();
-                        }
-                    });
+
+        @Override
+        public void stopSendingFrameReceived(long streamId, long applicationErrorCode) {
+            resetStream(streamId, applicationErrorCode);
+        }
+
+        @Override
+        public void cryptoFrameReceived(long offset, ByteBuffer data) {
+            byte[] copy = new byte[data.remaining()];
+            data.get(copy);
+            try {
+                tlsEngine.receiveCryptoData(level, offset, ByteBuffer.wrap(copy));
+            } catch (TlsProtocolException | IOException e) {
+                LOGGER.log(Level.WARNING, "TLS error processing CRYPTO data at " + level, e);
+            }
+        }
+
+        @Override
+        public void newTokenFrameReceived(ByteBuffer token) {
+        }
+
+        @Override
+        public void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data) {
+            QuicStreamEndpoint stream = streams.get(Long.valueOf(streamId));
+            if (stream == null) {
+                stream = acceptStream(streamId);
+                if (stream == null) {
+                    return;
+                }
+            }
+            if (data.hasRemaining()) {
+                stream.deliverData(data);
+            }
+            if (fin) {
+                // The peer finishing their send direction must not stop
+                // this side from still sending its own response on the
+                // same (bidirectional) stream -- see QuicStreamEndpoint's
+                // markPeerFinished javadoc.
+                stream.markPeerFinished();
+                stream.getHandler().disconnected();
+                retireStreamIfFullyClosed(streamId, stream);
+            }
+        }
+
+        @Override
+        public void maxDataFrameReceived(long maximumData) {
+            peerMaxData = Math.max(peerMaxData, maximumData);
+        }
+
+        @Override
+        public void maxStreamDataFrameReceived(long streamId, long maximumStreamData) {
+            Long key = Long.valueOf(streamId);
+            Long current = peerMaxStreamData.get(key);
+            if (current == null || maximumStreamData > current.longValue()) {
+                peerMaxStreamData.put(key, Long.valueOf(maximumStreamData));
+            }
+        }
+
+        @Override
+        public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
+        }
+
+        @Override
+        public void dataBlockedFrameReceived(long maximumData) {
+        }
+
+        @Override
+        public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
+        }
+
+        @Override
+        public void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams) {
+        }
+
+        @Override
+        public void newConnectionIdFrameReceived(long sequenceNumber, long retirePriorTo,
+                ByteBuffer connectionId, ByteBuffer statelessResetToken) {
+            byte[] cid = new byte[connectionId.remaining()];
+            connectionId.get(cid);
+            byte[] token = new byte[statelessResetToken.remaining()];
+            statelessResetToken.get(token);
+            connectionIdManager.addPeerConnectionId(sequenceNumber, retirePriorTo, cid, token);
+        }
+
+        @Override
+        public void retireConnectionIdFrameReceived(long sequenceNumber) {
+            connectionIdManager.retireOurs(sequenceNumber);
+        }
+
+        @Override
+        public void pathChallengeFrameReceived(ByteBuffer data) {
+            // Connection migration/path validation is not implemented.
+        }
+
+        @Override
+        public void pathResponseFrameReceived(ByteBuffer data) {
+        }
+
+        @Override
+        public void connectionCloseFrameReceived(boolean applicationError, long errorCode,
+                long frameType, String reason) {
+            deferredCloseReason = reason;
+            close();
+        }
+
+        @Override
+        public void handshakeDoneFrameReceived() {
+            handshakeConfirmed = true;
+            notifyClientHandshakeComplete();
+        }
+
+        @Override
+        public void frameError(String message) {
+            LOGGER.warning("QUIC frame error on connection to " + remoteAddress + ": " + message);
         }
     }
 
-    private void onTimeout() {
+    // RFC 9000 section 18.2's default: max_ack_delay/ack_delay_exponent
+    // aren't implemented as transport parameters yet (TransportParameters
+    // doesn't carry them), so the default always applies.
+    private static long peerMaxAckDelay() {
+        return 25;
+    }
+
+    private void requeueLostPacket(EncryptionLevel level, long packetNumber) {
+        List<PendingChunk> lostCrypto = sentCrypto.get(level).remove(Long.valueOf(packetNumber));
+        if (lostCrypto != null) {
+            pendingCrypto.get(level).addAll(0, lostCrypto);
+        }
+        if (level == EncryptionLevel.ONE_RTT) {
+            Map<Long, List<PendingChunk>> lostStreams = sentStream.remove(Long.valueOf(packetNumber));
+            if (lostStreams != null) {
+                for (Map.Entry<Long, List<PendingChunk>> entry : lostStreams.entrySet()) {
+                    List<PendingChunk> chunks = pendingStream.get(entry.getKey());
+                    if (chunks == null) {
+                        chunks = new ArrayList<PendingChunk>();
+                        pendingStream.put(entry.getKey(), chunks);
+                    }
+                    chunks.addAll(0, entry.getValue());
+                }
+            }
+        }
+    }
+
+    // ── Send path ──
+
+    /**
+     * Builds and sends one packet per encryption level with pending
+     * data (RFC 9000 section 12.2 packet coalescing into shared
+     * datagrams is not implemented -- one packet per level per call).
+     */
+    void flush() {
+        for (EncryptionLevel level : EncryptionLevel.values()) {
+            if (discarded[level.ordinal()] || sendKeys.get(level) == null) {
+                continue;
+            }
+            try {
+                buildAndSendPacket(level);
+            } catch (PacketProtectionException e) {
+                LOGGER.log(Level.WARNING, "Failed to protect outgoing packet at " + level, e);
+            }
+        }
+    }
+
+    // Stream-level and connection-level send budget, per RFC 9000
+    // section 18.2's parameter semantics (verified against the RFC text):
+    // our send limit on a stream is always PEER-declared -- their
+    // bidi_remote if we opened the stream (we're "the endpoint that
+    // receives the parameter" from their point of view), their bidi_local
+    // if they opened it, or their uni limit for a uni stream we opened.
+    private boolean canSendOnStream(long streamId, int length) {
+        if (connectionBytesSent + length > peerMaxData) {
+            return false;
+        }
+        long sent = streamBytesSent.containsKey(Long.valueOf(streamId)) ? streamBytesSent.get(Long.valueOf(streamId)).longValue() : 0;
+        Long limit = peerMaxStreamData.get(Long.valueOf(streamId));
+        long effectiveLimit = limit != null ? limit.longValue() : initialPeerStreamLimit(streamId);
+        return sent + length <= effectiveLimit;
+    }
+
+    private long initialPeerStreamLimit(long streamId) {
+        if (peerTransportParameters == null) {
+            return 0;
+        }
+        if (isUnidirectional(streamId)) {
+            return peerTransportParameters.getInitialMaxStreamDataUni();
+        }
+        boolean weOpened = !isPeerInitiated(streamId);
+        return weOpened
+                ? peerTransportParameters.getInitialMaxStreamDataBidiRemote()
+                : peerTransportParameters.getInitialMaxStreamDataBidiLocal();
+    }
+
+    private void recordBytesSent(long streamId, int length) {
+        connectionBytesSent += length;
+        Long key = Long.valueOf(streamId);
+        long sent = streamBytesSent.containsKey(key) ? streamBytesSent.get(key).longValue() : 0;
+        streamBytesSent.put(key, Long.valueOf(sent + length));
+    }
+
+    private void buildAndSendPacket(EncryptionLevel level) throws PacketProtectionException {
+        boolean oneRtt = level == EncryptionLevel.ONE_RTT;
+        List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
+
+        Map<Long, List<PendingChunk>> streamChunksToSend = new HashMap<Long, List<PendingChunk>>();
+        if (oneRtt) {
+            for (Map.Entry<Long, List<PendingChunk>> entry : pendingStream.entrySet()) {
+                long streamId = entry.getKey().longValue();
+                List<PendingChunk> queued = entry.getValue();
+                List<PendingChunk> toSend = new ArrayList<PendingChunk>();
+                for (PendingChunk chunk : queued) {
+                    if (canSendOnStream(streamId, chunk.data.length)) {
+                        toSend.add(chunk);
+                        recordBytesSent(streamId, chunk.data.length);
+                    } else {
+                        break; // preserve order: don't skip ahead of a blocked chunk
+                    }
+                }
+                if (!toSend.isEmpty()) {
+                    streamChunksToSend.put(entry.getKey(), toSend);
+                }
+            }
+        }
+
+        boolean includeAck = ackOwed[level.ordinal()];
+        boolean includeHandshakeDone = oneRtt && handshakeDoneOwed;
+        boolean includePing = pendingPing[level.ordinal()];
+        List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : java.util.Collections.<long[]>emptyList();
+        List<ConnectionIdEntry> newCidsToSend = oneRtt
+                ? connectionIdManager.drainPendingIssuance() : java.util.Collections.<ConnectionIdEntry>emptyList();
+        long[] retiresToSend = oneRtt ? connectionIdManager.drainPendingRetirement() : new long[0];
+
+        boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
+                && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
+                && retiresToSend.length == 0;
+        if (nothingToSend) {
+            return;
+        }
+
+        int frameBytes = 0;
+        for (PendingChunk chunk : cryptoChunks) {
+            frameBytes += QuicFrameWriter.cryptoLength(chunk.offset, chunk.data.length);
+        }
+        for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
+            for (PendingChunk chunk : entry.getValue()) {
+                frameBytes += QuicFrameWriter.streamLength(entry.getKey().longValue(), chunk.offset, chunk.data.length);
+            }
+        }
+        long[][] ackRanges = { { largestReceived[level.ordinal()], largestReceived[level.ordinal()] } };
+        if (includeAck) {
+            frameBytes += QuicFrameWriter.ackLength(ackRanges, 0);
+        }
+        if (includeHandshakeDone) {
+            frameBytes += QuicFrameWriter.handshakeDoneLength();
+        }
+        if (includePing) {
+            frameBytes += QuicFrameWriter.pingLength();
+        }
+        for (long[] reset : resetsToSend) {
+            frameBytes += QuicFrameWriter.resetStreamLength(reset[0], reset[1], reset[2]);
+        }
+        for (ConnectionIdEntry entry : newCidsToSend) {
+            frameBytes += QuicFrameWriter.newConnectionIdLength(entry.getSequenceNumber(), 0,
+                    entry.getConnectionId(), entry.getStatelessResetToken());
+        }
+        for (long sequenceNumber : retiresToSend) {
+            frameBytes += QuicFrameWriter.retireConnectionIdLength(sequenceNumber);
+        }
+
+        boolean longHeader = !oneRtt;
+        long packetNumber = sendPacketNumber[level.ordinal()]++;
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+        int packetType = level == EncryptionLevel.INITIAL ? LongHeaderCodec.TYPE_INITIAL : LongHeaderCodec.TYPE_HANDSHAKE;
+        int minDatagramSize = (level == EncryptionLevel.INITIAL && !isServer) ? MIN_DATAGRAM_SIZE : 0;
+
+        // RFC 9001 section 5.4.2: the header-protection sample is taken
+        // starting 4 bytes after the (assumed 4-byte) packet number field
+        // and is QuicAeadAlgorithm.SAMPLE_LENGTH bytes long -- every
+        // packet, not just an Initial-carrying datagram, must carry
+        // enough ciphertext for that sample to exist, or applying the
+        // header-protection mask reads past the end of the packet.
+        int hpSamplePadding = Math.max(0,
+                4 + QuicAeadAlgorithm.SAMPLE_LENGTH - pnLength - QuicAeadAlgorithm.TAG_LENGTH - frameBytes);
+
+        int paddingBytes = 0;
+        byte[] header;
+        while (true) {
+            header = longHeader
+                    ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId, new byte[0],
+                            packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH)
+                    : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
+            int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
+            int nextPadding = Math.max(hpSamplePadding, Math.max(0, paddingBytes + required));
+            if (nextPadding == paddingBytes) {
+                break;
+            }
+            paddingBytes = nextPadding;
+        }
+        int totalFrameBytes = frameBytes + paddingBytes;
+
+        ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
+        List<PendingChunk> sentCryptoThisPacket = new ArrayList<PendingChunk>();
+        for (PendingChunk chunk : cryptoChunks) {
+            QuicFrameWriter.writeCrypto(payload, chunk.offset, chunk.data);
+            sentCryptoThisPacket.add(chunk);
+        }
+        cryptoChunks.clear();
+        if (!sentCryptoThisPacket.isEmpty()) {
+            sentCrypto.get(level).put(Long.valueOf(packetNumber), sentCryptoThisPacket);
+        }
+
+        Map<Long, List<PendingChunk>> sentStreamThisPacket = new HashMap<Long, List<PendingChunk>>();
+        for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
+            long streamId = entry.getKey().longValue();
+            for (PendingChunk chunk : entry.getValue()) {
+                QuicFrameWriter.writeStream(payload, streamId, chunk.offset, chunk.data, chunk.fin);
+            }
+            List<PendingChunk> queued = pendingStream.get(entry.getKey());
+            queued.removeAll(entry.getValue());
+            if (queued.isEmpty()) {
+                pendingStream.remove(entry.getKey());
+                QuicStreamEndpoint stream = streams.get(entry.getKey());
+                if (stream != null) {
+                    stream.notifyWriteReady();
+                }
+            }
+            sentStreamThisPacket.put(entry.getKey(), entry.getValue());
+        }
+        if (!sentStreamThisPacket.isEmpty()) {
+            sentStream.put(Long.valueOf(packetNumber), sentStreamThisPacket);
+        }
+
+        if (includeAck) {
+            QuicFrameWriter.writeAck(payload, ackRanges, 0);
+            ackOwed[level.ordinal()] = false;
+        }
+        if (includeHandshakeDone) {
+            QuicFrameWriter.writeHandshakeDone(payload);
+            handshakeDoneOwed = false;
+        }
+        if (includePing) {
+            QuicFrameWriter.writePing(payload);
+            pendingPing[level.ordinal()] = false;
+        }
+        for (long[] reset : resetsToSend) {
+            QuicFrameWriter.writeResetStream(payload, reset[0], reset[1], reset[2]);
+        }
+        if (!resetsToSend.isEmpty()) {
+            pendingResetStreams.removeAll(resetsToSend);
+        }
+        for (ConnectionIdEntry entry : newCidsToSend) {
+            QuicFrameWriter.writeNewConnectionId(payload, entry.getSequenceNumber(), 0,
+                    entry.getConnectionId(), entry.getStatelessResetToken());
+        }
+        for (long sequenceNumber : retiresToSend) {
+            QuicFrameWriter.writeRetireConnectionId(payload, sequenceNumber);
+        }
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(payload, paddingBytes);
+        }
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        PacketProtectionKeys keys = sendKeys.get(level);
+        byte[] ciphertext = PacketProtection.seal(keys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = header.length - pnLength;
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
+        byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+        PacketProtection.xorFirstByte(packet, mask, longHeader);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        engine.sendPacket(this, packet);
+
+        boolean ackEliciting = !sentCryptoThisPacket.isEmpty() || !sentStreamThisPacket.isEmpty()
+                || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
+                || retiresToSend.length > 0;
+        lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, true, packet.length);
+        scheduleLossDetectionTimer();
+    }
+
+    // ── Timers ──
+
+    private boolean receivedHandshakeAck;
+
+    private boolean peerAddressValidated() {
+        return isServer || receivedHandshakeAck || handshakeConfirmed;
+    }
+
+    private void scheduleLossDetectionTimer() {
         if (closed) {
             return;
         }
-        GumdropNative.quiche_conn_on_timeout(connPtr);
-        engine.requestFlush();
-        if (GumdropNative.quiche_conn_is_closed(connPtr)) {
-            close();
-        } else {
-            scheduleTimeout();
+        if (timerHandle != null) {
+            timerHandle.cancel();
+            timerHandle = null;
         }
+        long now = System.currentTimeMillis();
+        boolean hasHandshakeKeys = sendKeys.get(EncryptionLevel.HANDSHAKE) != null;
+        long deadline = lossDetector.getLossDetectionTimeout(false, peerAddressValidated(), hasHandshakeKeys,
+                peerMaxAckDelay(), now);
+        if (deadline == LossDetector.NO_TIMEOUT) {
+            return;
+        }
+        long delay = Math.max(0, deadline - now);
+        timerHandle = engine.scheduleTimer(delay, new Runnable() {
+            @Override
+            public void run() {
+                onLossDetectionTimeout();
+            }
+        });
     }
 
+    private void onLossDetectionTimeout() {
+        if (closed) {
+            return;
+        }
+        boolean hasHandshakeKeys = sendKeys.get(EncryptionLevel.HANDSHAKE) != null;
+        LossDetector.TimeoutResult result = lossDetector.onLossDetectionTimeout(peerAddressValidated(), hasHandshakeKeys,
+                peerMaxAckDelay(), System.currentTimeMillis());
+        EncryptionLevel lossSpace = result.getLossSpace();
+        if (lossSpace != null) {
+            for (SentPacket lost : result.getNewlyLost()) {
+                requeueLostPacket(lossSpace, lost.getPacketNumber());
+            }
+        } else {
+            // Probe Timeout: nothing was naturally queued to retransmit,
+            // so send a bare PING to elicit an ACK and keep the
+            // connection alive (RFC 9002 Appendix A.9).
+            EncryptionLevel probeSpace = result.getProbeSpace();
+            if (probeSpace != null && sendKeys.get(probeSpace) != null) {
+                pendingPing[probeSpace.ordinal()] = true;
+            }
+        }
+        flush();
+        scheduleLossDetectionTimer();
+    }
+
+    // ── Close ──
+
     /**
-     * Closes this connection and all its streams.
-     * RFC 9000 section 10.2: sends CONNECTION_CLOSE before freeing.
+     * Closes the connection, sending CONNECTION_CLOSE if the handshake
+     * had progressed far enough to have usable keys.
      */
     void close() {
         if (closed) {
             return;
         }
         closed = true;
-
         if (timerHandle != null) {
             timerHandle.cancel();
+            timerHandle = null;
         }
-
-        // RFC 9000 section 10.2: send CONNECTION_CLOSE with appropriate
-        // error code. Use H3_NO_ERROR (0x100) if an h3 handler is
-        // installed, otherwise QUIC NO_ERROR (0x0).
-        boolean isH3 = connectionReadyHandler != null;
-        long errorCode = isH3 ? 0x100L : 0x0L;
-        int rc = GumdropNative.quiche_conn_close(
-                connPtr, isH3, errorCode, "");
-        if (rc == 0 || rc == GumdropNative.QUICHE_ERR_DONE) {
-            engine.flushConnection(this);
+        for (EncryptionLevel level : EncryptionLevel.values()) {
+            PacketProtectionKeys keys = sendKeys.get(level);
+            if (keys == null) {
+                continue;
+            }
+            try {
+                sendConnectionClose(level, keys);
+                break; // RFC 9000 section 10.2.1: send at only the highest available level
+            } catch (PacketProtectionException e) {
+                LOGGER.log(Level.FINE, "Failed to send CONNECTION_CLOSE", e);
+            }
         }
-
         for (QuicStreamEndpoint stream : streams.values()) {
             stream.markClosed();
             stream.getHandler().disconnected();
         }
         streams.clear();
-
-        GumdropNative.quiche_conn_free(connPtr);
     }
 
-    boolean isClosed() {
-        return closed;
+    private void sendConnectionClose(EncryptionLevel level, PacketProtectionKeys keys) throws PacketProtectionException {
+        String reason = deferredCloseReason != null ? deferredCloseReason : "";
+        int frameBytes = QuicFrameWriter.connectionCloseLength(false, reason);
+        boolean longHeader = level != EncryptionLevel.ONE_RTT;
+        long packetNumber = sendPacketNumber[level.ordinal()]++;
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+        int packetType = level == EncryptionLevel.INITIAL ? LongHeaderCodec.TYPE_INITIAL : LongHeaderCodec.TYPE_HANDSHAKE;
+        byte[] header = longHeader
+                ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId, new byte[0],
+                        packetNumber, pnLength, frameBytes + QuicAeadAlgorithm.TAG_LENGTH)
+                : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
+
+        ByteBuffer payload = ByteBuffer.allocate(frameBytes);
+        QuicFrameWriter.writeConnectionClose(payload, false, 0, 0, reason);
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        byte[] ciphertext = PacketProtection.seal(keys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = header.length - pnLength;
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
+        byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+        PacketProtection.xorFirstByte(packet, mask, longHeader);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        engine.sendPacket(this, packet);
+    }
+
+    // ── QuicTlsEngineListener ──
+
+    @Override
+    public void cryptoDataReady(EncryptionLevel level, long offset, byte[] data) {
+        pendingCrypto.get(level).add(new PendingChunk(offset, data));
+        requestFlush();
+    }
+
+    @Override
+    public void handshakeSecretsAvailable() {
+        TlsConstants.CipherSuite cipher = selectedCipher();
+        hkdf = cipher == TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384 ? Hkdf.sha384() : Hkdf.sha256();
+        aead = cipher == TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384 ? QuicAeadAlgorithm.AES_256_GCM : QuicAeadAlgorithm.AES_128_GCM;
+        byte[] clientSecret = tlsEngine.getClientHandshakeTrafficSecret();
+        byte[] serverSecret = tlsEngine.getServerHandshakeTrafficSecret();
+        deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, clientSecret, serverSecret);
+    }
+
+    @Override
+    public void handshakeFinished() {
+        byte[] clientSecret = tlsEngine.getClientApplicationTrafficSecret();
+        byte[] serverSecret = tlsEngine.getServerApplicationTrafficSecret();
+        deriveDirectionalKeys(EncryptionLevel.ONE_RTT, clientSecret, serverSecret);
+        established = true;
+        if (isServer) {
+            handshakeDoneOwed = true;
+            handshakeConfirmed = true; // RFC 9001 section 4.1.2: sending HANDSHAKE_DONE is the server's own confirmation
+            requestFlush();
+        } else {
+            notifyClientHandshakeComplete();
+        }
+    }
+
+    @Override
+    public void transportParametersReceived(TransportParameters transportParameters) {
+        this.peerTransportParameters = transportParameters;
+        peerMaxData = transportParameters.getInitialMaxData();
+    }
+
+    private TlsConstants.CipherSuite selectedCipher() {
+        return isServer
+                ? ((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).getSelectedCipher()
+                : ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).getSelectedCipher();
+    }
+
+    private void deriveDirectionalKeys(EncryptionLevel level, byte[] clientSecret, byte[] serverSecret) {
+        PacketProtectionKeys clientKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead);
+        PacketProtectionKeys serverKeys = PacketProtectionKeys.derive(hkdf, serverSecret, aead);
+        if (isServer) {
+            sendKeys.put(level, serverKeys);
+            recvKeys.put(level, clientKeys);
+        } else {
+            sendKeys.put(level, clientKeys);
+            recvKeys.put(level, serverKeys);
+        }
+    }
+
+    // Client-only: fires once the client's own handshake has finished,
+    // handing off the now-usable connection to whichever caller is
+    // waiting for it.
+    private void notifyClientHandshakeComplete() {
+        if (clientConnectionAcceptedHandler != null) {
+            QuicEngine.ConnectionAcceptedHandler handlerToNotify = clientConnectionAcceptedHandler;
+            clientConnectionAcceptedHandler = null;
+            handlerToNotify.connectionAccepted(this);
+        } else if (clientHandler != null) {
+            ProtocolHandler handlerToNotify = clientHandler;
+            clientHandler = null;
+            openStream(handlerToNotify);
+        }
+    }
+
+    /** One chunk of CRYPTO or STREAM data queued for sending. */
+    private static final class PendingChunk {
+
+        final long offset;
+        final byte[] data;
+        final boolean fin;
+
+        PendingChunk(long offset, byte[] data) {
+            this(offset, data, false);
+        }
+
+        PendingChunk(long offset, byte[] data, boolean fin) {
+            this.offset = offset;
+            this.data = data;
+            this.fin = fin;
+        }
     }
 }

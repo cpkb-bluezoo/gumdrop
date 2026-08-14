@@ -21,20 +21,28 @@
 
 package org.bluezoo.gumdrop.quic;
 
-import org.bluezoo.gumdrop.GumdropNative;
-
-import java.io.ByteArrayInputStream;
 import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.List;
+
+import tech.kwik.agent15.TlsConstants;
 
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
 
 /**
- * SecurityInfo implementation backed by quiche/BoringSSL.
+ * {@link SecurityInfo} backed by Agent15's negotiated TLS 1.3 state
+ * instead of native quiche/BoringSSL calls. QUIC always uses TLS 1.3, so
+ * the protocol is always "QUICv1".
  *
- * <p>Reads security metadata from the native quiche connection after
- * the QUIC handshake completes. QUIC always uses TLS 1.3, so the
- * protocol is always "QUICv1".
+ * <p>Not yet available: ALPN was never added to the handshake (a gap
+ * already noted in earlier stages of this migration, not something this
+ * stage adds), so {@link #getApplicationProtocol} always returns
+ * {@code null}; the server side has no client certificate chain
+ * accessor (mutual TLS is not exercised), so {@link #getPeerCertificates}
+ * is only ever populated on the client side.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SecurityInfo
@@ -42,24 +50,23 @@ import org.bluezoo.gumdrop.SecurityInfo;
 final class QuicSecurityInfo implements SecurityInfo {
 
     private final String cipherSuite;
-    private final String applicationProtocol;
     private final Certificate[] peerCertificates;
     private final long handshakeDurationMs;
 
     /**
-     * Creates a QuicSecurityInfo by reading state from a quiche connection.
+     * Creates a QuicSecurityInfo from an established TLS engine's state.
      *
-     * @param connPtr the native quiche_conn pointer
-     * @param sslPtr the native BoringSSL SSL pointer
-     * @param handshakeStartTime the time when the handshake started
+     * @param tlsEngine the connection's TLS engine, once its handshake has finished
+     * @param isServer true if this endpoint is the server
+     * @param handshakeStartTime the time the handshake started, for {@link #getHandshakeDurationMs}
      */
-    QuicSecurityInfo(long connPtr, long sslPtr, long handshakeStartTime) {
-        this.cipherSuite = GumdropNative.ssl_get_cipher_name(sslPtr);
-        this.applicationProtocol =
-                GumdropNative.quiche_conn_application_proto(connPtr);
-        this.peerCertificates = parsePeerCerts(connPtr);
-        this.handshakeDurationMs =
-                System.currentTimeMillis() - handshakeStartTime;
+    QuicSecurityInfo(QuicTlsEngine tlsEngine, boolean isServer, long handshakeStartTime) {
+        TlsConstants.CipherSuite selected = isServer
+                ? ((QuicTlsServerEngine) tlsEngine).getSelectedCipher()
+                : ((QuicTlsClientEngine) tlsEngine).getSelectedCipher();
+        this.cipherSuite = selected != null ? selected.toString() : null;
+        this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
+        this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
     }
 
     @Override
@@ -98,7 +105,7 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     @Override
     public String getApplicationProtocol() {
-        return applicationProtocol;
+        return null;
     }
 
     @Override
@@ -108,23 +115,15 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     @Override
     public boolean isSessionResumed() {
-        // QUIC uses TLS 1.3 session tickets rather than traditional
-        // session resumption. This is not directly observable via quiche.
+        // 0-RTT/session resumption is not implemented.
         return false;
     }
 
-    private static Certificate[] parsePeerCerts(long connPtr) {
-        byte[] derBytes = GumdropNative.quiche_conn_peer_cert(connPtr);
-        if (derBytes == null || derBytes.length == 0) {
+    private static Certificate[] parsePeerCerts(QuicTlsClientEngine clientEngine) {
+        List<X509Certificate> chain = clientEngine.getServerCertificateChain();
+        if (chain == null || chain.isEmpty()) {
             return null;
         }
-        try {
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            ByteArrayInputStream in = new ByteArrayInputStream(derBytes);
-            Certificate cert = cf.generateCertificate(in);
-            return new Certificate[] { cert };
-        } catch (Exception e) {
-            return null;
-        }
+        return chain.toArray(new Certificate[0]);
     }
 }

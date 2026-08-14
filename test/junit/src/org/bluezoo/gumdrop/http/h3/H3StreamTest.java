@@ -4,18 +4,28 @@
  *
  * Tests for H3Stream pseudo-header validation (RFC 9114 section 4.1.2).
  *
- * Because H3Stream.sendErrorResponse() calls native JNI methods via
- * flushHeaders(), these tests verify the validation logic by calling
- * onHeaders() and catching the expected NullPointerException that occurs
- * when the response path reaches the null connection. The key assertion
- * is that the stream transitions to CLOSED (validation triggered) vs
- * remaining OPEN/proceeding (validation passed).
+ * Because H3Stream sends its error response through a null connection/
+ * endpoint (neither is wired up in this unit test), these tests verify
+ * the validation logic by calling headersFrameReceived() with a
+ * QPACK-encoded field section and catching the expected
+ * NullPointerException that occurs once the response path reaches the
+ * null connection or endpoint. The key assertion is that the relevant
+ * fields were already set before the NPE (meaning validation ran) and,
+ * for the "past validation" cases, that state stayed OPEN rather than
+ * being closed by an error response.
  */
 
 package org.bluezoo.gumdrop.http.h3;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
+import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -24,19 +34,15 @@ public class H3StreamTest {
 
     /**
      * RFC 9114 section 4.1.2: missing :method triggers validation.
-     * The sendErrorResponse will NPE on null connection, but validation
-     * was reached (meaning the check works).
      */
     @Test
     public void testMissingMethodTriggersValidation() throws Exception {
-        H3Stream stream = createStream(4);
-        String[] headers = { ":scheme", "https", ":path", "/index.html" };
+        H3Stream stream = createStream();
 
         try {
-            stream.onHeaders(headers);
+            stream.headersFrameReceived(encode(":scheme", "https", ":path", "/index.html"));
         } catch (NullPointerException expected) {
-            // NPE from connection.getH3Conn() in sendErrorResponse —
-            // confirms validation was triggered
+            // confirms the error-response path was reached
         }
 
         // method is null so validation should have triggered
@@ -49,13 +55,12 @@ public class H3StreamTest {
      */
     @Test
     public void testMissingSchemeTriggersValidation() throws Exception {
-        H3Stream stream = createStream(4);
-        String[] headers = { ":method", "GET", ":path", "/index.html" };
+        H3Stream stream = createStream();
 
         try {
-            stream.onHeaders(headers);
+            stream.headersFrameReceived(encode(":method", "GET", ":path", "/index.html"));
         } catch (NullPointerException expected) {
-            // NPE confirms sendErrorResponse was reached
+            // confirms the error-response path was reached
         }
 
         assertEquals("GET", getField(stream, "method"));
@@ -67,13 +72,12 @@ public class H3StreamTest {
      */
     @Test
     public void testMissingPathTriggersValidation() throws Exception {
-        H3Stream stream = createStream(4);
-        String[] headers = { ":method", "GET", ":scheme", "https" };
+        H3Stream stream = createStream();
 
         try {
-            stream.onHeaders(headers);
+            stream.headersFrameReceived(encode(":method", "GET", ":scheme", "https"));
         } catch (NullPointerException expected) {
-            // NPE confirms sendErrorResponse was reached
+            // confirms the error-response path was reached
         }
 
         assertNull("requestTarget should be null", getField(stream, "requestTarget"));
@@ -85,16 +89,14 @@ public class H3StreamTest {
      */
     @Test
     public void testConnectExemptFromSchemeAndPath() throws Exception {
-        H3Stream stream = createStream(4);
-        String[] headers = {
-            ":method", "CONNECT",
-            ":authority", "proxy.example.com:8080"
-        };
+        H3Stream stream = createStream();
 
         try {
-            stream.onHeaders(headers);
+            stream.headersFrameReceived(encode(
+                    ":method", "CONNECT",
+                    ":authority", "proxy.example.com:8080"));
         } catch (NullPointerException expected) {
-            // NPE from connection.createHandler() — past validation
+            // confirms we got past validation
         }
 
         assertEquals("CONNECT", getField(stream, "method"));
@@ -108,18 +110,16 @@ public class H3StreamTest {
      */
     @Test
     public void testValidRequestPassesValidation() throws Exception {
-        H3Stream stream = createStream(4);
-        String[] headers = {
-            ":method", "GET",
-            ":scheme", "https",
-            ":path", "/",
-            ":authority", "example.com"
-        };
+        H3Stream stream = createStream();
 
         try {
-            stream.onHeaders(headers);
+            stream.headersFrameReceived(encode(
+                    ":method", "GET",
+                    ":scheme", "https",
+                    ":path", "/",
+                    ":authority", "example.com"));
         } catch (NullPointerException expected) {
-            // NPE from connection.createHandler() — past validation
+            // confirms we got past validation
         }
 
         assertEquals("GET", getField(stream, "method"));
@@ -128,11 +128,24 @@ public class H3StreamTest {
 
     // ── Helpers ──
 
-    private H3Stream createStream(long streamId) throws Exception {
+    private H3Stream createStream() throws Exception {
         Constructor<H3Stream> ctor = H3Stream.class.getDeclaredConstructor(
-                HTTP3ServerHandler.class, long.class);
+                HTTP3ServerHandler.class, org.bluezoo.gumdrop.http.qpack.SimpleEncoder.class,
+                SimpleDecoder.class);
         ctor.setAccessible(true);
-        return ctor.newInstance(null, streamId);
+        return ctor.newInstance(null, new SimpleEncoder(), new SimpleDecoder());
+    }
+
+    private static ByteBuffer encode(String... pairs) {
+        List<Header> headers = new ArrayList<Header>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            headers.add(new Header(pairs[i], pairs[i + 1]));
+        }
+        SimpleEncoder encoder = new SimpleEncoder();
+        ByteBuffer buf = ByteBuffer.allocate(4096);
+        encoder.encode(buf, headers);
+        buf.flip();
+        return buf;
     }
 
     private String getState(H3Stream stream) throws Exception {

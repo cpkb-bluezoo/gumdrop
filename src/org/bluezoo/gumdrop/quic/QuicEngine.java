@@ -21,114 +21,102 @@
 
 package org.bluezoo.gumdrop.quic;
 
-import org.bluezoo.gumdrop.GumdropNative;
-import org.bluezoo.util.ByteArrays;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.security.SecureRandom;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
-import java.text.MessageFormat;
+import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
-import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.X509TrustManager;
+
+import tech.kwik.agent15.engine.TlsServerEngineFactory;
+
 import org.bluezoo.gumdrop.ChannelHandler;
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.MultiplexedEndpoint;
 import org.bluezoo.gumdrop.NullSecurityInfo;
+import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
+import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
+import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
+import org.bluezoo.util.ByteArrays;
 
 /**
- * QUIC engine managing connections over a single DatagramChannel.
+ * One UDP socket multiplexing many {@link QuicConnection}s, the
+ * pure-Java replacement for the native quiche-backed implementation.
  *
- * <p>QUIC (RFC 9000) is a UDP-based transport providing reliable,
- * multiplexed streams with built-in TLS 1.3 (RFC 9001). This engine
- * handles connection demultiplexing (RFC 9000 section 5), version
- * negotiation (RFC 9000 section 6), and connection establishment
- * (RFC 9000 section 7).
+ * <p>Demultiplexes received datagrams by destination connection ID
+ * (parsed via {@link LongHeaderCodec}/fixed-length short-header
+ * assumption -- see {@link #CONNECTION_ID_LENGTH}) instead of
+ * {@code quiche_header_info}, and accepts new server-side connections by
+ * constructing a {@link QuicTlsServerEngine} + {@link QuicConnection}
+ * pair directly instead of {@code quiche_conn_new_with_tls}.
  *
- * <p>QuicEngine is a {@link ChannelHandler} registered with a
- * {@link SelectorLoop} on a {@link DatagramChannel}. When the channel
- * is readable, the engine receives UDP datagrams, parses QUIC headers
- * using {@code quiche_header_info}, and dispatches them to the correct
- * {@link QuicConnection}. For server mode, it also accepts new incoming
- * connections.
+ * <p>Sending is synchronous and immediate ({@link #requestFlush} calls
+ * {@link QuicConnection#flush} directly rather than deferring to
+ * {@code OP_WRITE}) -- simple and correct, at the cost of not batching
+ * multiple small sends into fewer packets (packet coalescing is
+ * deferred anyway, see {@link QuicConnection}'s documentation). A
+ * datagram send that the OS declines because its own send buffer is
+ * momentarily full is treated exactly like ordinary network loss: this
+ * engine does not retry it, relying on {@link org.bluezoo.gumdrop.quic.recovery.LossDetector}'s
+ * retransmission to recover it, the same as any other dropped packet.
  *
- * <p>Each QuicEngine has one underlying DatagramChannel (bound to a local
- * port for servers, or connected to a single remote for clients). Multiple
- * QUIC connections can be multiplexed over this single UDP socket.
- *
- * <p>QuicEngine also implements {@link MultiplexedEndpoint} by delegating
- * to a client-mode QuicConnection, allowing protocol handlers to open
- * streams via the standard Endpoint API.
+ * <p>Only QUIC version 1 is supported -- an unrecognised version is
+ * silently dropped rather than answered with a Version Negotiation
+ * packet (RFC 9000 section 6).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see QuicConnection
- * @see QuicStreamEndpoint
- * @see QuicTransportFactory
  */
-public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
+public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(QuicEngine.class.getName());
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
-
+    private static final Logger LOGGER = Logger.getLogger(QuicEngine.class.getName());
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    /** Maximum QUIC connection ID length per RFC 9000 section 5.1. */
-    private static final int MAX_CONN_ID_LEN = 20;
+    /** RFC 9000 section 5.1: the fixed length this implementation uses for every connection ID it generates. */
+    static final int CONNECTION_ID_LENGTH = 20;
 
     private final QuicTransportFactory factory;
     private final boolean serverMode;
+    private final byte[] connectionIdStaticKey;
 
     private DatagramChannel channel;
     private SelectionKey selectionKey;
     private SelectorLoop selectorLoop;
-
-    // Reusable direct buffers for zero-copy JNI interaction
     private ByteBuffer recvBuf;
-    private ByteBuffer sendBuf;
-    private ByteBuffer streamBuf;
 
-    // Connection map: connection ID (as hex string) -> QuicConnection
-    private final Map<String, QuicConnection> connections =
-            new HashMap<String, QuicConnection>();
-
-    // For client mode: the single outbound connection
+    private final Map<String, QuicConnection> connections = new HashMap<String, QuicConnection>();
     private QuicConnection clientConnection;
 
-    // Server-side: handler factory for new connections
     private StreamAcceptHandler streamAcceptHandler;
-
-    // Connection-level accept handler (used by HTTP/3)
     private ConnectionAcceptedHandler connectionAcceptedHandler;
-
     private Trace trace;
     private boolean closing;
 
-    /**
-     * Creates a QuicEngine.
-     *
-     * @param factory the QuicTransportFactory that created this engine
-     * @param serverMode true for server mode, false for client mode
-     */
     QuicEngine(QuicTransportFactory factory, boolean serverMode) {
         this.factory = factory;
         this.serverMode = serverMode;
+        this.connectionIdStaticKey = factory.getConnectionIdStaticKey();
+    }
+
+    void init(DatagramChannel channel) {
+        this.channel = channel;
+        this.recvBuf = ByteBuffer.allocateDirect(65535);
     }
 
     QuicTransportFactory getFactory() {
@@ -136,20 +124,36 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     /**
-     * Initialises the engine with its DatagramChannel and buffers.
-     * Called by QuicTransportFactory after channel setup.
-     *
-     * @param channel the datagram channel
+     * Called when a new QUIC connection has been accepted (server) or a
+     * client connection's handshake has completed (client).
      */
-    void init(DatagramChannel channel) {
-        this.channel = channel;
-        int maxPayload = 1350;
-        this.recvBuf = ByteBuffer.allocateDirect(65535);
-        this.sendBuf = ByteBuffer.allocateDirect(maxPayload);
-        this.streamBuf = ByteBuffer.allocateDirect(65535);
+    public interface ConnectionAcceptedHandler {
+
+        /**
+         * @param connection the newly accepted or completed connection
+         */
+        void connectionAccepted(QuicConnection connection);
     }
 
-    // ── ChannelHandler implementation ──
+    @Override
+    public void setStreamAcceptHandler(StreamAcceptHandler handler) {
+        this.streamAcceptHandler = handler;
+        for (QuicConnection conn : connections.values()) {
+            conn.setStreamAcceptHandler(handler);
+        }
+    }
+
+    /**
+     * Registers a handler to be notified when a new connection is
+     * accepted (server) or a client connection's handshake completes.
+     *
+     * @param handler the handler
+     */
+    public void setConnectionAcceptedHandler(ConnectionAcceptedHandler handler) {
+        this.connectionAcceptedHandler = handler;
+    }
+
+    // ── ChannelHandler ──
 
     @Override
     public Type getChannelType() {
@@ -176,416 +180,213 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         this.selectorLoop = loop;
     }
 
-    // ── Packet receive (called by SelectorLoop on OP_READ) ──
+    // ── Datagram I/O ──
 
     /**
-     * Receives a UDP datagram and feeds it to quiche.
-     * Called by the SelectorLoop's QUIC dispatch path.
+     * Called by {@link SelectorLoop} when the underlying socket has a
+     * datagram ready to read.
      */
     public void onReadable() {
         recvBuf.clear();
-
         InetSocketAddress source;
         try {
             source = (InetSocketAddress) channel.receive(recvBuf);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, L10N.getString("warn.recv_error"), e);
+            LOGGER.log(Level.WARNING, "Failed to receive QUIC datagram", e);
             return;
         }
-
         if (source == null) {
             return;
         }
-
         recvBuf.flip();
-        int len = recvBuf.remaining();
-
-        if (len == 0) {
+        if (!recvBuf.hasRemaining()) {
             return;
         }
+        byte[] bytes = new byte[recvBuf.remaining()];
+        recvBuf.get(bytes);
 
-        boolean isLongHeader = (recvBuf.get(0) & 0x80) != 0;
-
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Received " + len + " bytes from " + source
-                    + " (" + (isLongHeader ? "Long" : "Short") + " header)");
-        }
-
-        // Parse QUIC header to extract version, DCID, SCID, and token
-        byte[] headerInfo = GumdropNative.quiche_header_info(recvBuf, len);
-        if (headerInfo == null) {
-            LOGGER.severe(MessageFormat.format(
-                    L10N.getString("severe.parse_header_failed"),
-                    source, len, isLongHeader ? "Long" : "Short"));
-            return;
-        }
-
-        int off = 0;
-
-        int version = ((headerInfo[off] & 0xFF) << 24)
-                | ((headerInfo[off + 1] & 0xFF) << 16)
-                | ((headerInfo[off + 2] & 0xFF) << 8)
-                | (headerInfo[off + 3] & 0xFF);
-        off += 4;
-
-        // skip type byte
-        off += 1;
-
-        int dcidLen = headerInfo[off] & 0xFF;
-        off += 1;
-        byte[] dcid = new byte[dcidLen];
-        System.arraycopy(headerInfo, off, dcid, 0, dcidLen);
-        off += dcidLen;
-
-        int scidLen = headerInfo[off] & 0xFF;
-        off += 1;
-        byte[] peerScid = new byte[scidLen];
-        System.arraycopy(headerInfo, off, peerScid, 0, scidLen);
-        off += scidLen;
-
-        // token (not used yet, but parsed for completeness)
-        // int tokenLen = headerInfo[off] & 0xFF;
-
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Parsed header: version=0x"
-                    + Integer.toHexString(version)
-                    + " dcid=" + ByteArrays.toHexString(dcid)
-                    + " scid=" + ByteArrays.toHexString(peerScid));
-        }
-
-        String connKey = ByteArrays.toHexString(dcid);
-        QuicConnection conn = connections.get(connKey);
-
-        if (conn == null && serverMode) {
-            if (!factory.isVersionSupported(version)) {
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Unsupported QUIC version 0x"
-                            + Integer.toHexString(version)
-                            + " from " + source
-                            + ", sending Version Negotiation");
-                }
-                sendVersionNegotiation(peerScid, dcid, source);
+        boolean longHeader = (bytes[0] & 0x80) != 0;
+        byte[] dcid;
+        LongHeaderPrefix prefix = null;
+        if (longHeader) {
+            try {
+                prefix = LongHeaderCodec.parsePrefix(bytes);
+            } catch (RuntimeException e) {
                 return;
             }
-
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Received QUIC Initial packet from " + source
-                        + ", version=0x" + Integer.toHexString(version)
-                        + ", attempting to accept connection");
+            if (prefix.getVersion() != 1) {
+                return; // only QUIC v1 is supported; see the class documentation
             }
-            conn = acceptConnection(dcid, version, source);
-            if (conn == null) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.accept_connection_failed"),
-                            source, Integer.toHexString(version)));
-                }
+            dcid = prefix.getDestinationConnectionId();
+        } else {
+            if (bytes.length < 1 + CONNECTION_ID_LENGTH) {
                 return;
             }
+            dcid = java.util.Arrays.copyOfRange(bytes, 1, 1 + CONNECTION_ID_LENGTH);
         }
 
+        String key = ByteArrays.toHexString(dcid);
+        QuicConnection conn = connections.get(key);
         if (conn == null) {
-            LOGGER.severe(MessageFormat.format(
-                    L10N.getString("severe.no_connection_for_dcid"), connKey));
-            return;
-        }
-
-        // Feed the packet to quiche
-        InetSocketAddress local = getLocalSocketAddress();
-        byte[] fromAddr = encodeAddress(source);
-        byte[] toAddr = encodeAddress(local);
-
-        recvBuf.rewind();
-        int rc = GumdropNative.quiche_conn_recv(
-                conn.getConnPtr(), recvBuf, len, fromAddr, toAddr);
-
-        if (rc < 0) {
-            if (rc != GumdropNative.QUICHE_ERR_DONE) {
-                LOGGER.severe(MessageFormat.format(
-                        L10N.getString("severe.recv_error"), GumdropNative.errorString(rc)));
+            if (!serverMode || prefix == null || prefix.getPacketType() != LongHeaderCodec.TYPE_INITIAL) {
+                return; // unknown connection, and not a new client Initial we can accept
             }
-            return;
+            conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source);
+            if (conn == null) {
+                return;
+            }
         }
-
-        boolean estAfterRecv =
-                GumdropNative.quiche_conn_is_established(conn.getConnPtr());
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("quiche_conn_recv consumed " + rc
-                    + " bytes, established=" + estAfterRecv
-                    + ", " + (isLongHeader ? "Long" : "Short")
-                    + " header, dcid=" + connKey);
-        }
-
-        // Process readable streams
-        conn.processReadableStreams(streamBuf);
-
-        if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Flushing after recv of " + len
-                    + " bytes from " + source);
-        }
-
-        // Flush outgoing packets and re-check established state
-        flushAndCheck(conn);
-
-        // Reschedule timeout
-        conn.scheduleTimeout();
-
-        // Check if connection is closed
-        if (GumdropNative.quiche_conn_is_closed(conn.getConnPtr())) {
-            removeConnection(conn, connKey);
+        conn.receive(ByteBuffer.wrap(bytes));
+        if (conn.isClosed()) {
+            connections.remove(key);
         }
     }
 
     /**
-     * Sends a stateless QUIC Version Negotiation packet per
-     * RFC 9000 section 6.1. Called when an Initial packet arrives
-     * with an unsupported version.
+     * Called by {@link SelectorLoop} when the socket is writable again
+     * -- a no-op, since sends happen synchronously and immediately (see
+     * the class documentation); nothing is ever left queued waiting for
+     * this.
      */
-    private void sendVersionNegotiation(byte[] peerScid, byte[] dcid,
-                                        InetSocketAddress dest) {
-        sendBuf.clear();
-        int written = GumdropNative.quiche_negotiate_version(
-                peerScid, dcid, sendBuf, sendBuf.capacity());
-        if (written < 0) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.version_negotiation_write_failed"), written));
-            return;
-        }
-        sendBuf.limit(written);
-        sendBuf.position(0);
-        try {
-            channel.send(sendBuf, dest);
-        } catch (IOException e) {
-            LOGGER.log(Level.WARNING,
-                    "Error sending Version Negotiation to " + dest, e);
-        }
+    public void onWritable() {
     }
 
-    /**
-     * Accepts a new incoming QUIC connection per RFC 9000 section 7
-     * (handshake).
-     *
-     * @param dcid    the DCID from the client's Initial packet
-     * @param version the QUIC version from the packet header
-     * @param source  the peer's socket address
-     */
-    private QuicConnection acceptConnection(byte[] dcid, int version,
-                                             InetSocketAddress source) {
-        byte[] scid = generateConnectionId();
-
+    private QuicConnection acceptConnection(byte[] clientDcid, byte[] clientScid, InetSocketAddress source) {
+        byte[] serverScid = generateConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
-        byte[] localAddr = encodeAddress(local);
-        byte[] peerAddr = encodeAddress(source);
+        TransportParameters localParams = factory.buildTransportParameters(serverScid);
+        localParams.setOriginalDestinationConnectionId(clientDcid);
 
-        long ssl = GumdropNative.ssl_new(factory.getSslCtx());
-        if (ssl == 0) {
-            LOGGER.warning(L10N.getString("warn.ssl_create_failed"));
+        QuicConnection conn = new QuicConnection(this, true, local, source, serverScid, clientScid, clientDcid,
+                localParams, connectionIdStaticKey);
+        TlsServerEngineFactory engineFactory = factory.getServerEngineFactory();
+        if (engineFactory == null) {
+            LOGGER.warning("No server certificate configured; rejecting new QUIC connection");
             return null;
         }
-
-        long connPtr = GumdropNative.quiche_conn_new_with_tls(
-                scid, null, localAddr, peerAddr,
-                factory.getQuicheConfig(version), ssl, true);
-
-        if (connPtr == 0) {
-            LOGGER.warning(
-                    "Failed to create quiche connection for " + source);
-            return null;
-        }
-
-        QuicConnection conn = new QuicConnection(
-                this, connPtr, ssl, local, source);
+        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(engineFactory, localParams, conn);
+        conn.setTlsEngine(tlsEngine);
 
         if (connectionAcceptedHandler != null) {
             connectionAcceptedHandler.connectionAccepted(conn);
         } else if (streamAcceptHandler != null) {
             conn.setStreamAcceptHandler(streamAcceptHandler);
         }
-
-        String connKey = ByteArrays.toHexString(scid);
-        connections.put(connKey, conn);
-
-        // Also map the original client DCID so that the first
-        // packet (which created this connection) can be looked up
-        // after quiche responds with the server SCID.
-        String dcidKey = ByteArrays.toHexString(dcid);
-        if (!dcidKey.equals(connKey)) {
-            connections.put(dcidKey, conn);
-        }
-
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Accepted QUIC connection from " + source
-                    + " [" + connKey + "]");
-        }
-
+        connections.put(ByteArrays.toHexString(serverScid), conn);
         return conn;
     }
 
     /**
-     * Flushes outgoing QUIC packets for a connection.
+     * Opens a client connection with a {@link ProtocolHandler} that will
+     * receive an auto-opened first stream once the handshake completes.
+     *
+     * @param remote the server address
+     * @param handler the handler for the auto-opened first stream, may be null
+     * @param serverName the SNI server name
      */
-    public void flushConnection(QuicConnection conn) {
-        int packetCount = 0;
-        int totalBytes = 0;
-        while (true) {
-            sendBuf.clear();
-            int written = GumdropNative.quiche_conn_send(
-                    conn.getConnPtr(), sendBuf, sendBuf.capacity());
-
-            if (written == GumdropNative.QUICHE_ERR_DONE) {
-                break;
-            }
-
-            if (written < 0) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.conn_send_error"), GumdropNative.errorString(written)));
-                break;
-            }
-
-            sendBuf.limit(written);
-            sendBuf.position(0);
-
-            if (LOGGER.isLoggable(Level.FINEST)) {
-                int firstByte = sendBuf.get(0) & 0xFF;
-                boolean longHeader = (firstByte & 0x80) != 0;
-                String hdrType;
-                if (longHeader) {
-                    int pktType = (firstByte & 0x30) >> 4;
-                    switch (pktType) {
-                        case 0: hdrType = "Initial"; break;
-                        case 1: hdrType = "0-RTT"; break;
-                        case 2: hdrType = "Handshake"; break;
-                        case 3: hdrType = "Retry"; break;
-                        default: hdrType = "Long(" + pktType + ")"; break;
-                    }
-                } else {
-                    hdrType = "Short(1-RTT)";
-                }
-                LOGGER.finest("quiche_conn_send: " + written
-                        + " bytes, " + hdrType
-                        + " [0x" + Integer.toHexString(firstByte) + "]");
-            }
-
-            InetSocketAddress dest =
-                    (InetSocketAddress) conn.getRemoteAddress();
-            try {
-                int sent = channel.send(sendBuf, dest);
-                if (sent != written) {
-                    LOGGER.warning(MessageFormat.format(
-                            L10N.getString("warn.channel_send_mismatch"), sent, written, dest));
-                }
-                packetCount++;
-                totalBytes += written;
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error sending QUIC packet to " + dest, e);
-                break;
-            }
-        }
-        if (packetCount > 0 && LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.finest("Flushed " + packetCount + " QUIC packets ("
-                    + totalBytes + " bytes) to "
-                    + conn.getRemoteAddress());
-        }
+    void connectTo(InetSocketAddress remote, ProtocolHandler handler, String serverName) {
+        connectTo(remote, handler, null, serverName);
     }
 
     /**
-     * Flushes a connection and then re-checks the established state.
-     * After flushing, quiche may mark the connection as established
-     * (e.g. after sending HANDSHAKE_DONE), so we need to notify
-     * the connection to trigger application-level setup (HTTP/3 init).
+     * Opens a client connection, notifying {@code connHandler} once the
+     * handshake completes instead of auto-opening a stream.
+     *
+     * @param remote the server address
+     * @param handler the handler for the auto-opened first stream, may be null
+     * @param connHandler notified once the handshake completes, may be null
+     * @param serverName the SNI server name
      */
-    private void flushAndCheck(QuicConnection conn) {
-        flushConnection(conn);
-        conn.checkEstablished();
-    }
+    void connectTo(InetSocketAddress remote, ProtocolHandler handler, ConnectionAcceptedHandler connHandler,
+            String serverName) {
+        byte[] clientScid = generateConnectionId();
+        byte[] clientInitialDcid = generateConnectionId();
+        InetSocketAddress local = getLocalSocketAddress();
+        TransportParameters localParams = factory.buildTransportParameters(clientScid);
 
-    /**
-     * Called by QuicConnection when it has data to flush.
-     */
-    public void requestFlush() {
-        if (selectorLoop != null) {
-            selectorLoop.requestDatagramWrite(this);
+        QuicConnection conn = new QuicConnection(this, false, local, remote, clientScid, clientInitialDcid,
+                clientInitialDcid, localParams, connectionIdStaticKey);
+        QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn);
+        X509TrustManager trustManager = factory.getTrustManager();
+        if (trustManager != null) {
+            tlsEngine.setTrustManager(trustManager);
         }
-    }
+        conn.setTlsEngine(tlsEngine);
+        if (connHandler != null) {
+            conn.setClientConnectionAcceptedHandler(connHandler);
+        }
+        if (handler != null) {
+            conn.setClientHandler(handler);
+        }
+        clientConnection = conn;
+        connections.put(ByteArrays.toHexString(clientScid), conn);
 
-    /**
-     * Called by the SelectorLoop on OP_WRITE.
-     * Flushes all connections that may have pending data.
-     */
-    public void onWritable() {
-        for (QuicConnection conn : connections.values()) {
-            if (!conn.isClosed()) {
-                flushAndCheck(conn);
+        try {
+            conn.startHandshake(serverName);
+        } catch (IOException e) {
+            if (handler != null) {
+                handler.error(e);
             }
+            return;
         }
+        conn.flush();
+    }
 
-        // Clear OP_WRITE if nothing more to send
-        if (selectionKey != null && selectionKey.isValid()) {
-            selectionKey.interestOps(
-                    selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
+    void requestFlush(QuicConnection connection) {
+        connection.flush();
+    }
+
+    void sendPacket(QuicConnection connection, byte[] packet) {
+        try {
+            int sent = channel.send(ByteBuffer.wrap(packet), connection.getRemoteAddress());
+            if (sent == 0) {
+                LOGGER.fine("QUIC datagram send would block; dropping (loss detection will retransmit)");
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send QUIC packet", e);
         }
     }
 
-    // ── MultiplexedEndpoint implementation ──
+    private InetSocketAddress getLocalSocketAddress() {
+        try {
+            return (InetSocketAddress) channel.getLocalAddress();
+        } catch (IOException e) {
+            return new InetSocketAddress("localhost", 0);
+        }
+    }
+
+    private static byte[] generateConnectionId() {
+        byte[] id = new byte[CONNECTION_ID_LENGTH];
+        RANDOM.nextBytes(id);
+        return id;
+    }
+
+    // ── MultiplexedEndpoint ──
 
     @Override
     public Endpoint openStream(ProtocolHandler handler) {
         if (clientConnection == null) {
-            throw new IllegalStateException(
-                    "No active QUIC connection (client mode)");
+            throw new IllegalStateException("No active QUIC connection (client mode)");
         }
         return clientConnection.openStream(handler);
     }
 
     @Override
-    public void setStreamAcceptHandler(StreamAcceptHandler handler) {
-        this.streamAcceptHandler = handler;
-        for (QuicConnection conn : connections.values()) {
-            conn.setStreamAcceptHandler(handler);
+    public Endpoint openUnidirectionalStream(ProtocolHandler handler) {
+        if (clientConnection == null) {
+            throw new IllegalStateException("No active QUIC connection (client mode)");
         }
+        return clientConnection.openUnidirectionalStream(handler);
     }
 
-    /**
-     * Callback interface for connection-level accept events.
-     *
-     * <p>Used by protocols like HTTP/3 that need to install a
-     * connection-level handler (e.g.,
-     * {@link QuicConnection.ConnectionReadyHandler}) as soon as a new
-     * QUIC connection is accepted, before any streams are opened.
-     */
-    public interface ConnectionAcceptedHandler {
-
-        /**
-         * Called when a new QUIC connection has been accepted.
-         *
-         * @param connection the newly created connection
-         */
-        void connectionAccepted(QuicConnection connection);
-    }
-
-    /**
-     * Sets the connection-level accept handler.
-     *
-     * <p>When set, this handler is called for each new server-side
-     * connection. The handler typically installs a
-     * {@link QuicConnection.ConnectionReadyHandler} on the connection.
-     *
-     * @param handler the connection accept handler
-     */
-    public void setConnectionAcceptedHandler(
-            ConnectionAcceptedHandler handler) {
-        this.connectionAcceptedHandler = handler;
-    }
+    // ── Endpoint ──
 
     @Override
     public void send(ByteBuffer data) {
         if (clientConnection == null) {
-            throw new IllegalStateException(
-                    "No active QUIC connection (client mode)");
+            throw new IllegalStateException("No active QUIC connection (client mode)");
         }
-        // For MultiplexedEndpoint, send on the default stream (stream 0)
-        clientConnection.streamSend(0, data, false);
+        clientConnection.queueStreamData(0, data, false);
     }
 
     @Override
@@ -604,41 +405,34 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             return;
         }
         closing = true;
-
-        // Close all connections
-        Iterator<Map.Entry<String, QuicConnection>> it =
-                connections.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<String, QuicConnection> entry = it.next();
-            entry.getValue().close();
-            it.remove();
+        // Snapshot rather than iterate connections directly: a concurrent
+        // onReadable() on this engine's own SelectorLoop thread (e.g. a
+        // caller closing from an admin/shutdown thread while I/O is still
+        // in flight) can add/remove map entries at the same time.
+        for (QuicConnection conn : new ArrayList<QuicConnection>(connections.values())) {
+            conn.close();
         }
-
+        connections.clear();
         if (channel != null) {
             try {
                 channel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Error closing QUIC DatagramChannel", e);
+                LOGGER.log(Level.WARNING, "Failed to close QUIC datagram channel", e);
             }
         }
-
         if (selectionKey != null) {
             selectionKey.cancel();
         }
     }
 
     @Override
-    public java.net.SocketAddress getLocalAddress() {
+    public SocketAddress getLocalAddress() {
         return getLocalSocketAddress();
     }
 
     @Override
-    public java.net.SocketAddress getRemoteAddress() {
-        if (clientConnection != null) {
-            return clientConnection.getRemoteAddress();
-        }
-        return new InetSocketAddress("unknown", 0);
+    public SocketAddress getRemoteAddress() {
+        return clientConnection != null ? clientConnection.getRemoteAddress() : new InetSocketAddress("unknown", 0);
     }
 
     @Override
@@ -648,31 +442,26 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     @Override
     public SecurityInfo getSecurityInfo() {
-        if (clientConnection != null) {
-            return clientConnection.getSecurityInfo();
-        }
-        return NullSecurityInfo.INSTANCE;
-    }
-
-    @Override
-    public void pauseRead() {
-        // Read flow control is per-stream in QUIC, not per-engine.
-    }
-
-    @Override
-    public void resumeRead() {
-        // Read flow control is per-stream in QUIC, not per-engine.
-    }
-
-    @Override
-    public void onWriteReady(Runnable callback) {
-        // Write-readiness is per-stream in QUIC, not per-engine.
+        return clientConnection != null ? clientConnection.getSecurityInfo() : NullSecurityInfo.INSTANCE;
     }
 
     @Override
     public void startTLS() throws IOException {
-        throw new UnsupportedOperationException(
-                "QUIC is always secure");
+        throw new UnsupportedOperationException("QUIC connections are always secure");
+    }
+
+    @Override
+    public void pauseRead() {
+        // Flow control is per-stream in QUIC; there is no connection-wide read to pause.
+    }
+
+    @Override
+    public void resumeRead() {
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        // Write-ready notification is per-stream in QUIC (QuicStreamEndpoint.onWriteReady).
     }
 
     @Override
@@ -700,132 +489,12 @@ public class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         selectorLoop.invokeLater(task);
     }
 
+    // ChannelHandler and Endpoint both declare scheduleTimer -- one as a
+    // default, one as abstract -- so an explicit override is required to
+    // resolve which wins (ChannelHandler's, which is what every other
+    // caller in this class already relies on).
     @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
-        return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
+        return ChannelHandler.super.scheduleTimer(delayMs, callback);
     }
-
-    // ── Client connection setup ──
-
-    /**
-     * Initiates a QUIC client connection to the specified remote address
-     * per RFC 9000 section 7 (handshake). The client sends an Initial
-     * packet to begin the handshake. Called by QuicTransportFactory.
-     *
-     * @param remote the remote address
-     * @param handler the handler for the initial stream
-     * @param serverName the TLS SNI hostname, or null
-     */
-    void connectTo(InetSocketAddress remote,
-                   ProtocolHandler handler, String serverName) {
-        connectTo(remote, handler, null, serverName);
-    }
-
-    /**
-     * Initiates a QUIC client connection with a connection-level
-     * accepted handler. Used by HTTP/3 where the h3 handler needs the
-     * {@link QuicConnection} rather than an individual stream.
-     *
-     * @param remote the remote address
-     * @param handler the handler for stream-level fallback (may be null)
-     * @param connHandler the connection-level handler
-     * @param serverName the TLS SNI hostname, or null
-     */
-    void connectTo(InetSocketAddress remote,
-                   ProtocolHandler handler,
-                   ConnectionAcceptedHandler connHandler,
-                   String serverName) {
-        byte[] scid = generateConnectionId();
-
-        InetSocketAddress local = getLocalSocketAddress();
-        byte[] localAddr = encodeAddress(local);
-        byte[] peerAddr = encodeAddress(remote);
-
-        long ssl = GumdropNative.ssl_new(factory.getSslCtx());
-        if (ssl == 0) {
-            handler.error(new IOException(
-                    "Failed to create SSL for QUIC connection"));
-            return;
-        }
-
-        if (serverName != null) {
-            GumdropNative.ssl_set_hostname(ssl, serverName);
-        }
-
-        long connPtr = GumdropNative.quiche_conn_new_with_tls(
-                scid, null, localAddr, peerAddr,
-                factory.getQuicheConfig(), ssl, false);
-
-        if (connPtr == 0) {
-            handler.error(new IOException(
-                    "Failed to create quiche connection to " + remote));
-            return;
-        }
-
-        QuicConnection conn = new QuicConnection(
-                this, connPtr, ssl, local, remote);
-        if (connHandler != null) {
-            conn.setClientConnectionAcceptedHandler(connHandler);
-        }
-        if (handler != null) {
-            conn.setClientHandler(handler);
-        }
-        clientConnection = conn;
-
-        String connKey = ByteArrays.toHexString(scid);
-        connections.put(connKey, conn);
-
-        // Send initial QUIC handshake packet
-        flushConnection(conn);
-        conn.scheduleTimeout();
-
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Initiating QUIC connection to " + remote
-                    + " [" + connKey + "]");
-        }
-    }
-
-    // ── Internal helpers ──
-
-    private void removeConnection(QuicConnection conn, String connKey) {
-        conn.close();
-        connections.remove(connKey);
-
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Removed QUIC connection [" + connKey + "]");
-        }
-    }
-
-    private InetSocketAddress getLocalSocketAddress() {
-        try {
-            return (InetSocketAddress) channel.getLocalAddress();
-        } catch (IOException e) {
-            return new InetSocketAddress("localhost", 0);
-        }
-    }
-
-    // RFC 9000 section 5.1 — connection IDs up to MAX_CONN_ID_LEN bytes
-    private static byte[] generateConnectionId() {
-        byte[] id = new byte[MAX_CONN_ID_LEN];
-        RANDOM.nextBytes(id);
-        return id;
-    }
-
-    /**
-     * Encodes an InetSocketAddress as bytes for the JNI layer.
-     * Format: [family (1)][port (2)][addr (4 or 16)]
-     */
-    private static byte[] encodeAddress(InetSocketAddress addr) {
-        byte[] ipBytes = addr.getAddress().getAddress();
-        int port = addr.getPort();
-        boolean ipv6 = ipBytes.length == 16;
-
-        byte[] result = new byte[1 + 2 + ipBytes.length];
-        result[0] = (byte) (ipv6 ? 6 : 4);
-        result[1] = (byte) ((port >> 8) & 0xFF);
-        result[2] = (byte) (port & 0xFF);
-        System.arraycopy(ipBytes, 0, result, 3, ipBytes.length);
-        return result;
-    }
-
 }

@@ -99,10 +99,12 @@ public final class LossDetector {
     public static final class TimeoutResult {
 
         private final List<SentPacket> newlyLost;
+        private final EncryptionLevel lossSpace;
         private final EncryptionLevel probeSpace;
 
-        TimeoutResult(List<SentPacket> newlyLost, EncryptionLevel probeSpace) {
+        TimeoutResult(List<SentPacket> newlyLost, EncryptionLevel lossSpace, EncryptionLevel probeSpace) {
             this.newlyLost = newlyLost;
+            this.lossSpace = lossSpace;
             this.probeSpace = probeSpace;
         }
 
@@ -114,6 +116,17 @@ public final class LossDetector {
          */
         public List<SentPacket> getNewlyLost() {
             return newlyLost;
+        }
+
+        /**
+         * Returns the packet number space {@link #getNewlyLost} belongs
+         * to, if the timer fired because of time-threshold loss detection.
+         *
+         * @return the space the loss was detected in, or {@code null} if
+         *         this was a Probe Timeout instead
+         */
+        public EncryptionLevel getLossSpace() {
+            return lossSpace;
         }
 
         /**
@@ -462,13 +475,13 @@ public final class LossDetector {
         if (earliestLossTime != 0) {
             EncryptionLevel space = earliestLossSpace();
             List<SentPacket> lost = detectAndRemoveLostPackets(space, nowMillis);
-            return new TimeoutResult(lost, null);
+            return new TimeoutResult(lost, space, null);
         }
 
         Object[] ptoTimeAndSpace = ptoTimeAndSpace(peerAddressValidated, hasHandshakeKeys, maxAckDelayMillis, nowMillis);
         EncryptionLevel probeSpace = (EncryptionLevel) ptoTimeAndSpace[1];
         ptoCount++;
-        return new TimeoutResult(new ArrayList<SentPacket>(), probeSpace);
+        return new TimeoutResult(new ArrayList<SentPacket>(), null, probeSpace);
     }
 
     /**

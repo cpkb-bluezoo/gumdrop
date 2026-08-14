@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.quic;
 
-import org.bluezoo.gumdrop.GumdropNative;
-
 import java.io.IOException;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -30,88 +28,65 @@ import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.nio.channels.DatagramChannel;
 import java.nio.file.Path;
-import java.text.MessageFormat;
-import java.util.ResourceBundle;
-import java.util.logging.Level;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.logging.Logger;
+
+import javax.net.ssl.X509TrustManager;
+
+import tech.kwik.agent15.engine.TlsServerEngineFactory;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 
 /**
- * Factory for QUIC endpoints, backed by quiche and BoringSSL via JNI.
+ * Configuration and bootstrap for QUIC transports, the pure-Java
+ * replacement for the native quiche/BoringSSL-config-backed
+ * implementation.
  *
- * <p>QuicTransportFactory translates the unified {@link TransportFactory}
- * configuration (cipher suites, named groups, certificate/key paths) into
- * the corresponding BoringSSL {@code SSL_CTX} and quiche configuration
- * calls.
+ * <p>Translates the same PEM cert/key/CA file configuration the native
+ * path used into an Agent15 {@link TlsServerEngineFactory} (via
+ * {@link PemCredentials}) and an {@link X509TrustManager}, and the same
+ * flow-control/idle-timeout limits into a {@link TransportParameters}
+ * instance shared by every connection this factory's engines create.
  *
- * <p>QUIC is always secure (TLS 1.3 is built in). The
- * {@link #isSecure()} / {@link #setSecure(boolean)} methods are respected
- * but effectively always return true.
- *
- * <h3>Usage example (server)</h3>
- * <pre>
- * QuicTransportFactory factory = new QuicTransportFactory();
- * factory.setCertFile("/path/to/cert.pem");
- * factory.setKeyFile("/path/to/key.pem");
- * factory.setCipherSuites("TLS_AES_256_GCM_SHA384");
- * factory.setNamedGroups("X25519MLKEM768");
- * factory.setApplicationProtocols("h3");
- * factory.start();
- *
- * QuicEngine engine = factory.createServerEngine(
- *         InetAddress.getByName("0.0.0.0"), 443,
- *         streamAcceptHandler, selectorLoop);
- * </pre>
+ * <p>{@link #setCipherSuites}/{@link #setNamedGroups} (inherited from
+ * {@link TransportFactory}) are accepted but not yet consulted --
+ * Agent15's QUIC TLS engines currently hardcode
+ * {@code TLS_AES_128_GCM_SHA256}/{@code TLS_AES_256_GCM_SHA384} as the
+ * supported cipher suites (see {@code QuicTlsClientEngine}/
+ * {@code QuicTlsServerEngine}), and named-group selection is not
+ * implemented. {@link #setCongestionControl} is similarly accepted but
+ * ignored -- {@code quic.recovery}'s {@code CongestionController} is
+ * NewReno only.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see QuicEngine
- * @see TransportFactory
  */
 public class QuicTransportFactory extends TransportFactory {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(QuicTransportFactory.class.getName());
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
+    private static final Logger LOGGER = Logger.getLogger(QuicTransportFactory.class.getName());
 
-    /** QUIC version 1 (RFC 9000 section 15). */
-    static final int QUICHE_PROTOCOL_VERSION_1 = 0x00000001;
-    /** QUIC version 2 (RFC 9369 section 3). */
-    static final int QUICHE_PROTOCOL_VERSION_2 = 0x6b3343cf;
-
-    // QUIC transport parameter defaults (RFC 9000 section 18)
     private static final long DEFAULT_MAX_IDLE_TIMEOUT = 30000;
     private static final long DEFAULT_MAX_DATA = 10_000_000;
     private static final long DEFAULT_MAX_STREAM_DATA = 1_000_000;
     private static final long DEFAULT_MAX_STREAMS_BIDI = 100;
     private static final long DEFAULT_MAX_STREAMS_UNI = 100;
-    private static final long DEFAULT_MAX_RECV_PAYLOAD = 1350;
-    private static final long DEFAULT_MAX_SEND_PAYLOAD = 1350;
 
-    // Congestion control algorithms (quiche enum values)
-    /** Reno congestion control. */
+    /** Reno congestion control -- accepted but not implemented; see the class documentation. */
     public static final int CC_RENO = 0;
-    /** CUBIC congestion control (default). */
+    /** Cubic congestion control -- accepted but not implemented; see the class documentation. */
     public static final int CC_CUBIC = 1;
-    /** BBR congestion control. */
+    /** BBR congestion control -- accepted but not implemented; see the class documentation. */
     public static final int CC_BBR = 2;
 
-    // BoringSSL SSL_CTX handle (shared by all connections)
-    private long sslCtx;
-
-    // quiche config handles (one per supported QUIC version)
-    private long quicheConfigV1;
-    private long quicheConfigV2;
-
-    // QUIC-specific configuration
     private String applicationProtocols;
     private Path caFile;
     private boolean verifyPeer = true;
-    /** RFC 9250 section 4.5: enable 0-RTT early data. */
     private boolean earlyDataEnabled;
     private long maxIdleTimeout = DEFAULT_MAX_IDLE_TIMEOUT;
     private long maxData = DEFAULT_MAX_DATA;
@@ -120,189 +95,180 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamDataUni = DEFAULT_MAX_STREAM_DATA;
     private long maxStreamsBidi = DEFAULT_MAX_STREAMS_BIDI;
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
-    private int ccAlgorithm = CC_CUBIC;
+
+    private TlsServerEngineFactory serverEngineFactory;
+    private X509TrustManager trustManager;
+    private final byte[] connectionIdStaticKey = new byte[32];
 
     public QuicTransportFactory() {
-        // QUIC is always secure
         this.secure = true;
+        new SecureRandom().nextBytes(connectionIdStaticKey);
     }
 
     // ── QUIC-specific configuration ──
 
     /**
-     * Sets the application protocols for ALPN negotiation
-     * (RFC 9001 section 8.1, RFC 7301).
+     * Sets the ALPN application protocol(s), comma-separated (e.g. {@code "h3"}, {@code "doq"}).
      *
-     * <p>Comma-separated protocol identifiers. For HTTP/3, use "h3"
-     * (RFC 9114 section 3.1). For DNS over QUIC, use "doq"
-     * (RFC 9250 section 7.1).
-     *
-     * @param protocols the ALPN protocols (e.g. "h3" or "h3,h3-29")
+     * @param protocols the protocol list
      */
     public void setApplicationProtocols(String protocols) {
         this.applicationProtocols = protocols;
     }
 
     /**
-     * Enables QUIC 0-RTT early data.
-     * RFC 9250 section 4.5: DoQ clients MAY send QUERY and NOTIFY
-     * in 0-RTT data for reduced latency on repeat connections.
+     * Sets whether 0-RTT early data is enabled. Not yet implemented --
+     * accepted for API compatibility but has no effect.
      *
-     * @param enabled true to enable early data
+     * @param enabled the new state
      */
     public void setEarlyDataEnabled(boolean enabled) {
         this.earlyDataEnabled = enabled;
     }
 
     /**
-     * Returns whether early data is enabled.
+     * Returns whether 0-RTT early data is enabled.
      *
-     * @return true if 0-RTT is enabled
+     * @return the current state
      */
     public boolean isEarlyDataEnabled() {
         return earlyDataEnabled;
     }
 
     /**
-     * Sets the CA certificate file for peer verification.
+     * Sets the PEM CA certificate file used to verify peer certificates,
+     * instead of the platform default trust store.
      *
-     * @param path the PEM file containing trusted CA certificates
+     * @param path the PEM CA certificate file
      */
     public void setCaFile(Path path) {
         this.caFile = path;
     }
 
+    /**
+     * Sets the PEM CA certificate file from a string path.
+     *
+     * @param path the PEM CA certificate file
+     */
     public void setCaFile(String path) {
         this.caFile = Path.of(path);
     }
 
     /**
-     * Sets whether to verify the peer's certificate.
-     * Default is true for server mode (verify clients if configured),
-     * always true for client mode.
+     * Sets whether the peer certificate is verified.
      *
-     * @param verify true to verify the peer
+     * @param verify the new state
      */
     public void setVerifyPeer(boolean verify) {
         this.verifyPeer = verify;
     }
 
     /**
-     * Sets the maximum idle timeout in milliseconds.
-     * Default: 30000 ms.
+     * Sets {@code max_idle_timeout} (RFC 9000 section 18.2), in milliseconds.
      *
-     * @param ms the timeout in milliseconds
+     * @param ms the idle timeout
      */
     public void setMaxIdleTimeout(long ms) {
         this.maxIdleTimeout = ms;
     }
 
     /**
-     * Sets the maximum data limit for the connection.
-     * Default: 10 MB.
+     * Sets {@code initial_max_data} (RFC 9000 section 18.2), in bytes.
      *
-     * @param bytes the limit in bytes
+     * @param bytes the connection-level flow-control limit
      */
     public void setMaxData(long bytes) {
         this.maxData = bytes;
     }
 
     /**
-     * Sets the per-stream data limit for locally-initiated bidi streams.
-     * Default: 1 MB.
+     * Sets {@code initial_max_stream_data_bidi_local} (RFC 9000 section 18.2), in bytes.
      *
-     * @param bytes the limit in bytes
+     * @param bytes the flow-control limit
      */
     public void setMaxStreamDataBidiLocal(long bytes) {
         this.maxStreamDataBidiLocal = bytes;
     }
 
     /**
-     * Sets the per-stream data limit for remotely-initiated bidi streams.
-     * Default: 1 MB.
+     * Sets {@code initial_max_stream_data_bidi_remote} (RFC 9000 section 18.2), in bytes.
      *
-     * @param bytes the limit in bytes
+     * @param bytes the flow-control limit
      */
     public void setMaxStreamDataBidiRemote(long bytes) {
         this.maxStreamDataBidiRemote = bytes;
     }
 
     /**
-     * Sets the per-stream data limit for unidirectional streams.
-     * Default: 1 MB.
+     * Sets {@code initial_max_stream_data_uni} (RFC 9000 section 18.2), in bytes.
      *
-     * @param bytes the limit in bytes
+     * @param bytes the flow-control limit
      */
     public void setMaxStreamDataUni(long bytes) {
         this.maxStreamDataUni = bytes;
     }
 
     /**
-     * Sets the maximum number of concurrent bidirectional streams.
-     * Default: 100.
+     * Sets {@code initial_max_streams_bidi} (RFC 9000 section 18.2).
      *
-     * @param count the stream limit
+     * @param count the concurrent stream limit
      */
     public void setMaxStreamsBidi(long count) {
         this.maxStreamsBidi = count;
     }
 
     /**
-     * Sets the maximum number of concurrent unidirectional streams.
-     * Default: 100.
+     * Sets {@code initial_max_streams_uni} (RFC 9000 section 18.2).
      *
-     * @param count the stream limit
+     * @param count the concurrent stream limit
      */
     public void setMaxStreamsUni(long count) {
         this.maxStreamsUni = count;
     }
 
     /**
-     * Sets the congestion control algorithm.
-     * Use {@link #CC_RENO}, {@link #CC_CUBIC}, or {@link #CC_BBR}.
-     * Default: {@link #CC_CUBIC}.
+     * Sets the congestion control algorithm. Accepted but not
+     * implemented -- see the class documentation.
      *
-     * @param algorithm the congestion control algorithm
+     * @param algorithm one of {@link #CC_RENO}, {@link #CC_CUBIC}, {@link #CC_BBR}
      */
     public void setCongestionControl(int algorithm) {
-        this.ccAlgorithm = algorithm;
+        LOGGER.fine("Congestion control algorithm selection is not implemented; always using NewReno");
     }
 
-    // ── Native handle accessors (package-private) ──
+    // ── Package-private accessors used by QuicEngine/QuicConnection ──
 
-    long getSslCtx() {
-        return sslCtx;
+    TlsServerEngineFactory getServerEngineFactory() {
+        return serverEngineFactory;
+    }
+
+    X509TrustManager getTrustManager() {
+        return trustManager;
+    }
+
+    byte[] getConnectionIdStaticKey() {
+        return connectionIdStaticKey;
     }
 
     /**
-     * Returns the default (v1) quiche config.
-     * Used for client-initiated connections.
-     */
-    long getQuicheConfig() {
-        return quicheConfigV1;
-    }
-
-    /**
-     * Returns the quiche config for the given QUIC version.
+     * Builds a fresh {@link TransportParameters} from this factory's
+     * configured limits, for a new connection with the given
+     * {@code initial_source_connection_id}.
      *
-     * @param version the QUIC version from the incoming packet
-     * @return the config handle, or 0 if the version is not supported
+     * @param initialSourceConnectionId the new connection's own connection ID
+     * @return the transport parameters
      */
-    long getQuicheConfig(int version) {
-        if (version == QUICHE_PROTOCOL_VERSION_1) {
-            return quicheConfigV1;
-        }
-        if (version == QUICHE_PROTOCOL_VERSION_2) {
-            return quicheConfigV2;
-        }
-        return 0;
-    }
-
-    /**
-     * Returns true if the given QUIC version is supported by this server.
-     */
-    boolean isVersionSupported(int version) {
-        return getQuicheConfig(version) != 0;
+    TransportParameters buildTransportParameters(byte[] initialSourceConnectionId) {
+        TransportParameters params = new TransportParameters();
+        params.setInitialSourceConnectionId(initialSourceConnectionId);
+        params.setMaxIdleTimeout(maxIdleTimeout);
+        params.setInitialMaxData(maxData);
+        params.setInitialMaxStreamDataBidiLocal(maxStreamDataBidiLocal);
+        params.setInitialMaxStreamDataBidiRemote(maxStreamDataBidiRemote);
+        params.setInitialMaxStreamDataUni(maxStreamDataUni);
+        params.setInitialMaxStreamsBidi(maxStreamsBidi);
+        params.setInitialMaxStreamsUni(maxStreamsUni);
+        return params;
     }
 
     // ── Lifecycle ──
@@ -310,380 +276,163 @@ public class QuicTransportFactory extends TransportFactory {
     @Override
     public void start() {
         super.start();
-
-        GumdropNative.quiche_enable_debug_logging();
-
-        initSslCtx();
-        initQuicheConfig();
-
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.quic_transport_factory_started"), getDescription()));
-        }
-    }
-
-    private void initSslCtx() {
-        sslCtx = GumdropNative.ssl_ctx_new(true);
-        if (sslCtx == 0) {
-            throw new RuntimeException("Failed to create BoringSSL SSL_CTX");
-        }
-
-        int rc;
-
-        if (certFile != null) {
-            rc = GumdropNative.ssl_ctx_load_cert_chain(sslCtx,
-                    certFile.toString());
-            if (rc != 0) {
-                throw new RuntimeException(
-                        "Failed to load certificate chain: " + certFile);
+        if (certFile != null && keyFile != null) {
+            try {
+                serverEngineFactory = PemCredentials.loadServerEngineFactory(certFile, keyFile);
+            } catch (IOException | GeneralSecurityException e) {
+                throw new IllegalStateException("Failed to load QUIC server certificate/key", e);
             }
         }
-
-        if (keyFile != null) {
-            rc = GumdropNative.ssl_ctx_load_priv_key(sslCtx,
-                    keyFile.toString());
-            if (rc != 0) {
-                throw new RuntimeException(
-                        "Failed to load private key: " + keyFile);
-            }
-        }
-
         if (caFile != null) {
-            rc = GumdropNative.ssl_ctx_load_verify_locations(sslCtx,
-                    caFile.toString());
-            if (rc != 0) {
-                throw new RuntimeException(
-                        "Failed to load CA certificates: " + caFile);
+            try {
+                trustManager = PemCredentials.loadTrustManager(caFile);
+            } catch (IOException | GeneralSecurityException e) {
+                throw new IllegalStateException("Failed to load QUIC CA certificate", e);
             }
+        } else if (!verifyPeer) {
+            trustManager = PermissiveTrustManager.INSTANCE;
         }
-
-        if (cipherSuites != null) {
-            rc = GumdropNative.ssl_ctx_set_ciphersuites(
-                    sslCtx, cipherSuites);
-            if (rc != 0) {
-                throw new RuntimeException(
-                        "Failed to set cipher suites: " + cipherSuites);
-            }
-        }
-
-        if (namedGroups != null) {
-            rc = GumdropNative.ssl_ctx_set_groups(sslCtx, namedGroups);
-            if (rc != 0) {
-                throw new RuntimeException(
-                        "Failed to set named groups: " + namedGroups);
-            }
-        }
-
-        if (applicationProtocols != null) {
-            byte[] alpn = encodeAlpnProtocols(applicationProtocols);
-            rc = GumdropNative.ssl_ctx_set_alpn_protos(sslCtx, alpn);
-            if (rc != 0) {
-                throw new RuntimeException(
-                        "Failed to set ALPN protocols: "
-                        + applicationProtocols);
-            }
-        }
-
-        GumdropNative.ssl_ctx_set_verify_peer(sslCtx, verifyPeer);
-    }
-
-    private void initQuicheConfig() {
-        quicheConfigV1 = createQuicheConfig(QUICHE_PROTOCOL_VERSION_1);
-        if (quicheConfigV1 == 0) {
-            throw new RuntimeException(
-                    "Failed to create quiche config for QUIC v1");
-        }
-
-        quicheConfigV2 = createQuicheConfig(QUICHE_PROTOCOL_VERSION_2);
-        if (quicheConfigV2 != 0) {
-            LOGGER.info(L10N.getString("info.quic_v2_enabled"));
-        }
-    }
-
-    private long createQuicheConfig(int version) {
-        long config = GumdropNative.quiche_config_new(version);
-        if (config == 0) {
-            return 0;
-        }
-
-        if (applicationProtocols != null) {
-            byte[] alpn = encodeAlpnProtocols(applicationProtocols);
-            GumdropNative.quiche_config_set_application_protos(config, alpn);
-        }
-
-        GumdropNative.quiche_config_set_max_idle_timeout(
-                config, maxIdleTimeout);
-        GumdropNative.quiche_config_set_initial_max_data(
-                config, maxData);
-        GumdropNative.quiche_config_set_initial_max_stream_data_bidi_local(
-                config, maxStreamDataBidiLocal);
-        GumdropNative.quiche_config_set_initial_max_stream_data_bidi_remote(
-                config, maxStreamDataBidiRemote);
-        GumdropNative.quiche_config_set_initial_max_stream_data_uni(
-                config, maxStreamDataUni);
-        GumdropNative.quiche_config_set_initial_max_streams_bidi(
-                config, maxStreamsBidi);
-        GumdropNative.quiche_config_set_initial_max_streams_uni(
-                config, maxStreamsUni);
-        GumdropNative.quiche_config_set_cc_algorithm(
-                config, ccAlgorithm);
-        GumdropNative.quiche_config_set_max_recv_udp_payload_size(
-                config, DEFAULT_MAX_RECV_PAYLOAD);
-        GumdropNative.quiche_config_set_max_send_udp_payload_size(
-                config, DEFAULT_MAX_SEND_PAYLOAD);
-
-        // RFC 9250 section 4.5: enable 0-RTT early data for session resumption
-        if (earlyDataEnabled) {
-            GumdropNative.quiche_config_enable_early_data(config);
-        }
-
-        return config;
+        LOGGER.info(getDescription());
     }
 
     @Override
     protected void stop() {
-        if (quicheConfigV1 != 0) {
-            GumdropNative.quiche_config_free(quicheConfigV1);
-            quicheConfigV1 = 0;
-        }
-        if (quicheConfigV2 != 0) {
-            GumdropNative.quiche_config_free(quicheConfigV2);
-            quicheConfigV2 = 0;
-        }
-        if (sslCtx != 0) {
-            GumdropNative.ssl_ctx_free(sslCtx);
-            sslCtx = 0;
-        }
+        serverEngineFactory = null;
+        trustManager = null;
         super.stop();
-    }
-
-    // ── Engine creation ──
-
-    /**
-     * Creates a server-mode QuicEngine bound to the specified address.
-     *
-     * @param bindAddress the address to bind to
-     * @param port the port to listen on
-     * @param acceptHandler the handler for accepting incoming streams
-     * @param loop the SelectorLoop to register with
-     * @return the created QuicEngine
-     * @throws IOException if the channel cannot be opened or bound
-     */
-    public QuicEngine createServerEngine(InetAddress bindAddress, int port,
-                                          StreamAcceptHandler acceptHandler,
-                                          SelectorLoop loop)
-            throws IOException {
-
-        StandardProtocolFamily family = (bindAddress instanceof Inet6Address)
-                ? StandardProtocolFamily.INET6
-                : StandardProtocolFamily.INET;
-        DatagramChannel dc = DatagramChannel.open(family);
-        dc.configureBlocking(false);
-
-        long t1 = System.currentTimeMillis();
-        dc.bind(new InetSocketAddress(bindAddress, port));
-        long t2 = System.currentTimeMillis();
-
-        QuicEngine engine = new QuicEngine(this, true);
-        engine.init(dc);
-        engine.setStreamAcceptHandler(acceptHandler);
-
-        loop.registerDatagram(dc, engine);
-
-        if (LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("info.bound_server");
-            message = MessageFormat.format(message,
-                    "QUIC", port, bindAddress, (t2 - t1));
-            LOGGER.fine(message);
-        }
-
-        return engine;
-    }
-
-    /**
-     * Creates a server-mode QuicEngine with connection-level accept handling.
-     *
-     * <p>Used by HTTP/3 where each QUIC connection is managed by an h3
-     * handler rather than individual stream handlers.
-     *
-     * @param bindAddress the address to bind to
-     * @param port the port to listen on
-     * @param handler the handler called for each new QUIC connection
-     * @param loop the SelectorLoop to register with
-     * @return the created QuicEngine
-     * @throws IOException if the channel cannot be opened or bound
-     */
-    // Overload is intentional: StreamAcceptHandler and ConnectionAcceptedHandler
-    // are distinct, unrelated functional interfaces for two different accept models.
-    @SuppressWarnings("overloads")
-    public QuicEngine createServerEngine(
-            InetAddress bindAddress, int port,
-            QuicEngine.ConnectionAcceptedHandler handler,
-            SelectorLoop loop) throws IOException {
-
-        StandardProtocolFamily family = (bindAddress instanceof Inet6Address)
-                ? StandardProtocolFamily.INET6
-                : StandardProtocolFamily.INET;
-        DatagramChannel dc = DatagramChannel.open(family);
-        dc.configureBlocking(false);
-
-        long t1 = System.currentTimeMillis();
-        dc.bind(new InetSocketAddress(bindAddress, port));
-        long t2 = System.currentTimeMillis();
-
-        QuicEngine engine = new QuicEngine(this, true);
-        engine.init(dc);
-        engine.setConnectionAcceptedHandler(handler);
-
-        loop.registerDatagram(dc, engine);
-
-        if (LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("info.bound_server");
-            message = MessageFormat.format(message,
-                    "QUIC", port, bindAddress, (t2 - t1));
-            LOGGER.fine(message);
-        }
-
-        return engine;
-    }
-
-    /**
-     * Creates a client-mode QuicEngine and initiates a connection.
-     *
-     * @param host the remote host
-     * @param port the remote port
-     * @param handler the handler for the initial endpoint
-     * @param loop the SelectorLoop to register with
-     * @param serverName the TLS SNI hostname, or null
-     * @return the created QuicEngine
-     * @throws IOException if the channel cannot be opened
-     */
-    public QuicEngine connect(InetAddress host, int port,
-                               ProtocolHandler handler,
-                               SelectorLoop loop,
-                               String serverName)
-            throws IOException {
-
-        StandardProtocolFamily family = (host instanceof Inet6Address)
-                ? StandardProtocolFamily.INET6
-                : StandardProtocolFamily.INET;
-        DatagramChannel dc = DatagramChannel.open(family);
-        dc.configureBlocking(false);
-        dc.bind(null);
-
-        QuicEngine engine = new QuicEngine(this, false);
-        engine.init(dc);
-
-        loop.registerDatagram(dc, engine);
-
-        InetSocketAddress remote = new InetSocketAddress(host, port);
-        engine.connectTo(remote, handler, serverName);
-
-        return engine;
-    }
-
-    /**
-     * Creates a client-mode QuicEngine with a connection-level handler.
-     *
-     * <p>Used by HTTP/3 where the h3 handler needs the
-     * {@link QuicConnection} rather than an individual stream endpoint.
-     * The connection handler is called when the QUIC handshake completes.
-     *
-     * @param host the remote host
-     * @param port the remote port
-     * @param connHandler the connection-level handler
-     * @param loop the SelectorLoop to register with
-     * @param serverName the TLS SNI hostname, or null
-     * @return the created QuicEngine
-     * @throws IOException if the channel cannot be opened
-     */
-    public QuicEngine connect(InetAddress host, int port,
-                               QuicEngine.ConnectionAcceptedHandler connHandler,
-                               SelectorLoop loop,
-                               String serverName)
-            throws IOException {
-
-        StandardProtocolFamily family = (host instanceof Inet6Address)
-                ? StandardProtocolFamily.INET6
-                : StandardProtocolFamily.INET;
-        DatagramChannel dc = DatagramChannel.open(family);
-        dc.configureBlocking(false);
-        dc.bind(null);
-
-        QuicEngine engine = new QuicEngine(this, false);
-        engine.init(dc);
-
-        loop.registerDatagram(dc, engine);
-
-        InetSocketAddress remote = new InetSocketAddress(host, port);
-        engine.connectTo(remote, null, connHandler, serverName);
-
-        return engine;
     }
 
     @Override
     protected String getDescription() {
-        StringBuilder sb = new StringBuilder("QUIC");
+        StringBuilder description = new StringBuilder("QUIC");
         if (applicationProtocols != null) {
-            sb.append(" (ALPN: ");
-            sb.append(applicationProtocols);
-            sb.append(")");
+            description.append(" (ALPN: ").append(applicationProtocols).append(')');
         }
-        if (cipherSuites != null) {
-            sb.append(" ciphers=");
-            sb.append(cipherSuites);
-        }
-        if (namedGroups != null) {
-            sb.append(" groups=");
-            sb.append(namedGroups);
-        }
-        return sb.toString();
+        return description.toString();
     }
 
-    // ── ALPN encoding ──
+    // ── Server engine creation ──
 
     /**
-     * Encodes comma-separated ALPN protocol names into the wire format
-     * defined by RFC 7301 section 3.1: each protocol is a length-prefixed
-     * byte sequence. Used by quiche/BoringSSL for TLS ALPN negotiation.
+     * Binds a server-mode {@link QuicEngine} accepting new peer-initiated
+     * streams via {@code acceptHandler}.
      *
-     * <p>Example: "h3,h3-29" becomes [2,'h','3', 5,'h','3','-','2','9']
-     *
-     * @param protocols comma-separated protocol names
-     * @return the encoded ALPN bytes
+     * @param bindAddress the local address to bind to
+     * @param port the local port to bind to
+     * @param acceptHandler the handler for new peer-initiated streams
+     * @param loop the selector loop to register the engine with
+     * @return the new engine
+     * @throws IOException if the socket cannot be bound
      */
-    static byte[] encodeAlpnProtocols(String protocols) {
-        // Count total length
-        int totalLen = 0;
-        int start = 0;
-        while (start < protocols.length()) {
-            int comma = protocols.indexOf(',', start);
-            if (comma == -1) {
-                comma = protocols.length();
-            }
-            int protoLen = comma - start;
-            totalLen += 1 + protoLen;
-            start = comma + 1;
+    public QuicEngine createServerEngine(InetAddress bindAddress, int port, StreamAcceptHandler acceptHandler,
+            SelectorLoop loop) throws IOException {
+        QuicEngine engine = newBoundServerEngine(bindAddress, port, loop);
+        engine.setStreamAcceptHandler(acceptHandler);
+        return engine;
+    }
+
+    /**
+     * Binds a server-mode {@link QuicEngine} notified of each new
+     * connection via {@code handler}, for connection-level protocols
+     * (HTTP/3) that manage their own stream acceptance per connection.
+     *
+     * @param bindAddress the local address to bind to
+     * @param port the local port to bind to
+     * @param handler the handler notified of each new connection
+     * @param loop the selector loop to register the engine with
+     * @return the new engine
+     * @throws IOException if the socket cannot be bound
+     */
+    @SuppressWarnings("overloads")
+    public QuicEngine createServerEngine(InetAddress bindAddress, int port, QuicEngine.ConnectionAcceptedHandler handler,
+            SelectorLoop loop) throws IOException {
+        QuicEngine engine = newBoundServerEngine(bindAddress, port, loop);
+        engine.setConnectionAcceptedHandler(handler);
+        return engine;
+    }
+
+    private QuicEngine newBoundServerEngine(InetAddress bindAddress, int port, SelectorLoop loop) throws IOException {
+        DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
+                ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
+        dc.configureBlocking(false);
+        dc.bind(new InetSocketAddress(bindAddress, port));
+        QuicEngine engine = new QuicEngine(this, true);
+        engine.init(dc);
+        loop.registerDatagram(dc, engine);
+        LOGGER.fine("Bound QUIC server engine on " + bindAddress + ":" + port);
+        return engine;
+    }
+
+    // ── Client connection ──
+
+    /**
+     * Opens a client-mode {@link QuicEngine} connected to a remote host,
+     * auto-opening a first stream for {@code handler} once the
+     * handshake completes.
+     *
+     * @param host the server host
+     * @param port the server port
+     * @param handler the handler for the auto-opened first stream
+     * @param loop the selector loop to register the engine with
+     * @param serverName the SNI server name
+     * @return the new engine
+     * @throws IOException if the socket cannot be opened
+     */
+    public QuicEngine connect(InetAddress host, int port, ProtocolHandler handler, SelectorLoop loop, String serverName)
+            throws IOException {
+        QuicEngine engine = newClientEngine(host, loop);
+        engine.connectTo(new InetSocketAddress(host, port), handler, serverName);
+        return engine;
+    }
+
+    /**
+     * Opens a client-mode {@link QuicEngine} connected to a remote host,
+     * notified via {@code connHandler} once the handshake completes,
+     * for connection-level protocols (HTTP/3) that manage their own
+     * streams.
+     *
+     * @param host the server host
+     * @param port the server port
+     * @param connHandler notified once the handshake completes
+     * @param loop the selector loop to register the engine with
+     * @param serverName the SNI server name
+     * @return the new engine
+     * @throws IOException if the socket cannot be opened
+     */
+    public QuicEngine connect(InetAddress host, int port, QuicEngine.ConnectionAcceptedHandler connHandler,
+            SelectorLoop loop, String serverName) throws IOException {
+        QuicEngine engine = newClientEngine(host, loop);
+        engine.connectTo(new InetSocketAddress(host, port), null, connHandler, serverName);
+        return engine;
+    }
+
+    private QuicEngine newClientEngine(InetAddress host, SelectorLoop loop) throws IOException {
+        DatagramChannel dc = DatagramChannel.open(host instanceof Inet6Address
+                ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
+        dc.configureBlocking(false);
+        dc.bind(null);
+        QuicEngine engine = new QuicEngine(this, false);
+        engine.init(dc);
+        loop.registerDatagram(dc, engine);
+        return engine;
+    }
+
+    /** Accepts any peer certificate -- used only when {@code verifyPeer} is explicitly disabled. */
+    private static final class PermissiveTrustManager implements X509TrustManager {
+
+        static final PermissiveTrustManager INSTANCE = new PermissiveTrustManager();
+
+        @Override
+        public void checkClientTrusted(X509Certificate[] chain, String authType) {
         }
 
-        byte[] result = new byte[totalLen];
-        int pos = 0;
-        start = 0;
-        while (start < protocols.length()) {
-            int comma = protocols.indexOf(',', start);
-            if (comma == -1) {
-                comma = protocols.length();
-            }
-            int protoLen = comma - start;
-            result[pos] = (byte) protoLen;
-            pos++;
-            for (int i = start; i < comma; i++) {
-                result[pos] = (byte) protocols.charAt(i);
-                pos++;
-            }
-            start = comma + 1;
+        @Override
+        public void checkServerTrusted(X509Certificate[] chain, String authType) {
         }
 
-        return result;
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
+        }
     }
 }

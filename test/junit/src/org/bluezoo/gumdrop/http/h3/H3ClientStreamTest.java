@@ -9,14 +9,18 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
+import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
+import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -29,9 +33,9 @@ public class H3ClientStreamTest {
     @Test
     public void testValidStatusDispatches() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { ":status", "200", "content-type", "text/plain" });
+        stream.headersFrameReceived(encode(":status", "200", "content-type", "text/plain"));
 
         assertNotNull("ok() should have been called", handler.okResponse);
         assertNull("failed() should not have been called", handler.failedException);
@@ -43,9 +47,9 @@ public class H3ClientStreamTest {
     @Test
     public void testErrorStatusDispatches() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { ":status", "404" });
+        stream.headersFrameReceived(encode(":status", "404"));
 
         assertNotNull("error() should have been called", handler.errorResponse);
         assertNull("failed() should not have been called", handler.failedException);
@@ -57,9 +61,9 @@ public class H3ClientStreamTest {
     @Test
     public void testMissingStatusFailsStream() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { "content-type", "text/html" });
+        stream.headersFrameReceived(encode("content-type", "text/html"));
 
         assertNotNull("failed() should have been called", handler.failedException);
         assertTrue(handler.failedException.getMessage().contains("missing :status"));
@@ -73,9 +77,9 @@ public class H3ClientStreamTest {
     @Test
     public void testInformational100IsConsumed() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { ":status", "100" });
+        stream.headersFrameReceived(encode(":status", "100"));
 
         assertNull("ok() should not be called for 1xx", handler.okResponse);
         assertNull("error() should not be called for 1xx", handler.errorResponse);
@@ -89,12 +93,12 @@ public class H3ClientStreamTest {
     @Test
     public void testFinalResponseAfter1xx() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { ":status", "100" });
+        stream.headersFrameReceived(encode(":status", "100"));
         assertNull("ok() should not be called for 100", handler.okResponse);
 
-        stream.onHeaders(new String[] { ":status", "200", "content-type", "text/html" });
+        stream.headersFrameReceived(encode(":status", "200", "content-type", "text/html"));
         assertNotNull("ok() should be called for final 200", handler.okResponse);
     }
 
@@ -104,9 +108,9 @@ public class H3ClientStreamTest {
     @Test
     public void testEarlyHints103IsConsumed() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { ":status", "103", "link", "</style.css>; rel=preload" });
+        stream.headersFrameReceived(encode(":status", "103", "link", "</style.css>; rel=preload"));
 
         assertNull("ok() should not be called for 103", handler.okResponse);
         assertEquals("link", handler.lastHeaderName);
@@ -120,9 +124,9 @@ public class H3ClientStreamTest {
     @Test
     public void testNonNumericStatusTreatedAsError() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(0, handler);
+        H3ClientStream stream = createStream(handler);
 
-        stream.onHeaders(new String[] { ":status", "abc" });
+        stream.headersFrameReceived(encode(":status", "abc"));
 
         assertNotNull("error() should be called for non-numeric status",
                 handler.errorResponse);
@@ -133,23 +137,19 @@ public class H3ClientStreamTest {
      */
     @Test
     public void testExtractStatusReturnsNegativeForMissing() throws Exception {
-        H3ClientStream stream = createStream(0, new StubResponseHandler());
-        Method m = H3ClientStream.class.getDeclaredMethod(
-                "extractStatus", String[].class);
+        Method m = H3ClientStream.class.getDeclaredMethod("extractStatus", List.class);
         m.setAccessible(true);
 
-        int result = (int) m.invoke(stream, (Object) new String[] { "content-type", "text/html" });
+        int result = (int) m.invoke(null, headerList("content-type", "text/html"));
         assertEquals(-1, result);
     }
 
     @Test
     public void testExtractStatusReturns200() throws Exception {
-        H3ClientStream stream = createStream(0, new StubResponseHandler());
-        Method m = H3ClientStream.class.getDeclaredMethod(
-                "extractStatus", String[].class);
+        Method m = H3ClientStream.class.getDeclaredMethod("extractStatus", List.class);
         m.setAccessible(true);
 
-        int result = (int) m.invoke(stream, (Object) new String[] { ":status", "200" });
+        int result = (int) m.invoke(null, headerList(":status", "200"));
         assertEquals(200, result);
     }
 
@@ -159,7 +159,7 @@ public class H3ClientStreamTest {
     @Test
     public void testGoawayFailedNotifiesHandler() throws Exception {
         StubResponseHandler handler = new StubResponseHandler();
-        H3ClientStream stream = createStream(4, handler);
+        H3ClientStream stream = createStream(handler);
 
         stream.onGoawayFailed(new java.io.IOException("retryable"));
 
@@ -169,13 +169,24 @@ public class H3ClientStreamTest {
 
     // ── Helpers ──
 
-    private H3ClientStream createStream(long streamId,
-            HTTPResponseHandler handler) throws Exception {
-        Constructor<H3ClientStream> ctor = H3ClientStream.class
-                .getDeclaredConstructor(HTTP3ClientHandler.class, long.class,
-                        HTTPResponseHandler.class);
-        ctor.setAccessible(true);
-        return ctor.newInstance(null, streamId, handler);
+    private H3ClientStream createStream(HTTPResponseHandler handler) {
+        return new H3ClientStream(new SimpleDecoder(), handler);
+    }
+
+    private static List<Header> headerList(String... pairs) {
+        List<Header> headers = new ArrayList<Header>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            headers.add(new Header(pairs[i], pairs[i + 1]));
+        }
+        return headers;
+    }
+
+    private static ByteBuffer encode(String... pairs) {
+        SimpleEncoder encoder = new SimpleEncoder();
+        ByteBuffer buf = ByteBuffer.allocate(4096);
+        encoder.encode(buf, headerList(pairs));
+        buf.flip();
+        return buf;
     }
 
     private String getState(H3ClientStream stream) throws Exception {
