@@ -342,7 +342,7 @@ public class QuicFrameCodecTest {
 
     @Test
     public void testConnectionCloseTransport() {
-        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.connectionCloseLength(false, "bad frame"));
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.connectionCloseLength(false, 7, "bad frame"));
         QuicFrameWriter.writeConnectionClose(buf, false, 7, 6, "bad frame");
         buf.flip();
 
@@ -355,7 +355,7 @@ public class QuicFrameCodecTest {
 
     @Test
     public void testConnectionCloseApplication() {
-        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.connectionCloseLength(true, "goodbye"));
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.connectionCloseLength(true, 0, "goodbye"));
         QuicFrameWriter.writeConnectionClose(buf, true, 0, 0, "goodbye");
         buf.flip();
 

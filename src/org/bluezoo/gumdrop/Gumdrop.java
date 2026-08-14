@@ -1103,6 +1103,16 @@ public class Gumdrop {
                 }
             }
         }
+        // Fall back to the shared timer -- lazily start it if this is the
+        // first time it's needed, e.g. a handler whose own SelectorLoop
+        // timer isn't (yet, or any longer) running and no full
+        // Gumdrop.start() has brought this singleton's own timer up.
+        synchronized (this) {
+            if (scheduledTimer == null || !scheduledTimer.isRunning()) {
+                scheduledTimer = new ScheduledTimer();
+                scheduledTimer.start();
+            }
+        }
         return scheduledTimer.schedule(handler, delayMs, callback);
     }
 

@@ -542,19 +542,27 @@ public final class QuicFrameWriter {
      * @param applicationError true for an application-level close
      *                         ({@link QuicFrameHandler#TYPE_CONNECTION_CLOSE_APP}),
      *                         false for a transport-level close
+     * @param errorCode the error code that will be written (its encoded
+     *                  length varies with its value, so this must match
+     *                  what is later passed to {@link #writeConnectionClose})
      * @param reason the human-readable reason phrase
      * @return the encoded length in bytes
      */
-    public static int connectionCloseLength(boolean applicationError, String reason) {
+    public static int connectionCloseLength(boolean applicationError, long errorCode, String reason) {
         byte[] reasonBytes = reason.getBytes(StandardCharsets.UTF_8);
         long type = applicationError
                 ? QuicFrameHandler.TYPE_CONNECTION_CLOSE_APP
                 : QuicFrameHandler.TYPE_CONNECTION_CLOSE;
         long length = VarInt.encodedLength(type)
-                + VarInt.encodedLength(0L) // error code
+                + VarInt.encodedLength(errorCode)
                 + VarInt.encodedLength(reasonBytes.length)
                 + reasonBytes.length;
         if (!applicationError) {
+            // The frame type that triggered the error is always reported
+            // as 0 by every caller in this codebase (frame-type-specific
+            // errors aren't distinguished), so this doesn't need its own
+            // parameter -- but it's coupled to the same VarInt.encodedLength(0L)
+            // assumption as errorCode used to be.
             length += VarInt.encodedLength(0L); // frame type
         }
         return (int) length;

@@ -85,11 +85,25 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
  * the peer issues), and out-of-order STREAM data reassembly (delivered
  * in arrival order only, matching
  * {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}'s own accepted
- * limitation for CRYPTO data). Dynamic growth of this endpoint's own
- * advertised flow-control limits (sending our own MAX_DATA/
- * MAX_STREAM_DATA updates) is not implemented; received MAX_DATA/
- * MAX_STREAM_DATA from the peer *is* honoured, since that's needed for
- * correct send-side backpressure.
+ * limitation for CRYPTO data).
+ *
+ * <p>Flow control is now bidirectional: the peer's advertised MAX_DATA/
+ * MAX_STREAM_DATA is honoured on the send side (see {@code canSendOnStream}),
+ * and this endpoint also grows and enforces its own advertised receive-side
+ * limits -- as data arrives, {@code streamFrameReceived} tracks each
+ * stream's highest received offset (RFC 9000 section 4.1's model, not
+ * literal bytes delivered to the app, so a duplicate/retransmitted STREAM
+ * frame doesn't double-count), rejects a peer that exceeds the currently
+ * advertised limit (RFC 9000 section 11: FLOW_CONTROL_ERROR), and, once
+ * consumption passes half of the current window, grows the limit and
+ * queues a MAX_DATA/MAX_STREAM_DATA update -- a fixed-size window, not
+ * RTT-tuned (matches how {@code quic.recovery}'s congestion control is
+ * NewReno-only for now: correctness first, performance tuning later).
+ * DATA_BLOCKED/STREAM_DATA_BLOCKED trigger the same growth proactively.
+ * One known, deliberately unaddressed gap: unlike CRYPTO/STREAM chunks,
+ * a lost MAX_DATA/MAX_STREAM_DATA frame is not explicitly retransmitted --
+ * recovery relies on the peer re-sending a BLOCKED frame while still
+ * blocked (RFC 9000 section 4.1), a bounded delay rather than a deadlock.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -166,12 +180,37 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     // Connection- and stream-level send budgets, learned from the peer's
     // transport parameters and grown by received MAX_DATA/MAX_STREAM_DATA
-    // frames. Our own advertised (receive-side) limits are not grown --
-    // see the class documentation.
+    // frames.
     private long peerMaxData;
     private final Map<Long, Long> peerMaxStreamData = new HashMap<Long, Long>();
     private long connectionBytesSent;
     private final Map<Long, Long> streamBytesSent = new HashMap<Long, Long>();
+
+    // Connection- and stream-level receive budgets: this endpoint's own
+    // currently advertised limits (grown over time, see the class
+    // documentation) and what has actually been received against them.
+    // streamBytesReceived tracks each stream's highest received offset
+    // (offset + length), not a running total, so a duplicate/retransmitted
+    // STREAM frame covering already-counted bytes doesn't double-count.
+    private long localMaxData;
+    private final Map<Long, Long> localMaxStreamData = new HashMap<Long, Long>();
+    private long connectionBytesReceived;
+    private final Map<Long, Long> streamBytesReceived = new HashMap<Long, Long>();
+
+    // MAX_DATA/MAX_STREAM_DATA owed to the peer, drained at the next
+    // ONE_RTT flush -- see buildAndSendPacket.
+    private boolean maxDataOwed;
+    private final Map<Long, Long> maxStreamDataOwed = new HashMap<Long, Long>();
+
+    // DATA_BLOCKED/STREAM_DATA_BLOCKED owed to the peer (this side is
+    // blocked sending by the PEER's advertised limit -- see
+    // checkSendBlocked/buildAndSendPacket), plus which limit value has
+    // already been signalled so it isn't repeated until that limit grows
+    // (cleared in maxDataFrameReceived/maxStreamDataFrameReceived).
+    private boolean dataBlockedOwed;
+    private boolean dataBlockedSignalled;
+    private final Map<Long, Long> streamDataBlockedOwed = new HashMap<Long, Long>();
+    private final java.util.Set<Long> streamDataBlockedSignalled = new java.util.HashSet<Long>();
 
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
@@ -180,6 +219,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private boolean handshakeDoneOwed;
     private boolean closed;
     private String deferredCloseReason;
+    private long deferredCloseErrorCode;
 
     /**
      * Creates a QUIC connection.
@@ -243,6 +283,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE);
         this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey);
+        this.localMaxData = localTransportParameters.getInitialMaxData();
     }
 
     /**
@@ -634,6 +675,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
                     return;
                 }
             }
+            if (!checkAndRecordFlowControl(streamId, offset, data.remaining())) {
+                return;
+            }
             if (data.hasRemaining()) {
                 stream.deliverData(data);
             }
@@ -650,7 +694,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxDataFrameReceived(long maximumData) {
-            peerMaxData = Math.max(peerMaxData, maximumData);
+            if (maximumData > peerMaxData) {
+                peerMaxData = maximumData;
+                dataBlockedSignalled = false;
+            }
         }
 
         @Override
@@ -659,6 +706,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             Long current = peerMaxStreamData.get(key);
             if (current == null || maximumStreamData > current.longValue()) {
                 peerMaxStreamData.put(key, Long.valueOf(maximumStreamData));
+                streamDataBlockedSignalled.remove(key);
             }
         }
 
@@ -666,12 +714,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
         public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
         }
 
+        // RFC 9000 section 4.1: the peer is blocked sending -- grow our
+        // advertised limit right away rather than waiting for more data
+        // to arrive and cross the usual half-window threshold. The peer
+        // being fully blocked already means it cannot send anything more
+        // to advance that passive check, so the unconditional
+        // xxxOnBlocked growth is used instead -- see its javadoc.
         @Override
         public void dataBlockedFrameReceived(long maximumData) {
+            growConnectionLimitOnBlocked();
         }
 
         @Override
         public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
+            growStreamLimitOnBlocked(streamId);
         }
 
         @Override
@@ -774,14 +830,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // bidi_remote if we opened the stream (we're "the endpoint that
     // receives the parameter" from their point of view), their bidi_local
     // if they opened it, or their uni limit for a uni stream we opened.
-    private boolean canSendOnStream(long streamId, int length) {
+    private static final int SEND_NOT_BLOCKED = 0;
+    private static final int SEND_BLOCKED_BY_STREAM_LIMIT = 1;
+    private static final int SEND_BLOCKED_BY_CONNECTION_LIMIT = 2;
+
+    private long currentPeerStreamLimit(long streamId) {
+        Long limit = peerMaxStreamData.get(Long.valueOf(streamId));
+        return limit != null ? limit.longValue() : initialPeerStreamLimit(streamId);
+    }
+
+    private int checkSendBlocked(long streamId, int length) {
         if (connectionBytesSent + length > peerMaxData) {
-            return false;
+            return SEND_BLOCKED_BY_CONNECTION_LIMIT;
         }
         long sent = streamBytesSent.containsKey(Long.valueOf(streamId)) ? streamBytesSent.get(Long.valueOf(streamId)).longValue() : 0;
-        Long limit = peerMaxStreamData.get(Long.valueOf(streamId));
-        long effectiveLimit = limit != null ? limit.longValue() : initialPeerStreamLimit(streamId);
-        return sent + length <= effectiveLimit;
+        if (sent + length > currentPeerStreamLimit(streamId)) {
+            return SEND_BLOCKED_BY_STREAM_LIMIT;
+        }
+        return SEND_NOT_BLOCKED;
     }
 
     private long initialPeerStreamLimit(long streamId) {
@@ -804,6 +870,152 @@ public final class QuicConnection implements QuicTlsEngineListener {
         streamBytesSent.put(key, Long.valueOf(sent + length));
     }
 
+    // The mirror image of initialPeerStreamLimit: OUR OWN declared
+    // parameter, interpreted as OUR OWN receive limit, so the
+    // weOpened/bidiLocal/bidiRemote mapping swaps relative to that
+    // method -- our bidi_local is the limit we declared for streams we
+    // ourselves initiate.
+    private long initialLocalStreamLimit(long streamId) {
+        if (isUnidirectional(streamId)) {
+            return localTransportParameters.getInitialMaxStreamDataUni();
+        }
+        boolean weOpened = !isPeerInitiated(streamId);
+        return weOpened
+                ? localTransportParameters.getInitialMaxStreamDataBidiLocal()
+                : localTransportParameters.getInitialMaxStreamDataBidiRemote();
+    }
+
+    private long currentLocalStreamLimit(long streamId) {
+        Long limit = localMaxStreamData.get(Long.valueOf(streamId));
+        return limit != null ? limit.longValue() : initialLocalStreamLimit(streamId);
+    }
+
+    /**
+     * Raises a stream's advertised receive limit to {@code newLimit} (a
+     * no-op if it is not actually higher than the current one) and
+     * queues a MAX_STREAM_DATA update.
+     */
+    private void growStreamLimit(long streamId, long newLimit) {
+        Long key = Long.valueOf(streamId);
+        if (newLimit > currentLocalStreamLimit(streamId)) {
+            localMaxStreamData.put(key, Long.valueOf(newLimit));
+            maxStreamDataOwed.put(key, Long.valueOf(newLimit));
+        }
+    }
+
+    /**
+     * Grows a stream's advertised receive limit and queues a
+     * MAX_STREAM_DATA update, once consumption has passed half of the
+     * current window -- see the class documentation for why this is a
+     * fixed-size window rather than RTT-tuned. Called as data is
+     * received; see {@link #growStreamLimitOnBlocked} for the
+     * complementary trigger used when the peer reports it is blocked.
+     *
+     * @param streamId the stream
+     * @param highestOffset the highest offset+length seen on this stream so far
+     */
+    private void maybeGrowStreamLimit(long streamId, long highestOffset) {
+        long windowSize = initialLocalStreamLimit(streamId);
+        if (windowSize <= 0) {
+            return;
+        }
+        long currentLimit = currentLocalStreamLimit(streamId);
+        if (highestOffset > currentLimit - windowSize / 2) {
+            growStreamLimit(streamId, highestOffset + windowSize / 2);
+        }
+    }
+
+    /**
+     * Unconditionally extends a stream's advertised receive limit by a
+     * full window, in response to the peer reporting it is blocked
+     * (STREAM_DATA_BLOCKED, RFC 9000 section 19.13).
+     *
+     * <p>Reusing {@link #maybeGrowStreamLimit}'s passive, receipt-driven
+     * check here would not help: it is keyed off the highest offset
+     * actually <em>received</em>, which by definition cannot have moved
+     * since the peer stopped being able to send -- the peer being fully
+     * blocked is itself the signal that growth is needed now, not a
+     * data point to re-run the same threshold check against.
+     */
+    private void growStreamLimitOnBlocked(long streamId) {
+        long windowSize = initialLocalStreamLimit(streamId);
+        if (windowSize <= 0) {
+            return;
+        }
+        growStreamLimit(streamId, currentLocalStreamLimit(streamId) + windowSize);
+    }
+
+    /**
+     * Grows the connection-level advertised receive limit and queues a
+     * MAX_DATA update, using the same fixed-window heuristic as
+     * {@link #maybeGrowStreamLimit}.
+     */
+    private void maybeGrowConnectionLimit() {
+        long windowSize = localTransportParameters.getInitialMaxData();
+        if (windowSize <= 0) {
+            return;
+        }
+        if (connectionBytesReceived > localMaxData - windowSize / 2) {
+            localMaxData = connectionBytesReceived + windowSize / 2;
+            maxDataOwed = true;
+        }
+    }
+
+    /**
+     * Unconditionally extends the connection-level advertised receive
+     * limit by a full window -- the connection-level counterpart of
+     * {@link #growStreamLimitOnBlocked}, for DATA_BLOCKED (RFC 9000
+     * section 19.12).
+     */
+    private void growConnectionLimitOnBlocked() {
+        long windowSize = localTransportParameters.getInitialMaxData();
+        if (windowSize <= 0) {
+            return;
+        }
+        localMaxData += windowSize;
+        maxDataOwed = true;
+    }
+
+    /**
+     * Enforces this endpoint's own advertised receive-side limits (RFC
+     * 9000 section 11) against an incoming STREAM frame, updates the
+     * "highest received offset" accounting the limits are grown from,
+     * and triggers that growth when appropriate.
+     *
+     * @return true if the frame is within limits and should be
+     *         delivered; false if it violated a limit -- the connection
+     *         has already been closed with FLOW_CONTROL_ERROR and the
+     *         caller must not deliver the data
+     */
+    private boolean checkAndRecordFlowControl(long streamId, long offset, int length) {
+        long highestOffset = offset + length;
+        Long key = Long.valueOf(streamId);
+        Long previous = streamBytesReceived.get(key);
+        long previousHighest = previous != null ? previous.longValue() : 0;
+        if (highestOffset <= previousHighest) {
+            // No new bytes implied by this frame (duplicate/retransmission
+            // of already-accounted-for data) -- nothing to check or record.
+            return true;
+        }
+        long streamLimit = currentLocalStreamLimit(streamId);
+        if (highestOffset > streamLimit) {
+            closeWithError(TRANSPORT_ERROR_FLOW_CONTROL_ERROR,
+                    "Stream " + streamId + " exceeded advertised MAX_STREAM_DATA " + streamLimit);
+            return false;
+        }
+        long delta = highestOffset - previousHighest;
+        if (connectionBytesReceived + delta > localMaxData) {
+            closeWithError(TRANSPORT_ERROR_FLOW_CONTROL_ERROR,
+                    "Connection exceeded advertised MAX_DATA " + localMaxData);
+            return false;
+        }
+        streamBytesReceived.put(key, Long.valueOf(highestOffset));
+        connectionBytesReceived += delta;
+        maybeGrowStreamLimit(streamId, highestOffset);
+        maybeGrowConnectionLimit();
+        return true;
+    }
+
     private void buildAndSendPacket(EncryptionLevel level) throws PacketProtectionException {
         boolean oneRtt = level == EncryptionLevel.ONE_RTT;
         List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
@@ -815,10 +1027,29 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 List<PendingChunk> queued = entry.getValue();
                 List<PendingChunk> toSend = new ArrayList<PendingChunk>();
                 for (PendingChunk chunk : queued) {
-                    if (canSendOnStream(streamId, chunk.data.length)) {
+                    int blocked = checkSendBlocked(streamId, chunk.data.length);
+                    if (blocked == SEND_NOT_BLOCKED) {
                         toSend.add(chunk);
                         recordBytesSent(streamId, chunk.data.length);
                     } else {
+                        // RFC 9000 section 4.1: tell the peer we're blocked
+                        // so it has a reason to grow its advertised limit
+                        // even though (being blocked) we can't send it any
+                        // more data to trigger that growth passively --
+                        // without this, once a chunk doesn't fit in the
+                        // remaining window, nothing would ever unblock it.
+                        // Only signalled once per limit value (RFC 9000
+                        // section 4.1's "SHOULD NOT send more than once for
+                        // a given limit"); cleared when that limit grows.
+                        if (blocked == SEND_BLOCKED_BY_STREAM_LIMIT) {
+                            Long key = Long.valueOf(streamId);
+                            if (streamDataBlockedSignalled.add(key)) {
+                                streamDataBlockedOwed.put(key, Long.valueOf(currentPeerStreamLimit(streamId)));
+                            }
+                        } else if (!dataBlockedSignalled) {
+                            dataBlockedSignalled = true;
+                            dataBlockedOwed = true;
+                        }
                         break; // preserve order: don't skip ahead of a blocked chunk
                     }
                 }
@@ -835,10 +1066,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
         List<ConnectionIdEntry> newCidsToSend = oneRtt
                 ? connectionIdManager.drainPendingIssuance() : java.util.Collections.<ConnectionIdEntry>emptyList();
         long[] retiresToSend = oneRtt ? connectionIdManager.drainPendingRetirement() : new long[0];
+        boolean includeMaxData = oneRtt && maxDataOwed;
+        Map<Long, Long> maxStreamDataToSend = oneRtt
+                ? new HashMap<Long, Long>(maxStreamDataOwed) : java.util.Collections.<Long, Long>emptyMap();
+        boolean includeDataBlocked = oneRtt && dataBlockedOwed;
+        Map<Long, Long> streamDataBlockedToSend = oneRtt
+                ? new HashMap<Long, Long>(streamDataBlockedOwed) : java.util.Collections.<Long, Long>emptyMap();
 
         boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
                 && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
-                && retiresToSend.length == 0;
+                && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
+                && !includeDataBlocked && streamDataBlockedToSend.isEmpty();
         if (nothingToSend) {
             return;
         }
@@ -871,6 +1109,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         for (long sequenceNumber : retiresToSend) {
             frameBytes += QuicFrameWriter.retireConnectionIdLength(sequenceNumber);
+        }
+        if (includeMaxData) {
+            frameBytes += QuicFrameWriter.maxDataLength(localMaxData);
+        }
+        for (Map.Entry<Long, Long> entry : maxStreamDataToSend.entrySet()) {
+            frameBytes += QuicFrameWriter.maxStreamDataLength(entry.getKey().longValue(), entry.getValue().longValue());
+        }
+        if (includeDataBlocked) {
+            frameBytes += QuicFrameWriter.dataBlockedLength(peerMaxData);
+        }
+        for (Map.Entry<Long, Long> entry : streamDataBlockedToSend.entrySet()) {
+            frameBytes += QuicFrameWriter.streamDataBlockedLength(entry.getKey().longValue(), entry.getValue().longValue());
         }
 
         boolean longHeader = !oneRtt;
@@ -961,6 +1211,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
         for (long sequenceNumber : retiresToSend) {
             QuicFrameWriter.writeRetireConnectionId(payload, sequenceNumber);
         }
+        if (includeMaxData) {
+            QuicFrameWriter.writeMaxData(payload, localMaxData);
+            maxDataOwed = false;
+        }
+        for (Map.Entry<Long, Long> entry : maxStreamDataToSend.entrySet()) {
+            QuicFrameWriter.writeMaxStreamData(payload, entry.getKey().longValue(), entry.getValue().longValue());
+        }
+        maxStreamDataOwed.keySet().removeAll(maxStreamDataToSend.keySet());
+        if (includeDataBlocked) {
+            QuicFrameWriter.writeDataBlocked(payload, peerMaxData);
+            dataBlockedOwed = false;
+        }
+        for (Map.Entry<Long, Long> entry : streamDataBlockedToSend.entrySet()) {
+            QuicFrameWriter.writeStreamDataBlocked(payload, entry.getKey().longValue(), entry.getValue().longValue());
+        }
+        streamDataBlockedOwed.keySet().removeAll(streamDataBlockedToSend.keySet());
         if (paddingBytes > 0) {
             QuicFrameWriter.writePadding(payload, paddingBytes);
         }
@@ -985,7 +1251,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         boolean ackEliciting = !sentCryptoThisPacket.isEmpty() || !sentStreamThisPacket.isEmpty()
                 || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
-                || retiresToSend.length > 0;
+                || retiresToSend.length > 0 || includeMaxData || !maxStreamDataToSend.isEmpty()
+                || includeDataBlocked || !streamDataBlockedToSend.isEmpty();
         lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, true, packet.length);
         scheduleLossDetectionTimer();
     }
@@ -1049,6 +1316,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     // ── Close ──
 
+    /** RFC 9000 section 20.1: an endpoint received more data than the flow control limits it advertised permit. */
+    private static final long TRANSPORT_ERROR_FLOW_CONTROL_ERROR = 0x3;
+
+    /**
+     * Closes the connection with a specific transport error code (RFC
+     * 9000 section 11), e.g. a flow-control violation.
+     *
+     * @param errorCode the RFC 9000 section 20.1 transport error code
+     * @param reason a human-readable reason phrase
+     */
+    private void closeWithError(long errorCode, String reason) {
+        deferredCloseErrorCode = errorCode;
+        deferredCloseReason = reason;
+        close();
+    }
+
     /**
      * Closes the connection, sending CONNECTION_CLOSE if the handshake
      * had progressed far enough to have usable keys.
@@ -1083,7 +1366,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     private void sendConnectionClose(EncryptionLevel level, PacketProtectionKeys keys) throws PacketProtectionException {
         String reason = deferredCloseReason != null ? deferredCloseReason : "";
-        int frameBytes = QuicFrameWriter.connectionCloseLength(false, reason);
+        long errorCode = deferredCloseErrorCode;
+        int frameBytes = QuicFrameWriter.connectionCloseLength(false, errorCode, reason);
         boolean longHeader = level != EncryptionLevel.ONE_RTT;
         long packetNumber = sendPacketNumber[level.ordinal()]++;
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
@@ -1094,7 +1378,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
 
         ByteBuffer payload = ByteBuffer.allocate(frameBytes);
-        QuicFrameWriter.writeConnectionClose(payload, false, 0, 0, reason);
+        QuicFrameWriter.writeConnectionClose(payload, false, errorCode, 0, reason);
         payload.flip();
         byte[] plaintext = new byte[payload.remaining()];
         payload.get(plaintext);

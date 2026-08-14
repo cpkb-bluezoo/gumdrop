@@ -538,6 +538,15 @@ public class SelectorLoop implements Runnable {
      * @param endpoint the TCPEndpoint
      */
     void register(SocketChannel channel, TCPEndpoint endpoint) {
+        // Set synchronously, on the calling thread, rather than waiting for
+        // processPendingRegistrations() to run on this loop's own thread --
+        // a handler that calls scheduleTimer() (whose default ChannelHandler
+        // implementation needs getSelectorLoop() to route to this loop's own
+        // timer) immediately after registering, before this loop's thread
+        // has had a chance to process the registration, would otherwise see
+        // a null loop and fall through to Gumdrop's shared timer, which is
+        // never started outside of a full Gumdrop.start() server lifecycle.
+        endpoint.setSelectorLoop(this);
         pendingRegistrations.add(new PendingRegistration(channel, endpoint, false));
         if (selector != null) {
             selector.wakeup();
@@ -552,6 +561,7 @@ public class SelectorLoop implements Runnable {
      * @param endpoint the TCPEndpoint
      */
     void registerForConnect(SocketChannel channel, TCPEndpoint endpoint) {
+        endpoint.setSelectorLoop(this);
         pendingRegistrations.add(new PendingRegistration(channel, endpoint, true));
         if (selector != null) {
             selector.wakeup();
@@ -577,6 +587,8 @@ public class SelectorLoop implements Runnable {
      * @param handler the datagram server or client
      */
     public void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
+        // See the identical comment in register(SocketChannel, TCPEndpoint).
+        handler.setSelectorLoop(this);
         pendingRegistrations.add(new PendingRegistration(channel, handler, false));
         if (selector != null) {
             selector.wakeup();
