@@ -80,8 +80,22 @@ public class QuicFrameParser {
                 if (!parseAckFrame(buf, type == QuicFrameHandler.TYPE_ACK_ECN)) {
                     return;
                 }
+            } else if (type == QuicFrameHandler.TYPE_RESET_STREAM) {
+                if (!parseResetStreamFrame(buf)) {
+                    return;
+                }
+            } else if (type == QuicFrameHandler.TYPE_STOP_SENDING) {
+                long[] streamIdAndValue = parseStreamIdAndValue(buf, "STOP_SENDING");
+                if (streamIdAndValue == null) {
+                    return;
+                }
+                handler.stopSendingFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
             } else if (type == QuicFrameHandler.TYPE_CRYPTO) {
                 if (!parseCryptoFrame(buf)) {
+                    return;
+                }
+            } else if (type == QuicFrameHandler.TYPE_NEW_TOKEN) {
+                if (!parseNewTokenFrame(buf)) {
                     return;
                 }
             } else if (type >= QuicFrameHandler.TYPE_STREAM_MIN && type <= QuicFrameHandler.TYPE_STREAM_MAX) {
@@ -127,6 +141,28 @@ public class QuicFrameParser {
                 }
                 handler.streamsBlockedFrameReceived(
                         type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI, VarInt.decode(buf));
+            } else if (type == QuicFrameHandler.TYPE_NEW_CONNECTION_ID) {
+                if (!parseNewConnectionIdFrame(buf)) {
+                    return;
+                }
+            } else if (type == QuicFrameHandler.TYPE_RETIRE_CONNECTION_ID) {
+                if (!buf.hasRemaining()) {
+                    handler.frameError("RETIRE_CONNECTION_ID frame underflow");
+                    return;
+                }
+                handler.retireConnectionIdFrameReceived(VarInt.decode(buf));
+            } else if (type == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
+                ByteBuffer data = parseFixedLengthData(buf, QuicFrameHandler.PATH_DATA_LENGTH, "PATH_CHALLENGE");
+                if (data == null) {
+                    return;
+                }
+                handler.pathChallengeFrameReceived(data);
+            } else if (type == QuicFrameHandler.TYPE_PATH_RESPONSE) {
+                ByteBuffer data = parseFixedLengthData(buf, QuicFrameHandler.PATH_DATA_LENGTH, "PATH_RESPONSE");
+                if (data == null) {
+                    return;
+                }
+                handler.pathResponseFrameReceived(data);
             } else if (type == QuicFrameHandler.TYPE_CONNECTION_CLOSE) {
                 if (!parseConnectionCloseFrame(buf, false)) {
                     return;
@@ -179,6 +215,27 @@ public class QuicFrameParser {
         return true;
     }
 
+    // RFC 9000 section 19.4
+    private boolean parseResetStreamFrame(ByteBuffer buf) {
+        if (!buf.hasRemaining()) {
+            handler.frameError("RESET_STREAM frame underflow");
+            return false;
+        }
+        long streamId = VarInt.decode(buf);
+        if (!buf.hasRemaining()) {
+            handler.frameError("RESET_STREAM frame underflow reading error code");
+            return false;
+        }
+        long applicationErrorCode = VarInt.decode(buf);
+        if (!buf.hasRemaining()) {
+            handler.frameError("RESET_STREAM frame underflow reading final size");
+            return false;
+        }
+        long finalSize = VarInt.decode(buf);
+        handler.resetStreamFrameReceived(streamId, applicationErrorCode, finalSize);
+        return true;
+    }
+
     // RFC 9000 section 19.6
     private boolean parseCryptoFrame(ByteBuffer buf) {
         if (!buf.hasRemaining()) {
@@ -200,6 +257,29 @@ public class QuicFrameParser {
         buf.position(buf.position() + dataLength);
 
         handler.cryptoFrameReceived(offset, data);
+        return true;
+    }
+
+    // RFC 9000 section 19.7
+    private boolean parseNewTokenFrame(ByteBuffer buf) {
+        if (!buf.hasRemaining()) {
+            handler.frameError("NEW_TOKEN frame underflow");
+            return false;
+        }
+        long length = VarInt.decode(buf);
+        if (length <= 0 || length > buf.remaining()) {
+            handler.frameError("NEW_TOKEN frame length exceeds payload");
+            return false;
+        }
+
+        int tokenLength = (int) length;
+        int savedLimit = buf.limit();
+        buf.limit(buf.position() + tokenLength);
+        ByteBuffer token = buf.slice();
+        buf.limit(savedLimit);
+        buf.position(buf.position() + tokenLength);
+
+        handler.newTokenFrameReceived(token);
         return true;
     }
 
@@ -262,6 +342,62 @@ public class QuicFrameParser {
         }
         long value = VarInt.decode(buf);
         return new long[] { streamId, value };
+    }
+
+    // RFC 9000 section 19.15
+    private boolean parseNewConnectionIdFrame(ByteBuffer buf) {
+        if (!buf.hasRemaining()) {
+            handler.frameError("NEW_CONNECTION_ID frame underflow");
+            return false;
+        }
+        long sequenceNumber = VarInt.decode(buf);
+        if (!buf.hasRemaining()) {
+            handler.frameError("NEW_CONNECTION_ID frame underflow reading Retire Prior To");
+            return false;
+        }
+        long retirePriorTo = VarInt.decode(buf);
+        if (!buf.hasRemaining()) {
+            handler.frameError("NEW_CONNECTION_ID frame underflow reading Length");
+            return false;
+        }
+        int connectionIdLength = buf.get() & 0xff;
+        if (connectionIdLength < 1 || connectionIdLength > 20) {
+            handler.frameError("NEW_CONNECTION_ID frame has an invalid connection ID length: " + connectionIdLength);
+            return false;
+        }
+        int required = connectionIdLength + QuicFrameHandler.STATELESS_RESET_TOKEN_LENGTH;
+        if (buf.remaining() < required) {
+            handler.frameError("NEW_CONNECTION_ID frame underflow reading connection ID/reset token");
+            return false;
+        }
+
+        int savedLimit = buf.limit();
+        buf.limit(buf.position() + connectionIdLength);
+        ByteBuffer connectionId = buf.slice();
+        buf.limit(savedLimit);
+        buf.position(buf.position() + connectionIdLength);
+
+        buf.limit(buf.position() + QuicFrameHandler.STATELESS_RESET_TOKEN_LENGTH);
+        ByteBuffer statelessResetToken = buf.slice();
+        buf.limit(savedLimit);
+        buf.position(buf.position() + QuicFrameHandler.STATELESS_RESET_TOKEN_LENGTH);
+
+        handler.newConnectionIdFrameReceived(sequenceNumber, retirePriorTo, connectionId, statelessResetToken);
+        return true;
+    }
+
+    // RFC 9000 sections 19.17, 19.18: both are a fixed-length opaque Data field
+    private ByteBuffer parseFixedLengthData(ByteBuffer buf, int length, String frameName) {
+        if (buf.remaining() < length) {
+            handler.frameError(frameName + " frame underflow");
+            return null;
+        }
+        int savedLimit = buf.limit();
+        buf.limit(buf.position() + length);
+        ByteBuffer data = buf.slice();
+        buf.limit(savedLimit);
+        buf.position(buf.position() + length);
+        return data;
     }
 
     // RFC 9000 section 19.19

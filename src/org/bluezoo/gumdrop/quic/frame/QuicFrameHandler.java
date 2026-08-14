@@ -46,7 +46,10 @@ public interface QuicFrameHandler {
     long TYPE_PING = 0x01;              // RFC 9000 section 19.2
     long TYPE_ACK = 0x02;               // RFC 9000 section 19.3
     long TYPE_ACK_ECN = 0x03;           // RFC 9000 section 19.3, with ECN counts
+    long TYPE_RESET_STREAM = 0x04;      // RFC 9000 section 19.4
+    long TYPE_STOP_SENDING = 0x05;      // RFC 9000 section 19.5
     long TYPE_CRYPTO = 0x06;            // RFC 9000 section 19.6
+    long TYPE_NEW_TOKEN = 0x07;         // RFC 9000 section 19.7
     long TYPE_STREAM_MIN = 0x08;        // RFC 9000 section 19.8, low 3 bits are OFF/LEN/FIN
     long TYPE_STREAM_MAX = 0x0f;
     long TYPE_MAX_DATA = 0x10;          // RFC 9000 section 19.9
@@ -57,9 +60,19 @@ public interface QuicFrameHandler {
     long TYPE_STREAM_DATA_BLOCKED = 0x15; // RFC 9000 section 19.13
     long TYPE_STREAMS_BLOCKED_BIDI = 0x16; // RFC 9000 section 19.14
     long TYPE_STREAMS_BLOCKED_UNI = 0x17;  // RFC 9000 section 19.14
+    long TYPE_NEW_CONNECTION_ID = 0x18;    // RFC 9000 section 19.15
+    long TYPE_RETIRE_CONNECTION_ID = 0x19; // RFC 9000 section 19.16
+    long TYPE_PATH_CHALLENGE = 0x1a;    // RFC 9000 section 19.17
+    long TYPE_PATH_RESPONSE = 0x1b;     // RFC 9000 section 19.18
     long TYPE_CONNECTION_CLOSE = 0x1c;  // RFC 9000 section 19.19, transport error
     long TYPE_CONNECTION_CLOSE_APP = 0x1d; // RFC 9000 section 19.19, application error
     long TYPE_HANDSHAKE_DONE = 0x1e;    // RFC 9000 section 19.20
+
+    /** RFC 9000 section 19.15: the fixed length of the Stateless Reset Token field, in bytes. */
+    int STATELESS_RESET_TOKEN_LENGTH = 16;
+
+    /** RFC 9000 sections 19.17/19.18: the fixed length of the Data field, in bytes. */
+    int PATH_DATA_LENGTH = 8;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame Callbacks
@@ -94,6 +107,25 @@ public interface QuicFrameHandler {
     void ackFrameReceived(long largestAcknowledged, long ackDelay, long firstAckRange);
 
     /**
+     * Called when a RESET_STREAM frame is received (RFC 9000 section 19.4),
+     * abruptly terminating the peer's sending part of a stream.
+     *
+     * @param streamId the affected stream
+     * @param applicationErrorCode the reason for the reset
+     * @param finalSize the total number of bytes the peer sent on the stream
+     */
+    void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize);
+
+    /**
+     * Called when a STOP_SENDING frame is received (RFC 9000 section 19.5),
+     * requesting that this side abruptly terminate its sending part of a stream.
+     *
+     * @param streamId the affected stream
+     * @param applicationErrorCode the reason for the request
+     */
+    void stopSendingFrameReceived(long streamId, long applicationErrorCode);
+
+    /**
      * Called when a CRYPTO frame is received (RFC 9000 section 19.6).
      *
      * @param offset the byte offset of this data within the CRYPTO stream
@@ -101,6 +133,15 @@ public interface QuicFrameHandler {
      * @param data the handshake data (a slice - consume or copy before returning)
      */
     void cryptoFrameReceived(long offset, ByteBuffer data);
+
+    /**
+     * Called when a NEW_TOKEN frame is received (RFC 9000 section 19.7).
+     * Server-to-client only, carrying a token the client may present on a
+     * future connection's Initial packet.
+     *
+     * @param token the opaque token bytes (a slice - consume or copy before returning)
+     */
+    void newTokenFrameReceived(ByteBuffer token);
 
     /**
      * Called when a STREAM frame is received (RFC 9000 section 19.8).
@@ -159,6 +200,51 @@ public interface QuicFrameHandler {
      * @param maximumStreams the stream limit at which the peer was blocked
      */
     void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams);
+
+    /**
+     * Called when a NEW_CONNECTION_ID frame is received (RFC 9000
+     * section 19.15), offering an additional connection ID this side may
+     * use as the Destination Connection ID on future packets.
+     *
+     * @param sequenceNumber the new connection ID's sequence number
+     * @param retirePriorTo connection IDs with a lower sequence number
+     *                      than this must be retired
+     * @param connectionId the new connection ID bytes (a slice - consume
+     *                     or copy before returning)
+     * @param statelessResetToken the associated stateless reset token,
+     *                            always {@link #STATELESS_RESET_TOKEN_LENGTH}
+     *                            bytes (a slice - consume or copy before returning)
+     */
+    void newConnectionIdFrameReceived(long sequenceNumber, long retirePriorTo,
+            ByteBuffer connectionId, ByteBuffer statelessResetToken);
+
+    /**
+     * Called when a RETIRE_CONNECTION_ID frame is received (RFC 9000
+     * section 19.16): the peer will no longer use the connection ID with
+     * this sequence number as a Destination Connection ID.
+     *
+     * @param sequenceNumber the sequence number being retired
+     */
+    void retireConnectionIdFrameReceived(long sequenceNumber);
+
+    /**
+     * Called when a PATH_CHALLENGE frame is received (RFC 9000 section
+     * 19.17), requiring the same data to be echoed back in a
+     * PATH_RESPONSE frame on the path the challenge arrived on.
+     *
+     * @param data the challenge data, always {@link #PATH_DATA_LENGTH}
+     *             bytes (a slice - consume or copy before returning)
+     */
+    void pathChallengeFrameReceived(ByteBuffer data);
+
+    /**
+     * Called when a PATH_RESPONSE frame is received (RFC 9000 section
+     * 19.18), echoing data from a previously sent PATH_CHALLENGE.
+     *
+     * @param data the response data, always {@link #PATH_DATA_LENGTH}
+     *             bytes (a slice - consume or copy before returning)
+     */
+    void pathResponseFrameReceived(ByteBuffer data);
 
     /**
      * Called when a CONNECTION_CLOSE frame is received (RFC 9000

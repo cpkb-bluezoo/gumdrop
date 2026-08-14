@@ -27,12 +27,16 @@
  * {@link org.bluezoo.gumdrop.quic.frame.QuicFrameHandler}, plus a writer
  * for the same frame types.
  *
- * <p>PADDING, PING, ACK, CRYPTO, CONNECTION_CLOSE, HANDSHAKE_DONE,
- * STREAM, and the flow-control frame family (MAX_DATA,
- * MAX_STREAM_DATA, MAX_STREAMS, DATA_BLOCKED, STREAM_DATA_BLOCKED,
- * STREAMS_BLOCKED) are implemented. NEW_CONNECTION_ID,
- * RETIRE_CONNECTION_ID, PATH_CHALLENGE, and PATH_RESPONSE are not --
- * connection ID rotation and migration are not supported yet.
+ * <p>Every RFC 9000 section 19 frame type is implemented: PADDING, PING,
+ * ACK, RESET_STREAM, STOP_SENDING, CRYPTO, NEW_TOKEN, STREAM, the
+ * flow-control frame family (MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS,
+ * DATA_BLOCKED, STREAM_DATA_BLOCKED, STREAMS_BLOCKED),
+ * NEW_CONNECTION_ID, RETIRE_CONNECTION_ID, PATH_CHALLENGE,
+ * PATH_RESPONSE, CONNECTION_CLOSE, and HANDSHAKE_DONE. This package
+ * only encodes/decodes the frames -- connection ID lifecycle management
+ * is {@link org.bluezoo.gumdrop.quic.cid}, and path validation/migration
+ * logic that would actually send PATH_CHALLENGE/PATH_RESPONSE is not
+ * yet built anywhere.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9000#section-19">RFC 9000 section 19</a>

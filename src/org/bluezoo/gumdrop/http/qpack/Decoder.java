@@ -72,6 +72,14 @@ public final class Decoder extends QPACKConstants implements EncoderStreamHandle
     private ByteBuffer pendingScratch;
 
     /**
+     * Owns the incremental parse state for this connection's one
+     * encoder stream (RFC 9204 section 4.2); {@link #feedEncoderStream}
+     * is the only entry point a caller outside this package needs, so
+     * the parser itself stays package-private.
+     */
+    private final EncoderStreamParser encoderStreamParser = new EncoderStreamParser(this);
+
+    /**
      * Creates a decoder with the given dynamic table capacity, also
      * used as the {@code SETTINGS_QPACK_MAX_TABLE_CAPACITY} ceiling.
      *
@@ -80,6 +88,19 @@ public final class Decoder extends QPACKConstants implements EncoderStreamHandle
     public Decoder(int capacity) {
         this.table = new DynamicTable(capacity);
         this.maxCapacity = capacity;
+    }
+
+    /**
+     * Feeds bytes received on the peer's QPACK encoder stream (RFC 9204
+     * section 4.2), mirroring any complete instructions they contain
+     * into this decoder's dynamic table. May be called any number of
+     * times with arbitrary chunk boundaries. Check
+     * {@link #takeLastInstructionError} afterwards.
+     *
+     * @param data newly received encoder-stream bytes
+     */
+    public void feedEncoderStream(ByteBuffer data) {
+        encoderStreamParser.receive(data);
     }
 
     /**

@@ -582,6 +582,14 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         }
 
         @Override
+        public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
+        }
+
+        @Override
+        public void stopSendingFrameReceived(long streamId, long applicationErrorCode) {
+        }
+
+        @Override
         public void cryptoFrameReceived(long offset, ByteBuffer data) {
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
@@ -605,6 +613,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             if (fin) {
                 streamFinReceived.put(streamId, Boolean.TRUE);
             }
+        }
+
+        @Override
+        public void newTokenFrameReceived(ByteBuffer token) {
         }
 
         @Override
@@ -632,6 +644,23 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
         @Override
         public void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams) {
+        }
+
+        @Override
+        public void newConnectionIdFrameReceived(long sequenceNumber, long retirePriorTo,
+                ByteBuffer connectionId, ByteBuffer statelessResetToken) {
+        }
+
+        @Override
+        public void retireConnectionIdFrameReceived(long sequenceNumber) {
+        }
+
+        @Override
+        public void pathChallengeFrameReceived(ByteBuffer data) {
+        }
+
+        @Override
+        public void pathResponseFrameReceived(ByteBuffer data) {
         }
 
         @Override

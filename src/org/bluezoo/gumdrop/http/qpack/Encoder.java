@@ -76,12 +76,32 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
     private final Map<Long, OutstandingSection> outstanding = new HashMap<Long, OutstandingSection>();
 
     /**
+     * Owns the incremental parse state for this connection's one
+     * decoder stream (RFC 9204 section 4.2); {@link #feedDecoderStream}
+     * is the only entry point a caller outside this package needs, so
+     * the parser itself stays package-private.
+     */
+    private final DecoderStreamParser decoderStreamParser = new DecoderStreamParser(this);
+
+    /**
      * Creates an encoder with the given dynamic table capacity.
      *
      * @param capacity the initial dynamic table capacity in octets
      */
     public Encoder(int capacity) {
         this.table = new DynamicTable(capacity);
+    }
+
+    /**
+     * Feeds bytes received on the peer's QPACK decoder stream (RFC 9204
+     * section 4.2), applying any complete Section Acknowledgment/Stream
+     * Cancellation/Insert Count Increment instructions they contain. May
+     * be called any number of times with arbitrary chunk boundaries.
+     *
+     * @param data newly received decoder-stream bytes
+     */
+    public void feedDecoderStream(ByteBuffer data) {
+        decoderStreamParser.receive(data);
     }
 
     /**

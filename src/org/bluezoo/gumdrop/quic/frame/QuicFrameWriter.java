@@ -128,6 +128,64 @@ public final class QuicFrameWriter {
     }
 
     /**
+     * Returns the encoded length of a RESET_STREAM frame.
+     *
+     * @param streamId the affected stream
+     * @param applicationErrorCode the reason for the reset
+     * @param finalSize the total number of bytes sent on the stream
+     * @return the encoded length in bytes
+     */
+    public static int resetStreamLength(long streamId, long applicationErrorCode, long finalSize) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_RESET_STREAM)
+                + VarInt.encodedLength(streamId)
+                + VarInt.encodedLength(applicationErrorCode)
+                + VarInt.encodedLength(finalSize);
+    }
+
+    /**
+     * Writes a RESET_STREAM frame (RFC 9000 section 19.4), abruptly
+     * terminating this side's sending part of a stream.
+     *
+     * @param out the destination buffer
+     * @param streamId the affected stream
+     * @param applicationErrorCode the reason for the reset
+     * @param finalSize the total number of bytes sent on the stream
+     */
+    public static void writeResetStream(ByteBuffer out, long streamId, long applicationErrorCode, long finalSize) {
+        VarInt.encode(QuicFrameHandler.TYPE_RESET_STREAM, out);
+        VarInt.encode(streamId, out);
+        VarInt.encode(applicationErrorCode, out);
+        VarInt.encode(finalSize, out);
+    }
+
+    /**
+     * Returns the encoded length of a STOP_SENDING frame.
+     *
+     * @param streamId the affected stream
+     * @param applicationErrorCode the reason for the request
+     * @return the encoded length in bytes
+     */
+    public static int stopSendingLength(long streamId, long applicationErrorCode) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_STOP_SENDING)
+                + VarInt.encodedLength(streamId)
+                + VarInt.encodedLength(applicationErrorCode);
+    }
+
+    /**
+     * Writes a STOP_SENDING frame (RFC 9000 section 19.5), requesting
+     * that the peer abruptly terminate its sending part of a stream.
+     *
+     * @param out the destination buffer
+     * @param streamId the affected stream
+     * @param applicationErrorCode the reason for the request
+     */
+    public static void writeStopSending(ByteBuffer out, long streamId, long applicationErrorCode) {
+        VarInt.encode(QuicFrameHandler.TYPE_STOP_SENDING, out);
+        VarInt.encode(streamId, out);
+        VarInt.encode(applicationErrorCode, out);
+    }
+
+    /**
      * Returns the encoded length of a CRYPTO frame carrying
      * {@code dataLength} bytes of handshake data.
      *
@@ -154,6 +212,32 @@ public final class QuicFrameWriter {
         VarInt.encode(offset, out);
         VarInt.encode(data.length, out);
         out.put(data);
+    }
+
+    /**
+     * Returns the encoded length of a NEW_TOKEN frame carrying a token
+     * of {@code tokenLength} bytes.
+     *
+     * @param tokenLength the number of token bytes
+     * @return the encoded length in bytes
+     */
+    public static int newTokenLength(int tokenLength) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_NEW_TOKEN)
+                + VarInt.encodedLength(tokenLength)
+                + tokenLength;
+    }
+
+    /**
+     * Writes a NEW_TOKEN frame (RFC 9000 section 19.7). Server-to-client
+     * only.
+     *
+     * @param out the destination buffer
+     * @param token the opaque token bytes, must not be empty
+     */
+    public static void writeNewToken(ByteBuffer out, byte[] token) {
+        VarInt.encode(QuicFrameHandler.TYPE_NEW_TOKEN, out);
+        VarInt.encode(token.length, out);
+        out.put(token);
     }
 
     /**
@@ -332,6 +416,108 @@ public final class QuicFrameWriter {
                 ? QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI : QuicFrameHandler.TYPE_STREAMS_BLOCKED_UNI;
         VarInt.encode(type, out);
         VarInt.encode(maximumStreams, out);
+    }
+
+    /**
+     * Returns the encoded length of a NEW_CONNECTION_ID frame.
+     *
+     * @param sequenceNumber the new connection ID's sequence number
+     * @param retirePriorTo connection IDs below this sequence number must be retired
+     * @param connectionId the new connection ID bytes, 1-20 bytes long
+     * @param statelessResetToken the associated stateless reset token,
+     *                            must be {@link QuicFrameHandler#STATELESS_RESET_TOKEN_LENGTH} bytes
+     * @return the encoded length in bytes
+     */
+    public static int newConnectionIdLength(long sequenceNumber, long retirePriorTo,
+            byte[] connectionId, byte[] statelessResetToken) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_NEW_CONNECTION_ID)
+                + VarInt.encodedLength(sequenceNumber)
+                + VarInt.encodedLength(retirePriorTo)
+                + 1 // Length
+                + connectionId.length
+                + statelessResetToken.length;
+    }
+
+    /**
+     * Writes a NEW_CONNECTION_ID frame (RFC 9000 section 19.15).
+     *
+     * @param out the destination buffer
+     * @param sequenceNumber the new connection ID's sequence number
+     * @param retirePriorTo connection IDs below this sequence number must be retired
+     * @param connectionId the new connection ID bytes, 1-20 bytes long
+     * @param statelessResetToken the associated stateless reset token,
+     *                            must be {@link QuicFrameHandler#STATELESS_RESET_TOKEN_LENGTH} bytes
+     */
+    public static void writeNewConnectionId(ByteBuffer out, long sequenceNumber, long retirePriorTo,
+            byte[] connectionId, byte[] statelessResetToken) {
+        VarInt.encode(QuicFrameHandler.TYPE_NEW_CONNECTION_ID, out);
+        VarInt.encode(sequenceNumber, out);
+        VarInt.encode(retirePriorTo, out);
+        out.put((byte) connectionId.length);
+        out.put(connectionId);
+        out.put(statelessResetToken);
+    }
+
+    /**
+     * Returns the encoded length of a RETIRE_CONNECTION_ID frame.
+     *
+     * @param sequenceNumber the sequence number being retired
+     * @return the encoded length in bytes
+     */
+    public static int retireConnectionIdLength(long sequenceNumber) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_RETIRE_CONNECTION_ID) + VarInt.encodedLength(sequenceNumber);
+    }
+
+    /**
+     * Writes a RETIRE_CONNECTION_ID frame (RFC 9000 section 19.16).
+     *
+     * @param out the destination buffer
+     * @param sequenceNumber the sequence number being retired
+     */
+    public static void writeRetireConnectionId(ByteBuffer out, long sequenceNumber) {
+        VarInt.encode(QuicFrameHandler.TYPE_RETIRE_CONNECTION_ID, out);
+        VarInt.encode(sequenceNumber, out);
+    }
+
+    /**
+     * Returns the encoded length of a PATH_CHALLENGE frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int pathChallengeLength() {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_PATH_CHALLENGE) + QuicFrameHandler.PATH_DATA_LENGTH;
+    }
+
+    /**
+     * Writes a PATH_CHALLENGE frame (RFC 9000 section 19.17).
+     *
+     * @param out the destination buffer
+     * @param data the challenge data, must be {@link QuicFrameHandler#PATH_DATA_LENGTH} bytes
+     */
+    public static void writePathChallenge(ByteBuffer out, byte[] data) {
+        VarInt.encode(QuicFrameHandler.TYPE_PATH_CHALLENGE, out);
+        out.put(data);
+    }
+
+    /**
+     * Returns the encoded length of a PATH_RESPONSE frame.
+     *
+     * @return the encoded length in bytes
+     */
+    public static int pathResponseLength() {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_PATH_RESPONSE) + QuicFrameHandler.PATH_DATA_LENGTH;
+    }
+
+    /**
+     * Writes a PATH_RESPONSE frame (RFC 9000 section 19.18).
+     *
+     * @param out the destination buffer
+     * @param data the response data, must be {@link QuicFrameHandler#PATH_DATA_LENGTH} bytes,
+     *             echoing a previously received PATH_CHALLENGE
+     */
+    public static void writePathResponse(ByteBuffer out, byte[] data) {
+        VarInt.encode(QuicFrameHandler.TYPE_PATH_RESPONSE, out);
+        out.put(data);
     }
 
     /**

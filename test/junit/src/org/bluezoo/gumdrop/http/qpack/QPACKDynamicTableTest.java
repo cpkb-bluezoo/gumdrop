@@ -119,12 +119,11 @@ public class QPACKDynamicTableTest {
     @Test
     public void testMatchesRfc9204AppendixB2AndB3WorkedExample() throws ProtocolException {
         Decoder decoder = new Decoder(4096);
-        EncoderStreamParser encoderStreamParser = new EncoderStreamParser(decoder);
 
         // B.2: Set Dynamic Table Capacity=220; Insert With Name Reference
         // (static :authority) = www.example.com; Insert With Name
         // Reference (static :path) = /sample/path.
-        encoderStreamParser.receive(ByteBuffer.wrap(ByteArrays.toByteArray(
+        decoder.feedEncoderStream(ByteBuffer.wrap(ByteArrays.toByteArray(
                 "3fbd01c00f7777772e6578616d706c652e636f6dc10c2f73616d706c652f70617468")));
 
         // Stream 4: Required Insert Count=2, Base=0, then two Indexed
@@ -147,7 +146,7 @@ public class QPACKDynamicTableTest {
         assertTrue(containsSectionAcknowledgment(pending, 4));
 
         // B.3: Insert With Literal Name (custom-key=custom-value).
-        encoderStreamParser.receive(ByteBuffer.wrap(ByteArrays.toByteArray(
+        decoder.feedEncoderStream(ByteBuffer.wrap(ByteArrays.toByteArray(
                 "4a637573746f6d2d6b65790c637573746f6d2d76616c7565")));
         assertEquals("01", ByteArrays.toHexString(decoder.takePendingInstructions()));
     }
@@ -162,16 +161,15 @@ public class QPACKDynamicTableTest {
     @Test
     public void testDuplicateAndMixedFieldLineMatchesRfc9204AppendixB4() throws ProtocolException {
         Decoder decoder = new Decoder(4096);
-        EncoderStreamParser encoderStreamParser = new EncoderStreamParser(decoder);
 
-        encoderStreamParser.receive(ByteBuffer.wrap(ByteArrays.toByteArray(
+        decoder.feedEncoderStream(ByteBuffer.wrap(ByteArrays.toByteArray(
                 "3fbd01c00f7777772e6578616d706c652e636f6dc10c2f73616d706c652f70617468")));
-        encoderStreamParser.receive(ByteBuffer.wrap(ByteArrays.toByteArray(
+        decoder.feedEncoderStream(ByteBuffer.wrap(ByteArrays.toByteArray(
                 "4a637573746f6d2d6b65790c637573746f6d2d76616c7565")));
         decoder.takePendingInstructions(); // drained by the other test; irrelevant here
 
         // Duplicate (Relative Index = 2) -> Absolute Index = InsertCount(3) - 2 - 1 = 0
-        encoderStreamParser.receive(ByteBuffer.wrap(ByteArrays.toByteArray("02")));
+        decoder.feedEncoderStream(ByteBuffer.wrap(ByteArrays.toByteArray("02")));
 
         // Stream 8: Required Insert Count=4, Base=4, then:
         //   80 -> Indexed Field Line, dynamic, absolute = Base(4)-0-1 = 3 (the duplicate)
@@ -200,17 +198,20 @@ public class QPACKDynamicTableTest {
 
     /**
      * A full encoder-to-decoder-and-back round trip across two field
-     * sections: the first has nothing indexable yet and gets inserted
-     * for later reuse; once the decoder's resulting instructions flow
-     * back to the encoder, the second section references the same
-     * header by dynamic table index instead of re-sending it.
+     * sections, using only the public byte-level API ({@link Encoder#encode},
+     * {@link Decoder#decode}, {@link Decoder#feedEncoderStream},
+     * {@link Encoder#feedDecoderStream}) exactly as two independent
+     * connection peers would exchange them -- mirrors hopf's
+     * {@code two_peers_exchange_qpack_state_across_multiple_requests}.
+     * The first section has nothing indexable yet and gets inserted for
+     * later reuse; once the decoder's resulting instructions flow back
+     * to the encoder, the second section references the same header by
+     * dynamic table index instead of re-sending it.
      */
     @Test
     public void testEncoderDecoderRoundTripAcrossMultipleSections() throws ProtocolException {
         Encoder encoder = new Encoder(4096);
         Decoder decoder = new Decoder(4096);
-        EncoderStreamParser encoderStreamParser = new EncoderStreamParser(decoder);
-        DecoderStreamParser decoderStreamParser = new DecoderStreamParser(encoder);
 
         List<Header> headers1 = new ArrayList<Header>();
         headers1.add(new Header("x-custom", "widget"));
@@ -221,7 +222,7 @@ public class QPACKDynamicTableTest {
         encoder.encode(fieldSection1, encoderInstructions1, 0, headers1);
         encoderInstructions1.flip();
         assertTrue("expected an insert instruction", encoderInstructions1.hasRemaining());
-        encoderStreamParser.receive(encoderInstructions1);
+        decoder.feedEncoderStream(encoderInstructions1);
 
         fieldSection1.flip();
         List<Header> decoded1 = decoder.decode(0, fieldSection1);
@@ -229,7 +230,7 @@ public class QPACKDynamicTableTest {
 
         byte[] decoderOut1 = decoder.takePendingInstructions();
         if (decoderOut1.length > 0) {
-            decoderStreamParser.receive(ByteBuffer.wrap(decoderOut1));
+            encoder.feedDecoderStream(ByteBuffer.wrap(decoderOut1));
         }
 
         List<Header> headers2 = new ArrayList<Header>();
