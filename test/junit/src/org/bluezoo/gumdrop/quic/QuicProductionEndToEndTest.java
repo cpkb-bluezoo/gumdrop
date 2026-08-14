@@ -27,6 +27,8 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -52,6 +54,7 @@ import org.bluezoo.gumdrop.quic.packet.PacketProtection;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys;
 import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 
 import static org.junit.Assert.assertEquals;
@@ -727,5 +730,90 @@ public class QuicProductionEndToEndTest {
     private static QuicConnection getOnlyServerConnection(QuicEngine serverEngine) throws Exception {
         Map<String, QuicConnection> connections = getPrivateField(serverEngine, "connections", Map.class);
         return connections.values().iterator().next();
+    }
+
+    /**
+     * RFC 9000 section 12.2: sends one real client Initial packet
+     * (crafted with {@link QuicTestPeer}, since it already drives a real
+     * Agent15 handshake -- production {@link QuicEngine}/{@link
+     * QuicConnection} on the receiving end can't tell the difference from
+     * a real client) at a real production server over a real raw socket,
+     * then counts how many separate UDP datagrams arrive back within a
+     * short quiet period. Before packet coalescing, the server's first
+     * flight (an Initial ACK+CRYPTO packet and a Handshake CRYPTO packet)
+     * went out as two separate datagrams; it must now be exactly one.
+     */
+    @Test
+    public void testServerFirstFlightIsCoalescedIntoOneDatagram() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        DatagramChannel clientChannel = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return null;
+                        }
+                    }, loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            byte[] clientInitialDcid = QuicHandshakeEndToEndTest.randomConnectionId();
+            byte[] clientScid = QuicHandshakeEndToEndTest.randomConnectionId();
+            TransportParameters clientParams = QuicHandshakeEndToEndTest.defaultTransportParameters(clientScid);
+            QuicTestPeer client = QuicTestPeer.newClient(clientInitialDcid, clientParams);
+            client.startHandshake(SERVER_NAME);
+            byte[] clientInitialDatagram = client.buildPacket(EncryptionLevel.INITIAL,
+                    clientInitialDcid, clientScid, false, false, 1200);
+
+            clientChannel = DatagramChannel.open();
+            clientChannel.send(ByteBuffer.wrap(clientInitialDatagram), serverAddress);
+
+            int datagramCount = countDatagramsWithinQuietPeriod(clientChannel, 500);
+            assertEquals("The server's Initial-ACK+CRYPTO and Handshake-CRYPTO packets "
+                    + "should now be coalesced into a single UDP datagram (RFC 9000 section 12.2)",
+                    1, datagramCount);
+        } finally {
+            if (clientChannel != null) {
+                clientChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static int countDatagramsWithinQuietPeriod(DatagramChannel channel, long quietPeriodMs) throws IOException {
+        channel.configureBlocking(false);
+        Selector selector = Selector.open();
+        try {
+            channel.register(selector, SelectionKey.OP_READ);
+            int count = 0;
+            ByteBuffer buf = ByteBuffer.allocate(4096);
+            while (true) {
+                int ready = selector.select(quietPeriodMs);
+                if (ready == 0) {
+                    break;
+                }
+                selector.selectedKeys().clear();
+                buf.clear();
+                if (channel.receive(buf) != null) {
+                    count++;
+                }
+            }
+            return count;
+        } finally {
+            selector.close();
+        }
     }
 }

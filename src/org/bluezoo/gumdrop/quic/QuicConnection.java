@@ -76,14 +76,18 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
  * {@code test/.../quic/QuicTestPeer} demonstrated, but driven by real
  * socket I/O via {@link QuicEngine} instead of hand-called from a test.
  *
- * <p>Deliberately out of scope for now (see the QUIC migration plan
- * document): packet coalescing (one packet per encryption level per
- * {@link #flush}), Retry/anti-amplification address validation,
- * connection migration (this connection always addresses the peer using
- * the connection ID learned during the handshake, even though
- * {@link ConnectionIdManager} correctly tracks further connection IDs
- * the peer issues), and out-of-order STREAM data reassembly (delivered
- * in arrival order only, matching
+ * <p>{@link #flush} coalesces every encryption level with pending data
+ * into a single UDP datagram (RFC 9000 section 12.2) rather than sending
+ * one packet per level. Deliberately still out of scope for now (see the
+ * QUIC migration plan document): Retry address validation (the
+ * anti-amplification byte-limit half of RFC 9000 section 8.1 -- the
+ * primary DoS protection -- is implemented; the optional Retry-packet
+ * mechanism for validating a client's address without a Handshake round
+ * trip is not), connection migration (this connection always addresses
+ * the peer using the connection ID learned during the handshake, even
+ * though {@link ConnectionIdManager} correctly tracks further connection
+ * IDs the peer issues), and out-of-order STREAM data reassembly
+ * (delivered in arrival order only, matching
  * {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}'s own accepted
  * limitation for CRYPTO data).
  *
@@ -198,13 +202,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final Map<Long, Long> streamBytesReceived = new HashMap<Long, Long>();
 
     // MAX_DATA/MAX_STREAM_DATA owed to the peer, drained at the next
-    // ONE_RTT flush -- see buildAndSendPacket.
+    // ONE_RTT flush -- see buildProtectedPacket.
     private boolean maxDataOwed;
     private final Map<Long, Long> maxStreamDataOwed = new HashMap<Long, Long>();
 
     // DATA_BLOCKED/STREAM_DATA_BLOCKED owed to the peer (this side is
     // blocked sending by the PEER's advertised limit -- see
-    // checkSendBlocked/buildAndSendPacket), plus which limit value has
+    // checkSendBlocked/buildProtectedPacket), plus which limit value has
     // already been signalled so it isn't repeated until that limit grows
     // (cleared in maxDataFrameReceived/maxStreamDataFrameReceived).
     private boolean dataBlockedOwed;
@@ -499,7 +503,26 @@ public final class QuicConnection implements QuicTlsEngineListener {
         requestFlush();
     }
 
+    // Set for the duration of receive() so every side effect of
+    // processing one incoming datagram (potentially several coalesced
+    // packets, each with several frames, each of which can itself
+    // trigger further synchronous callbacks -- e.g. Agent15 delivering a
+    // server's whole certificate flight as several back-to-back
+    // cryptoDataReady calls, or an application handler responding to a
+    // request synchronously from within a frame callback) accumulates
+    // into pendingCrypto/pendingStream/etc. rather than each one
+    // triggering its own premature flush -- otherwise every such
+    // mid-processing requestFlush() call would send whatever was queued
+    // so far as its own separate datagram, defeating coalescing (RFC
+    // 9000 section 12.2) even though buildProtectedPacket/flush
+    // themselves are perfectly willing to combine everything pending
+    // into one.
+    private boolean suppressFlush;
+
     void requestFlush() {
+        if (suppressFlush) {
+            return;
+        }
         engine.requestFlush(this);
     }
 
@@ -532,12 +555,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
             amplificationBytesReceived += bytes.length;
         }
         int offset = 0;
-        while (offset < bytes.length) {
-            int consumed = receiveOnePacket(bytes, offset);
-            if (consumed <= 0) {
-                break;
+        suppressFlush = true;
+        try {
+            while (offset < bytes.length) {
+                int consumed = receiveOnePacket(bytes, offset);
+                if (consumed <= 0) {
+                    break;
+                }
+                offset += consumed;
             }
-            offset += consumed;
+        } finally {
+            suppressFlush = false;
         }
         requestFlush();
     }
@@ -832,20 +860,81 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // ── Send path ──
 
     /**
-     * Builds and sends one packet per encryption level with pending
-     * data (RFC 9000 section 12.2 packet coalescing into shared
-     * datagrams is not implemented -- one packet per level per call).
+     * Builds one packet per encryption level with pending data and sends
+     * them coalesced into a single UDP datagram (RFC 9000 section 12.2),
+     * in the order the spec requires when more than one is present:
+     * Initial, then Handshake, then 1-RTT.
+     *
+     * <p>Handshake and 1-RTT are built first even though Initial is
+     * placed first in the datagram -- their sizes don't depend on
+     * Initial's padding, but a client Initial's padding target (RFC 9000
+     * section 14.1's 1200-byte minimum) does depend on theirs, once they
+     * share a datagram: padding only needs to make up whatever the other
+     * levels aren't already contributing.
      */
     void flush() {
-        for (EncryptionLevel level : EncryptionLevel.values()) {
-            if (discarded[level.ordinal()] || sendKeys.get(level) == null) {
-                continue;
+        byte[] handshakeBytes = buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0);
+        byte[] oneRttBytes = buildLevelPacketOrNull(EncryptionLevel.ONE_RTT, 0);
+
+        int handshakeAndOneRttBytes = (handshakeBytes != null ? handshakeBytes.length : 0)
+                + (oneRttBytes != null ? oneRttBytes.length : 0);
+        int initialMinDatagramSize = !isServer ? Math.max(0, MIN_DATAGRAM_SIZE - handshakeAndOneRttBytes) : 0;
+        byte[] initialBytes = buildLevelPacketOrNull(EncryptionLevel.INITIAL, initialMinDatagramSize);
+
+        if (initialBytes == null && handshakeBytes == null && oneRttBytes == null) {
+            return;
+        }
+
+        int totalLength = (initialBytes != null ? initialBytes.length : 0) + handshakeAndOneRttBytes;
+        byte[] datagram = new byte[totalLength];
+        int pos = 0;
+        if (initialBytes != null) {
+            System.arraycopy(initialBytes, 0, datagram, pos, initialBytes.length);
+            pos += initialBytes.length;
+        }
+        if (handshakeBytes != null) {
+            System.arraycopy(handshakeBytes, 0, datagram, pos, handshakeBytes.length);
+            pos += handshakeBytes.length;
+        }
+        if (oneRttBytes != null) {
+            System.arraycopy(oneRttBytes, 0, datagram, pos, oneRttBytes.length);
+            pos += oneRttBytes.length;
+        }
+
+        // RFC 9000 section 8.1: don't send past the anti-amplification
+        // limit while this peer's address isn't yet validated, checked
+        // against the coalesced datagram as a whole now that multiple
+        // levels' packets may share one. A datagram withheld for this
+        // reason is indistinguishable, from this connection's
+        // perspective, from one lost in flight -- loss-detection
+        // bookkeeping for every packet built into it has already
+        // happened regardless (see buildProtectedPacket), and the
+        // existing "a blocked send is treated like ordinary packet loss"
+        // handling (see QuicEngine.sendPacket) recovers it once more
+        // receive-side credit arrives.
+        if (!isServer || addressValidated || amplificationBytesSent + datagram.length <= 3 * amplificationBytesReceived) {
+            engine.sendPacket(this, datagram);
+            if (isServer && !addressValidated) {
+                amplificationBytesSent += datagram.length;
             }
-            try {
-                buildAndSendPacket(level);
-            } catch (PacketProtectionException e) {
-                LOGGER.log(Level.WARNING, "Failed to protect outgoing packet at " + level, e);
-            }
+        } else if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Anti-amplification limit reached (sent=" + amplificationBytesSent
+                    + ", received=" + amplificationBytesReceived + "); withholding coalesced datagram"
+                    + " until the peer's address is validated");
+        }
+
+        scheduleLossDetectionTimer();
+    }
+
+    private byte[] buildLevelPacketOrNull(EncryptionLevel level, int minDatagramSize) {
+        if (discarded[level.ordinal()] || sendKeys.get(level) == null) {
+            return null;
+        }
+        try {
+            return buildProtectedPacket(level, minDatagramSize);
+        } catch (PacketProtectionException e) {
+            LOGGER.log(Level.WARNING, "Failed to protect outgoing packet at " + level, e);
+            return null;
         }
     }
 
@@ -1041,7 +1130,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
         return true;
     }
 
-    private void buildAndSendPacket(EncryptionLevel level) throws PacketProtectionException {
+    /**
+     * Builds and protects one packet at {@code level} containing every
+     * currently pending frame for it, or returns {@code null} if there
+     * is nothing to send at that level. Does not send it -- {@link #flush}
+     * concatenates whatever levels have pending data into one coalesced
+     * datagram (RFC 9000 section 12.2) and sends that as a single unit.
+     *
+     * @param level the encryption level to build a packet for
+     * @param minDatagramSize the minimum size this packet's own padding
+     *                        should pad up to, e.g. to satisfy RFC 9000
+     *                        section 14.1's 1200-byte client Initial
+     *                        minimum after accounting for whatever other
+     *                        levels' packets {@link #flush} will
+     *                        concatenate into the same datagram
+     * @return the protected packet bytes, or {@code null} if there was
+     *         nothing pending to send at this level
+     */
+    private byte[] buildProtectedPacket(EncryptionLevel level, int minDatagramSize) throws PacketProtectionException {
         boolean oneRtt = level == EncryptionLevel.ONE_RTT;
         List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
 
@@ -1103,7 +1209,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
                 && !includeDataBlocked && streamDataBlockedToSend.isEmpty();
         if (nothingToSend) {
-            return;
+            return null;
         }
 
         int frameBytes = 0;
@@ -1152,7 +1258,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
         long packetNumber = sendPacketNumber[level.ordinal()]++;
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
         int packetType = level == EncryptionLevel.INITIAL ? LongHeaderCodec.TYPE_INITIAL : LongHeaderCodec.TYPE_HANDSHAKE;
-        int minDatagramSize = (level == EncryptionLevel.INITIAL && !isServer) ? MIN_DATAGRAM_SIZE : 0;
 
         // RFC 9001 section 5.4.2: the header-protection sample is taken
         // starting 4 bytes after the (assumed 4-byte) packet number field
@@ -1272,31 +1377,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PacketProtection.xorFirstByte(packet, mask, longHeader);
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
-        // RFC 9000 section 8.1: don't send past the anti-amplification
-        // limit while this peer's address isn't yet validated. Loss
-        // detection/retransmission bookkeeping below still happens as
-        // normal either way -- a packet dropped here for this reason is
-        // indistinguishable, from this connection's perspective, from one
-        // dropped in flight, and the existing "a blocked send is treated
-        // like ordinary packet loss" handling (see QuicEngine.sendPacket)
-        // already recovers from that once more receive-side credit arrives.
-        if (!isServer || addressValidated || amplificationBytesSent + packet.length <= 3 * amplificationBytesReceived) {
-            engine.sendPacket(this, packet);
-            if (isServer && !addressValidated) {
-                amplificationBytesSent += packet.length;
-            }
-        } else if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Anti-amplification limit reached (sent=" + amplificationBytesSent
-                    + ", received=" + amplificationBytesReceived + "); withholding packet at " + level
-                    + " until the peer's address is validated");
-        }
-
         boolean ackEliciting = !sentCryptoThisPacket.isEmpty() || !sentStreamThisPacket.isEmpty()
                 || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
                 || retiresToSend.length > 0 || includeMaxData || !maxStreamDataToSend.isEmpty()
                 || includeDataBlocked || !streamDataBlockedToSend.isEmpty();
         lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, true, packet.length);
-        scheduleLossDetectionTimer();
+        return packet;
     }
 
     // ── Timers ──
