@@ -68,6 +68,41 @@ public final class VarInt {
     }
 
     /**
+     * Returns the total encoded length (including the byte at
+     * {@code position} itself) of the varint that starts at
+     * {@code position}, without requiring the rest of the encoding to
+     * be present in {@code buf} yet.
+     *
+     * <p>The two most significant bits of a varint's first byte
+     * determine its total length by themselves (RFC 9000 section 16),
+     * so this only needs that one byte to be available -- useful for
+     * incremental parsing where a varint's continuation bytes might not
+     * have arrived yet (unlike QUIC frames, which are always fully
+     * contained within one already-decrypted packet, HTTP/3 framing
+     * rides on a QUIC stream's reassembled byte sequence and can be
+     * split arbitrarily across reads).
+     *
+     * @param buf the buffer
+     * @param position the absolute position of the varint's first byte;
+     *                 must be a valid, already-available index
+     * @return the total encoded length, 1, 2, 4, or 8
+     */
+    public static int peekEncodedLength(ByteBuffer buf, int position) {
+        int firstByte = buf.get(position) & 0xff;
+        int lengthBits = (firstByte & 0xc0) >>> 6;
+        switch (lengthBits) {
+            case 0:
+                return 1;
+            case 1:
+                return 2;
+            case 2:
+                return 4;
+            default:
+                return 8;
+        }
+    }
+
+    /**
      * Encodes a value using the shortest possible encoding, writing it
      * to {@code out} at its current position and advancing the position.
      *

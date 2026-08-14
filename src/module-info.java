@@ -81,6 +81,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.http.h2;
     exports org.bluezoo.gumdrop.http.h3;
     exports org.bluezoo.gumdrop.http.hpack;
+    exports org.bluezoo.gumdrop.http.qpack;
     exports org.bluezoo.gumdrop.smtp;
     exports org.bluezoo.gumdrop.smtp.client;
     exports org.bluezoo.gumdrop.smtp.handler;
