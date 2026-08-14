@@ -99,10 +99,13 @@ public class QuicTransportFactory extends TransportFactory {
     private TlsServerEngineFactory serverEngineFactory;
     private X509TrustManager trustManager;
     private final byte[] connectionIdStaticKey = new byte[32];
+    private final byte[] retryTokenKey = new byte[32];
+    private boolean requireRetry;
 
     public QuicTransportFactory() {
         this.secure = true;
         new SecureRandom().nextBytes(connectionIdStaticKey);
+        new SecureRandom().nextBytes(retryTokenKey);
     }
 
     // ── QUIC-specific configuration ──
@@ -236,6 +239,28 @@ public class QuicTransportFactory extends TransportFactory {
         LOGGER.fine("Congestion control algorithm selection is not implemented; always using NewReno");
     }
 
+    /**
+     * Sets whether this server requires address validation via a Retry
+     * packet (RFC 9000 section 8.1.2) before accepting a new connection.
+     * Default {@code false} -- Retry adds a mandatory extra round trip to
+     * every handshake, so this is an opt-in DDoS-hardening posture, not a
+     * default-on behaviour. Has no effect on client-mode engines.
+     *
+     * @param require the new state
+     */
+    public void setRequireRetry(boolean require) {
+        this.requireRetry = require;
+    }
+
+    /**
+     * Returns whether this server requires address validation via Retry.
+     *
+     * @return the current state
+     */
+    public boolean isRequireRetry() {
+        return requireRetry;
+    }
+
     // ── Package-private accessors used by QuicEngine/QuicConnection ──
 
     TlsServerEngineFactory getServerEngineFactory() {
@@ -248,6 +273,10 @@ public class QuicTransportFactory extends TransportFactory {
 
     byte[] getConnectionIdStaticKey() {
         return connectionIdStaticKey;
+    }
+
+    byte[] getRetryTokenKey() {
+        return retryTokenKey;
     }
 
     /**

@@ -54,6 +54,8 @@ import org.bluezoo.gumdrop.quic.packet.PacketProtection;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionException;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys;
 import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
+import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
+import org.bluezoo.gumdrop.quic.packet.RetryPacket;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
@@ -117,6 +119,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     /** RFC 9000 section 14.1: every implementation must support at least this size. */
     static final int MIN_DATAGRAM_SIZE = 1200;
+
+    private static final byte[] EMPTY_TOKEN = new byte[0];
 
     private final QuicEngine engine;
     private final boolean isServer;
@@ -230,6 +234,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private long amplificationBytesSent;
     private boolean addressValidated;
 
+    // RFC 9000 section 8.1.2/17.2.5: client-only Retry state. originalDcid
+    // is the Destination Connection ID this client used in its very first
+    // Initial packet -- needed both as the Retry Integrity Tag's
+    // associated data (RFC 9001 section 5.8) and, once a Retry has been
+    // processed, as the value advertised back by the server in
+    // original_destination_connection_id, which this endpoint doesn't
+    // itself validate but keeps for symmetry/future use. retryToken is
+    // echoed back in every subsequent Initial packet's Token field until
+    // the handshake completes. expectedRetrySourceConnectionId is checked
+    // against the peer's eventual retry_source_connection_id transport
+    // parameter (RFC 9000 section 17.2.5.2's anti-tampering check).
+    private final byte[] originalDcid;
+    private boolean retryProcessed;
+    private byte[] retryToken = EMPTY_TOKEN;
+    private byte[] expectedRetrySourceConnectionId;
+
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
     private boolean established;
@@ -272,6 +292,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         this.peerConnectionId = peerConnectionId;
         this.localTransportParameters = localTransportParameters;
         this.connectionIdStaticKey = connectionIdStaticKey;
+        this.originalDcid = initialSecretDcid;
 
         for (EncryptionLevel level : EncryptionLevel.values()) {
             pendingCrypto.put(level, new ArrayList<PendingChunk>());
@@ -314,6 +335,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
      */
     void setTlsEngine(QuicTlsEngine tlsEngine) {
         this.tlsEngine = tlsEngine;
+    }
+
+    /**
+     * Marks the peer's address as already validated -- called by
+     * {@link QuicEngine} when accepting a connection whose client Initial
+     * carried a valid Retry Token, which itself proves the address
+     * without needing a Handshake-level round trip (RFC 9000 section 8.1).
+     */
+    void markAddressValidated() {
+        this.addressValidated = true;
     }
 
     // ── Identity / accessors ──
@@ -581,14 +612,23 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int packetLength;
         if (longHeader) {
             byte[] fromOffset = offset == 0 ? bytes : java.util.Arrays.copyOfRange(bytes, offset, bytes.length);
+            // A Retry packet has no Length field (RFC 9000 section
+            // 17.2.5) -- a genuinely different shape from
+            // Initial/Handshake/0-RTT -- so its type must be checked
+            // before calling parsePrefix, which assumes that field exists.
+            int packetType = (fromOffset[0] >>> 4) & 0x03;
+            if (packetType == LongHeaderCodec.TYPE_RETRY) {
+                handleRetryPacket(fromOffset);
+                return bytes.length - offset; // a Retry packet always spans the rest of its datagram
+            }
             LongHeaderPrefix prefix;
             try {
                 prefix = LongHeaderCodec.parsePrefix(fromOffset);
             } catch (RuntimeException e) {
                 return -1;
             }
-            if (prefix.getPacketType() == LongHeaderCodec.TYPE_RETRY || prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT) {
-                return -1; // Retry and 0-RTT are not implemented
+            if (prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT) {
+                return -1; // 0-RTT is not implemented
             }
             level = prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL ? EncryptionLevel.INITIAL : EncryptionLevel.HANDSHAKE;
             pnOffset = prefix.getPacketNumberOffset();
@@ -616,6 +656,70 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private void learnPeerConnectionId(byte[] scid) {
         peerConnectionId = scid;
         peerConnectionIdLearned = true;
+    }
+
+    // Client-only: handles a received Retry packet (RFC 9000 section
+    // 8.1.2/17.2.5). Ignored outright on a server (a server never
+    // receives a Retry -- it only sends them), once already processed
+    // (a second Retry is either a duplicate or an attack), or once the
+    // handshake has progressed past the point a Retry can still apply.
+    private void handleRetryPacket(byte[] packet) {
+        if (isServer || retryProcessed || established) {
+            return;
+        }
+        RetryPacket retry;
+        try {
+            retry = LongHeaderCodec.parseRetry(packet);
+        } catch (RuntimeException e) {
+            return;
+        }
+        // RFC 9000 section 17.2.5.1: the Retry's own Destination
+        // Connection ID must echo the Source Connection ID this client
+        // used in the Initial packet that triggered it.
+        if (!java.util.Arrays.equals(retry.getDestinationConnectionId(), ourConnectionId)) {
+            return;
+        }
+        if (!RetryIntegrityTag.verify(originalDcid, retry.getPacketWithoutTag(), retry.getTag())) {
+            return; // corrupted, or forged by an off-path attacker without the fixed key
+        }
+
+        retryProcessed = true;
+        retryToken = retry.getRetryToken();
+        expectedRetrySourceConnectionId = retry.getSourceConnectionId();
+        peerConnectionId = retry.getSourceConnectionId();
+        peerConnectionIdLearned = true;
+
+        // RFC 9001 section 5.2: Initial secrets are derived from the
+        // Destination Connection ID the client addresses the server with.
+        // After a Retry, that DCID changes to the Retry packet's own
+        // Source Connection ID, so Initial keys must be re-derived to match.
+        byte[] clientSecret = InitialSecrets.clientSecretV1(peerConnectionId);
+        byte[] serverSecret = InitialSecrets.serverSecretV1(peerConnectionId);
+        Hkdf initialHkdf = Hkdf.sha256();
+        sendKeys.put(EncryptionLevel.INITIAL,
+                PacketProtectionKeys.derive(initialHkdf, clientSecret, QuicAeadAlgorithm.AES_128_GCM));
+        recvKeys.put(EncryptionLevel.INITIAL,
+                PacketProtectionKeys.derive(initialHkdf, serverSecret, QuicAeadAlgorithm.AES_128_GCM));
+
+        // The TLS transcript itself is untouched (RFC 9000 section
+        // 17.2.5.2) -- only the QUIC-level Initial packet(s) carrying it
+        // are resent, now with the token attached and under the new keys.
+        requeueAllSentCrypto(EncryptionLevel.INITIAL);
+        requestFlush();
+    }
+
+    // Moves every previously sent chunk at a level back into the pending
+    // queue for resending, e.g. after a Retry invalidates everything sent
+    // so far at INITIAL. PendingChunk carries its own explicit stream/CRYPTO
+    // offset, so re-queuing order doesn't matter for correctness, only
+    // which packet numbers end up retransmitting which bytes.
+    private void requeueAllSentCrypto(EncryptionLevel level) {
+        Map<Long, List<PendingChunk>> sent = sentCrypto.get(level);
+        List<PendingChunk> pending = pendingCrypto.get(level);
+        for (List<PendingChunk> chunks : sent.values()) {
+            pending.addAll(0, chunks);
+        }
+        sent.clear();
     }
 
     private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset) {
@@ -1272,7 +1376,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         byte[] header;
         while (true) {
             header = longHeader
-                    ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId, new byte[0],
+                    ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId,
+                            packetType == LongHeaderCodec.TYPE_INITIAL ? retryToken : EMPTY_TOKEN,
                             packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH)
                     : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
             int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
@@ -1446,6 +1551,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     /** RFC 9000 section 20.1: an endpoint received more data than the flow control limits it advertised permit. */
     private static final long TRANSPORT_ERROR_FLOW_CONTROL_ERROR = 0x3;
+    /** RFC 9000 section 20.1: a transport parameter was received with a value not permitted for its type, e.g. a mismatched retry_source_connection_id. */
+    private static final long TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR = 0x8;
 
     /**
      * Closes the connection with a specific transport error code (RFC
@@ -1501,7 +1608,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
         int packetType = level == EncryptionLevel.INITIAL ? LongHeaderCodec.TYPE_INITIAL : LongHeaderCodec.TYPE_HANDSHAKE;
         byte[] header = longHeader
-                ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId, new byte[0],
+                ? LongHeaderCodec.build(packetType, 1, peerConnectionId, ourConnectionId,
+                        packetType == LongHeaderCodec.TYPE_INITIAL ? retryToken : EMPTY_TOKEN,
                         packetNumber, pnLength, frameBytes + QuicAeadAlgorithm.TAG_LENGTH)
                 : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
 
@@ -1579,6 +1687,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     @Override
     public void transportParametersReceived(TransportParameters transportParameters) {
+        if (!isServer) {
+            // RFC 9000 section 17.2.5.2: an off-path attacker that
+            // spoofed an earlier Retry can be detected because it can't
+            // also control the eventual (encrypted) transport parameters
+            // -- so the real server's retry_source_connection_id must
+            // match the Retry this client actually processed, and must
+            // be absent if no Retry occurred at all.
+            byte[] retryScid = transportParameters.getRetrySourceConnectionId();
+            boolean mismatch = expectedRetrySourceConnectionId != null
+                    ? !java.util.Arrays.equals(retryScid, expectedRetrySourceConnectionId)
+                    : retryScid != null;
+            if (mismatch) {
+                closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "retry_source_connection_id mismatch");
+                return;
+            }
+        }
         this.peerTransportParameters = transportParameters;
         peerMaxData = transportParameters.getInitialMaxData();
     }

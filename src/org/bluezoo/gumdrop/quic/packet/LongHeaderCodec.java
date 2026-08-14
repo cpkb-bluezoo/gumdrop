@@ -39,9 +39,12 @@ import java.nio.ByteBuffer;
  * low bits of the first byte are still protected at that point and must
  * be unmasked via {@link PacketProtection} before they can be read.
  *
- * <p>Retry and 0-RTT packets are recognised by type but 0-RTT has no
- * additional fields beyond a Handshake-shaped header (it never carries
- * CRYPTO frames), and Retry is not otherwise supported yet.
+ * <p>0-RTT has no additional fields beyond a Handshake-shaped header (it
+ * never carries CRYPTO frames). Retry (RFC 9000 section 17.2.5) has a
+ * genuinely different shape -- no packet number, no Length field, and a
+ * trailing 16-byte integrity tag -- so it is not built/parsed by
+ * {@link #build}/{@link #parsePrefix} at all; see {@link #buildRetryWithoutTag}
+ * and {@link #parseRetry}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9000#section-17.2">RFC 9000 section 17.2</a>
@@ -164,5 +167,75 @@ public final class LongHeaderCodec {
         int pnOffset = buf.position();
 
         return new LongHeaderPrefix(packetType, version, dcid, scid, token, pnOffset, remainingLength);
+    }
+
+    /**
+     * Builds a Retry packet (RFC 9000 section 17.2.5), minus its trailing
+     * 16-byte integrity tag -- the caller computes that separately via
+     * {@link RetryIntegrityTag#compute} over these exact bytes (using the
+     * Original Destination Connection ID, i.e. the client's Initial
+     * packet's own Destination Connection ID, which is not itself a field
+     * of the Retry packet) and appends it to get the bytes actually sent.
+     *
+     * @param destinationConnectionId the client's Source Connection ID
+     *                                from the Initial packet being responded to
+     * @param sourceConnectionId this (server) endpoint's newly chosen
+     *                           connection ID for the retried connection
+     * @param retryToken the opaque token the client must echo back
+     * @return the unprotected Retry packet bytes, without its integrity tag
+     */
+    public static byte[] buildRetryWithoutTag(byte[] destinationConnectionId, byte[] sourceConnectionId,
+            byte[] retryToken) {
+        int size = 1 + 4
+                + 1 + destinationConnectionId.length
+                + 1 + sourceConnectionId.length
+                + retryToken.length;
+        ByteBuffer buf = ByteBuffer.allocate(size);
+
+        int firstByte = HEADER_FORM_LONG | FIXED_BIT | ((TYPE_RETRY & 0x03) << 4);
+        buf.put((byte) firstByte);
+        buf.putInt(1);
+
+        buf.put((byte) destinationConnectionId.length);
+        buf.put(destinationConnectionId);
+        buf.put((byte) sourceConnectionId.length);
+        buf.put(sourceConnectionId);
+        buf.put(retryToken);
+
+        return buf.array();
+    }
+
+    /**
+     * Parses a received Retry packet.
+     *
+     * @param packet the received packet bytes
+     * @return the parsed Retry packet
+     * @throws IllegalArgumentException if the packet is too short to
+     *         contain its mandatory 16-byte integrity tag
+     */
+    public static RetryPacket parseRetry(byte[] packet) {
+        ByteBuffer buf = ByteBuffer.wrap(packet);
+        buf.get(); // first byte -- caller already dispatched on packet type
+        buf.getInt(); // version
+
+        int dcidLength = buf.get() & 0xff;
+        byte[] dcid = new byte[dcidLength];
+        buf.get(dcid);
+
+        int scidLength = buf.get() & 0xff;
+        byte[] scid = new byte[scidLength];
+        buf.get(scid);
+
+        int tokenLength = packet.length - buf.position() - RetryIntegrityTag.LENGTH;
+        if (tokenLength < 0) {
+            throw new IllegalArgumentException("Retry packet too short for its integrity tag");
+        }
+        byte[] token = new byte[tokenLength];
+        buf.get(token);
+        byte[] tag = new byte[RetryIntegrityTag.LENGTH];
+        buf.get(tag);
+
+        byte[] withoutTag = java.util.Arrays.copyOfRange(packet, 0, packet.length - RetryIntegrityTag.LENGTH);
+        return new RetryPacket(dcid, scid, token, tag, withoutTag);
     }
 }

@@ -30,19 +30,19 @@ import java.nio.ByteBuffer;
  * side knows how much data the other is willing to buffer, so no
  * stream or connection data can be sent at all.
  *
- * <p>Only the parameters needed for basic connection setup and flow
- * control are implemented: connection ID validation
- * ({@code original_destination_connection_id}, {@code initial_source_connection_id}),
- * idle timeout, and the six {@code initial_max_*} flow control limits.
- * {@code ack_delay_exponent} and {@code max_ack_delay} are not sent --
- * their RFC-specified defaults (3 and 25ms) apply when absent, which is
- * fine until real loss-recovery timing needs tuning.
- * {@code stateless_reset_token}, {@code preferred_address},
- * {@code active_connection_id_limit}, and {@code retry_source_connection_id}
- * are not implemented, since none of connection migration, preferred
- * addresses, non-zero-length connection ID rotation, or Retry are
- * supported yet. Unknown parameters received from a peer are ignored,
- * per RFC 9000 section 18.1.
+ * <p>Only the parameters needed for basic connection setup, flow
+ * control, and Retry are implemented: connection ID validation
+ * ({@code original_destination_connection_id}, {@code initial_source_connection_id},
+ * {@code retry_source_connection_id}), idle timeout, and the six
+ * {@code initial_max_*} flow control limits. {@code ack_delay_exponent}
+ * and {@code max_ack_delay} are not sent -- their RFC-specified defaults
+ * (3 and 25ms) apply when absent, which is fine until real loss-recovery
+ * timing needs tuning. {@code stateless_reset_token},
+ * {@code preferred_address}, and {@code active_connection_id_limit} are
+ * not implemented, since neither connection migration, preferred
+ * addresses, nor non-zero-length connection ID rotation are supported
+ * yet. Unknown parameters received from a peer are ignored, per RFC 9000
+ * section 18.1.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9000#section-18">RFC 9000 section 18</a>
@@ -61,6 +61,8 @@ public final class TransportParameters {
     public static final long INITIAL_MAX_STREAMS_UNI = 0x09;
     /** The sender's own connection ID from its first Initial packet (RFC 9000 section 7.3). */
     public static final long INITIAL_SOURCE_CONNECTION_ID = 0x0f;
+    /** Server-only: the Source Connection ID from a Retry packet this handshake used (RFC 9000 section 7.3). */
+    public static final long RETRY_SOURCE_CONNECTION_ID = 0x10;
 
     /** RFC 9000 section 18.2: default when max_udp_payload_size is absent. */
     public static final long DEFAULT_MAX_UDP_PAYLOAD_SIZE = 65527;
@@ -75,6 +77,7 @@ public final class TransportParameters {
     private long initialMaxStreamsBidi;
     private long initialMaxStreamsUni;
     private byte[] initialSourceConnectionId;
+    private byte[] retrySourceConnectionId;
 
     public byte[] getOriginalDestinationConnectionId() {
         return originalDestinationConnectionId;
@@ -156,6 +159,14 @@ public final class TransportParameters {
         this.initialSourceConnectionId = initialSourceConnectionId;
     }
 
+    public byte[] getRetrySourceConnectionId() {
+        return retrySourceConnectionId;
+    }
+
+    public void setRetrySourceConnectionId(byte[] retrySourceConnectionId) {
+        this.retrySourceConnectionId = retrySourceConnectionId;
+    }
+
     /**
      * Encodes these parameters as the transport-parameters TLV list
      * (RFC 9000 section 18.1) -- the extension_data of the
@@ -180,6 +191,9 @@ public final class TransportParameters {
         if (originalDestinationConnectionId != null) {
             size += entryLength(ORIGINAL_DESTINATION_CONNECTION_ID, originalDestinationConnectionId.length);
         }
+        if (retrySourceConnectionId != null) {
+            size += entryLength(RETRY_SOURCE_CONNECTION_ID, retrySourceConnectionId.length);
+        }
 
         ByteBuffer buf = ByteBuffer.allocate(size);
         writeVarIntParam(buf, MAX_IDLE_TIMEOUT, maxIdleTimeout);
@@ -195,6 +209,9 @@ public final class TransportParameters {
         }
         if (originalDestinationConnectionId != null) {
             writeBytesParam(buf, ORIGINAL_DESTINATION_CONNECTION_ID, originalDestinationConnectionId);
+        }
+        if (retrySourceConnectionId != null) {
+            writeBytesParam(buf, RETRY_SOURCE_CONNECTION_ID, retrySourceConnectionId);
         }
         return buf.array();
     }
@@ -256,6 +273,9 @@ public final class TransportParameters {
             } else if (id == ORIGINAL_DESTINATION_CONNECTION_ID) {
                 params.originalDestinationConnectionId = new byte[length];
                 buf.get(params.originalDestinationConnectionId);
+            } else if (id == RETRY_SOURCE_CONNECTION_ID) {
+                params.retrySourceConnectionId = new byte[length];
+                buf.get(params.retrySourceConnectionId);
             }
             // RFC 9000 section 18.1: ignore parameters we don't understand.
 

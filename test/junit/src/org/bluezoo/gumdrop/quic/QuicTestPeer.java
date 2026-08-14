@@ -387,6 +387,23 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     public byte[] buildPacket(EncryptionLevel level, byte[] dcid, byte[] scid,
             boolean includeAck, boolean includeHandshakeDone, int minDatagramSize)
             throws PacketProtectionException {
+        return buildPacket(level, dcid, scid, EMPTY_TOKEN, includeAck, includeHandshakeDone, minDatagramSize);
+    }
+
+    private static final byte[] EMPTY_TOKEN = new byte[0];
+
+    /**
+     * Same as {@link #buildPacket(EncryptionLevel, byte[], byte[], boolean, boolean, int)},
+     * but with an explicit Initial-packet Token field (RFC 9000 section
+     * 17.2.2) -- e.g. to test how a server reacts to a forged or garbage
+     * Retry Token, which this harness has no legitimate way to produce
+     * itself.
+     *
+     * @param token the Token field value (Initial packets only; ignored otherwise)
+     */
+    public byte[] buildPacket(EncryptionLevel level, byte[] dcid, byte[] scid, byte[] token,
+            boolean includeAck, boolean includeHandshakeDone, int minDatagramSize)
+            throws PacketProtectionException {
         List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
         boolean oneRtt = (level == EncryptionLevel.ONE_RTT);
 
@@ -426,7 +443,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         byte[] header;
         while (true) {
             header = longHeader
-                    ? LongHeaderCodec.build(packetType, 1, dcid, scid, new byte[0],
+                    ? LongHeaderCodec.build(packetType, 1, dcid, scid, token,
                             packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH)
                     : ShortHeaderCodec.build(dcid, false, packetNumber, pnLength);
             int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);

@@ -57,6 +57,7 @@ import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -814,6 +815,226 @@ public class QuicProductionEndToEndTest {
             return count;
         } finally {
             selector.close();
+        }
+    }
+
+    /**
+     * With {@link QuicTransportFactory#setRequireRetry} set, a real
+     * client+server handshake driven purely through the production
+     * classes must still complete (now with the extra Retry round trip)
+     * and the resulting connection must be otherwise fully usable --
+     * proving the client's Retry handling (integrity verification, token
+     * echo, Initial key re-derivation, CRYPTO resend) and the server's
+     * stateless token issuance/validation all interoperate correctly.
+     */
+    @Test
+    public void testRetryHandshakeCompletesAndConnectionIsUsable() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setRequireRetry(true);
+            serverFactory.start();
+
+            final CountDownLatch serverReceivedFin = new CountDownLatch(1);
+            final AtomicReference<byte[]> serverReceived = new AtomicReference<byte[]>();
+            final AtomicReference<Endpoint> serverStreamEndpoint = new AtomicReference<Endpoint>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    serverStreamEndpoint.set(endpoint);
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                    byte[] bytes = new byte[data.remaining()];
+                                    data.get(bytes);
+                                    serverReceived.set(bytes);
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                    Endpoint endpoint = serverStreamEndpoint.get();
+                                    endpoint.send(ByteBuffer.wrap("pong".getBytes(StandardCharsets.US_ASCII)));
+                                    endpoint.close();
+                                    serverReceivedFin.countDown();
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Server stream error: " + cause);
+                                }
+                            };
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientReceivedFin = new CountDownLatch(1);
+            final AtomicReference<byte[]> clientReceived = new AtomicReference<byte[]>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            endpoint.send(ByteBuffer.wrap("ping".getBytes(StandardCharsets.US_ASCII)));
+                            endpoint.close();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                            byte[] bytes = new byte[data.remaining()];
+                            data.get(bytes);
+                            clientReceived.set(bytes);
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                            clientReceivedFin.countDown();
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                            fail("Client stream error: " + cause);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have received the client's FIN within 5s (after the extra Retry round trip)",
+                    serverReceivedFin.await(5, TimeUnit.SECONDS));
+            assertTrue("Client should have received the server's FIN within 5s",
+                    clientReceivedFin.await(5, TimeUnit.SECONDS));
+
+            assertEquals("ping", new String(serverReceived.get(), StandardCharsets.US_ASCII));
+            assertEquals("pong", new String(clientReceived.get(), StandardCharsets.US_ASCII));
+
+            QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
+            assertTrue("A connection accepted via a validated Retry token should be marked address-validated",
+                    getPrivateField(serverConnection, "addressValidated", Boolean.class));
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * With {@link QuicTransportFactory#setRequireRetry} set, a client
+     * Initial carrying a garbage (not a real sealed) Retry Token must not
+     * be accepted as a new connection -- the server should instead answer
+     * with a fresh, well-formed Retry, exactly as it would for a client
+     * with no token at all. Crafted with {@link QuicTestPeer} (a real
+     * Agent15-driven handshake start), since only its Initial CRYPTO
+     * content needs to be genuine -- the token field itself is the thing
+     * under test and can't be produced legitimately without the server's
+     * own secret key.
+     */
+    @Test
+    public void testInvalidRetryTokenIsRejectedWithFreshRetry() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        DatagramChannel clientChannel = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setRequireRetry(true);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return null;
+                        }
+                    }, loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            byte[] clientInitialDcid = QuicHandshakeEndToEndTest.randomConnectionId();
+            byte[] clientScid = QuicHandshakeEndToEndTest.randomConnectionId();
+            TransportParameters clientParams = QuicHandshakeEndToEndTest.defaultTransportParameters(clientScid);
+            QuicTestPeer client = QuicTestPeer.newClient(clientInitialDcid, clientParams);
+            client.startHandshake(SERVER_NAME);
+            byte[] garbageToken = "not a real sealed retry token".getBytes(StandardCharsets.US_ASCII);
+            byte[] clientInitialDatagram = client.buildPacket(EncryptionLevel.INITIAL,
+                    clientInitialDcid, clientScid, garbageToken, false, false, 1200);
+
+            clientChannel = DatagramChannel.open();
+            clientChannel.send(ByteBuffer.wrap(clientInitialDatagram), serverAddress);
+
+            clientChannel.configureBlocking(false);
+            Selector selector = Selector.open();
+            byte[] responseBytes;
+            try {
+                clientChannel.register(selector, SelectionKey.OP_READ);
+                assertTrue("Server should have responded within 5s", selector.select(5000) > 0);
+                ByteBuffer buf = ByteBuffer.allocate(2048);
+                clientChannel.receive(buf);
+                buf.flip();
+                responseBytes = new byte[buf.remaining()];
+                buf.get(responseBytes);
+            } finally {
+                selector.close();
+            }
+
+            int responsePacketType = (responseBytes[0] >>> 4) & 0x03;
+            assertEquals("A garbage token should be rejected with a fresh Retry, not accepted",
+                    org.bluezoo.gumdrop.quic.packet.LongHeaderCodec.TYPE_RETRY, responsePacketType);
+
+            org.bluezoo.gumdrop.quic.packet.RetryPacket retry =
+                    org.bluezoo.gumdrop.quic.packet.LongHeaderCodec.parseRetry(responseBytes);
+            // RFC 9000 section 17.2.5.1: the Retry's own Destination
+            // Connection ID must echo the client's Source Connection ID,
+            // not the (unrelated) DCID the client's Initial used.
+            assertArrayEquals(clientScid, retry.getDestinationConnectionId());
+            assertTrue("The server's Retry must carry a genuine RFC 9001 section 5.8 integrity tag",
+                    org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag.verify(
+                            clientInitialDcid, retry.getPacketWithoutTag(), retry.getTag()));
+
+            @SuppressWarnings("unchecked")
+            Map<String, QuicConnection> connections = getPrivateField(serverEngine, "connections", Map.class);
+            assertTrue("No connection should have been accepted for an invalid Retry token", connections.isEmpty());
+        } finally {
+            if (clientChannel != null) {
+                clientChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
         }
     }
 }

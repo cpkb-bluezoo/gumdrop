@@ -51,6 +51,8 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
+import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
+import org.bluezoo.gumdrop.quic.packet.RetryToken;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
@@ -81,6 +83,11 @@ import org.bluezoo.util.ByteArrays;
  * silently dropped rather than answered with a Version Negotiation
  * packet (RFC 9000 section 6).
  *
+ * <p>When {@link QuicTransportFactory#isRequireRetry} is set, a new
+ * client Initial with no valid Retry Token is answered with a stateless
+ * Retry packet (RFC 9000 section 8.1.2) instead of being accepted --
+ * see {@link #sendRetry} and {@link RetryToken}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
@@ -90,6 +97,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     /** RFC 9000 section 5.1: the fixed length this implementation uses for every connection ID it generates. */
     static final int CONNECTION_ID_LENGTH = 20;
+
+    /** How long a Retry Token remains valid, bounding replay of a captured token. */
+    private static final long RETRY_TOKEN_MAX_AGE_MILLIS = 30_000;
 
     private final QuicTransportFactory factory;
     private final boolean serverMode;
@@ -231,7 +241,21 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             if (!serverMode || prefix == null || prefix.getPacketType() != LongHeaderCodec.TYPE_INITIAL) {
                 return; // unknown connection, and not a new client Initial we can accept
             }
-            conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source);
+            if (factory.isRequireRetry()) {
+                byte[] originalDcid = null;
+                byte[] token = prefix.getToken();
+                if (token.length > 0) {
+                    originalDcid = RetryToken.unseal(factory.getRetryTokenKey(), token, source.getAddress(),
+                            RETRY_TOKEN_MAX_AGE_MILLIS);
+                }
+                if (originalDcid == null) {
+                    sendRetry(prefix.getSourceConnectionId(), dcid, source);
+                    return;
+                }
+                conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, originalDcid, dcid, true);
+            } else {
+                conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, dcid, null, false);
+            }
             if (conn == null) {
                 return;
             }
@@ -251,14 +275,53 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     public void onWritable() {
     }
 
-    private QuicConnection acceptConnection(byte[] clientDcid, byte[] clientScid, InetSocketAddress source) {
-        byte[] serverScid = generateConnectionId();
+    /**
+     * Accepts a new server-side connection from a client's Initial packet.
+     *
+     * @param clientDcid the Destination Connection ID of the Initial
+     *        packet that triggered this accept -- for a post-Retry
+     *        Initial, this is the connection ID the server chose as the
+     *        Retry packet's Source Connection ID
+     * @param clientScid the client's Source Connection ID
+     * @param source the client's address
+     * @param originalDcidForParams the value to advertise as
+     *        {@code original_destination_connection_id}: the client's
+     *        very first (pre-Retry) Initial packet's Destination
+     *        Connection ID, or {@code clientDcid} itself when no Retry
+     *        occurred
+     * @param retrySourceConnectionId the value to advertise as
+     *        {@code retry_source_connection_id}, or {@code null} if this
+     *        connection did not follow a Retry
+     * @param addressValidated whether the peer's address is already
+     *        considered validated (a validated Retry token proves it
+     *        without a Handshake round trip)
+     * @return the new connection, or {@code null} if no server
+     *         certificate is configured
+     */
+    private QuicConnection acceptConnection(byte[] clientDcid, byte[] clientScid, InetSocketAddress source,
+            byte[] originalDcidForParams, byte[] retrySourceConnectionId, boolean addressValidated) {
+        // Following a Retry, this connection's own connection ID must be
+        // the one already committed to in the Retry packet's Source
+        // Connection ID field (== clientDcid, since the client echoes it
+        // back as its post-Retry Initial's own DCID) -- the client
+        // learned that ID as its peer's connection ID from the Retry
+        // itself and, being stateless, won't be told a different one
+        // now, so minting a fresh random ID here would leave the client
+        // addressing every future packet to an ID this connection was
+        // never actually registered under.
+        byte[] serverScid = retrySourceConnectionId != null ? retrySourceConnectionId : generateConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
         TransportParameters localParams = factory.buildTransportParameters(serverScid);
-        localParams.setOriginalDestinationConnectionId(clientDcid);
+        localParams.setOriginalDestinationConnectionId(originalDcidForParams);
+        if (retrySourceConnectionId != null) {
+            localParams.setRetrySourceConnectionId(retrySourceConnectionId);
+        }
 
         QuicConnection conn = new QuicConnection(this, true, local, source, serverScid, clientScid, clientDcid,
                 localParams, connectionIdStaticKey);
+        if (addressValidated) {
+            conn.markAddressValidated();
+        }
         TlsServerEngineFactory engineFactory = factory.getServerEngineFactory();
         if (engineFactory == null) {
             LOGGER.warning("No server certificate configured; rejecting new QUIC connection");
@@ -274,6 +337,51 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         connections.put(ByteArrays.toHexString(serverScid), conn);
         return conn;
+    }
+
+    /**
+     * Sends a stateless Retry packet (RFC 9000 section 8.1.2) in response
+     * to a client Initial that arrived with no (valid) Retry Token, when
+     * {@link QuicTransportFactory#isRequireRetry} is set. No connection
+     * state is created -- the token carries everything needed to validate
+     * the client's follow-up Initial statelessly.
+     *
+     * @param clientScid the Source Connection ID of the client's Initial
+     *        packet -- becomes this Retry packet's own Destination
+     *        Connection ID (RFC 9000 section 17.2.5.1)
+     * @param originalClientDcid the Destination Connection ID of the
+     *        client's Initial packet (its own chosen, pre-Retry DCID) --
+     *        sealed into the token and used as the integrity tag's
+     *        associated data (RFC 9001 section 5.8), but not itself a
+     *        field of the Retry packet
+     * @param source the client's address
+     */
+    private void sendRetry(byte[] clientScid, byte[] originalClientDcid, InetSocketAddress source) {
+        byte[] retryScid = generateConnectionId();
+        byte[] token = RetryToken.seal(factory.getRetryTokenKey(), originalClientDcid, source.getAddress(),
+                System.currentTimeMillis());
+        byte[] withoutTag = LongHeaderCodec.buildRetryWithoutTag(clientScid, retryScid, token);
+        byte[] tag = RetryIntegrityTag.compute(originalClientDcid, withoutTag);
+        byte[] packet = new byte[withoutTag.length + tag.length];
+        System.arraycopy(withoutTag, 0, packet, 0, withoutTag.length);
+        System.arraycopy(tag, 0, packet, withoutTag.length, tag.length);
+        sendTo(source, packet);
+    }
+
+    /**
+     * Sends a raw packet to an address with no associated
+     * {@link QuicConnection} -- used for stateless Retry, where no
+     * connection exists yet to hang a normal {@link #sendPacket} call off of.
+     *
+     * @param address the destination address
+     * @param packet the raw packet bytes
+     */
+    void sendTo(SocketAddress address, byte[] packet) {
+        try {
+            channel.send(ByteBuffer.wrap(packet), address);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send QUIC Retry packet", e);
+        }
     }
 
     /**
