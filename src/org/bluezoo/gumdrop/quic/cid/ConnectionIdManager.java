@@ -50,12 +50,13 @@ import java.util.List;
  * arrive via {@link #addPeerConnectionId}.
  * </ul>
  *
- * <p>No connection migration or path validation logic lives here -- see
- * {@code org.bluezoo.gumdrop.quic.frame.QuicFrameHandler#pathChallengeFrameReceived}/
- * {@code #pathResponseFrameReceived} for the frames that would eventually
- * drive it. {@link #getActivePeerConnectionId} always returns the most
- * recently added, unretired peer connection ID -- correct for a
- * single-path connection, not yet migration-aware.
+ * <p>No path validation logic (PATH_CHALLENGE/PATH_RESPONSE) lives here --
+ * that drives this class from the outside, in {@code QuicConnection},
+ * rather than the other way around. {@link #getActivePeerConnectionId}
+ * always returns the most recently added, unretired peer connection ID;
+ * on a validated migration, {@code QuicConnection} calls it to pick a
+ * fresh one and {@link #retirePeerConnectionId} to retire whichever one
+ * was in use on the old path.
  *
  * <p>Not thread-safe: one instance per connection, used only on that
  * connection's owning thread.
@@ -253,8 +254,9 @@ public final class ConnectionIdManager {
 
     /**
      * Called to retire one of the peer's connection IDs on this
-     * endpoint's own initiative (e.g. connection migration, not yet
-     * implemented), queuing it for {@link #drainPendingRetirement}.
+     * endpoint's own initiative (e.g. after a validated connection
+     * migration switches to a different one), queuing it for
+     * {@link #drainPendingRetirement}.
      *
      * @param sequenceNumber the sequence number to retire
      */

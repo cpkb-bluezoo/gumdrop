@@ -80,16 +80,27 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
  *
  * <p>{@link #flush} coalesces every encryption level with pending data
  * into a single UDP datagram (RFC 9000 section 12.2) rather than sending
- * one packet per level. Deliberately still out of scope for now (see the
- * QUIC migration plan document): Retry address validation (the
- * anti-amplification byte-limit half of RFC 9000 section 8.1 -- the
- * primary DoS protection -- is implemented; the optional Retry-packet
- * mechanism for validating a client's address without a Handshake round
- * trip is not), connection migration (this connection always addresses
- * the peer using the connection ID learned during the handshake, even
- * though {@link ConnectionIdManager} correctly tracks further connection
- * IDs the peer issues), and out-of-order STREAM data reassembly
- * (delivered in arrival order only, matching
+ * one packet per level. RFC 9000 section 8.1's address validation is
+ * implemented both ways: the anti-amplification byte limit, and the
+ * optional Retry-packet mechanism (see {@link QuicTransportFactory#setRequireRetry}).
+ *
+ * <p>Connection migration (RFC 9000 section 9) is implemented in a
+ * deliberately narrowed, passive/reactive form: {@link #receive} detects
+ * the peer's address changing (e.g. NAT rebinding) once a packet from the
+ * new address decrypts successfully with the existing 1-RTT keys (proof
+ * it isn't spoofed), validates the new path via PATH_CHALLENGE/
+ * PATH_RESPONSE before switching {@code remoteAddress} to it, and rotates
+ * to a fresh peer connection ID from {@link ConnectionIdManager} if one is
+ * available. Deliberately out of scope: actively probing additional paths
+ * or otherwise initiating migration on this endpoint's own accord,
+ * concurrent multi-path use, {@code preferred_address}, a separate
+ * anti-amplification budget for the new path before it validates (the
+ * existing budget is reused as-is), and stateless-reset detection on
+ * either path (nothing in this codebase currently recognises an incoming
+ * stateless reset at all, not just on a migrated path).
+ *
+ * <p>Also out of scope: out-of-order STREAM data reassembly (delivered in
+ * arrival order only, matching
  * {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}'s own accepted
  * limitation for CRYPTO data).
  *
@@ -125,7 +136,15 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final QuicEngine engine;
     private final boolean isServer;
     private final InetSocketAddress localAddress;
-    private final InetSocketAddress remoteAddress;
+    // volatile: unlike every other piece of connection state (touched
+    // only on the connection's own SelectorLoop thread), getRemoteAddress()
+    // is a public accessor callable from any thread, and this field is no
+    // longer final now that a validated migration (see completeMigration)
+    // can change it after construction -- a final field's value is
+    // guaranteed visible across threads once safely published, but a
+    // plain mutable field isn't, and callers of getRemoteAddress() must
+    // see the update promptly rather than a stale pre-migration value.
+    private volatile InetSocketAddress remoteAddress;
     private QuicTlsEngine tlsEngine;
     private final TransportParameters localTransportParameters;
     private final byte[] connectionIdStaticKey;
@@ -135,13 +154,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     /**
      * The connection ID currently used to address the peer. Learned once
-     * (from the peer's first long-header response's Source Connection ID
-     * for a client; known immediately at accept time for a server) and
-     * used for the connection's whole lifetime -- see the class
-     * documentation on why this never rotates.
+     * during the handshake (from the peer's first long-header response's
+     * Source Connection ID for a client; known immediately at accept time
+     * for a server), and thereafter changed only on a validated
+     * connection migration (see {@link #completeMigration}), which
+     * rotates it to a fresh entry from the connection ID manager's peer
+     * pool so the two paths aren't linkable by connection ID alone
+     * (RFC 9000 section 9.5).
      */
     private byte[] peerConnectionId;
     private boolean peerConnectionIdLearned;
+    // The sequence number (within connectionIdManager's peer pool) that
+    // peerConnectionId currently corresponds to -- needed to retire it via
+    // connectionIdManager.retirePeerConnectionId when rotating to a new one.
+    private long activePeerConnectionIdSequence;
 
     private ConnectionIdManager connectionIdManager;
     private TransportParameters peerTransportParameters;
@@ -249,6 +275,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private boolean retryProcessed;
     private byte[] retryToken = EMPTY_TOKEN;
     private byte[] expectedRetrySourceConnectionId;
+
+    // RFC 9000 section 9: passive/reactive connection migration only --
+    // detecting the peer's own address changing (e.g. NAT rebinding) and
+    // validating the new path before switching to it. There is no
+    // support here for deliberately probing additional paths, active
+    // multi-path use, or preferred_address. migratingPathAddress is the
+    // one candidate path currently being validated (null if none);
+    // pendingPathChallengeData is the 8 bytes a PATH_RESPONSE from that
+    // address must echo back. currentDatagramSource/sawValidOneRttThisReceive
+    // are scratch state valid only for the duration of one receive() call,
+    // letting the frame callbacks below (which don't otherwise see the
+    // datagram's source address) know where a PATH_CHALLENGE/PATH_RESPONSE
+    // actually arrived from.
+    private InetSocketAddress migratingPathAddress;
+    private byte[] pendingPathChallengeData;
+    private InetSocketAddress currentDatagramSource;
+    private boolean sawValidOneRttThisReceive;
+
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
 
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
@@ -578,8 +623,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * frames dispatched.
      *
      * @param datagram the received datagram
+     * @param source the address the datagram actually arrived from --
+     *        used only for connection migration detection (RFC 9000
+     *        section 9); everything else keeps addressing the peer via
+     *        {@link #remoteAddress} until a candidate path validates
      */
-    void receive(ByteBuffer datagram) {
+    void receive(ByteBuffer datagram, InetSocketAddress source) {
         byte[] bytes = new byte[datagram.remaining()];
         datagram.get(bytes);
         if (isServer && !addressValidated) {
@@ -587,6 +636,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         int offset = 0;
         suppressFlush = true;
+        currentDatagramSource = source;
+        sawValidOneRttThisReceive = false;
         try {
             while (offset < bytes.length) {
                 int consumed = receiveOnePacket(bytes, offset);
@@ -597,6 +648,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         } finally {
             suppressFlush = false;
+        }
+        // A successfully decrypted 1-RTT packet proves the peer holds the
+        // 1-RTT keys -- an off-path attacker can't forge that, so a
+        // source address mismatch at this point is a genuine candidate
+        // migration (RFC 9000 section 9.3), not spoofing. Ignored while
+        // a different candidate is already being validated, and ignored
+        // before the handshake completes (no 1-RTT keys yet to prove anything).
+        if (sawValidOneRttThisReceive && established && !source.equals(remoteAddress)
+                && !source.equals(migratingPathAddress)) {
+            beginMigrationValidation(source);
         }
         requestFlush();
     }
@@ -748,7 +809,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
             byte[] plaintext = PacketProtection.open(keys, fullPacketNumber, aad, ciphertext);
 
             largestReceived[level.ordinal()] = Math.max(largestReceived[level.ordinal()], fullPacketNumber);
-            ackOwed[level.ordinal()] = true;
             if (level == EncryptionLevel.HANDSHAKE) {
                 // RFC 9000 section 8.1: a successfully decrypted Handshake
                 // packet proves the peer holds the Handshake keys, which
@@ -756,9 +816,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 // Initial response -- an off-path attacker spoofing the
                 // client's address could not have produced this.
                 addressValidated = true;
+            } else if (level == EncryptionLevel.ONE_RTT) {
+                // Likewise proves the peer holds the 1-RTT keys -- the
+                // signal receive() uses to tell a genuine candidate
+                // migration (RFC 9000 section 9.3) apart from spoofed
+                // garbage arriving from a random new address.
+                sawValidOneRttThisReceive = true;
             }
 
-            new QuicFrameParser(new FrameDispatcher(level)).receive(ByteBuffer.wrap(plaintext));
+            FrameDispatcher dispatcher = new FrameDispatcher(level);
+            new QuicFrameParser(dispatcher).receive(ByteBuffer.wrap(plaintext));
+            // RFC 9000 section 13.2: only owe an ACK if this packet
+            // carried at least one ack-eliciting frame -- acknowledging a
+            // packet that itself contained nothing but ACK/PADDING/
+            // CONNECTION_CLOSE would let two endpoints that just did that
+            // to each other keep acking one another's ACKs forever.
+            if (dispatcher.ackEliciting) {
+                ackOwed[level.ordinal()] = true;
+            }
         } catch (PacketProtectionException e) {
             LOGGER.log(Level.FINE, "Packet protection failure at " + level + "; dropping", e);
         }
@@ -770,6 +845,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         private final EncryptionLevel level;
 
+        // RFC 9000 section 13.2: every frame type is ack-eliciting except
+        // ACK, PADDING, and CONNECTION_CLOSE -- an incoming packet whose
+        // only frames are among those three must not itself be
+        // acknowledged, or two endpoints that both received nothing but
+        // an ACK from each other would keep acking one another's ACKs
+        // forever. Starts false per packet (one FrameDispatcher per
+        // processPacket call) and is set true by every other frame type
+        // received; processPacket only sets ackOwed when this ends up true.
+        boolean ackEliciting;
+
         FrameDispatcher(EncryptionLevel level) {
             this.level = level;
         }
@@ -780,6 +865,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void pingFrameReceived() {
+            ackEliciting = true;
         }
 
         @Override
@@ -796,6 +882,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
+            ackEliciting = true;
             QuicStreamEndpoint stream = streams.remove(Long.valueOf(streamId));
             if (stream != null) {
                 stream.markClosed();
@@ -805,11 +892,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void stopSendingFrameReceived(long streamId, long applicationErrorCode) {
+            ackEliciting = true;
             resetStream(streamId, applicationErrorCode);
         }
 
         @Override
         public void cryptoFrameReceived(long offset, ByteBuffer data) {
+            ackEliciting = true;
             byte[] copy = new byte[data.remaining()];
             data.get(copy);
             try {
@@ -821,10 +910,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void newTokenFrameReceived(ByteBuffer token) {
+            ackEliciting = true;
         }
 
         @Override
         public void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data) {
+            ackEliciting = true;
             QuicStreamEndpoint stream = streams.get(Long.valueOf(streamId));
             if (stream == null) {
                 stream = acceptStream(streamId);
@@ -851,6 +942,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxDataFrameReceived(long maximumData) {
+            ackEliciting = true;
             if (maximumData > peerMaxData) {
                 peerMaxData = maximumData;
                 dataBlockedSignalled = false;
@@ -859,6 +951,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxStreamDataFrameReceived(long streamId, long maximumStreamData) {
+            ackEliciting = true;
             Long key = Long.valueOf(streamId);
             Long current = peerMaxStreamData.get(key);
             if (current == null || maximumStreamData > current.longValue()) {
@@ -869,6 +962,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
+            ackEliciting = true;
         }
 
         // RFC 9000 section 4.1: the peer is blocked sending -- grow our
@@ -879,21 +973,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // xxxOnBlocked growth is used instead -- see its javadoc.
         @Override
         public void dataBlockedFrameReceived(long maximumData) {
+            ackEliciting = true;
             growConnectionLimitOnBlocked();
         }
 
         @Override
         public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
+            ackEliciting = true;
             growStreamLimitOnBlocked(streamId);
         }
 
         @Override
         public void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams) {
+            ackEliciting = true;
         }
 
         @Override
         public void newConnectionIdFrameReceived(long sequenceNumber, long retirePriorTo,
                 ByteBuffer connectionId, ByteBuffer statelessResetToken) {
+            ackEliciting = true;
             byte[] cid = new byte[connectionId.remaining()];
             connectionId.get(cid);
             byte[] token = new byte[statelessResetToken.remaining()];
@@ -903,16 +1001,31 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void retireConnectionIdFrameReceived(long sequenceNumber) {
+            ackEliciting = true;
             connectionIdManager.retireOurs(sequenceNumber);
         }
 
         @Override
         public void pathChallengeFrameReceived(ByteBuffer data) {
-            // Connection migration/path validation is not implemented.
+            ackEliciting = true;
+            byte[] bytes = new byte[data.remaining()];
+            data.get(bytes);
+            // RFC 9000 section 8.2.2: answered on the path the challenge
+            // itself arrived on, which may not be remoteAddress yet (e.g.
+            // the peer probing a path this endpoint hasn't switched to).
+            sendPathResponse(bytes, currentDatagramSource);
         }
 
         @Override
         public void pathResponseFrameReceived(ByteBuffer data) {
+            ackEliciting = true;
+            byte[] bytes = new byte[data.remaining()];
+            data.get(bytes);
+            if (migratingPathAddress != null && pendingPathChallengeData != null
+                    && currentDatagramSource.equals(migratingPathAddress)
+                    && java.util.Arrays.equals(bytes, pendingPathChallengeData)) {
+                completeMigration();
+            }
         }
 
         @Override
@@ -924,6 +1037,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void handshakeDoneFrameReceived() {
+            ackEliciting = true;
             handshakeConfirmed = true;
             notifyClientHandshakeComplete();
         }
@@ -1040,6 +1154,133 @@ public final class QuicConnection implements QuicTlsEngineListener {
             LOGGER.log(Level.WARNING, "Failed to protect outgoing packet at " + level, e);
             return null;
         }
+    }
+
+    // ── Connection migration (RFC 9000 section 9) ──
+
+    // Starts validating a candidate new path: generates the 8 bytes a
+    // PATH_RESPONSE from that address must echo, then sends a
+    // PATH_CHALLENGE there directly (via QuicEngine.sendTo, bypassing the
+    // normal flush()/remoteAddress send path -- ordinary traffic keeps
+    // going to the old, still-current remoteAddress until this validates).
+    private void beginMigrationValidation(InetSocketAddress candidate) {
+        migratingPathAddress = candidate;
+        pendingPathChallengeData = new byte[QuicFrameHandler.PATH_DATA_LENGTH];
+        RANDOM.nextBytes(pendingPathChallengeData);
+        sendPathChallenge(pendingPathChallengeData, candidate);
+    }
+
+    // Called once a PATH_RESPONSE has proven the candidate path is real
+    // (RFC 9000 section 8.2.3): switches over to it and, per RFC 9000
+    // section 9.4, resets congestion control state, since the old
+    // path's measurements no longer apply to the new one.
+    private void completeMigration() {
+        remoteAddress = migratingPathAddress;
+        migratingPathAddress = null;
+        pendingPathChallengeData = null;
+
+        // RFC 9000 section 9.5: prefer a peer connection ID not already
+        // used on the old path, if the peer has issued a spare one via
+        // NEW_CONNECTION_ID; if not (the common case in a simple
+        // two-endpoint exchange with no spare IDs), this just returns the
+        // same entry already in use and rotation is a no-op.
+        ConnectionIdEntry fresh = connectionIdManager.getActivePeerConnectionId();
+        if (fresh != null && !java.util.Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
+            connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
+            peerConnectionId = fresh.getConnectionId();
+            activePeerConnectionIdSequence = fresh.getSequenceNumber();
+        }
+
+        lossDetector.getCongestionController().reset();
+        requestFlush();
+    }
+
+    private void sendPathChallenge(byte[] data, InetSocketAddress destination) {
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_CHALLENGE, data, destination);
+    }
+
+    private void sendPathResponse(byte[] data, InetSocketAddress destination) {
+        sendPathFramePacket(QuicFrameHandler.TYPE_PATH_RESPONSE, data, destination);
+    }
+
+    private void sendPathFramePacket(long frameType, byte[] data, InetSocketAddress destination) {
+        try {
+            // RFC 9000 section 8.2.1: a PATH_CHALLENGE-carrying datagram
+            // must be expanded to the smallest allowed maximum datagram
+            // size, so an off-path attacker can't use it to trigger an
+            // amplified response; applied uniformly to PATH_RESPONSE too
+            // for simplicity, even though the RFC only requires it of the
+            // challenge (a PATH_RESPONSE is tiny either way).
+            byte[] packet = buildStandalonePathFramePacket(frameType, data, MIN_DATAGRAM_SIZE);
+            if (packet != null) {
+                engine.sendTo(destination, packet);
+            }
+        } catch (PacketProtectionException e) {
+            LOGGER.log(Level.WARNING, "Failed to protect outgoing PATH_CHALLENGE/PATH_RESPONSE packet", e);
+        }
+    }
+
+    // Builds a standalone 1-RTT packet containing a single PATH_CHALLENGE
+    // or PATH_RESPONSE frame, addressed to a possibly-different-from-
+    // remoteAddress destination -- so, unlike every other outgoing frame,
+    // this can't be folded into the normal buildProtectedPacket/flush
+    // machinery (which always addresses remoteAddress) and isn't
+    // registered with lossDetector (no retransmission tracking for these
+    // two frame types in this simplified pass, matching the same
+    // accepted gap already documented for MAX_DATA/MAX_STREAM_DATA).
+    private byte[] buildStandalonePathFramePacket(long frameType, byte[] data, int minDatagramSize)
+            throws PacketProtectionException {
+        PacketProtectionKeys keys = sendKeys.get(EncryptionLevel.ONE_RTT);
+        if (keys == null) {
+            return null; // no 1-RTT keys yet; migration cannot apply before the handshake completes
+        }
+        int frameBytes = frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE
+                ? QuicFrameWriter.pathChallengeLength() : QuicFrameWriter.pathResponseLength();
+        long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+
+        int hpSamplePadding = Math.max(0,
+                4 + QuicAeadAlgorithm.SAMPLE_LENGTH - pnLength - QuicAeadAlgorithm.TAG_LENGTH - frameBytes);
+
+        int paddingBytes = 0;
+        byte[] header;
+        while (true) {
+            header = ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
+            int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
+            int nextPadding = Math.max(hpSamplePadding, Math.max(0, paddingBytes + required));
+            if (nextPadding == paddingBytes) {
+                break;
+            }
+            paddingBytes = nextPadding;
+        }
+        int totalFrameBytes = frameBytes + paddingBytes;
+
+        ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
+        if (frameType == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
+            QuicFrameWriter.writePathChallenge(payload, data);
+        } else {
+            QuicFrameWriter.writePathResponse(payload, data);
+        }
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(payload, paddingBytes);
+        }
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        byte[] ciphertext = PacketProtection.seal(keys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = header.length - pnLength;
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
+        byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+        PacketProtection.xorFirstByte(packet, mask, false);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        return packet;
     }
 
     // Stream-level and connection-level send budget, per RFC 9000

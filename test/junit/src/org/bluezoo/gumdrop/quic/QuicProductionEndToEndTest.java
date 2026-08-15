@@ -48,6 +48,8 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 
+import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
+import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
 import org.bluezoo.gumdrop.quic.packet.PacketNumberCodec;
 import org.bluezoo.gumdrop.quic.packet.PacketProtection;
@@ -1035,6 +1037,439 @@ public class QuicProductionEndToEndTest {
             if (serverEngine != null) {
                 serverEngine.close();
             }
+        }
+    }
+
+    /**
+     * RFC 9000 section 9: passive/reactive connection migration. Completes
+     * a real handshake and a ping/pong over the client's normal channel,
+     * then simulates a NAT rebind by sending further real,
+     * correctly-protected traffic for that same connection from a second,
+     * independent local {@link DatagramChannel} bound to a different port
+     * -- exactly what happens transparently, from the QUIC connection's
+     * own point of view, when a client's networking stack rebinds: same
+     * connection, same negotiated keys, just a different source address.
+     * Proves the server detects the new address, validates it via
+     * PATH_CHALLENGE/PATH_RESPONSE before switching {@code remoteAddress}
+     * to it, and keeps delivering stream data once the new path is confirmed.
+     */
+    @Test
+    public void testServerDetectsClientRebindAndValidatesNewPath() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        DatagramChannel rebindChannel = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch serverReceivedRebindStream = new CountDownLatch(1);
+            final AtomicReference<byte[]> serverReceivedRebindData = new AtomicReference<byte[]>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                    byte[] bytes = new byte[data.remaining()];
+                                    data.get(bytes);
+                                    serverReceivedRebindData.set(bytes);
+                                    // Close out this stream promptly, same as every
+                                    // other test in this file does, rather than
+                                    // leaving the connection open and idle for the
+                                    // rest of the JVM's lifetime once this test returns.
+                                    stream.close();
+                                    serverReceivedRebindStream.countDown();
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+
+            // Reach into the real, negotiated key material and packet
+            // number counter -- the only way to construct further packets
+            // for this same connection that the server will actually
+            // accept, exactly as a genuine rebinding client's own
+            // networking stack would (same connection, same keys, just a
+            // different local port).
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
+                    getPrivateField(clientConnection, "sendKeys", Map.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientRecvKeys =
+                    getPrivateField(clientConnection, "recvKeys", Map.class);
+            PacketProtectionKeys clientToServerKeys = clientSendKeys.get(EncryptionLevel.ONE_RTT);
+            PacketProtectionKeys serverToClientKeys = clientRecvKeys.get(EncryptionLevel.ONE_RTT);
+            byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
+            byte[] clientConnectionId = getPrivateField(clientConnection, "ourConnectionId", byte[].class);
+            long[] clientSendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
+
+            // From here on, every further packet for this connection is
+            // forged by hand and sent from rebindChannel; clientEngine's
+            // own channel is simply left idle (it has nothing to
+            // proactively send -- an ACK-only packet from the server
+            // isn't itself ack-eliciting, RFC 9000 section 13.2, so it
+            // won't trigger a reply).
+            rebindChannel = DatagramChannel.open();
+            // An explicit loopback bind, not bind(null)'s wildcard address --
+            // the server observes a datagram's concrete source address
+            // (127.0.0.1:port), so the two must match for the address
+            // comparison in QuicConnection.receive to work as intended.
+            rebindChannel.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            rebindChannel.configureBlocking(false);
+            InetSocketAddress rebindLocalAddress = (InetSocketAddress) rebindChannel.getLocalAddress();
+
+            // A single real (correctly encrypted/header-protected) PING
+            // packet, sent from the new local address -- decrypting
+            // successfully with the connection's real 1-RTT keys is
+            // exactly the proof the server needs that this isn't spoofed.
+            long pingPacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            byte[] pingPacket = forgePingPacket(clientToServerKeys, serverConnectionId, pingPacketNumber);
+            sendReliably(rebindChannel, pingPacket, serverAddress);
+
+            byte[] challengeData = receivePathChallengeData(rebindChannel, serverToClientKeys,
+                    clientConnectionId.length, 10000);
+            assertTrue("Server should have sent a PATH_CHALLENGE to validate the new path", challengeData != null);
+
+            long responsePacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            byte[] pathResponsePacket = forgePathResponsePacket(clientToServerKeys, serverConnectionId,
+                    responsePacketNumber, challengeData);
+            sendReliably(rebindChannel, pathResponsePacket, serverAddress);
+
+            QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
+            InetSocketAddress switchedRemote = null;
+            long deadline = System.currentTimeMillis() + 10000;
+            while (System.currentTimeMillis() < deadline) {
+                InetSocketAddress currentRemote =
+                        getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
+                if (rebindLocalAddress.equals(currentRemote)) {
+                    switchedRemote = currentRemote;
+                    break;
+                }
+                Thread.sleep(20);
+            }
+            assertEquals("The server should have switched to the validated new path",
+                    rebindLocalAddress, switchedRemote);
+
+            // Prove the connection still works over the newly-validated
+            // path: a fresh client-initiated stream, sent from the same
+            // new address, must be delivered normally.
+            long streamPacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            byte[] rebindStreamData = "still-works-after-migration".getBytes(StandardCharsets.US_ASCII);
+            byte[] streamPacket = forgeStreamPacket(clientToServerKeys, serverConnectionId, streamPacketNumber,
+                    4, 0, rebindStreamData);
+            sendReliably(rebindChannel, streamPacket, serverAddress);
+
+            assertTrue("Server should have delivered stream data sent over the new path within 10s",
+                    serverReceivedRebindStream.await(10, TimeUnit.SECONDS));
+            assertArrayEquals(rebindStreamData, serverReceivedRebindData.get());
+        } finally {
+            if (rebindChannel != null) {
+                rebindChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * Sends a datagram on a non-blocking channel, retrying if the OS
+     * declines it without error (a non-blocking {@link DatagramChannel#send}
+     * returns 0 rather than blocking or throwing when its send buffer is
+     * momentarily full -- rare on loopback, but real under the kind of
+     * sustained concurrent load a full test-suite run produces) --
+     * otherwise a silently dropped packet leaves the rest of the test
+     * waiting out its full timeout for a reply that was never actually
+     * requested.
+     */
+    private static void sendReliably(DatagramChannel channel, byte[] packet, java.net.SocketAddress target)
+            throws IOException, InterruptedException {
+        ByteBuffer buf = ByteBuffer.wrap(packet);
+        for (int attempt = 0; attempt < 20; attempt++) {
+            if (channel.send(buf, target) > 0) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("Failed to send a " + packet.length + "-byte datagram to " + target + " after repeated retries");
+    }
+
+    private static byte[] forgePingPacket(PacketProtectionKeys keys, byte[] destinationConnectionId, long packetNumber)
+            throws Exception {
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+        byte[] header = ShortHeaderCodec.build(destinationConnectionId, false, packetNumber, pnLength);
+
+        int frameBytes = QuicFrameWriter.pingLength();
+        int paddingBytes = hpSamplePadding(pnLength, frameBytes);
+        ByteBuffer payload = ByteBuffer.allocate(frameBytes + paddingBytes);
+        QuicFrameWriter.writePing(payload);
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(payload, paddingBytes);
+        }
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        return sealShortHeaderPacket(keys, header, plaintext, packetNumber, destinationConnectionId.length, pnLength);
+    }
+
+    private static byte[] forgePathResponsePacket(PacketProtectionKeys keys, byte[] destinationConnectionId,
+            long packetNumber, byte[] data) throws Exception {
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+        byte[] header = ShortHeaderCodec.build(destinationConnectionId, false, packetNumber, pnLength);
+
+        int frameBytes = QuicFrameWriter.pathResponseLength();
+        int paddingBytes = hpSamplePadding(pnLength, frameBytes);
+        ByteBuffer payload = ByteBuffer.allocate(frameBytes + paddingBytes);
+        QuicFrameWriter.writePathResponse(payload, data);
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(payload, paddingBytes);
+        }
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        return sealShortHeaderPacket(keys, header, plaintext, packetNumber, destinationConnectionId.length, pnLength);
+    }
+
+    // RFC 9001 section 5.4.2: the header-protection sample is taken 4
+    // bytes after the packet number field and is SAMPLE_LENGTH bytes
+    // long -- a small single-frame packet (PING, PATH_RESPONSE) doesn't
+    // naturally carry enough ciphertext for that sample to exist without
+    // padding, unlike a real STREAM frame's payload.
+    private static int hpSamplePadding(int pnLength, int frameBytes) {
+        return Math.max(0, 4 + QuicAeadAlgorithm.SAMPLE_LENGTH - pnLength - QuicAeadAlgorithm.TAG_LENGTH - frameBytes);
+    }
+
+    private static byte[] sealShortHeaderPacket(PacketProtectionKeys keys, byte[] header, byte[] plaintext,
+            long packetNumber, int dcidLength, int pnLength) throws Exception {
+        byte[] ciphertext = PacketProtection.seal(keys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = ShortHeaderCodec.packetNumberOffset(dcidLength);
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, sample.length);
+        byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+        PacketProtection.xorFirstByte(packet, mask, false);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        return packet;
+    }
+
+    /**
+     * Receives one datagram on {@code channel}, decrypts it as a
+     * short-header 1-RTT packet with {@code recvKeys} (the same sequence
+     * {@link QuicConnection#processPacket} follows, done by hand here
+     * since this is the test's own receiving socket, not a production
+     * connection), and returns the data of its PATH_CHALLENGE frame -- or
+     * {@code null} if no datagram arrived within {@code timeoutMs} or it
+     * carried no such frame.
+     */
+    private static byte[] receivePathChallengeData(DatagramChannel channel, PacketProtectionKeys recvKeys,
+            int dcidLength, long timeoutMs) throws Exception {
+        Selector selector = Selector.open();
+        try {
+            channel.register(selector, SelectionKey.OP_READ);
+            if (selector.select(timeoutMs) == 0) {
+                return null;
+            }
+            selector.selectedKeys().clear();
+            ByteBuffer buf = ByteBuffer.allocate(2048);
+            if (channel.receive(buf) == null) {
+                return null;
+            }
+            buf.flip();
+            byte[] packet = new byte[buf.remaining()];
+            buf.get(packet);
+
+            int pnOffset = ShortHeaderCodec.packetNumberOffset(dcidLength);
+            byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+            System.arraycopy(packet, pnOffset + 4, sample, 0, sample.length);
+            byte[] mask = PacketProtection.headerProtectionMask(recvKeys, sample);
+            PacketProtection.xorFirstByte(packet, mask, false);
+            int pnLength = (packet[0] & 0x03) + 1;
+            PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+            long truncatedPn = 0;
+            for (int i = 0; i < pnLength; i++) {
+                truncatedPn = (truncatedPn << 8) | (packet[pnOffset + i] & 0xff);
+            }
+            long fullPacketNumber = PacketNumberCodec.decode(-1, truncatedPn, pnLength);
+
+            int headerLength = pnOffset + pnLength;
+            byte[] aad = java.util.Arrays.copyOfRange(packet, 0, headerLength);
+            byte[] ciphertext = java.util.Arrays.copyOfRange(packet, headerLength, packet.length);
+            byte[] plaintext = PacketProtection.open(recvKeys, fullPacketNumber, aad, ciphertext);
+
+            final AtomicReference<byte[]> result = new AtomicReference<byte[]>();
+            new QuicFrameParser(new NoOpFrameHandler() {
+                @Override
+                public void pathChallengeFrameReceived(ByteBuffer data) {
+                    byte[] bytes = new byte[data.remaining()];
+                    data.get(bytes);
+                    result.set(bytes);
+                }
+            }).receive(ByteBuffer.wrap(plaintext));
+            return result.get();
+        } finally {
+            selector.close();
+        }
+    }
+
+    /** A {@link QuicFrameHandler} whose every callback is a no-op, for tests that only care about one frame type. */
+    private static class NoOpFrameHandler implements QuicFrameHandler {
+
+        @Override
+        public void paddingFrameReceived(int length) {
+        }
+
+        @Override
+        public void pingFrameReceived() {
+        }
+
+        @Override
+        public void ackFrameReceived(long largestAcknowledged, long ackDelay, long[][] ranges) {
+        }
+
+        @Override
+        public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
+        }
+
+        @Override
+        public void stopSendingFrameReceived(long streamId, long applicationErrorCode) {
+        }
+
+        @Override
+        public void cryptoFrameReceived(long offset, ByteBuffer data) {
+        }
+
+        @Override
+        public void newTokenFrameReceived(ByteBuffer token) {
+        }
+
+        @Override
+        public void streamFrameReceived(long streamId, long offset, boolean fin, ByteBuffer data) {
+        }
+
+        @Override
+        public void maxDataFrameReceived(long maximumData) {
+        }
+
+        @Override
+        public void maxStreamDataFrameReceived(long streamId, long maximumStreamData) {
+        }
+
+        @Override
+        public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
+        }
+
+        @Override
+        public void dataBlockedFrameReceived(long maximumData) {
+        }
+
+        @Override
+        public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
+        }
+
+        @Override
+        public void streamsBlockedFrameReceived(boolean bidirectional, long maximumStreams) {
+        }
+
+        @Override
+        public void newConnectionIdFrameReceived(long sequenceNumber, long retirePriorTo,
+                ByteBuffer connectionId, ByteBuffer statelessResetToken) {
+        }
+
+        @Override
+        public void retireConnectionIdFrameReceived(long sequenceNumber) {
+        }
+
+        @Override
+        public void pathChallengeFrameReceived(ByteBuffer data) {
+        }
+
+        @Override
+        public void pathResponseFrameReceived(ByteBuffer data) {
+        }
+
+        @Override
+        public void connectionCloseFrameReceived(boolean applicationError, long errorCode,
+                long frameType, String reason) {
+        }
+
+        @Override
+        public void handshakeDoneFrameReceived() {
+        }
+
+        @Override
+        public void frameError(String message) {
         }
     }
 }

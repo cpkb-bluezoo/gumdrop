@@ -165,6 +165,21 @@ public final class CongestionController {
     }
 
     /**
+     * Resets congestion control state back to a freshly-connected
+     * endpoint's starting point (RFC 9000 section 9.4): on confirming a
+     * peer's ownership of a new network path (connection migration), the
+     * window, slow-start threshold, and recovery state measured against
+     * the old path no longer describe the new one's capacity. {@code
+     * bytesInFlight} is deliberately left untouched -- it reflects data
+     * genuinely still outstanding, regardless of which path carried it.
+     */
+    public void reset() {
+        congestionWindow = Math.min(10L * maxDatagramSize, Math.max(2L * maxDatagramSize, INITIAL_WINDOW_FLOOR));
+        ssthresh = Long.MAX_VALUE;
+        congestionRecoveryStartTime = 0;
+    }
+
+    /**
      * Returns the current congestion window.
      *
      * @return the congestion window, in bytes
