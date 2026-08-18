@@ -61,8 +61,6 @@ package org.bluezoo.gumdrop.dns;
  * <li>OPENPGPKEY (61) - OpenPGP key</li>
  * <li>CSYNC (62) - Child-to-parent sync</li>
  * <li>ZONEMD (63) - Zone message digest</li>
- * <li>SVCB (64) - Service binding</li>
- * <li>HTTPS (65) - HTTPS binding</li>
  * <li>SPF (99) - Sender policy framework (obsolete, use TXT)</li>
  * <li>CAA (257) - Certification authority authorization</li>
  * </ul>
@@ -118,6 +116,12 @@ public enum DNSType {
 
     /** NSEC3 parameters. RFC 5155 section 4. */
     NSEC3PARAM(51),
+
+    /** Service binding. RFC 9460 section 2.2. */
+    SVCB(64),
+
+    /** HTTPS binding. RFC 9460 section 2.2. */
+    HTTPS(65),
 
     /** All records (QTYPE only, not stored). RFC 1035 section 3.2.3. */
     ANY(255);

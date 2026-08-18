@@ -28,8 +28,11 @@ import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.TreeMap;
 
 /**
  * A DNS resource record.
@@ -282,6 +285,106 @@ public final class DNSResourceRecord {
         buf.put(targetBytes);
         return new DNSResourceRecord(name, DNSType.SRV, DNSClass.IN,
                 ttl, buf.array());
+    }
+
+    /** SvcParamKey for "alpn". RFC 9460 section 7.1.1. */
+    public static final int SVCB_PARAM_ALPN = 1;
+
+    /** SvcParamKey for "port". RFC 9460 section 7.3. */
+    public static final int SVCB_PARAM_PORT = 3;
+
+    /**
+     * Creates an HTTPS (or SVCB) record.
+     * RFC 9460 section 2.2: RDATA is SvcPriority(2) + uncompressed
+     * TargetName + SvcParams, where SvcParams is zero or more
+     * SvcParamKey(2) + SvcParamValue length(2) + SvcParamValue triples,
+     * written in strictly increasing key order.
+     *
+     * @param name the domain name
+     * @param ttl time to live in seconds
+     * @param priority the SvcPriority (0 = AliasForm, otherwise ServiceForm)
+     * @param target the TargetName ("." for "same as owner name")
+     * @param params the SvcParams, keyed by SvcParamKey (may be null/empty)
+     * @return the resource record
+     */
+    public static DNSResourceRecord https(String name, int ttl, int priority,
+                                           String target,
+                                           Map<Integer, byte[]> params) {
+        return svcb(name, DNSType.HTTPS, ttl, priority, target, params);
+    }
+
+    /**
+     * Creates an SVCB record. See {@link #https(String, int, int, String, Map)}.
+     *
+     * @param name the domain name
+     * @param ttl time to live in seconds
+     * @param priority the SvcPriority (0 = AliasForm, otherwise ServiceForm)
+     * @param target the TargetName ("." for "same as owner name")
+     * @param params the SvcParams, keyed by SvcParamKey (may be null/empty)
+     * @return the resource record
+     */
+    public static DNSResourceRecord svcb(String name, int ttl, int priority,
+                                          String target,
+                                          Map<Integer, byte[]> params) {
+        return svcb(name, DNSType.SVCB, ttl, priority, target, params);
+    }
+
+    private static DNSResourceRecord svcb(String name, DNSType type, int ttl,
+                                           int priority, String target,
+                                           Map<Integer, byte[]> params) {
+        byte[] targetBytes = DNSMessage.encodeName(target);
+        Map<Integer, byte[]> sorted = new TreeMap<>();
+        if (params != null) {
+            sorted.putAll(params);
+        }
+        int paramsLen = 0;
+        for (byte[] value : sorted.values()) {
+            paramsLen += 4 + value.length;
+        }
+        ByteBuffer buf = ByteBuffer.allocate(2 + targetBytes.length + paramsLen);
+        buf.putShort((short) priority);
+        buf.put(targetBytes);
+        for (Map.Entry<Integer, byte[]> entry : sorted.entrySet()) {
+            buf.putShort(entry.getKey().shortValue());
+            byte[] value = entry.getValue();
+            buf.putShort((short) value.length);
+            buf.put(value);
+        }
+        return new DNSResourceRecord(name, type, DNSClass.IN, ttl, buf.array());
+    }
+
+    /**
+     * Encodes an "alpn" SvcParamValue (RFC 9460 section 7.1.1): one or
+     * more length-prefixed ALPN protocol IDs, concatenated.
+     *
+     * @param protocols the ALPN protocol IDs (e.g. "h3", "h2")
+     * @return the encoded SvcParamValue
+     */
+    public static byte[] encodeSVCBAlpn(List<String> protocols) {
+        int len = 0;
+        for (String protocol : protocols) {
+            len += 1 + protocol.length();
+        }
+        ByteBuffer buf = ByteBuffer.allocate(len);
+        for (String protocol : protocols) {
+            byte[] bytes = protocol.getBytes(StandardCharsets.US_ASCII);
+            buf.put((byte) bytes.length);
+            buf.put(bytes);
+        }
+        return buf.array();
+    }
+
+    /**
+     * Encodes a "port" SvcParamValue (RFC 9460 section 7.3): a single
+     * 16-bit port number.
+     *
+     * @param port the port number
+     * @return the encoded SvcParamValue
+     */
+    public static byte[] encodeSVCBPort(int port) {
+        ByteBuffer buf = ByteBuffer.allocate(2);
+        buf.putShort((short) port);
+        return buf.array();
     }
 
     /**
@@ -561,6 +664,121 @@ public final class DNSResourceRecord {
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(6); // skip priority + weight + port
         return DNSMessage.decodeName(buf, ByteBuffer.wrap(rdata));
+    }
+
+    // -- SVCB/HTTPS RDATA accessors (RFC 9460 section 2.2) --
+
+    private void checkSVCB() {
+        if (type != DNSType.SVCB && type != DNSType.HTTPS) {
+            throw new IllegalStateException("Not an SVCB/HTTPS record: " + type);
+        }
+    }
+
+    /**
+     * Returns the SvcPriority. RFC 9460 section 2.2: 0 means AliasForm
+     * (the TargetName is an alias to follow, like CNAME; SvcParams are
+     * absent), any other value means ServiceForm.
+     *
+     * @return the priority value
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public int getSVCBPriority() {
+        checkSVCB();
+        return ((rdata[0] & 0xFF) << 8) | (rdata[1] & 0xFF);
+    }
+
+    /**
+     * Returns true if this record is AliasForm (SvcPriority 0).
+     *
+     * @return true if this is an alias record
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public boolean isSVCBAliasForm() {
+        return getSVCBPriority() == 0;
+    }
+
+    /**
+     * Returns the TargetName. RFC 9460 section 2.2: an uncompressed
+     * domain name; "." means "same as the owner name" for ServiceForm.
+     *
+     * @return the target name
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public String getSVCBTargetName() {
+        checkSVCB();
+        ByteBuffer buf = ByteBuffer.wrap(rdata);
+        buf.position(2);
+        return DNSMessage.decodeName(buf, buf);
+    }
+
+    /**
+     * Returns the SvcParams as a map of SvcParamKey to raw SvcParamValue
+     * bytes. RFC 9460 section 2.2: each param is key(2) + length(2) +
+     * value(length), following the TargetName.
+     *
+     * <p>The {@code mandatory} SvcParamKey (0, RFC 9460 section 8) is
+     * parsed like any other but not enforced -- an unrecognized mandatory
+     * key does not cause this record to be rejected.
+     *
+     * @return the SvcParams, in wire order
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public Map<Integer, byte[]> getSVCBParams() {
+        checkSVCB();
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        ByteBuffer buf = ByteBuffer.wrap(rdata);
+        buf.position(2);
+        DNSMessage.decodeName(buf, buf);
+        while (buf.remaining() >= 4) {
+            int key = buf.getShort() & 0xFFFF;
+            int len = buf.getShort() & 0xFFFF;
+            if (buf.remaining() < len) {
+                break;
+            }
+            byte[] value = new byte[len];
+            buf.get(value);
+            params.put(key, value);
+        }
+        return params;
+    }
+
+    /**
+     * Returns the ALPN protocol IDs advertised by SvcParamKey 1 ("alpn"),
+     * decoded as a sequence of length-prefixed strings (RFC 9460 section
+     * 7.1.1) -- e.g. {@code ["h3", "h2"]}.
+     *
+     * @return the advertised ALPN protocol IDs, or an empty list if absent
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public List<String> getSVCBAlpnProtocols() {
+        byte[] value = getSVCBParams().get(SVCB_PARAM_ALPN);
+        List<String> protocols = new ArrayList<>();
+        if (value == null) {
+            return protocols;
+        }
+        ByteBuffer buf = ByteBuffer.wrap(value);
+        while (buf.hasRemaining()) {
+            int len = buf.get() & 0xFF;
+            byte[] segment = new byte[len];
+            buf.get(segment);
+            protocols.add(new String(segment, StandardCharsets.US_ASCII));
+        }
+        return protocols;
+    }
+
+    /**
+     * Returns the port advertised by SvcParamKey 3 ("port", RFC 9460
+     * section 7.3), overriding the connection port for this alt-endpoint.
+     *
+     * @return the advertised port, or -1 if not present
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public int getSVCBPort() {
+        byte[] value = getSVCBParams().get(SVCB_PARAM_PORT);
+        if (value == null || value.length < 2) {
+            return -1;
+        }
+        return ((value[0] & 0xFF) << 8) | (value[1] & 0xFF);
     }
 
     // -- RRSIG RDATA accessors (RFC 4034 section 3.1) --
@@ -1170,6 +1388,24 @@ public final class DNSResourceRecord {
                     sb.append(getSRVPort());
                     sb.append(" ");
                     sb.append(getSRVTarget());
+                    break;
+                case SVCB:
+                case HTTPS:
+                    sb.append(" ");
+                    sb.append(getSVCBPriority());
+                    sb.append(" ");
+                    sb.append(getSVCBTargetName());
+                    List<String> alpns = getSVCBAlpnProtocols();
+                    if (!alpns.isEmpty()) {
+                        sb.append(" alpn=\"");
+                        sb.append(String.join(",", alpns));
+                        sb.append("\"");
+                    }
+                    int svcbPort = getSVCBPort();
+                    if (svcbPort >= 0) {
+                        sb.append(" port=");
+                        sb.append(svcbPort);
+                    }
                     break;
                 case RRSIG:
                     DNSType covered = DNSType.fromValue(getRRSIGTypeCovered());

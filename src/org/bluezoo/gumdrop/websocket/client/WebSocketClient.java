@@ -35,11 +35,21 @@ import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.dns.DNSMessage;
+import org.bluezoo.gumdrop.dns.DNSQueryCallback;
+import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.client.AltSvcCache;
+import org.bluezoo.gumdrop.http.client.AltSvcListener;
 import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
@@ -96,7 +106,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * @see WebSocketEventHandler
  * @see org.bluezoo.gumdrop.websocket.WebSocketSession
  */
-public class WebSocketClient {
+public class WebSocketClient implements AltSvcListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketClient.class.getName());
@@ -117,12 +127,15 @@ public class WebSocketClient {
     private String subprotocol;
     private boolean deflateEnabled = true;
     private boolean h3Enabled;
+    private boolean h2Enabled = true;
+    private boolean dnsHttpsRecordEnabled = true;
     private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
 
-    // Internal transport components (created at connect time) -- TCP/H1.1 path
+    // Internal transport components (created at connect time) -- TCP/H1.1/H2 path
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private WebSocketClientProtocolHandler protocolHandler;
+    private WebSocketConnection h2WebSocketConnection;
 
     // Internal transport components (created at connect time) -- HTTP/3 path
     private HTTPClient httpClient;
@@ -281,16 +294,61 @@ public class WebSocketClient {
     }
 
     /**
-     * RFC 9220 — enables WebSocket-over-HTTP/3 (Extended CONNECT over
-     * QUIC) instead of the default RFC 6455 HTTP/1.1 upgrade handshake.
-     * The {@link WebSocketEventHandler}/{@link org.bluezoo.gumdrop.websocket.WebSocketSession}
-     * contract {@link #connect} hands the application is identical either
-     * way. Disabled by default.
+     * RFC 9220 — forces WebSocket-over-HTTP/3 (Extended CONNECT over
+     * QUIC), bypassing automatic transport negotiation.
      *
-     * @param enabled true to use HTTP/3
+     * <p>By default (this not called), {@link #connect} negotiates the
+     * transport automatically: a DNS HTTPS record advertising "h3" support
+     * (see {@link #setDnsHttpsRecordEnabled(boolean)}), then a cached
+     * Alt-Svc discovery ({@link AltSvcCache}), then the RFC 6455 HTTP/1.1
+     * upgrade handshake. Calling this with {@code true} skips all of that
+     * and uses Extended CONNECT directly, with no fallback. The
+     * {@link WebSocketEventHandler}/{@link org.bluezoo.gumdrop.websocket.WebSocketSession}
+     * contract {@link #connect} hands the application is identical either
+     * way.
+     *
+     * @param enabled true to force HTTP/3
      */
     public void setH3Enabled(boolean enabled) {
         this.h3Enabled = enabled;
+    }
+
+    /**
+     * RFC 8441 — enables or disables attempting WebSocket-over-HTTP/2
+     * (Extended CONNECT) when the underlying TCP+TLS connection negotiates
+     * "h2" via ALPN. Enabled by default.
+     *
+     * <p>Unlike {@link #setH3Enabled(boolean)}, this is not a forcing
+     * override: h2 rides the same TCP+TLS connection attempt as HTTP/1.1
+     * (there is no separate transport to discover in advance, unlike h3's
+     * QUIC/UDP), so this only controls whether "h2" is offered in the ALPN
+     * list at all. If the server doesn't support h2 (or this is disabled),
+     * the connection falls back to the RFC 6455 HTTP/1.1 upgrade handshake
+     * automatically. Has no effect when {@link #setH3Enabled(boolean)} is
+     * set, or for cleartext (non-secure) connections -- HTTP/2 over
+     * cleartext (h2c) is not supported for WebSocket in this pass.
+     *
+     * @param enabled true to allow WebSocket-over-HTTP/2
+     */
+    public void setH2Enabled(boolean enabled) {
+        this.h2Enabled = enabled;
+    }
+
+    /**
+     * Enables or disables DNS HTTPS-record discovery (RFC 9460) of HTTP/3
+     * support, checked before connecting.
+     *
+     * <p>When enabled (the default), {@link #connect} queries an HTTPS
+     * record for the target host via gumdrop's async {@link DNSResolver}
+     * before choosing a transport; if it advertises "h3" ALPN support, the
+     * connection uses Extended CONNECT over QUIC directly. This is the
+     * first tier of automatic negotiation, checked ahead of the
+     * {@link AltSvcCache}.
+     *
+     * @param enabled true to enable DNS HTTPS-record discovery
+     */
+    public void setDnsHttpsRecordEnabled(boolean enabled) {
+        this.dnsHttpsRecordEnabled = enabled;
     }
 
     /**
@@ -320,11 +378,107 @@ public class WebSocketClient {
             connectH3(path, handler);
             return;
         }
+        discoverAndConnect(path, handler);
+    }
 
+    /**
+     * Automatic transport negotiation, tier 1 (DNS HTTPS record) and tier 2
+     * (cached Alt-Svc discovery), falling through to {@link #connectTcp}
+     * (the RFC 6455 HTTP/1.1 upgrade handshake) when neither applies.
+     *
+     * <p>Skipped entirely -- straight to {@link #connectTcp} -- when there
+     * is no hostname to query: a literal {@link InetAddress} was given at
+     * construction, {@link #host} is itself a literal IP, or it's
+     * {@code localhost} (matching {@link DNSResolver#resolve}'s own
+     * loopback fast-path).
+     */
+    private void discoverAndConnect(final String path, final WebSocketEventHandler handler) {
+        if (hostAddress != null || host == null) {
+            connectTcp(path, handler);
+            return;
+        }
+        if (!dnsHttpsRecordEnabled || isUndiscoverableHost(host)) {
+            // Skip only the DNS round trip -- the AltSvcCache tier is a
+            // fast, in-memory lookup, worth checking even for localhost/
+            // literal-IP targets.
+            connectViaAltSvcCacheOrTcp(path, handler);
+            return;
+        }
+
+        SelectorLoop loop = selectorLoop;
+        if (loop == null) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            gumdrop.start();
+            loop = gumdrop.nextWorkerLoop();
+        }
+        if (loop == null) {
+            connectTcp(path, handler);
+            return;
+        }
+
+        DNSResolver resolver = DNSResolver.forLoop(loop);
+        resolver.queryHTTPS(host, new DNSQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response) {
+                for (DNSResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DNSType.HTTPS || rr.isSVCBAliasForm()) {
+                        continue;
+                    }
+                    if (rr.getSVCBAlpnProtocols().contains("h3")) {
+                        connectH3(path, handler);
+                        return;
+                    }
+                }
+                connectViaAltSvcCacheOrTcp(path, handler);
+            }
+
+            @Override
+            public void onError(String error) {
+                connectViaAltSvcCacheOrTcp(path, handler);
+            }
+        });
+    }
+
+    private void connectViaAltSvcCacheOrTcp(String path, WebSocketEventHandler handler) {
+        if (AltSvcCache.get(host, port) != null) {
+            connectH3(path, handler);
+            return;
+        }
+        connectTcp(path, handler);
+    }
+
+    /**
+     * Returns true if {@code hostname} isn't worth issuing a DNS HTTPS-record
+     * query for: a literal IPv4/IPv6 address, or loopback.
+     */
+    private static boolean isUndiscoverableHost(String hostname) {
+        if ("localhost".equalsIgnoreCase(hostname)
+                || "localhost.".equalsIgnoreCase(hostname)) {
+            return true;
+        }
+        return HostsFile.parseLiteralIPv4(hostname) != null
+                || HostsFile.parseLiteralIPv6(hostname) != null;
+    }
+
+    /**
+     * The TCP+TLS path, today's default behaviour before
+     * {@link #discoverAndConnect} existed. Negotiates HTTP/2 via ALPN when
+     * {@link #setH2Enabled(boolean)} allows it (the default) and the
+     * connection is secure, and uses RFC 8441 Extended CONNECT over it;
+     * otherwise falls back to the RFC 6455 HTTP/1.1 upgrade handshake.
+     * Both outcomes are decided from {@code onConnected}, once
+     * {@code negotiatedVersion} is known (reliably true there for both
+     * secure and cleartext connections, per
+     * {@code HTTPClientProtocolHandler.connected()}/{@code securityEstablished()}).
+     *
+     * @param path the request path (e.g. "/ws" or "/chat")
+     * @param handler the handler to receive WebSocket events
+     */
+    private void connectTcp(String path, final WebSocketEventHandler handler) {
         final String key = WebSocketHandshake.generateKey();
 
         // RFC 6455 §9 — build extension offer list
-        List<WebSocketExtension> allExtensions = buildExtensionOffers();
+        final List<WebSocketExtension> allExtensions = buildExtensionOffers();
         String extOffer = WebSocketHandshake.formatOffers(allExtensions);
 
         final Headers upgradeHeaders =
@@ -349,13 +503,25 @@ public class WebSocketClient {
         if (keystoreFormat != null) {
             transportFactory.setKeystoreFormat(keystoreFormat);
         }
+        // RFC 8441 rides the same TCP+TLS attempt as HTTP/1.1 -- offer h2
+        // via ALPN (mirroring HTTPClient.connectTcp's own offer) so the
+        // already-negotiated version is known by the time onConnected
+        // fires below, with no separate discovery tier needed the way h3
+        // needs one. h2c (cleartext) is out of scope for WebSocket.
+        if (secure && h2Enabled) {
+            transportFactory.setApplicationProtocols("h2", "http/1.1");
+        }
         transportFactory.start();
 
         HTTPClientHandler internalHandler = new HTTPClientHandler() {
 
             @Override
             public void onConnected(Endpoint endpoint) {
-                // Send the upgrade GET request
+                if (protocolHandler.getVersion() == HTTPVersion.HTTP_2_0) {
+                    connectExtendedConnect(path, allExtensions, handler);
+                    return;
+                }
+                // RFC 6455 §4.1 -- classic HTTP/1.1 upgrade handshake
                 HTTPRequest request = protocolHandler.get(path);
                 for (Header h : upgradeHeaders) {
                     request.header(h.getName(), h.getValue());
@@ -384,9 +550,16 @@ public class WebSocketClient {
         protocolHandler.setWebSocketKey(key);
         protocolHandler.setRequestedExtensions(allExtensions);
 
-        // Disable h2c upgrade: the 101 must be for WebSocket, not HTTP/2
-        protocolHandler.setH2Enabled(false);
+        protocolHandler.setH2Enabled(h2Enabled);
+        // h2c (cleartext HTTP/2 upgrade) is out of scope for WebSocket in
+        // this pass -- always disabled, regardless of h2Enabled (which
+        // only governs the TLS+ALPN path above).
         protocolHandler.setH2cUpgradeEnabled(false);
+
+        // Populate AltSvcCache for later connections to this origin (this
+        // session itself never reactively upgrades mid-connection -- see
+        // altSvcReceived).
+        protocolHandler.setAltSvcListener(this);
 
         try {
             if (host != null) {
@@ -425,6 +598,102 @@ public class WebSocketClient {
             allExtensions.add(0, new PerMessageDeflateExtension());
         }
         return allExtensions;
+    }
+
+    /**
+     * Populates {@link AltSvcCache} for later, separate {@code connect()}
+     * calls (from this class or {@link HTTPClient}) to the same origin.
+     *
+     * <p>Unlike {@link HTTPClient}, this does not attempt a same-instance
+     * reactive upgrade -- a WebSocket connection is one long-lived stream,
+     * not a reusable request/response client, so there is no "next
+     * request" on this instance to upgrade.
+     *
+     * @param value the raw Alt-Svc header value
+     */
+    @Override
+    public void altSvcReceived(String value) {
+        AltSvcListener.H3Entry parsed = AltSvcListener.parseAltSvcH3(value);
+        if (parsed == null) {
+            return;
+        }
+        String altHost = parsed.hostLength > 0
+                ? AltSvcListener.extractAltSvcHost(value, parsed.hostLength) : null;
+        AltSvcCache.put(cacheKeyHost(), port, altHost, parsed.port, parsed.maxAgeSeconds);
+    }
+
+    private String cacheKeyHost() {
+        return host != null ? host : hostAddress.getHostAddress();
+    }
+
+    /**
+     * RFC 8441 — sends the Extended CONNECT request that bootstraps
+     * WebSocket-over-HTTP/2 on the already-established (h2-negotiated)
+     * connection, via {@link H2WebSocketResponseHandler}.
+     *
+     * <p>Builds the request through the same generic {@link HTTPRequest}
+     * API any other h2 request uses -- {@code :protocol} is just another
+     * header from this layer's perspective (added before any regular
+     * header, so it's HPACK-encoded in the correct pseudo-header position);
+     * no dedicated stream-open method was needed in
+     * {@code HTTPClientProtocolHandler} for this.
+     */
+    private void connectExtendedConnect(String path,
+            List<WebSocketExtension> allExtensions, final WebSocketEventHandler handler) {
+        HTTPRequest request = protocolHandler.request("CONNECT", path);
+        request.header(":protocol", "websocket");
+        if (subprotocol != null && !subprotocol.isEmpty()) {
+            request.header("sec-websocket-protocol", subprotocol);
+        }
+        String extOffer = WebSocketHandshake.formatOffers(allExtensions);
+        if (extOffer != null && !extOffer.isEmpty()) {
+            request.header("sec-websocket-extensions", extOffer);
+        }
+        request.startRequestBody(new H2WebSocketResponseHandler(
+                request, allExtensions, new H2WebSocketEventHandlerBridge(handler)));
+    }
+
+    /**
+     * Forwards {@link WebSocketEventHandler} callbacks to the
+     * application's handler, capturing the {@link WebSocketConnection}
+     * once the upgrade completes -- the h2 counterpart of
+     * {@link H3WebSocketEventHandlerBridge}.
+     */
+    private class H2WebSocketEventHandlerBridge implements WebSocketEventHandler {
+
+        private final WebSocketEventHandler handler;
+
+        H2WebSocketEventHandlerBridge(WebSocketEventHandler handler) {
+            this.handler = handler;
+        }
+
+        @Override
+        public void opened(WebSocketSession session) {
+            if (session instanceof WebSocketConnection) {
+                h2WebSocketConnection = (WebSocketConnection) session;
+            }
+            handler.opened(session);
+        }
+
+        @Override
+        public void textMessageReceived(WebSocketSession session, String message) {
+            handler.textMessageReceived(session, message);
+        }
+
+        @Override
+        public void binaryMessageReceived(WebSocketSession session, ByteBuffer data) {
+            handler.binaryMessageReceived(session, data);
+        }
+
+        @Override
+        public void closed(int code, String reason) {
+            handler.closed(code, reason);
+        }
+
+        @Override
+        public void error(Throwable cause) {
+            handler.error(cause);
+        }
     }
 
     /**
@@ -559,6 +828,9 @@ public class WebSocketClient {
     private WebSocketConnection getConnection() {
         if (h3WebSocketConnection != null) {
             return h3WebSocketConnection;
+        }
+        if (h2WebSocketConnection != null) {
+            return h2WebSocketConnection;
         }
         if (protocolHandler != null) {
             return protocolHandler.getWebSocketConnection();

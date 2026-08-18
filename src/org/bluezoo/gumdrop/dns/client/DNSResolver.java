@@ -533,6 +533,19 @@ public class DNSResolver {
         query(name, DNSType.SRV, callback);
     }
 
+    /**
+     * Queries for HTTPS records.
+     * RFC 9460: HTTPS records advertise, among other things, which ALPN
+     * protocols (e.g. "h3", "h2") a host supports, allowing a client to
+     * pick a transport before ever opening a connection.
+     *
+     * @param name the domain name to query
+     * @param callback the callback to receive results
+     */
+    public void queryHTTPS(String name, DNSQueryCallback callback) {
+        query(name, DNSType.HTTPS, callback);
+    }
+
     // -- High-Level Resolution --
 
     /**

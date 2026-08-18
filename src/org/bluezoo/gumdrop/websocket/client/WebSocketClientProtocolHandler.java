@@ -32,6 +32,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.client.AltSvcListener;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
@@ -106,6 +107,20 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
      */
     void setRequestedExtensions(List<WebSocketExtension> extensions) {
         this.requestedExtensions = extensions != null ? extensions : Collections.emptyList();
+    }
+
+    /**
+     * Exposes the inherited Alt-Svc listener hook to {@link WebSocketClient},
+     * in the same package but not a subclass of
+     * {@link HTTPClientProtocolHandler}. An override cannot narrow the
+     * inherited method's access, so this stays {@code protected} -- callers
+     * in this package (like {@link WebSocketClient}) can still reach it.
+     *
+     * @param listener the listener, or null to disable
+     */
+    @Override
+    protected void setAltSvcListener(AltSvcListener listener) {
+        super.setAltSvcListener(listener);
     }
 
     /**

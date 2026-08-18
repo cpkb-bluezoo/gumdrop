@@ -138,6 +138,11 @@ public class HTTPClientProtocolHandler
     private int maxFrameSize = 16384;
     private int maxHeaderListSize = 8192;
     private boolean serverPushEnabled = true;
+    // RFC 8441 section 3: whether the server advertised support for the
+    // extended CONNECT method (WebSocket-over-HTTP/2). Tracked but not yet
+    // consulted before attempting an upgrade -- matches this project's
+    // existing posture for the equivalent HTTP/3 setting.
+    private boolean serverEnablesConnectProtocol;
 
     // RFC 9113 section 6.8: highest server-initiated (even) stream ID seen
     private int highestServerStreamId = 0;
@@ -252,7 +257,7 @@ public class HTTPClientProtocolHandler
      *
      * @param listener the listener, or null to disable
      */
-    void setAltSvcListener(AltSvcListener listener) {
+    protected void setAltSvcListener(AltSvcListener listener) {
         this.altSvcListener = listener;
     }
 
@@ -2128,6 +2133,9 @@ public class HTTPClientProtocolHandler
                         break;
                     case H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE:
                         maxHeaderListSize = value;
+                        break;
+                    case H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL:
+                        serverEnablesConnectProtocol = (value == 1);
                         break;
                 }
             }
