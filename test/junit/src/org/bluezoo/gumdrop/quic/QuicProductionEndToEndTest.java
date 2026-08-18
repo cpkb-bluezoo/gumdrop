@@ -61,6 +61,8 @@ import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -423,6 +425,7 @@ public class QuicProductionEndToEndTest {
             serverFactory.start();
 
             final CountDownLatch maliciousStreamDisconnected = new CountDownLatch(1);
+            final AtomicReference<Exception> maliciousStreamError = new AtomicReference<Exception>();
 
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,
@@ -444,11 +447,12 @@ public class QuicProductionEndToEndTest {
 
                                 @Override
                                 public void disconnected() {
-                                    maliciousStreamDisconnected.countDown();
                                 }
 
                                 @Override
                                 public void error(Exception cause) {
+                                    maliciousStreamError.set(cause);
+                                    maliciousStreamDisconnected.countDown();
                                 }
                             };
                         }
@@ -519,6 +523,16 @@ public class QuicProductionEndToEndTest {
 
             assertTrue("Server should close the connection on a flow-control violation within 5s",
                     maliciousStreamDisconnected.await(5, TimeUnit.SECONDS));
+            Exception cause = maliciousStreamError.get();
+            assertNotNull("An error close must deliver an exception, not the "
+                    + "argument-free disconnected() a clean close uses", cause);
+            assertTrue("The exception must carry the CONNECTION_CLOSE detail",
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertFalse("A flow-control violation is a transport-level error, not application-level",
+                    qcce.isApplicationError());
+            assertEquals("RFC 9000 section 20.1: FLOW_CONTROL_ERROR = 0x3",
+                    0x3L, qcce.getErrorCode());
         } finally {
             if (forgeChannel != null) {
                 forgeChannel.close();
@@ -532,6 +546,324 @@ public class QuicProductionEndToEndTest {
                 serverEngine.close();
             }
         }
+    }
+
+    /**
+     * RFC 9000 section 19.19: a peer's application-level (0x1d)
+     * CONNECTION_CLOSE must reach the stream's {@code error(Exception)}
+     * with a {@link QuicConnectionCloseException} carrying
+     * {@code applicationError=true} and the peer's code/reason -- not the
+     * argument-free {@code disconnected()} a clean close uses. Unlike
+     * {@link #testFlowControlViolationClosesConnection}, which exercises
+     * the *local* {@code closeWithError} trigger (a transport-level close
+     * this endpoint decides on itself), this exercises
+     * {@code connectionCloseFrameReceived} -- an application-level close
+     * genuinely initiated by the peer.
+     */
+    @Test
+    public void testPeerApplicationCloseDeliversException() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        DatagramChannel forgeChannel = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch serverStreamRegistered = new CountDownLatch(1);
+            final CountDownLatch serverStreamError = new CountDownLatch(1);
+            final AtomicReference<Exception> serverError = new AtomicReference<Exception>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    // Forging the CONNECTION_CLOSE too early
+                                    // (before the server has registered this
+                                    // stream) would have nothing for
+                                    // QuicConnection.close()'s dispatch loop
+                                    // to call error() on -- wait for this,
+                                    // not just the client-side connected().
+                                    serverStreamRegistered.countDown();
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    serverError.set(cause);
+                                    serverStreamError.countDown();
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            // A QUIC stream doesn't exist from the peer's
+                            // point of view until a frame referencing it
+                            // actually arrives -- send something so the
+                            // server's acceptStream()/connected() fires and
+                            // registers a stream for the forged
+                            // CONNECTION_CLOSE dispatch to reach.
+                            endpoint.send(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+            assertTrue("Server should have registered the stream within 5s",
+                    serverStreamRegistered.await(5, TimeUnit.SECONDS));
+
+            // As in testFlowControlViolationClosesConnection: forge a raw
+            // packet using the client's own negotiated key material and
+            // connection ID, the same way a non-conformant/malicious
+            // peer's own independent implementation could -- this time an
+            // application-level CONNECTION_CLOSE rather than a violating
+            // STREAM frame.
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> sendKeys =
+                    getPrivateField(clientConnection, "sendKeys", Map.class);
+            PacketProtectionKeys oneRttKeys = sendKeys.get(EncryptionLevel.ONE_RTT);
+            byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
+            long[] sendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
+            long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
+
+            long applicationErrorCode = 0x10c; // arbitrary ALPN-scoped code
+            String reason = "server going away";
+            byte[] forgedPacket = forgeConnectionClosePacket(oneRttKeys, serverConnectionId,
+                    packetNumber, applicationErrorCode, reason);
+
+            forgeChannel = DatagramChannel.open();
+            forgeChannel.send(ByteBuffer.wrap(forgedPacket), serverAddress);
+
+            assertTrue("Server should deliver error() on a peer application close within 5s",
+                    serverStreamError.await(5, TimeUnit.SECONDS));
+            Exception cause = serverError.get();
+            assertNotNull(cause);
+            assertTrue(cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("An application-level CONNECTION_CLOSE must report applicationError=true",
+                    qcce.isApplicationError());
+            assertEquals(applicationErrorCode, qcce.getErrorCode());
+            assertEquals(reason, qcce.getReason());
+        } finally {
+            if (forgeChannel != null) {
+                forgeChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * Send-side symmetry: {@code QuicConnection.closeWithApplicationError}
+     * must actually emit a 0x1d (application-level) CONNECTION_CLOSE, not
+     * the 0x1c (transport-level) frame {@code sendConnectionClose} used to
+     * hardcode unconditionally. Proven by having the *server* call it and
+     * asserting the *client* -- a real, independent peer that decodes the
+     * wire bytes itself -- observes {@code applicationError=true} with the
+     * right code/reason, rather than inspecting captured bytes directly.
+     */
+    @Test
+    public void testCloseWithApplicationErrorDeliversToPeer() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch serverStreamRegistered = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    serverStreamRegistered.countDown();
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientStreamError = new CountDownLatch(1);
+            final AtomicReference<Exception> clientError = new AtomicReference<Exception>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            endpoint.send(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                            clientError.set(cause);
+                            clientStreamError.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have registered the stream within 5s",
+                    serverStreamRegistered.await(5, TimeUnit.SECONDS));
+
+            @SuppressWarnings("unchecked")
+            Map<String, QuicConnection> serverConnections =
+                    getPrivateField(serverEngine, "connections", Map.class);
+            QuicConnection serverConnection = serverConnections.values().iterator().next();
+
+            long applicationErrorCode = 0x42;
+            String reason = "graceful application shutdown";
+            serverConnection.closeWithApplicationError(applicationErrorCode, reason);
+
+            assertTrue("Client should deliver error() from the server's application close within 5s",
+                    clientStreamError.await(5, TimeUnit.SECONDS));
+            Exception cause = clientError.get();
+            assertNotNull(cause);
+            assertTrue(cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("closeWithApplicationError must be delivered to the peer as "
+                    + "an application-level (0x1d) close, not transport-level (0x1c)",
+                    qcce.isApplicationError());
+            assertEquals(applicationErrorCode, qcce.getErrorCode());
+            assertEquals(reason, qcce.getReason());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * Builds a single real 1-RTT application-level (0x1d) CONNECTION_CLOSE
+     * packet, mirroring {@link #forgeStreamPacket}'s construction sequence.
+     */
+    private static byte[] forgeConnectionClosePacket(PacketProtectionKeys keys, byte[] destinationConnectionId,
+            long packetNumber, long errorCode, String reason) throws Exception {
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+        byte[] header = ShortHeaderCodec.build(destinationConnectionId, false, packetNumber, pnLength);
+
+        int frameBytes = QuicFrameWriter.connectionCloseLength(true, errorCode, reason);
+        ByteBuffer payload = ByteBuffer.allocate(frameBytes);
+        QuicFrameWriter.writeConnectionClose(payload, true, errorCode, 0, reason);
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        byte[] ciphertext = PacketProtection.seal(keys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = ShortHeaderCodec.packetNumberOffset(destinationConnectionId.length);
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, sample.length);
+        byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
+        PacketProtection.xorFirstByte(packet, mask, false);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        return packet;
     }
 
     /**

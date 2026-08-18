@@ -94,7 +94,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         quicConnection.setUnidirectionalStreamAcceptHandler(new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(Endpoint stream) {
-                return new H3ControlStream(HTTP3ClientHandler.this);
+                return new H3ControlStream(quicConnection, HTTP3ClientHandler.this);
             }
         });
         openControlStream();

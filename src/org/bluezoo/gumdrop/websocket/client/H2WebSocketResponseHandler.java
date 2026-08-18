@@ -135,7 +135,7 @@ class H2WebSocketResponseHandler extends DefaultHTTPResponseHandler {
     @Override
     public void endResponseBody() {
         if (webSocketAdapter != null) {
-            webSocketAdapter.notifyTransportClosed();
+            webSocketAdapter.notifyTransportClosed(1001, "Transport closed");
         }
     }
 
@@ -197,13 +197,9 @@ class H2WebSocketResponseHandler extends DefaultHTTPResponseHandler {
             error(cause);
         }
 
-        void notifyTransportClosed() {
+        void notifyTransportClosed(int code, String reason) {
             if (isOpen()) {
-                try {
-                    close(1001, "Transport closed");
-                } catch (IOException ignored) {
-                    // best effort
-                }
+                abnormalClose(code, reason);
             }
         }
     }

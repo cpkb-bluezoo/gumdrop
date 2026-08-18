@@ -23,9 +23,12 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
+import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 
 import org.junit.Test;
 import static org.junit.Assert.*;
@@ -126,7 +129,46 @@ public class H3StreamTest {
         assertEquals("/", getField(stream, "requestTarget"));
     }
 
+    /**
+     * A QUIC-level error close (e.g. the peer's CONNECTION_CLOSE, or a
+     * local transport error) on a plain (non-WebSocket) request must
+     * reach the application's {@link
+     * org.bluezoo.gumdrop.http.HTTPRequestHandler#failed} rather than
+     * being silently dropped.
+     */
+    @Test
+    public void testErrorForwardsToHandlerFailedForPlainRequest() throws Exception {
+        H3Stream stream = createStream();
+        StubRequestHandler handler = new StubRequestHandler();
+        setField(stream, "handler", handler);
+
+        QuicConnectionCloseException cause =
+                new QuicConnectionCloseException(false, 0x3L, "flow control violation");
+        stream.error(cause);
+
+        assertSame("the exact exception instance must reach failed()", cause, handler.failedCause);
+        assertSame("the state passed to failed() should be this stream", stream, handler.failedState);
+        assertEquals("CLOSED", getState(stream));
+    }
+
     // ── Helpers ──
+
+    private void setField(H3Stream stream, String name, Object value) throws Exception {
+        Field f = H3Stream.class.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(stream, value);
+    }
+
+    private static class StubRequestHandler extends DefaultHTTPRequestHandler {
+        HTTPResponseState failedState;
+        Exception failedCause;
+
+        @Override
+        public void failed(HTTPResponseState state, Exception cause) {
+            failedState = state;
+            failedCause = cause;
+        }
+    }
 
     private H3Stream createStream() throws Exception {
         Constructor<H3Stream> ctor = H3Stream.class.getDeclaredConstructor(

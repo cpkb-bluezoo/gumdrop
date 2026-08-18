@@ -37,7 +37,11 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
@@ -47,6 +51,7 @@ import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.quic.QuicConnection;
+import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 
@@ -274,6 +279,119 @@ public class HTTP3ProductionEndToEndTest {
         } finally {
             // Stop the loop thread first so closing the engines from this
             // (test) thread doesn't race its own concurrent I/O processing.
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9114 section 8.1: a fatal framing violation on the peer's
+     * control stream must close the whole QUIC connection with an
+     * application-level error, not just log a warning and otherwise do
+     * nothing (the previous behaviour of {@link H3ControlStream#frameError}).
+     *
+     * <p>Deliberately bypasses {@link HTTP3ClientHandler} on the client
+     * side -- it opens a raw unidirectional stream, writes the RFC 9114
+     * section 6.2.1 control-stream type byte (0x00) followed immediately
+     * by a HEADERS frame (section 7.2.2), which section 7.2.4 forbids on
+     * the control stream. The server's real {@link H3ControlStream}
+     * (registered by the real {@link HTTP3ServerHandler}) is the one
+     * that detects this and must react.
+     */
+    @Test
+    public void testMalformedControlStreamFrameClosesConnection() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new DefaultHTTPRequestHandler();
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch errorLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> clientStreamError = new AtomicReference<Exception>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            Endpoint stream = connection.openUnidirectionalStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    clientStreamError.set(cause);
+                                    errorLatch.countDown();
+                                }
+                            });
+
+                            byte[] emptyFieldSection = new byte[0];
+                            int length = H3Writer.streamTypeLength(0x00) + H3Writer.headersLength(emptyFieldSection.length);
+                            ByteBuffer out = ByteBuffer.allocate(length);
+                            H3Writer.writeStreamType(out, 0x00);
+                            H3Writer.writeHeaders(out, emptyFieldSection);
+                            out.flip();
+                            stream.send(out);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should observe the connection close within 5s",
+                    errorLatch.await(5, TimeUnit.SECONDS));
+
+            Exception cause = clientStreamError.get();
+            assertTrue("Cause should be a QuicConnectionCloseException, was: " + cause,
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("Should be an application-level close", qcce.isApplicationError());
+            assertEquals("RFC 9114 section 8.1 H3_FRAME_UNEXPECTED", 0x105L, qcce.getErrorCode());
+        } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {

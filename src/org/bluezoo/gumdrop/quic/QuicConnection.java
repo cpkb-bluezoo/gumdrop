@@ -303,6 +303,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private boolean closed;
     private String deferredCloseReason;
     private long deferredCloseErrorCode;
+    // RFC 9000 section 19.19: false for a transport-level (0x1c) close,
+    // true for an application-level (0x1d) close.
+    private boolean deferredCloseApplicationError;
+    // Distinguishes a clean, app-initiated close() (e.g. QuicEngine.close())
+    // from one triggered by a peer's CONNECTION_CLOSE or a local transport
+    // error -- decides whether streams' ProtocolHandler.disconnected() or
+    // .error(Exception) is called on teardown.
+    private boolean deferredCloseIsError;
 
     /**
      * Creates a QUIC connection.
@@ -1031,7 +1039,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void connectionCloseFrameReceived(boolean applicationError, long errorCode,
                 long frameType, String reason) {
+            deferredCloseApplicationError = applicationError;
+            deferredCloseErrorCode = errorCode;
             deferredCloseReason = reason;
+            deferredCloseIsError = true;
             close();
         }
 
@@ -1805,6 +1816,23 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private void closeWithError(long errorCode, String reason) {
         deferredCloseErrorCode = errorCode;
         deferredCloseReason = reason;
+        deferredCloseIsError = true;
+        close();
+    }
+
+    /**
+     * Closes the connection with an application-level error code (RFC
+     * 9000 section 19.19, the 0x1d CONNECTION_CLOSE variant), e.g. an
+     * ALPN-scoped protocol violation the application layer detected.
+     *
+     * @param errorCode the application-defined error code
+     * @param reason a human-readable reason phrase
+     */
+    public void closeWithApplicationError(long errorCode, String reason) {
+        deferredCloseApplicationError = true;
+        deferredCloseErrorCode = errorCode;
+        deferredCloseReason = reason;
+        deferredCloseIsError = true;
         close();
     }
 
@@ -1835,7 +1863,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         for (QuicStreamEndpoint stream : streams.values()) {
             stream.markClosed();
-            stream.getHandler().disconnected();
+            if (deferredCloseIsError) {
+                stream.getHandler().error(new QuicConnectionCloseException(
+                        deferredCloseApplicationError, deferredCloseErrorCode, deferredCloseReason));
+            } else {
+                stream.getHandler().disconnected();
+            }
         }
         streams.clear();
     }
@@ -1843,7 +1876,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private void sendConnectionClose(EncryptionLevel level, PacketProtectionKeys keys) throws PacketProtectionException {
         String reason = deferredCloseReason != null ? deferredCloseReason : "";
         long errorCode = deferredCloseErrorCode;
-        int frameBytes = QuicFrameWriter.connectionCloseLength(false, errorCode, reason);
+        boolean applicationError = deferredCloseApplicationError;
+        int frameBytes = QuicFrameWriter.connectionCloseLength(applicationError, errorCode, reason);
         boolean longHeader = level != EncryptionLevel.ONE_RTT;
         long packetNumber = sendPacketNumber[level.ordinal()]++;
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
@@ -1855,7 +1889,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 : ShortHeaderCodec.build(peerConnectionId, false, packetNumber, pnLength);
 
         ByteBuffer payload = ByteBuffer.allocate(frameBytes);
-        QuicFrameWriter.writeConnectionClose(payload, false, errorCode, 0, reason);
+        QuicFrameWriter.writeConnectionClose(payload, applicationError, errorCode, 0, reason);
         payload.flip();
         byte[] plaintext = new byte[payload.remaining()];
         payload.get(plaintext);

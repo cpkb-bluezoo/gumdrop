@@ -28,6 +28,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
 /**
@@ -58,6 +59,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     /** RFC 9114 section 6.2.1. */
     private static final long STREAM_TYPE_CONTROL = 0x00;
 
+    /** RFC 9114 section 8.1: a frame was received that was not permitted in the current state. */
+    private static final long H3_FRAME_UNEXPECTED = 0x105;
+
     /**
      * Notified of the meaningful events on the peer's control stream.
      */
@@ -81,6 +85,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         void goawayReceived(long streamOrPushId);
     }
 
+    private final QuicConnection quicConnection;
     private final Listener listener;
 
     private int typeBytesNeeded = -1;
@@ -89,7 +94,8 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     private boolean isControlStream;
     private H3Parser parser;
 
-    H3ControlStream(Listener listener) {
+    H3ControlStream(QuicConnection quicConnection, Listener listener) {
+        this.quicConnection = quicConnection;
         this.listener = listener;
     }
 
@@ -196,5 +202,13 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     @Override
     public void frameError(String message) {
         LOGGER.warning("HTTP/3 control stream error: " + message);
+        // RFC 9114 section 8.1: a fatal framing violation on the control
+        // stream is a connection error, not just a stream error -- unlike
+        // H3Stream#frameError, which can cancel just the one offending
+        // request stream, a malformed frame here can desynchronize the
+        // whole connection's control-stream state (e.g. a SETTINGS frame
+        // sent somewhere other than first), so the entire connection is
+        // closed rather than merely discarding this stream.
+        quicConnection.closeWithApplicationError(H3_FRAME_UNEXPECTED, message);
     }
 }

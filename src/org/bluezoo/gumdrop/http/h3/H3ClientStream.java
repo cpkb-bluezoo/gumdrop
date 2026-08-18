@@ -37,6 +37,7 @@ import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -167,7 +168,17 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     public void error(Exception cause) {
         state = State.CLOSED;
         if (webSocketAdapter != null) {
-            webSocketAdapter.notifyError(cause);
+            if (cause instanceof QuicConnectionCloseException) {
+                // RFC 6455 section 7.4: 1006 is reserved for "the connection
+                // was closed abnormally, e.g. without a Close frame being
+                // sent" -- exactly this case (the underlying QUIC connection
+                // is already gone, no closing handshake is possible). The
+                // real QUIC/H3 error code and reason go into the reason
+                // string, since 1006 itself carries no code slot.
+                webSocketAdapter.notifyTransportClosed(1006, cause.getMessage());
+            } else {
+                webSocketAdapter.notifyError(cause);
+            }
         } else {
             responseHandler.failed(cause);
         }
@@ -331,7 +342,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             } catch (IOException ignored) {
                 // FIN with empty data
             }
-            webSocketAdapter.notifyTransportClosed();
+            webSocketAdapter.notifyTransportClosed(1001, "Transport closed");
             state = State.CLOSED;
             return;
         }
@@ -449,13 +460,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             error(cause);
         }
 
-        void notifyTransportClosed() {
+        void notifyTransportClosed(int code, String reason) {
             if (isOpen()) {
-                try {
-                    close(1001, "Transport closed");
-                } catch (IOException ignored) {
-                    // best effort
-                }
+                abnormalClose(code, reason);
             }
         }
     }

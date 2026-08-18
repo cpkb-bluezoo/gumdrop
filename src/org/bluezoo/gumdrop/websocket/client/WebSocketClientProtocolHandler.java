@@ -212,7 +212,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
     @Override
     public void disconnected() {
         if (webSocketMode && webSocketConnection != null) {
-            webSocketConnection.notifyTransportClosed();
+            webSocketConnection.notifyTransportClosed(1001, "Transport closed");
             return;
         }
         super.disconnected();
@@ -301,13 +301,9 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
          * Notifies the connection that the transport has been closed
          * without a close frame exchange (abnormal close).
          */
-        void notifyTransportClosed() {
+        void notifyTransportClosed(int code, String reason) {
             if (isOpen()) {
-                try {
-                    close(CloseCodes.GOING_AWAY, "Transport closed");
-                } catch (IOException e) {
-                    // Transport is already closed, just update state
-                }
+                abnormalClose(code, reason);
             }
         }
     }

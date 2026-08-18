@@ -167,6 +167,31 @@ public class H3ClientStreamTest {
         assertTrue(handler.failedException.getMessage().contains("retryable"));
     }
 
+    /**
+     * A QUIC-level error close (e.g. the peer's CONNECTION_CLOSE, or a
+     * local transport error) must reach failed() with the exception
+     * that carries the applicationError/errorCode/reason detail, not a
+     * generic argument-free signal.
+     */
+    @Test
+    public void testConnectionCloseErrorReachesFailed() throws Exception {
+        StubResponseHandler handler = new StubResponseHandler();
+        H3ClientStream stream = createStream(handler);
+
+        org.bluezoo.gumdrop.quic.QuicConnectionCloseException cause =
+                new org.bluezoo.gumdrop.quic.QuicConnectionCloseException(
+                        true, 0x10c, "server going away");
+        stream.error(cause);
+
+        assertSame("the exact exception instance must reach failed()",
+                cause, handler.failedException);
+        org.bluezoo.gumdrop.quic.QuicConnectionCloseException delivered =
+                (org.bluezoo.gumdrop.quic.QuicConnectionCloseException) handler.failedException;
+        assertTrue(delivered.isApplicationError());
+        assertEquals(0x10c, delivered.getErrorCode());
+        assertEquals("server going away", delivered.getReason());
+    }
+
     // ── Helpers ──
 
     private H3ClientStream createStream(HTTPResponseHandler handler) {

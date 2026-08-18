@@ -80,5 +80,10 @@ public class DefaultHTTPRequestHandler implements HTTPRequestHandler {
         // Default: do nothing
     }
 
+    @Override
+    public void failed(HTTPResponseState state, Exception cause) {
+        // Default: do nothing
+    }
+
 }
 
