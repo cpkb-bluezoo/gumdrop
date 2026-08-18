@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.websocket.client;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -209,24 +208,8 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
      * response and activates matching extensions from our offer list.
      */
     private List<WebSocketExtension> negotiateResponseExtensions(Headers headers) {
-        String extHeader = headers.getValue("Sec-WebSocket-Extensions");
-        if (extHeader == null || extHeader.trim().isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<WebSocketHandshake.ExtensionOffer> accepted =
-                WebSocketHandshake.parseExtensions(extHeader);
-        List<WebSocketExtension> active = new ArrayList<>();
-        for (WebSocketHandshake.ExtensionOffer offer : accepted) {
-            for (WebSocketExtension ext : requestedExtensions) {
-                if (ext.getName().equals(offer.getName())) {
-                    if (ext.acceptResponse(offer.getParams())) {
-                        active.add(ext);
-                    }
-                    break;
-                }
-            }
-        }
-        return active;
+        return WebSocketHandshake.reconcileExtensions(
+                headers.getValue("Sec-WebSocket-Extensions"), requestedExtensions);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

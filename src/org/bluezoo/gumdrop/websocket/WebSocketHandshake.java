@@ -364,6 +364,39 @@ public class WebSocketHandshake {
     }
 
     /**
+     * RFC 6455 §9.1 — client-side extension reconciliation. Parses a
+     * server response's {@code Sec-WebSocket-Extensions} header and
+     * matches each accepted offer, by name, against the extensions this
+     * client requested, letting each matched extension confirm the
+     * server's response parameters via
+     * {@link WebSocketExtension#acceptResponse(Map)}.
+     *
+     * @param headerValue the response's {@code Sec-WebSocket-Extensions}
+     *                     header value (may be null)
+     * @param requested the extensions this client offered
+     * @return the extensions actually active on this connection
+     */
+    public static List<WebSocketExtension> reconcileExtensions(
+            String headerValue, List<WebSocketExtension> requested) {
+        List<WebSocketExtension> active = new ArrayList<>();
+        if (headerValue == null || headerValue.trim().isEmpty() || requested == null) {
+            return active;
+        }
+        List<ExtensionOffer> accepted = parseExtensions(headerValue);
+        for (ExtensionOffer offer : accepted) {
+            for (WebSocketExtension ext : requested) {
+                if (ext.getName().equals(offer.getName())) {
+                    if (ext.acceptResponse(offer.getParams())) {
+                        active.add(ext);
+                    }
+                    break;
+                }
+            }
+        }
+        return active;
+    }
+
+    /**
      * RFC 6455 §9.1 — server-side extension negotiation. Evaluates
      * each client offer against the list of supported extensions and
      * returns those that were accepted.

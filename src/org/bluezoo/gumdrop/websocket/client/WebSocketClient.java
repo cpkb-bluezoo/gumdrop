@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.websocket.client;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,14 +41,17 @@ import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 /**
  * High-level WebSocket client facade.
@@ -104,6 +108,7 @@ public class WebSocketClient {
 
     // Configuration (set before connect)
     private boolean secure;
+    private boolean verifyPeer = true;
     private SSLContext sslContext;
     private X509TrustManager trustManager;
     private Path keystoreFile;
@@ -111,12 +116,17 @@ public class WebSocketClient {
     private String keystoreFormat;
     private String subprotocol;
     private boolean deflateEnabled = true;
+    private boolean h3Enabled;
     private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
 
-    // Internal transport components (created at connect time)
+    // Internal transport components (created at connect time) -- TCP/H1.1 path
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private WebSocketClientProtocolHandler protocolHandler;
+
+    // Internal transport components (created at connect time) -- HTTP/3 path
+    private HTTPClient httpClient;
+    private WebSocketConnection h3WebSocketConnection;
 
     /**
      * Creates a WebSocket client for the given host and port.
@@ -197,6 +207,18 @@ public class WebSocketClient {
     }
 
     /**
+     * Sets whether the server's TLS certificate is verified. Verified by
+     * default; disabling this accepts any certificate (e.g. for a
+     * self-signed test server) unless a specific {@link #setTrustManager}
+     * is also set, which always takes precedence.
+     *
+     * @param verify false to accept any certificate
+     */
+    public void setVerifyPeer(boolean verify) {
+        this.verifyPeer = verify;
+    }
+
+    /**
      * Sets a custom trust manager for TLS certificate verification.
      *
      * @param trustManager the trust manager, or null to use defaults
@@ -259,6 +281,19 @@ public class WebSocketClient {
     }
 
     /**
+     * RFC 9220 — enables WebSocket-over-HTTP/3 (Extended CONNECT over
+     * QUIC) instead of the default RFC 6455 HTTP/1.1 upgrade handshake.
+     * The {@link WebSocketEventHandler}/{@link org.bluezoo.gumdrop.websocket.WebSocketSession}
+     * contract {@link #connect} hands the application is identical either
+     * way. Disabled by default.
+     *
+     * @param enabled true to use HTTP/3
+     */
+    public void setH3Enabled(boolean enabled) {
+        this.h3Enabled = enabled;
+    }
+
+    /**
      * RFC 6455 §9 — adds a custom extension to request during the handshake.
      *
      * @param extension the extension to request
@@ -281,13 +316,15 @@ public class WebSocketClient {
      * @param handler the handler to receive WebSocket events
      */
     public void connect(String path, final WebSocketEventHandler handler) {
+        if (h3Enabled) {
+            connectH3(path, handler);
+            return;
+        }
+
         final String key = WebSocketHandshake.generateKey();
 
         // RFC 6455 §9 — build extension offer list
-        List<WebSocketExtension> allExtensions = new ArrayList<>(requestedExtensions);
-        if (deflateEnabled) {
-            allExtensions.add(0, new PerMessageDeflateExtension());
-        }
+        List<WebSocketExtension> allExtensions = buildExtensionOffers();
         String extOffer = WebSocketHandshake.formatOffers(allExtensions);
 
         final Headers upgradeHeaders =
@@ -300,6 +337,8 @@ public class WebSocketClient {
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);
+        } else if (!verifyPeer) {
+            transportFactory.setTrustManager(new EmptyX509TrustManager());
         }
         if (keystoreFile != null) {
             transportFactory.setKeystoreFile(keystoreFile);
@@ -376,6 +415,108 @@ public class WebSocketClient {
     }
 
     /**
+     * RFC 6455 §9 — builds the extension offer list from the requested
+     * extensions plus permessage-deflate, if enabled. Shared by both the
+     * HTTP/1.1 and HTTP/3 connect paths.
+     */
+    private List<WebSocketExtension> buildExtensionOffers() {
+        List<WebSocketExtension> allExtensions = new ArrayList<>(requestedExtensions);
+        if (deflateEnabled) {
+            allExtensions.add(0, new PerMessageDeflateExtension());
+        }
+        return allExtensions;
+    }
+
+    /**
+     * RFC 9220 — connects and initiates the WebSocket handshake over
+     * HTTP/3 Extended CONNECT, via an internally-managed {@link HTTPClient}.
+     */
+    private void connectH3(String path, final WebSocketEventHandler handler) {
+        final List<WebSocketExtension> allExtensions = buildExtensionOffers();
+
+        if (host != null) {
+            httpClient = (selectorLoop != null)
+                    ? new HTTPClient(selectorLoop, host, port) : new HTTPClient(host, port);
+        } else {
+            httpClient = (selectorLoop != null)
+                    ? new HTTPClient(selectorLoop, hostAddress, port) : new HTTPClient(hostAddress, port);
+        }
+        httpClient.setH3Enabled(true);
+        // Note: HTTPClient's QUIC/H3 path (unlike its TCP/H1.1 path)
+        // doesn't consult a custom X509TrustManager at all today, only
+        // verifyPeer -- trustManager/keystoreFile are therefore not
+        // wired through here; a follow-up alongside HTTPClient's own gap.
+        httpClient.setVerifyPeer(verifyPeer);
+
+        httpClient.connect(new HTTPClientHandler() {
+            @Override
+            public void onConnected(Endpoint endpoint) {
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) {
+                httpClient.connectWebSocket(path, subprotocol, allExtensions,
+                        new H3WebSocketEventHandlerBridge(handler));
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                handler.error(cause);
+            }
+
+            @Override
+            public void onDisconnected() {
+            }
+        });
+    }
+
+    /**
+     * Forwards {@link WebSocketEventHandler} callbacks to the
+     * application's handler, capturing the {@link WebSocketConnection}
+     * (the same object also implements {@code WebSocketSession}, exactly
+     * like the server-side adapter) once the upgrade completes, so
+     * {@link #isOpen}/{@link #close}/{@link #getConnection} work the same
+     * way for the HTTP/3 path as they already do for HTTP/1.1's
+     * {@code WebSocketClientProtocolHandler#getWebSocketConnection}.
+     */
+    private class H3WebSocketEventHandlerBridge implements WebSocketEventHandler {
+
+        private final WebSocketEventHandler handler;
+
+        H3WebSocketEventHandlerBridge(WebSocketEventHandler handler) {
+            this.handler = handler;
+        }
+
+        @Override
+        public void opened(WebSocketSession session) {
+            if (session instanceof WebSocketConnection) {
+                h3WebSocketConnection = (WebSocketConnection) session;
+            }
+            handler.opened(session);
+        }
+
+        @Override
+        public void textMessageReceived(WebSocketSession session, String message) {
+            handler.textMessageReceived(session, message);
+        }
+
+        @Override
+        public void binaryMessageReceived(WebSocketSession session, ByteBuffer data) {
+            handler.binaryMessageReceived(session, data);
+        }
+
+        @Override
+        public void closed(int code, String reason) {
+            handler.closed(code, reason);
+        }
+
+        @Override
+        public void error(Throwable cause) {
+            handler.error(cause);
+        }
+    }
+
+    /**
      * Returns whether the WebSocket connection is open.
      *
      * @return true if connected and in WebSocket mode
@@ -416,6 +557,9 @@ public class WebSocketClient {
      * @return the WebSocket connection
      */
     private WebSocketConnection getConnection() {
+        if (h3WebSocketConnection != null) {
+            return h3WebSocketConnection;
+        }
         if (protocolHandler != null) {
             return protocolHandler.getWebSocketConnection();
         }

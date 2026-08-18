@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http.h3;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
+import java.security.Principal;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -36,6 +37,11 @@ import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketConnection;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 /**
  * A single HTTP/3 client request/response exchange on a QUIC stream.
@@ -44,7 +50,13 @@ import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
  * instance is itself the QUIC stream's {@link ProtocolHandler}, owning
  * its own {@link H3Parser} fed directly from {@link #receive}, and
  * translates HTTP/3 response frames into {@link HTTPResponseHandler}
- * callbacks per RFC 9114 section 4.1 (HTTP message exchanges).
+ * callbacks per RFC 9114 section 4.1 (HTTP message exchanges) -- or, for a
+ * WebSocket-over-H3 Extended CONNECT (RFC 9220 section 3, see
+ * {@link #forWebSocket}), into {@link WebSocketEventHandler} callbacks
+ * once the {@code 200} response arrives, mirroring {@link H3Stream}'s own
+ * {@code H3WebSocketConnectionAdapter}/{@code H3WebSocketTransport} pair
+ * on the server side. Exactly one of {@code responseHandler}/{@code wsHandler}
+ * is non-null for a given instance.
  *
  * <p>Response pseudo-headers (RFC 9114 section 4.3.2) are parsed from
  * the initial HEADERS frame, decoded via {@link SimpleDecoder} (the
@@ -58,6 +70,8 @@ import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     private static final Logger LOGGER = Logger.getLogger(H3ClientStream.class.getName());
+
+    private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
 
     /**
      * Stream lifecycle states.
@@ -76,15 +90,45 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     private final H3Parser parser = new H3Parser(this);
     private final SimpleDecoder qpackDecoder;
     private final HTTPResponseHandler responseHandler;
+    private final WebSocketEventHandler wsHandler;
+    private final List<WebSocketExtension> requestedExtensions;
     private Endpoint endpoint;
 
     private State state;
     private boolean bodyStarted;
+    private H3ClientWebSocketConnectionAdapter webSocketAdapter;
 
     H3ClientStream(SimpleDecoder qpackDecoder, HTTPResponseHandler responseHandler) {
         this.qpackDecoder = qpackDecoder;
         this.responseHandler = responseHandler;
+        this.wsHandler = null;
+        this.requestedExtensions = null;
         this.state = State.OPEN;
+    }
+
+    private H3ClientStream(SimpleDecoder qpackDecoder, WebSocketEventHandler wsHandler,
+            List<WebSocketExtension> requestedExtensions) {
+        this.qpackDecoder = qpackDecoder;
+        this.responseHandler = null;
+        this.wsHandler = wsHandler;
+        this.requestedExtensions = requestedExtensions;
+        this.state = State.OPEN;
+    }
+
+    /**
+     * Creates a stream for a WebSocket-over-H3 Extended CONNECT (RFC 9220
+     * section 3), used by {@link HTTP3ClientHandler#connectWebSocket}.
+     *
+     * @param qpackDecoder the QPACK decoder for the response HEADERS frame
+     * @param wsHandler the handler to receive WebSocket events once the
+     *                  upgrade completes
+     * @param requestedExtensions the extensions offered in the request, to
+     *                            reconcile against the server's response
+     * @return the new stream
+     */
+    static H3ClientStream forWebSocket(SimpleDecoder qpackDecoder, WebSocketEventHandler wsHandler,
+            List<WebSocketExtension> requestedExtensions) {
+        return new H3ClientStream(qpackDecoder, wsHandler, requestedExtensions);
     }
 
     // ── ProtocolHandler ──
@@ -122,7 +166,11 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     @Override
     public void error(Exception cause) {
         state = State.CLOSED;
-        responseHandler.failed(cause);
+        if (webSocketAdapter != null) {
+            webSocketAdapter.notifyError(cause);
+        } else {
+            responseHandler.failed(cause);
+        }
     }
 
     // ── H3FrameHandler ──
@@ -135,7 +183,12 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         } catch (ProtocolException e) {
             LOGGER.log(Level.WARNING, "QPACK decode failed", e);
             state = State.CLOSED;
-            responseHandler.failed(new IOException("Malformed HTTP/3 response headers", e));
+            IOException ex = new IOException("Malformed HTTP/3 response headers", e);
+            if (wsHandler != null) {
+                wsHandler.error(ex);
+            } else {
+                responseHandler.failed(ex);
+            }
             return;
         }
         onHeaders(fields);
@@ -149,19 +202,38 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             // absence means the response is malformed
             if (statusCode < 0) {
                 state = State.CLOSED;
-                responseHandler.failed(new IOException(
-                        "Malformed HTTP/3 response: missing :status"));
+                IOException ex = new IOException("Malformed HTTP/3 response: missing :status");
+                if (wsHandler != null) {
+                    wsHandler.error(ex);
+                } else {
+                    responseHandler.failed(ex);
+                }
                 return;
             }
 
             // RFC 9114 section 4.1 / RFC 9110 section 15.2:
             // informational 1xx responses are interim — consume
-            // headers and return to OPEN to await the final response
+            // headers and return to OPEN to await the final response.
+            // RFC 9220 doesn't define an interim response for Extended
+            // CONNECT, so these are simply ignored in WebSocket mode.
             if (statusCode >= 100 && statusCode < 200) {
-                for (Header field : fields) {
-                    if (!field.getName().startsWith(":")) {
-                        responseHandler.header(field.getName(), field.getValue());
+                if (wsHandler == null) {
+                    for (Header field : fields) {
+                        if (!field.getName().startsWith(":")) {
+                            responseHandler.header(field.getName(), field.getValue());
+                        }
                     }
+                }
+                return;
+            }
+
+            if (wsHandler != null) {
+                state = State.HEADERS_RECEIVED;
+                if (statusCode == 200) {
+                    completeWebSocketUpgrade(fields);
+                } else {
+                    state = State.CLOSED;
+                    wsHandler.error(new IOException("WebSocket upgrade failed: status " + statusCode));
                 }
                 return;
             }
@@ -176,11 +248,41 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
         }
 
-        for (Header field : fields) {
-            if (!field.getName().startsWith(":")) {
-                responseHandler.header(field.getName(), field.getValue());
+        if (wsHandler == null) {
+            for (Header field : fields) {
+                if (!field.getName().startsWith(":")) {
+                    responseHandler.header(field.getName(), field.getValue());
+                }
             }
         }
+    }
+
+    /**
+     * RFC 9220 section 3/4: the server accepted the Extended CONNECT with
+     * a {@code 200} response -- reconciles the negotiated subprotocol/
+     * extensions and bridges this stream to a {@link WebSocketConnection}.
+     */
+    private void completeWebSocketUpgrade(List<Header> fields) {
+        String extensionsHeader = null;
+        for (Header field : fields) {
+            if ("sec-websocket-extensions".equalsIgnoreCase(field.getName())) {
+                extensionsHeader = field.getValue();
+                break;
+            }
+        }
+        List<WebSocketExtension> activeExtensions =
+                WebSocketHandshake.reconcileExtensions(extensionsHeader, requestedExtensions);
+
+        webSocketAdapter = new H3ClientWebSocketConnectionAdapter(wsHandler);
+        // RFC 9220 changes only the opening handshake, not RFC 6455
+        // framing -- masking still applies over H3, and this is the
+        // client side of it (masks outgoing, expects unmasked incoming).
+        webSocketAdapter.setClientMode(true);
+        webSocketAdapter.setTransport(new H3ClientWebSocketTransport());
+        if (!activeExtensions.isEmpty()) {
+            webSocketAdapter.setExtensions(activeExtensions);
+        }
+        webSocketAdapter.notifyConnectionOpen();
     }
 
     /**
@@ -202,6 +304,15 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void dataFrameReceived(ByteBuffer data, boolean endOfFrame) {
+        if (webSocketAdapter != null) {
+            try {
+                webSocketAdapter.processIncomingData(data);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "WebSocket frame processing error", e);
+                webSocketAdapter.notifyError(e);
+            }
+            return;
+        }
         if (!bodyStarted) {
             bodyStarted = true;
             state = State.RECEIVING_BODY;
@@ -212,6 +323,16 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     private void onFinished() {
         if (state == State.CLOSED) {
+            return;
+        }
+        if (webSocketAdapter != null) {
+            try {
+                webSocketAdapter.processIncomingData(EMPTY_BUFFER.duplicate());
+            } catch (IOException ignored) {
+                // FIN with empty data
+            }
+            webSocketAdapter.notifyTransportClosed();
+            state = State.CLOSED;
             return;
         }
         if (bodyStarted) {
@@ -247,7 +368,14 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     public void frameError(String message) {
         LOGGER.warning("HTTP/3 frame error: " + message);
         state = State.CLOSED;
-        responseHandler.failed(new IOException("HTTP/3 frame error: " + message));
+        IOException ex = new IOException("HTTP/3 frame error: " + message);
+        if (webSocketAdapter != null) {
+            webSocketAdapter.notifyError(ex);
+        } else if (wsHandler != null) {
+            wsHandler.error(ex);
+        } else {
+            responseHandler.failed(ex);
+        }
     }
 
     /**
@@ -260,6 +388,104 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         state = State.CLOSED;
-        responseHandler.failed(cause);
+        if (webSocketAdapter != null) {
+            webSocketAdapter.notifyError(cause);
+        } else if (wsHandler != null) {
+            wsHandler.error(cause);
+        } else {
+            responseHandler.failed(cause);
+        }
+    }
+
+    // ── WebSocket adapter inner classes ──
+    //
+    // Direct client-side mirrors of H3Stream's H3WebSocketConnectionAdapter/
+    // H3WebSocketTransport.
+
+    /**
+     * Bridges {@link WebSocketEventHandler} to the {@link WebSocketConnection}
+     * abstract class.
+     */
+    private static class H3ClientWebSocketConnectionAdapter extends WebSocketConnection implements WebSocketSession {
+
+        private final WebSocketEventHandler wsHandler;
+
+        H3ClientWebSocketConnectionAdapter(WebSocketEventHandler wsHandler) {
+            this.wsHandler = wsHandler;
+        }
+
+        @Override
+        protected void opened() {
+            wsHandler.opened(this);
+        }
+
+        @Override
+        protected void textMessageReceived(String message) {
+            wsHandler.textMessageReceived(this, message);
+        }
+
+        @Override
+        protected void binaryMessageReceived(ByteBuffer data) {
+            wsHandler.binaryMessageReceived(this, data);
+        }
+
+        @Override
+        protected void closed(int code, String reason) {
+            wsHandler.closed(code, reason);
+        }
+
+        @Override
+        protected void error(Throwable cause) {
+            wsHandler.error(cause);
+        }
+
+        @Override
+        public Principal getPrincipal() {
+            // No server-asserted principal concept on the client side.
+            return null;
+        }
+
+        void notifyError(Throwable cause) {
+            error(cause);
+        }
+
+        void notifyTransportClosed() {
+            if (isOpen()) {
+                try {
+                    close(1001, "Transport closed");
+                } catch (IOException ignored) {
+                    // best effort
+                }
+            }
+        }
+    }
+
+    /**
+     * {@link WebSocketConnection.WebSocketTransport} that sends WebSocket
+     * frames as HTTP/3 DATA frames on this stream.
+     */
+    private class H3ClientWebSocketTransport implements WebSocketConnection.WebSocketTransport {
+
+        @Override
+        public void sendFrame(ByteBuffer frameData) throws IOException {
+            if (state == State.CLOSED) {
+                throw new IOException("Stream closed");
+            }
+            int length = frameData.remaining();
+            ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(length));
+            byte[] bytes = new byte[length];
+            frameData.get(bytes);
+            H3Writer.writeData(out, bytes);
+            out.flip();
+            endpoint.send(out);
+        }
+
+        @Override
+        public void close(boolean normalClose) throws IOException {
+            if (state != State.CLOSED) {
+                endpoint.close();
+                state = State.CLOSED;
+            }
+        }
     }
 }

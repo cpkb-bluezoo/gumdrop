@@ -65,6 +65,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
 /**
  * High-level HTTP client facade.
@@ -879,6 +881,30 @@ public class HTTPClient implements AltSvcListener {
                     h3Handler, method, path, authority, scheme, traceContext);
         }
         return endpointHandler.request(method, path);
+    }
+
+    /**
+     * Initiates a WebSocket-over-HTTP/3 connection via Extended CONNECT
+     * (RFC 9220 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     *
+     * @param path the request path
+     * @param subprotocol the WebSocket subprotocol to request, or null
+     * @param extensions the extensions to offer, or null/empty for none
+     * @param wsHandler the handler to receive WebSocket events
+     */
+    public void connectWebSocket(String path, String subprotocol,
+            List<WebSocketExtension> extensions, WebSocketEventHandler wsHandler) {
+        if (h3Handler == null) {
+            wsHandler.error(new IllegalStateException(
+                    "WebSocket-over-HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectWebSocket(authority, path, subprotocol, extensions, wsHandler);
     }
 
     // ═══════════════════════════════════════════════════════════════════

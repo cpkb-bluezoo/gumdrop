@@ -41,6 +41,9 @@ import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 
 /**
  * Client-side HTTP/3 handler for one QUIC connection.
@@ -239,6 +242,64 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         if (fin) {
             endpoint.close();
         }
+    }
+
+    /**
+     * Initiates a WebSocket-over-H3 connection via Extended CONNECT
+     * (RFC 9220 section 3): opens a new bidirectional stream, sends a
+     * {@code CONNECT} request with {@code :protocol: websocket} and the
+     * requested subprotocol/extensions, and leaves the stream open in
+     * both directions for the WebSocket tunnel -- unlike
+     * {@link #sendRequest}, this never closes the stream after sending
+     * headers. Once the server responds with {@code 200}, {@code wsHandler}
+     * starts receiving {@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler}
+     * callbacks; any other response, or a connection-level failure before
+     * then, is reported via {@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler#error}.
+     *
+     * @param authority the {@code :authority} pseudo-header value
+     * @param path the {@code :path} pseudo-header value
+     * @param subprotocol the WebSocket subprotocol to request, or null
+     * @param extensions the extensions to offer, or null/empty for none
+     * @param wsHandler the handler to receive WebSocket events
+     * @return the stream ID, or -1 on failure
+     */
+    public long connectWebSocket(String authority, String path, String subprotocol,
+            List<WebSocketExtension> extensions, WebSocketEventHandler wsHandler) {
+        if (goaway) {
+            wsHandler.error(new IOException("Connection received GOAWAY"));
+            return -1;
+        }
+
+        H3ClientStream clientStream = H3ClientStream.forWebSocket(qpackDecoder, wsHandler, extensions);
+        Endpoint endpoint = quicConnection.openStream(clientStream);
+        long streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
+        streams.put(Long.valueOf(streamId), clientStream);
+
+        Headers headers = new Headers();
+        headers.add(new Header(":method", "CONNECT"));
+        headers.add(new Header(":protocol", "websocket"));
+        headers.add(new Header(":scheme", "https"));
+        headers.add(new Header(":authority", authority));
+        headers.add(new Header(":path", path));
+        if (subprotocol != null && !subprotocol.isEmpty()) {
+            headers.add(new Header("sec-websocket-protocol", subprotocol));
+        }
+        if (extensions != null && !extensions.isEmpty()) {
+            headers.add(new Header("sec-websocket-extensions", WebSocketHandshake.formatOffers(extensions)));
+        }
+
+        ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
+        qpackEncoder.encode(fieldSection, headers);
+        fieldSection.flip();
+        byte[] encoded = new byte[fieldSection.remaining()];
+        fieldSection.get(encoded);
+
+        ByteBuffer out = ByteBuffer.allocate(H3Writer.headersLength(encoded.length));
+        H3Writer.writeHeaders(out, encoded);
+        out.flip();
+        endpoint.send(out);
+
+        return streamId;
     }
 
     // ── H3ControlStream.Listener (peer's control stream) ──
