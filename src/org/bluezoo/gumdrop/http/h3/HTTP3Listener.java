@@ -268,47 +268,32 @@ public class HTTP3Listener extends TCPListener
         if (port <= 0) {
             port = HTTP3_DEFAULT_PORT;
         }
-        // HTTP/3 depends on the native libgumdrop (quiche/BoringSSL) JNI
-        // library. If it is not available on this platform/image, the first
-        // touch of native code throws a LinkageError (ExceptionInInitializerError
-        // on first reference, NoClassDefFoundError thereafter, or a bare
-        // UnsatisfiedLinkError). Catch it and disable just the H3 listener so
-        // the rest of the server (HTTP/1.1, HTTP/2, other protocols) still
-        // starts — mirroring the graceful native-DNS fallback in DNSResolver.
-        try {
-            super.start();
-            if (isMetricsEnabled()) {
-                metrics = new HTTPServerMetrics(getTelemetryConfig());
-            }
-            // Unlike TCP-accept listeners (which register with the accept
-            // loop lazily and don't actually bind until Gumdrop.start()
-            // runs), this listener binds a UDP socket right here — but
-            // Gumdrop.addListener() calls start() immediately, even for a
-            // standalone listener added before Gumdrop.start(), at which
-            // point the worker-loop pool nextWorkerLoop() depends on
-            // hasn't been allocated yet. Defer the QUIC bind in that case;
-            // Gumdrop.start() calls start() again for exactly this
-            // scenario once workerLoops exists (issue #106).
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            if (gumdrop == null || !gumdrop.isStarted()) {
-                return;
-            }
-            if (selectorLoop == null) {
-                selectorLoop = gumdrop.nextWorkerLoop();
-            }
-            if (selectorLoop == null) {
-                throw new IllegalStateException(
-                        "SelectorLoop must be set before starting "
-                                + "HTTP3Listener");
-            }
-            bindEngines();
-        } catch (LinkageError e) {
-            LOGGER.log(Level.WARNING,
-                    "Native QUIC library (libgumdrop) unavailable; HTTP/3"
-                            + " listener on port " + port + " disabled. Set"
-                            + " java.library.path or remove the h3 listener to"
-                            + " silence this. Cause: " + e, e);
+        super.start();
+        if (isMetricsEnabled()) {
+            metrics = new HTTPServerMetrics(getTelemetryConfig());
         }
+        // Unlike TCP-accept listeners (which register with the accept
+        // loop lazily and don't actually bind until Gumdrop.start()
+        // runs), this listener binds a UDP socket right here — but
+        // Gumdrop.addListener() calls start() immediately, even for a
+        // standalone listener added before Gumdrop.start(), at which
+        // point the worker-loop pool nextWorkerLoop() depends on
+        // hasn't been allocated yet. Defer the QUIC bind in that case;
+        // Gumdrop.start() calls start() again for exactly this
+        // scenario once workerLoops exists (issue #106).
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        if (gumdrop == null || !gumdrop.isStarted()) {
+            return;
+        }
+        if (selectorLoop == null) {
+            selectorLoop = gumdrop.nextWorkerLoop();
+        }
+        if (selectorLoop == null) {
+            throw new IllegalStateException(
+                    "SelectorLoop must be set before starting "
+                            + "HTTP3Listener");
+        }
+        bindEngines();
     }
 
     /**

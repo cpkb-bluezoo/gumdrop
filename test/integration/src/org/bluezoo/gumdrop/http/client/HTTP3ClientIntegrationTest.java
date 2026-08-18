@@ -23,14 +23,12 @@ package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.GumdropNative;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.h3.HTTP3Listener;
 import org.junit.AfterClass;
-import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -52,30 +50,22 @@ import static org.junit.Assert.*;
  * <p>Drives {@code HTTPClient} with {@link HTTPClient#setH3Enabled(boolean)}
  * against a real {@link HTTP3Listener} echo server over QUIC, asserting that
  * the negotiated version is {@link HTTPVersion#HTTP_3} and that GET/POST
- * request/response bodies round-trip.
- *
- * <h2>Native library requirement</h2>
- *
- * <p>HTTP/3 rides on QUIC, which is implemented via JNI to the native
- * {@code libgumdrop}/{@code libquiche} library. That library is built only by
- * the {@code native} Ant target (which needs {@code QUICHE_DIR}) and is not
- * produced by the integration-test targets. When it is absent, both the
- * server ({@link HTTP3Listener#start()}) and the client
- * ({@code QuicTransportFactory.start()}) fail with a {@link LinkageError}.
- *
- * <p>These tests therefore probe for native availability in
- * {@code @BeforeClass} and {@link Assume#assumeTrue} it, so the whole class is
- * cleanly <em>skipped</em> (not failed) on machines without the native build.
- * Run {@code ant native} with {@code QUICHE_DIR} set, and ensure
- * {@code -Djava.library.path=dist} (the integration JUnit task already sets
- * this), to exercise these tests for real.
+ * request/response bodies round-trip. Both client and server run on the
+ * pure-Java QUIC/HTTP-3 stack ({@code org.bluezoo.gumdrop.quic}); no native
+ * library is required.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class HTTP3ClientIntegrationTest {
 
     private static final int H3_PORT = 18446;
-    private static final String TEST_HOST = "127.0.0.1";
+    // Not a bare IP literal: the QUIC/TLS 1.3 handshake sends this as the
+    // SNI server_name, which agent15's hostname verifier checks only
+    // against the certificate's dNSName SAN entries (RFC 6125) -- an
+    // iPAddress SAN, even if present, is never consulted. Must match the
+    // "localhost" name TestCertificateManager.generateServerCertificate
+    // below issues the certificate for.
+    private static final String TEST_HOST = "localhost";
     private static final int ASYNC_TIMEOUT_SECONDS = 8;
 
     private static final String TEST_PAYLOAD =
@@ -90,29 +80,8 @@ public class HTTP3ClientIntegrationTest {
     private static Gumdrop gumdrop;
     private static HTTP3Listener listener;
 
-    /**
-     * Returns whether the native QUIC library can be loaded. Touches a cheap
-     * native method inside a {@code try/catch (LinkageError)} because there is
-     * no {@code isAvailable()} flag: the first reference to {@link GumdropNative}
-     * runs {@code System.loadLibrary("gumdrop")} and, if the library is missing,
-     * throws {@code ExceptionInInitializerError}; subsequent references throw
-     * {@code NoClassDefFoundError}. Both are {@link LinkageError}s.
-     */
-    static boolean quicNativeAvailable() {
-        try {
-            GumdropNative.quiche_version_is_supported(1);
-            return true;
-        } catch (LinkageError e) {
-            return false;
-        }
-    }
-
     @BeforeClass
     public static void startServer() throws Exception {
-        Assume.assumeTrue(
-                "native QUIC library (libgumdrop) not available; skipping HTTP/3 tests",
-                quicNativeAvailable());
-
         File certsDir = new File("test/integration/certs");
         if (!certsDir.exists()) {
             certsDir.mkdirs();

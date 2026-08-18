@@ -129,6 +129,20 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     }
 
     /**
+     * Dispatches a task to run on the underlying {@link QuicConnection}'s
+     * own {@code SelectorLoop} thread -- the only thread that may safely
+     * touch its state (see {@code QuicConnection}'s class documentation).
+     * {@link H3Request} uses this so that application callers of
+     * {@link org.bluezoo.gumdrop.http.client.HTTPRequest} on an arbitrary
+     * thread don't race the connection's own I/O thread.
+     *
+     * @param task the task to run
+     */
+    void execute(Runnable task) {
+        quicConnection.getSelectorLoop().invokeLater(task);
+    }
+
+    /**
      * Returns whether this handler has received a GOAWAY frame.
      *
      * @return true if GOAWAY was received

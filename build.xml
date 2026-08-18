@@ -617,8 +617,7 @@
     <integration-junit includes='**/http/*IntegrationTest.java'/>
   </target>
 
-  <!-- Run HTTP client integration tests (needs TLS keystore for h2 over TLS;
-       HTTP/3 cases self-skip when the native QUIC library is unavailable) -->
+  <!-- Run HTTP client integration tests (needs TLS keystore for h2 over TLS) -->
   <target name='integration-test-http-client' depends='integration-setup'
           description='Run HTTP client integration tests (h1.1, h2, h3)'>
     <integration-junit includes='**/http/client/*IntegrationTest.java'/>
