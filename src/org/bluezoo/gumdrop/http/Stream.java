@@ -179,10 +179,18 @@ class Stream implements HTTPResponseState {
     private boolean handlerBodyEnded = false;
     private boolean requestBodyRejected = false;
 
-    /** Reusable header handler for HPACK decoding. */
+    /**
+     * Reusable header handler for HPACK decoding. Delegates to
+     * {@link #addHeader(Header)} rather than adding directly to
+     * {@code headers} -- HPACK-decoded requests (the normal, non-pushed
+     * HTTP/2 path) must populate {@code method}/{@code requestTarget} the
+     * same way the HTTP/1.1 path already does, or method-bound Digest
+     * authentication (RFC 7616 H(A2)) and HEAD response body suppression
+     * (RFC 9110 section 9.3.2) silently misbehave for HTTP/2.
+     */
     private final HeaderHandler hpackHandler = new HeaderHandler() {
         @Override public void header(Header header) {
-            headers.add(header);
+            addHeader(header);
         }
     };
 
