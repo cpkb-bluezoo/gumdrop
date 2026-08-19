@@ -34,14 +34,15 @@ import tech.kwik.agent15.engine.TlsMessageParser;
  * dispatches each complete TLS handshake message to Agent15 as it
  * becomes available (RFC 9000 section 19.6, RFC 9001 section 4.1).
  *
- * <p>CRYPTO frames identify their data by byte offset within a
- * per-level stream, the same reassembly problem as a QUIC STREAM frame.
- * This implementation only accepts data that extends the stream
- * contiguously -- out-of-order or overlapping CRYPTO frames are
- * rejected rather than buffered for later reordering. That is
- * sufficient for a connection with no packet loss (this class exists to
- * get a handshake completing at all); real reordering support belongs
- * with the general stream-reassembly work.
+ * <p>CRYPTO frames identify their data by byte offset within a per-level
+ * stream, the same reassembly problem as a QUIC STREAM frame -- delegated
+ * to the shared {@link StreamReassembler}, which buffers out-of-order or
+ * overlapping frames until the gap preceding them closes. CRYPTO frames
+ * are not subject to QUIC flow control the way STREAM frames are (RFC
+ * 9000 section 7.5), so this buffer is capped independently as a
+ * denial-of-service mitigation: a peer that keeps sending far-future
+ * CRYPTO data without ever closing the gap causes {@link #receive} to
+ * throw rather than buffer unboundedly.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -50,8 +51,14 @@ public final class CryptoStreamBuffer {
     /** RFC 8446 section 4: handshake message header is type(1) + length(3) octets. */
     private static final int MESSAGE_HEADER_LENGTH = 4;
 
+    // Generous for any real TLS 1.3 handshake flight (ClientHello,
+    // EncryptedExtensions+Certificate+CertificateVerify+Finished) while
+    // still bounding how much reordered data a misbehaving or malicious
+    // peer can make this endpoint buffer before the handshake completes.
+    private static final long MAX_BUFFERED_BYTES = 65536;
+
+    private final StreamReassembler reassembler = new StreamReassembler(MAX_BUFFERED_BYTES);
     private final ByteArrayOutputStream accumulator = new ByteArrayOutputStream();
-    private long expectedOffset;
     private int consumedLength;
 
     /**
@@ -64,21 +71,20 @@ public final class CryptoStreamBuffer {
      * @param engine the engine to dispatch each parsed message to
      * @param level the encryption level this data was received at
      * @throws TlsProtocolException if Agent15 rejects a handshake message
+     * @throws StreamReassembler.BufferLimitExceededException if reordered
+     *         data exceeds this buffer's configured limit
      * @throws IOException if Agent15 fails to process a handshake message
      */
     public void receive(long offset, ByteBuffer data, TlsMessageParser parser,
             MessageProcessor engine, EncryptionLevel level)
             throws TlsProtocolException, IOException {
-        if (offset != expectedOffset) {
-            throw new IllegalStateException(
-                    "Out-of-order or overlapping CRYPTO data is not supported yet: expected offset "
-                    + expectedOffset + ", got " + offset);
-        }
-
         byte[] chunk = new byte[data.remaining()];
         data.get(chunk);
-        accumulator.write(chunk, 0, chunk.length);
-        expectedOffset += chunk.length;
+        byte[] contiguous = reassembler.receive(offset, chunk);
+        if (contiguous.length == 0) {
+            return;
+        }
+        accumulator.write(contiguous, 0, contiguous.length);
 
         while (true) {
             byte[] all = accumulator.toByteArray();

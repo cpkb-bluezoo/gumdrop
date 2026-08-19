@@ -1193,6 +1193,154 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * RFC 9000 section 2.2: STREAM frames carry an explicit byte offset
+     * and are not guaranteed to arrive in order -- the underlying
+     * transport is UDP. Forges two raw STREAM packets for the same new
+     * stream with the second half of a message sent (and thus processed)
+     * before the first, and asserts the server's real
+     * {@code ProtocolHandler.receive()} sees the bytes reassembled into
+     * correct stream order, not arrival order -- proving
+     * {@link org.bluezoo.gumdrop.quic.tls.StreamReassembler} is actually
+     * wired into the production receive path, not just correct in
+     * isolation.
+     */
+    @Test
+    public void testOutOfOrderStreamDataReassembledInOrder() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        DatagramChannel forgeChannel = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final StringBuilder received = new StringBuilder();
+            final CountDownLatch fullyReceived = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                    byte[] chunk = new byte[data.remaining()];
+                                    data.get(chunk);
+                                    synchronized (received) {
+                                        received.append(new String(chunk, StandardCharsets.US_ASCII));
+                                        if (received.length() >= 11) {
+                                            fullyReceived.countDown();
+                                        }
+                                    }
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+
+            // Reach into the client's negotiated ONE_RTT key material and
+            // the connection ID it addresses the server with -- nothing
+            // else can produce a packet the server will actually decrypt.
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> sendKeys =
+                    getPrivateField(clientConnection, "sendKeys", Map.class);
+            PacketProtectionKeys oneRttKeys = sendKeys.get(EncryptionLevel.ONE_RTT);
+            byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
+            long[] sendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
+            long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
+
+            long streamId = 0; // first client-initiated bidi stream, never opened via the real API
+            byte[] firstHalf = "hello ".getBytes(StandardCharsets.US_ASCII);
+            byte[] secondHalf = "world".getBytes(StandardCharsets.US_ASCII);
+
+            byte[] secondHalfPacket = forgeStreamPacket(oneRttKeys, serverConnectionId, packetNumber,
+                    streamId, firstHalf.length, secondHalf);
+            byte[] firstHalfPacket = forgeStreamPacket(oneRttKeys, serverConnectionId, packetNumber + 1,
+                    streamId, 0, firstHalf);
+
+            forgeChannel = DatagramChannel.open();
+            // Deliberately reversed: the second half of the message is
+            // sent (and thus processed by the server) before the first --
+            // the reassembler must buffer it rather than deliver it early.
+            forgeChannel.send(ByteBuffer.wrap(secondHalfPacket), serverAddress);
+            forgeChannel.send(ByteBuffer.wrap(firstHalfPacket), serverAddress);
+
+            assertTrue("Server should reassemble and deliver the complete message within 5s",
+                    fullyReceived.await(5, TimeUnit.SECONDS));
+            assertEquals("hello world", received.toString());
+        } finally {
+            if (forgeChannel != null) {
+                forgeChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9000 section 19.19: a peer's application-level (0x1d)
      * CONNECTION_CLOSE must reach the stream's {@code error(Exception)}
      * with a {@link QuicConnectionCloseException} carrying

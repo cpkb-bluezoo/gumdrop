@@ -50,10 +50,12 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * per-protocol now lives instead, shared by every protocol running over
  * QUIC.
  *
- * <p>Received STREAM data is delivered to the handler in arrival order
- * with no reordering/reassembly for out-of-order offsets -- the same
- * accepted simplification {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}
- * already has for CRYPTO data.
+ * <p>Received STREAM data is reassembled into stream order before
+ * delivery to the handler -- out-of-order or overlapping frames are
+ * buffered by a per-stream {@link org.bluezoo.gumdrop.quic.tls.StreamReassembler}
+ * (owned by {@link QuicConnection}) until the gap preceding them closes,
+ * the same mechanism {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}
+ * uses for CRYPTO data.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

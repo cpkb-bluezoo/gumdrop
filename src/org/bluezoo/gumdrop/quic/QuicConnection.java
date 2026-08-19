@@ -67,6 +67,7 @@ import org.bluezoo.gumdrop.quic.tls.Hkdf;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
+import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
 
 /**
  * One QUIC connection: owns the TLS 1.3 handshake, packet protection
@@ -101,10 +102,14 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
  * either path (nothing in this codebase currently recognises an incoming
  * stateless reset at all, not just on a migrated path).
  *
- * <p>Also out of scope: out-of-order STREAM data reassembly (delivered in
- * arrival order only, matching
- * {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer}'s own accepted
- * limitation for CRYPTO data).
+ * <p>Out-of-order and overlapping STREAM data is reassembled into stream
+ * order before delivery to the handler, via a per-stream {@link
+ * org.bluezoo.gumdrop.quic.tls.StreamReassembler} -- the same class
+ * {@link org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer} uses for CRYPTO
+ * data, since both are the same reassembly problem (RFC 9000 section
+ * 2.2). Unlike CRYPTO data, STREAM reassembly needs no independent
+ * buffering cap: {@code checkAndRecordFlowControl} already bounds how far
+ * ahead of the delivered cursor a peer can push data at all.
  *
  * <p>Flow control is now bidirectional: the peer's advertised MAX_DATA/
  * MAX_STREAM_DATA is honoured on the send side (see {@code canSendOnStream}),
@@ -229,24 +234,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // STREAM data pending send, keyed by stream ID; only ever flushed at ONE_RTT.
     private final Map<Long, List<PendingChunk>> pendingStream = new HashMap<Long, List<PendingChunk>>();
     private final Map<Long, Long> streamSendOffset = new HashMap<Long, Long>();
-    // Bytes of actual content ever delivered to a receive-side stream's
-    // handler, per stream ID -- distinct from checkAndRecordFlowControl's
-    // streamBytesReceived (which tracks the highest offset+length ever
-    // SEEN, purely for byte-budget accounting, regardless of gaps). This
-    // one tracks what's actually been handed to the application in order,
-    // used only to decide when a FIN is safe to act on -- see
-    // streamFrameReceived/maybeCompletePendingFin.
-    private final Map<Long, Long> streamDeliveredBytes = new HashMap<Long, Long>();
+    // Per-stream reassembler for received data -- distinct from
+    // checkAndRecordFlowControl's streamBytesReceived (which tracks the
+    // highest offset+length ever SEEN, purely for byte-budget accounting,
+    // regardless of gaps). A reassembler's getNextOffset() is the highest
+    // offset actually delivered to the application in contiguous order,
+    // used to decide when a FIN is safe to act on -- see
+    // streamFrameReceived.
+    private final Map<Long, StreamReassembler> streamReassemblers = new HashMap<Long, StreamReassembler>();
     // A FIN seen at an offset beyond what's been contiguously delivered so
-    // far (see streamFrameReceived) -- this codebase has no stream
-    // reassembly (QuicStreamEndpoint's own class documentation), so a FIN
-    // that arrives out of order (e.g. a retransmitted data chunk still
-    // outstanding) can't be acted on immediately: doing so would retire
-    // the stream and let the peer send an empty close in response to the
-    // handler's disconnected() before its real content has even arrived,
-    // orphaning that content when it does (observed as a spurious
-    // re-accept of the same stream ID). Held here until a later delivery
-    // catches up to this offset.
+    // far (see streamFrameReceived) -- even with reassembly, the frame
+    // carrying FIN can itself be out of order (its offset ahead of the
+    // reassembler's current cursor), so it can't be acted on immediately:
+    // doing so would retire the stream and let the peer send an empty
+    // close in response to the handler's disconnected() before its real
+    // content -- still buffered in the reassembler, waiting on an earlier
+    // gap to close -- has even been delivered, orphaning that content
+    // when it does arrive (observed as a spurious re-accept of the same
+    // stream ID). Held here until a later delivery catches up to this
+    // offset.
     private final Map<Long, Long> pendingFinOffset = new HashMap<Long, Long>();
     // packetNumber (ONE_RTT) -> streamId -> chunks sent in that packet, for retransmission on loss.
     private final Map<Long, Map<Long, List<PendingChunk>>> sentStream = new HashMap<Long, Map<Long, List<PendingChunk>>>();
@@ -758,7 +764,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (stream.isFullyClosed()) {
             Long key = Long.valueOf(streamId);
             streams.remove(key);
-            streamDeliveredBytes.remove(key);
+            streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
         }
     }
@@ -1061,7 +1067,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
             ackEliciting = true;
             Long key = Long.valueOf(streamId);
-            streamDeliveredBytes.remove(key);
+            streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
             QuicStreamEndpoint stream = streams.remove(key);
             if (stream != null) {
@@ -1083,6 +1089,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
             data.get(copy);
             try {
                 tlsEngine.receiveCryptoData(level, offset, ByteBuffer.wrap(copy));
+            } catch (StreamReassembler.BufferLimitExceededException e) {
+                closeWithError(TRANSPORT_ERROR_CRYPTO_BUFFER_EXCEEDED, e.getMessage());
             } catch (TlsProtocolException | IOException e) {
                 LOGGER.log(Level.WARNING, "TLS error processing CRYPTO data at " + level, e);
             }
@@ -1108,42 +1116,45 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 return;
             }
             Long key = Long.valueOf(streamId);
-            if (length > 0) {
-                stream.deliverData(data);
-                Long delivered = streamDeliveredBytes.get(key);
-                streamDeliveredBytes.put(key,
-                        Long.valueOf((delivered != null ? delivered.longValue() : 0L) + length));
+            byte[] chunk = new byte[length];
+            data.get(chunk);
+            StreamReassembler reassembler = streamReassemblers.get(key);
+            if (reassembler == null) {
+                // No independent cap needed -- checkAndRecordFlowControl
+                // above already bounds how far ahead of the delivered
+                // cursor a peer can push data at all (RFC 9000 section
+                // 4.1), unlike CRYPTO data (see CryptoStreamBuffer).
+                reassembler = new StreamReassembler(Long.MAX_VALUE);
+                streamReassemblers.put(key, reassembler);
+            }
+            byte[] contiguous;
+            try {
+                contiguous = reassembler.receive(offset, chunk);
+            } catch (StreamReassembler.BufferLimitExceededException e) {
+                // Unreachable in practice, see the field comment above --
+                // closed defensively rather than left to hang if it ever
+                // somehow were.
+                closeWithError(TRANSPORT_ERROR_INTERNAL_ERROR, e.getMessage());
+                return;
+            }
+            if (contiguous.length > 0) {
+                stream.deliverData(ByteBuffer.wrap(contiguous));
             }
             if (fin) {
                 long finOffset = offset + length;
-                Long delivered = streamDeliveredBytes.get(key);
-                if (finOffset <= (delivered != null ? delivered.longValue() : 0L)) {
+                if (finOffset <= reassembler.getNextOffset()) {
                     completeStreamFin(streamId, stream);
                 } else {
-                    // This codebase has no stream reassembly
-                    // (QuicStreamEndpoint's own class documentation) -- a
-                    // FIN that arrives before all preceding bytes have
-                    // been contiguously delivered (e.g. an earlier chunk
-                    // still outstanding, arriving later via
-                    // retransmission) can't be acted on yet: doing so
-                    // would retire the stream and let the handler close
-                    // its own send direction in response to disconnected()
-                    // before the peer's still-arriving content has even
-                    // been delivered, permanently orphaning it once it
-                    // does arrive (observed as a spurious re-accept of the
-                    // same stream ID with no way to answer it, since its
-                    // send side was already closed). Remembered instead,
-                    // completed once delivery below catches up.
+                    // See the pendingFinOffset field comment: this FIN's
+                    // own frame is itself out of order, remembered here
+                    // until reassembly's cascade catches up to it.
                     pendingFinOffset.put(key, Long.valueOf(finOffset));
                 }
-            } else if (length > 0) {
+            } else if (contiguous.length > 0) {
                 Long pending = pendingFinOffset.get(key);
-                if (pending != null) {
-                    long delivered = streamDeliveredBytes.get(key).longValue();
-                    if (pending.longValue() <= delivered) {
-                        pendingFinOffset.remove(key);
-                        completeStreamFin(streamId, stream);
-                    }
+                if (pending != null && pending.longValue() <= reassembler.getNextOffset()) {
+                    pendingFinOffset.remove(key);
+                    completeStreamFin(streamId, stream);
                 }
             }
         }
@@ -2184,10 +2195,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     // ── Close ──
 
+    /** RFC 9000 section 20.1: the endpoint encountered an internal error and cannot continue. */
+    private static final long TRANSPORT_ERROR_INTERNAL_ERROR = 0x1;
     /** RFC 9000 section 20.1: an endpoint received more data than the flow control limits it advertised permit. */
     private static final long TRANSPORT_ERROR_FLOW_CONTROL_ERROR = 0x3;
     /** RFC 9000 section 20.1: a transport parameter was received with a value not permitted for its type, e.g. a mismatched retry_source_connection_id. */
     private static final long TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR = 0x8;
+    /** RFC 9000 section 20.1: the amount of buffered reordered CRYPTO data exceeds this endpoint's ability to buffer it. */
+    private static final long TRANSPORT_ERROR_CRYPTO_BUFFER_EXCEEDED = 0xd;
 
     /**
      * Closes the connection with a specific transport error code (RFC
