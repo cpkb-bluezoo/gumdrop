@@ -36,8 +36,8 @@ import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
-import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
+import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -93,8 +93,21 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     private final TelemetryConfig telemetryConfig;
     private final boolean addSecurityHeaders;
 
-    private final SimpleEncoder qpackEncoder = new SimpleEncoder();
-    private final SimpleDecoder qpackDecoder = new SimpleDecoder();
+    // RFC 9204 section 3.2.1: matches HPACK's own well-known
+    // SETTINGS_HEADER_TABLE_SIZE default (RFC 7541 section 6.5.2) --
+    // generous for real header sets, still bounded per connection.
+    private static final int DEFAULT_QPACK_TABLE_CAPACITY = 4096;
+
+    // Our own declared receive-side ceiling (SETTINGS_QPACK_MAX_TABLE_CAPACITY),
+    // fixed for the connection's lifetime (Decoder enforces this itself,
+    // RFC 9204 section 3.2.3). Our send-side Encoder starts at capacity 0
+    // (falls back to literal-only encoding) until the peer's own SETTINGS
+    // arrives and tells us the ceiling it's willing to accept -- see
+    // settingsReceived.
+    private final Encoder qpackEncoder = new Encoder(0);
+    private final Decoder qpackDecoder = new Decoder(DEFAULT_QPACK_TABLE_CAPACITY);
+    private Endpoint qpackEncoderStream;
+    private Endpoint qpackDecoderStream;
 
     private long highestClientStreamId = -1;
     private Trace trace;
@@ -135,11 +148,12 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         quicConnection.setUnidirectionalStreamAcceptHandler(new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(Endpoint stream) {
-                return new H3ControlStream(quicConnection, HTTP3ServerHandler.this);
+                return new H3ControlStream(quicConnection, HTTP3ServerHandler.this, qpackEncoder, qpackDecoder);
             }
         });
 
         openControlStream();
+        openQpackStreams();
     }
 
     // RFC 9114 section 6.2.1 / 7.2.4: open our own control stream and
@@ -147,7 +161,8 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     private void openControlStream() {
         Endpoint controlStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
         long[] settings = {
-            H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1
+            H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
+            H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY
         };
         int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
         ByteBuffer out = ByteBuffer.allocate(length);
@@ -155,6 +170,64 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         H3Writer.writeSettings(out, settings);
         out.flip();
         controlStream.send(out);
+    }
+
+    // RFC 9204 section 4.2: open our own QPACK encoder and decoder
+    // streams, kept open for the connection's lifetime -- neither is
+    // ever closed, matching the control stream.
+    private void openQpackStreams() {
+        qpackEncoderStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
+        ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
+        H3Writer.writeStreamType(out, 0x02);
+        out.flip();
+        qpackEncoderStream.send(out);
+
+        qpackDecoderStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
+        out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
+        H3Writer.writeStreamType(out, 0x03);
+        out.flip();
+        qpackDecoderStream.send(out);
+    }
+
+    /**
+     * Sends any QPACK encoder-stream instructions {@code
+     * Encoder#encode} wrote to {@code instructions} (often nothing) on
+     * this connection's own QPACK encoder stream.
+     *
+     * @param instructions the (possibly empty) instructions buffer,
+     *                     positioned for reading
+     */
+    void flushQpackEncoderInstructions(ByteBuffer instructions) {
+        if (instructions.hasRemaining()) {
+            qpackEncoderStream.send(instructions);
+        }
+    }
+
+    /**
+     * Sends any QPACK decoder-stream instructions queued by {@link
+     * Decoder#decode} (Section Acknowledgment) or by mirroring an
+     * encoder-stream insertion (Insert Count Increment) on this
+     * connection's own QPACK decoder stream.
+     */
+    void flushQpackDecoderInstructions() {
+        byte[] bytes = qpackDecoder.takePendingInstructions();
+        if (bytes.length > 0) {
+            qpackDecoderStream.send(ByteBuffer.wrap(bytes));
+        }
+    }
+
+    /**
+     * RFC 9204 section 4.4.2: notifies the peer encoder that {@code
+     * streamId} was abandoned before its (possibly still in-flight)
+     * field section was decoded, so it can release its table
+     * references for it -- otherwise they leak for the rest of the
+     * connection (a reference-counted entry can never be evicted).
+     *
+     * @param streamId the stream that was abandoned
+     */
+    void cancelQpackStream(long streamId) {
+        qpackDecoder.cancelStream(streamId);
+        flushQpackDecoderInstructions();
     }
 
     // ── StreamAcceptHandler (RFC 9114 section 4.1: new request streams) ──
@@ -180,8 +253,19 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
 
     @Override
     public void settingsReceived(long[] settings) {
-        // Nothing to react to yet: SETTINGS_QPACK_MAX_TABLE_CAPACITY
-        // stays 0 on both sides this stage (static-table-only QPACK).
+        // RFC 9204 section 3.2.1/4.3.1: our own Encoder may not use more
+        // dynamic-table capacity than the peer's declared receive-side
+        // ceiling permits, whichever is smaller against our own default.
+        for (int i = 0; i + 1 < settings.length; i += 2) {
+            if (settings[i] == H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY) {
+                int capacity = (int) Math.min(DEFAULT_QPACK_TABLE_CAPACITY, settings[i + 1]);
+                ByteBuffer instructions = ByteBuffer.allocate(16);
+                qpackEncoder.setCapacity(instructions, capacity);
+                instructions.flip();
+                flushQpackEncoderInstructions(instructions);
+                break;
+            }
+        }
     }
 
     // RFC 9114 section 5.2: GOAWAY for graceful shutdown. Record the

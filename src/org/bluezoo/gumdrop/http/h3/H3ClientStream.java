@@ -34,10 +34,11 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
+import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -60,9 +61,9 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * is non-null for a given instance.
  *
  * <p>Response pseudo-headers (RFC 9114 section 4.3.2) are parsed from
- * the initial HEADERS frame, decoded via {@link SimpleDecoder} (the
- * static-table-only QPACK codec); specifically the {@code :status}
- * pseudo-header determines the response status code.
+ * the initial HEADERS frame, decoded via the connection-shared {@link
+ * Decoder} (RFC 9204's full dynamic-table QPACK codec); specifically the
+ * {@code :status} pseudo-header determines the response status code.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ClientHandler
@@ -89,17 +90,29 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     }
 
     private final H3Parser parser = new H3Parser(this);
-    private final SimpleDecoder qpackDecoder;
+    private final HTTP3ClientHandler connection;
+    private final Decoder qpackDecoder;
     private final HTTPResponseHandler responseHandler;
     private final WebSocketEventHandler wsHandler;
     private final List<WebSocketExtension> requestedExtensions;
     private Endpoint endpoint;
+    // Mirrors ((QuicStreamEndpoint) endpoint).getStreamId(), captured
+    // once in connected() so QPACK bookkeeping doesn't depend on
+    // endpoint being non-null (unit tests construct this class directly
+    // without ever calling connected() -- see H3ClientStreamTest).
+    private long streamId;
 
     private State state;
     private boolean bodyStarted;
     private H3ClientWebSocketConnectionAdapter webSocketAdapter;
 
-    H3ClientStream(SimpleDecoder qpackDecoder, HTTPResponseHandler responseHandler) {
+    // RFC 9204 section 4.4.2: see H3Stream's identically-purposed field
+    // -- whether this stream's response field section was ever
+    // successfully decoded, consulted the same way on early termination.
+    private boolean headersDecoded;
+
+    H3ClientStream(HTTP3ClientHandler connection, Decoder qpackDecoder, HTTPResponseHandler responseHandler) {
+        this.connection = connection;
         this.qpackDecoder = qpackDecoder;
         this.responseHandler = responseHandler;
         this.wsHandler = null;
@@ -107,8 +120,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         this.state = State.OPEN;
     }
 
-    private H3ClientStream(SimpleDecoder qpackDecoder, WebSocketEventHandler wsHandler,
+    private H3ClientStream(HTTP3ClientHandler connection, Decoder qpackDecoder, WebSocketEventHandler wsHandler,
             List<WebSocketExtension> requestedExtensions) {
+        this.connection = connection;
         this.qpackDecoder = qpackDecoder;
         this.responseHandler = null;
         this.wsHandler = wsHandler;
@@ -120,6 +134,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      * Creates a stream for a WebSocket-over-H3 Extended CONNECT (RFC 9220
      * section 3), used by {@link HTTP3ClientHandler#connectWebSocket}.
      *
+     * @param connection the owning connection, for flushing QPACK
+     *                   decoder-stream instructions
      * @param qpackDecoder the QPACK decoder for the response HEADERS frame
      * @param wsHandler the handler to receive WebSocket events once the
      *                  upgrade completes
@@ -127,9 +143,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      *                            reconcile against the server's response
      * @return the new stream
      */
-    static H3ClientStream forWebSocket(SimpleDecoder qpackDecoder, WebSocketEventHandler wsHandler,
-            List<WebSocketExtension> requestedExtensions) {
-        return new H3ClientStream(qpackDecoder, wsHandler, requestedExtensions);
+    static H3ClientStream forWebSocket(HTTP3ClientHandler connection, Decoder qpackDecoder,
+            WebSocketEventHandler wsHandler, List<WebSocketExtension> requestedExtensions) {
+        return new H3ClientStream(connection, qpackDecoder, wsHandler, requestedExtensions);
     }
 
     // ── ProtocolHandler ──
@@ -137,6 +153,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     @Override
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
+        this.streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
     }
 
     /**
@@ -158,6 +175,12 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void disconnected() {
+        // connection is only ever null when a test constructs this class
+        // directly without going through HTTP3ClientHandler (see
+        // H3ClientStreamTest) -- never in production.
+        if (!headersDecoded && connection != null) {
+            connection.cancelQpackStream(streamId);
+        }
         // See H3Stream#disconnected: the QUIC layer delivers both a
         // clean FIN and a peer RESET_STREAM through this same callback,
         // so both are treated as a normal finish.
@@ -166,6 +189,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void error(Exception cause) {
+        if (!headersDecoded && connection != null) {
+            connection.cancelQpackStream(streamId);
+        }
         state = State.CLOSED;
         if (webSocketAdapter != null) {
             if (cause instanceof QuicConnectionCloseException) {
@@ -190,7 +216,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
         List<Header> fields;
         try {
-            fields = qpackDecoder.decode(encodedFieldSection);
+            fields = qpackDecoder.decode(streamId, encodedFieldSection);
         } catch (ProtocolException e) {
             LOGGER.log(Level.WARNING, "QPACK decode failed", e);
             state = State.CLOSED;
@@ -202,7 +228,13 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
             return;
         }
+        headersDecoded = true;
         onHeaders(fields);
+        // connection is only ever null in a test that constructs this
+        // class directly (see H3ClientStreamTest).
+        if (connection != null) {
+            connection.flushQpackDecoderInstructions();
+        }
     }
 
     private void onHeaders(List<Header> fields) {

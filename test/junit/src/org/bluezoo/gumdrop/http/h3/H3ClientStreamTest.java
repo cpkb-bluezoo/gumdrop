@@ -19,7 +19,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
-import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 
 import org.junit.Test;
@@ -194,8 +194,19 @@ public class H3ClientStreamTest {
 
     // ── Helpers ──
 
-    private H3ClientStream createStream(HTTPResponseHandler handler) {
-        return new H3ClientStream(new SimpleDecoder(), handler);
+    private H3ClientStream createStream(HTTPResponseHandler handler) throws Exception {
+        // connection is null: this test exercises response parsing in
+        // isolation, without a real HTTP3ClientHandler/QuicConnection
+        // stack -- H3ClientStream tolerates this (see its own source).
+        H3ClientStream stream = new H3ClientStream(null, new Decoder(4096), handler);
+        setField(stream, "streamId", 1L);
+        return stream;
+    }
+
+    private static void setField(H3ClientStream stream, String name, Object value) throws Exception {
+        Field f = H3ClientStream.class.getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(stream, value);
     }
 
     private static List<Header> headerList(String... pairs) {

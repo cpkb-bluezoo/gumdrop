@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http.h3;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -52,6 +53,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -71,8 +73,9 @@ import static org.junit.Assert.fail;
  * {@link H3Stream}, {@link HTTP3ClientHandler}, {@link H3ClientStream}) --
  * no quiche, no hand-called test harness. Proves the Stage 3 H3 rewire end
  * to end: HTTP/3 framing ({@link H3Parser}/{@link H3Writer}), QPACK
- * (static-table {@link org.bluezoo.gumdrop.http.qpack.SimpleEncoder}/
- * {@link org.bluezoo.gumdrop.http.qpack.SimpleDecoder}), the control
+ * (dynamic-table {@link org.bluezoo.gumdrop.http.qpack.Encoder}/
+ * {@link org.bluezoo.gumdrop.http.qpack.Decoder}, including the encoder/
+ * decoder unidirectional streams, RFC 9204 section 4.2), the control
  * stream + SETTINGS exchange ({@link H3ControlStream}), and response body
  * delivery all working together over a real loopback UDP socket on a real
  * {@link SelectorLoop} thread.
@@ -293,6 +296,160 @@ public class HTTP3ProductionEndToEndTest {
                 serverEngine.close();
             }
         }
+    }
+
+    /**
+     * RFC 9204's dynamic table (previously not wired in at all -- the H3
+     * layer used the static-table-only {@code SimpleEncoder}/{@code
+     * SimpleDecoder} pair) is now actually used end to end: a header the
+     * client's real {@link org.bluezoo.gumdrop.http.qpack.Encoder} can't
+     * find in the static table gets inserted and mirrored into the
+     * server's real {@link Decoder} via the QPACK encoder stream (RFC
+     * 9204 section 4.2) -- observed here as the server-side dynamic
+     * table's insert count -- and a second request repeating the exact
+     * same header reuses that entry (an indexed reference) rather than
+     * inserting it again, proving the wiring isn't just "doesn't crash"
+     * but actually compresses repeated headers.
+     *
+     * <p>The first request is a throwaway used only to force a full
+     * round trip (guaranteeing both sides' SETTINGS, including {@code
+     * SETTINGS_QPACK_MAX_TABLE_CAPACITY}, have been exchanged and
+     * processed) before the insert-count baseline is taken -- otherwise
+     * whether the very first request's encode call already saw a
+     * non-zero capacity would be a race against when the server's
+     * SETTINGS happens to arrive.
+     */
+    @Test
+    public void testDynamicTableEntryReusedAcrossRequests() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new DefaultHTTPRequestHandler() {
+                        @Override
+                        public void headers(HTTPResponseState state, Headers headers) {
+                            Headers response = new Headers();
+                            response.add(":status", "200");
+                            state.headers(response);
+                            state.complete();
+                        }
+                    };
+                }
+            };
+
+            final AtomicReference<HTTP3ServerHandler> serverHandlerRef = new AtomicReference<HTTP3ServerHandler>();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverHandlerRef.set(new HTTP3ServerHandler(
+                                    connection, handlerFactory, null, null, null, false));
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final AtomicReference<HTTP3ClientHandler> h3Ref = new AtomicReference<HTTP3ClientHandler>();
+            final CountDownLatch clientReady = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            h3Ref.set(new HTTP3ClientHandler(connection));
+                            clientReady.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientReady.await(5, TimeUnit.SECONDS));
+            HTTP3ClientHandler h3 = h3Ref.get();
+
+            // Request 1: throwaway, no custom header -- just to force a
+            // full round trip before taking the insert-count baseline.
+            sendGetAndAwait(h3, "/warmup", null, null);
+
+            Decoder serverDecoder = getQpackDecoder(serverHandlerRef.get());
+            long baseline = getInsertCount(serverDecoder);
+
+            // Request 2: a header not in the QPACK static table -- must
+            // be inserted (and mirrored server-side). Uses the exact same
+            // :path as request 3 below -- :path itself isn't in the QPACK
+            // static table either, so a *different* path per request would
+            // itself be a novel dynamic-table insertion each time and
+            // contaminate the insert-count delta this test is measuring.
+            sendGetAndAwait(h3, "/trace", "x-custom-trace-id", "1234567890abcdef0123456789abcdef");
+            long afterFirstUse = getInsertCount(serverDecoder);
+            assertTrue("A novel header should have been inserted into the dynamic table",
+                    afterFirstUse > baseline);
+
+            // Request 3: the exact same request again -- must be
+            // referenced (indexed), not inserted a second time.
+            sendGetAndAwait(h3, "/trace", "x-custom-trace-id", "1234567890abcdef0123456789abcdef");
+            long afterSecondUse = getInsertCount(serverDecoder);
+            assertEquals("Repeating the same header must reuse the existing dynamic table entry, "
+                    + "not insert a duplicate", afterFirstUse, afterSecondUse);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static void sendGetAndAwait(HTTP3ClientHandler h3, String path,
+            String extraHeaderName, String extraHeaderValue) throws Exception {
+        Headers requestHeaders = new Headers();
+        requestHeaders.add(":method", "GET");
+        requestHeaders.add(":scheme", "https");
+        requestHeaders.add(":authority", SERVER_NAME);
+        requestHeaders.add(":path", path);
+        if (extraHeaderName != null) {
+            requestHeaders.add(extraHeaderName, extraHeaderValue);
+        }
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+        h3.sendRequest(requestHeaders, new LatchResponseHandler(latch, failure), true);
+        assertTrue("Response to " + path + " should complete within 5s", latch.await(5, TimeUnit.SECONDS));
+        if (failure.get() != null) {
+            throw failure.get();
+        }
+    }
+
+    private static Decoder getQpackDecoder(HTTP3ServerHandler serverHandler) throws Exception {
+        Field f = HTTP3ServerHandler.class.getDeclaredField("qpackDecoder");
+        f.setAccessible(true);
+        return (Decoder) f.get(serverHandler);
+    }
+
+    private static long getInsertCount(Decoder decoder) throws Exception {
+        Field tableField = Decoder.class.getDeclaredField("table");
+        tableField.setAccessible(true);
+        Object table = tableField.get(decoder);
+        Method m = table.getClass().getDeclaredMethod("getInsertCount");
+        m.setAccessible(true);
+        return (Long) m.invoke(table);
     }
 
     /**

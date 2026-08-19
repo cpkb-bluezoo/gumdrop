@@ -28,6 +28,8 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
+import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
@@ -41,14 +43,27 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * -- the stream's type (a leading varint, RFC 9114 section 6.2) isn't
  * known until its first byte arrives, so a single generic handler
  * fields every peer-initiated uni stream and dispatches once the type
- * is read. For {@link #STREAM_TYPE_CONTROL}, an {@link H3Parser} is
- * wired up, expecting SETTINGS as the first frame (RFC 9114 section
- * 7.2.4) and GOAWAY thereafter (section 5.2); for any other type --
- * including the QPACK encoder/decoder streams (RFC 9204 section 4.2) a
- * peer may still open despite this implementation always advertising
- * {@code SETTINGS_QPACK_MAX_TABLE_CAPACITY} 0 -- all further bytes are
- * discarded, per RFC 9114 section 9's tolerance requirement for unknown
- * unidirectional stream types.
+ * is read:
+ * <ul>
+ * <li>{@link #STREAM_TYPE_CONTROL}: an {@link H3Parser} is wired up,
+ * expecting SETTINGS as the first frame (RFC 9114 section 7.2.4) and
+ * GOAWAY thereafter (section 5.2).</li>
+ * <li>{@link #STREAM_TYPE_QPACK_ENCODER} (RFC 9204 section 4.2): the
+ * peer's QPACK encoder instructions, fed into this connection's own
+ * {@link Decoder} via {@link Decoder#feedEncoderStream}; a rejected
+ * instruction (RFC 9204 section 3.2.3, e.g. a capacity exceeding our
+ * declared maximum) closes the connection with {@code
+ * QPACK_ENCODER_STREAM_ERROR}.</li>
+ * <li>{@link #STREAM_TYPE_QPACK_DECODER}: the peer's QPACK decoder
+ * instructions (Section Acknowledgment/Stream Cancellation/Insert Count
+ * Increment), fed into this connection's own {@link Encoder} via {@link
+ * Encoder#feedDecoderStream} -- these are all bare integers with no
+ * distinct malformed-content case, so there is nothing to check
+ * afterwards.</li>
+ * <li>Any other type: all further bytes are discarded, per RFC 9114
+ * section 9's tolerance requirement for unknown unidirectional stream
+ * types.</li>
+ * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -59,8 +74,17 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     /** RFC 9114 section 6.2.1. */
     private static final long STREAM_TYPE_CONTROL = 0x00;
 
+    /** RFC 9204 section 4.2. */
+    private static final long STREAM_TYPE_QPACK_ENCODER = 0x02;
+
+    /** RFC 9204 section 4.2. */
+    private static final long STREAM_TYPE_QPACK_DECODER = 0x03;
+
     /** RFC 9114 section 8.1: a frame was received that was not permitted in the current state. */
     private static final long H3_FRAME_UNEXPECTED = 0x105;
+
+    /** RFC 9204 section 3.2.3: a QPACK encoder-stream instruction could not be processed. */
+    private static final long QPACK_ENCODER_STREAM_ERROR = 0x02;
 
     /**
      * Notified of the meaningful events on the peer's control stream.
@@ -85,18 +109,23 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         void goawayReceived(long streamOrPushId);
     }
 
+    private enum StreamKind { CONTROL, QPACK_ENCODER, QPACK_DECODER, UNKNOWN }
+
     private final QuicConnection quicConnection;
     private final Listener listener;
+    private final Encoder qpackEncoder;
+    private final Decoder qpackDecoder;
 
     private int typeBytesNeeded = -1;
     private final ByteArrayOutputStream typeBuffer = new ByteArrayOutputStream(8);
-    private boolean typeKnown;
-    private boolean isControlStream;
+    private StreamKind kind;
     private H3Parser parser;
 
-    H3ControlStream(QuicConnection quicConnection, Listener listener) {
+    H3ControlStream(QuicConnection quicConnection, Listener listener, Encoder qpackEncoder, Decoder qpackDecoder) {
         this.quicConnection = quicConnection;
         this.listener = listener;
+        this.qpackEncoder = qpackEncoder;
+        this.qpackDecoder = qpackDecoder;
     }
 
     // ── ProtocolHandler ──
@@ -111,21 +140,33 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void receive(ByteBuffer data) {
-        if (!typeKnown) {
+        if (kind == null) {
             if (!readStreamType(data)) {
                 return;
             }
-            typeKnown = true;
-            if (isControlStream) {
+            if (kind == StreamKind.CONTROL) {
                 parser = new H3Parser(this);
             }
         }
-        if (isControlStream) {
-            parser.receive(data);
-        } else {
-            // RFC 9114 section 9: tolerate and discard unrecognised
-            // unidirectional stream types.
-            data.position(data.limit());
+        switch (kind) {
+            case CONTROL:
+                parser.receive(data);
+                break;
+            case QPACK_ENCODER:
+                qpackDecoder.feedEncoderStream(data);
+                String error = qpackDecoder.takeLastInstructionError();
+                if (error != null) {
+                    LOGGER.warning("QPACK encoder stream error: " + error);
+                    quicConnection.closeWithApplicationError(QPACK_ENCODER_STREAM_ERROR, error);
+                }
+                break;
+            case QPACK_DECODER:
+                qpackEncoder.feedDecoderStream(data);
+                break;
+            default:
+                // RFC 9114 section 9: tolerate and discard unrecognised
+                // unidirectional stream types.
+                data.position(data.limit());
         }
     }
 
@@ -151,7 +192,15 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
             return false;
         }
         long streamType = VarInt.decode(ByteBuffer.wrap(typeBuffer.toByteArray()));
-        isControlStream = (streamType == STREAM_TYPE_CONTROL);
+        if (streamType == STREAM_TYPE_CONTROL) {
+            kind = StreamKind.CONTROL;
+        } else if (streamType == STREAM_TYPE_QPACK_ENCODER) {
+            kind = StreamKind.QPACK_ENCODER;
+        } else if (streamType == STREAM_TYPE_QPACK_DECODER) {
+            kind = StreamKind.QPACK_DECODER;
+        } else {
+            kind = StreamKind.UNKNOWN;
+        }
         return true;
     }
 

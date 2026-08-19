@@ -53,8 +53,8 @@ import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
-import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
+import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
@@ -73,10 +73,11 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <p>Unlike the previous quiche-backed implementation, this class is
  * itself the QUIC stream's {@link ProtocolHandler} and {@link H3FrameHandler}
  * -- it owns its own {@link H3Parser}, fed directly from {@link #receive},
- * and decodes/encodes header blocks itself via {@link SimpleDecoder}/
- * {@link SimpleEncoder} (the static-table-only QPACK codec; the full
- * dynamic-table codec is not wired in yet, see the package documentation).
- * Response-body flow-control buffering, which the quiche-backed version
+ * and decodes/encodes header blocks itself via the connection-shared
+ * {@link Decoder}/{@link Encoder} (RFC 9204's full dynamic-table QPACK
+ * codec); any resulting encoder/decoder-stream instructions are flushed
+ * back through {@link HTTP3ServerHandler}, which owns the actual QPACK
+ * stream endpoints. Response-body flow-control buffering, which the quiche-backed version
  * duplicated per stream ({@code pendingWriteQueue}/{@code resumeWrite}),
  * is gone entirely -- {@link Endpoint#send} now buffers and paces that
  * itself, the same as every other protocol running over QUIC.
@@ -118,9 +119,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     private final HTTP3ServerHandler connection;
     private final H3Parser parser = new H3Parser(this);
-    private final SimpleEncoder qpackEncoder;
-    private final SimpleDecoder qpackDecoder;
+    private final Encoder qpackEncoder;
+    private final Decoder qpackDecoder;
     private QuicStreamEndpoint endpoint;
+    // Mirrors endpoint.getStreamId(), captured once in connected() so
+    // QPACK bookkeeping doesn't depend on endpoint being non-null (unit
+    // tests construct this class directly without ever calling
+    // connected() -- see H3StreamTest).
+    private long streamId;
 
     private State state;
     private HTTPRequestHandler handler;
@@ -134,6 +140,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private boolean responseBodyStarted;
     private List<Header> pendingResponseHeaders;
 
+    // RFC 9204 section 4.4.2: whether this stream's request field
+    // section was ever successfully decoded -- if not, and the stream
+    // ends anyway (reset, or the connection going away), the peer
+    // encoder must be told via cancelQpackStream so it releases any
+    // table references it made for this stream; otherwise they leak
+    // for the rest of the connection.
+    private boolean headersDecoded;
+
     private H3WebSocketConnectionAdapter webSocketAdapter;
 
     private Span span;
@@ -141,7 +155,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private int responseStatusCode;
     private long responseBodyBytes;
 
-    H3Stream(HTTP3ServerHandler connection, SimpleEncoder qpackEncoder, SimpleDecoder qpackDecoder) {
+    H3Stream(HTTP3ServerHandler connection, Encoder qpackEncoder, Decoder qpackDecoder) {
         this.connection = connection;
         this.qpackEncoder = qpackEncoder;
         this.qpackDecoder = qpackDecoder;
@@ -162,6 +176,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     @Override
     public void connected(Endpoint endpoint) {
         this.endpoint = (QuicStreamEndpoint) endpoint;
+        this.streamId = this.endpoint.getStreamId();
     }
 
     @Override
@@ -175,6 +190,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     @Override
     public void disconnected() {
+        // connection is only ever null when a test constructs this class
+        // directly without going through HTTP3ServerHandler (see
+        // H3StreamTest) -- never in production.
+        if (!headersDecoded && connection != null) {
+            connection.cancelQpackStream(streamId);
+        }
         // The QUIC layer delivers both a clean FIN and a peer
         // RESET_STREAM through this same callback (see QuicConnection);
         // there is no way from here to tell which one this was, so both
@@ -188,6 +209,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     @Override
     public void error(Exception cause) {
+        if (!headersDecoded && connection != null) {
+            connection.cancelQpackStream(streamId);
+        }
         if (span != null && !span.isEnded()) {
             span.recordError(ErrorCategory.CONNECTION_LOST, L10N.getString("telemetry.stream_closed_abnormally"));
             span.end();
@@ -220,23 +244,32 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
         List<Header> fields;
         try {
-            fields = qpackDecoder.decode(encodedFieldSection);
+            fields = qpackDecoder.decode(streamId, encodedFieldSection);
         } catch (ProtocolException e) {
-            // RFC 9204 section 4.5.1: with a static-table-only decoder,
-            // a field section it can't process is always this stream's
-            // own malformed HEADERS -- cancelling just this stream (as
-            // opposed to tearing down the whole connection, which is
-            // only strictly required once dynamic-table state can be
-            // desynchronized) is sufficient here.
+            // Treated as this stream's own malformed HEADERS -- cancelling
+            // just this stream, rather than tearing down the whole
+            // connection, is a deliberate simplification: a real peer
+            // encoder could in principle desynchronize the shared dynamic
+            // table in a way that surfaces here, but gumdrop has no way
+            // to distinguish that from an ordinary malformed field
+            // section from this exception alone.
             LOGGER.log(Level.WARNING, "QPACK decode failed", e);
             cancel();
             return;
         }
+        headersDecoded = true;
         Headers headers = new Headers();
         for (Header field : fields) {
             headers.add(field);
         }
         onHeaders(headers);
+        // connection is only ever null in a test that constructs this
+        // class directly (see H3StreamTest); deferred until after
+        // onHeaders() so it never runs ahead of the pre-existing
+        // request-validation logic there.
+        if (connection != null) {
+            connection.flushQpackDecoderInstructions();
+        }
     }
 
     private void onHeaders(Headers headers) {
@@ -897,10 +930,13 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     // response at the frame level -- it's just another HEADERS frame.
     private void sendHeaderFrame(List<Header> fields, boolean fin) {
         ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(fields));
-        qpackEncoder.encode(fieldSection, fields);
+        ByteBuffer encoderInstructions = ByteBuffer.allocate(estimateFieldSectionCapacity(fields));
+        qpackEncoder.encode(fieldSection, encoderInstructions, streamId, fields);
         fieldSection.flip();
         byte[] encoded = new byte[fieldSection.remaining()];
         fieldSection.get(encoded);
+        encoderInstructions.flip();
+        connection.flushQpackEncoderInstructions(encoderInstructions);
 
         ByteBuffer out = ByteBuffer.allocate(H3Writer.headersLength(encoded.length));
         H3Writer.writeHeaders(out, encoded);

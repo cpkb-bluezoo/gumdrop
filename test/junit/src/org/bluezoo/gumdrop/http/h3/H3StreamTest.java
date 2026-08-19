@@ -26,7 +26,8 @@ import java.util.List;
 import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
+import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 
@@ -171,11 +172,15 @@ public class H3StreamTest {
     }
 
     private H3Stream createStream() throws Exception {
+        // connection is null: this test exercises request validation in
+        // isolation, without a real HTTP3ServerHandler/QuicConnection
+        // stack -- H3Stream tolerates this (see its own source).
         Constructor<H3Stream> ctor = H3Stream.class.getDeclaredConstructor(
-                HTTP3ServerHandler.class, org.bluezoo.gumdrop.http.qpack.SimpleEncoder.class,
-                SimpleDecoder.class);
+                HTTP3ServerHandler.class, Encoder.class, Decoder.class);
         ctor.setAccessible(true);
-        return ctor.newInstance(null, new SimpleEncoder(), new SimpleDecoder());
+        H3Stream stream = ctor.newInstance(null, new Encoder(4096), new Decoder(4096));
+        setField(stream, "streamId", 1L);
+        return stream;
     }
 
     private static ByteBuffer encode(String... pairs) {
