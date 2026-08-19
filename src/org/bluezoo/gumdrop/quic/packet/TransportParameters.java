@@ -37,11 +37,11 @@ import java.nio.ByteBuffer;
  * {@code initial_max_*} flow control limits. {@code ack_delay_exponent}
  * and {@code max_ack_delay} are not sent -- their RFC-specified defaults
  * (3 and 25ms) apply when absent, which is fine until real loss-recovery
- * timing needs tuning. {@code stateless_reset_token},
- * {@code preferred_address}, and {@code active_connection_id_limit} are
- * not implemented, since neither connection migration, preferred
- * addresses, nor non-zero-length connection ID rotation are supported
- * yet. Unknown parameters received from a peer are ignored, per RFC 9000
+ * timing needs tuning. {@code stateless_reset_token} is sent by servers
+ * so peers can recognise a stateless reset for the handshake connection
+ * ID (RFC 9000 section 10.3). {@code preferred_address} and
+ * {@code active_connection_id_limit} are not implemented yet. Unknown
+ * parameters received from a peer are ignored, per RFC 9000
  * section 18.1.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -52,6 +52,8 @@ public final class TransportParameters {
     /** Server-only: the client's original Destination Connection ID (RFC 9000 section 7.3). */
     public static final long ORIGINAL_DESTINATION_CONNECTION_ID = 0x00;
     public static final long MAX_IDLE_TIMEOUT = 0x01;
+    /** Server-only: token for the handshake connection ID (RFC 9000 section 18.2). */
+    public static final long STATELESS_RESET_TOKEN = 0x02;
     public static final long MAX_UDP_PAYLOAD_SIZE = 0x03;
     public static final long INITIAL_MAX_DATA = 0x04;
     public static final long INITIAL_MAX_STREAM_DATA_BIDI_LOCAL = 0x05;
@@ -78,6 +80,7 @@ public final class TransportParameters {
     private long initialMaxStreamsUni;
     private byte[] initialSourceConnectionId;
     private byte[] retrySourceConnectionId;
+    private byte[] statelessResetToken;
 
     public byte[] getOriginalDestinationConnectionId() {
         return originalDestinationConnectionId;
@@ -168,6 +171,25 @@ public final class TransportParameters {
     }
 
     /**
+     * Returns the stateless reset token for the handshake connection ID,
+     * or {@code null} if none was sent (client endpoints never send this).
+     *
+     * @return the 16-byte token, or {@code null}
+     */
+    public byte[] getStatelessResetToken() {
+        return statelessResetToken;
+    }
+
+    /**
+     * Sets the stateless reset token (server-only transport parameter).
+     *
+     * @param statelessResetToken the 16-byte token
+     */
+    public void setStatelessResetToken(byte[] statelessResetToken) {
+        this.statelessResetToken = statelessResetToken;
+    }
+
+    /**
      * Encodes these parameters as the transport-parameters TLV list
      * (RFC 9000 section 18.1) -- the extension_data of the
      * quic_transport_parameters TLS extension (RFC 9001 section 8.2),
@@ -194,6 +216,9 @@ public final class TransportParameters {
         if (retrySourceConnectionId != null) {
             size += entryLength(RETRY_SOURCE_CONNECTION_ID, retrySourceConnectionId.length);
         }
+        if (statelessResetToken != null) {
+            size += entryLength(STATELESS_RESET_TOKEN, statelessResetToken.length);
+        }
 
         ByteBuffer buf = ByteBuffer.allocate(size);
         writeVarIntParam(buf, MAX_IDLE_TIMEOUT, maxIdleTimeout);
@@ -212,6 +237,9 @@ public final class TransportParameters {
         }
         if (retrySourceConnectionId != null) {
             writeBytesParam(buf, RETRY_SOURCE_CONNECTION_ID, retrySourceConnectionId);
+        }
+        if (statelessResetToken != null) {
+            writeBytesParam(buf, STATELESS_RESET_TOKEN, statelessResetToken);
         }
         return buf.array();
     }
@@ -276,6 +304,9 @@ public final class TransportParameters {
             } else if (id == RETRY_SOURCE_CONNECTION_ID) {
                 params.retrySourceConnectionId = new byte[length];
                 buf.get(params.retrySourceConnectionId);
+            } else if (id == STATELESS_RESET_TOKEN) {
+                params.statelessResetToken = new byte[length];
+                buf.get(params.statelessResetToken);
             }
             // RFC 9000 section 18.1: ignore parameters we don't understand.
 

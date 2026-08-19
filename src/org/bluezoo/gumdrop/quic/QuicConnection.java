@@ -61,6 +61,7 @@ import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
 import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
 import org.bluezoo.gumdrop.quic.packet.RetryPacket;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
+import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.SentPacket;
@@ -100,9 +101,10 @@ import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
  * or otherwise initiating migration on this endpoint's own accord,
  * concurrent multi-path use, {@code preferred_address}, a separate
  * anti-amplification budget for the new path before it validates (the
- * existing budget is reused as-is), and stateless-reset detection on
- * either path (nothing in this codebase currently recognises an incoming
- * stateless reset at all, not just on a migrated path).
+ * existing budget is reused as-is), and stateless-reset detection when
+ * a datagram cannot be decrypted or parsed as a valid short-header
+ * packet but its tail matches a known peer reset token (RFC 9000
+ * section 10.3).
  *
  * <p>Out-of-order and overlapping STREAM data is reassembled into stream
  * order before delivery to the handler, via a per-stream {@link
@@ -382,6 +384,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private byte[] pendingPathChallengeData;
     private InetSocketAddress currentDatagramSource;
     private boolean sawValidOneRttThisReceive;
+    private boolean decryptFailedOrUnparseableThisDatagram;
 
     private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
 
@@ -530,6 +533,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    List<byte[]> getOurConnectionIds() {
+        return connectionIdManager.collectOurConnectionIds();
     }
 
     /**
@@ -821,6 +828,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         suppressFlush = true;
         currentDatagramSource = source;
         sawValidOneRttThisReceive = false;
+        decryptFailedOrUnparseableThisDatagram = false;
         try {
             while (offset < bytes.length) {
                 int consumed = receiveOnePacket(bytes, offset);
@@ -831,6 +839,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         } finally {
             suppressFlush = false;
+        }
+        maybeCloseOnStatelessReset(bytes, 0, bytes.length);
+        if (closed) {
+            return;
         }
         // A successfully decrypted 1-RTT packet proves the peer holds the
         // 1-RTT keys -- an off-path attacker can't forge that, so a
@@ -876,6 +888,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             try {
                 prefix = LongHeaderCodec.parsePrefix(fromOffset);
             } catch (RuntimeException e) {
+                decryptFailedOrUnparseableThisDatagram = true;
                 return -1;
             }
             isZeroRtt = prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT;
@@ -893,6 +906,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             packetLength = bytes.length - offset;
         }
         if (packetLength <= pnOffset || offset + packetLength > bytes.length) {
+            decryptFailedOrUnparseableThisDatagram = true;
             return -1;
         }
         byte[] packet = new byte[packetLength];
@@ -1039,7 +1053,47 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         } catch (PacketProtectionException e) {
             LOGGER.log(Level.FINE, "Packet protection failure at " + level + "; dropping", e);
+            if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
+                decryptFailedOrUnparseableThisDatagram = true;
+            }
         }
+    }
+
+    private void maybeCloseOnStatelessReset(byte[] datagram, int offset, int length) {
+        if (closed || !decryptFailedOrUnparseableThisDatagram || sawValidOneRttThisReceive) {
+            return;
+        }
+        if (!StatelessResetPacket.matchesAnyKnownToken(datagram, offset, length,
+                connectionIdManager.collectPeerResetTokens())) {
+            return;
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(L10N.getString("fine.stateless_reset_detected"));
+        }
+        closeFromStatelessReset();
+    }
+
+    /**
+     * Handles a datagram that could not be demultiplexed by connection ID
+     * but whose tail matches a known peer reset token (RFC 9000 section
+     * 10.3 -- stateless reset packets do not carry a valid DCID).
+     *
+     * @param datagram the received datagram
+     * @return {@code true} if this connection accepted the reset
+     */
+    boolean handleIncomingStatelessResetDatagram(byte[] datagram) {
+        if (closed || datagram.length < StatelessResetPacket.MIN_DATAGRAM_LENGTH) {
+            return false;
+        }
+        if (!StatelessResetPacket.matchesAnyKnownToken(datagram, 0, datagram.length,
+                connectionIdManager.collectPeerResetTokens())) {
+            return false;
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(L10N.getString("fine.stateless_reset_detected"));
+        }
+        closeFromStatelessReset();
+        return true;
     }
 
 
@@ -1252,7 +1306,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void retireConnectionIdFrameReceived(long sequenceNumber) {
             ackEliciting = true;
+            byte[] retired = connectionIdManager.getOurConnectionId(sequenceNumber);
             connectionIdManager.retireOurs(sequenceNumber);
+            if (retired != null) {
+                engine.unregisterConnectionId(retired);
+                engine.markResetEligible(retired);
+            }
         }
 
         @Override
@@ -1912,6 +1971,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : java.util.Collections.<long[]>emptyList();
         List<ConnectionIdEntry> newCidsToSend = oneRtt
                 ? connectionIdManager.drainPendingIssuance() : java.util.Collections.<ConnectionIdEntry>emptyList();
+        for (ConnectionIdEntry issued : newCidsToSend) {
+            engine.registerConnectionId(issued.getConnectionId(), this);
+        }
         long[] retiresToSend = oneRtt ? connectionIdManager.drainPendingRetirement() : new long[0];
         boolean includeMaxData = oneRtt && maxDataOwed;
         Map<Long, Long> maxStreamDataToSend = oneRtt
@@ -2350,11 +2412,54 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 LOGGER.log(Level.FINE, "Failed to send CONNECTION_CLOSE", e);
             }
         }
+        tearDownStreams();
+        engine.onConnectionClosed(this);
+    }
+
+    /**
+     * Drops local connection state without notifying the peer (no
+     * CONNECTION_CLOSE, no stream teardown). Used when this endpoint
+     * has forgotten the connection but the peer may still send
+     * packets -- RFC 9000 section 10.3 stateless reset send path.
+     */
+    void dropLocalState() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        if (timerHandle != null) {
+            timerHandle.cancel();
+            timerHandle = null;
+        }
+        engine.onConnectionClosed(this);
+    }
+
+    private void closeFromStatelessReset() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        if (timerHandle != null) {
+            timerHandle.cancel();
+            timerHandle = null;
+        }
+        deferredCloseIsError = true;
+        tearDownStreams(new QuicStatelessResetException());
+        engine.onConnectionClosed(this);
+    }
+
+    private void tearDownStreams() {
+        tearDownStreams(deferredCloseIsError
+                ? new QuicConnectionCloseException(
+                        deferredCloseApplicationError, deferredCloseErrorCode, deferredCloseReason)
+                : null);
+    }
+
+    private void tearDownStreams(Exception streamError) {
         for (QuicStreamEndpoint stream : streams.values()) {
             stream.markClosed();
-            if (deferredCloseIsError) {
-                stream.getHandler().error(new QuicConnectionCloseException(
-                        deferredCloseApplicationError, deferredCloseErrorCode, deferredCloseReason));
+            if (streamError != null) {
+                stream.getHandler().error(streamError);
             } else {
                 stream.getHandler().disconnected();
             }
@@ -2511,6 +2616,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         this.peerTransportParameters = transportParameters;
         peerMaxData = transportParameters.getInitialMaxData();
+        if (!isServer) {
+            byte[] resetToken = transportParameters.getStatelessResetToken();
+            if (resetToken != null) {
+                connectionIdManager.setPeerHandshakeResetToken(resetToken);
+            }
+        }
     }
 
     @Override

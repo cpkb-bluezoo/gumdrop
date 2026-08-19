@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 
@@ -353,6 +354,10 @@ public class QuicTransportFactory extends TransportFactory {
         return retryTokenKey;
     }
 
+    long getMaxIdleTimeout() {
+        return maxIdleTimeout;
+    }
+
     /**
      * Builds a fresh {@link TransportParameters} from this factory's
      * configured limits, for a new connection with the given
@@ -362,6 +367,19 @@ public class QuicTransportFactory extends TransportFactory {
      * @return the transport parameters
      */
     TransportParameters buildTransportParameters(byte[] initialSourceConnectionId) {
+        return buildTransportParameters(initialSourceConnectionId, false);
+    }
+
+    /**
+     * Builds transport parameters for a new connection.
+     *
+     * @param initialSourceConnectionId the new connection's own connection ID
+     * @param server {@code true} to include a server-only
+     *               {@code stateless_reset_token} for the handshake
+     *               connection ID
+     * @return the transport parameters
+     */
+    TransportParameters buildTransportParameters(byte[] initialSourceConnectionId, boolean server) {
         TransportParameters params = new TransportParameters();
         params.setInitialSourceConnectionId(initialSourceConnectionId);
         params.setMaxIdleTimeout(maxIdleTimeout);
@@ -371,6 +389,10 @@ public class QuicTransportFactory extends TransportFactory {
         params.setInitialMaxStreamDataUni(maxStreamDataUni);
         params.setInitialMaxStreamsBidi(maxStreamsBidi);
         params.setInitialMaxStreamsUni(maxStreamsUni);
+        if (server) {
+            params.setStatelessResetToken(
+                    StatelessResetToken.generate(connectionIdStaticKey, initialSourceConnectionId));
+        }
         return params;
     }
 

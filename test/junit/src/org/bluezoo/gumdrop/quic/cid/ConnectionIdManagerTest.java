@@ -115,6 +115,43 @@ public class ConnectionIdManagerTest {
     }
 
     @Test
+    public void testSetPeerHandshakeResetToken() {
+        ConnectionIdManager manager = newManager();
+        byte[] token = token(9);
+        manager.setPeerHandshakeResetToken(token);
+        ConnectionIdEntry active = manager.getActivePeerConnectionId();
+        assertEquals(0, active.getSequenceNumber());
+        assertArrayEquals(token, active.getStatelessResetToken());
+    }
+
+    @Test
+    public void testCollectPeerResetTokensSkipsNullHandshakeToken() {
+        ConnectionIdManager manager = newManager();
+        assertTrue(manager.collectPeerResetTokens().isEmpty());
+        manager.setPeerHandshakeResetToken(token(7));
+        manager.addPeerConnectionId(1, 0, cid(1), token(8));
+        List<byte[]> tokens = manager.collectPeerResetTokens();
+        assertEquals(2, tokens.size());
+    }
+
+    @Test
+    public void testCollectOurConnectionIds() {
+        ConnectionIdManager manager = newManager();
+        manager.setPeerAdvertisedLimit(10);
+        manager.issueNext();
+        List<byte[]> ids = manager.collectOurConnectionIds();
+        assertEquals(2, ids.size());
+        assertArrayEquals(OUR_HANDSHAKE_CID, ids.get(0));
+    }
+
+    @Test
+    public void testGetOurConnectionId() {
+        ConnectionIdManager manager = newManager();
+        assertArrayEquals(OUR_HANDSHAKE_CID, manager.getOurConnectionId(0));
+        assertNull(manager.getOurConnectionId(99));
+    }
+
+    @Test
     public void testRetireOursRemovesEntryAndAllowsReissue() {
         ConnectionIdManager manager = newManager(); // default limit 2
         ConnectionIdEntry issued = manager.issueNext();

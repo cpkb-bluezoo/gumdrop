@@ -30,6 +30,7 @@ import java.nio.channels.SelectionKey;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -51,10 +52,13 @@ import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.ratelimit.RateLimiter;
+import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
 import org.bluezoo.gumdrop.quic.packet.RetryIntegrityTag;
 import org.bluezoo.gumdrop.quic.packet.RetryToken;
+import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
@@ -105,6 +109,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     /** How long a Retry Token remains valid, bounding replay of a captured token. */
     private static final long RETRY_TOKEN_MAX_AGE_MILLIS = 30_000;
 
+    /** Fallback TTL for stateless reset eligibility when max_idle_timeout is zero. */
+    private static final long RESET_ELIGIBLE_FALLBACK_MS = 30_000;
+
+    /** Per-source-address cap on outbound stateless resets (RFC 9000 section 10.3.3). */
+    private static final int RESET_RATE_LIMIT_MAX = 10;
+    private static final long RESET_RATE_LIMIT_WINDOW_MS = 1_000;
+
     private final QuicTransportFactory factory;
     private final boolean serverMode;
     private final byte[] connectionIdStaticKey;
@@ -115,6 +126,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private ByteBuffer recvBuf;
 
     private final Map<String, QuicConnection> connections = new HashMap<String, QuicConnection>();
+    private final Map<String, Long> resetEligibleUntil = new HashMap<String, Long>();
+    private final Map<String, RateLimiter> resetRateLimiters = new HashMap<String, RateLimiter>();
     private QuicConnection clientConnection;
 
     private StreamAcceptHandler streamAcceptHandler;
@@ -259,31 +272,36 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         String key = ByteArrays.toHexString(dcid);
         QuicConnection conn = connections.get(key);
         if (conn == null) {
-            if (!serverMode || prefix == null || prefix.getPacketType() != LongHeaderCodec.TYPE_INITIAL) {
-                return; // unknown connection, and not a new client Initial we can accept
-            }
-            if (factory.isRequireRetry()) {
-                byte[] originalDcid = null;
-                byte[] token = prefix.getToken();
-                if (token.length > 0) {
-                    originalDcid = RetryToken.unseal(factory.getRetryTokenKey(), token, source.getAddress(),
-                            RETRY_TOKEN_MAX_AGE_MILLIS);
+            if (serverMode && prefix != null && prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL) {
+                if (factory.isRequireRetry()) {
+                    byte[] originalDcid = null;
+                    byte[] token = prefix.getToken();
+                    if (token.length > 0) {
+                        originalDcid = RetryToken.unseal(factory.getRetryTokenKey(), token, source.getAddress(),
+                                RETRY_TOKEN_MAX_AGE_MILLIS);
+                    }
+                    if (originalDcid == null) {
+                        sendRetry(prefix.getSourceConnectionId(), dcid, source);
+                        return;
+                    }
+                    conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, originalDcid, dcid, true);
+                } else {
+                    conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, dcid, null, false);
                 }
-                if (originalDcid == null) {
-                    sendRetry(prefix.getSourceConnectionId(), dcid, source);
+                if (conn == null) {
                     return;
                 }
-                conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, originalDcid, dcid, true);
             } else {
-                conn = acceptConnection(dcid, prefix.getSourceConnectionId(), source, dcid, null, false);
-            }
-            if (conn == null) {
+                if (tryHandleStatelessResetForPeer(bytes, source)) {
+                    return;
+                }
+                trySendStatelessReset(dcid, bytes, source);
                 return;
             }
         }
         conn.receive(ByteBuffer.wrap(bytes), source);
-        if (conn.isClosed()) {
-            connections.remove(key);
+        if (conn.isClosed() && clientConnection == conn) {
+            clientConnection = null;
         }
     }
 
@@ -332,7 +350,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         // never actually registered under.
         byte[] serverScid = retrySourceConnectionId != null ? retrySourceConnectionId : generateConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
-        TransportParameters localParams = factory.buildTransportParameters(serverScid);
+        TransportParameters localParams = factory.buildTransportParameters(serverScid, true);
         localParams.setOriginalDestinationConnectionId(originalDcidForParams);
         if (retrySourceConnectionId != null) {
             localParams.setRetrySourceConnectionId(retrySourceConnectionId);
@@ -357,8 +375,101 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         } else if (streamAcceptHandler != null) {
             conn.setStreamAcceptHandler(streamAcceptHandler);
         }
-        connections.put(ByteArrays.toHexString(serverScid), conn);
+        registerConnectionId(serverScid, conn);
         return conn;
+    }
+
+    void registerConnectionId(byte[] connectionId, QuicConnection connection) {
+        connections.put(ByteArrays.toHexString(connectionId), connection);
+    }
+
+    void unregisterConnectionId(byte[] connectionId) {
+        connections.remove(ByteArrays.toHexString(connectionId));
+    }
+
+    void markResetEligible(byte[] connectionId) {
+        long ttl = factory.getMaxIdleTimeout();
+        if (ttl <= 0) {
+            ttl = RESET_ELIGIBLE_FALLBACK_MS;
+        }
+        markResetEligible(connectionId, System.currentTimeMillis() + ttl);
+    }
+
+    void markResetEligible(byte[] connectionId, long expiryMillis) {
+        resetEligibleUntil.put(ByteArrays.toHexString(connectionId), Long.valueOf(expiryMillis));
+    }
+
+    void onConnectionClosed(QuicConnection connection) {
+        if (!connections.containsValue(connection)) {
+            return;
+        }
+        for (byte[] connectionId : connection.getOurConnectionIds()) {
+            markResetEligible(connectionId);
+        }
+        removeConnection(connection);
+    }
+
+    private void removeConnection(QuicConnection connection) {
+        Iterator<Map.Entry<String, QuicConnection>> it = connections.entrySet().iterator();
+        while (it.hasNext()) {
+            if (it.next().getValue() == connection) {
+                it.remove();
+            }
+        }
+    }
+
+    private boolean isResetEligible(byte[] connectionId) {
+        Long expiry = resetEligibleUntil.get(ByteArrays.toHexString(connectionId));
+        if (expiry == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() > expiry.longValue()) {
+            resetEligibleUntil.remove(ByteArrays.toHexString(connectionId));
+            return false;
+        }
+        return true;
+    }
+
+    private boolean tryHandleStatelessResetForPeer(byte[] datagram, InetSocketAddress source) {
+        if (datagram.length < StatelessResetPacket.MIN_DATAGRAM_LENGTH) {
+            return false;
+        }
+        for (QuicConnection conn : new ArrayList<QuicConnection>(connections.values())) {
+            if (conn.isClosed() || !source.equals(conn.getRemoteAddress())) {
+                continue;
+            }
+            if (conn.handleIncomingStatelessResetDatagram(datagram)) {
+                if (clientConnection == conn) {
+                    clientConnection = null;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void trySendStatelessReset(byte[] dcid, byte[] received, InetSocketAddress source) {
+        if (received.length < StatelessResetPacket.MIN_DATAGRAM_LENGTH || !isResetEligible(dcid)) {
+            return;
+        }
+        String sourceKey = source.getAddress().getHostAddress();
+        RateLimiter limiter = resetRateLimiters.get(sourceKey);
+        if (limiter == null) {
+            limiter = new RateLimiter(RESET_RATE_LIMIT_MAX, RESET_RATE_LIMIT_WINDOW_MS);
+            resetRateLimiters.put(sourceKey, limiter);
+        }
+        if (!limiter.tryAcquire()) {
+            return;
+        }
+        byte[] token = StatelessResetToken.generate(connectionIdStaticKey, dcid);
+        byte[] reset = StatelessResetPacket.build(received.length, token, RANDOM);
+        if (reset == null) {
+            return;
+        }
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine(L10N.getString("fine.stateless_reset_sent"));
+        }
+        sendTo(source, reset);
     }
 
     /**
@@ -489,7 +600,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             conn.setEarlyDataHandler(earlyDataHandler);
         }
         clientConnection = conn;
-        connections.put(ByteArrays.toHexString(clientScid), conn);
+        registerConnectionId(clientScid, conn);
 
         try {
             conn.startHandshake(serverName);

@@ -155,6 +155,72 @@ public final class ConnectionIdManager {
     }
 
     /**
+     * Records the stateless reset token the peer advertised for its
+     * handshake connection ID (sequence number 0) via the
+     * {@code stateless_reset_token} transport parameter (RFC 9000
+     * section 18.2).
+     *
+     * @param token the 16-byte token
+     */
+    public void setPeerHandshakeResetToken(byte[] token) {
+        for (int i = 0; i < peers.size(); i++) {
+            ConnectionIdEntry entry = peers.get(i);
+            if (entry.getSequenceNumber() == 0) {
+                peers.set(i, new ConnectionIdEntry(0, entry.getConnectionId(), token));
+                return;
+            }
+        }
+    }
+
+    /**
+     * Returns every non-null stateless reset token the peer has issued,
+     * for datagram-level reset detection (RFC 9000 section 10.3.1).
+     *
+     * @return the known peer tokens, possibly empty
+     */
+    public List<byte[]> collectPeerResetTokens() {
+        List<byte[]> tokens = new ArrayList<byte[]>();
+        for (ConnectionIdEntry entry : peers) {
+            byte[] token = entry.getStatelessResetToken();
+            if (token != null) {
+                tokens.add(token);
+            }
+        }
+        return tokens;
+    }
+
+    /**
+     * Returns every connection ID this endpoint has issued to the peer
+     * (the {@link #ours} pool), for demux deregistration and stateless
+     * reset eligibility after close.
+     *
+     * @return the issued connection IDs, possibly empty
+     */
+    public List<byte[]> collectOurConnectionIds() {
+        List<byte[]> ids = new ArrayList<byte[]>(ours.size());
+        for (ConnectionIdEntry entry : ours) {
+            ids.add(entry.getConnectionId());
+        }
+        return ids;
+    }
+
+    /**
+     * Returns the connection ID this endpoint issued with the given
+     * sequence number, or {@code null} if none is currently active.
+     *
+     * @param sequenceNumber the sequence number to look up
+     * @return the connection ID, or {@code null}
+     */
+    public byte[] getOurConnectionId(long sequenceNumber) {
+        for (ConnectionIdEntry entry : ours) {
+            if (entry.getSequenceNumber() == sequenceNumber) {
+                return entry.getConnectionId();
+            }
+        }
+        return null;
+    }
+
+    /**
      * Mints a new connection ID for the peer to use as a Destination
      * Connection ID, queuing it for {@link #drainPendingIssuance}.
      *

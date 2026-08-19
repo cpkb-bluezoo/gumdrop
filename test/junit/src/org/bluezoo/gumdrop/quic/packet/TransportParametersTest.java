@@ -87,6 +87,20 @@ public class TransportParametersTest {
     }
 
     @Test
+    public void testServerParametersIncludeStatelessResetToken() {
+        TransportParameters params = new TransportParameters();
+        byte[] scid = ByteArrays.toByteArray("aabbccddeeff00112233445566778899");
+        byte[] token = ByteArrays.toByteArray("0123456789abcdef0123456789abcdef");
+        params.setInitialSourceConnectionId(scid);
+        params.setStatelessResetToken(token);
+
+        byte[] encoded = params.encode();
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(encoded));
+
+        assertArrayEquals(token, decoded.getStatelessResetToken());
+    }
+
+    @Test
     public void testUnknownParameterIsIgnored() {
         // A well-formed but unrecognised parameter (id 0x20) followed by
         // a recognised one (initial_max_data) must not disrupt decoding.
