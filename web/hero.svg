@@ -285,7 +285,7 @@
     <text x="0" y="120" class="title-text" filter="url(#textGlow)">gumdrop</text>
     
     <!-- Subtitle -->
-    <text x="0" y="150" class="subtitle-text">Java Multiprotocol Server Framework</text>
+    <text x="0" y="150" class="subtitle-text">100% Pure Java Multiprotocol Server Framework</text>
     
     <!-- Feature badges -->
     <g transform="translate(0, 180)">
@@ -366,8 +366,9 @@
     </g>
 
     <!-- Call to action hint -->
-    <g transform="translate(0, 360)">
-      <text x="0" y="0" opacity="0.7" class="trailer-text">Cutting-Edge HTTP/3 Support</text>
+    <g transform="translate(0, 356)">
+      <text x="0" y="0" opacity="0.85" class="trailer-text" font-weight="700">100% pure Java</text>
+      <text x="0" y="16" opacity="0.6" class="trailer-text">Cutting-edge HTTP/3 and QUIC support</text>
     </g>
   </g>
 

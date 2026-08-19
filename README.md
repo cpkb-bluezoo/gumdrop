@@ -10,6 +10,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Java-17+-orange?style=flat-square" alt="Java 17+"/>
+  <img src="https://img.shields.io/badge/100%25-Pure%20Java-brightgreen?style=flat-square" alt="100% Pure Java"/>
   <img src="https://img.shields.io/badge/License-LGPL%20v3-blue?style=flat-square" alt="LGPL v3"/>
   <img src="https://img.shields.io/badge/Dependencies-Low-brightgreen?style=flat-square" alt="Low Dependencies"/>
 </p>
@@ -21,10 +22,17 @@ non-blocking, event-driven I/O.
 
 ## Why Gumdrop?
 
+- 100% pure Java
+    - no JNI, no native libraries, nothing to compile beyond `ant`
+    - runs unmodified on any JVM 17+ platform
+    - even QUIC/HTTP-3 and TLS 1.3 — usually the hardest protocols to get
+      pure-Java — have zero native dependencies
 - HTTP/3 and QUIC support
     - one of very few Java frameworks with HTTP/3 server support
       (only Netty offers comparable capability; JDK 26's JEP 517 is
       client-only)
+    - pure Java implementation, unlike alternatives built on native
+      quiche/BoringSSL via JNI
     - servlet container runs transparently on top of HTTP/3
 - high performance
     - Java NIO non-blocking I/O throughout
@@ -51,13 +59,13 @@ non-blocking, event-driven I/O.
     - implement services without detailed protocol knowledge
     - pluggable authentication via Realm interface
     - pluggable storage via MailboxFactory interface
-- low external dependencies
-    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), [quiche](https://github.com/cloudflare/quiche) (QUIC/HTTP3), and J2EE APIs
-    - self-contained implementations (protobuf, HPACK, ASN.1, OTel, etc.)
+- low external dependencies, all pure Java
+    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), [agent15](https://github.com/ptrd/agent15) (TLS 1.3, used for QUIC), and J2EE APIs
+    - self-contained implementations (QUIC/HTTP-3, protobuf, HPACK, ASN.1, OTel, etc.)
     - no dependency injection framework required
 - requires Java 17+ (LTS)
     - UNIX domain socket support available natively
-    - QUIC support requires native library (optional)
+    - no native library or build step required for any feature, including QUIC/HTTP-3
 - transparent security
     - TLS/DTLS handled automatically by framework
     - configure once, apply to multiple endpoints
@@ -93,7 +101,7 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
   connections from clients
     - TCP servers with TLS support
     - UDP servers with DTLS support
-    - QUIC support via [quiche](https://github.com/cloudflare/quiche)/BoringSSL (TLS 1.3 always-on)
+    - QUIC support, pure Java implementation (TLS 1.3 always-on)
     - fully transparent SSL support for all protocols
         - keystore/truststore configuration
         - client certificates
@@ -119,10 +127,10 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
         - uses same event-driven asynchronous architecture for peers
         - can use I/O worker thread affinity to avoid context switching
 - HTTP
-    - HTTP/3 over QUIC
-        - full HTTP/3 client and server via [quiche](https://github.com/cloudflare/quiche)/BoringSSL
-        - QPACK header compression (via [quiche](https://github.com/cloudflare/quiche))
-        - HTTP/3 framing/stream multiplexing (via [quiche](https://github.com/cloudflare/quiche) h3 module)
+    - HTTP/3 over QUIC, 100% pure Java — no JNI, no native library
+        - full HTTP/3 client and server
+        - QPACK header compression
+        - HTTP/3 framing/stream multiplexing
         - request pseudo-header validation, 1xx informational responses
         - Priority header (RFC 9218), GOAWAY last-stream-ID tracking
         - configurable QUIC transport parameters
@@ -481,7 +489,7 @@ See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web
 
 ## Building and running
 
-For build, run, and QUIC support instructions, see [BUILDING.md](BUILDING.md).
+For build and run instructions, see [BUILDING.md](BUILDING.md).
 
 ## Logo
 
