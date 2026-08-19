@@ -40,6 +40,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
+import org.bluezoo.gumdrop.dns.client.ResolvConf;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
 import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 
@@ -611,6 +612,11 @@ public class Gumdrop {
         // first DNSResolver.resolve after accept cannot stall a reactor
         // thread on cold hosts-file I/O.
         HostsFile.warm();
+
+        // Parse /etc/resolv.conf once off the selector so the first
+        // DNSResolver.forLoop() call cannot stall a reactor thread on cold
+        // resolver-configuration I/O (see ResolvConf.warm()).
+        ResolvConf.warm();
 
         // Create or recreate worker loops (1-based naming for humans)
         if (workerLoops == null) {

@@ -21,10 +21,12 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -42,6 +44,8 @@ import tech.kwik.agent15.TlsConstants;
 final class QuicCipherSuites {
 
     private static final Logger LOGGER = Logger.getLogger(QuicCipherSuites.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     /**
      * Every cipher suite {@code QuicAeadAlgorithm} actually implements,
@@ -94,11 +98,9 @@ final class QuicCipherSuites {
         }
         if (resolved.isEmpty()) {
             if (LOGGER.isLoggable(Level.WARNING)) {
-                LOGGER.warning("None of the configured cipher suite(s) \"" + cipherSuites
-                        + "\" are implemented by the QUIC transport's AEAD layer "
-                        + "(only AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 are "
-                        + "implemented; Agent15's CCM suites have no backing implementation "
-                        + "here); falling back to the default list.");
+                String message = MessageFormat.format(
+                        L10N.getString("warn.cipher_suites_fallback"), cipherSuites);
+                LOGGER.warning(message);
             }
             return DEFAULT;
         }

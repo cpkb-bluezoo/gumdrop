@@ -25,7 +25,9 @@ import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 import java.security.Principal;
+import java.text.MessageFormat;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -72,6 +74,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     private static final Logger LOGGER = Logger.getLogger(H3ClientStream.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
 
@@ -218,7 +222,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         try {
             fields = qpackDecoder.decode(streamId, encodedFieldSection);
         } catch (ProtocolException e) {
-            LOGGER.log(Level.WARNING, "QPACK decode failed", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
             state = State.CLOSED;
             IOException ex = new IOException("Malformed HTTP/3 response headers", e);
             if (wsHandler != null) {
@@ -351,7 +355,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             try {
                 webSocketAdapter.processIncomingData(data);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "WebSocket frame processing error", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_error"), e);
                 webSocketAdapter.notifyError(e);
             }
             return;
@@ -409,7 +413,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void frameError(String message) {
-        LOGGER.warning("HTTP/3 frame error: " + message);
+        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
+        LOGGER.warning(formatted);
         state = State.CLOSED;
         IOException ex = new IOException("HTTP/3 frame error: " + message);
         if (webSocketAdapter != null) {

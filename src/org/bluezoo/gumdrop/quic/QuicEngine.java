@@ -31,6 +31,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -94,6 +95,8 @@ import org.bluezoo.util.ByteArrays;
 public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     private static final Logger LOGGER = Logger.getLogger(QuicEngine.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /** RFC 9000 section 5.1: the fixed length this implementation uses for every connection ID it generates. */
@@ -220,7 +223,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         try {
             source = (InetSocketAddress) channel.receive(recvBuf);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to receive QUIC datagram", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.recv_error"), e);
             return;
         }
         if (source == null) {
@@ -342,7 +345,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         TlsServerEngineFactory engineFactory = factory.getServerEngineFactory();
         if (engineFactory == null) {
-            LOGGER.warning("No server certificate configured; rejecting new QUIC connection");
+            LOGGER.warning(L10N.getString("warn.no_server_cert"));
             return null;
         }
         QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(engineFactory, localParams, conn,
@@ -399,7 +402,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         try {
             channel.send(ByteBuffer.wrap(packet), address);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send QUIC Retry packet", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.send_retry_failed"), e);
         }
     }
 
@@ -507,10 +510,10 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         try {
             int sent = channel.send(ByteBuffer.wrap(packet), connection.getRemoteAddress());
             if (sent == 0) {
-                LOGGER.fine("QUIC datagram send would block; dropping (loss detection will retransmit)");
+                LOGGER.fine(L10N.getString("fine.datagram_send_would_block"));
             }
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to send QUIC packet", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.send_packet_failed"), e);
         }
     }
 
@@ -584,7 +587,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             try {
                 channel.close();
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Failed to close QUIC datagram channel", e);
+                LOGGER.log(Level.WARNING, L10N.getString("warn.close_channel_failed"), e);
             }
         }
         if (selectionKey != null) {

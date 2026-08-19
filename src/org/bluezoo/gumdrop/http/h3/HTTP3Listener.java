@@ -24,9 +24,11 @@ package org.bluezoo.gumdrop.http.h3;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -66,6 +68,8 @@ public class HTTP3Listener extends TCPListener
 
     private static final Logger LOGGER =
             Logger.getLogger(HTTP3Listener.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     private static final int HTTP3_DEFAULT_PORT = 443;
 
@@ -312,15 +316,15 @@ public class HTTP3Listener extends TCPListener
                         addr, port, this, selectorLoop);
                 engines.add(engine);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to bind HTTP/3 on "
-                                + addr.getHostAddress() + ":" + port, e);
+                String message = MessageFormat.format(
+                        L10N.getString("warn.bind_failed"),
+                        addr.getHostAddress(), Integer.valueOf(port));
+                LOGGER.log(Level.WARNING, message, e);
             }
         }
 
         if (engines.isEmpty()) {
-            LOGGER.warning(
-                    "HTTP/3 server could not bind to any address");
+            LOGGER.warning(L10N.getString("warn.no_bind_address"));
         }
     }
 

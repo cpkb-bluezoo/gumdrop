@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.http.h3;
 
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -85,6 +87,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlStream.Listener {
 
     private static final Logger LOGGER = Logger.getLogger(HTTP3ServerHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     private final QuicConnection quicConnection;
     private final HTTPRequestHandlerFactory handlerFactory;
@@ -239,7 +243,10 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         long streamId = ((QuicStreamEndpoint) stream).getStreamId();
         if (goaway && streamId > goawayStreamId) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Rejecting stream " + streamId + " beyond GOAWAY limit " + goawayStreamId);
+                String formatted = MessageFormat.format(
+                        L10N.getString("fine.reject_stream_beyond_goaway"),
+                        Long.valueOf(streamId), Long.valueOf(goawayStreamId));
+                LOGGER.fine(formatted);
             }
             return null;
         }
@@ -277,7 +284,9 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         goaway = true;
         goawayStreamId = streamOrPushId;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("GOAWAY received, last stream: " + streamOrPushId);
+            String formatted = MessageFormat.format(
+                    L10N.getString("fine.goaway_received"), Long.valueOf(streamOrPushId));
+            LOGGER.fine(formatted);
         }
         if (highestClientStreamId >= 0) {
             sendGoaway(highestClientStreamId);

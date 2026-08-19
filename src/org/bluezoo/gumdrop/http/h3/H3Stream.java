@@ -90,7 +90,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     private static final Logger LOGGER = Logger.getLogger(H3Stream.class.getName());
 
-    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
+    private static final ResourceBundle HTTP_L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     /** RFC 9114 section 8.1: the server no longer needs the response the client requested. */
     private static final long H3_REQUEST_CANCELLED = 0x10c;
@@ -213,7 +216,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
             connection.cancelQpackStream(streamId);
         }
         if (span != null && !span.isEnded()) {
-            span.recordError(ErrorCategory.CONNECTION_LOST, L10N.getString("telemetry.stream_closed_abnormally"));
+            span.recordError(ErrorCategory.CONNECTION_LOST,
+                    HTTP_L10N.getString("telemetry.stream_closed_abnormally"));
             span.end();
         }
         if (isWebSocketUpgraded()) {
@@ -253,7 +257,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
             // table in a way that surfaces here, but gumdrop has no way
             // to distinguish that from an ordinary malformed field
             // section from this exception alone.
-            LOGGER.log(Level.WARNING, "QPACK decode failed", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
             cancel();
             return;
         }
@@ -377,7 +381,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     @Override
     public void frameError(String message) {
-        LOGGER.warning("HTTP/3 frame error: " + message);
+        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
+        LOGGER.warning(formatted);
         cancel();
     }
 
@@ -596,7 +601,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         try {
             webSocketAdapter.processIncomingData(data);
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "WebSocket frame processing error", e);
+            LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_error"), e);
             webSocketAdapter.notifyError(e);
         }
     }
@@ -783,7 +788,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         String traceparent = requestHeaders != null ? requestHeaders.getValue("traceparent") : null;
 
         String methodName = method != null ? method : "UNKNOWN";
-        String spanName = MessageFormat.format(L10N.getString("telemetry.http_request"), methodName);
+        String spanName = MessageFormat.format(
+                HTTP_L10N.getString("telemetry.http_request"), methodName);
 
         if (traceparent != null) {
             trace = telemetryConfig.createTraceFromTraceparent(traceparent, spanName, SpanKind.SERVER);

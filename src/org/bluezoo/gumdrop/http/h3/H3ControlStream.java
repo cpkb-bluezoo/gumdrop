@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.http.h3;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
@@ -70,6 +72,8 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
 class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     private static final Logger LOGGER = Logger.getLogger(H3ControlStream.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     /** RFC 9114 section 6.2.1. */
     private static final long STREAM_TYPE_CONTROL = 0x00;
@@ -156,7 +160,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                 qpackDecoder.feedEncoderStream(data);
                 String error = qpackDecoder.takeLastInstructionError();
                 if (error != null) {
-                    LOGGER.warning("QPACK encoder stream error: " + error);
+                    String formatted = MessageFormat.format(
+                            L10N.getString("warn.qpack_encoder_stream_error"), error);
+                    LOGGER.warning(formatted);
                     quicConnection.closeWithApplicationError(QPACK_ENCODER_STREAM_ERROR, error);
                 }
                 break;
@@ -210,7 +216,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void error(Exception cause) {
-        LOGGER.warning("HTTP/3 control stream error: " + cause);
+        String formatted = MessageFormat.format(
+                L10N.getString("warn.control_stream_error"), cause);
+        LOGGER.warning(formatted);
     }
 
     // ── H3FrameHandler ──
@@ -250,7 +258,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void frameError(String message) {
-        LOGGER.warning("HTTP/3 control stream error: " + message);
+        String formatted = MessageFormat.format(
+                L10N.getString("warn.control_stream_error"), message);
+        LOGGER.warning(formatted);
         // RFC 9114 section 8.1: a fatal framing violation on the control
         // stream is a connection error, not just a stream error -- unlike
         // H3Stream#frameError, which can cancel just the one offending

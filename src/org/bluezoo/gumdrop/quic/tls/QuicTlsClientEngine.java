@@ -24,7 +24,9 @@ package org.bluezoo.gumdrop.quic.tls;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.cert.X509Certificate;
+import java.text.MessageFormat;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -78,6 +80,8 @@ public final class QuicTlsClientEngine
         implements ClientMessageSender, TlsStatusEventHandler, QuicTlsEngine {
 
     private static final Logger LOGGER = Logger.getLogger(QuicTlsClientEngine.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     private final TlsClientEngine engine;
     private final QuicTlsEngineListener listener;
@@ -225,10 +229,9 @@ public final class QuicTlsClientEngine
             }
         }
         if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.warning("None of the configured named group(s) \"" + namedGroups
-                    + "\" are supported by the QUIC TLS engine (Agent15 has no hybrid "
-                    + "PQC support, e.g. X25519MLKEM768, as of this writing); falling "
-                    + "back to its default group selection.");
+            String message = MessageFormat.format(
+                    L10N.getString("warn.named_groups_fallback"), namedGroups);
+            LOGGER.warning(message);
         }
         return null;
     }

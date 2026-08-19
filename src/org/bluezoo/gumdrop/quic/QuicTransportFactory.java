@@ -31,6 +31,8 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -83,6 +85,8 @@ import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 public class QuicTransportFactory extends TransportFactory {
 
     private static final Logger LOGGER = Logger.getLogger(QuicTransportFactory.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     private static final long DEFAULT_MAX_IDLE_TIMEOUT = 30000;
     private static final long DEFAULT_MAX_DATA = 10_000_000;
@@ -280,7 +284,7 @@ public class QuicTransportFactory extends TransportFactory {
      * @param algorithm one of {@link #CC_RENO}, {@link #CC_CUBIC}, {@link #CC_BBR}
      */
     public void setCongestionControl(int algorithm) {
-        LOGGER.fine("Congestion control algorithm selection is not implemented; always using NewReno");
+        LOGGER.fine(L10N.getString("fine.congestion_control_not_implemented"));
     }
 
     /**
@@ -460,9 +464,9 @@ public class QuicTransportFactory extends TransportFactory {
             // ignoring it, since a caller configuring this for compliance/
             // security reasons (e.g. requiring a specific curve) deserves
             // to know it isn't enforced server-side.
-            LOGGER.warning("setNamedGroups(\"" + namedGroups + "\") has no effect on a QUIC "
-                    + "server listener: Agent15 has no server-side named-group restriction API, "
-                    + "the server accepts whatever group the client's key_share offers.");
+            String message = MessageFormat.format(
+                    L10N.getString("warn.set_named_groups_no_effect_server"), namedGroups);
+            LOGGER.warning(message);
         }
         DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
@@ -471,7 +475,9 @@ public class QuicTransportFactory extends TransportFactory {
         QuicEngine engine = new QuicEngine(this, true);
         engine.init(dc);
         loop.registerDatagram(dc, engine);
-        LOGGER.fine("Bound QUIC server engine on " + bindAddress + ":" + port);
+        String message = MessageFormat.format(
+                L10N.getString("fine.bound_server_engine"), bindAddress, Integer.valueOf(port));
+        LOGGER.fine(message);
         return engine;
     }
 

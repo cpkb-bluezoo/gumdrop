@@ -25,11 +25,13 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -134,6 +136,8 @@ import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
 public final class QuicConnection implements QuicTlsEngineListener {
 
     private static final Logger LOGGER = Logger.getLogger(QuicConnection.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.quic.L10N");
 
     /** RFC 9000 section 14.1: every implementation must support at least this size. */
     static final int MIN_DATAGRAM_SIZE = 1200;
@@ -1293,7 +1297,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         @Override
         public void frameError(String message) {
-            LOGGER.warning("QUIC frame error on connection to " + remoteAddress + ": " + message);
+            String formatted = MessageFormat.format(
+                    L10N.getString("warn.frame_error"), remoteAddress, message);
+            LOGGER.warning(formatted);
         }
     }
 
@@ -1448,9 +1454,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 amplificationBytesSent += datagram.length;
             }
         } else if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Anti-amplification limit reached (sent=" + amplificationBytesSent
-                    + ", received=" + amplificationBytesReceived + "); withholding coalesced datagram"
-                    + " until the peer's address is validated");
+            String formatted = MessageFormat.format(
+                    L10N.getString("fine.anti_amplification_limit"),
+                    Long.valueOf(amplificationBytesSent),
+                    Long.valueOf(amplificationBytesReceived));
+            LOGGER.fine(formatted);
         }
 
         scheduleLossDetectionTimer();

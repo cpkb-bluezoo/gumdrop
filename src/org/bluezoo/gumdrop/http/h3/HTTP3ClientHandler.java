@@ -23,10 +23,12 @@ package org.bluezoo.gumdrop.http.h3;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -73,6 +75,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 public final class HTTP3ClientHandler implements H3ControlStream.Listener {
 
     private static final Logger LOGGER = Logger.getLogger(HTTP3ClientHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     // RFC 9204 section 3.2.1: matches HPACK's own well-known
     // SETTINGS_HEADER_TABLE_SIZE default (RFC 7541 section 6.5.2) --
@@ -389,7 +393,10 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         H3ClientStream clientStream = streams.get(Long.valueOf(streamId));
         if (clientStream == null) {
             if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Request body for unknown stream " + streamId);
+                String formatted = MessageFormat.format(
+                        L10N.getString("fine.request_body_unknown_stream"),
+                        Long.valueOf(streamId));
+                LOGGER.fine(formatted);
             }
             return;
         }
@@ -519,7 +526,9 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     public void goawayReceived(long lastStreamId) {
         goaway = true;
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("GOAWAY received, last stream: " + lastStreamId);
+            String formatted = MessageFormat.format(
+                    L10N.getString("fine.goaway_received"), Long.valueOf(lastStreamId));
+            LOGGER.fine(formatted);
         }
 
         // RFC 9114 section 5.2: fail all streams with IDs above
