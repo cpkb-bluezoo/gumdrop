@@ -57,9 +57,7 @@ are not limited to):
   exhaustion from malformed or adversarial network input, including
   connection/request floods that bypass intended limits
 - TLS/certificate handling issues (validation, downgrade, cipher selection)
-- Memory-safety issues in the optional native QUIC support (the JNI
-  boundary in `libgumdrop`/`libquiche`), or in the bundled Public Suffix
-  List / cookie domain handling
+- Issues in the bundled Public Suffix List / cookie domain handling
 - Any issue allowing arbitrary code execution
 
 Gumdrop depends on [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) and

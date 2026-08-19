@@ -2,11 +2,8 @@
 #
 # Multi-stage build for a container-friendly Gumdrop image.
 #
-# The QUIC/HTTP-3 native library (libgumdrop) is NOT built here (it needs a
-# Rust/quiche toolchain); Gumdrop degrades gracefully and starts without it,
-# serving HTTP/1.1 and HTTP/2. To enable HTTP/3, build the native library
-# separately and mount/copy it onto the library path, then uncomment the
-# HTTP/3 listener in the config.
+# HTTP/3 (QUIC) is a pure-Java implementation included in the build; just
+# uncomment the HTTP/3 listener in the config to enable it.
 #
 # Build:   docker build -t gumdrop:latest .
 # Run:     docker run --rm -p 8080:8080 -p 8081:8081 gumdrop:latest
@@ -22,7 +19,7 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 
-# Build the runnable container jar and the manager webapp (skip native QUIC).
+# Build the runnable container jar and the manager webapp.
 RUN ant container-jar manager-war
 
 # ---- Runtime stage ---------------------------------------------------------
