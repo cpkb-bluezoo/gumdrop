@@ -98,15 +98,25 @@ public abstract class TransportFactory {
 
     /**
      * TLS 1.3 cipher suites (colon-separated IANA names).
-     * Applies to both JSSE and BoringSSL backends.
      * Example: "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
+     * Consulted by the JSSE-backed (TCP/TLS) transport; not currently
+     * consulted by the QUIC transport, whose Agent15-backed TLS engines
+     * offer a fixed cipher list (see {@code QuicTransportFactory}'s own
+     * class documentation).
      */
     protected String cipherSuites;
 
     /**
-     * Allowed key exchange groups / named curves (colon-separated).
-     * For PQC: "X25519MLKEM768" (hybrid), "MLKEM768" (pure PQ).
-     * For classical: "X25519", "secp256r1", "secp384r1".
+     * Allowed key exchange groups / named curves (colon-separated),
+     * e.g. "X25519:secp256r1". PQC groups such as "X25519MLKEM768" are
+     * only meaningful on the JSSE-backed (TCP/TLS) transport, and only
+     * when running on a JDK whose SunJSSE provider supports them (JEP
+     * 496, JDK 24+) -- {@code SSLParameters.setNamedGroups()} is queried
+     * reflectively and the setting is silently ignored if unavailable.
+     * The QUIC transport's Agent15 TLS engine has no PQC/hybrid group
+     * support at all as of this writing; see {@code
+     * QuicTransportFactory}'s own class documentation for exactly what
+     * it does and doesn't do with this setting.
      */
     protected String namedGroups;
 
@@ -281,8 +291,10 @@ public abstract class TransportFactory {
      * Sets the allowed TLS 1.3 cipher suites.
      *
      * <p>Accepts a colon-separated list of cipher suite names in
-     * canonical (IANA) form. The transport subclass maps these to
-     * the appropriate backend (JSSE or BoringSSL).
+     * canonical (IANA) form. The JSSE-backed (TCP/TLS) transport maps
+     * these to {@code SSLParameters.setCipherSuites()}; the QUIC
+     * transport does not currently consult this at all (see {@code
+     * QuicTransportFactory}'s class documentation).
      *
      * <p>Example: "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256"
      *
@@ -295,15 +307,20 @@ public abstract class TransportFactory {
     /**
      * Sets the allowed key exchange groups / named curves.
      *
-     * <p>Accepts a colon-separated list of group names in canonical form.
-     * The transport subclass maps these to the appropriate backend:
-     * <ul>
-     * <li>JSSE: {@code SSLParameters.setNamedGroups()}</li>
-     * <li>BoringSSL: {@code SSL_CTX_set1_groups_list()}</li>
-     * </ul>
+     * <p>Accepts a colon-separated list of group names in canonical form,
+     * tried in order until one is supported. The JSSE-backed (TCP/TLS)
+     * transport maps this to {@code SSLParameters.setNamedGroups()},
+     * reflectively (not every JDK exposes it) and gracefully ignored if
+     * unavailable; the QUIC transport maps it, client-side only, to the
+     * single named group Agent15 offers a key_share for -- see {@code
+     * QuicTransportFactory}'s class documentation for exactly what that
+     * does and doesn't cover, including PQC.
      *
-     * <p>For PQC enforcement, set this to "X25519MLKEM768" to require
-     * hybrid post-quantum key exchange.
+     * <p>For PQC enforcement on the TCP/TLS transport, set this to
+     * "X25519MLKEM768" to require hybrid post-quantum key exchange --
+     * only meaningful on a JDK whose SunJSSE provider supports it (JEP
+     * 496, JDK 24+). The QUIC transport's Agent15 TLS engine has no PQC
+     * support at all as of this writing, on any JDK.
      *
      * @param namedGroups the named group list
      */

@@ -26,6 +26,8 @@ import java.nio.ByteBuffer;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -76,6 +78,8 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 public final class QuicTlsClientEngine
         implements ClientMessageSender, TlsStatusEventHandler, QuicTlsEngine {
 
+    private static final Logger LOGGER = Logger.getLogger(QuicTlsClientEngine.class.getName());
+
     private final TlsClientEngine engine;
     private final QuicTlsEngineListener listener;
     private final TlsMessageParser messageParser = new TlsMessageParser();
@@ -94,9 +98,18 @@ public final class QuicTlsClientEngine
     // (engine.getSelectedCipher() isn't populated yet at that point).
     private TlsConstants.CipherSuite earlyDataCipher;
 
+    // The single named group to offer a key_share for (RFC 8446 section
+    // 4.2.8), resolved from QuicTransportFactory#setNamedGroups -- null
+    // means "let Agent15 pick its own default", today's existing
+    // behaviour. Agent15's TlsClientEngine only accepts one group here
+    // (it sends exactly one key_share, not a list), so a caller who
+    // configures several falls back to the first one Agent15 actually
+    // supports.
+    private final TlsConstants.NamedGroup preferredNamedGroup;
+
     /**
      * Creates a client-side TLS engine, offering no ALPN application
-     * protocols.
+     * protocols and no named-group preference.
      *
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in the ClientHello
@@ -105,6 +118,22 @@ public final class QuicTlsClientEngine
      */
     public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener) {
         this(transportParameters, listener, null);
+    }
+
+    /**
+     * Creates a client-side TLS engine with no named-group preference.
+     *
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in the ClientHello
+     *                            (RFC 9001 section 8.2)
+     * @param listener notified of handshake progress
+     * @param applicationProtocols the ALPN application protocol(s) to
+     *                             offer (RFC 7301), comma-separated, or
+     *                             null to offer none
+     */
+    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
+            String applicationProtocols) {
+        this(transportParameters, listener, applicationProtocols, null);
     }
 
     /**
@@ -117,11 +146,23 @@ public final class QuicTlsClientEngine
      * @param applicationProtocols the ALPN application protocol(s) to
      *                             offer (RFC 7301), comma-separated, or
      *                             null to offer none
+     * @param namedGroups colon-separated preferred named group(s) (e.g.
+     *                    {@code "x25519:secp256r1"}, matching the same
+     *                    IANA/TLS-registry names {@code
+     *                    TransportFactory#setNamedGroups}'s javadoc
+     *                    already documents), or null for Agent15's
+     *                    default. The first name Agent15 actually
+     *                    supports is used; unrecognised names (e.g. a
+     *                    hybrid PQC group -- Agent15 has no ML-KEM
+     *                    support, see {@link TlsConstants.NamedGroup})
+     *                    are skipped with a logged warning rather than
+     *                    silently substituted or failing the connection.
      */
     public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
-            String applicationProtocols) {
+            String applicationProtocols, String namedGroups) {
         this.listener = listener;
         this.engine = TlsClientEngineFactory.createClientEngine(this, this);
+        this.preferredNamedGroup = resolvePreferredNamedGroup(namedGroups);
 
         List<TlsConstants.CipherSuite> ciphers = new ArrayList<TlsConstants.CipherSuite>();
         ciphers.add(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256);
@@ -133,6 +174,32 @@ public final class QuicTlsClientEngine
             engine.add(new ApplicationLayerProtocolNegotiationExtension(
                     java.util.Arrays.asList(applicationProtocols.split(","))));
         }
+    }
+
+    private static TlsConstants.NamedGroup resolvePreferredNamedGroup(String namedGroups) {
+        if (namedGroups == null || namedGroups.isEmpty()) {
+            return null;
+        }
+        for (String name : namedGroups.split(":")) {
+            name = name.trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            try {
+                return TlsConstants.NamedGroup.valueOf(name.toLowerCase());
+            } catch (IllegalArgumentException e) {
+                // Tried in order below; not every name here is necessarily
+                // unsupported by Agent15 -- keep trying the rest before
+                // warning.
+            }
+        }
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning("None of the configured named group(s) \"" + namedGroups
+                    + "\" are supported by the QUIC TLS engine (Agent15 has no hybrid "
+                    + "PQC support, e.g. X25519MLKEM768, as of this writing); falling "
+                    + "back to its default group selection.");
+        }
+        return null;
     }
 
     /**
@@ -181,14 +248,21 @@ public final class QuicTlsClientEngine
     /**
      * Starts the TLS handshake, producing a ClientHello via
      * {@link QuicTlsEngineListener#cryptoDataReady} at
-     * {@link EncryptionLevel#INITIAL}.
+     * {@link EncryptionLevel#INITIAL}. Offers a key_share for the
+     * configured preferred named group, if one resolved successfully at
+     * construction time; otherwise leaves the choice to Agent15's own
+     * default.
      *
      * @param serverName the SNI server name
      * @throws IOException if the handshake cannot be started
      */
     public void startHandshake(String serverName) throws IOException {
         engine.setServerName(serverName);
-        engine.startHandshake();
+        if (preferredNamedGroup != null) {
+            engine.startHandshake(preferredNamedGroup);
+        } else {
+            engine.startHandshake();
+        }
     }
 
     /**

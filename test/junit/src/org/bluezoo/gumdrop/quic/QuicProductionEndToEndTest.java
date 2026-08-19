@@ -1341,6 +1341,100 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * {@link QuicTransportFactory#setNamedGroups} is now actually
+     * consulted client-side (previously a silent no-op -- see {@link
+     * org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngineTest} for the
+     * focused resolution-logic coverage). This is the end-to-end proof
+     * that explicitly requesting a real, Agent15-supported named group
+     * doesn't break a real handshake against a real server.
+     */
+    @Test
+    public void testClientHandshakeCompletesWithConfiguredNamedGroup() throws Exception {
+        assertNamedGroupsAllowHandshake("secp256r1");
+    }
+
+    /**
+     * A configured list whose first entry Agent15 cannot support (a real
+     * IANA hybrid PQC group name -- Agent15 has no ML-KEM support at
+     * all) must fall back to the first entry it does support, rather
+     * than failing the connection outright.
+     */
+    @Test
+    public void testClientHandshakeFallsBackWhenPreferredGroupUnsupported() throws Exception {
+        assertNamedGroupsAllowHandshake("X25519MLKEM768:x25519");
+    }
+
+    private void assertNamedGroupsAllowHandshake(String namedGroups) throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return null;
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.setNamedGroups(namedGroups);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Handshake with namedGroups=\"" + namedGroups + "\" should complete within 5s",
+                    clientConnected.await(5, TimeUnit.SECONDS));
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9000 section 19.19: a peer's application-level (0x1d)
      * CONNECTION_CLOSE must reach the stream's {@code error(Exception)}
      * with a {@link QuicConnectionCloseException} carrying

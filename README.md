@@ -107,7 +107,7 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
         - client certificates
         - SSL protocols (TLS 1.2, 1.3)
         - cipher suite selection
-        - named groups / PQC key exchange (X25519MLKEM768)
+        - named group selection (PQC hybrid key exchange on TCP/TLS, JDK 24+)
         - SNI
     - configurable pool of worker threads shared across all servers,
       completely independent of the number of client connections

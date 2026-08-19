@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
@@ -55,15 +56,25 @@ import org.bluezoo.gumdrop.quic.tls.PemCredentials;
  * flow-control/idle-timeout limits into a {@link TransportParameters}
  * instance shared by every connection this factory's engines create.
  *
- * <p>{@link #setCipherSuites}/{@link #setNamedGroups} (inherited from
- * {@link TransportFactory}) are accepted but not yet consulted --
- * Agent15's QUIC TLS engines currently hardcode
- * {@code TLS_AES_128_GCM_SHA256}/{@code TLS_AES_256_GCM_SHA384} as the
- * supported cipher suites (see {@code QuicTlsClientEngine}/
- * {@code QuicTlsServerEngine}), and named-group selection is not
- * implemented. {@link #setCongestionControl} is similarly accepted but
- * ignored -- {@code quic.recovery}'s {@code CongestionController} is
- * NewReno only.
+ * <p>{@link #setCipherSuites} (inherited from {@link TransportFactory})
+ * is accepted but not yet consulted -- Agent15's QUIC TLS engines
+ * currently hardcode a fixed supported-cipher list ({@code
+ * TLS_AES_128_GCM_SHA256}/{@code TLS_AES_256_GCM_SHA384}/{@code
+ * TLS_CHACHA20_POLY1305_SHA256}, see {@code QuicTlsClientEngine}/
+ * {@code QuicTlsServerEngine}) rather than reading it. {@link
+ * #setNamedGroups}, by contrast, <em>is</em> consulted client-side (see
+ * {@code QuicTlsClientEngine#resolvePreferredNamedGroup}): the first
+ * configured name Agent15 recognises is offered as the client's
+ * key_share, with a logged warning if none are (Agent15 has no hybrid
+ * PQC support, e.g. {@code X25519MLKEM768} -- see its own {@code
+ * TlsConstants.NamedGroup}). It has no server-side effect at all: RFC
+ * 8446 section 4.2.7 makes {@code supported_groups} a client-only
+ * extension, and Agent15 exposes no server-side restriction API to
+ * narrow which of a client's offered groups a server will accept; {@link
+ * #createServerEngine} logs a warning if this is set on a factory used
+ * for a server listener. {@link #setCongestionControl} is similarly
+ * accepted but ignored -- {@code quic.recovery}'s {@code
+ * CongestionController} is NewReno only.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -306,6 +317,17 @@ public class QuicTransportFactory extends TransportFactory {
         return verifyHostname;
     }
 
+    /**
+     * Returns the raw, unparsed {@link #setNamedGroups} value (colon-
+     * separated group names, or null) -- resolving these against what
+     * Agent15 actually supports is {@link
+     * org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine}'s job, not this
+     * class's, to keep Agent15 types out of this package.
+     */
+    String getNamedGroups() {
+        return namedGroups;
+    }
+
     byte[] getConnectionIdStaticKey() {
         return connectionIdStaticKey;
     }
@@ -416,6 +438,19 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     private QuicEngine newBoundServerEngine(InetAddress bindAddress, int port, SelectorLoop loop) throws IOException {
+        if (namedGroups != null && LOGGER.isLoggable(Level.WARNING)) {
+            // Unlike setCipherSuites, Agent15 exposes no server-side named-
+            // group restriction API at all (RFC 8446 section 4.2.7: only
+            // the client sends supported_groups; the server just picks
+            // from whatever key_share the client actually offered) --
+            // setNamedGroups has no effect here. Warn rather than silently
+            // ignoring it, since a caller configuring this for compliance/
+            // security reasons (e.g. requiring a specific curve) deserves
+            // to know it isn't enforced server-side.
+            LOGGER.warning("setNamedGroups(\"" + namedGroups + "\") has no effect on a QUIC "
+                    + "server listener: Agent15 has no server-side named-group restriction API, "
+                    + "the server accepts whatever group the client's key_share offers.");
+        }
         DatagramChannel dc = DatagramChannel.open(bindAddress instanceof Inet6Address
                 ? StandardProtocolFamily.INET6 : StandardProtocolFamily.INET);
         dc.configureBlocking(false);
