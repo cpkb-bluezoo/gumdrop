@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import tech.kwik.agent15.NewSessionTicket;
+
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 
 /**
@@ -82,4 +84,40 @@ public interface QuicTlsEngineListener {
      * @param transportParameters the peer's transport parameters
      */
     void transportParametersReceived(TransportParameters transportParameters);
+
+    /**
+     * Called when early (0-RTT) traffic secrets have become available
+     * (RFC 9001 section 4.6.1): client-side, right after the ClientHello
+     * is sent, if a previous session's ticket was presented; server-side,
+     * once the server has determined the client's presented PSK resumes
+     * a valid session -- in both cases, before either side has decided
+     * whether 0-RTT will actually be accepted (see
+     * {@code QuicTlsServerEngine#isEarlyDataAccepted}). The client early
+     * traffic secret is available from this point via
+     * {@link QuicTlsEngine#getClientEarlyTrafficSecret()}.
+     */
+    void earlySecretsAvailable();
+
+    /**
+     * Called when a new session ticket is received (client-side only;
+     * post-handshake, RFC 8446 section 4.6.1). The ticket may be
+     * presented on a future connection to the same server to attempt
+     * PSK resumption and, if the ticket allows it, 0-RTT.
+     *
+     * @param ticket the received session ticket
+     */
+    void newSessionTicketReceived(NewSessionTicket ticket);
+
+    /**
+     * Client-only: called once EncryptedExtensions arrives, reporting
+     * whether the server accepted 0-RTT (RFC 9001 section 4.6.1 / RFC
+     * 8446 section 4.2.10 -- presence of an {@code early_data} extension
+     * in EncryptedExtensions). Called on every handshake, unconditionally,
+     * regardless of whether this connection ever attempted 0-RTT at all
+     * -- implementations that never offered a ticket with early data can
+     * simply ignore this.
+     *
+     * @param accepted whether the server accepted 0-RTT
+     */
+    void earlyDataOutcomeKnown(boolean accepted);
 }

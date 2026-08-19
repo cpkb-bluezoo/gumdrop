@@ -36,6 +36,7 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
+import tech.kwik.agent15.NewSessionTicket;
 import tech.kwik.agent15.engine.TlsServerEngineFactory;
 
 import org.bluezoo.gumdrop.ChannelHandler;
@@ -143,6 +144,23 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
          * @param connection the newly accepted or completed connection
          */
         void connectionAccepted(QuicConnection connection);
+    }
+
+    /**
+     * Client-only: called once 0-RTT send keys become available for a
+     * connection attempt (RFC 9001 section 4.6.1) -- well before the
+     * handshake otherwise completes -- so the caller can open a stream
+     * and queue eligible data immediately. Only fires when {@link
+     * QuicTransportFactory#isEarlyDataEnabled()} is set and a cached
+     * session ticket was found for the destination (see {@link
+     * SessionTicketCache}); never fires otherwise.
+     */
+    public interface EarlyDataHandler {
+
+        /**
+         * @param connection the connection now able to send 0-RTT data
+         */
+        void earlyDataReady(QuicConnection connection);
     }
 
     @Override
@@ -327,7 +345,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             LOGGER.warning("No server certificate configured; rejecting new QUIC connection");
             return null;
         }
-        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(engineFactory, localParams, conn);
+        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(engineFactory, localParams, conn,
+                factory.isEarlyDataEnabled(), factory.getApplicationProtocols());
         conn.setTlsEngine(tlsEngine);
 
         if (connectionAcceptedHandler != null) {
@@ -407,6 +426,31 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      */
     void connectTo(InetSocketAddress remote, ProtocolHandler handler, ConnectionAcceptedHandler connHandler,
             String serverName) {
+        connectTo(remote, handler, connHandler, null, serverName);
+    }
+
+    /**
+     * Opens a client connection, notifying {@code connHandler} once the
+     * handshake completes instead of auto-opening a stream, and {@code
+     * earlyDataHandler} if 0-RTT (RFC 9001 section 4.6.1) becomes
+     * available first.
+     *
+     * <p>If {@link QuicTransportFactory#isEarlyDataEnabled()} is set,
+     * looks up {@link SessionTicketCache} for {@code serverName} (or
+     * {@code remote}'s address if {@code serverName} is null, e.g. DoQ)
+     * before starting the handshake, and presents any cached ticket --
+     * this is the one and only place session tickets are consulted for
+     * an attempted 0-RTT connection; no ticket cached means an ordinary
+     * handshake, same as today.
+     *
+     * @param remote the server address
+     * @param handler the handler for the auto-opened first stream, may be null
+     * @param connHandler notified once the handshake completes, may be null
+     * @param earlyDataHandler notified once 0-RTT send keys are ready, may be null
+     * @param serverName the SNI server name, or null (e.g. DoQ)
+     */
+    void connectTo(InetSocketAddress remote, ProtocolHandler handler, ConnectionAcceptedHandler connHandler,
+            EarlyDataHandler earlyDataHandler, String serverName) {
         byte[] clientScid = generateConnectionId();
         byte[] clientInitialDcid = generateConnectionId();
         InetSocketAddress local = getLocalSocketAddress();
@@ -414,10 +458,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
         QuicConnection conn = new QuicConnection(this, false, local, remote, clientScid, clientInitialDcid,
                 clientInitialDcid, localParams, connectionIdStaticKey);
-        QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn);
+        QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn, factory.getApplicationProtocols());
         X509TrustManager trustManager = factory.getTrustManager();
         if (trustManager != null) {
             tlsEngine.setTrustManager(trustManager);
+        }
+        if (!factory.isVerifyHostnameEnabled()) {
+            tlsEngine.setVerifyHostname(false);
         }
         conn.setTlsEngine(tlsEngine);
         if (connHandler != null) {
@@ -425,6 +472,17 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         if (handler != null) {
             conn.setClientHandler(handler);
+        }
+        if (factory.isEarlyDataEnabled()) {
+            String host = serverName != null ? serverName : remote.getAddress().getHostAddress();
+            SessionTicketCache.Entry cached = SessionTicketCache.get(host, remote.getPort());
+            if (cached != null) {
+                tlsEngine.presentSessionTicket(cached.toTicket());
+                conn.seedRememberedTransportParameters(cached.toTransportParameters());
+            }
+        }
+        if (earlyDataHandler != null) {
+            conn.setEarlyDataHandler(earlyDataHandler);
         }
         clientConnection = conn;
         connections.put(ByteArrays.toHexString(clientScid), conn);

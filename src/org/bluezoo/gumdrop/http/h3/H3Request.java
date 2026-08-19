@@ -72,6 +72,14 @@ public class H3Request implements HTTPRequest {
     // the QuicConnection's own SelectorLoop thread), so ordinary field
     // access is safe between them -- see the class documentation.
     private long streamId = -1;
+    // True from the moment send()/startRequestBody() itself gets deferred
+    // (h3Handler.isSafeToSendNow(method) was false) until the deferred send
+    // actually runs. requestBodyContent()/endRequestBody() consult this to
+    // avoid racing ahead of a send that hasn't happened yet: without it,
+    // streamId would still read -1 and body data would be silently dropped
+    // rather than queued behind the deferred send. Same thread-safety
+    // contract as streamId.
+    private boolean sendDeferred;
     // volatile: set from the application's calling thread in send()/
     // startRequestBody(), read from cancel() which may be called from a
     // different thread (e.g. a timeout watchdog).
@@ -130,7 +138,19 @@ public class H3Request implements HTTPRequest {
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
-                streamId = h3Handler.sendRequest(h3Headers, handler, true);
+                Runnable sendTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        sendDeferred = false;
+                        streamId = h3Handler.sendRequest(h3Headers, handler, true);
+                    }
+                };
+                if (h3Handler.isSafeToSendNow(method)) {
+                    sendTask.run();
+                } else {
+                    sendDeferred = true;
+                    h3Handler.deferUntilEstablished(sendTask);
+                }
             }
         });
     }
@@ -147,7 +167,19 @@ public class H3Request implements HTTPRequest {
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
-                streamId = h3Handler.sendRequest(h3Headers, handler, false);
+                Runnable sendTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        sendDeferred = false;
+                        streamId = h3Handler.sendRequest(h3Headers, handler, false);
+                    }
+                };
+                if (h3Handler.isSafeToSendNow(method)) {
+                    sendTask.run();
+                } else {
+                    sendDeferred = true;
+                    h3Handler.deferUntilEstablished(sendTask);
+                }
             }
         });
     }
@@ -167,10 +199,23 @@ public class H3Request implements HTTPRequest {
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
-                if (streamId < 0) {
-                    return;
+                Runnable bodyTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (streamId < 0) {
+                            return;
+                        }
+                        h3Handler.sendRequestBody(streamId, ByteBuffer.wrap(snapshot), false);
+                    }
+                };
+                if (sendDeferred) {
+                    // The request itself hasn't been sent yet -- queue behind
+                    // it rather than running now, or streamId would still
+                    // read -1 and this data would be silently dropped.
+                    h3Handler.deferUntilEstablished(bodyTask);
+                } else {
+                    bodyTask.run();
                 }
-                h3Handler.sendRequestBody(streamId, ByteBuffer.wrap(snapshot), false);
             }
         });
         return remaining;
@@ -184,10 +229,20 @@ public class H3Request implements HTTPRequest {
         h3Handler.execute(new Runnable() {
             @Override
             public void run() {
-                if (streamId < 0) {
-                    return;
+                Runnable endTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (streamId < 0) {
+                            return;
+                        }
+                        h3Handler.sendRequestBody(streamId, ByteBuffer.allocate(0), true);
+                    }
+                };
+                if (sendDeferred) {
+                    h3Handler.deferUntilEstablished(endTask);
+                } else {
+                    endTask.run();
                 }
-                h3Handler.sendRequestBody(streamId, ByteBuffer.allocate(0), true);
             }
         });
     }

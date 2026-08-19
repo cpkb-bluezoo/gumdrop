@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -29,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,8 +56,11 @@ import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.quic.SessionTicketCache;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -400,6 +405,283 @@ public class HTTP3ProductionEndToEndTest {
             if (serverEngine != null) {
                 serverEngine.close();
             }
+        }
+    }
+
+    /**
+     * Stage 10 Part 5 (docs/QUIC-AGENT15-MIGRATION-PLAN.md): proves the
+     * actual {@link org.bluezoo.gumdrop.http.client.HTTPMethodSafety}
+     * gating built into {@link H3Request}/{@link HTTP3ClientHandler}, not
+     * just the lower-level {@link QuicConnection} 0-RTT mechanism already
+     * proven by {@code QuicProductionEndToEndTest#testEarlyDataHandlerSendsBeforeHandshakeCompletes}.
+     *
+     * <p>A first connection captures a session ticket. A second connection
+     * issues a GET and a POST immediately from {@link
+     * QuicEngine.EarlyDataHandler#earlyDataReady}, both via real
+     * {@link H3Request} objects -- the same class application code gets
+     * back from {@link org.bluezoo.gumdrop.http.client.HTTPClient#request},
+     * wired up exactly the way {@code HTTPClient.connectH3} wires it
+     * (idempotent {@code connectionAccepted}, {@code runDeferredRequests}
+     * once established). Both requests complete successfully, but only
+     * the GET's stream should appear in the connection's own {@code
+     * sentZeroRttStream} bookkeeping -- the POST must have been deferred
+     * until the handshake was established (RFC 9001 section 4.6.1: 0-RTT
+     * data has no anti-replay guarantee, so only safe/idempotent methods
+     * may use it).
+     */
+    @Test
+    public void testGetRidesZeroRttPostDefersUntilEstablished() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine firstClientEngine = null;
+        QuicEngine secondClientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setEarlyDataEnabled(true);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new HTTPRequestHandler() {
+                        @Override
+                        public void headers(HTTPResponseState state, Headers headers) {
+                            Headers response = new Headers();
+                            response.add(":status", "200");
+                            response.add("content-type", "text/plain");
+                            state.headers(response);
+                            state.startResponseBody();
+                            state.responseBodyContent(
+                                    ByteBuffer.wrap("ok".getBytes(StandardCharsets.US_ASCII)));
+                            state.endResponseBody();
+                            state.complete();
+                        }
+
+                        @Override
+                        public void startRequestBody(HTTPResponseState state) {
+                        }
+
+                        @Override
+                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void endRequestBody(HTTPResponseState state) {
+                        }
+
+                        @Override
+                        public void requestComplete(HTTPResponseState state) {
+                        }
+                    };
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            // First connection: an ordinary handshake, just to make the
+            // server issue a session ticket (see
+            // QuicProductionEndToEndTest#testSessionTicketCapturedAfterHandshake).
+            QuicTransportFactory firstClientFactory = new QuicTransportFactory();
+            firstClientFactory.setApplicationProtocols("h3");
+            firstClientFactory.setVerifyPeer(false);
+            firstClientFactory.start();
+
+            final CountDownLatch warmupLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> warmupFailure = new AtomicReference<Exception>();
+            firstClientEngine = firstClientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            Headers requestHeaders = new Headers();
+                            requestHeaders.add(":method", "GET");
+                            requestHeaders.add(":scheme", "https");
+                            requestHeaders.add(":authority", SERVER_NAME);
+                            requestHeaders.add(":path", "/warmup");
+                            h3.sendRequest(requestHeaders,
+                                    new LatchResponseHandler(warmupLatch, warmupFailure), true);
+                        }
+                    }, loop, SERVER_NAME);
+            assertTrue("Warm-up request should complete within 5s", warmupLatch.await(5, TimeUnit.SECONDS));
+            if (warmupFailure.get() != null) {
+                throw warmupFailure.get();
+            }
+
+            SessionTicketCache.Entry entry = null;
+            long deadline = System.currentTimeMillis() + 3000;
+            while (entry == null && System.currentTimeMillis() < deadline) {
+                entry = SessionTicketCache.get(SERVER_NAME, port);
+                if (entry == null) {
+                    Thread.sleep(50);
+                }
+            }
+            assertNotNull("A session ticket should have been cached after the warm-up handshake", entry);
+
+            // Second connection: 0-RTT-enabled, issuing a GET and a POST
+            // immediately from earlyDataReady -- exactly mirroring how
+            // HTTPClient.connectH3 wires this up.
+            QuicTransportFactory secondClientFactory = new QuicTransportFactory();
+            secondClientFactory.setApplicationProtocols("h3");
+            secondClientFactory.setVerifyPeer(false);
+            secondClientFactory.setEarlyDataEnabled(true);
+            secondClientFactory.start();
+
+            final AtomicReference<HTTP3ClientHandler> h3HandlerRef = new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<QuicConnection> secondConnectionRef = new AtomicReference<QuicConnection>();
+            final AtomicReference<H3Request> getRequestRef = new AtomicReference<H3Request>();
+            final AtomicReference<H3Request> postRequestRef = new AtomicReference<H3Request>();
+            final CountDownLatch getLatch = new CountDownLatch(1);
+            final CountDownLatch postLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> getFailure = new AtomicReference<Exception>();
+            final AtomicReference<Exception> postFailure = new AtomicReference<Exception>();
+
+            secondClientEngine = secondClientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            secondConnectionRef.set(connection);
+                            if (h3HandlerRef.get() == null) {
+                                h3HandlerRef.set(new HTTP3ClientHandler(connection));
+                            } else {
+                                h3HandlerRef.get().runDeferredRequests();
+                            }
+                        }
+                    },
+                    new QuicEngine.EarlyDataHandler() {
+                        @Override
+                        public void earlyDataReady(final QuicConnection connection) {
+                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            h3HandlerRef.set(h3);
+
+                            H3Request getRequest = new H3Request(h3, "GET", "/get", SERVER_NAME, "https", null);
+                            getRequestRef.set(getRequest);
+                            getRequest.send(new LatchResponseHandler(getLatch, getFailure));
+
+                            H3Request postRequest = new H3Request(h3, "POST", "/post", SERVER_NAME, "https", null);
+                            postRequestRef.set(postRequest);
+                            postRequest.send(new LatchResponseHandler(postLatch, postFailure));
+                        }
+                    },
+                    loop, SERVER_NAME);
+
+            assertTrue("GET should complete within 5s", getLatch.await(5, TimeUnit.SECONDS));
+            assertTrue("POST should complete within 5s", postLatch.await(5, TimeUnit.SECONDS));
+            if (getFailure.get() != null) {
+                throw getFailure.get();
+            }
+            if (postFailure.get() != null) {
+                throw postFailure.get();
+            }
+
+            QuicConnection secondConnection = secondConnectionRef.get();
+            assertNotNull(secondConnection);
+            Object zeroRttState = getPrivateField(secondConnection, "zeroRttState", Object.class);
+            assertEquals("ACCEPTED", zeroRttState.toString());
+
+            long getStreamId = getPrivateField(getRequestRef.get(), "streamId", Long.class).longValue();
+            long postStreamId = getPrivateField(postRequestRef.get(), "streamId", Long.class).longValue();
+
+            @SuppressWarnings("unchecked")
+            Map<Long, Map<Long, ?>> sentZeroRttStream =
+                    getPrivateField(secondConnection, "sentZeroRttStream", Map.class);
+            boolean getWasZeroRtt = false;
+            boolean postWasZeroRtt = false;
+            for (Map<Long, ?> perPacketStreams : sentZeroRttStream.values()) {
+                if (perPacketStreams.containsKey(Long.valueOf(getStreamId))) {
+                    getWasZeroRtt = true;
+                }
+                if (perPacketStreams.containsKey(Long.valueOf(postStreamId))) {
+                    postWasZeroRtt = true;
+                }
+            }
+            assertTrue("GET (0-RTT-eligible) should have been sent as 0-RTT data", getWasZeroRtt);
+            assertFalse("POST (not 0-RTT-eligible) must not have been sent as 0-RTT data", postWasZeroRtt);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (secondClientEngine != null) {
+                secondClientEngine.close();
+            }
+            if (firstClientEngine != null) {
+                firstClientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+            SessionTicketCache.clear();
+        }
+    }
+
+    private static <T> T getPrivateField(Object target, String name, Class<T> type) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return type.cast(field.get(target));
+    }
+
+    /** Counts down a latch on completion (success or failure), recording any failure. */
+    private static final class LatchResponseHandler implements HTTPResponseHandler {
+        private final CountDownLatch latch;
+        private final AtomicReference<Exception> failure;
+
+        LatchResponseHandler(CountDownLatch latch, AtomicReference<Exception> failure) {
+            this.latch = latch;
+            this.failure = failure;
+        }
+
+        @Override
+        public void ok(HTTPResponse response) {
+        }
+
+        @Override
+        public void error(HTTPResponse response) {
+            failure.set(new IOException("Unexpected error status: " + response.getStatus()));
+            latch.countDown();
+        }
+
+        @Override
+        public void header(String name, String value) {
+        }
+
+        @Override
+        public void startResponseBody() {
+        }
+
+        @Override
+        public void responseBodyContent(ByteBuffer data) {
+        }
+
+        @Override
+        public void endResponseBody() {
+        }
+
+        @Override
+        public void pushPromise(PushPromise promise) {
+        }
+
+        @Override
+        public void close() {
+            latch.countDown();
+        }
+
+        @Override
+        public void failed(Exception ex) {
+            failure.set(ex);
+            latch.countDown();
         }
     }
 }

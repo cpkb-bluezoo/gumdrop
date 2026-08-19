@@ -84,4 +84,14 @@ public interface QuicTlsEngine {
      * @return the server Application traffic secret
      */
     byte[] getServerApplicationTrafficSecret();
+
+    /**
+     * Returns the client early (0-RTT) traffic secret (RFC 9001 section
+     * 4.6.1), valid once {@link QuicTlsEngineListener#earlySecretsAvailable()}
+     * has fired. 0-RTT is client-to-server only, so there is no
+     * corresponding server early traffic secret.
+     *
+     * @return the client early traffic secret
+     */
+    byte[] getClientEarlyTrafficSecret();
 }

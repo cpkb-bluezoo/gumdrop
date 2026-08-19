@@ -25,6 +25,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -60,21 +62,26 @@ public class DoQClientTransport implements DNSClientTransport {
     // RFC 9250 section 5.4: pad to 128-byte blocks
     private static final int PADDING_BLOCK_SIZE = 128;
 
-    /**
-     * RFC 9250 section 4.5: per-server session ticket cache for 0-RTT.
-     * Only QUERY and NOTIFY opcodes may be sent as 0-RTT data.
-     */
-    private static final java.util.concurrent.ConcurrentHashMap<String, byte[]>
-            sessionTicketCache = new java.util.concurrent.ConcurrentHashMap<>();
-
     private QuicTransportFactory factory;
     private QuicEngine engine;
     private volatile boolean connected;
     private SelectorLoop loop;
     private DNSClientTransportHandler handler;
-    private String serverKey;
     private String pinnedCertFingerprint;
     private java.nio.file.Path caFile;
+
+    // Set from whichever of ConnectionAcceptedHandler/EarlyDataHandler
+    // fires first (see open()) -- used to check isEstablished() so send()
+    // can gate non-eligible-opcode queries behind full establishment (RFC
+    // 9250 section 4.5) via QuicTransportFactory's shared SessionTicketCache/
+    // 0-RTT machinery, the same as HTTP3ClientHandler does for HTTP methods.
+    private QuicConnection quicConnection;
+    // Queries deferred because their opcode isn't 0-RTT-eligible and the
+    // connection isn't yet established -- drained once it is (see
+    // connectionAccepted below). Only ever touched from the QuicConnection's
+    // own SelectorLoop thread (both send() and connectionAccepted always run
+    // there), so no synchronization needed.
+    private final List<Runnable> deferredSends = new ArrayList<Runnable>();
 
     /**
      * Pins the expected server certificate fingerprint instead of
@@ -108,12 +115,18 @@ public class DoQClientTransport implements DNSClientTransport {
         if (port <= 0) {
             port = DEFAULT_DOQ_PORT;
         }
-        this.serverKey = server.getHostAddress() + ":" + port;
         factory = new QuicTransportFactory();
         // RFC 9250 section 4.1: ALPN token "doq"
         factory.setApplicationProtocols("doq");
         // RFC 9250 section 4.5: enable early data for 0-RTT
         factory.setEarlyDataEnabled(true);
+        // DoQ connects directly to a resolved IP with no real hostname to
+        // offer (see the serverName comment on the connect() call below);
+        // trust is established via setPinnedCertFingerprint/setCaFile
+        // instead of hostname matching, matching RFC 8310 section 8.1's
+        // SPKI-pinning-as-alternative precedent for DNS-over-TLS clients
+        // in the same situation.
+        factory.setVerifyHostname(false);
         if (pinnedCertFingerprint != null) {
             factory.setPinnedCertFingerprint(pinnedCertFingerprint);
         }
@@ -126,10 +139,49 @@ public class DoQClientTransport implements DNSClientTransport {
                     @Override
                     public void connectionAccepted(
                             QuicConnection conn) {
+                        // Idempotent: may already have been set from
+                        // earlyDataReady below -- either way, this is
+                        // the signal that the connection is now (also)
+                        // fully established, so anything deferred behind
+                        // that can go out now.
+                        quicConnection = conn;
+                        connected = true;
+                        runDeferredSends();
+                    }
+                },
+                new QuicEngine.EarlyDataHandler() {
+                    @Override
+                    public void earlyDataReady(QuicConnection conn) {
+                        // RFC 9250 section 4.5: 0-RTT send keys are ready,
+                        // well before the handshake completes -- let the
+                        // caller start issuing QUERY/NOTIFY queries now;
+                        // send() defers anything else until establishment.
+                        quicConnection = conn;
                         connected = true;
                     }
                 },
-                loop, null);
+                // Agent15's TlsClientEngineImpl.startHandshake requires a
+                // non-null server name unconditionally (throws
+                // IllegalStateException otherwise) -- DoQ has no real
+                // hostname to offer (it connects directly to a resolved
+                // IP), so the literal address is used instead. RFC 6066
+                // section 3 disallows IP literals in a real SNI extension,
+                // but this only matters for servers that select a
+                // certificate by SNI; gumdrop's own DoQListener serves one
+                // configured certificate regardless of the value received,
+                // and SessionTicketCache already keys on this same string
+                // (QuicEngine.connectTo falls back to it when serverName
+                // is null), so nothing else depends on it looking like a
+                // real hostname.
+                loop, server.getHostAddress());
+    }
+
+    private void runDeferredSends() {
+        List<Runnable> pending = new ArrayList<Runnable>(deferredSends);
+        deferredSends.clear();
+        for (Runnable task : pending) {
+            task.run();
+        }
     }
 
     // RFC 9250 section 4.2: client selects a new bidirectional stream for
@@ -143,6 +195,37 @@ public class DoQClientTransport implements DNSClientTransport {
                     "DoQ connection not yet established"));
             return;
         }
+        if (quicConnection != null && !quicConnection.isEstablished() && !isEarlyDataEligible(data)) {
+            // RFC 9250 section 4.5: only QUERY/NOTIFY may ride 0-RTT --
+            // snapshot now (the caller may reuse/refill data once this
+            // call returns) and defer until the connection is fully
+            // established, mirroring HTTP3ClientHandler's method-safety
+            // gating for HTTP/3 requests.
+            final byte[] snapshot = new byte[data.remaining()];
+            data.get(snapshot);
+            deferredSends.add(new Runnable() {
+                @Override
+                public void run() {
+                    sendNow(ByteBuffer.wrap(snapshot));
+                }
+            });
+            return;
+        }
+        sendNow(data);
+    }
+
+    // RFC 1035 section 4.1.1: the header's second byte is laid out as
+    // QR(1) OPCODE(4) AA(1) TC(1) RD(1) -- checked directly against the
+    // raw wire bytes since this runs before any DNSMessage parse.
+    private static boolean isEarlyDataEligible(ByteBuffer data) {
+        if (data.remaining() < 3) {
+            return false;
+        }
+        int opcode = (data.get(data.position() + 2) >> 3) & 0x0F;
+        return opcode == DNSMessage.OPCODE_QUERY || opcode == DNSMessage.OPCODE_NOTIFY;
+    }
+
+    private void sendNow(ByteBuffer data) {
         // RFC 9250 section 4.2.1: rewrite Message ID to 0
         if (data.remaining() >= 2) {
             int pos = data.position();

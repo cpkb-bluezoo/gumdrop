@@ -141,6 +141,7 @@ public class HTTPClient implements AltSvcListener {
     private boolean h3Enabled;
     private boolean altSvcEnabled = true;
     private boolean dnsHttpsRecordEnabled = true;
+    private boolean earlyDataEnabled;
     private Path certFile;
     private Path keyFile;
     private boolean verifyPeer = true;
@@ -402,6 +403,25 @@ public class HTTPClient implements AltSvcListener {
      */
     public void setDnsHttpsRecordEnabled(boolean enabled) {
         this.dnsHttpsRecordEnabled = enabled;
+    }
+
+    /**
+     * Enables or disables QUIC 0-RTT early data (RFC 9001 section 4.6.1)
+     * for HTTP/3 connections.
+     *
+     * <p>When enabled, if a session ticket was cached from a previous
+     * connection to the same destination ({@link org.bluezoo.gumdrop.quic.SessionTicketCache}),
+     * a GET/HEAD/OPTIONS/TRACE request issued immediately after
+     * {@link #connect(HTTPClientHandler)} may ride the very first flight of
+     * packets, before the TLS handshake completes -- see
+     * {@link HTTPMethodSafety}. Disabled by default: 0-RTT data has no
+     * anti-replay guarantee at the transport layer, so this is an explicit
+     * opt-in.
+     *
+     * @param enabled true to enable 0-RTT
+     */
+    public void setEarlyDataEnabled(boolean enabled) {
+        this.earlyDataEnabled = enabled;
     }
 
     /**
@@ -804,6 +824,7 @@ public class HTTPClient implements AltSvcListener {
             quicTransportFactory.setKeyFile(keyFile);
         }
         quicTransportFactory.setVerifyPeer(verifyPeer);
+        quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
 
         try {
             quicTransportFactory.start();
@@ -820,10 +841,36 @@ public class HTTPClient implements AltSvcListener {
                         @Override
                         public void connectionAccepted(
                                 QuicConnection connection) {
-                            h3Handler = new HTTP3ClientHandler(connection);
-                            handler.onConnected(null);
+                            // Idempotent: if 0-RTT already constructed
+                            // h3Handler and told the application the
+                            // connection is ready (see EarlyDataHandler
+                            // below), don't do so again here -- just flush
+                            // anything deferred pending establishment.
+                            // Either way, this callback is the one place
+                            // that reports the handshake itself as done.
+                            if (h3Handler == null) {
+                                h3Handler = new HTTP3ClientHandler(connection);
+                                handler.onConnected(null);
+                            } else {
+                                h3Handler.runDeferredRequests();
+                            }
                             handler.onSecurityEstablished(
                                     connection.getSecurityInfo());
+                        }
+                    },
+                    new QuicEngine.EarlyDataHandler() {
+                        @Override
+                        public void earlyDataReady(QuicConnection connection) {
+                            // RFC 9001 section 4.6.1: 0-RTT send keys are
+                            // ready, well before the handshake completes.
+                            // Construct h3Handler and let the application
+                            // start issuing requests now -- H3Request gates
+                            // any non-0-RTT-eligible method behind full
+                            // establishment (see HTTPMethodSafety), so this
+                            // is safe even if the application immediately
+                            // issues a POST.
+                            h3Handler = new HTTP3ClientHandler(connection);
+                            handler.onConnected(null);
                         }
                     },
                     loop, serverName);

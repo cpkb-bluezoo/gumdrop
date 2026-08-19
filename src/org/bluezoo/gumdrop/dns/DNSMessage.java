@@ -83,6 +83,9 @@ public final class DNSMessage {
     /** Server status request. RFC 1035 section 4.1.1. */
     public static final int OPCODE_STATUS = 2;
 
+    /** Zone change notification. RFC 1996. */
+    public static final int OPCODE_NOTIFY = 4;
+
     // RFC 1035 section 4.1.1 - RCODE (bits 3-0)
 
     /** No error. RFC 1035 section 4.1.1. */

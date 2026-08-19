@@ -34,6 +34,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,6 +42,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import tech.kwik.agent15.NewSessionTicket;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -63,6 +66,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -258,6 +262,646 @@ public class QuicProductionEndToEndTest {
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {
                 clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 8446 section 4.6.1: Agent15's server engine automatically
+     * issues a session ticket once a handshake completes, to any client
+     * that offered {@code psk_dhe_ke} -- which every client does,
+     * unconditionally, regardless of whether it is actually resuming
+     * anything (confirmed against Agent15's own upstream source).
+     * Confirms {@link QuicTlsClientEngine}/{@link QuicConnection}'s newly
+     * wired plumbing actually captures that ticket into
+     * {@link SessionTicketCache}, keyed by the server name/port used to
+     * connect, along with the peer's real transport parameters -- the
+     * foundation the 0-RTT work builds on.
+     */
+    @Test
+    public void testSessionTicketCapturedAfterHandshake() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final AtomicReference<Endpoint> serverStreamEndpoint = new AtomicReference<Endpoint>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    serverStreamEndpoint.set(endpoint);
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                    // Close this side too, so the client
+                                    // observes its own disconnected()
+                                    // once both directions of the stream
+                                    // have finished.
+                                    serverStreamEndpoint.get().close();
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Server stream error: " + cause);
+                                }
+                            };
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientFin = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            endpoint.send(ByteBuffer.wrap("ping".getBytes(StandardCharsets.US_ASCII)));
+                            endpoint.close();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                            clientFin.countDown();
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                            fail("Client stream error: " + cause);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client stream should close within 5s", clientFin.await(5, TimeUnit.SECONDS));
+
+            // The server sends its NewSessionTicketMessage as a separate,
+            // slightly later 1-RTT CRYPTO frame once it sees the client's
+            // Finished -- not synchronous with the stream exchange above
+            // -- so give it a short bounded window to arrive rather than
+            // asserting immediately.
+            SessionTicketCache.Entry entry = null;
+            long deadline = System.currentTimeMillis() + 3000;
+            while (entry == null && System.currentTimeMillis() < deadline) {
+                entry = SessionTicketCache.get(SERVER_NAME, port);
+                if (entry == null) {
+                    Thread.sleep(50);
+                }
+            }
+
+            assertNotNull("A session ticket should have been cached after the handshake", entry);
+            byte[] psk = entry.toTicket().getPSK();
+            assertNotNull("Cached ticket should carry a PSK", psk);
+            assertTrue("Cached ticket PSK should be non-empty", psk.length > 0);
+            TransportParameters remembered = entry.toTransportParameters();
+            assertTrue("Remembered transport parameters should round-trip a real limit",
+                    remembered.getInitialMaxData() > 0);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9001 section 4.6.1: with 0-RTT enabled server-side, a client
+     * presenting a valid session ticket can send application data
+     * (STREAM frames) in 0-RTT packets, coalesced with its Initial
+     * packet (RFC 9000 section 12.2 order), before the handshake
+     * completes -- and the real production server must both derive
+     * usable 0-RTT keys while processing that same Initial's ClientHello
+     * and correctly process MULTIPLE 0-RTT packets coalesced after it in
+     * the same datagram. The latter is also the regression test for the
+     * previous {@code receiveOnePacket} behaviour, which unconditionally
+     * returned -1 (abandoning the rest of the datagram) the instant it
+     * saw a 0-RTT packet type.
+     *
+     * <p>The client side of this test is driven by hand via
+     * {@link QuicTestPeer} rather than a second real {@link
+     * QuicTransportFactory} connection: presenting a ticket before
+     * {@code startHandshake} has no seam in the production {@code
+     * QuicEngine.connectTo}/{@code QuicTransportFactory.connect} path
+     * yet (that seam is Part 3 of this stage) -- this test exercises the
+     * server-side machinery in isolation, ahead of that.
+     */
+    @Test
+    public void testZeroRttPacketDeliversStreamDataToServer() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine firstClientEngine = null;
+        DatagramChannel rawClientChannel = null;
+        try {
+            final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setEarlyDataEnabled(true);
+            serverFactory.start();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
+            NewSessionTicket ticket = SessionTicketCache.get(SERVER_NAME, serverAddress.getPort()).toTicket();
+
+            byte[] clientInitialDcid = QuicHandshakeEndToEndTest.randomConnectionId();
+            byte[] clientScid = QuicHandshakeEndToEndTest.randomConnectionId();
+            TransportParameters clientParams = QuicHandshakeEndToEndTest.defaultTransportParameters(clientScid);
+            QuicTestPeer secondClient = QuicTestPeer.newClient(clientInitialDcid, clientParams, ALPN);
+            secondClient.presentSessionTicket(ticket);
+            secondClient.startHandshake(SERVER_NAME);
+            assertTrue("0-RTT keys should be derivable right after ClientHello is built",
+                    secondClient.earlySecretsAvailableFired);
+
+            byte[] initialDatagram = secondClient.buildPacket(EncryptionLevel.INITIAL,
+                    clientInitialDcid, clientScid, false, false, 1200);
+
+            long streamA = secondClient.openBidiStream();
+            secondClient.queueStreamData(streamA, "zero-rtt-a".getBytes(StandardCharsets.US_ASCII), false);
+            byte[] zeroRttA = secondClient.buildZeroRttPacket(clientInitialDcid, clientScid, 0);
+
+            long streamB = secondClient.openBidiStream();
+            secondClient.queueStreamData(streamB, "zero-rtt-b".getBytes(StandardCharsets.US_ASCII), false);
+            byte[] zeroRttB = secondClient.buildZeroRttPacket(clientInitialDcid, clientScid, 0);
+
+            byte[] coalesced = new byte[initialDatagram.length + zeroRttA.length + zeroRttB.length];
+            System.arraycopy(initialDatagram, 0, coalesced, 0, initialDatagram.length);
+            System.arraycopy(zeroRttA, 0, coalesced, initialDatagram.length, zeroRttA.length);
+            System.arraycopy(zeroRttB, 0, coalesced, initialDatagram.length + zeroRttA.length, zeroRttB.length);
+
+            rawClientChannel = DatagramChannel.open();
+            rawClientChannel.send(ByteBuffer.wrap(coalesced), serverAddress);
+
+            assertEquals("zero-rtt-a", new String(awaitStreamData(serverReceivedByStream, streamA, 3000),
+                    StandardCharsets.US_ASCII));
+            assertEquals("zero-rtt-b", new String(awaitStreamData(serverReceivedByStream, streamB, 3000),
+                    StandardCharsets.US_ASCII));
+        } finally {
+            if (rawClientChannel != null) {
+                rawClientChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (firstClientEngine != null) {
+                firstClientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * The negative-path counterpart to {@link
+     * #testZeroRttPacketDeliversStreamDataToServer}: with 0-RTT
+     * disabled server-side (the default), the same coalesced Initial +
+     * 0-RTT datagram must not deliver the 0-RTT stream's data at all --
+     * {@code isEarlyDataAccepted()} returning false means the server
+     * never derives {@code zeroRttRecvKeys}, so the 0-RTT packet is
+     * silently dropped (the same {@code keys == null} path already
+     * exercised whenever 0-RTT is never attempted at all -- proving this
+     * negative case doesn't require re-proving that the rest of the
+     * handshake still completes, since every other test in this suite
+     * already completes full handshakes through that exact code path).
+     */
+    @Test
+    public void testZeroRttDisabledServerNeverDeliversStreamData() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine firstClientEngine = null;
+        DatagramChannel rawClientChannel = null;
+        try {
+            final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setEarlyDataEnabled(false);
+            serverFactory.start();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
+            NewSessionTicket ticket = SessionTicketCache.get(SERVER_NAME, serverAddress.getPort()).toTicket();
+
+            byte[] clientInitialDcid = QuicHandshakeEndToEndTest.randomConnectionId();
+            byte[] clientScid = QuicHandshakeEndToEndTest.randomConnectionId();
+            TransportParameters clientParams = QuicHandshakeEndToEndTest.defaultTransportParameters(clientScid);
+            QuicTestPeer secondClient = QuicTestPeer.newClient(clientInitialDcid, clientParams, ALPN);
+            secondClient.presentSessionTicket(ticket);
+            secondClient.startHandshake(SERVER_NAME);
+
+            byte[] initialDatagram = secondClient.buildPacket(EncryptionLevel.INITIAL,
+                    clientInitialDcid, clientScid, false, false, 1200);
+            long rejectedStream = secondClient.openBidiStream();
+            secondClient.queueStreamData(rejectedStream,
+                    "should-not-arrive".getBytes(StandardCharsets.US_ASCII), false);
+            byte[] zeroRtt = secondClient.buildZeroRttPacket(clientInitialDcid, clientScid, 0);
+
+            byte[] coalesced = new byte[initialDatagram.length + zeroRtt.length];
+            System.arraycopy(initialDatagram, 0, coalesced, 0, initialDatagram.length);
+            System.arraycopy(zeroRtt, 0, coalesced, initialDatagram.length, zeroRtt.length);
+
+            rawClientChannel = DatagramChannel.open();
+            rawClientChannel.send(ByteBuffer.wrap(coalesced), serverAddress);
+
+            Thread.sleep(500);
+            assertFalse("Server must not have processed the rejected 0-RTT stream's data",
+                    serverReceivedByStream.containsKey(rejectedStream));
+        } finally {
+            if (rawClientChannel != null) {
+                rawClientChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (firstClientEngine != null) {
+                firstClientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static StreamAcceptHandler streamCapturingAcceptHandler(final Map<Long, byte[]> receivedByStream) {
+        return new StreamAcceptHandler() {
+            @Override
+            public ProtocolHandler acceptStream(final Endpoint stream) {
+                return new ProtocolHandler() {
+                    @Override
+                    public void connected(Endpoint endpoint) {
+                    }
+
+                    @Override
+                    public void receive(ByteBuffer data) {
+                        byte[] bytes = new byte[data.remaining()];
+                        data.get(bytes);
+                        receivedByStream.put(((QuicStreamEndpoint) stream).getStreamId(), bytes);
+                    }
+
+                    @Override
+                    public void securityEstablished(SecurityInfo info) {
+                    }
+
+                    @Override
+                    public void disconnected() {
+                        stream.close();
+                    }
+
+                    @Override
+                    public void error(Exception cause) {
+                        fail("Server stream error: " + cause);
+                    }
+                };
+            }
+        };
+    }
+
+    // Completes a normal production client handshake against the given
+    // server (opening and immediately closing a stream, sending no
+    // data), which is enough to make the server issue a session ticket
+    // (see testSessionTicketCapturedAfterHandshake) -- polls until it
+    // appears in SessionTicketCache. Returns the client engine so the
+    // caller can close it; the caller is expected to already have
+    // cleared SessionTicketCache and to read the ticket back out itself.
+    private static QuicEngine captureSessionTicketViaRealHandshake(InetSocketAddress serverAddress, SelectorLoop loop)
+            throws Exception {
+        QuicTransportFactory clientFactory = new QuicTransportFactory();
+        clientFactory.setApplicationProtocols(ALPN);
+        clientFactory.setVerifyPeer(false);
+        clientFactory.start();
+
+        final CountDownLatch clientFin = new CountDownLatch(1);
+        QuicEngine clientEngine = clientFactory.connect(
+                InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                new ProtocolHandler() {
+                    @Override
+                    public void connected(Endpoint endpoint) {
+                        endpoint.close();
+                    }
+
+                    @Override
+                    public void receive(ByteBuffer data) {
+                    }
+
+                    @Override
+                    public void securityEstablished(SecurityInfo info) {
+                    }
+
+                    @Override
+                    public void disconnected() {
+                        clientFin.countDown();
+                    }
+
+                    @Override
+                    public void error(Exception cause) {
+                        fail("Ticket-capture client stream error: " + cause);
+                    }
+                }, loop, SERVER_NAME);
+
+        assertTrue("Ticket-capture client stream should close within 5s", clientFin.await(5, TimeUnit.SECONDS));
+
+        SessionTicketCache.Entry entry = null;
+        long deadline = System.currentTimeMillis() + 3000;
+        while (entry == null && System.currentTimeMillis() < deadline) {
+            entry = SessionTicketCache.get(SERVER_NAME, serverAddress.getPort());
+            if (entry == null) {
+                Thread.sleep(50);
+            }
+        }
+        assertNotNull("A session ticket should have been cached after the handshake", entry);
+        return clientEngine;
+    }
+
+    private static byte[] awaitStreamData(Map<Long, byte[]> received, long streamId, long timeoutMs)
+            throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            byte[] data = received.get(streamId);
+            if (data != null) {
+                return data;
+            }
+            Thread.sleep(25);
+        }
+        fail("Server never received data for stream " + streamId + " within " + timeoutMs + "ms");
+        return null; // unreachable
+    }
+
+    /**
+     * The genuine end-to-end proof of Part 3 of the 0-RTT work: a real
+     * second {@link HTTPClient}-shaped connection (production {@link
+     * QuicTransportFactory}/{@link QuicEngine} client, not the
+     * hand-driven {@link QuicTestPeer} the earlier 0-RTT tests use)
+     * automatically presents a cached session ticket and sends data from
+     * {@link QuicEngine.EarlyDataHandler#earlyDataReady} -- fired before
+     * the handshake otherwise completes -- and that data genuinely
+     * arrives server-side while the client's own {@link
+     * QuicConnection#isEstablished()} is still false. Not just "fast":
+     * a real fewer-round-trips proof.
+     */
+    @Test
+    public void testEarlyDataHandlerSendsBeforeHandshakeCompletes() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine firstClientEngine = null;
+        QuicEngine secondClientEngine = null;
+        try {
+            final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setEarlyDataEnabled(true);
+            serverFactory.start();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
+
+            QuicTransportFactory secondClientFactory = new QuicTransportFactory();
+            secondClientFactory.setApplicationProtocols(ALPN);
+            secondClientFactory.setVerifyPeer(false);
+            secondClientFactory.setEarlyDataEnabled(true);
+            secondClientFactory.start();
+
+            final AtomicReference<Boolean> establishedAtSendTime = new AtomicReference<Boolean>();
+            final AtomicReference<QuicConnection> clientConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch earlyDataSent = new CountDownLatch(1);
+
+            secondClientEngine = secondClientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                        }
+                    },
+                    new QuicEngine.EarlyDataHandler() {
+                        @Override
+                        public void earlyDataReady(QuicConnection connection) {
+                            establishedAtSendTime.set(connection.isEstablished());
+                            clientConnectionRef.set(connection);
+                            Endpoint endpoint = connection.openStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Client 0-RTT stream error: " + cause);
+                                }
+                            });
+                            endpoint.send(ByteBuffer.wrap("zero-rtt-payload".getBytes(StandardCharsets.US_ASCII)));
+                            earlyDataSent.countDown();
+                        }
+                    },
+                    loop, SERVER_NAME);
+
+            assertTrue("earlyDataReady should fire", earlyDataSent.await(5, TimeUnit.SECONDS));
+            assertNotNull("earlyDataReady should have observed the connection's established state",
+                    establishedAtSendTime.get());
+            assertFalse("Connection must not yet be established when 0-RTT data is queued -- "
+                    + "otherwise this isn't proving genuine 0-RTT, just a fast handshake",
+                    establishedAtSendTime.get().booleanValue());
+
+            assertEquals("zero-rtt-payload", new String(awaitStreamData(serverReceivedByStream, 0L, 3000),
+                    StandardCharsets.US_ASCII));
+
+            // Positive-path regression guard for Part 4's rejection
+            // handling, added alongside it: accepted 0-RTT must not
+            // trigger any resend-as-if-rejected bookkeeping.
+            Object zeroRttState = getPrivateField(clientConnectionRef.get(), "zeroRttState", Object.class);
+            assertEquals("ACCEPTED", zeroRttState.toString());
+            @SuppressWarnings("unchecked")
+            Map<Long, ?> sentZeroRttStream = getPrivateField(clientConnectionRef.get(), "sentZeroRttStream", Map.class);
+            assertFalse("Accepted 0-RTT data should still be recorded as sent, not discarded",
+                    sentZeroRttStream.isEmpty());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (secondClientEngine != null) {
+                secondClientEngine.close();
+            }
+            if (firstClientEngine != null) {
+                firstClientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9001 section 4.6.1: if the server rejects 0-RTT (early data
+     * disabled server-side here, while the client still attempts it),
+     * the client's queued stream data must be transparently resent at
+     * 1-RTT once the handshake completes -- "as if it had never been
+     * sent" -- and must still reach the server, at the same stream ID
+     * and offset 0, with the exact original bytes. Verifies both the
+     * observable outcome (data still arrives) and the internal
+     * bookkeeping (0-RTT keys discarded, nothing left recorded as sent
+     * under 0-RTT).
+     */
+    @Test
+    public void testZeroRttRejectedResendsTransparentlyAtOneRtt() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine firstClientEngine = null;
+        QuicEngine secondClientEngine = null;
+        try {
+            final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setEarlyDataEnabled(false); // server declines
+            serverFactory.start();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
+
+            QuicTransportFactory secondClientFactory = new QuicTransportFactory();
+            secondClientFactory.setApplicationProtocols(ALPN);
+            secondClientFactory.setVerifyPeer(false);
+            secondClientFactory.setEarlyDataEnabled(true); // client still attempts
+            secondClientFactory.start();
+
+            final AtomicReference<QuicConnection> clientConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch earlyDataSent = new CountDownLatch(1);
+            final CountDownLatch clientHandshakeComplete = new CountDownLatch(1);
+
+            secondClientEngine = secondClientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            clientHandshakeComplete.countDown();
+                        }
+                    },
+                    new QuicEngine.EarlyDataHandler() {
+                        @Override
+                        public void earlyDataReady(QuicConnection connection) {
+                            clientConnectionRef.set(connection);
+                            Endpoint endpoint = connection.openStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Client 0-RTT stream error: " + cause);
+                                }
+                            });
+                            endpoint.send(ByteBuffer.wrap("rejected-zero-rtt".getBytes(StandardCharsets.US_ASCII)));
+                            earlyDataSent.countDown();
+                        }
+                    },
+                    loop, SERVER_NAME);
+
+            assertTrue("earlyDataReady should fire", earlyDataSent.await(5, TimeUnit.SECONDS));
+            assertTrue("Client handshake should still complete despite the server's rejection",
+                    clientHandshakeComplete.await(5, TimeUnit.SECONDS));
+
+            assertEquals("rejected-zero-rtt", new String(awaitStreamData(serverReceivedByStream, 0L, 3000),
+                    StandardCharsets.US_ASCII));
+
+            QuicConnection clientConnection = clientConnectionRef.get();
+            assertNotNull(clientConnection);
+            Object zeroRttState = getPrivateField(clientConnection, "zeroRttState", Object.class);
+            assertEquals("REJECTED", zeroRttState.toString());
+            assertNull("0-RTT send keys should be discarded once rejected",
+                    getPrivateField(clientConnection, "zeroRttSendKeys", Object.class));
+            @SuppressWarnings("unchecked")
+            Map<Long, ?> sentZeroRttStreamAfterDiscard =
+                    getPrivateField(clientConnection, "sentZeroRttStream", Map.class);
+            assertTrue("sentZeroRttStream should be empty once its contents are moved back to pendingStream",
+                    sentZeroRttStreamAfterDiscard.isEmpty());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (secondClientEngine != null) {
+                secondClientEngine.close();
+            }
+            if (firstClientEngine != null) {
+                firstClientEngine.close();
             }
             if (serverEngine != null) {
                 serverEngine.close();

@@ -87,6 +87,7 @@ public class QuicTransportFactory extends TransportFactory {
     private String applicationProtocols;
     private Path caFile;
     private boolean verifyPeer = true;
+    private boolean verifyHostname = true;
     private boolean earlyDataEnabled;
     private long maxIdleTimeout = DEFAULT_MAX_IDLE_TIMEOUT;
     private long maxData = DEFAULT_MAX_DATA;
@@ -120,8 +121,20 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
-     * Sets whether 0-RTT early data is enabled. Not yet implemented --
-     * accepted for API compatibility but has no effect.
+     * Returns the configured ALPN application protocol(s), comma-separated,
+     * or null if none were configured.
+     */
+    String getApplicationProtocols() {
+        return applicationProtocols;
+    }
+
+    /**
+     * Sets whether 0-RTT early data (RFC 9001 section 4.6.1) is enabled.
+     * Client-side, presents a cached {@link SessionTicketCache} entry (if
+     * any) and fires {@link QuicEngine.EarlyDataHandler#earlyDataReady}
+     * once send keys are available; server-side, gates whether {@link
+     * org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine#isEarlyDataAccepted}
+     * ever accepts it.
      *
      * @param enabled the new state
      */
@@ -164,6 +177,24 @@ public class QuicTransportFactory extends TransportFactory {
      */
     public void setVerifyPeer(boolean verify) {
         this.verifyPeer = verify;
+    }
+
+    /**
+     * Sets whether the client verifies the peer certificate's hostname
+     * against the server name offered in the handshake.
+     *
+     * <p>Enabled by default. A client with no real hostname to offer
+     * (e.g. a DNS-over-QUIC client connecting directly to a resolved IP,
+     * RFC 9250) has nothing meaningful for this check to match against --
+     * see {@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine#setVerifyHostname}
+     * for the full rationale. Such a caller should disable this and
+     * establish trust another way instead ({@link #setCaFile} or a
+     * pinned certificate fingerprint).
+     *
+     * @param verify false to accept any hostname/certificate pairing
+     */
+    public void setVerifyHostname(boolean verify) {
+        this.verifyHostname = verify;
     }
 
     /**
@@ -269,6 +300,10 @@ public class QuicTransportFactory extends TransportFactory {
 
     X509TrustManager getTrustManager() {
         return trustManager;
+    }
+
+    boolean isVerifyHostnameEnabled() {
+        return verifyHostname;
     }
 
     byte[] getConnectionIdStaticKey() {
@@ -432,6 +467,50 @@ public class QuicTransportFactory extends TransportFactory {
             SelectorLoop loop, String serverName) throws IOException {
         QuicEngine engine = newClientEngine(host, loop);
         engine.connectTo(new InetSocketAddress(host, port), null, connHandler, serverName);
+        return engine;
+    }
+
+    /**
+     * Opens a client-mode {@link QuicEngine} connected to a remote host,
+     * notified via {@code connHandler} once the handshake completes and
+     * {@code earlyDataHandler} if 0-RTT (RFC 9001 section 4.6.1) becomes
+     * available first -- see {@link QuicEngine#connectTo(InetSocketAddress,
+     * ProtocolHandler, QuicEngine.ConnectionAcceptedHandler,
+     * QuicEngine.EarlyDataHandler, String)} for how a cached session
+     * ticket is consulted.
+     *
+     * @param host the server host
+     * @param port the server port
+     * @param connHandler notified once the handshake completes
+     * @param earlyDataHandler notified once 0-RTT send keys are ready, may be null
+     * @param loop the selector loop to register the engine with
+     * @param serverName the SNI server name, or null (e.g. DoQ)
+     * @return the new engine
+     * @throws IOException if the socket cannot be opened
+     */
+    public QuicEngine connect(InetAddress host, int port, QuicEngine.ConnectionAcceptedHandler connHandler,
+            final QuicEngine.EarlyDataHandler earlyDataHandler, SelectorLoop loop, String serverName) throws IOException {
+        final QuicEngine engine = newClientEngine(host, loop);
+        final InetSocketAddress remote = new InetSocketAddress(host, port);
+        // Unlike the other connect() overloads, earlyDataHandler (if
+        // present) fires synchronously from inside connectTo() -- well
+        // before the handshake otherwise completes (RFC 9001 section
+        // 4.6.1) -- rather than later, asynchronously, from this
+        // engine's own SelectorLoop thread the way ConnectionAcceptedHandler
+        // always does. Calling connect() from any other thread (the
+        // normal case -- e.g. HTTPClient.connect() is typically called
+        // by application code, not from a SelectorLoop thread) would
+        // otherwise let earlyDataHandler's own QuicConnection-touching
+        // work run concurrently with this engine's own packet processing
+        // on the loop thread. Routing the whole call through the loop
+        // keeps it consistent with every other QuicConnection entry
+        // point: always on the connection's own thread.
+        loop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                engine.connectTo(remote, null, connHandler, earlyDataHandler, serverName);
+            }
+        });
         return engine;
     }
 

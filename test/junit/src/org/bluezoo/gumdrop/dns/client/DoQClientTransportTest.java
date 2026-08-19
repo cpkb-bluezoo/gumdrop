@@ -35,24 +35,38 @@ import static org.junit.Assert.*;
  */
 public class DoQClientTransportTest {
 
+    /**
+     * RFC 9250 section 4.5: only QUERY and NOTIFY opcodes may ride 0-RTT
+     * early data -- checked directly against the raw wire bytes (before
+     * any {@code DNSMessage} parse), matching {@code
+     * DoQClientTransport.isEarlyDataEligible}'s own comment about the
+     * header byte layout (RFC 1035 section 4.1.1: {@code QR(1) OPCODE(4)
+     * ...}).
+     */
     @Test
-    public void testSessionTicketCacheExists() throws Exception {
-        Field cacheField = DoQClientTransport.class
-                .getDeclaredField("sessionTicketCache");
-        cacheField.setAccessible(true);
-        Object cache = cacheField.get(null);
-        assertNotNull("Session ticket cache must be initialized", cache);
-        assertTrue("Session ticket cache should be a ConcurrentHashMap",
-                cache instanceof java.util.concurrent.ConcurrentHashMap);
+    public void testEarlyDataEligibleOpcodes() throws Exception {
+        java.lang.reflect.Method method = DoQClientTransport.class
+                .getDeclaredMethod("isEarlyDataEligible", java.nio.ByteBuffer.class);
+        method.setAccessible(true);
+
+        assertTrue("QUERY should be 0-RTT-eligible",
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_QUERY)));
+        assertTrue("NOTIFY should be 0-RTT-eligible",
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_NOTIFY)));
+        assertFalse("STATUS should not be 0-RTT-eligible",
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_STATUS)));
+        assertFalse("IQUERY should not be 0-RTT-eligible",
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_IQUERY)));
+        assertFalse("A too-short buffer should not be eligible",
+                (Boolean) method.invoke(null, java.nio.ByteBuffer.wrap(new byte[] {0, 0})));
     }
 
-    @Test
-    public void testSessionTicketCacheIsStatic() throws Exception {
-        Field cacheField = DoQClientTransport.class
-                .getDeclaredField("sessionTicketCache");
-        assertTrue("Session ticket cache should be static",
-                java.lang.reflect.Modifier.isStatic(
-                        cacheField.getModifiers()));
+    // Builds a minimal 3-byte prefix of a DNS header (ID(2) + the flags
+    // byte containing QR(1)/OPCODE(4)) -- enough for isEarlyDataEligible's
+    // own header-byte check, without needing a full DNSMessage.
+    private static java.nio.ByteBuffer header(int opcode) {
+        byte flagsHighByte = (byte) ((opcode << 3) & 0xFF);
+        return java.nio.ByteBuffer.wrap(new byte[] {0, 0, flagsHighByte});
     }
 
     @Test

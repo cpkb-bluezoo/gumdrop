@@ -34,6 +34,7 @@ import tech.kwik.agent15.engine.TlsMessageParser;
 import tech.kwik.agent15.engine.TlsServerEngine;
 import tech.kwik.agent15.engine.TlsServerEngineFactory;
 import tech.kwik.agent15.engine.TlsStatusEventHandler;
+import tech.kwik.agent15.extension.ApplicationLayerProtocolNegotiationExtension;
 import tech.kwik.agent15.extension.Extension;
 import tech.kwik.agent15.handshake.CertificateMessage;
 import tech.kwik.agent15.handshake.CertificateVerifyMessage;
@@ -47,8 +48,8 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 /**
  * Bridges Agent15's {@link TlsServerEngine} to gumdrop's QUIC transport,
  * the server-side counterpart of {@link QuicTlsClientEngine}. See that
- * class's documentation for what this stage deliberately does not do
- * yet (ALPN).
+ * class's documentation for the scope of this implementation's minimal
+ * ALPN (RFC 7301) support.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsClientEngine
@@ -68,6 +69,33 @@ public final class QuicTlsServerEngine
     private long handshakeSendOffset;
     private long applicationSendOffset;
 
+    // RFC 9001 section 4.6.1: whether this listener/connection is willing
+    // to accept 0-RTT at all -- consulted (and its outcome cached) in
+    // isEarlyDataAccepted(), called by Agent15 only after PSK resumption
+    // has already succeeded and the client asked for early data.
+    private final boolean earlyDataEnabled;
+    private boolean earlyDataAccepted;
+    private final List<String> supportedApplicationProtocols;
+
+    /**
+     * Creates a server-side TLS engine that offers no ALPN application
+     * protocols.
+     *
+     * @param certificateFactory factory holding the server's certificate
+     *                           chain and private key
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in EncryptedExtensions
+     *                            (RFC 9001 section 8.2)
+     * @param listener notified of handshake progress
+     * @param earlyDataEnabled whether to accept 0-RTT early data when a
+     *                         client offers it (RFC 9001 section 4.6.1)
+     */
+    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
+            TransportParameters transportParameters, QuicTlsEngineListener listener,
+            boolean earlyDataEnabled) {
+        this(certificateFactory, transportParameters, listener, earlyDataEnabled, null);
+    }
+
     /**
      * Creates a server-side TLS engine.
      *
@@ -77,10 +105,20 @@ public final class QuicTlsServerEngine
      *                            parameters, sent in EncryptedExtensions
      *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
+     * @param earlyDataEnabled whether to accept 0-RTT early data when a
+     *                         client offers it (RFC 9001 section 4.6.1)
+     * @param applicationProtocols the ALPN application protocol(s) this
+     *                             server supports (RFC 7301),
+     *                             comma-separated, or null to support none
      */
     public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
-            TransportParameters transportParameters, QuicTlsEngineListener listener) {
+            TransportParameters transportParameters, QuicTlsEngineListener listener,
+            boolean earlyDataEnabled, String applicationProtocols) {
         this.listener = listener;
+        this.earlyDataEnabled = earlyDataEnabled;
+        this.supportedApplicationProtocols = applicationProtocols != null && !applicationProtocols.isEmpty()
+                ? java.util.Arrays.asList(applicationProtocols.split(","))
+                : java.util.Collections.<String>emptyList();
         this.engine = certificateFactory.createServerEngine(this, this);
 
         List<TlsConstants.CipherSuite> ciphers = new ArrayList<TlsConstants.CipherSuite>();
@@ -172,6 +210,16 @@ public final class QuicTlsServerEngine
         return engine.getServerApplicationTrafficSecret();
     }
 
+    /**
+     * Returns the client early (0-RTT) traffic secret.
+     *
+     * @return the client early traffic secret
+     */
+    @Override
+    public byte[] getClientEarlyTrafficSecret() {
+        return engine.getClientEarlyTrafficSecret();
+    }
+
     // ── ServerMessageSender ──
 
     @Override
@@ -224,7 +272,7 @@ public final class QuicTlsServerEngine
 
     @Override
     public void earlySecretsKnown() {
-        // 0-RTT is not implemented yet.
+        listener.earlySecretsAvailable();
     }
 
     @Override
@@ -251,10 +299,40 @@ public final class QuicTlsServerEngine
         if (transportParameters != null) {
             listener.transportParametersReceived(transportParameters);
         }
+        // RFC 7301: pick the first client-offered protocol this server
+        // also supports. No match (or nothing configured either side)
+        // just leaves the selected protocol unset -- this minimal
+        // implementation doesn't enforce RFC 7301's negotiation-failure
+        // closing behaviour (see the class documentation).
+        for (Extension extension : extensions) {
+            if (extension instanceof ApplicationLayerProtocolNegotiationExtension) {
+                for (String offered : ((ApplicationLayerProtocolNegotiationExtension) extension).getProtocols()) {
+                    if (supportedApplicationProtocols.contains(offered)) {
+                        engine.setSelectedApplicationLayerProtocol(offered);
+                        break;
+                    }
+                }
+                break;
+            }
+        }
     }
 
     @Override
     public boolean isEarlyDataAccepted() {
-        return false;
+        earlyDataAccepted = earlyDataEnabled;
+        return earlyDataAccepted;
+    }
+
+    /**
+     * Returns whether 0-RTT early data was accepted for this connection.
+     * Only meaningful after {@link #isEarlyDataAccepted()} has been
+     * called by Agent15 (i.e. once a client's PSK resumption attempt
+     * that also requested early data has been processed) -- false
+     * beforehand, and false if the client never attempted 0-RTT at all.
+     *
+     * @return whether early data was accepted
+     */
+    public boolean wasEarlyDataAccepted() {
+        return earlyDataAccepted;
     }
 }

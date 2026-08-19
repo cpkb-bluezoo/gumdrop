@@ -37,6 +37,8 @@ import tech.kwik.agent15.engine.TlsClientEngine;
 import tech.kwik.agent15.engine.TlsClientEngineFactory;
 import tech.kwik.agent15.engine.TlsMessageParser;
 import tech.kwik.agent15.engine.TlsStatusEventHandler;
+import tech.kwik.agent15.extension.ApplicationLayerProtocolNegotiationExtension;
+import tech.kwik.agent15.extension.EarlyDataExtension;
 import tech.kwik.agent15.extension.Extension;
 import tech.kwik.agent15.handshake.CertificateMessage;
 import tech.kwik.agent15.handshake.CertificateVerifyMessage;
@@ -56,7 +58,17 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
  * surfaced via {@link QuicTlsEngineListener#transportParametersReceived};
  * validating it against RFC 9000 section 7.3's requirements (e.g. that
  * it MUST be present, that original_destination_connection_id MUST
- * match) is not done yet. ALPN is not added yet either.
+ * match) is not done yet.
+ *
+ * <p>ALPN (RFC 7301) is added when an application protocol list is
+ * configured: this is minimal by design (gumdrop only ever configures
+ * one protocol per QUIC listener/client today, e.g. "h3" or "doq" --
+ * see {@code QuicTransportFactory#setApplicationProtocols}) and does not
+ * enforce RFC 7301's negotiation-failure closing behaviour; the server
+ * side (see {@link QuicTlsServerEngine}) silently leaves the selected
+ * protocol unset rather than aborting the handshake if nothing matches.
+ * A real ALPN implementation was added as a dependency of RFC 9001
+ * section 4.6.1's 0-RTT accept gate, which requires it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsServerEngine
@@ -75,8 +87,16 @@ public final class QuicTlsClientEngine
     private long initialSendOffset;
     private long handshakeSendOffset;
 
+    // RFC 9001 section 4.6.1: the cipher suite a presented session
+    // ticket was originally issued under -- needed to derive 0-RTT keys
+    // in earlySecretsKnown(), which fires right after ClientHello is
+    // sent, before ServerHello negotiates this handshake's own cipher
+    // (engine.getSelectedCipher() isn't populated yet at that point).
+    private TlsConstants.CipherSuite earlyDataCipher;
+
     /**
-     * Creates a client-side TLS engine.
+     * Creates a client-side TLS engine, offering no ALPN application
+     * protocols.
      *
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in the ClientHello
@@ -84,6 +104,22 @@ public final class QuicTlsClientEngine
      * @param listener notified of handshake progress
      */
     public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener) {
+        this(transportParameters, listener, null);
+    }
+
+    /**
+     * Creates a client-side TLS engine.
+     *
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in the ClientHello
+     *                            (RFC 9001 section 8.2)
+     * @param listener notified of handshake progress
+     * @param applicationProtocols the ALPN application protocol(s) to
+     *                             offer (RFC 7301), comma-separated, or
+     *                             null to offer none
+     */
+    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
+            String applicationProtocols) {
         this.listener = listener;
         this.engine = TlsClientEngineFactory.createClientEngine(this, this);
 
@@ -93,6 +129,10 @@ public final class QuicTlsClientEngine
         ciphers.add(TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
         engine.addSupportedCiphers(ciphers);
         engine.add(new QuicTransportParametersExtension(transportParameters));
+        if (applicationProtocols != null && !applicationProtocols.isEmpty()) {
+            engine.add(new ApplicationLayerProtocolNegotiationExtension(
+                    java.util.Arrays.asList(applicationProtocols.split(","))));
+        }
     }
 
     /**
@@ -103,6 +143,39 @@ public final class QuicTlsClientEngine
      */
     public void setTrustManager(X509TrustManager trustManager) {
         engine.setTrustManager(trustManager);
+    }
+
+    /**
+     * Disables hostname verification of the peer's certificate against
+     * the server name presented in the handshake.
+     *
+     * <p>Agent15 requires a non-null server name to start any client
+     * handshake at all (its own {@code startHandshake} throws otherwise),
+     * but RFC 6066 section 3 disallows IP literals in a real SNI value --
+     * a caller with no real hostname to offer (e.g. a DNS-over-QUIC
+     * client connecting directly to a resolved IP, RFC 9250) has nothing
+     * for Agent15's hostname check to meaningfully match against, since
+     * its default verifier has no notion of comparing a literal address
+     * to a certificate's IP-typed SAN entries. Such a caller is expected
+     * to establish trust another way instead (a pinned certificate
+     * fingerprint or a private CA via {@link #setTrustManager}), matching
+     * RFC 8310 section 8.1's SPKI-pinning-as-alternative precedent for
+     * DNS-over-TLS clients in the same situation.
+     *
+     * <p>Not called at all (the default) leaves Agent15's own hostname
+     * verifier in place, unchanged.
+     *
+     * @param verify false to accept any hostname/certificate pairing
+     */
+    public void setVerifyHostname(boolean verify) {
+        if (!verify) {
+            engine.setHostnameVerifier(new tech.kwik.agent15.engine.HostnameVerifier() {
+                @Override
+                public boolean verify(String hostName, X509Certificate serverCertificate) {
+                    return true;
+                }
+            });
+        }
     }
 
     /**
@@ -216,6 +289,50 @@ public final class QuicTlsClientEngine
         return engine.getServerApplicationTrafficSecret();
     }
 
+    /**
+     * Returns the client early (0-RTT) traffic secret.
+     *
+     * @return the client early traffic secret
+     */
+    @Override
+    public byte[] getClientEarlyTrafficSecret() {
+        return engine.getClientEarlyTrafficSecret();
+    }
+
+    /**
+     * Presents a previously received session ticket, attempting PSK
+     * resumption on the next {@link #startHandshake}. If the ticket
+     * itself advertises early-data support ({@link
+     * NewSessionTicket#hasEarlyDataExtension()}), also adds an {@link
+     * EarlyDataExtension} to the ClientHello -- RFC 8446 section 4.2.10:
+     * presenting a resumable ticket and requesting 0-RTT are separate,
+     * independent signals; a server never calls {@code
+     * isEarlyDataAccepted()} at all unless this extension is present,
+     * regardless of PSK resumption succeeding. Must be called before
+     * {@link #startHandshake}.
+     *
+     * @param ticket the session ticket to present
+     */
+    public void presentSessionTicket(NewSessionTicket ticket) {
+        this.earlyDataCipher = ticket.getCipher();
+        engine.setNewSessionTicket(ticket);
+        if (ticket.hasEarlyDataExtension()) {
+            engine.add(new EarlyDataExtension());
+        }
+    }
+
+    /**
+     * Returns the cipher suite of the session ticket presented via
+     * {@link #presentSessionTicket}, or null if none was presented.
+     * Needed to derive 0-RTT keys in {@link #earlySecretsKnown()}, which
+     * fires before {@code engine.getSelectedCipher()} is populated.
+     *
+     * @return the presented ticket's cipher suite, or null
+     */
+    public TlsConstants.CipherSuite getEarlyDataCipher() {
+        return earlyDataCipher;
+    }
+
     // ── ClientMessageSender ──
 
     @Override
@@ -257,7 +374,7 @@ public final class QuicTlsClientEngine
 
     @Override
     public void earlySecretsKnown() {
-        // 0-RTT is not implemented yet.
+        listener.earlySecretsAvailable();
     }
 
     @Override
@@ -272,7 +389,7 @@ public final class QuicTlsClientEngine
 
     @Override
     public void newSessionTicketReceived(NewSessionTicket ticket) {
-        // Session resumption is not implemented yet.
+        listener.newSessionTicketReceived(ticket);
     }
 
     @Override
@@ -284,6 +401,20 @@ public final class QuicTlsClientEngine
         if (transportParameters != null) {
             listener.transportParametersReceived(transportParameters);
         }
+        // RFC 9001 section 4.6.1 / RFC 8446 section 4.2.10: the server
+        // includes an EarlyDataExtension in EncryptedExtensions only if
+        // it accepted 0-RTT. Reported unconditionally, on every
+        // handshake, regardless of whether 0-RTT was ever attempted on
+        // this connection -- the listener (QuicConnection) is the one
+        // that knows whether that's meaningful here.
+        boolean earlyDataAccepted = false;
+        for (Extension extension : extensions) {
+            if (extension instanceof EarlyDataExtension) {
+                earlyDataAccepted = true;
+                break;
+            }
+        }
+        listener.earlyDataOutcomeKnown(earlyDataAccepted);
     }
 
     @Override

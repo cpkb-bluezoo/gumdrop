@@ -52,6 +52,7 @@ final class QuicSecurityInfo implements SecurityInfo {
     private final String cipherSuite;
     private final Certificate[] peerCertificates;
     private final long handshakeDurationMs;
+    private final boolean earlyDataAccepted;
 
     /**
      * Creates a QuicSecurityInfo from an established TLS engine's state.
@@ -59,14 +60,18 @@ final class QuicSecurityInfo implements SecurityInfo {
      * @param tlsEngine the connection's TLS engine, once its handshake has finished
      * @param isServer true if this endpoint is the server
      * @param handshakeStartTime the time the handshake started, for {@link #getHandshakeDurationMs}
+     * @param earlyDataAccepted whether 0-RTT was accepted on this connection
+     *                          (RFC 9001 section 4.6.1); always false if
+     *                          0-RTT was never attempted at all
      */
-    QuicSecurityInfo(QuicTlsEngine tlsEngine, boolean isServer, long handshakeStartTime) {
+    QuicSecurityInfo(QuicTlsEngine tlsEngine, boolean isServer, long handshakeStartTime, boolean earlyDataAccepted) {
         TlsConstants.CipherSuite selected = isServer
                 ? ((QuicTlsServerEngine) tlsEngine).getSelectedCipher()
                 : ((QuicTlsClientEngine) tlsEngine).getSelectedCipher();
         this.cipherSuite = selected != null ? selected.toString() : null;
         this.peerCertificates = isServer ? null : parsePeerCerts((QuicTlsClientEngine) tlsEngine);
         this.handshakeDurationMs = System.currentTimeMillis() - handshakeStartTime;
+        this.earlyDataAccepted = earlyDataAccepted;
     }
 
     @Override
@@ -115,8 +120,15 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     @Override
     public boolean isSessionResumed() {
-        // 0-RTT/session resumption is not implemented.
+        // Agent15 doesn't expose a "PSK resumption succeeded" signal
+        // independent of 0-RTT acceptance, so there is no accurate value
+        // to report here short of guessing; always false.
         return false;
+    }
+
+    @Override
+    public boolean isEarlyDataAccepted() {
+        return earlyDataAccepted;
     }
 
     private static Certificate[] parsePeerCerts(QuicTlsClientEngine clientEngine) {

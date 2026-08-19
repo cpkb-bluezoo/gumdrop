@@ -30,9 +30,11 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import tech.kwik.agent15.NewSessionTicket;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.TlsProtocolException;
 
@@ -146,6 +148,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // see the update promptly rather than a stale pre-migration value.
     private volatile InetSocketAddress remoteAddress;
     private QuicTlsEngine tlsEngine;
+    // Client-only: the SNI name passed to startHandshake, kept around so
+    // newSessionTicketReceived can key the session-ticket cache by it
+    // (falling back to remoteAddress's host if unset, e.g. DoQ, which
+    // doesn't use SNI).
+    private String serverName;
     private final TransportParameters localTransportParameters;
     private final byte[] connectionIdStaticKey;
     private final long handshakeStartTime = System.currentTimeMillis();
@@ -176,6 +183,30 @@ public final class QuicConnection implements QuicTlsEngineListener {
             EncryptionLevel.class);
     private final EnumMap<EncryptionLevel, PacketProtectionKeys> recvKeys = new EnumMap<EncryptionLevel, PacketProtectionKeys>(
             EncryptionLevel.class);
+    // 0-RTT (RFC 9001 section 4.6.1) keys, derived from the single client
+    // early traffic secret -- deliberately not a third EncryptionLevel
+    // value (see that enum's own class documentation): 0-RTT is
+    // client-to-server only, so only one direction ever needs keys per
+    // role -- the client only ever sends with these, the server only
+    // ever receives with them. Packet-number/loss-detection space is
+    // still shared with ONE_RTT (RFC 9000 section 12.3), so these exist
+    // purely as an extra axis of key material, not a fourth packet-number
+    // space.
+    private PacketProtectionKeys zeroRttSendKeys;
+    private PacketProtectionKeys zeroRttRecvKeys;
+
+    // Client-only: tracks this connection's own 0-RTT attempt, if any.
+    // NONE until a ticket is presented and keys are derived; OFFERED
+    // from then until the server's EncryptedExtensions arrives and says
+    // which way it went (see earlyDataOutcomeKnown).
+    private enum ZeroRttState { NONE, OFFERED, ACCEPTED, REJECTED }
+    private ZeroRttState zeroRttState = ZeroRttState.NONE;
+
+    // Client-only: fired once, right after 0-RTT send keys become
+    // available (before the handshake otherwise completes), so a caller
+    // can open a stream and queue 0-RTT-eligible data immediately. See
+    // QuicEngine.EarlyDataHandler.
+    private QuicEngine.EarlyDataHandler earlyDataHandler;
     private final EnumMap<EncryptionLevel, List<PendingChunk>> pendingCrypto = new EnumMap<EncryptionLevel, List<PendingChunk>>(
             EncryptionLevel.class);
     private final EnumMap<EncryptionLevel, Map<Long, List<PendingChunk>>> sentCrypto = new EnumMap<EncryptionLevel, Map<Long, List<PendingChunk>>>(
@@ -183,6 +214,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final long[] sendPacketNumber = new long[EncryptionLevel.values().length];
     private final long[] largestReceived = { -1, -1, -1 };
     private final boolean[] ackOwed = new boolean[EncryptionLevel.values().length];
+    // Packet numbers received (ack-eliciting) but not yet covered by a
+    // sent ACK frame, per level -- RFC 9000 section 13.2.1 requires an
+    // ACK frame to acknowledge every received packet number, not just
+    // the largest, since any of them may not have been acked before a
+    // later one arrived (e.g. a 0-RTT packet followed shortly after by a
+    // 1-RTT one, before this endpoint got a chance to ACK the first).
+    private final EnumMap<EncryptionLevel, TreeSet<Long>> receivedUnacked =
+            new EnumMap<EncryptionLevel, TreeSet<Long>>(EncryptionLevel.class);
     private final boolean[] discarded = new boolean[EncryptionLevel.values().length];
     // Set on a Probe Timeout when nothing else was queued to naturally retransmit (RFC 9002 Appendix A.9).
     private final boolean[] pendingPing = new boolean[EncryptionLevel.values().length];
@@ -190,8 +229,33 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // STREAM data pending send, keyed by stream ID; only ever flushed at ONE_RTT.
     private final Map<Long, List<PendingChunk>> pendingStream = new HashMap<Long, List<PendingChunk>>();
     private final Map<Long, Long> streamSendOffset = new HashMap<Long, Long>();
+    // Bytes of actual content ever delivered to a receive-side stream's
+    // handler, per stream ID -- distinct from checkAndRecordFlowControl's
+    // streamBytesReceived (which tracks the highest offset+length ever
+    // SEEN, purely for byte-budget accounting, regardless of gaps). This
+    // one tracks what's actually been handed to the application in order,
+    // used only to decide when a FIN is safe to act on -- see
+    // streamFrameReceived/maybeCompletePendingFin.
+    private final Map<Long, Long> streamDeliveredBytes = new HashMap<Long, Long>();
+    // A FIN seen at an offset beyond what's been contiguously delivered so
+    // far (see streamFrameReceived) -- this codebase has no stream
+    // reassembly (QuicStreamEndpoint's own class documentation), so a FIN
+    // that arrives out of order (e.g. a retransmitted data chunk still
+    // outstanding) can't be acted on immediately: doing so would retire
+    // the stream and let the peer send an empty close in response to the
+    // handler's disconnected() before its real content has even arrived,
+    // orphaning that content when it does (observed as a spurious
+    // re-accept of the same stream ID). Held here until a later delivery
+    // catches up to this offset.
+    private final Map<Long, Long> pendingFinOffset = new HashMap<Long, Long>();
     // packetNumber (ONE_RTT) -> streamId -> chunks sent in that packet, for retransmission on loss.
     private final Map<Long, Map<Long, List<PendingChunk>>> sentStream = new HashMap<Long, Map<Long, List<PendingChunk>>>();
+    // Client-only: same shape as sentStream, but for chunks sent as 0-RTT
+    // (see buildZeroRttPacketOrNull) -- kept deliberately separate from
+    // sentStream so a since-rejected 0-RTT attempt's chunks can be
+    // unambiguously identified and moved back to pendingStream for a
+    // clean resend at 1-RTT (see discardZeroRttDataAndKeys).
+    private final Map<Long, Map<Long, List<PendingChunk>>> sentZeroRttStream = new HashMap<Long, Map<Long, List<PendingChunk>>>();
     // Each entry: {streamId, applicationErrorCode, finalSize}, owed a RESET_STREAM frame.
     private final List<long[]> pendingResetStreams = new ArrayList<long[]>();
 
@@ -430,13 +494,31 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return null;
         }
         if (securityInfo == null) {
-            securityInfo = new QuicSecurityInfo(tlsEngine, isServer, handshakeStartTime);
+            boolean earlyDataAccepted = isServer
+                    ? ((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).wasEarlyDataAccepted()
+                    : zeroRttState == ZeroRttState.ACCEPTED;
+            securityInfo = new QuicSecurityInfo(tlsEngine, isServer, handshakeStartTime, earlyDataAccepted);
         }
         return securityInfo;
     }
 
     public boolean isClosed() {
         return closed;
+    }
+
+    /**
+     * Returns whether this connection's TLS handshake has finished (RFC
+     * 9001 section 4.1.2's "handshake complete", not necessarily yet
+     * "handshake confirmed"). A stream opened before this point can
+     * still send data -- e.g. as 0-RTT (RFC 9001 section 4.6.1), from
+     * {@link QuicEngine.EarlyDataHandler#earlyDataReady} -- but only a
+     * client presenting an accepted session ticket can actually get
+     * that data out before this flips true.
+     *
+     * @return whether the handshake has finished
+     */
+    public boolean isEstablished() {
+        return established;
     }
 
     /**
@@ -471,6 +553,44 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     /**
+     * Client-only: registers a callback fired once, right after 0-RTT
+     * send keys become available -- well before the handshake otherwise
+     * completes -- so the caller can open a stream and queue eligible
+     * data immediately. No-op if this connection never ends up
+     * attempting 0-RTT (no ticket presented, or the presented ticket
+     * doesn't support early data).
+     *
+     * @param handler the callback
+     */
+    void setEarlyDataHandler(QuicEngine.EarlyDataHandler handler) {
+        this.earlyDataHandler = handler;
+    }
+
+    /**
+     * Client-only: seeds this connection's peer-side send limits from a
+     * previous connection's remembered transport parameters (RFC 9000
+     * section 7.4.1), so 0-RTT stream sends aren't blocked outright by
+     * the complete absence of any peer transport parameters before the
+     * real ones arrive. Must be called before {@link #startHandshake} --
+     * specifically before the client's ClientHello is built, so 0-RTT
+     * data queued from {@link QuicEngine.EarlyDataHandler#earlyDataReady}
+     * has a budget to send against immediately.
+     *
+     * <p>Overwritten unconditionally once the real transport parameters
+     * arrive via {@link #transportParametersReceived}; this class does
+     * not enforce RFC 9000 section 7.4.1's requirement that the real
+     * parameters not end up more restrictive than what 0-RTT assumed --
+     * an explicitly deferred gap, documented in the migration notes.
+     *
+     * @param remembered the peer's transport parameters from the
+     *                   connection the presented session ticket came from
+     */
+    void seedRememberedTransportParameters(TransportParameters remembered) {
+        this.peerTransportParameters = remembered;
+        this.peerMaxData = remembered.getInitialMaxData();
+    }
+
+    /**
      * Starts the client-side TLS handshake, producing an Initial packet
      * on the next {@link #flush}.
      *
@@ -478,7 +598,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @throws IOException if the handshake cannot be started
      */
     void startHandshake(String serverName) throws IOException {
-        ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).startHandshake(serverName);
+        this.serverName = serverName;
+        // If a session ticket was presented, earlySecretsKnown() fires
+        // synchronously from inside this call, before the ClientHello
+        // itself has even been sent (see QuicTlsClientEngine) -- which
+        // in turn synchronously invokes earlyDataHandler.earlyDataReady,
+        // whose queued stream data would otherwise trigger its own
+        // premature, Initial-less flush() via requestFlush() (see
+        // suppressFlush's own documentation at receive() for the same
+        // class of problem on the receive side). Suppressed here so the
+        // caller's own conn.flush() (QuicEngine.connectTo, right after
+        // this returns) is the one that actually coalesces Initial and
+        // 0-RTT together.
+        suppressFlush = true;
+        try {
+            ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).startHandshake(serverName);
+        } finally {
+            suppressFlush = false;
+        }
     }
 
     // ── Stream lifecycle ──
@@ -619,8 +756,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
      */
     void retireStreamIfFullyClosed(long streamId, QuicStreamEndpoint stream) {
         if (stream.isFullyClosed()) {
-            streams.remove(Long.valueOf(streamId));
+            Long key = Long.valueOf(streamId);
+            streams.remove(key);
+            streamDeliveredBytes.remove(key);
+            pendingFinOffset.remove(key);
         }
+    }
+
+    // The peer finishing their send direction must not stop this side
+    // from still sending its own response on the same (bidirectional)
+    // stream -- see QuicStreamEndpoint's markPeerFinished javadoc.
+    private void completeStreamFin(long streamId, QuicStreamEndpoint stream) {
+        stream.markPeerFinished();
+        stream.getHandler().disconnected();
+        retireStreamIfFullyClosed(streamId, stream);
     }
 
     // ── Receive path ──
@@ -679,6 +828,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
         EncryptionLevel level;
         int pnOffset;
         int packetLength;
+        // RFC 9000 section 12.3: 0-RTT shares the ONE_RTT packet number/
+        // loss-detection space despite using different keys -- routed to
+        // that level below, same as the short-header (1-RTT) branch;
+        // processPacket tells the two apart via isZeroRtt to pick the
+        // right key material and to keep a 0-RTT packet from counting as
+        // address validation (see there).
+        boolean isZeroRtt = false;
         if (longHeader) {
             byte[] fromOffset = offset == 0 ? bytes : java.util.Arrays.copyOfRange(bytes, offset, bytes.length);
             // A Retry packet has no Length field (RFC 9000 section
@@ -696,10 +852,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             } catch (RuntimeException e) {
                 return -1;
             }
-            if (prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT) {
-                return -1; // 0-RTT is not implemented
-            }
-            level = prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL ? EncryptionLevel.INITIAL : EncryptionLevel.HANDSHAKE;
+            isZeroRtt = prefix.getPacketType() == LongHeaderCodec.TYPE_0RTT;
+            level = isZeroRtt ? EncryptionLevel.ONE_RTT
+                    : prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL ? EncryptionLevel.INITIAL
+                    : EncryptionLevel.HANDSHAKE;
             pnOffset = prefix.getPacketNumberOffset();
             packetLength = pnOffset + (int) prefix.getRemainingLength();
             if (!peerConnectionIdLearned) {
@@ -715,7 +871,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         byte[] packet = new byte[packetLength];
         System.arraycopy(bytes, offset, packet, 0, packetLength);
-        processPacket(level, packet, pnOffset);
+        processPacket(level, packet, pnOffset, isZeroRtt);
         return packetLength;
     }
 
@@ -791,12 +947,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
         sent.clear();
     }
 
-    private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset) {
-        PacketProtectionKeys keys = recvKeys.get(level);
+    private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset, boolean isZeroRtt) {
+        PacketProtectionKeys keys = isZeroRtt ? zeroRttRecvKeys : recvKeys.get(level);
         if (keys == null) {
-            return; // keys not derived yet at this level; drop
+            return; // keys not derived yet (or not accepted) at this level; drop
         }
-        boolean longHeader = level != EncryptionLevel.ONE_RTT;
+        // 0-RTT is wire-long-header despite sharing ONE_RTT's packet
+        // number/loss-detection space (see receiveOnePacket).
+        boolean longHeader = level != EncryptionLevel.ONE_RTT || isZeroRtt;
         try {
             byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
             System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
@@ -824,11 +982,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 // Initial response -- an off-path attacker spoofing the
                 // client's address could not have produced this.
                 addressValidated = true;
-            } else if (level == EncryptionLevel.ONE_RTT) {
+            } else if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
                 // Likewise proves the peer holds the 1-RTT keys -- the
                 // signal receive() uses to tell a genuine candidate
                 // migration (RFC 9000 section 9.3) apart from spoofed
-                // garbage arriving from a random new address.
+                // garbage arriving from a random new address. A 0-RTT
+                // packet must NOT count here: unlike a Handshake-level
+                // decryption success, 0-RTT keys are derivable from an
+                // observed session ticket in some replay scenarios, so
+                // successfully decrypting one doesn't by itself prove
+                // this is a live round trip with the real peer.
                 sawValidOneRttThisReceive = true;
             }
 
@@ -841,6 +1004,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // to each other keep acking one another's ACKs forever.
             if (dispatcher.ackEliciting) {
                 ackOwed[level.ordinal()] = true;
+                TreeSet<Long> unacked = receivedUnacked.get(level);
+                if (unacked == null) {
+                    unacked = new TreeSet<Long>();
+                    receivedUnacked.put(level, unacked);
+                }
+                unacked.add(Long.valueOf(fullPacketNumber));
             }
         } catch (PacketProtectionException e) {
             LOGGER.log(Level.FINE, "Packet protection failure at " + level + "; dropping", e);
@@ -891,7 +1060,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
             ackEliciting = true;
-            QuicStreamEndpoint stream = streams.remove(Long.valueOf(streamId));
+            Long key = Long.valueOf(streamId);
+            streamDeliveredBytes.remove(key);
+            pendingFinOffset.remove(key);
+            QuicStreamEndpoint stream = streams.remove(key);
             if (stream != null) {
                 stream.markClosed();
                 stream.getHandler().disconnected();
@@ -931,20 +1103,48 @@ public final class QuicConnection implements QuicTlsEngineListener {
                     return;
                 }
             }
-            if (!checkAndRecordFlowControl(streamId, offset, data.remaining())) {
+            int length = data.remaining();
+            if (!checkAndRecordFlowControl(streamId, offset, length)) {
                 return;
             }
-            if (data.hasRemaining()) {
+            Long key = Long.valueOf(streamId);
+            if (length > 0) {
                 stream.deliverData(data);
+                Long delivered = streamDeliveredBytes.get(key);
+                streamDeliveredBytes.put(key,
+                        Long.valueOf((delivered != null ? delivered.longValue() : 0L) + length));
             }
             if (fin) {
-                // The peer finishing their send direction must not stop
-                // this side from still sending its own response on the
-                // same (bidirectional) stream -- see QuicStreamEndpoint's
-                // markPeerFinished javadoc.
-                stream.markPeerFinished();
-                stream.getHandler().disconnected();
-                retireStreamIfFullyClosed(streamId, stream);
+                long finOffset = offset + length;
+                Long delivered = streamDeliveredBytes.get(key);
+                if (finOffset <= (delivered != null ? delivered.longValue() : 0L)) {
+                    completeStreamFin(streamId, stream);
+                } else {
+                    // This codebase has no stream reassembly
+                    // (QuicStreamEndpoint's own class documentation) -- a
+                    // FIN that arrives before all preceding bytes have
+                    // been contiguously delivered (e.g. an earlier chunk
+                    // still outstanding, arriving later via
+                    // retransmission) can't be acted on yet: doing so
+                    // would retire the stream and let the handler close
+                    // its own send direction in response to disconnected()
+                    // before the peer's still-arriving content has even
+                    // been delivered, permanently orphaning it once it
+                    // does arrive (observed as a spurious re-accept of the
+                    // same stream ID with no way to answer it, since its
+                    // send side was already closed). Remembered instead,
+                    // completed once delivery below catches up.
+                    pendingFinOffset.put(key, Long.valueOf(finOffset));
+                }
+            } else if (length > 0) {
+                Long pending = pendingFinOffset.get(key);
+                if (pending != null) {
+                    long delivered = streamDeliveredBytes.get(key).longValue();
+                    if (pending.longValue() <= delivered) {
+                        pendingFinOffset.remove(key);
+                        completeStreamFin(streamId, stream);
+                    }
+                }
             }
         }
 
@@ -1083,6 +1283,26 @@ public final class QuicConnection implements QuicTlsEngineListener {
                     chunks.addAll(0, entry.getValue());
                 }
             }
+            // 0-RTT shares this packet-number space (RFC 9000 section
+            // 12.3) -- a 0-RTT packet can be detected lost the same way
+            // as any other, independent of whether the server eventually
+            // accepts or rejects 0-RTT at all (that's a separate signal,
+            // see earlyDataOutcomeKnown/discardZeroRttDataAndKeys). Only
+            // requeue if the keys are still live -- if 0-RTT was already
+            // rejected, discardZeroRttDataAndKeys() has already moved
+            // every one of these chunks back to pendingStream itself, so
+            // sentZeroRttStream is empty and this is a no-op either way.
+            Map<Long, List<PendingChunk>> lostZeroRttStreams = sentZeroRttStream.remove(Long.valueOf(packetNumber));
+            if (lostZeroRttStreams != null && zeroRttSendKeys != null) {
+                for (Map.Entry<Long, List<PendingChunk>> entry : lostZeroRttStreams.entrySet()) {
+                    List<PendingChunk> chunks = pendingStream.get(entry.getKey());
+                    if (chunks == null) {
+                        chunks = new ArrayList<PendingChunk>();
+                        pendingStream.put(entry.getKey(), chunks);
+                    }
+                    chunks.addAll(0, entry.getValue());
+                }
+            }
         }
     }
 
@@ -1092,34 +1312,40 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * Builds one packet per encryption level with pending data and sends
      * them coalesced into a single UDP datagram (RFC 9000 section 12.2),
      * in the order the spec requires when more than one is present:
-     * Initial, then Handshake, then 1-RTT.
+     * Initial, then 0-RTT, then Handshake, then 1-RTT.
      *
-     * <p>Handshake and 1-RTT are built first even though Initial is
-     * placed first in the datagram -- their sizes don't depend on
+     * <p>0-RTT, Handshake, and 1-RTT are built first even though Initial
+     * is placed first in the datagram -- their sizes don't depend on
      * Initial's padding, but a client Initial's padding target (RFC 9000
      * section 14.1's 1200-byte minimum) does depend on theirs, once they
      * share a datagram: padding only needs to make up whatever the other
      * levels aren't already contributing.
      */
     void flush() {
+        byte[] zeroRttBytes = buildZeroRttPacketOrNull();
         byte[] handshakeBytes = buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0);
         byte[] oneRttBytes = buildLevelPacketOrNull(EncryptionLevel.ONE_RTT, 0);
 
-        int handshakeAndOneRttBytes = (handshakeBytes != null ? handshakeBytes.length : 0)
+        int zeroRttHandshakeAndOneRttBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
+                + (handshakeBytes != null ? handshakeBytes.length : 0)
                 + (oneRttBytes != null ? oneRttBytes.length : 0);
-        int initialMinDatagramSize = !isServer ? Math.max(0, MIN_DATAGRAM_SIZE - handshakeAndOneRttBytes) : 0;
+        int initialMinDatagramSize = !isServer ? Math.max(0, MIN_DATAGRAM_SIZE - zeroRttHandshakeAndOneRttBytes) : 0;
         byte[] initialBytes = buildLevelPacketOrNull(EncryptionLevel.INITIAL, initialMinDatagramSize);
 
-        if (initialBytes == null && handshakeBytes == null && oneRttBytes == null) {
+        if (initialBytes == null && zeroRttBytes == null && handshakeBytes == null && oneRttBytes == null) {
             return;
         }
 
-        int totalLength = (initialBytes != null ? initialBytes.length : 0) + handshakeAndOneRttBytes;
+        int totalLength = (initialBytes != null ? initialBytes.length : 0) + zeroRttHandshakeAndOneRttBytes;
         byte[] datagram = new byte[totalLength];
         int pos = 0;
         if (initialBytes != null) {
             System.arraycopy(initialBytes, 0, datagram, pos, initialBytes.length);
             pos += initialBytes.length;
+        }
+        if (zeroRttBytes != null) {
+            System.arraycopy(zeroRttBytes, 0, datagram, pos, zeroRttBytes.length);
+            pos += zeroRttBytes.length;
         }
         if (handshakeBytes != null) {
             System.arraycopy(handshakeBytes, 0, datagram, pos, handshakeBytes.length);
@@ -1503,50 +1729,101 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @return the protected packet bytes, or {@code null} if there was
      *         nothing pending to send at this level
      */
+    // Computes which queued STREAM chunks are currently eligible to send
+    // (within flow control), respecting per-stream ordering (a blocked
+    // chunk stops that stream's contribution, so a later chunk never
+    // jumps ahead of an earlier blocked one), with the same
+    // DATA_BLOCKED/STREAM_DATA_BLOCKED signalling side effects either
+    // way -- shared between buildProtectedPacket's ONE_RTT case and
+    // buildZeroRttPacketOrNull, since both drain the same pendingStream
+    // queue under the same flow-control budget (0-RTT and 1-RTT share
+    // one connection-level and per-stream send budget; RFC 9001 section
+    // 4.6.1 doesn't create a separate one for 0-RTT).
+    private Map<Long, List<PendingChunk>> drainEligibleStreamChunks() {
+        Map<Long, List<PendingChunk>> streamChunksToSend = new HashMap<Long, List<PendingChunk>>();
+        for (Map.Entry<Long, List<PendingChunk>> entry : pendingStream.entrySet()) {
+            long streamId = entry.getKey().longValue();
+            List<PendingChunk> queued = entry.getValue();
+            List<PendingChunk> toSend = new ArrayList<PendingChunk>();
+            for (PendingChunk chunk : queued) {
+                int blocked = checkSendBlocked(streamId, chunk.data.length);
+                if (blocked == SEND_NOT_BLOCKED) {
+                    toSend.add(chunk);
+                    recordBytesSent(streamId, chunk.data.length);
+                } else {
+                    // RFC 9000 section 4.1: tell the peer we're blocked
+                    // so it has a reason to grow its advertised limit
+                    // even though (being blocked) we can't send it any
+                    // more data to trigger that growth passively --
+                    // without this, once a chunk doesn't fit in the
+                    // remaining window, nothing would ever unblock it.
+                    // Only signalled once per limit value (RFC 9000
+                    // section 4.1's "SHOULD NOT send more than once for
+                    // a given limit"); cleared when that limit grows.
+                    if (blocked == SEND_BLOCKED_BY_STREAM_LIMIT) {
+                        Long key = Long.valueOf(streamId);
+                        if (streamDataBlockedSignalled.add(key)) {
+                            streamDataBlockedOwed.put(key, Long.valueOf(currentPeerStreamLimit(streamId)));
+                        }
+                    } else if (!dataBlockedSignalled) {
+                        dataBlockedSignalled = true;
+                        dataBlockedOwed = true;
+                    }
+                    break; // preserve order: don't skip ahead of a blocked chunk
+                }
+            }
+            if (!toSend.isEmpty()) {
+                streamChunksToSend.put(entry.getKey(), toSend);
+            }
+        }
+        return streamChunksToSend;
+    }
+
+    // Converts receivedUnacked.get(level) into the descending, gap-encoded
+    // range format QuicFrameWriter.writeAck/ackLength expect (RFC 9000
+    // section 19.3: ranges[0] contains the largest acknowledged packet
+    // number, each subsequent range strictly lower) -- or null if nothing
+    // is currently owed. A single ACK frame covers every packet number
+    // received since the last one was sent, not just the most recently
+    // received packet, so an earlier packet received just before a later
+    // one (e.g. a 0-RTT packet immediately followed by a 1-RTT one, before
+    // this endpoint gets a chance to ACK the first) is never skipped.
+    private long[][] computeAckRanges(EncryptionLevel level) {
+        TreeSet<Long> unacked = receivedUnacked.get(level);
+        if (unacked == null || unacked.isEmpty()) {
+            return null;
+        }
+        List<long[]> ranges = new ArrayList<long[]>();
+        long rangeHigh = -1;
+        long rangeLow = -1;
+        boolean inRange = false;
+        for (Long boxed : unacked.descendingSet()) {
+            long pn = boxed.longValue();
+            if (!inRange) {
+                rangeHigh = pn;
+                rangeLow = pn;
+                inRange = true;
+            } else if (pn == rangeLow - 1) {
+                rangeLow = pn;
+            } else {
+                ranges.add(new long[] { rangeLow, rangeHigh });
+                rangeHigh = pn;
+                rangeLow = pn;
+            }
+        }
+        ranges.add(new long[] { rangeLow, rangeHigh });
+        return ranges.toArray(new long[0][]);
+    }
+
     private byte[] buildProtectedPacket(EncryptionLevel level, int minDatagramSize) throws PacketProtectionException {
         boolean oneRtt = level == EncryptionLevel.ONE_RTT;
         List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
 
-        Map<Long, List<PendingChunk>> streamChunksToSend = new HashMap<Long, List<PendingChunk>>();
-        if (oneRtt) {
-            for (Map.Entry<Long, List<PendingChunk>> entry : pendingStream.entrySet()) {
-                long streamId = entry.getKey().longValue();
-                List<PendingChunk> queued = entry.getValue();
-                List<PendingChunk> toSend = new ArrayList<PendingChunk>();
-                for (PendingChunk chunk : queued) {
-                    int blocked = checkSendBlocked(streamId, chunk.data.length);
-                    if (blocked == SEND_NOT_BLOCKED) {
-                        toSend.add(chunk);
-                        recordBytesSent(streamId, chunk.data.length);
-                    } else {
-                        // RFC 9000 section 4.1: tell the peer we're blocked
-                        // so it has a reason to grow its advertised limit
-                        // even though (being blocked) we can't send it any
-                        // more data to trigger that growth passively --
-                        // without this, once a chunk doesn't fit in the
-                        // remaining window, nothing would ever unblock it.
-                        // Only signalled once per limit value (RFC 9000
-                        // section 4.1's "SHOULD NOT send more than once for
-                        // a given limit"); cleared when that limit grows.
-                        if (blocked == SEND_BLOCKED_BY_STREAM_LIMIT) {
-                            Long key = Long.valueOf(streamId);
-                            if (streamDataBlockedSignalled.add(key)) {
-                                streamDataBlockedOwed.put(key, Long.valueOf(currentPeerStreamLimit(streamId)));
-                            }
-                        } else if (!dataBlockedSignalled) {
-                            dataBlockedSignalled = true;
-                            dataBlockedOwed = true;
-                        }
-                        break; // preserve order: don't skip ahead of a blocked chunk
-                    }
-                }
-                if (!toSend.isEmpty()) {
-                    streamChunksToSend.put(entry.getKey(), toSend);
-                }
-            }
-        }
+        Map<Long, List<PendingChunk>> streamChunksToSend = oneRtt
+                ? drainEligibleStreamChunks() : new HashMap<Long, List<PendingChunk>>();
 
-        boolean includeAck = ackOwed[level.ordinal()];
+        long[][] ackRangesForLevel = ackOwed[level.ordinal()] ? computeAckRanges(level) : null;
+        boolean includeAck = ackRangesForLevel != null;
         boolean includeHandshakeDone = oneRtt && handshakeDoneOwed;
         boolean includePing = pendingPing[level.ordinal()];
         List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : java.util.Collections.<long[]>emptyList();
@@ -1577,7 +1854,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 frameBytes += QuicFrameWriter.streamLength(entry.getKey().longValue(), chunk.offset, chunk.data.length);
             }
         }
-        long[][] ackRanges = { { largestReceived[level.ordinal()], largestReceived[level.ordinal()] } };
+        long[][] ackRanges = ackRangesForLevel;
         if (includeAck) {
             frameBytes += QuicFrameWriter.ackLength(ackRanges, 0);
         }
@@ -1676,6 +1953,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (includeAck) {
             QuicFrameWriter.writeAck(payload, ackRanges, 0);
             ackOwed[level.ordinal()] = false;
+            TreeSet<Long> unacked = receivedUnacked.get(level);
+            if (unacked != null) {
+                unacked.clear();
+            }
         }
         if (includeHandshakeDone) {
             QuicFrameWriter.writeHandshakeDone(payload);
@@ -1739,6 +2020,108 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 || retiresToSend.length > 0 || includeMaxData || !maxStreamDataToSend.isEmpty()
                 || includeDataBlocked || !streamDataBlockedToSend.isEmpty();
         lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, true, packet.length);
+        return packet;
+    }
+
+    // Client-only: builds one 0-RTT packet (RFC 9001 section 4.6.1)
+    // containing whatever STREAM data is currently eligible to send,
+    // or null if there are no 0-RTT keys yet or nothing eligible.
+    // Deliberately a standalone builder rather than a branch inside
+    // buildProtectedPacket: 0-RTT may only ever carry STREAM (and
+    // stream-flow-control-signalling) frames -- RFC 9001 forbids
+    // ACK/CRYPTO/HANDSHAKE_DONE/connection-ID-management frames there,
+    // all of which buildProtectedPacket's ONE_RTT case also handles, so
+    // widening that method's existing oneRtt gate would risk sending
+    // something illegal in 0-RTT rather than narrowing what's sent.
+    private byte[] buildZeroRttPacketOrNull() {
+        // zeroRttSendKeys is deliberately never cleared just because the
+        // handshake completes (only on explicit rejection, see
+        // discardZeroRttDataAndKeys) -- but 0-RTT protection must still
+        // stop being used for new data once established, or a client
+        // that (correctly) deferred a non-eligible request until
+        // establishment (see HTTP3ClientHandler.isSafeToSendNow) would
+        // have that data sent under 0-RTT keys anyway the moment it's
+        // finally queued, defeating the whole point of deferring it.
+        if (zeroRttSendKeys == null || established) {
+            return null;
+        }
+        try {
+            return buildZeroRttProtectedPacket();
+        } catch (PacketProtectionException e) {
+            LOGGER.log(Level.WARNING, "Failed to protect outgoing 0-RTT packet", e);
+            return null;
+        }
+    }
+
+    private byte[] buildZeroRttProtectedPacket() throws PacketProtectionException {
+        Map<Long, List<PendingChunk>> streamChunksToSend = drainEligibleStreamChunks();
+        if (streamChunksToSend.isEmpty()) {
+            return null;
+        }
+
+        int frameBytes = 0;
+        for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
+            for (PendingChunk chunk : entry.getValue()) {
+                frameBytes += QuicFrameWriter.streamLength(entry.getKey().longValue(), chunk.offset, chunk.data.length);
+            }
+        }
+
+        // Shares ONE_RTT's packet-number space (RFC 9000 section 12.3).
+        long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+
+        // RFC 9001 section 5.4.2: same header-protection-sample rationale
+        // as buildProtectedPacket, but no independent padding-to-minimum
+        // target -- a 0-RTT packet is always coalesced with an Initial
+        // packet in the same datagram (RFC 9000 section 12.2), and that
+        // Initial already pads the whole datagram to the 1200-byte
+        // minimum (RFC 9000 section 14.1) in flush().
+        int paddingBytes = Math.max(0,
+                4 + QuicAeadAlgorithm.SAMPLE_LENGTH - pnLength - QuicAeadAlgorithm.TAG_LENGTH - frameBytes);
+        byte[] header = LongHeaderCodec.build(LongHeaderCodec.TYPE_0RTT, 1, peerConnectionId, ourConnectionId,
+                EMPTY_TOKEN, packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
+        int totalFrameBytes = frameBytes + paddingBytes;
+
+        ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
+        Map<Long, List<PendingChunk>> sentThisPacket = new HashMap<Long, List<PendingChunk>>();
+        for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
+            long streamId = entry.getKey().longValue();
+            for (PendingChunk chunk : entry.getValue()) {
+                QuicFrameWriter.writeStream(payload, streamId, chunk.offset, chunk.data, chunk.fin);
+            }
+            List<PendingChunk> queued = pendingStream.get(entry.getKey());
+            queued.removeAll(entry.getValue());
+            if (queued.isEmpty()) {
+                pendingStream.remove(entry.getKey());
+                QuicStreamEndpoint stream = streams.get(entry.getKey());
+                if (stream != null) {
+                    stream.notifyWriteReady();
+                }
+            }
+            sentThisPacket.put(entry.getKey(), entry.getValue());
+        }
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(payload, paddingBytes);
+        }
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+
+        byte[] ciphertext = PacketProtection.seal(zeroRttSendKeys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = header.length - pnLength;
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, QuicAeadAlgorithm.SAMPLE_LENGTH);
+        byte[] mask = PacketProtection.headerProtectionMask(zeroRttSendKeys, sample);
+        PacketProtection.xorFirstByte(packet, mask, true);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
+        lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, System.currentTimeMillis(), true, true,
+                packet.length);
         return packet;
     }
 
@@ -1919,7 +2302,23 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     @Override
     public void handshakeSecretsAvailable() {
-        TlsConstants.CipherSuite cipher = selectedCipher();
+        selectHkdfAead(selectedCipher());
+        byte[] clientSecret = tlsEngine.getClientHandshakeTrafficSecret();
+        byte[] serverSecret = tlsEngine.getServerHandshakeTrafficSecret();
+        deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, clientSecret, serverSecret);
+    }
+
+    // Sets this.hkdf/this.aead from the negotiated cipher suite. Extracted
+    // from handshakeSecretsAvailable so earlySecretsAvailable can also use
+    // it -- 0-RTT keys must be derivable earlier than that method runs
+    // (right after ClientHello, before HANDSHAKE keys exist at all), but
+    // the cipher a 0-RTT attempt uses is always the one the resumed
+    // session was originally issued under, which TLS 1.3 requires the
+    // eventual full handshake to also select if it accepts resumption at
+    // all -- so calling this twice (once early, once at
+    // handshakeSecretsAvailable time) is a safe, idempotent re-set of the
+    // same values, not a real state change.
+    private void selectHkdfAead(TlsConstants.CipherSuite cipher) {
         // A proper mapping, not a two-way ternary: an unrecognised cipher
         // must fail loudly rather than silently be treated as AES-128-GCM
         // (which would derive keys of the wrong length/interpretation and
@@ -1940,9 +2339,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
             default:
                 throw new IllegalStateException("Unsupported QUIC cipher suite: " + cipher);
         }
-        byte[] clientSecret = tlsEngine.getClientHandshakeTrafficSecret();
-        byte[] serverSecret = tlsEngine.getServerHandshakeTrafficSecret();
-        deriveDirectionalKeys(EncryptionLevel.HANDSHAKE, clientSecret, serverSecret);
     }
 
     @Override
@@ -1980,6 +2376,123 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         this.peerTransportParameters = transportParameters;
         peerMaxData = transportParameters.getInitialMaxData();
+    }
+
+    @Override
+    public void earlySecretsAvailable() {
+        // RFC 9001 section 4.6.1: fires before either side has decided
+        // whether 0-RTT will actually be accepted -- server-side,
+        // Agent15 has already called isEarlyDataAccepted() by this point
+        // (see QuicTlsServerEngine), so that decision is known; skip key
+        // derivation entirely if the server isn't going to use them.
+        if (isServer && !((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).wasEarlyDataAccepted()) {
+            return;
+        }
+        // Agent15 fires this callback on the client side for every
+        // handshake, once ServerHello arrives, regardless of whether a
+        // session ticket was ever presented (confirmed against its own
+        // source -- an internal artifact, not something gumdrop can or
+        // needs to influence). A null cipher here just means this
+        // connection never attempted resumption; nothing to derive, and
+        // nothing worth logging -- this is the common case, not an error.
+        TlsConstants.CipherSuite cipher = isServer
+                ? ((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).getSelectedCipher()
+                : ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).getEarlyDataCipher();
+        if (cipher == null) {
+            return;
+        }
+        selectHkdfAead(cipher);
+        byte[] clientEarlyTrafficSecret = tlsEngine.getClientEarlyTrafficSecret();
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, clientEarlyTrafficSecret, aead);
+        if (isServer) {
+            zeroRttRecvKeys = keys;
+        } else {
+            zeroRttSendKeys = keys;
+            zeroRttState = ZeroRttState.OFFERED;
+            if (earlyDataHandler != null) {
+                QuicEngine.EarlyDataHandler handlerToNotify = earlyDataHandler;
+                earlyDataHandler = null;
+                handlerToNotify.earlyDataReady(this);
+            }
+        }
+    }
+
+    @Override
+    public void newSessionTicketReceived(NewSessionTicket ticket) {
+        // Client-only (a server never receives a NewSessionTicket message
+        // -- it sends them); and nothing useful to remember before this
+        // connection's own transport parameters are known.
+        if (isServer || peerTransportParameters == null) {
+            return;
+        }
+        String host = serverName != null ? serverName : remoteAddress.getHostString();
+        SessionTicketCache.put(host, remoteAddress.getPort(), ticket, peerTransportParameters);
+    }
+
+    @Override
+    public void earlyDataOutcomeKnown(boolean accepted) {
+        // Fires on every client handshake (see QuicTlsClientEngine);
+        // only meaningful if this connection actually offered 0-RTT.
+        if (zeroRttState != ZeroRttState.OFFERED) {
+            return;
+        }
+        zeroRttState = accepted ? ZeroRttState.ACCEPTED : ZeroRttState.REJECTED;
+        if (!accepted) {
+            discardZeroRttDataAndKeys();
+        }
+    }
+
+    // RFC 9001 section 4.6.1: if the server rejects 0-RTT, the client
+    // MUST discard the 0-RTT keys and treat any 0-RTT-sent data as if it
+    // had never been sent -- i.e. be prepared to resend it at 1-RTT,
+    // from scratch, once the real handshake completes.
+    //
+    // This is correct without any offset/stream-ID bookkeeping: every
+    // chunk ever sent as 0-RTT is, by construction, that stream's first
+    // data (a stream opened specifically for 0-RTT, from
+    // QuicEngine.EarlyDataHandler#earlyDataReady), so its PendingChunk's
+    // offset already starts at 0 (assigned at queue time, in
+    // queueStreamData, not at send time). Moving those exact chunks back
+    // into pendingStream, per stream, ahead of anything else already
+    // queued there, and letting the ordinary buildProtectedPacket
+    // (ONE_RTT) drain path resend them once real 1-RTT keys exist,
+    // reproduces "as if it had never been sent" precisely: same stream
+    // ID, same offsets, same bytes -- the peer discarded the rejected
+    // 0-RTT stream entirely, so it never actually existed from its side,
+    // and reusing the ID here isn't a reuse-of-a-live-stream bug. The
+    // application's own ProtocolHandler for that stream is never told
+    // anything went wrong; its bytes just arrive later than they would
+    // have. The QUIC packet-number sequence itself is deliberately left
+    // alone -- packet numbers within one space must stay monotonic (RFC
+    // 9000), so only keys and stream data are discarded here, not the
+    // sequence.
+    private void discardZeroRttDataAndKeys() {
+        zeroRttSendKeys = null;
+        // Each packet's own chunk list is already in correct
+        // ascending-offset order (see drainEligibleStreamChunks), and
+        // each is inserted whole at the front of pendingStream's list --
+        // so walking packets in DESCENDING packet-number order here
+        // means the earliest packet's chunks end up inserted last,
+        // landing at the very front, restoring the original overall
+        // send order. This matters because gumdrop's own receive side
+        // delivers in arrival order only (no offset-based reassembly,
+        // see the class documentation), so a resend to another gumdrop
+        // peer needs its relative order preserved, not just each
+        // individual chunk's offset being correct.
+        for (Map.Entry<Long, Map<Long, List<PendingChunk>>> packetEntry
+                : new java.util.TreeMap<Long, Map<Long, List<PendingChunk>>>(sentZeroRttStream)
+                        .descendingMap().entrySet()) {
+            for (Map.Entry<Long, List<PendingChunk>> entry : packetEntry.getValue().entrySet()) {
+                List<PendingChunk> chunks = pendingStream.get(entry.getKey());
+                if (chunks == null) {
+                    chunks = new ArrayList<PendingChunk>();
+                    pendingStream.put(entry.getKey(), chunks);
+                }
+                chunks.addAll(0, entry.getValue());
+            }
+        }
+        sentZeroRttStream.clear();
+        requestFlush();
     }
 
     private TlsConstants.CipherSuite selectedCipher() {

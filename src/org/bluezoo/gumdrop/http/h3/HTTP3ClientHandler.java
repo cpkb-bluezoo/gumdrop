@@ -30,12 +30,15 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import java.util.ArrayList;
+
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.client.HTTPMethodSafety;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.qpack.SimpleDecoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
@@ -81,6 +84,13 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
 
     /** Callback invoked when the h3 connection is ready for requests. */
     private Runnable readyCallback;
+
+    // Requests deferred because their method isn't 0-RTT-eligible and the
+    // connection isn't yet established -- see isSafeToSendNow/deferUntilEstablished.
+    // Only ever touched from the QuicConnection's own SelectorLoop thread
+    // (both deferUntilEstablished and runDeferredRequests are always called
+    // from within a h3Handler.execute(...) task), so no synchronization needed.
+    private final List<Runnable> deferredRequests = new ArrayList<Runnable>();
 
     /**
      * Creates a new HTTP/3 client handler on top of an existing
@@ -143,6 +153,50 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      */
     void execute(Runnable task) {
         quicConnection.getSelectorLoop().invokeLater(task);
+    }
+
+    /**
+     * Returns whether a request using the given method may be sent right
+     * now -- either because the connection is already fully established
+     * (RFC 9001 section 4.6.1: only established connections may send
+     * arbitrary application data), or because the method is safe and
+     * idempotent (RFC 9110 section 9.3.1/9.3.2/9.3.7/9.3.8) and so may
+     * ride 0-RTT early data if it's available.
+     *
+     * <p>Must be called from the underlying {@code QuicConnection}'s own
+     * {@code SelectorLoop} thread -- see {@link #execute}.
+     *
+     * @param method the HTTP method of the pending request
+     * @return true if the request may be sent immediately
+     */
+    boolean isSafeToSendNow(String method) {
+        return quicConnection.isEstablished() || HTTPMethodSafety.isEarlyDataEligible(method);
+    }
+
+    /**
+     * Queues a task to run once the connection is fully established,
+     * for a request whose method is not 0-RTT-eligible and that was not
+     * safe to send immediately (see {@link #isSafeToSendNow}).
+     *
+     * <p>Must be called from the underlying {@code QuicConnection}'s own
+     * {@code SelectorLoop} thread -- see {@link #execute}.
+     *
+     * @param task the deferred send task
+     */
+    void deferUntilEstablished(Runnable task) {
+        deferredRequests.add(task);
+    }
+
+    /**
+     * Runs and clears every task queued via {@link #deferUntilEstablished},
+     * called once the connection is established.
+     */
+    public void runDeferredRequests() {
+        List<Runnable> pending = new ArrayList<Runnable>(deferredRequests);
+        deferredRequests.clear();
+        for (Runnable task : pending) {
+            task.run();
+        }
     }
 
     /**

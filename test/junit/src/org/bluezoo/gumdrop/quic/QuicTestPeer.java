@@ -33,6 +33,7 @@ import java.util.Map;
 
 import javax.net.ssl.X509TrustManager;
 
+import tech.kwik.agent15.NewSessionTicket;
 import tech.kwik.agent15.TlsConstants;
 import tech.kwik.agent15.engine.TlsServerEngineFactory;
 
@@ -104,6 +105,12 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     public volatile boolean handshakeDoneReadyToSend;
     public volatile boolean handshakeConfirmed;
     public volatile TransportParameters peerTransportParameters;
+    public volatile NewSessionTicket receivedSessionTicket;
+    public volatile boolean earlySecretsAvailableFired;
+    public volatile boolean earlyDataAccepted;
+    private TlsConstants.CipherSuite earlyDataCipher;
+    private PacketProtectionKeys zeroRttSendKeys;
+    private PacketProtectionKeys zeroRttRecvKeys;
     private Exception deliveryError;
 
     /**
@@ -115,7 +122,22 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      * @return the new client peer
      */
     public static QuicTestPeer newClient(byte[] clientInitialDcid, TransportParameters localTransportParameters) {
-        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null);
+        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, null);
+    }
+
+    /**
+     * Creates a client-side peer that offers the given ALPN application
+     * protocol.
+     *
+     * @param clientInitialDcid the Destination Connection ID for the
+     *                          client's first Initial packet
+     * @param localTransportParameters this peer's own transport parameters
+     * @param applicationProtocol the ALPN application protocol to offer
+     * @return the new client peer
+     */
+    public static QuicTestPeer newClient(byte[] clientInitialDcid, TransportParameters localTransportParameters,
+            String applicationProtocol) {
+        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, applicationProtocol);
     }
 
     /**
@@ -130,11 +152,12 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      */
     public static QuicTestPeer newServer(byte[] clientInitialDcid, TransportParameters localTransportParameters,
             TlsServerEngineFactory certificateFactory) {
-        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, certificateFactory);
+        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, certificateFactory, null);
     }
 
     private QuicTestPeer(boolean isClient, byte[] clientInitialDcid,
-            TransportParameters localTransportParameters, TlsServerEngineFactory certificateFactory) {
+            TransportParameters localTransportParameters, TlsServerEngineFactory certificateFactory,
+            String applicationProtocol) {
         this.isClient = isClient;
         this.nextLocalBidiStreamId = isClient ? 0 : 1;
         for (EncryptionLevel level : EncryptionLevel.values()) {
@@ -152,13 +175,14 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         if (isClient) {
             sendKeys.put(EncryptionLevel.INITIAL, clientInitialKeys);
             recvKeys.put(EncryptionLevel.INITIAL, serverInitialKeys);
-            QuicTlsClientEngine clientEngine = new QuicTlsClientEngine(localTransportParameters, this);
+            QuicTlsClientEngine clientEngine =
+                    new QuicTlsClientEngine(localTransportParameters, this, applicationProtocol);
             clientEngine.setTrustManager(new PermissiveTrustManager());
             this.tlsEngine = clientEngine;
         } else {
             sendKeys.put(EncryptionLevel.INITIAL, serverInitialKeys);
             recvKeys.put(EncryptionLevel.INITIAL, clientInitialKeys);
-            this.tlsEngine = new QuicTlsServerEngine(certificateFactory, localTransportParameters, this);
+            this.tlsEngine = new QuicTlsServerEngine(certificateFactory, localTransportParameters, this, false);
         }
     }
 
@@ -194,6 +218,19 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
     public void startHandshake(String serverName) throws IOException {
         ((QuicTlsClientEngine) tlsEngine).startHandshake(serverName);
+    }
+
+    /**
+     * Client-only: presents a previously received session ticket,
+     * attempting PSK resumption (and 0-RTT, if the server accepts) on
+     * the next {@link #startHandshake}. Must be called before
+     * {@link #startHandshake}.
+     *
+     * @param ticket the session ticket to present
+     */
+    public void presentSessionTicket(NewSessionTicket ticket) {
+        earlyDataCipher = ticket.getCipher();
+        ((QuicTlsClientEngine) tlsEngine).presentSessionTicket(ticket);
     }
 
     public TlsConstants.CipherSuite getSelectedCipher() {
@@ -242,6 +279,33 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     @Override
     public void transportParametersReceived(TransportParameters transportParameters) {
         this.peerTransportParameters = transportParameters;
+    }
+
+    @Override
+    public void earlySecretsAvailable() {
+        earlySecretsAvailableFired = true;
+        TlsConstants.CipherSuite cipher = isClient ? earlyDataCipher : getSelectedCipher();
+        if (cipher == null) {
+            return;
+        }
+        Hkdf hkdf = hkdfFor(cipher);
+        QuicAeadAlgorithm aead = aeadFor(cipher);
+        PacketProtectionKeys keys = PacketProtectionKeys.derive(hkdf, tlsEngine.getClientEarlyTrafficSecret(), aead);
+        if (isClient) {
+            zeroRttSendKeys = keys;
+        } else {
+            zeroRttRecvKeys = keys;
+        }
+    }
+
+    @Override
+    public void newSessionTicketReceived(NewSessionTicket ticket) {
+        receivedSessionTicket = ticket;
+    }
+
+    @Override
+    public void earlyDataOutcomeKnown(boolean accepted) {
+        earlyDataAccepted = accepted;
     }
 
     private void deriveDirectionalKeys(EncryptionLevel level, Hkdf hkdf, QuicAeadAlgorithm aead,
@@ -498,6 +562,80 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         System.arraycopy(packet, pnOffset + 4, sample, 0, sample.length);
         byte[] mask = PacketProtection.headerProtectionMask(keys, sample);
         PacketProtection.xorFirstByte(packet, mask, longHeader);
+        PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
+
+        return packet;
+    }
+
+    /**
+     * Client-only: builds and protects one 0-RTT packet (RFC 9001
+     * section 4.6.1) containing every pending STREAM chunk, padded to at
+     * least {@code minDatagramSize} bytes. Requires {@link
+     * #earlySecretsAvailable()} to have already fired with a session
+     * ticket presented (see {@link #presentSessionTicket}), so {@code
+     * zeroRttSendKeys} is available.
+     *
+     * <p>Shares the 1-RTT packet number space (RFC 9000 section 12.3):
+     * the same {@code sendPacketNumber[ONE_RTT]} counter {@link
+     * #buildPacket} uses, so building an ordinary 1-RTT packet after a
+     * 0-RTT one on the same peer continues the same sequence correctly.
+     *
+     * @param dcid the Destination Connection ID to address this packet to
+     * @param scid this peer's own connection ID
+     * @param minDatagramSize the minimum total datagram size (padded if needed)
+     * @return the protected datagram bytes
+     * @throws PacketProtectionException if sealing fails
+     */
+    public byte[] buildZeroRttPacket(byte[] dcid, byte[] scid, int minDatagramSize)
+            throws PacketProtectionException {
+        int frameBytes = 0;
+        for (Map.Entry<Long, List<PendingChunk>> entry : pendingStream.entrySet()) {
+            for (PendingChunk chunk : entry.getValue()) {
+                frameBytes += QuicFrameWriter.streamLength(entry.getKey(), chunk.offset, chunk.data.length);
+            }
+        }
+
+        long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+
+        int paddingBytes = 0;
+        byte[] header;
+        while (true) {
+            header = LongHeaderCodec.build(LongHeaderCodec.TYPE_0RTT, 1, dcid, scid, EMPTY_TOKEN,
+                    packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
+            int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
+            int nextPadding = Math.max(0, paddingBytes + required);
+            if (nextPadding == paddingBytes) {
+                break;
+            }
+            paddingBytes = nextPadding;
+        }
+        frameBytes += paddingBytes;
+
+        ByteBuffer payload = ByteBuffer.allocate(frameBytes);
+        for (Map.Entry<Long, List<PendingChunk>> entry : pendingStream.entrySet()) {
+            for (PendingChunk chunk : entry.getValue()) {
+                QuicFrameWriter.writeStream(payload, entry.getKey(), chunk.offset, chunk.data, chunk.fin);
+            }
+        }
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(payload, paddingBytes);
+        }
+        payload.flip();
+        byte[] plaintext = new byte[payload.remaining()];
+        payload.get(plaintext);
+        pendingStream.clear();
+
+        byte[] ciphertext = PacketProtection.seal(zeroRttSendKeys, packetNumber, header, plaintext);
+        byte[] packet = new byte[header.length + ciphertext.length];
+        System.arraycopy(header, 0, packet, 0, header.length);
+        System.arraycopy(ciphertext, 0, packet, header.length, ciphertext.length);
+
+        int pnOffset = header.length - pnLength;
+        byte[] sample = new byte[QuicAeadAlgorithm.SAMPLE_LENGTH];
+        System.arraycopy(packet, pnOffset + 4, sample, 0, sample.length);
+        byte[] mask = PacketProtection.headerProtectionMask(zeroRttSendKeys, sample);
+        PacketProtection.xorFirstByte(packet, mask, true);
         PacketProtection.xorPacketNumberBytes(packet, pnOffset, pnLength, mask);
 
         return packet;
