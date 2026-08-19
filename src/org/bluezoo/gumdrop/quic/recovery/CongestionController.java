@@ -22,11 +22,12 @@
 package org.bluezoo.gumdrop.quic.recovery;
 
 /**
- * NewReno congestion control (RFC 9002 section 7, Appendix B), minus ECN
- * processing (section 7.1/7.7 -- an optional additional congestion
- * signal) and minus persistent congestion's minimum-window reset
- * (section 7.6 -- {@link LossDetector} never triggers it, since
- * persistent congestion detection is not implemented).
+ * NewReno congestion control (RFC 9002 section 7, Appendix B), including
+ * persistent congestion's minimum-window reset (section 7.6, triggered by
+ * {@link LossDetector} via {@link #onPersistentCongestion()}), but minus
+ * ECN processing (section 7.1/7.7 -- an optional additional congestion
+ * signal on top of loss-based detection, not implemented; see the
+ * package documentation for why).
  *
  * <p>Three states, exactly as RFC 9002 section 7.3 describes: slow
  * start ({@code congestionWindow < ssthresh}, exponential growth on
@@ -162,6 +163,21 @@ public final class CongestionController {
 
     private boolean inCongestionRecovery(long sentTimeMillis) {
         return sentTimeMillis <= congestionRecoveryStartTime;
+    }
+
+    /**
+     * Records that {@link LossDetector} has declared persistent
+     * congestion (RFC 9002 section 7.6.2): the congestion window drops
+     * straight to the minimum, bypassing the usual halving {@link
+     * #onCongestionEvent} already applied for the same loss -- and
+     * {@code congestion_recovery_start_time} is cleared (RFC 9002
+     * Appendix B.8) so the connection can leave recovery and re-enter
+     * slow start once it starts sending again, rather than staying
+     * artificially capped by a now-stale recovery period.
+     */
+    public void onPersistentCongestion() {
+        congestionWindow = minimumWindow;
+        congestionRecoveryStartTime = 0;
     }
 
     /**

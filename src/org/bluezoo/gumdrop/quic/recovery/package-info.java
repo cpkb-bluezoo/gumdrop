@@ -41,12 +41,24 @@
  * connection (a later stage of the QUIC transport rewire) drains the
  * computed PTO/loss deadlines and newly-lost packets and acts on them.
  *
+ * <p>Persistent congestion (RFC 9002 section 7.6) is implemented: {@link
+ * org.bluezoo.gumdrop.quic.recovery.LossDetector} detects it (a
+ * deliberately conservative, packet-number-adjacency-based approximation
+ * of the RFC's literal cross-packet-number-space "nothing acknowledged
+ * between them" test -- see its own documentation) and, when declared,
+ * calls {@link org.bluezoo.gumdrop.quic.recovery.CongestionController#onPersistentCongestion()}
+ * to drop straight to the minimum window.
+ *
  * <p>Not implemented: ECN processing (RFC 9002 section 7.1/7.7, an
- * optional additional congestion signal) and persistent congestion
- * detection (section 7.6, a refinement on top of ordinary
- * loss-triggered congestion response). Their absence means slightly
- * less aggressive backoff under sustained loss, not incorrect protocol
- * behaviour.
+ * optional additional congestion signal on top of loss-based detection).
+ * Real ECN marking needs the sender to set the IP-layer ECN codepoint on
+ * outgoing datagrams -- {@code DatagramChannel}'s {@code IP_TOS} socket
+ * option is notoriously unreliable across JVMs/OSes for this, and RFC
+ * 9000 section 13.4.2 additionally requires detecting and permanently
+ * disabling ECN per path if marks stop working (a real "black hole"
+ * risk any half-implemented version would carry) -- a materially
+ * different, higher-risk scope than the loss-detection-side persistent
+ * congestion work above, and one this codebase does not take on.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9002">RFC 9002</a>

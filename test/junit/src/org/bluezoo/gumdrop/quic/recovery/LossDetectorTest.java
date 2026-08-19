@@ -182,4 +182,110 @@ public class LossDetectorTest {
                 new long[][] { { 0, 0 } }, 25, 1100, true);
         assertTrue(result.getNewlyAcked().isEmpty());
     }
+
+    // RFC 9002 section 7.6.2 / Appendix B.8: two ack-eliciting packets,
+    // sent after the first RTT sample, both declared lost together with
+    // consecutive packet numbers (so nothing between them could have
+    // been acknowledged -- see LossDetector's own documentation on this
+    // approximation) and a send-time gap exceeding section 7.6.1's
+    // duration -- must drop the congestion window straight to the
+    // minimum, not just halve it.
+    @Test
+    public void testPersistentCongestionDropsWindowToMinimum() {
+        LossDetector detector = new LossDetector(1200); // window 12000, minimum 2400
+        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        // RTT sample: 200ms -> smoothedRtt=200, rttvar=100; firstRttSampleTime=200.
+        // Persistent congestion duration = (200 + max(4*100,1) + 25) * 3 = 1875ms.
+
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 2876, true, true, 100); // gap 1876ms > 1875ms
+        // Non-ack-eliciting "vehicle" packet: its ack advances largestAcked
+        // far enough for packet-threshold loss to declare 0 and 1 lost,
+        // without itself contributing a second RTT sample that would
+        // perturb the duration threshold computed above.
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 4, 3000, false, true, 50);
+
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 4, 0, new long[][] { { 4, 4 } }, 25, 3100, true);
+        // largestAcked(4) >= packetNumber+3 for both 0 and 1 -> both lost together, consecutively numbered.
+        // onPersistentCongestion clears recoveryStartTime to 0, so the
+        // vehicle packet's own (already in-flight) ack -- processed right
+        // after, per RFC 9002 Appendix A.7's OnPacketsLost-then-OnPacketsAcked
+        // order -- is no longer "in recovery" and grows the window by its
+        // 50 bytes via ordinary slow start: 2400 + 50 = 2450.
+
+        assertEquals(2450, detector.getCongestionController().getCongestionWindow());
+    }
+
+    @Test
+    public void testPersistentCongestionNotDetectedWhenAckedPacketBreaksTheRun() {
+        LossDetector detector = new LossDetector(1200); // window 12000
+        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1500, false, true, 100); // acked below, breaking the run
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 2, 2876, true, true, 100); // same gap as the positive test
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 5, 3000, false, true, 50); // packet-threshold vehicle
+
+        // Acknowledge packet 1 and the vehicle together, both
+        // non-ack-eliciting so no RTT sample is taken here either.
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 5, 0, new long[][] { { 1, 1 }, { 5, 5 } }, 25, 3100, true);
+        // largestAcked(5) declares both 0 (packet numbers 0+3<=5) and 2
+        // (2+3<=5) lost together -- but packet 1, sent between them, was
+        // acknowledged, not lost, breaking packet-number consecutiveness.
+
+        // Ordinary congestion response (halving) still applies -- only
+        // the *persistent*-congestion drop-to-minimum is suppressed.
+        assertEquals(6000, detector.getCongestionController().getCongestionWindow());
+    }
+
+    @Test
+    public void testPersistentCongestionNotDetectedWhenDurationTooShort() {
+        LossDetector detector = new LossDetector(1200);
+        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        // Duration threshold is 1875ms (see the positive test above).
+
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 2000, true, true, 100); // gap only 1000ms < 1875ms
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 4, 3000, false, true, 50);
+
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 4, 0, new long[][] { { 4, 4 } }, 25, 3100, true);
+
+        assertEquals(6000, detector.getCongestionController().getCongestionWindow());
+    }
+
+    /**
+     * Regression test: before this fix, a time-threshold loss detected
+     * via the loss-detection *timer* path ({@link
+     * LossDetector#onLossDetectionTimeout}) never reached the congestion
+     * controller at all -- only losses detected while processing an ACK
+     * ({@link LossDetector#onAckReceived}) did. Both paths call the same
+     * {@code DetectAndRemoveLostPackets}; RFC 9002 Appendix A.9's {@code
+     * OnLossDetectionTimeout} pseudocode calls {@code OnPacketsLost} for
+     * this exact case.
+     */
+    @Test
+    public void testLossDetectionTimeoutNotifiesCongestionControllerOfLoss() {
+        LossDetector detector = new LossDetector(1200); // window 12000
+        detector.onPacketSent(EncryptionLevel.INITIAL, 0, 0, true, true, 50);
+        detector.onAckReceived(EncryptionLevel.INITIAL, 0, 0, new long[][] { { 0, 0 } }, 25, 200, true);
+        // smoothedRtt=200, rttvar=100 -> time-threshold lossDelay = 9/8*200 = 225
+
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 0, 1000, true, true, 100);
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, 1, 1050, false, true, 50);
+        // Ack packet 1 alone (non-ack-eliciting): packet 0 isn't lost yet
+        // by either threshold at this point, but this schedules a
+        // time-threshold loss deadline for it (lossTime = 1000+225=1225).
+        // Packet 1 itself was in flight, so acking it also grows the
+        // still-pristine window by its 50 bytes via ordinary slow start
+        // (no congestion event has happened yet): 12000 + 50 = 12050.
+        detector.onAckReceived(EncryptionLevel.ONE_RTT, 1, 0, new long[][] { { 1, 1 } }, 25, 1100, true);
+
+        LossDetector.TimeoutResult result = detector.onLossDetectionTimeout(true, true, 25, 1300);
+        assertEquals(1, result.getNewlyLost().size());
+        // Halved from the grown 12050, not the original 12000: 6025.
+        assertEquals(6025, detector.getCongestionController().getCongestionWindow());
+    }
 }

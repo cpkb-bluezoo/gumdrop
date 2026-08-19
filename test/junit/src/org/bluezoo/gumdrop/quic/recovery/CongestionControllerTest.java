@@ -129,4 +129,29 @@ public class CongestionControllerTest {
         cc.onCongestionEvent(350, 400); // ssthresh=1500, floored to 2400
         assertEquals(2400, cc.getCongestionWindow());
     }
+
+    // RFC 9002 section 7.6.2 / Appendix B.8: persistent congestion drops
+    // straight to the minimum window, bypassing the usual halving --
+    // even from slow start, where ssthresh is still effectively infinite
+    // and an ordinary onCongestionEvent alone wouldn't reach the floor.
+    @Test
+    public void testPersistentCongestionDropsToMinimumWindow() {
+        CongestionController cc = new CongestionController(1200); // window 12000, minimum 2400
+        cc.onPersistentCongestion();
+        assertEquals(2400, cc.getCongestionWindow());
+    }
+
+    @Test
+    public void testPersistentCongestionClearsRecoveryStateAllowingImmediateGrowth() {
+        CongestionController cc = new CongestionController(1200);
+        cc.onCongestionEvent(100, 200); // window=6000, recoveryStart=200
+        cc.onPersistentCongestion(); // window=2400, recoveryStart cleared
+
+        cc.onPacketSent(1000);
+        // Sent at time 50, before the *old* recoveryStart(200) -- would
+        // have been treated as still-in-recovery and not grown the
+        // window, if onPersistentCongestion hadn't cleared it.
+        cc.onPacketAcked(50, 1000, false);
+        assertEquals(3400, cc.getCongestionWindow()); // slow start: 2400 + 1000
+    }
 }

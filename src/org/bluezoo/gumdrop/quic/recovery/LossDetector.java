@@ -62,6 +62,9 @@ public final class LossDetector {
     /** RFC 9002 Appendix A.2: timer granularity. */
     public static final long K_GRANULARITY = 1;
 
+    /** RFC 9002 section 7.6.1: multiplier on the RTT-based term to get the persistent congestion duration. */
+    public static final int K_PERSISTENT_CONGESTION_THRESHOLD = 3;
+
     /** Sentinel meaning "no packet number space loss/PTO timeout is currently needed". */
     public static final long NO_TIMEOUT = -1;
 
@@ -154,6 +157,15 @@ public final class LossDetector {
 
     private int ptoCount;
     private boolean handshakeConfirmed;
+
+    /**
+     * 0 until the first RTT sample is taken (RFC 9002 section 7.6.2 --
+     * persistent congestion only considers packets sent after this
+     * point, since {@code first_rtt_sample} is itself the earliest
+     * moment the RTT-based persistent-congestion duration in section
+     * 7.6.1 is even meaningful). Set once, connection-wide, never reset.
+     */
+    private long firstRttSampleTime;
 
     /**
      * Creates a loss detector.
@@ -251,19 +263,13 @@ public final class LossDetector {
         if (largestNewlyAcked.getPacketNumber() == largestAcked && includesAckEliciting(newlyAcked)) {
             rttEstimator.onRttSample(nowMillis - largestNewlyAcked.getTimeSentMillis(), ackDelayMillis,
                     maxAckDelayMillis, handshakeConfirmed);
+            if (firstRttSampleTime == 0) {
+                firstRttSampleTime = nowMillis;
+            }
         }
 
         List<SentPacket> newlyLost = detectAndRemoveLostPackets(level, nowMillis);
-
-        long sentTimeOfLastLoss = 0;
-        for (SentPacket lost : newlyLost) {
-            if (lost.isInFlight()) {
-                sentTimeOfLastLoss = Math.max(sentTimeOfLastLoss, lost.getTimeSentMillis());
-            }
-        }
-        if (sentTimeOfLastLoss != 0) {
-            congestionController.onCongestionEvent(sentTimeOfLastLoss, nowMillis);
-        }
+        onPacketsLost(newlyLost, maxAckDelayMillis, nowMillis);
 
         for (SentPacket acked : newlyAcked) {
             if (acked.isInFlight()) {
@@ -338,6 +344,87 @@ public final class LossDetector {
             }
         }
         return lost;
+    }
+
+    // RFC 9002 Appendix B.8's OnPacketsLost: notifies the congestion
+    // controller of the loss (shared by both callers of
+    // detectAndRemoveLostPackets -- onAckReceived and
+    // onLossDetectionTimeout -- so a timer-driven time-threshold loss
+    // shrinks the congestion window exactly like an ACK-driven one does,
+    // which onLossDetectionTimeout previously skipped entirely), then
+    // checks whether that loss also constitutes persistent congestion.
+    private void onPacketsLost(List<SentPacket> lost, long maxAckDelayMillis, long nowMillis) {
+        if (lost.isEmpty()) {
+            return;
+        }
+        long sentTimeOfLastLoss = 0;
+        for (SentPacket packet : lost) {
+            if (packet.isInFlight()) {
+                sentTimeOfLastLoss = Math.max(sentTimeOfLastLoss, packet.getTimeSentMillis());
+            }
+        }
+        if (sentTimeOfLastLoss != 0) {
+            congestionController.onCongestionEvent(sentTimeOfLastLoss, nowMillis);
+        }
+
+        if (firstRttSampleTime == 0) {
+            return;
+        }
+        if (isInPersistentCongestion(lost, maxAckDelayMillis)) {
+            congestionController.onPersistentCongestion();
+        }
+    }
+
+    // RFC 9002 section 7.6.2: persistent congestion requires two
+    // ack-eliciting packets, both sent after the first RTT sample, that
+    // are declared lost with the duration between their send times
+    // exceeding section 7.6.1's threshold and nothing sent between them
+    // ever acknowledged.
+    //
+    // The "nothing acknowledged between them" check is approximated
+    // here, conservatively, as a maximal run of *consecutive* packet
+    // numbers within `lost` that are all lost together: since
+    // sentPackets only ever holds still-outstanding packets (an
+    // acknowledged one is removed the moment detectAndRemoveAckedPackets
+    // sees it, well before loss detection runs), a gap in packet-number
+    // continuity within a batch of otherwise-lost packets can only be
+    // explained by an acknowledgment having removed the missing packet
+    // number at some point -- a still-pending, not-yet-lost packet would
+    // still be present and wouldn't create a gap. This is strictly more
+    // conservative than the RFC's literal text (which only requires the
+    // two *boundary* packets to be lost, not everything between them),
+    // so this can only under-detect persistent congestion relative to a
+    // fully cross-packet-number-space-aware implementation, never
+    // over-detect -- an accepted simplification given persistent
+    // congestion is itself an additional-safety-margin mechanism on top
+    // of ordinary loss-based congestion response, not the primary signal.
+    private boolean isInPersistentCongestion(List<SentPacket> lost, long maxAckDelayMillis) {
+        long durationThreshold = (rttEstimator.getSmoothedRtt()
+                + Math.max(4 * rttEstimator.getRttVar(), K_GRANULARITY) + maxAckDelayMillis)
+                * K_PERSISTENT_CONGESTION_THRESHOLD;
+
+        SentPacket runFirstAckEliciting = null;
+        SentPacket previous = null;
+        for (SentPacket packet : lost) {
+            if (packet.getTimeSentMillis() <= firstRttSampleTime) {
+                runFirstAckEliciting = null;
+                previous = null;
+                continue;
+            }
+            boolean continuesRun = previous != null && packet.getPacketNumber() == previous.getPacketNumber() + 1;
+            if (!continuesRun) {
+                runFirstAckEliciting = null;
+            }
+            if (packet.isAckEliciting()) {
+                if (runFirstAckEliciting == null) {
+                    runFirstAckEliciting = packet;
+                } else if (packet.getTimeSentMillis() - runFirstAckEliciting.getTimeSentMillis() >= durationThreshold) {
+                    return true;
+                }
+            }
+            previous = packet;
+        }
+        return false;
     }
 
     /**
@@ -475,6 +562,7 @@ public final class LossDetector {
         if (earliestLossTime != 0) {
             EncryptionLevel space = earliestLossSpace();
             List<SentPacket> lost = detectAndRemoveLostPackets(space, nowMillis);
+            onPacketsLost(lost, maxAckDelayMillis, nowMillis);
             return new TimeoutResult(lost, space, null);
         }
 
