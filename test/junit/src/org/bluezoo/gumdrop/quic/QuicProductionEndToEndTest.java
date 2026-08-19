@@ -1435,6 +1435,98 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * {@link QuicTransportFactory#setCipherSuites} is now actually
+     * consulted by both sides (previously a silent no-op -- see {@link
+     * org.bluezoo.gumdrop.quic.tls.QuicCipherSuitesTest} for the focused
+     * resolution-logic coverage). Forces the client down to ChaCha20-
+     * Poly1305 only and confirms the real negotiated cipher, observed
+     * via {@link SecurityInfo#getCipherSuite()} on the client's own
+     * {@code securityEstablished} callback, is exactly that -- proving
+     * the configured list is actually offered/accepted, not just that
+     * the handshake happens to still complete.
+     */
+    @Test
+    public void testClientHandshakeNegotiatesConfiguredCipherSuite() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return null;
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.setCipherSuites("TLS_CHACHA20_POLY1305_SHA256");
+            clientFactory.start();
+
+            final CountDownLatch securityEstablished = new CountDownLatch(1);
+            final AtomicReference<SecurityInfo> clientSecurityInfo = new AtomicReference<SecurityInfo>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                            // Fires right after connected() on the same
+                            // event-loop thread (see QuicConnection) --
+                            // waited on directly, rather than on
+                            // connected(), so the test thread can't race
+                            // ahead of this call after countDown() wakes it.
+                            clientSecurityInfo.set(info);
+                            securityEstablished.countDown();
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Handshake forcing ChaCha20-Poly1305 should complete within 5s",
+                    securityEstablished.await(5, TimeUnit.SECONDS));
+            SecurityInfo info = clientSecurityInfo.get();
+            assertNotNull("securityEstablished should have been called", info);
+            assertEquals("TLS_CHACHA20_POLY1305_SHA256", info.getCipherSuite());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9000 section 19.19: a peer's application-level (0x1d)
      * CONNECTION_CLOSE must reach the stream's {@code error(Exception)}
      * with a {@link QuicConnectionCloseException} carrying

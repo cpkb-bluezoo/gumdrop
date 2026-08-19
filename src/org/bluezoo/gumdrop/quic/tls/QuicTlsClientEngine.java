@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.quic.tls;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -137,7 +136,8 @@ public final class QuicTlsClientEngine
     }
 
     /**
-     * Creates a client-side TLS engine.
+     * Creates a client-side TLS engine with no cipher-suite preference
+     * (offers gumdrop's full default list).
      *
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in the ClientHello
@@ -160,15 +160,46 @@ public final class QuicTlsClientEngine
      */
     public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
             String applicationProtocols, String namedGroups) {
+        this(transportParameters, listener, applicationProtocols, namedGroups, null);
+    }
+
+    /**
+     * Creates a client-side TLS engine.
+     *
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in the ClientHello
+     *                            (RFC 9001 section 8.2)
+     * @param listener notified of handshake progress
+     * @param applicationProtocols the ALPN application protocol(s) to
+     *                             offer (RFC 7301), comma-separated, or
+     *                             null to offer none
+     * @param namedGroups colon-separated preferred named group(s) (e.g.
+     *                    {@code "x25519:secp256r1"}, matching the same
+     *                    IANA/TLS-registry names {@code
+     *                    TransportFactory#setNamedGroups}'s javadoc
+     *                    already documents), or null for Agent15's
+     *                    default. The first name Agent15 actually
+     *                    supports is used; unrecognised names (e.g. a
+     *                    hybrid PQC group -- Agent15 has no ML-KEM
+     *                    support, see {@link TlsConstants.NamedGroup})
+     *                    are skipped with a logged warning rather than
+     *                    silently substituted or failing the connection.
+     * @param cipherSuites colon-separated preferred cipher suite(s) in
+     *                     IANA form (e.g. {@code
+     *                     "TLS_CHACHA20_POLY1305_SHA256"}, matching
+     *                     {@code TransportFactory#setCipherSuites}'s
+     *                     javadoc), or null to offer gumdrop's full
+     *                     default list. Only names gumdrop's own AEAD
+     *                     layer actually implements are offered -- see
+     *                     {@link QuicCipherSuites#resolve}.
+     */
+    public QuicTlsClientEngine(TransportParameters transportParameters, QuicTlsEngineListener listener,
+            String applicationProtocols, String namedGroups, String cipherSuites) {
         this.listener = listener;
         this.engine = TlsClientEngineFactory.createClientEngine(this, this);
         this.preferredNamedGroup = resolvePreferredNamedGroup(namedGroups);
 
-        List<TlsConstants.CipherSuite> ciphers = new ArrayList<TlsConstants.CipherSuite>();
-        ciphers.add(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256);
-        ciphers.add(TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384);
-        ciphers.add(TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
-        engine.addSupportedCiphers(ciphers);
+        engine.addSupportedCiphers(QuicCipherSuites.resolve(cipherSuites));
         engine.add(new QuicTransportParametersExtension(transportParameters));
         if (applicationProtocols != null && !applicationProtocols.isEmpty()) {
             engine.add(new ApplicationLayerProtocolNegotiationExtension(

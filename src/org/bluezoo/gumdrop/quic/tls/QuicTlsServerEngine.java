@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.quic.tls;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 
 import tech.kwik.agent15.NewSessionTicket;
@@ -97,7 +96,8 @@ public final class QuicTlsServerEngine
     }
 
     /**
-     * Creates a server-side TLS engine.
+     * Creates a server-side TLS engine with no cipher-suite preference
+     * (offers gumdrop's full default list).
      *
      * @param certificateFactory factory holding the server's certificate
      *                           chain and private key
@@ -114,6 +114,35 @@ public final class QuicTlsServerEngine
     public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols) {
+        this(certificateFactory, transportParameters, listener, earlyDataEnabled, applicationProtocols, null);
+    }
+
+    /**
+     * Creates a server-side TLS engine.
+     *
+     * @param certificateFactory factory holding the server's certificate
+     *                           chain and private key
+     * @param transportParameters this endpoint's QUIC transport
+     *                            parameters, sent in EncryptedExtensions
+     *                            (RFC 9001 section 8.2)
+     * @param listener notified of handshake progress
+     * @param earlyDataEnabled whether to accept 0-RTT early data when a
+     *                         client offers it (RFC 9001 section 4.6.1)
+     * @param applicationProtocols the ALPN application protocol(s) this
+     *                             server supports (RFC 7301),
+     *                             comma-separated, or null to support none
+     * @param cipherSuites colon-separated preferred cipher suite(s) in
+     *                     IANA form (e.g. {@code
+     *                     "TLS_CHACHA20_POLY1305_SHA256"}, matching
+     *                     {@code TransportFactory#setCipherSuites}'s
+     *                     javadoc), or null to accept gumdrop's full
+     *                     default list. Only names gumdrop's own AEAD
+     *                     layer actually implements are accepted -- see
+     *                     {@link QuicCipherSuites#resolve}.
+     */
+    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
+            TransportParameters transportParameters, QuicTlsEngineListener listener,
+            boolean earlyDataEnabled, String applicationProtocols, String cipherSuites) {
         this.listener = listener;
         this.earlyDataEnabled = earlyDataEnabled;
         this.supportedApplicationProtocols = applicationProtocols != null && !applicationProtocols.isEmpty()
@@ -121,11 +150,7 @@ public final class QuicTlsServerEngine
                 : java.util.Collections.<String>emptyList();
         this.engine = certificateFactory.createServerEngine(this, this);
 
-        List<TlsConstants.CipherSuite> ciphers = new ArrayList<TlsConstants.CipherSuite>();
-        ciphers.add(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256);
-        ciphers.add(TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384);
-        ciphers.add(TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
-        engine.addSupportedCiphers(ciphers);
+        engine.addSupportedCiphers(QuicCipherSuites.resolve(cipherSuites));
         engine.addServerExtensions(new QuicTransportParametersExtension(transportParameters));
     }
 

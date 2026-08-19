@@ -99,10 +99,13 @@ public abstract class TransportFactory {
     /**
      * TLS 1.3 cipher suites (colon-separated IANA names).
      * Example: "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
-     * Consulted by the JSSE-backed (TCP/TLS) transport; not currently
-     * consulted by the QUIC transport, whose Agent15-backed TLS engines
-     * offer a fixed cipher list (see {@code QuicTransportFactory}'s own
-     * class documentation).
+     * Consulted by both the JSSE-backed (TCP/TLS) transport and the QUIC
+     * transport -- the latter filters this against what gumdrop's own
+     * AEAD layer actually implements (AES-128/256-GCM, ChaCha20-
+     * Poly1305; Agent15's CCM suites have no backing implementation
+     * here), falling back to its default list if nothing configured
+     * survives filtering. See {@code QuicTransportFactory}'s own class
+     * documentation for details.
      */
     protected String cipherSuites;
 
@@ -293,8 +296,8 @@ public abstract class TransportFactory {
      * <p>Accepts a colon-separated list of cipher suite names in
      * canonical (IANA) form. The JSSE-backed (TCP/TLS) transport maps
      * these to {@code SSLParameters.setCipherSuites()}; the QUIC
-     * transport does not currently consult this at all (see {@code
-     * QuicTransportFactory}'s class documentation).
+     * transport filters them against what its own AEAD layer implements
+     * (see {@code QuicTransportFactory}'s class documentation).
      *
      * <p>Example: "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256"
      *

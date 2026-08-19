@@ -56,24 +56,26 @@ import org.bluezoo.gumdrop.quic.tls.PemCredentials;
  * flow-control/idle-timeout limits into a {@link TransportParameters}
  * instance shared by every connection this factory's engines create.
  *
- * <p>{@link #setCipherSuites} (inherited from {@link TransportFactory})
- * is accepted but not yet consulted -- Agent15's QUIC TLS engines
- * currently hardcode a fixed supported-cipher list ({@code
- * TLS_AES_128_GCM_SHA256}/{@code TLS_AES_256_GCM_SHA384}/{@code
- * TLS_CHACHA20_POLY1305_SHA256}, see {@code QuicTlsClientEngine}/
- * {@code QuicTlsServerEngine}) rather than reading it. {@link
- * #setNamedGroups}, by contrast, <em>is</em> consulted client-side (see
- * {@code QuicTlsClientEngine#resolvePreferredNamedGroup}): the first
- * configured name Agent15 recognises is offered as the client's
- * key_share, with a logged warning if none are (Agent15 has no hybrid
- * PQC support, e.g. {@code X25519MLKEM768} -- see its own {@code
- * TlsConstants.NamedGroup}). It has no server-side effect at all: RFC
- * 8446 section 4.2.7 makes {@code supported_groups} a client-only
- * extension, and Agent15 exposes no server-side restriction API to
- * narrow which of a client's offered groups a server will accept; {@link
- * #createServerEngine} logs a warning if this is set on a factory used
- * for a server listener. {@link #setCongestionControl} is similarly
- * accepted but ignored -- {@code quic.recovery}'s {@code
+ * <p>{@link #setCipherSuites} and {@link #setNamedGroups} (both
+ * inherited from {@link TransportFactory}) are both consulted, filtered
+ * through what Agent15/gumdrop's own AEAD layer actually support (see
+ * {@code org.bluezoo.gumdrop.quic.tls.QuicCipherSuites}/{@code
+ * QuicTlsClientEngine#resolvePreferredNamedGroup}) rather than failing
+ * outright on an unsupported request: an unrecognised or unimplemented
+ * cipher suite is dropped from the configured list (falling back to
+ * gumdrop's full default list, with a logged warning, only if nothing
+ * configured survives filtering); an unsupported named group (e.g. a
+ * hybrid PQC group such as {@code X25519MLKEM768} -- Agent15 has no
+ * ML-KEM support at all, see its own {@code TlsConstants.NamedGroup}) is
+ * similarly skipped in favour of the next configured name, with a
+ * logged warning if none resolve. Named-group selection has no
+ * server-side effect at all, unlike cipher suites: RFC 8446 section
+ * 4.2.7 makes {@code supported_groups} a client-only extension, and
+ * Agent15 exposes no server-side restriction API to narrow which of a
+ * client's offered groups a server will accept; {@link
+ * #createServerEngine} logs a warning if {@code namedGroups} is set on a
+ * factory used for a server listener. {@link #setCongestionControl} is
+ * similarly accepted but ignored -- {@code quic.recovery}'s {@code
  * CongestionController} is NewReno only.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -326,6 +328,17 @@ public class QuicTransportFactory extends TransportFactory {
      */
     String getNamedGroups() {
         return namedGroups;
+    }
+
+    /**
+     * Returns the raw, unparsed {@link #setCipherSuites} value (colon-
+     * separated cipher suite names, or null) -- resolving these against
+     * what gumdrop's own QUIC AEAD layer implements is {@code
+     * org.bluezoo.gumdrop.quic.tls.QuicCipherSuites}'s job, not this
+     * class's, to keep Agent15 types out of this package.
+     */
+    String getCipherSuites() {
+        return cipherSuites;
     }
 
     byte[] getConnectionIdStaticKey() {
