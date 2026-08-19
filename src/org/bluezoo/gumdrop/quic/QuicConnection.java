@@ -582,11 +582,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * data queued from {@link QuicEngine.EarlyDataHandler#earlyDataReady}
      * has a budget to send against immediately.
      *
-     * <p>Overwritten unconditionally once the real transport parameters
-     * arrive via {@link #transportParametersReceived}; this class does
-     * not enforce RFC 9000 section 7.4.1's requirement that the real
-     * parameters not end up more restrictive than what 0-RTT assumed --
-     * an explicitly deferred gap, documented in the migration notes.
+     * <p>Overwritten once the real transport parameters arrive via
+     * {@link #transportParametersReceived}, which also checks there that
+     * the real values are not more restrictive than these remembered
+     * ones for the RFC 9000 section 7.4.1 fields that could invalidate
+     * already-sent 0-RTT data, closing the connection if so.
      *
      * @param remembered the peer's transport parameters from the
      *                   connection the presented session ticket came from
@@ -2398,6 +2398,35 @@ public final class QuicConnection implements QuicTlsEngineListener {
             if (mismatch) {
                 closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "retry_source_connection_id mismatch");
                 return;
+            }
+            // RFC 9000 section 7.4.1: a server accepting 0-RTT "MUST NOT
+            // reduce any limits or alter any values that might be
+            // violated by the client with its 0-RTT data" below what it
+            // remembered offering (seedRememberedTransportParameters).
+            // The RFC places this obligation on the server, not the
+            // client -- but this connection already offered 0-RTT under
+            // those remembered limits by the time the real ones arrive,
+            // so a server that shrinks them here is either broken or
+            // actively hostile; either way, continuing under limits the
+            // peer has already contradicted isn't safe. Checked only
+            // when 0-RTT was actually offered (peerTransportParameters
+            // is otherwise still null at this point) -- a connection
+            // that never attempted 0-RTT has nothing to protect.
+            if (zeroRttState != ZeroRttState.NONE && peerTransportParameters != null) {
+                TransportParameters remembered = peerTransportParameters;
+                if (transportParameters.getInitialMaxData() < remembered.getInitialMaxData()
+                        || transportParameters.getInitialMaxStreamDataBidiLocal()
+                                < remembered.getInitialMaxStreamDataBidiLocal()
+                        || transportParameters.getInitialMaxStreamDataBidiRemote()
+                                < remembered.getInitialMaxStreamDataBidiRemote()
+                        || transportParameters.getInitialMaxStreamDataUni()
+                                < remembered.getInitialMaxStreamDataUni()
+                        || transportParameters.getInitialMaxStreamsBidi() < remembered.getInitialMaxStreamsBidi()
+                        || transportParameters.getInitialMaxStreamsUni() < remembered.getInitialMaxStreamsUni()) {
+                    closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR,
+                            "0-RTT transport parameters reduced below remembered values");
+                    return;
+                }
             }
         }
         this.peerTransportParameters = transportParameters;

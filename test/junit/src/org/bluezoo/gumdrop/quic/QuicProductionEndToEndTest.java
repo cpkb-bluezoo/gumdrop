@@ -959,6 +959,113 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * RFC 9000 section 7.4.1: a server accepting 0-RTT must not send
+     * real transport parameters more restrictive than what it remembered
+     * offering (what the client's already-sent 0-RTT data assumed).
+     * {@code QuicConnection} enforces this defensively on the client side
+     * (not itself an RFC requirement -- the obligation is the server's --
+     * but continuing under limits the peer has just contradicted isn't
+     * safe either way).
+     *
+     * <p>Drives a real second connection through a real 0-RTT handshake
+     * (accepted, confirmed via the private {@code zeroRttState} field) so
+     * the remembered transport parameters used for the comparison are
+     * genuine, then directly re-invokes the same {@code
+     * QuicTlsEngineListener} callback Agent15 would call
+     * ({@code transportParametersReceived}) with a hand-built, deliberately
+     * shrunk {@link TransportParameters} -- simulating a second, hostile
+     * or broken delivery of transport parameters -- and asserts the
+     * connection closes with the expected reason.
+     */
+    @Test
+    public void testZeroRttTransportParameterShrinkClosesConnection() throws Exception {
+        SessionTicketCache.clear();
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine firstClientEngine = null;
+        QuicEngine secondClientEngine = null;
+        try {
+            final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setEarlyDataEnabled(true);
+            serverFactory.start();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
+
+            QuicTransportFactory secondClientFactory = new QuicTransportFactory();
+            secondClientFactory.setApplicationProtocols(ALPN);
+            secondClientFactory.setVerifyPeer(false);
+            secondClientFactory.setEarlyDataEnabled(true);
+            secondClientFactory.start();
+
+            final CountDownLatch connected = new CountDownLatch(1);
+            final AtomicReference<QuicConnection> clientConnectionRef = new AtomicReference<QuicConnection>();
+
+            secondClientEngine = secondClientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            clientConnectionRef.set(connection);
+                            connected.countDown();
+                        }
+                    },
+                    loop, SERVER_NAME);
+
+            assertTrue("Second connection should establish within 5s", connected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection clientConnection = clientConnectionRef.get();
+            Object zeroRttState = getPrivateField(clientConnection, "zeroRttState", Object.class);
+            assertEquals("This test requires 0-RTT to have genuinely been offered and "
+                    + "accepted on the real handshake -- otherwise the shrink check has "
+                    + "nothing real to compare against and the test would pass vacuously",
+                    "ACCEPTED", zeroRttState.toString());
+
+            TransportParameters remembered =
+                    getPrivateField(clientConnection, "peerTransportParameters", TransportParameters.class);
+            assertNotNull(remembered);
+            assertTrue("Test requires a non-zero remembered initial_max_data to shrink meaningfully",
+                    remembered.getInitialMaxData() > 0);
+
+            TransportParameters shrunk = new TransportParameters();
+            shrunk.setInitialMaxData(remembered.getInitialMaxData() - 1);
+            shrunk.setInitialMaxStreamDataBidiLocal(remembered.getInitialMaxStreamDataBidiLocal());
+            shrunk.setInitialMaxStreamDataBidiRemote(remembered.getInitialMaxStreamDataBidiRemote());
+            shrunk.setInitialMaxStreamDataUni(remembered.getInitialMaxStreamDataUni());
+            shrunk.setInitialMaxStreamsBidi(remembered.getInitialMaxStreamsBidi());
+            shrunk.setInitialMaxStreamsUni(remembered.getInitialMaxStreamsUni());
+
+            clientConnection.transportParametersReceived(shrunk);
+
+            Boolean closed = getPrivateField(clientConnection, "closed", Boolean.class);
+            assertTrue("Connection must close once the peer's real transport parameters "
+                    + "shrink below what was remembered for already-offered 0-RTT data",
+                    closed.booleanValue());
+            String deferredCloseReason = getPrivateField(clientConnection, "deferredCloseReason", String.class);
+            assertEquals("0-RTT transport parameters reduced below remembered values", deferredCloseReason);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (secondClientEngine != null) {
+                secondClientEngine.close();
+            }
+            if (firstClientEngine != null) {
+                firstClientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9001 section 4.6.1: if the server rejects 0-RTT (early data
      * disabled server-side here, while the client still attempts it),
      * the client's queued stream data must be transparently resent at
