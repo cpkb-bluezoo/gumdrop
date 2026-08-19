@@ -247,10 +247,15 @@ public final class HTTPProtocolHandler
     int headerTableSize = DEFAULT_HEADER_TABLE_SIZE;
     // RFC 9113 section 6.5.2: SETTINGS_ENABLE_PUSH (default: 1 = enabled)
     boolean enablePush = true;
-    // RFC 8441 section 3: whether the client advertised support for the
-    // extended CONNECT method (WebSocket-over-HTTP/2). Tracked but not yet
-    // consulted before accepting an upgrade -- matches this project's
-    // existing posture for the equivalent HTTP/3 setting.
+    // RFC 8441 section 3: whether the client sent SETTINGS_ENABLE_CONNECT_PROTOCOL.
+    // Tracked for completeness, but deliberately never consulted before
+    // accepting an upgrade: per section 3, "Receipt of this parameter by
+    // a server does not have any impact" -- it's the client, not the
+    // server, that must not attempt Extended CONNECT before receiving
+    // this setting FROM the server (enforced client-side, see
+    // HTTPClientProtocolHandler#whenConnectProtocolKnown/
+    // WebSocketClient#connectExtendedConnect). RFC 9220 section 3
+    // states HTTP/3's semantics for this setting are identical.
     boolean clientEnablesConnectProtocol;
     int maxConcurrentStreams = Integer.MAX_VALUE;
     int initialWindowSize = DEFAULT_INITIAL_WINDOW_SIZE;

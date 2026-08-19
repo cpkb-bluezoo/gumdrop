@@ -105,6 +105,15 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     // from within a h3Handler.execute(...) task), so no synchronization needed.
     private final List<Runnable> deferredRequests = new ArrayList<Runnable>();
 
+    // RFC 9220 section 3 / RFC 8441 section 3: whether the peer's control
+    // stream SETTINGS frame (received asynchronously, independent of this
+    // connection's own readiness) has arrived yet, and, once it has,
+    // whether it advertised SETTINGS_ENABLE_CONNECT_PROTOCOL = 1 -- see
+    // whenConnectProtocolKnown/connectWebSocket.
+    private boolean initialSettingsReceived;
+    private boolean peerEnablesConnectProtocol;
+    private final List<Runnable> connectProtocolCallbacks = new ArrayList<Runnable>();
+
     /**
      * Creates a new HTTP/3 client handler on top of an existing
      * QUIC connection.
@@ -273,6 +282,30 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     }
 
     /**
+     * Runs {@code task} once the peer's initial SETTINGS frame has been
+     * received -- and so whether it advertised
+     * {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1} (RFC 9220 section 3 /
+     * RFC 8441 section 3) is known -- running immediately if that has
+     * already happened. Used by {@link #connectWebSocket} so it never
+     * sends an Extended CONNECT request before knowing the peer accepts
+     * one; RFC 8441 section 4 warns that doing so risks "a non-supporting
+     * peer... detect[ing] a malformed request and generat[ing] a stream
+     * error" instead of a clean rejection.
+     *
+     * <p>Must be called from the underlying {@code QuicConnection}'s own
+     * {@code SelectorLoop} thread -- see {@link #execute}.
+     *
+     * @param task the task to run once the peer's support is known
+     */
+    void whenConnectProtocolKnown(Runnable task) {
+        if (initialSettingsReceived) {
+            task.run();
+        } else {
+            connectProtocolCallbacks.add(task);
+        }
+    }
+
+    /**
      * Returns whether this handler has received a GOAWAY frame.
      *
      * @return true if GOAWAY was received
@@ -391,12 +424,27 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * @param subprotocol the WebSocket subprotocol to request, or null
      * @param extensions the extensions to offer, or null/empty for none
      * @param wsHandler the handler to receive WebSocket events
-     * @return the stream ID, or -1 on failure
+     * @return the stream ID, or -1 if sending failed, was rejected, or
+     *         (the peer's support not yet being known) was deferred
      */
     public long connectWebSocket(String authority, String path, String subprotocol,
             List<WebSocketExtension> extensions, WebSocketEventHandler wsHandler) {
         if (goaway) {
             wsHandler.error(new IOException("Connection received GOAWAY"));
+            return -1;
+        }
+        if (!initialSettingsReceived) {
+            whenConnectProtocolKnown(new Runnable() {
+                @Override
+                public void run() {
+                    connectWebSocket(authority, path, subprotocol, extensions, wsHandler);
+                }
+            });
+            return -1;
+        }
+        if (!peerEnablesConnectProtocol) {
+            wsHandler.error(new IOException("Server does not support Extended CONNECT "
+                    + "(RFC 9220/RFC 8441): SETTINGS_ENABLE_CONNECT_PROTOCOL was not advertised"));
             return -1;
         }
 
@@ -449,7 +497,16 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
                 qpackEncoder.setCapacity(instructions, capacity);
                 instructions.flip();
                 flushQpackEncoderInstructions(instructions);
-                break;
+            } else if (settings[i] == H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL) {
+                peerEnablesConnectProtocol = settings[i + 1] == 1;
+            }
+        }
+        if (!initialSettingsReceived) {
+            initialSettingsReceived = true;
+            List<Runnable> pending = new ArrayList<Runnable>(connectProtocolCallbacks);
+            connectProtocolCallbacks.clear();
+            for (Runnable task : pending) {
+                task.run();
             }
         }
     }

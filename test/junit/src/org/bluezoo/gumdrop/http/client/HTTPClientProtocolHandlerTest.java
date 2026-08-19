@@ -8,7 +8,12 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -17,6 +22,109 @@ import static org.junit.Assert.*;
  * including RFC 9113 cipher suite validation.
  */
 public class HTTPClientProtocolHandlerTest {
+
+    // RFC 8441 section 3/4: SETTINGS_ENABLE_CONNECT_PROTOCOL gating --
+    // isConnectProtocolEnabled/whenConnectProtocolKnown.
+    //
+    // settingsFrameReceived's real send path (sendSettingsAck ->
+    // endpoint.getSelectorLoop()) NPEs when driven against a handler
+    // constructed without a live connection -- everything under test
+    // here runs before that point in the method, so the NPE is expected
+    // and discarded, matching this codebase's established pattern for
+    // exercising protocol-handler logic without a real transport (see
+    // H3StreamTest's own documented use of the same approach).
+
+    @Test
+    public void testIsConnectProtocolEnabledDefaultsFalse() {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        assertFalse(handler.isConnectProtocolEnabled());
+    }
+
+    @Test
+    public void testIsConnectProtocolEnabledTrueAfterSettingsSaySo() {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
+        assertTrue(handler.isConnectProtocolEnabled());
+    }
+
+    @Test
+    public void testIsConnectProtocolEnabledFalseWhenSettingsOmitIt() {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        // A real SETTINGS frame carrying only some other identifier --
+        // the absence of SETTINGS_ENABLE_CONNECT_PROTOCOL must leave the
+        // default (false) alone, not be misread as "explicitly disabled".
+        receiveSettings(handler, H2FrameHandler.SETTINGS_MAX_CONCURRENT_STREAMS, 50);
+        assertFalse(handler.isConnectProtocolEnabled());
+    }
+
+    @Test
+    public void testWhenConnectProtocolKnownFiresImmediatelyOnceAlreadyReceived() {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
+
+        AtomicBoolean fired = new AtomicBoolean(false);
+        handler.whenConnectProtocolKnown(new Runnable() {
+            @Override
+            public void run() {
+                fired.set(true);
+            }
+        });
+        assertTrue("callback must fire synchronously once settings are already known", fired.get());
+    }
+
+    @Test
+    public void testWhenConnectProtocolKnownDefersUntilSettingsArrive() {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+
+        AtomicBoolean fired = new AtomicBoolean(false);
+        handler.whenConnectProtocolKnown(new Runnable() {
+            @Override
+            public void run() {
+                fired.set(true);
+            }
+        });
+        assertFalse("callback must not fire before the server's SETTINGS frame arrives", fired.get());
+
+        receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 0);
+        assertTrue("callback must fire once settings arrive, regardless of the value carried", fired.get());
+        assertFalse(handler.isConnectProtocolEnabled());
+    }
+
+    @Test
+    public void testWhenConnectProtocolKnownCallbackRunsOnlyOnce() {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+
+        final int[] callCount = { 0 };
+        handler.whenConnectProtocolKnown(new Runnable() {
+            @Override
+            public void run() {
+                callCount[0]++;
+            }
+        });
+
+        receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
+        // A second SETTINGS frame (mid-connection updates are legal per
+        // RFC 9113 section 6.5) must not re-fire a callback already run.
+        receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 0);
+
+        assertEquals(1, callCount[0]);
+    }
+
+    private static void receiveSettings(HTTPClientProtocolHandler handler, int identifier, int value) {
+        Map<Integer, Integer> settings = new HashMap<Integer, Integer>();
+        settings.put(Integer.valueOf(identifier), Integer.valueOf(value));
+        try {
+            handler.settingsFrameReceived(false, settings);
+        } catch (NullPointerException expected) {
+            // confirms the method ran to its send-ack tail (see class note)
+        }
+    }
 
     // RFC 9113 section 9.2.2: GCM suites are AEAD and allowed
     @Test

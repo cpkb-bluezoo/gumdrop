@@ -518,7 +518,22 @@ public class WebSocketClient implements AltSvcListener {
             @Override
             public void onConnected(Endpoint endpoint) {
                 if (protocolHandler.getVersion() == HTTPVersion.HTTP_2_0) {
-                    connectExtendedConnect(path, allExtensions, handler);
+                    // RFC 8441 section 4: must not attempt Extended CONNECT
+                    // before knowing the server advertised support for it --
+                    // which, unlike this onConnected callback itself, isn't
+                    // known until the server's own (asynchronous) initial
+                    // SETTINGS frame arrives.
+                    protocolHandler.whenConnectProtocolKnown(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!protocolHandler.isConnectProtocolEnabled()) {
+                                handler.error(new IOException("Server does not support Extended CONNECT "
+                                        + "(RFC 8441): SETTINGS_ENABLE_CONNECT_PROTOCOL was not advertised"));
+                                return;
+                            }
+                            connectExtendedConnect(path, allExtensions, handler);
+                        }
+                    });
                     return;
                 }
                 // RFC 6455 §4.1 -- classic HTTP/1.1 upgrade handshake

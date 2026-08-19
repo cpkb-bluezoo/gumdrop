@@ -63,6 +63,7 @@ import org.bluezoo.gumdrop.quic.SessionTicketCache;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -781,6 +782,146 @@ public class HTTP3ProductionEndToEndTest {
                 serverEngine.close();
             }
             SessionTicketCache.clear();
+        }
+    }
+
+    /**
+     * RFC 9220 section 3 / RFC 8441 section 4: a client must not attempt
+     * Extended CONNECT before it knows the peer advertised
+     * {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1} -- {@link
+     * HTTP3ClientHandler#connectWebSocket} used to have no such gate at
+     * all, sending the request unconditionally the moment it was called.
+     *
+     * <p>Calls {@code connectWebSocket} synchronously from inside the
+     * client's own {@code connectionAccepted} callback -- the earliest
+     * possible moment, guaranteed to be before the peer's own control
+     * stream/SETTINGS frame can have arrived (that requires the peer to
+     * receive this side's handshake completion and then send its own
+     * data, at least one further round trip away) -- and asserts both
+     * that this race was genuine (the private {@code
+     * initialSettingsReceived} flag really was still false at the moment
+     * of the call, not accidentally already resolved) and that the
+     * WebSocket still opens successfully once the peer's real SETTINGS
+     * arrive, proving the call was queued and replayed rather than sent
+     * blind or silently dropped.
+     */
+    @Test
+    public void testConnectWebSocketDefersUntilPeerSettingsKnown() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch serverOpened = new CountDownLatch(1);
+
+            HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new DefaultHTTPRequestHandler() {
+                        @Override
+                        public void headers(HTTPResponseState state, Headers headers) {
+                            if ("CONNECT".equals(headers.getValue(":method"))
+                                    && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
+                                state.upgradeToWebSocket(null, new org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler() {
+                                    @Override
+                                    public void opened(org.bluezoo.gumdrop.websocket.WebSocketSession session) {
+                                        serverOpened.countDown();
+                                    }
+                                });
+                            }
+                        }
+                    };
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientOpened = new CountDownLatch(1);
+            final AtomicReference<Boolean> settingsAlreadyKnownAtCallTime = new AtomicReference<Boolean>();
+            final AtomicReference<Long> connectWebSocketReturnValue = new AtomicReference<Long>();
+            final AtomicReference<Throwable> wsError = new AtomicReference<Throwable>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            try {
+                                settingsAlreadyKnownAtCallTime.set(
+                                        getPrivateField(h3, "initialSettingsReceived", Boolean.class));
+                            } catch (Exception e) {
+                                fail("reflection failed: " + e);
+                            }
+                            long streamId = h3.connectWebSocket(SERVER_NAME, "/ws", null, null,
+                                    new org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler() {
+                                        @Override
+                                        public void opened(org.bluezoo.gumdrop.websocket.WebSocketSession session) {
+                                            clientOpened.countDown();
+                                        }
+
+                                        @Override
+                                        public void error(Throwable cause) {
+                                            wsError.set(cause);
+                                            clientOpened.countDown();
+                                        }
+                                    });
+                            connectWebSocketReturnValue.set(streamId);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have completed the WebSocket upgrade within 5s",
+                    serverOpened.await(5, TimeUnit.SECONDS));
+            assertTrue("Client should have received its own opened() callback within 5s",
+                    clientOpened.await(5, TimeUnit.SECONDS));
+            assertNull("connectWebSocket must not have errored", wsError.get());
+            assertFalse("connectWebSocket was called before the peer's SETTINGS frame could "
+                    + "possibly have arrived -- this test is only meaningful if that race is "
+                    + "genuine, not accidentally already resolved by the time of the call",
+                    Boolean.TRUE.equals(settingsAlreadyKnownAtCallTime.get()));
+            // The distinguishing assertion: since the peer's support wasn't
+            // yet known, connectWebSocket must have deferred rather than
+            // opened a stream synchronously -- its synchronous return value
+            // is -1 either way (see its own javadoc), but only the deferred
+            // path returns -1 *without* ever having called
+            // quicConnection.openStream(...) at all, which is what actually
+            // matters for RFC 8441 section 4's "must not send before
+            // knowing" requirement. Confirmed by reverting the gate locally
+            // and re-running this test: without it, connectWebSocket runs to
+            // completion synchronously and returns a real (non-negative)
+            // stream ID here instead.
+            assertEquals("connectWebSocket must defer (return -1) when called before the "
+                    + "peer's SETTINGS frame has arrived, not open a stream immediately",
+                    -1L, connectWebSocketReturnValue.get().longValue());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
         }
     }
 
