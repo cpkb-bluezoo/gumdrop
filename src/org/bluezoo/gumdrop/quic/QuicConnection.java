@@ -219,14 +219,30 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final long[] sendPacketNumber = new long[EncryptionLevel.values().length];
     private final long[] largestReceived = { -1, -1, -1 };
     private final boolean[] ackOwed = new boolean[EncryptionLevel.values().length];
-    // Packet numbers received (ack-eliciting) but not yet covered by a
-    // sent ACK frame, per level -- RFC 9000 section 13.2.1 requires an
-    // ACK frame to acknowledge every received packet number, not just
-    // the largest, since any of them may not have been acked before a
-    // later one arrived (e.g. a 0-RTT packet followed shortly after by a
-    // 1-RTT one, before this endpoint got a chance to ACK the first).
+    // Packet numbers received (ack-eliciting) but not yet *confirmed
+    // received by the peer* -- RFC 9000 section 13.2.1 requires an ACK
+    // frame to acknowledge every received packet number, not just the
+    // largest, since any of them may not have been acked before a later
+    // one arrived (e.g. a 0-RTT packet followed shortly after by a 1-RTT
+    // one, before this endpoint got a chance to ACK the first). An entry
+    // is retired only once this endpoint learns the peer actually got an
+    // ACK frame covering it (see sentAckCoverage/retireAcknowledgedRanges)
+    // -- RFC 9000 section 13.2.4 -- not merely once an ACK frame covering
+    // it has been *written*, so a lost/withheld/failed-to-send ACK
+    // datagram doesn't permanently forget the packet numbers it covered.
     private final EnumMap<EncryptionLevel, TreeSet<Long>> receivedUnacked =
             new EnumMap<EncryptionLevel, TreeSet<Long>>(EncryptionLevel.class);
+    // RFC 9000 section 13.2.4: for each of this endpoint's own sent
+    // packets that carried an ACK frame, the peer-originated packet
+    // numbers that ACK frame covered -- keyed by this endpoint's own
+    // packet number, per level. Consulted once that own packet is itself
+    // newly acked (the covered entries can finally be retired from
+    // receivedUnacked, see retireAcknowledgedRanges) or newly lost (the
+    // tracking entry is simply discarded; receivedUnacked was never
+    // touched for it, so those packet numbers are already guaranteed to
+    // be included in the next ACK this endpoint sends).
+    private final EnumMap<EncryptionLevel, Map<Long, long[]>> sentAckCoverage =
+            new EnumMap<EncryptionLevel, Map<Long, long[]>>(EncryptionLevel.class);
     private final boolean[] discarded = new boolean[EncryptionLevel.values().length];
     // Set on a Probe Timeout when nothing else was queued to naturally retransmit (RFC 9002 Appendix A.9).
     private final boolean[] pendingPing = new boolean[EncryptionLevel.values().length];
@@ -1058,8 +1074,19 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
             LossDetector.AckResult result = lossDetector.onAckReceived(level, largestAcknowledged, ackDelay,
                     ranges, peerMaxAckDelay(), System.currentTimeMillis(), peerAddressValidated());
+            retireAcknowledgedRanges(level, result.getNewlyAcked());
+            Map<Long, long[]> coverage = sentAckCoverage.get(level);
             for (SentPacket lost : result.getNewlyLost()) {
                 requeueLostPacket(level, lost.getPacketNumber());
+                // The ACK this packet would have carried (if any) never
+                // reached the peer -- nothing to retire, and no further
+                // reason to keep tracking it (receivedUnacked already
+                // still holds whatever it covered, untouched, so those
+                // packet numbers are naturally included in the next ACK
+                // this endpoint sends).
+                if (coverage != null) {
+                    coverage.remove(Long.valueOf(lost.getPacketNumber()));
+                }
             }
         }
 
@@ -1275,6 +1302,32 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // doesn't carry them), so the default always applies.
     private static long peerMaxAckDelay() {
         return 25;
+    }
+
+    // RFC 9000 section 13.2.4: once one of this endpoint's own sent
+    // packets is newly acked, the peer has just proven it received the
+    // ACK frame that packet carried (if any) -- so whatever peer packet
+    // numbers that ACK covered can finally be retired from
+    // receivedUnacked. Called from ackFrameReceived for every level on
+    // every incoming ACK; a level with no ACK-carrying packets among
+    // newlyAcked, or none acked at all, is a cheap no-op.
+    private void retireAcknowledgedRanges(EncryptionLevel level, List<SentPacket> newlyAcked) {
+        if (newlyAcked.isEmpty()) {
+            return;
+        }
+        Map<Long, long[]> coverage = sentAckCoverage.get(level);
+        if (coverage == null || coverage.isEmpty()) {
+            return;
+        }
+        TreeSet<Long> unacked = receivedUnacked.get(level);
+        for (SentPacket acked : newlyAcked) {
+            long[] covered = coverage.remove(Long.valueOf(acked.getPacketNumber()));
+            if (covered != null && unacked != null) {
+                for (long pn : covered) {
+                    unacked.remove(Long.valueOf(pn));
+                }
+            }
+        }
     }
 
     private void requeueLostPacket(EncryptionLevel level, long packetNumber) {
@@ -1975,9 +2028,28 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (includeAck) {
             QuicFrameWriter.writeAck(payload, ackRanges, 0);
             ackOwed[level.ordinal()] = false;
+            // Deliberately not clearing receivedUnacked here -- this ACK
+            // frame has only been written into a buffer, not confirmed
+            // (or even necessarily yet sent: sealing, anti-amplification
+            // withholding, or the socket send can still all fail after
+            // this point). Record what it covered so the entries can be
+            // retired once the peer actually confirms receipt (RFC 9000
+            // section 13.2.4, see retireAcknowledgedRanges); until then,
+            // they stay in receivedUnacked and are simply included again
+            // in the next ACK this endpoint sends.
             TreeSet<Long> unacked = receivedUnacked.get(level);
-            if (unacked != null) {
-                unacked.clear();
+            if (unacked != null && !unacked.isEmpty()) {
+                long[] covered = new long[unacked.size()];
+                int coveredIndex = 0;
+                for (Long pn : unacked) {
+                    covered[coveredIndex++] = pn.longValue();
+                }
+                Map<Long, long[]> coverage = sentAckCoverage.get(level);
+                if (coverage == null) {
+                    coverage = new HashMap<Long, long[]>();
+                    sentAckCoverage.put(level, coverage);
+                }
+                coverage.put(Long.valueOf(packetNumber), covered);
             }
         }
         if (includeHandshakeDone) {

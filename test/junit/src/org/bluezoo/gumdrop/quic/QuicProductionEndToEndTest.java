@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.quic;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -33,7 +34,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -61,6 +64,7 @@ import org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys;
 import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -768,6 +772,201 @@ public class QuicProductionEndToEndTest {
                 };
             }
         };
+    }
+
+    /**
+     * RFC 9000 section 13.2.4 ("Limiting Ranges by Tracking ACK Frames"):
+     * an outgoing ACK frame's coverage must not be forgotten the moment
+     * it is merely *written* -- only once this endpoint learns the peer
+     * actually received it, by seeing an ACK for the packet that carried
+     * it. Before this fix, {@code receivedUnacked} was cleared
+     * unconditionally the instant an ACK frame was written into a
+     * buffer, regardless of whether that packet then failed to seal, was
+     * withheld by anti-amplification, failed to send, or was simply lost
+     * on the wire -- any one of those would permanently forget every
+     * packet number the ACK covered, with no retry, guaranteeing the
+     * peer would eventually (and wrongly) conclude those packets were
+     * lost and retransmit them.
+     *
+     * <p>Exercised directly, white-box, against a real, fully-handshaken
+     * server {@link QuicConnection} -- {@code flush()} itself is
+     * package-private and called directly, and the new private
+     * {@code retireAcknowledgedRanges} is invoked via reflection to
+     * simulate the peer's own confirmation arriving:
+     * <ol>
+     * <li>Seed a synthetic "received, not yet acked" peer packet number,
+     * flush (sends a real ACK covering it), and confirm the number is
+     * <em>not</em> discarded merely because that ACK was sent -- the
+     * core regression this test targets.</li>
+     * <li>Without ever confirming that first ACK, seed a second
+     * synthetic packet number and flush again: the new ACK-carrying
+     * packet's recorded coverage must include <em>both</em> numbers,
+     * proving unconfirmed coverage survives across multiple flushes
+     * (exactly what a lost first ACK datagram needs to be safe).</li>
+     * <li>Only once the peer's own ACK for the <em>first</em>
+     * ACK-carrying packet is simulated does that packet's specific
+     * coverage retire -- and only that coverage, not the second,
+     * unrelated packet's.</li>
+     * </ol>
+     */
+    @Test
+    public void testAckCoverageRetainedUntilConfirmedByPeer() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch serverConnected = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverConnectionRef.set(connection);
+                            serverConnected.countDown();
+                        }
+                    }, loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have accepted the connection within 5s",
+                    serverConnected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection serverConnection = serverConnectionRef.get();
+
+            // connectionAccepted can fire a hair before 1-RTT send keys
+            // are actually installed; wait for them before manipulating
+            // the connection directly.
+            long deadline = System.currentTimeMillis() + 5000;
+            while (getOneRttSendKeys(serverConnection) == null && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertNotNull("Server should have 1-RTT send keys", getOneRttSendKeys(serverConnection));
+
+            // --- Step 1: seed one synthetic unacked peer packet, flush ---
+            long firstPeerPacketNumber = 999L;
+            seedReceivedUnacked(serverConnection, firstPeerPacketNumber);
+            long firstAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+            serverConnection.flush();
+
+            assertTrue("The synthetic packet number must still be tracked as unacked immediately "
+                    + "after flush() merely built and sent the ACK covering it -- confirmation "
+                    + "from the peer, not the act of writing the frame, is what should retire it",
+                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(firstPeerPacketNumber)));
+            assertArrayEquals("The ACK-carrying packet's recorded coverage should be exactly what "
+                    + "was pending at the moment it was built",
+                    new long[] { firstPeerPacketNumber },
+                    getSentAckCoverageOneRtt(serverConnection).get(Long.valueOf(firstAckCarryingPacketNumber)));
+
+            // --- Step 2: without confirming the first ACK, seed a second
+            // packet and flush again -- the first packet's coverage must
+            // still be pending and get folded into the new ACK too. ---
+            long secondPeerPacketNumber = 1000L;
+            seedReceivedUnacked(serverConnection, secondPeerPacketNumber);
+            long secondAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+            serverConnection.flush();
+
+            long[] secondCoverage = getSentAckCoverageOneRtt(serverConnection)
+                    .get(Long.valueOf(secondAckCarryingPacketNumber));
+            java.util.Arrays.sort(secondCoverage);
+            assertArrayEquals("An unconfirmed first ACK's coverage must survive into a second, "
+                    + "later flush -- exactly what protects against the first ACK datagram "
+                    + "never reaching the peer",
+                    new long[] { firstPeerPacketNumber, secondPeerPacketNumber }, secondCoverage);
+
+            // --- Step 3: simulate the peer confirming only the *first*
+            // ACK-carrying packet -- only its specific coverage retires. ---
+            LossDetector lossDetector = getPrivateField(serverConnection, "lossDetector", LossDetector.class);
+            LossDetector.AckResult ackResult = lossDetector.onAckReceived(EncryptionLevel.ONE_RTT,
+                    firstAckCarryingPacketNumber, 0,
+                    new long[][] { { firstAckCarryingPacketNumber, firstAckCarryingPacketNumber } },
+                    25, System.currentTimeMillis(), true);
+            assertEquals("Sanity check: the loss detector must recognize the first ACK-carrying "
+                    + "packet as genuinely in flight and newly acked", 1, ackResult.getNewlyAcked().size());
+
+            Method retire = QuicConnection.class.getDeclaredMethod(
+                    "retireAcknowledgedRanges", EncryptionLevel.class, List.class);
+            retire.setAccessible(true);
+            retire.invoke(serverConnection, EncryptionLevel.ONE_RTT, ackResult.getNewlyAcked());
+
+            assertFalse("Once the peer confirms it received the first ACK, the packet number it "
+                    + "covered must finally be retired",
+                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(firstPeerPacketNumber)));
+            assertTrue("The second, still-unconfirmed packet number must be untouched by "
+                    + "retiring the first",
+                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(secondPeerPacketNumber)));
+            assertNull("The first packet's coverage tracking entry itself must also be cleaned "
+                    + "up once retired",
+                    getSentAckCoverageOneRtt(serverConnection).get(Long.valueOf(firstAckCarryingPacketNumber)));
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static Object getOneRttSendKeys(QuicConnection connection) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, Object> sendKeys = getPrivateField(connection, "sendKeys", Map.class);
+        return sendKeys.get(EncryptionLevel.ONE_RTT);
+    }
+
+    private static long getNextOneRttSendPacketNumber(QuicConnection connection) throws Exception {
+        long[] sendPacketNumber = getPrivateField(connection, "sendPacketNumber", long[].class);
+        return sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
+    }
+
+    private static void seedReceivedUnacked(QuicConnection connection, long peerPacketNumber) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, TreeSet<Long>> receivedUnacked =
+                getPrivateField(connection, "receivedUnacked", Map.class);
+        TreeSet<Long> unacked = receivedUnacked.get(EncryptionLevel.ONE_RTT);
+        if (unacked == null) {
+            unacked = new TreeSet<Long>();
+            receivedUnacked.put(EncryptionLevel.ONE_RTT, unacked);
+        }
+        unacked.add(Long.valueOf(peerPacketNumber));
+        boolean[] ackOwed = getPrivateField(connection, "ackOwed", boolean[].class);
+        ackOwed[EncryptionLevel.ONE_RTT.ordinal()] = true;
+    }
+
+    private static TreeSet<Long> getReceivedUnackedOneRtt(QuicConnection connection) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, TreeSet<Long>> receivedUnacked =
+                getPrivateField(connection, "receivedUnacked", Map.class);
+        return receivedUnacked.get(EncryptionLevel.ONE_RTT);
+    }
+
+    private static Map<Long, long[]> getSentAckCoverageOneRtt(QuicConnection connection) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, Map<Long, long[]>> sentAckCoverage =
+                getPrivateField(connection, "sentAckCoverage", Map.class);
+        return sentAckCoverage.get(EncryptionLevel.ONE_RTT);
     }
 
     // Completes a normal production client handshake against the given
