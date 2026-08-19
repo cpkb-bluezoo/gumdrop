@@ -50,6 +50,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
+import org.bluezoo.gumdrop.TimerHandle;
 
 import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
@@ -266,6 +267,170 @@ public class QuicProductionEndToEndTest {
             if (serverEngine != null) {
                 serverEngine.close();
             }
+        }
+    }
+
+    /**
+     * Regression test for a false-positive Probe Timeout retransmit:
+     * {@link QuicConnection#flush} used to call its own
+     * {@code scheduleLossDetectionTimer()} only on the branch where it
+     * actually had bytes to send -- so once an ACK cleared everything a
+     * connection had outstanding, leaving a subsequent {@code flush()}
+     * nothing to build, the loss detection timer armed for that
+     * now-acknowledged data was left running rather than re-evaluated.
+     * Left alone, RFC 9002 Appendix A.8's {@code SetLossDetectionTimer}
+     * would have returned
+     * {@link org.bluezoo.gumdrop.quic.recovery.LossDetector#NO_TIMEOUT}
+     * (nothing ack-eliciting remains in flight and the peer's address is
+     * validated) and cancelled it -- instead a stale timer could stay
+     * armed for its original deadline and, on firing, find nothing lost
+     * and nothing in flight, misread that as a Probe Timeout, and send a
+     * spurious anti-deadlock PING nothing actually required.
+     *
+     * <p>Exercised directly rather than by racing real network timing to
+     * reproduce the exact "ACK arrives, nothing left pending" moment:
+     * once a real client+server handshake settles with no application
+     * data ever sent (proven quiescent by polling the client's own
+     * private {@code timerHandle} field down to {@code null}, which only
+     * happens once a real {@code flush()} call has legitimately found
+     * {@code NO_TIMEOUT}), a sentinel {@link TimerHandle} is planted
+     * directly into that field and the connection's package-private
+     * {@code flush()} is invoked directly -- with nothing whatsoever
+     * queued to send, this is exactly the code path the bug lived in.
+     * The fix must observably cancel and clear the sentinel; the bug
+     * left it untouched.
+     */
+    @Test
+    public void testLossDetectionTimerCancelledOnEmptyFlush() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                            fail("Client stream error: " + cause);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+
+            // Wait for the handshake's own tail traffic (HANDSHAKE_DONE,
+            // its ACK, etc.) to settle to a genuinely idle connection --
+            // every one of those exchanges legitimately calls
+            // scheduleLossDetectionTimer() via flush()'s "has bytes"
+            // branch (unaffected by the bug), so reaching null here relies
+            // on nothing this test is trying to prove.
+            TimerHandle timerHandle = getPrivateField(clientConnection, "timerHandle", TimerHandle.class);
+            long deadline = System.currentTimeMillis() + 5000;
+            while (timerHandle != null && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+                timerHandle = getPrivateField(clientConnection, "timerHandle", TimerHandle.class);
+            }
+            assertNull("Connection should have gone idle (no timer armed) before "
+                    + "this test's own direct flush() check", timerHandle);
+
+            // Plant a sentinel directly, then invoke the exact code path
+            // under test: flush() with nothing whatsoever pending.
+            SentinelTimerHandle sentinel = new SentinelTimerHandle();
+            setPrivateField(clientConnection, "timerHandle", sentinel);
+            clientConnection.flush();
+
+            assertTrue("flush() with nothing to send must still re-evaluate (and "
+                    + "here, cancel) the loss detection timer rather than leaving "
+                    + "a stale one armed", sentinel.cancelled);
+            assertNull("The now-cancelled sentinel must also be cleared from the "
+                    + "field, not merely cancelled in place",
+                    getPrivateField(clientConnection, "timerHandle", TimerHandle.class));
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static final class SentinelTimerHandle implements TimerHandle {
+        boolean cancelled;
+
+        @Override
+        public void cancel() {
+            cancelled = true;
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelled;
         }
     }
 

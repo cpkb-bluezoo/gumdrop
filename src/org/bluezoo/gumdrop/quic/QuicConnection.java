@@ -1344,6 +1344,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
         byte[] initialBytes = buildLevelPacketOrNull(EncryptionLevel.INITIAL, initialMinDatagramSize);
 
         if (initialBytes == null && zeroRttBytes == null && handshakeBytes == null && oneRttBytes == null) {
+            // Nothing to send, but the set of in-flight/lost packets may
+            // still have changed (e.g. an ACK just cleared everything
+            // this connection had outstanding) -- the loss detection
+            // timer must be re-armed (or, per RFC 9002 Appendix A.8,
+            // cancelled outright) to reflect that now, not left running
+            // on stale state from before this flush. Skipping this call
+            // here left a still-armed timer from an earlier, now-obsolete
+            // deadline free to fire later and misread "nothing in
+            // flight" as a Probe Timeout, sending a spurious anti-
+            // deadlock PING that nothing actually required.
+            scheduleLossDetectionTimer();
             return;
         }
 
