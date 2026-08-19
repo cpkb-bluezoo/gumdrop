@@ -128,6 +128,7 @@ public class WebSocketClient implements AltSvcListener {
     private boolean deflateEnabled = true;
     private boolean h3Enabled;
     private boolean h2Enabled = true;
+    private boolean h2WithPriorKnowledge;
     private boolean dnsHttpsRecordEnabled = true;
     private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
 
@@ -325,13 +326,50 @@ public class WebSocketClient implements AltSvcListener {
      * list at all. If the server doesn't support h2 (or this is disabled),
      * the connection falls back to the RFC 6455 HTTP/1.1 upgrade handshake
      * automatically. Has no effect when {@link #setH3Enabled(boolean)} is
-     * set, or for cleartext (non-secure) connections -- HTTP/2 over
-     * cleartext (h2c) is not supported for WebSocket in this pass.
+     * set, or for cleartext (non-secure) connections, which have no ALPN
+     * step at all -- see {@link #setH2WithPriorKnowledge(boolean)} for h2
+     * over cleartext.
      *
      * @param enabled true to allow WebSocket-over-HTTP/2
      */
     public void setH2Enabled(boolean enabled) {
         this.h2Enabled = enabled;
+    }
+
+    /**
+     * RFC 9113 §3.3 — forces HTTP/2 over a cleartext (non-secure)
+     * connection with no negotiation at all: the client sends the h2
+     * connection preface immediately and assumes the server already
+     * speaks h2, by prior arrangement (matching
+     * {@link HTTPClient#setH2WithPriorKnowledge(boolean)}, the equivalent
+     * setting for plain HTTP requests). Combined with
+     * {@link #setSecure(boolean)}{@code (false)}, this is what enables
+     * WebSocket-over-h2c: {@code onConnected} branches on the negotiated
+     * version the same way as the TLS+ALPN path, so once the preface is
+     * sent, RFC 8441 Extended CONNECT proceeds exactly as it would over a
+     * secure h2 connection.
+     *
+     * <p>This is deliberately the <em>only</em> supported route to h2c.
+     * The older HTTP/1.1-{@code Upgrade}-header bootstrap for h2c (RFC
+     * 7540 §3.2) is deprecated by RFC 9113 §3.1 itself ("This usage was
+     * never widely deployed and is deprecated by this document") and is
+     * not implemented here for WebSocket: its first request must be a
+     * plain HTTP/1.1 request distinct from the eventual Extended CONNECT,
+     * which doesn't compose with also bootstrapping a WebSocket handshake
+     * in the same exchange, and building it would mean investing in a
+     * mechanism the current spec itself disclaims -- this class has no
+     * WebSocket equivalent of {@link org.bluezoo.gumdrop.http.client
+     * .HTTPClientProtocolHandler#setH2cUpgradeEnabled} for that reason
+     * and never will; prior knowledge is the supported cleartext path.
+     *
+     * <p>Has no effect when {@link #setH3Enabled(boolean)} is set, or for
+     * secure connections (which negotiate h2 via ALPN instead, see
+     * {@link #setH2Enabled(boolean)}).
+     *
+     * @param enabled true to force HTTP/2 over cleartext with no negotiation
+     */
+    public void setH2WithPriorKnowledge(boolean enabled) {
+        this.h2WithPriorKnowledge = enabled;
     }
 
     /**
@@ -507,8 +545,9 @@ public class WebSocketClient implements AltSvcListener {
         // via ALPN (mirroring HTTPClient.connectTcp's own offer) so the
         // already-negotiated version is known by the time onConnected
         // fires below, with no separate discovery tier needed the way h3
-        // needs one. h2c (cleartext) is out of scope for WebSocket.
-        if (secure && h2Enabled) {
+        // needs one. Prior knowledge (see setH2WithPriorKnowledge) is a
+        // cleartext path and does not use ALPN.
+        if (secure && h2Enabled && !h2WithPriorKnowledge) {
             transportFactory.setApplicationProtocols("h2", "http/1.1");
         }
         transportFactory.start();
@@ -566,9 +605,13 @@ public class WebSocketClient implements AltSvcListener {
         protocolHandler.setRequestedExtensions(allExtensions);
 
         protocolHandler.setH2Enabled(h2Enabled);
-        // h2c (cleartext HTTP/2 upgrade) is out of scope for WebSocket in
-        // this pass -- always disabled, regardless of h2Enabled (which
-        // only governs the TLS+ALPN path above).
+        if (h2WithPriorKnowledge) {
+            protocolHandler.setH2WithPriorKnowledge(true);
+        }
+        // The HTTP/1.1-Upgrade-header h2c bootstrap has no WebSocket
+        // equivalent -- always disabled, regardless of h2Enabled (which
+        // only governs the TLS+ALPN path above); see
+        // setH2WithPriorKnowledge's javadoc for why.
         protocolHandler.setH2cUpgradeEnabled(false);
 
         // Populate AltSvcCache for later connections to this origin (this
