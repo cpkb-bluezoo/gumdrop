@@ -8,6 +8,10 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -260,6 +264,143 @@ public class HTTPClientProtocolHandlerTest {
     @Test
     public void testValidateContentLengthNull() {
         assertEquals(-1, HTTPClientProtocolHandler.validateContentLength(null));
+    }
+
+    // closeWhenIdle()/maybeCloseWhenIdle(): when an Alt-Svc-triggered h3
+    // upgrade becomes available, this connection must keep serving
+    // whatever streams it already accepted rather than being torn down
+    // out from under them -- closing aborts every still-active stream via
+    // failAllStreams()/responseHandler.failed(...), and for a
+    // non-idempotent request a caller that retries on connection failure
+    // could then re-issue it, over the new connection, as a genuine
+    // duplicate. "open" is used as the observable close signal here
+    // (reflectively set true first, since it otherwise only becomes true
+    // via a real connected() callback this handler never receives) rather
+    // than isOpen(), which also requires a live, non-null endpoint.
+
+    @Test
+    public void testCloseWhenIdleClosesImmediatelyWhenNothingActive() throws Exception {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        setPrivateField(handler, "open", Boolean.TRUE);
+
+        handler.closeWhenIdle();
+
+        assertFalse("nothing was in flight, so the close has no reason to wait",
+                getPrivateField(handler, "open", Boolean.class));
+    }
+
+    @Test
+    public void testCloseWhenIdleDefersUntilActiveStreamDrains() throws Exception {
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        setPrivateField(handler, "open", Boolean.TRUE);
+        handler.activeStreams.put(Integer.valueOf(1), new HTTPStream(handler, "POST", "/pay"));
+
+        handler.closeWhenIdle();
+        assertTrue("a still-active stream (e.g. an unconfirmed POST) must not be aborted",
+                getPrivateField(handler, "open", Boolean.class));
+
+        handler.activeStreams.clear();
+        invokeMaybeCloseWhenIdle(handler);
+
+        assertFalse("once the last active stream is gone, the deferred close must run",
+                getPrivateField(handler, "open", Boolean.class));
+    }
+
+    @Test
+    public void testCloseWhenIdleDefersUntilPendingRequestQueueDrainsToo() throws Exception {
+        // RFC 9113 section 5.1.2: a request can be queued behind
+        // SETTINGS_MAX_CONCURRENT_STREAMS before it ever becomes an
+        // active stream -- that queue must drain too before this
+        // connection is considered idle, not just activeStreams.
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        setPrivateField(handler, "open", Boolean.TRUE);
+        addPendingRequest(handler, new HTTPStream(handler, "GET", "/queued"));
+
+        handler.closeWhenIdle();
+        assertTrue("a queued-but-not-yet-active request must also block the deferred close",
+                getPrivateField(handler, "open", Boolean.class));
+
+        clearPendingRequests(handler);
+        invokeMaybeCloseWhenIdle(handler);
+
+        assertFalse("once the queue is also empty, the deferred close must run",
+                getPrivateField(handler, "open", Boolean.class));
+    }
+
+    @Test
+    public void testCancelRequestOfLastActiveStreamRunsDeferredClose() throws Exception {
+        // cancelRequest is one of the real, public completion paths
+        // maybeCloseWhenIdle is wired into -- exercised directly here,
+        // not just via the private method under reflection.
+        HTTPClientProtocolHandler handler =
+                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        setPrivateField(handler, "open", Boolean.TRUE);
+
+        HTTPStream stream = new HTTPStream(handler, "GET", "/only");
+        handler.activeStreams.put(Integer.valueOf(1), stream);
+        setStreamIdByRequest(handler, stream, Integer.valueOf(1));
+
+        handler.closeWhenIdle();
+        assertTrue(getPrivateField(handler, "open", Boolean.class));
+
+        handler.cancelRequest(stream);
+
+        assertFalse("cancelling the one remaining active stream must trigger the "
+                + "deferred close", getPrivateField(handler, "open", Boolean.class));
+    }
+
+    private static void invokeMaybeCloseWhenIdle(HTTPClientProtocolHandler handler) throws Exception {
+        Method method = HTTPClientProtocolHandler.class.getDeclaredMethod("maybeCloseWhenIdle");
+        method.setAccessible(true);
+        method.invoke(handler);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void addPendingRequest(HTTPClientProtocolHandler handler, HTTPStream request) throws Exception {
+        Class<?> pendingRequestClass = null;
+        for (Class<?> inner : HTTPClientProtocolHandler.class.getDeclaredClasses()) {
+            if (inner.getSimpleName().equals("PendingRequest")) {
+                pendingRequestClass = inner;
+                break;
+            }
+        }
+        Constructor<?> ctor = pendingRequestClass.getDeclaredConstructor(HTTPStream.class, boolean.class);
+        ctor.setAccessible(true);
+        Object pendingRequest = ctor.newInstance(request, Boolean.FALSE);
+
+        Field field = HTTPClientProtocolHandler.class.getDeclaredField("pendingRequests");
+        field.setAccessible(true);
+        ((java.util.Deque<Object>) field.get(handler)).add(pendingRequest);
+    }
+
+    private static void clearPendingRequests(HTTPClientProtocolHandler handler) throws Exception {
+        Field field = HTTPClientProtocolHandler.class.getDeclaredField("pendingRequests");
+        field.setAccessible(true);
+        ((java.util.Deque<?>) field.get(handler)).clear();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void setStreamIdByRequest(HTTPClientProtocolHandler handler, HTTPStream request, Integer streamId)
+            throws Exception {
+        Field field = HTTPClientProtocolHandler.class.getDeclaredField("streamIdByRequest");
+        field.setAccessible(true);
+        ((Map<HTTPStream, Integer>) field.get(handler)).put(request, streamId);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T getPrivateField(Object target, String name, Class<T> type) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return (T) field.get(target);
+    }
+
+    private static void setPrivateField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private static class StubSecurityInfo implements SecurityInfo {
