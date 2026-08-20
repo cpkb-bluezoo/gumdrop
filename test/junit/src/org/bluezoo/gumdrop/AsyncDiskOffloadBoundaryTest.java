@@ -63,6 +63,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -691,7 +692,7 @@ public class AsyncDiskOffloadBoundaryTest {
     }
 
     static final class StubEndpoint implements Endpoint {
-        final List<byte[]> sentData = new ArrayList<byte[]>();
+        final List<byte[]> sentData = new CopyOnWriteArrayList<byte[]>();
         boolean open = true;
 
         @Override
