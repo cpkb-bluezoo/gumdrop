@@ -2942,6 +2942,15 @@ public class QuicProductionEndToEndTest {
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
 
             QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
+            // See waitForConnectionIdle's javadoc: clientConnected firing
+            // doesn't guarantee the server's own handshake-tail bookkeeping
+            // (addressValidated is set when the server processes the
+            // client's Handshake-level packet, strictly earlier in the
+            // exchange than HANDSHAKE_DONE -- see QuicConnection.receive
+            // around the addressValidated assignment) has been observed by
+            // this JUnit thread yet; reading it immediately after await()
+            // can race it under load.
+            waitForConnectionIdle(serverConnection);
             assertTrue("A real completed handshake should already have validated the client's address",
                     getPrivateField(serverConnection, "addressValidated", Boolean.class));
 
