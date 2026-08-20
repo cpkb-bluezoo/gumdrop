@@ -466,7 +466,27 @@ record types:
 <td>Text record</td></tr>
 <tr><td>SRV</td><td><code>DNSResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
 <td>Service location</td></tr>
+<tr><td>HTTPS</td><td><code>DNSResourceRecord.https(name, ttl, priority, target, params)</code></td>
+<td>HTTPS service binding (RFC 9460)</td></tr>
+<tr><td>SVCB</td><td><code>DNSResourceRecord.svcb(name, ttl, priority, target, params)</code></td>
+<td>General service binding (RFC 9460)</td></tr>
 </table>
+
+<p>
+HTTPS and SVCB share the same RDATA shape (priority, target name, and a map
+of SvcParamKey &rarr; value); <code>params</code> is a
+<code>Map&lt;Integer, byte[]&gt;</code> keyed by SvcParamKey, e.g.
+<code>DNSResourceRecord.SVCB_PARAM_ALPN</code> or
+<code>SVCB_PARAM_PORT</code>, with <code>encodeSVCBAlpn(List&lt;String&gt;)</code>
+and <code>encodeSVCBPort(int)</code> helpers to build the corresponding
+values; <code>params</code> may be <code>null</code>/empty. A
+<code>priority</code> of 0 is "AliasForm" (target is an alias, no params
+expected); any other value is "ServiceForm". Read a parsed record back
+with <code>getSVCBPriority()</code>,
+<code>getSVCBTargetName()</code>, and <code>getSVCBParams()</code>, or the
+convenience accessors <code>getSVCBAlpnProtocols()</code> and
+<code>getSVCBPort()</code>.
+</p>
 
 <h4>DNSSEC Record Types</h4>
 
