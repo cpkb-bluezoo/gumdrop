@@ -385,7 +385,8 @@ public class QuicProductionEndToEndTest {
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
 
-            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            final QuicConnection clientConnection =
+                    getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
 
             // Wait for the handshake's own tail traffic (HANDSHAKE_DONE,
             // its ACK, etc.) to settle to a genuinely idle connection --
@@ -393,27 +394,48 @@ public class QuicProductionEndToEndTest {
             // scheduleLossDetectionTimer() via flush()'s "has bytes"
             // branch (unaffected by the bug), so reaching null here relies
             // on nothing this test is trying to prove.
-            TimerHandle timerHandle = getPrivateField(clientConnection, "timerHandle", TimerHandle.class);
-            long deadline = System.currentTimeMillis() + 5000;
-            while (timerHandle != null && System.currentTimeMillis() < deadline) {
-                Thread.sleep(20);
-                timerHandle = getPrivateField(clientConnection, "timerHandle", TimerHandle.class);
-            }
-            assertNull("Connection should have gone idle (no timer armed) before "
-                    + "this test's own direct flush() check", timerHandle);
+            waitForConnectionIdle(clientConnection);
 
             // Plant a sentinel directly, then invoke the exact code path
             // under test: flush() with nothing whatsoever pending.
-            SentinelTimerHandle sentinel = new SentinelTimerHandle();
-            setPrivateField(clientConnection, "timerHandle", sentinel);
-            clientConnection.flush();
+            // Marshalled through invokeLater so this plant/flush/readback
+            // sequence runs atomically on the SelectorLoop thread itself
+            // -- run directly from the JUnit thread instead (as this used
+            // to), a late straggler packet (a delayed ACK, a
+            // retransmission -- still possible even after the idle check
+            // above, which only proves the connection *was* idle at the
+            // instant it was sampled) could arrive on the loop thread in
+            // between and legitimately re-arm a real timer, racing the
+            // sentinel.
+            final SentinelTimerHandle sentinel = new SentinelTimerHandle();
+            final AtomicReference<TimerHandle> observedHandle = new AtomicReference<TimerHandle>();
+            final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+            final CountDownLatch flushed = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        setPrivateField(clientConnection, "timerHandle", sentinel);
+                        clientConnection.flush();
+                        observedHandle.set(getPrivateField(clientConnection, "timerHandle", TimerHandle.class));
+                    } catch (Exception e) {
+                        failure.set(e);
+                    } finally {
+                        flushed.countDown();
+                    }
+                }
+            });
+            assertTrue("The sentinel-plant/flush task should run on the loop thread within 5s",
+                    flushed.await(5, TimeUnit.SECONDS));
+            if (failure.get() != null) {
+                throw failure.get();
+            }
 
             assertTrue("flush() with nothing to send must still re-evaluate (and "
                     + "here, cancel) the loss detection timer rather than leaving "
                     + "a stale one armed", sentinel.cancelled);
             assertNull("The now-cancelled sentinel must also be cleared from the "
-                    + "field, not merely cancelled in place",
-                    getPrivateField(clientConnection, "timerHandle", TimerHandle.class));
+                    + "field, not merely cancelled in place", observedHandle.get());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -1990,8 +2012,8 @@ public class QuicProductionEndToEndTest {
                     getPrivateField(clientConnection, "sendKeys", Map.class);
             PacketProtectionKeys oneRttKeys = sendKeys.get(EncryptionLevel.ONE_RTT);
             byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
-            long[] sendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
-            long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
+            long packetNumber =
+                    waitForIdleAndReadSendPacketNumber(loop, clientConnection, EncryptionLevel.ONE_RTT);
 
             // RFC 9000 section 11: this stream ID has never been used, so
             // its very first frame already exceeds the server's
@@ -2144,8 +2166,8 @@ public class QuicProductionEndToEndTest {
                     getPrivateField(clientConnection, "sendKeys", Map.class);
             PacketProtectionKeys oneRttKeys = sendKeys.get(EncryptionLevel.ONE_RTT);
             byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
-            long[] sendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
-            long packetNumber = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()];
+            long packetNumber =
+                    waitForIdleAndReadSendPacketNumber(loop, clientConnection, EncryptionLevel.ONE_RTT);
 
             long streamId = 0; // first client-initiated bidi stream, never opened via the real API
             byte[] firstHalf = "hello ".getBytes(StandardCharsets.US_ASCII);
@@ -2729,6 +2751,70 @@ public class QuicProductionEndToEndTest {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    // Every QuicConnection field is confined to its own SelectorLoop
+    // thread -- receive()/flush() and everything they touch (sendKeys,
+    // sendPacketNumber, timerHandle, ...) are only ever safe to mutate or
+    // read from that thread, or from a task marshalled onto it via
+    // SelectorLoop.invokeLater (see its own javadoc: "If called from
+    // this thread, the task is executed immediately. Otherwise, it is
+    // queued"). A test that reflects into that state directly from the
+    // JUnit thread instead -- as several in this file used to -- races
+    // the loop thread's own concurrent handling of any still-in-flight
+    // packet (a delayed ACK, a retransmission, handshake-tail traffic),
+    // intermittently observing a stale/mutated value or corrupting a
+    // collection two threads touched at once. Waits first for the
+    // connection to have gone idle (no loss-detection timer armed, the
+    // same signal QuicConnection's own scheduleLossDetectionTimer uses
+    // to mean "nothing left to do"), then reads the level's current
+    // outgoing packet number from inside a task run ON the loop thread,
+    // so the read can't interleave with a concurrent real send there
+    // incrementing the very counter being read.
+    private static long waitForIdleAndReadSendPacketNumber(SelectorLoop loop, final QuicConnection connection,
+            final EncryptionLevel level) throws Exception {
+        waitForConnectionIdle(connection);
+        final AtomicReference<Long> result = new AtomicReference<Long>();
+        final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+        final CountDownLatch read = new CountDownLatch(1);
+        loop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    long[] sendPacketNumber = getPrivateField(connection, "sendPacketNumber", long[].class);
+                    result.set(Long.valueOf(sendPacketNumber[level.ordinal()]));
+                } catch (Exception e) {
+                    failure.set(e);
+                } finally {
+                    read.countDown();
+                }
+            }
+        });
+        assertTrue("The packet-number read task should run on the loop thread within 5s",
+                read.await(5, TimeUnit.SECONDS));
+        if (failure.get() != null) {
+            throw failure.get();
+        }
+        return result.get().longValue();
+    }
+
+    // See waitForIdleAndReadSendPacketNumber's javadoc for why this
+    // matters: legitimate handshake-tail traffic (the client's own ACK
+    // for HANDSHAKE_DONE, etc.) can still be in flight for a little
+    // while after connected()/clientConnected fires, so a test reading
+    // shared connection state immediately after that latch would race
+    // it. Reaching null here relies on nothing beyond the loss detector
+    // itself already being correct (proven independently elsewhere),
+    // not on whatever this particular test is trying to check.
+    private static void waitForConnectionIdle(QuicConnection connection) throws Exception {
+        TimerHandle timerHandle = getPrivateField(connection, "timerHandle", TimerHandle.class);
+        long deadline = System.currentTimeMillis() + 5000;
+        while (timerHandle != null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+            timerHandle = getPrivateField(connection, "timerHandle", TimerHandle.class);
+        }
+        assertNull("Connection should have gone idle (no timer armed) before reading "
+                + "shared connection state a still-in-flight packet could change", timerHandle);
     }
 
     /**

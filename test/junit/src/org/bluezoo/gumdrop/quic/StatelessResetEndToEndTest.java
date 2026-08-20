@@ -207,13 +207,42 @@ public class StatelessResetEndToEndTest {
 
             assertTrue("Handshake should complete within 5s", handshakeDone.await(5, TimeUnit.SECONDS));
 
-            QuicConnection serverConn = serverConnection.get();
+            final QuicConnection serverConn = serverConnection.get();
             assertTrue("Server connection should exist", serverConn != null);
-            serverConn.dropLocalState();
 
-            Endpoint stream = clientStream.get();
+            final Endpoint stream = clientStream.get();
             assertTrue("Client stream should be open", stream != null && stream.isOpen());
-            stream.send(ByteBuffer.wrap("stale".getBytes(StandardCharsets.US_ASCII)));
+
+            // Both dropLocalState() and send() mutate QUIC connection
+            // state that is confined to this loop's own thread (see
+            // SelectorLoop.invokeLater's javadoc) -- calling them
+            // directly from the JUnit thread, as this used to, races
+            // whatever the loop thread might still be doing concurrently
+            // for either connection (settling handshake-tail traffic,
+            // e.g.), occasionally corrupting a collection two threads
+            // touched at once. Marshalling both through a single
+            // invokeLater task makes them atomic with respect to the
+            // loop's own event processing.
+            final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+            final CountDownLatch dispatched = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        serverConn.dropLocalState();
+                        stream.send(ByteBuffer.wrap("stale".getBytes(StandardCharsets.US_ASCII)));
+                    } catch (Exception e) {
+                        failure.set(e);
+                    } finally {
+                        dispatched.countDown();
+                    }
+                }
+            });
+            assertTrue("The dropLocalState/send task should run on the loop thread within 5s",
+                    dispatched.await(5, TimeUnit.SECONDS));
+            if (failure.get() != null) {
+                throw failure.get();
+            }
 
             assertTrue("Client should observe stateless reset within 5s",
                     resetObserved.await(5, TimeUnit.SECONDS));
