@@ -26,7 +26,7 @@ non-blocking, event-driven I/O.
     - one of very few Java frameworks with HTTP/3 server support
       (only Netty offers comparable capability; JDK 26's JEP 517 is
       client-only)
-    - pure Java (17+) implementation, no native code
+    - pure Java (17+) implementation, no native code unlike Netty
     - servlet container runs transparently on top of HTTP/3
 - high performance
     - Java NIO non-blocking I/O throughout
