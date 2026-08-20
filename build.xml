@@ -21,7 +21,7 @@
 <project name='gumdrop' default='dist'>
 
   <!-- Project version -->
-  <property name='version' value='2.2.0'/>
+  <property name='version' value='2.2.1-SNAPSHOT'/>
 
   <property name='src' location='src'/>
   <property name='lib' location='lib'/>
