@@ -37,6 +37,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.StringTokenizer;
@@ -129,6 +130,7 @@ public class DNSService implements Service {
     private boolean useSystemResolvers = true;
     private boolean cacheEnabled = true;
     private boolean dnssecEnabled;
+    private int maxMQTypes = DNSMultiQType.DEFAULT_MAX_MQTYPES;
     private DNSCache cache;
     private DNSServerMetrics metrics;
 
@@ -269,6 +271,19 @@ public class DNSService implements Service {
      */
     public boolean isDnssecEnabled() {
         return dnssecEnabled;
+    }
+
+    /**
+     * Sets the maximum number of additional RRTYPEs this server will
+     * merge into one response via RFC 10029 (DNS Multiple QTYPEs). A
+     * client's {@code MQTYPE-Query} option requesting more than this
+     * many types is rejected with FORMERR.
+     *
+     * @param maxMQTypes the cap; defaults to
+     *                   {@link DNSMultiQType#DEFAULT_MAX_MQTYPES}
+     */
+    public void setMaxMQTypes(int maxMQTypes) {
+        this.maxMQTypes = maxMQTypes;
     }
 
     /**
@@ -495,7 +510,7 @@ public class DNSService implements Service {
                             L10N.getString("debug.cache_hit"), question);
                     LOGGER.finest(msg);
                 }
-                return query.createResponse(cached);
+                return withMQTypeResponse(query, question, query.createResponse(cached));
             }
             if (metrics != null) { metrics.cacheMiss(); }
         }
@@ -507,7 +522,7 @@ public class DNSService implements Service {
                     && !customResponse.getAnswers().isEmpty()) {
                 cache.cache(question, customResponse.getAnswers());
             }
-            return customResponse;
+            return withMQTypeResponse(query, question, customResponse);
         }
 
         // 3. Proxy to upstream
@@ -523,10 +538,164 @@ public class DNSService implements Service {
                             upstreamResponse.getAnswers());
                 }
             }
-            return upstreamResponse;
+            return withMQTypeResponse(query, question, upstreamResponse);
         }
 
         return query.createErrorResponse(DNSMessage.RCODE_SERVFAIL);
+    }
+
+    /**
+     * RFC 10029 (DNS Multiple QTYPEs): if {@code query} carries an
+     * {@code MQTYPE-Query} EDNS0 option, resolves each additional
+     * RRTYPE (via a recursive {@link #processQuery} call for a
+     * synthetic single-question message -- reusing the same
+     * cache/{@link #resolve}/upstream pipeline that answered the
+     * primary question, including its own caching) and merges whichever
+     * ones are consistent with {@code primaryResponse} and fit the
+     * negotiated UDP payload size into one combined response, echoing
+     * back which types were covered via {@code MQTYPE-Response}.
+     * Anything not covered is simply omitted -- the client is
+     * responsible for falling back to a standalone query for it.
+     *
+     * @param query the original (possibly MQTYPE-Query-bearing) query
+     * @param primaryQuestion {@code query}'s own question
+     * @param primaryResponse the response already computed for
+     *                        {@code primaryQuestion}
+     * @return {@code primaryResponse}, unchanged, merged with covered
+     *         additional types, or a FORMERR response if the
+     *         MQTYPE-Query option itself is invalid
+     */
+    private DNSMessage withMQTypeResponse(DNSMessage query, DNSQuestion primaryQuestion,
+                                          DNSMessage primaryResponse) {
+        byte[] optionData = findMQTypeQueryOption(query);
+        if (optionData == null) {
+            return primaryResponse;
+        }
+        // RFC 10029: don't attempt to merge additional types into a
+        // response that's already truncated.
+        if (primaryResponse.isTruncated()) {
+            return primaryResponse;
+        }
+        List<DNSType> requested;
+        try {
+            requested = DNSMultiQType.parseMQTypeQueryOption(optionData);
+        } catch (DNSFormatException e) {
+            return query.createErrorResponse(DNSMessage.RCODE_FORMERR);
+        }
+        if (requested.isEmpty()
+                || requested.size() > maxMQTypes
+                || requested.contains(DNSType.ANY)
+                || requested.contains(primaryQuestion.getType())
+                || new HashSet<DNSType>(requested).size() != requested.size()) {
+            return query.createErrorResponse(DNSMessage.RCODE_FORMERR);
+        }
+
+        int payloadLimit = udpPayloadSizeOf(query);
+        List<DNSResourceRecord> mergedAnswers = new ArrayList<DNSResourceRecord>(
+                primaryResponse.getAnswers());
+        List<DNSType> covered = new ArrayList<DNSType>();
+        for (DNSType type : requested) {
+            DNSMessage subResponse = resolveAdditionalType(query, primaryQuestion, type);
+            if (subResponse.getRcode() != primaryResponse.getRcode()
+                    || subResponse.isAuthoritative() != primaryResponse.isAuthoritative()
+                    || subResponse.isAuthenticatedData() != primaryResponse.isAuthenticatedData()) {
+                continue;
+            }
+            List<DNSResourceRecord> subAnswers = subResponse.getAnswers();
+            if (subAnswers.isEmpty()) {
+                continue;
+            }
+            List<DNSResourceRecord> candidateAnswers =
+                    new ArrayList<DNSResourceRecord>(mergedAnswers);
+            candidateAnswers.addAll(subAnswers);
+            List<DNSType> candidateCovered = new ArrayList<DNSType>(covered);
+            candidateCovered.add(type);
+            DNSMessage candidate = buildMergedResponse(
+                    query, primaryResponse, candidateAnswers, candidateCovered);
+            if (candidate.serialize().remaining() > payloadLimit) {
+                // Doesn't fit -- leave it uncovered; the client falls
+                // back to a standalone query for just this type.
+                continue;
+            }
+            mergedAnswers = candidateAnswers;
+            covered = candidateCovered;
+        }
+        if (covered.isEmpty()) {
+            return primaryResponse;
+        }
+        return buildMergedResponse(query, primaryResponse, mergedAnswers, covered);
+    }
+
+    private DNSMessage resolveAdditionalType(DNSMessage query, DNSQuestion primaryQuestion,
+                                             DNSType type) {
+        DNSQuestion subQuestion = new DNSQuestion(
+                primaryQuestion.getName(), type, primaryQuestion.getDNSClass());
+        int subId = DNSQueryIdGenerator.allocateSynthetic();
+        List<DNSResourceRecord> emptyList = Collections.emptyList();
+        // No OPT/additionals carried over: the client's MQTYPE-Query
+        // (and any cookie) is scoped to the original multi-type
+        // request, not to this single-type sub-resolution -- forwarding
+        // it upstream unchanged would be meaningless at best. resolve()
+        // and proxyToUpstream() apply their own EDNS/DO handling for a
+        // query that arrives without an OPT record, same as any other
+        // EDNS0-less query.
+        DNSMessage subQuery = new DNSMessage(subId, query.getFlags(),
+                Collections.singletonList(subQuestion),
+                emptyList, emptyList, emptyList);
+        return processQuery(subQuery);
+    }
+
+    private DNSMessage buildMergedResponse(DNSMessage query, DNSMessage primaryResponse,
+                                           List<DNSResourceRecord> answers,
+                                           List<DNSType> covered) {
+        byte[] mqtypeResponseOption = DNSMultiQType.buildMQTypeResponseOption(covered);
+        List<DNSResourceRecord> additionals = mergeOptionIntoAdditionals(
+                primaryResponse.getAdditionals(), mqtypeResponseOption,
+                udpPayloadSizeOf(query));
+        return query.createResponse(answers, primaryResponse.getAuthorities(), additionals);
+    }
+
+    private static int udpPayloadSizeOf(DNSMessage query) {
+        for (DNSResourceRecord rr : query.getAdditionals()) {
+            if (rr.getType() == DNSType.OPT) {
+                return rr.getUdpPayloadSize();
+            }
+        }
+        return MAX_DNS_MESSAGE_SIZE;
+    }
+
+    private static byte[] findMQTypeQueryOption(DNSMessage query) {
+        List<DNSResourceRecord> additionals = query.getAdditionals();
+        for (int i = 0; i < additionals.size(); i++) {
+            DNSResourceRecord rr = additionals.get(i);
+            if (rr.getType() == DNSType.OPT) {
+                return DNSCookie.findEdnsOption(rr.getRData(),
+                        DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY);
+            }
+        }
+        return null;
+    }
+
+    // RFC 6891 section 6.1.2: EDNS0 options are concatenated back to
+    // back within one OPT record's RDATA -- same merge pattern as
+    // mergeCookieIntoAdditionals, generalized to any option's bytes.
+    private static List<DNSResourceRecord> mergeOptionIntoAdditionals(
+            List<DNSResourceRecord> existing, byte[] optionBytes, int udpPayloadSize) {
+        List<DNSResourceRecord> result = new ArrayList<DNSResourceRecord>(existing);
+        for (int i = 0; i < result.size(); i++) {
+            DNSResourceRecord rr = result.get(i);
+            if (rr.getType() == DNSType.OPT) {
+                byte[] rdata = rr.getRData();
+                byte[] merged = new byte[rdata.length + optionBytes.length];
+                System.arraycopy(rdata, 0, merged, 0, rdata.length);
+                System.arraycopy(optionBytes, 0, merged, rdata.length, optionBytes.length);
+                result.set(i, DNSResourceRecord.opt(
+                        rr.getUdpPayloadSize(), rr.getEDNSFlags(), merged));
+                return result;
+            }
+        }
+        result.add(DNSResourceRecord.opt(udpPayloadSize, optionBytes));
+        return result;
     }
 
     /**

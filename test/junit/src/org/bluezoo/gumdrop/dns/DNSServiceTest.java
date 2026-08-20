@@ -30,7 +30,11 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 
@@ -370,6 +374,135 @@ public class DNSServiceTest {
         } finally {
             mockUpstream.close();
         }
+    }
+
+    // -- RFC 10029: MQTYPE-Query / MQTYPE-Response --
+
+    @Test
+    public void testMQTypeMergesAdditionalTypeIntoResponse() throws Exception {
+        Map<DNSType, InetAddress> perType = new HashMap<>();
+        perType.put(DNSType.A, InetAddress.getByName("10.0.0.1"));
+        perType.put(DNSType.AAAA, InetAddress.getByName("::1"));
+        DNSService service = serviceAnsweringPerType(perType);
+
+        DNSMessage query = buildMQTypeQuery(1, "merge.example.com", DNSType.A,
+                Collections.singletonList(DNSType.AAAA));
+        DNSMessage response = service.processQuery(query);
+
+        assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+        assertEquals("Should have merged both A and AAAA answers",
+                2, response.getAnswers().size());
+        boolean hasA = false;
+        boolean hasAAAA = false;
+        for (DNSResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() == DNSType.A) hasA = true;
+            if (rr.getType() == DNSType.AAAA) hasAAAA = true;
+        }
+        assertTrue(hasA);
+        assertTrue(hasAAAA);
+        assertEquals("MQTYPE-Response should list AAAA as covered",
+                Collections.singletonList(DNSType.AAAA), mqtypeResponseCoverage(response));
+    }
+
+    @Test
+    public void testMQTypeFormerrOnEmptyOption() throws Exception {
+        DNSService service = serviceAnsweringPerType(Collections.<DNSType, InetAddress>emptyMap());
+        DNSMessage query = buildMQTypeQuery(2, "empty.example.com", DNSType.A,
+                Collections.<DNSType>emptyList());
+        DNSMessage response = service.processQuery(query);
+        assertEquals(DNSMessage.RCODE_FORMERR, response.getRcode());
+    }
+
+    @Test
+    public void testMQTypeFormerrWhenExceedingCap() throws Exception {
+        DNSService service = serviceAnsweringPerType(Collections.<DNSType, InetAddress>emptyMap());
+        // 5 additional types > DEFAULT_MAX_MQTYPES (4)
+        DNSMessage query = buildMQTypeQuery(3, "toomany.example.com", DNSType.A,
+                Arrays.asList(DNSType.NS, DNSType.CNAME, DNSType.MX, DNSType.TXT, DNSType.AAAA));
+        DNSMessage response = service.processQuery(query);
+        assertEquals(DNSMessage.RCODE_FORMERR, response.getRcode());
+    }
+
+    @Test
+    public void testMQTypeExcludesTypeWithMismatchedRcode() throws Exception {
+        DNSService service = new DNSService() {
+            @Override
+            protected DNSMessage resolve(DNSMessage query) {
+                DNSQuestion q = query.getQuestions().get(0);
+                if (q.getType() == DNSType.A) {
+                    return query.createResponse(Collections.singletonList(
+                            DNSResourceRecord.a(q.getName(), 60,
+                                    inetAddressUnchecked("10.0.0.2"))));
+                }
+                // AAAA resolves to NXDOMAIN -- inconsistent with the
+                // primary A response's NOERROR, so RFC 10029 requires
+                // it be omitted from MQTYPE-Response.
+                return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+            }
+        };
+
+        DNSMessage query = buildMQTypeQuery(4, "mismatch.example.com", DNSType.A,
+                Collections.singletonList(DNSType.AAAA));
+        DNSMessage response = service.processQuery(query);
+
+        assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+        assertEquals("Only the primary A answer should be present",
+                1, response.getAnswers().size());
+        assertEquals(DNSType.A, response.getAnswers().get(0).getType());
+        assertTrue("AAAA should not be listed as covered",
+                mqtypeResponseCoverage(response).isEmpty());
+    }
+
+    private static InetAddress inetAddressUnchecked(String s) {
+        try {
+            return InetAddress.getByName(s);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static DNSService serviceAnsweringPerType(final Map<DNSType, InetAddress> perType) {
+        return new DNSService() {
+            @Override
+            protected DNSMessage resolve(DNSMessage query) {
+                DNSQuestion q = query.getQuestions().get(0);
+                InetAddress addr = perType.get(q.getType());
+                if (addr == null) {
+                    return query.createResponse(Collections.<DNSResourceRecord>emptyList());
+                }
+                DNSResourceRecord rr = (q.getType() == DNSType.AAAA)
+                        ? DNSResourceRecord.aaaa(q.getName(), 60, addr)
+                        : DNSResourceRecord.a(q.getName(), 60, addr);
+                return query.createResponse(Collections.singletonList(rr));
+            }
+        };
+    }
+
+    private static DNSMessage buildMQTypeQuery(int id, String name, DNSType primaryType,
+                                               List<DNSType> additionalTypes) {
+        DNSQuestion question = new DNSQuestion(name, primaryType, DNSClass.IN);
+        byte[] optionData = DNSMultiQType.buildMQTypeQueryOption(additionalTypes);
+        List<DNSResourceRecord> additionals = Collections.singletonList(
+                DNSResourceRecord.opt(DNSMessage.DEFAULT_EDNS_UDP_SIZE, 0, optionData));
+        return new DNSMessage(id, DNSMessage.FLAG_RD,
+                Collections.singletonList(question),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(),
+                additionals);
+    }
+
+    private static List<DNSType> mqtypeResponseCoverage(DNSMessage response)
+            throws DNSFormatException {
+        for (DNSResourceRecord rr : response.getAdditionals()) {
+            if (rr.getType() == DNSType.OPT) {
+                byte[] data = DNSCookie.findEdnsOption(
+                        rr.getRData(), DNSMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
+                if (data != null) {
+                    return DNSMultiQType.parseMQTypeResponseOption(data);
+                }
+            }
+        }
+        return Collections.emptyList();
     }
 
     private static byte[] buildCookieEdnsOption(byte[] cookieData) {

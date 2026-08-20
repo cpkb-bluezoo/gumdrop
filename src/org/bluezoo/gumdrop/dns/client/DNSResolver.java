@@ -29,9 +29,11 @@ import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -45,6 +47,7 @@ import org.bluezoo.gumdrop.dns.DNSClass;
 import org.bluezoo.gumdrop.dns.DNSCookie;
 import org.bluezoo.gumdrop.dns.DNSFormatException;
 import org.bluezoo.gumdrop.dns.DNSMessage;
+import org.bluezoo.gumdrop.dns.DNSMultiQType;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSQuestion;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
@@ -615,14 +618,44 @@ public class DNSResolver {
             }
         }
 
-        // 4. DNS query (async)
+        // 4. DNS query (async): a single batched AAAA+A request (RFC
+        // 10029 where the server supports it; two round trips joined
+        // client-side otherwise -- queryBatch hides the difference).
         if (Boolean.getBoolean("gumdrop.dns.debug")) {
             LOGGER.info(MessageFormat.format(L10N.getString("info.dns_query_fallthrough"), hostname));
         }
-        final DualQueryCollector collector =
-                new DualQueryCollector(callback);
-        queryAAAA(hostname, collector.v6Callback);
-        queryA(hostname, collector.v4Callback);
+        final String finalHostname = hostname;
+        final List<InetAddress> v6Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
+        final List<InetAddress> v4Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
+        final String[] lastError = new String[1];
+        queryBatch(hostname, java.util.Arrays.asList(DNSType.AAAA, DNSType.A),
+                new BatchQueryCallback() {
+                    @Override
+                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                        List<InetAddress> target = (type == DNSType.AAAA) ? v6Addresses : v4Addresses;
+                        for (DNSResourceRecord rr : records) {
+                            target.add(rr.getAddress());
+                        }
+                    }
+
+                    @Override
+                    public void onTypeError(DNSType type, String error) {
+                        lastError[0] = error;
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        List<InetAddress> combined = new ArrayList<>();
+                        combined.addAll(v6Addresses);
+                        combined.addAll(v4Addresses);
+                        if (combined.isEmpty()) {
+                            callback.onError(lastError[0] != null ? lastError[0]
+                                    : "No A or AAAA records found for " + finalHostname);
+                        } else {
+                            callback.onResolved(combined);
+                        }
+                    }
+                });
     }
 
     private void deliverResolved(final List<InetAddress> result,
@@ -647,6 +680,16 @@ public class DNSResolver {
     }
 
     private void query(String name, DNSType type,
+                       final DNSQueryCallback callback, int cnameDepth) {
+        query(name, type, Collections.<DNSType>emptyList(), callback, cnameDepth);
+    }
+
+    // additionalTypes: RFC 10029 extra RRTYPEs to request via MQTYPE-Query
+    // alongside the primary (name, type) question, when non-empty and the
+    // target server isn't known not to support it. Used by queryBatch and
+    // (to keep the option attached across a client-side CNAME chase) by
+    // deliverResponse's CNAME re-query.
+    private void query(String name, DNSType type, List<DNSType> additionalTypes,
                        final DNSQueryCallback callback, int cnameDepth) {
         if (!opened) {
             callback.onError(L10N.getString("err.resolver_not_opened"));
@@ -677,14 +720,30 @@ public class DNSResolver {
         // RFC 7873: include DNS cookie in the OPT record.
         // RFC 4035 section 3.2.1: set DO bit when DNSSEC is enabled.
         List<DNSResourceRecord> additionals = new ArrayList<>();
-        String serverAddr = servers.isEmpty() ? "" :
-                servers.get(0).getAddress().getHostAddress();
+        InetSocketAddress targetServer = servers.isEmpty() ? null : servers.get(0);
+        String serverAddr = targetServer == null ? "" :
+                targetServer.getAddress().getHostAddress();
         byte[] cookieOption = dnsCookie.buildCookieOption(serverAddr);
+        // RFC 10029: attach MQTYPE-Query alongside the cookie option in
+        // the same OPT record's RDATA (RFC 6891 section 6.1.2: multiple
+        // EDNS0 options are simply concatenated), unless this server was
+        // already observed not to honor it.
+        boolean attachMQType = !additionalTypes.isEmpty() && targetServer != null
+                && !DNSMultiQTypeCache.isKnownUnsupported(targetServer);
+        byte[] optionData;
+        if (attachMQType) {
+            byte[] mqtypeOption = DNSMultiQType.buildMQTypeQueryOption(additionalTypes);
+            optionData = new byte[cookieOption.length + mqtypeOption.length];
+            System.arraycopy(cookieOption, 0, optionData, 0, cookieOption.length);
+            System.arraycopy(mqtypeOption, 0, optionData, cookieOption.length, mqtypeOption.length);
+        } else {
+            optionData = cookieOption;
+        }
         int ednsFlags = dnssecEnabled
                 ? DNSResourceRecord.EDNS_FLAG_DO : 0;
         additionals.add(DNSResourceRecord.opt(
                 DNSMessage.DEFAULT_EDNS_UDP_SIZE, ednsFlags,
-                cookieOption));
+                optionData));
         // RFC 1035 section 4.1.1: set RD to request recursive resolution
         int flags = DNSMessage.FLAG_RD;
         DNSMessage queryMsg = new DNSMessage(
@@ -698,7 +757,7 @@ public class DNSResolver {
         ByteBuffer serialized = queryMsg.serialize();
         long expiry = System.currentTimeMillis() + timeoutMs;
         final PendingQuery pending =
-                new PendingQuery(queryId, name, type, callback, expiry,
+                new PendingQuery(queryId, name, type, additionalTypes, callback, expiry,
                         0, serialized, cnameDepth);
         pendingQueries.put(queryId, pending);
         sendToServer(pending);
@@ -894,7 +953,7 @@ public class DNSResolver {
                             "Following CNAME {0} -> {1} (depth {2})",
                             pending.name, cname, pending.cnameDepth + 1));
                 }
-                query(cname, pending.type, pending.callback,
+                query(cname, pending.type, pending.additionalTypes, pending.callback,
                         pending.cnameDepth + 1);
                 return;
             }
@@ -1057,6 +1116,7 @@ public class DNSResolver {
         final int queryId;
         final String name;
         final DNSType type;
+        final List<DNSType> additionalTypes;
         final DNSQueryCallback callback;
         final long expiry;
         final ByteBuffer queryData;
@@ -1065,12 +1125,14 @@ public class DNSResolver {
         TimerHandle timeoutHandle;
 
         PendingQuery(int queryId, String name, DNSType type,
+                     List<DNSType> additionalTypes,
                      DNSQueryCallback callback, long expiry,
                      int serverIndex, ByteBuffer queryData,
                      int cnameDepth) {
             this.queryId = queryId;
             this.name = name;
             this.type = type;
+            this.additionalTypes = additionalTypes;
             this.callback = callback;
             this.expiry = expiry;
             this.serverIndex = serverIndex;
@@ -1079,91 +1141,185 @@ public class DNSResolver {
         }
     }
 
+    // -- Batch queries (RFC 10029) --
+
     /**
-     * Collects results from parallel A and AAAA queries for
-     * {@link #resolve(String, ResolveCallback)}.
+     * Resolves several RRTYPEs for one name, in as few wire exchanges as
+     * possible.
+     *
+     * <p>RFC 10029 (DNS Multiple QTYPEs): the first type in {@code types}
+     * is sent as the primary QTYPE; the rest are requested via an
+     * {@code MQTYPE-Query} EDNS0 option on the same message. A
+     * supporting server merges answers for whichever of those it can
+     * into the single response; anything it doesn't cover -- including
+     * everything, if the server doesn't support the mechanism at all --
+     * is transparently resolved with additional standalone queries. This
+     * is purely a transport-level optimization: every type in {@code
+     * types} is guaranteed a call to {@link BatchQueryCallback#onResult}
+     * or {@link BatchQueryCallback#onTypeError}, followed by exactly one
+     * {@link BatchQueryCallback#onComplete()}, regardless of how many
+     * packets it actually took.
+     *
+     * @param name the domain name to query
+     * @param types the record types to resolve; the first is the
+     *              primary QTYPE
+     * @param callback the callback to receive results
      */
-    private static class DualQueryCollector {
-        final ResolveCallback callback;
-        final DNSQueryCallback v6Callback;
-        final DNSQueryCallback v4Callback;
-        private List<InetAddress> v6Addresses;
-        private List<InetAddress> v4Addresses;
-        private String v6Error;
-        private String v4Error;
-        private boolean v6Done;
-        private boolean v4Done;
-
-        DualQueryCollector(final ResolveCallback callback) {
-            this.callback = callback;
-            this.v6Callback = new DNSQueryCallback() {
-                @Override
-                public void onResponse(DNSMessage response) {
-                    List<InetAddress> addrs = new ArrayList<>();
-                    for (DNSResourceRecord rr : response.getAnswers()) {
-                        if (rr.getType() == DNSType.AAAA) {
-                            addrs.add(rr.getAddress());
-                        }
-                    }
-                    synchronized (DualQueryCollector.this) {
-                        v6Addresses = addrs;
-                        v6Done = true;
-                        checkComplete();
-                    }
-                }
-
-                @Override
-                public void onError(String error) {
-                    synchronized (DualQueryCollector.this) {
-                        v6Error = error;
-                        v6Done = true;
-                        checkComplete();
-                    }
-                }
-            };
-            this.v4Callback = new DNSQueryCallback() {
-                @Override
-                public void onResponse(DNSMessage response) {
-                    List<InetAddress> addrs = new ArrayList<>();
-                    for (DNSResourceRecord rr : response.getAnswers()) {
-                        if (rr.getType() == DNSType.A) {
-                            addrs.add(rr.getAddress());
-                        }
-                    }
-                    synchronized (DualQueryCollector.this) {
-                        v4Addresses = addrs;
-                        v4Done = true;
-                        checkComplete();
-                    }
-                }
-
-                @Override
-                public void onError(String error) {
-                    synchronized (DualQueryCollector.this) {
-                        v4Error = error;
-                        v4Done = true;
-                        checkComplete();
-                    }
-                }
-            };
+    public void queryBatch(String name, List<DNSType> types, BatchQueryCallback callback) {
+        final Set<DNSType> requested = new LinkedHashSet<>(types);
+        if (requested.isEmpty()) {
+            throw new IllegalArgumentException("types must not be empty");
+        }
+        final BatchCollector collector = new BatchCollector(requested, callback);
+        java.util.Iterator<DNSType> it = requested.iterator();
+        final DNSType primaryType = it.next();
+        final List<DNSType> additionalTypes = new ArrayList<>();
+        while (it.hasNext()) {
+            additionalTypes.add(it.next());
         }
 
-        private void checkComplete() {
-            if (!v6Done || !v4Done) {
-                return;
+        final InetSocketAddress targetServer = servers.isEmpty() ? null : servers.get(0);
+        final List<DNSType> optionTypes = (!additionalTypes.isEmpty() && targetServer != null
+                && !DNSMultiQTypeCache.isKnownUnsupported(targetServer))
+                ? additionalTypes : Collections.<DNSType>emptyList();
+
+        query(name, primaryType, optionTypes, new DNSQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response) {
+                collector.deliver(primaryType, recordsOfType(response, primaryType));
+                if (additionalTypes.isEmpty()) {
+                    return;
+                }
+                if (optionTypes.isEmpty()) {
+                    // Didn't attempt the option this round (known
+                    // unsupported, or nothing to attach it to) --
+                    // resolve every additional type independently.
+                    for (DNSType t : additionalTypes) {
+                        queryStandaloneForBatch(name, t, collector);
+                    }
+                    return;
+                }
+                List<DNSType> covered = mqTypeResponseCoverage(response, targetServer);
+                for (DNSType t : additionalTypes) {
+                    if (covered.contains(t)) {
+                        collector.deliver(t, recordsOfType(response, t));
+                    } else {
+                        queryStandaloneForBatch(name, t, collector);
+                    }
+                }
             }
-            List<InetAddress> combined = new ArrayList<>();
-            if (v6Addresses != null) {
-                combined.addAll(v6Addresses);
+
+            @Override
+            public void onError(String error) {
+                // The whole exchange failed (timeout/network error, not
+                // a per-type DNS-level outcome) -- every requested type
+                // fails together.
+                collector.fail(primaryType, error);
+                for (DNSType t : additionalTypes) {
+                    collector.fail(t, error);
+                }
             }
-            if (v4Addresses != null) {
-                combined.addAll(v4Addresses);
+        }, 0);
+    }
+
+    private void queryStandaloneForBatch(String name, final DNSType type,
+                                         final BatchCollector collector) {
+        query(name, type, new DNSQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response) {
+                collector.deliver(type, recordsOfType(response, type));
             }
-            if (combined.isEmpty()) {
-                String error = v4Error != null ? v4Error : v6Error;
-                callback.onError(error);
-            } else {
-                callback.onResolved(combined);
+
+            @Override
+            public void onError(String error) {
+                collector.fail(type, error);
+            }
+        });
+    }
+
+    private static List<DNSResourceRecord> recordsOfType(DNSMessage response, DNSType type) {
+        List<DNSResourceRecord> result = new ArrayList<>();
+        for (DNSResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() == type) {
+                result.add(rr);
+            }
+        }
+        return result;
+    }
+
+    // RFC 10029: returns the additional types the server reported having
+    // merged into `response` via MQTYPE-Response, marking `server` as
+    // not supporting the mechanism (so future queries skip attaching the
+    // option, per DNSMultiQTypeCache) when that option is absent or the
+    // server erroneously echoed MQTYPE-Query back instead.
+    private List<DNSType> mqTypeResponseCoverage(DNSMessage response, InetSocketAddress server) {
+        for (Object obj : response.getAdditionals()) {
+            DNSResourceRecord rr = (DNSResourceRecord) obj;
+            if (rr.getType() != DNSType.OPT) {
+                continue;
+            }
+            byte[] rdata = rr.getRData();
+            byte[] responseData = DNSCookie.findEdnsOption(
+                    rdata, DNSMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
+            if (responseData == null) {
+                if (server != null) {
+                    DNSMultiQTypeCache.markUnsupported(server);
+                }
+                return Collections.emptyList();
+            }
+            try {
+                return DNSMultiQType.parseMQTypeResponseOption(responseData);
+            } catch (DNSFormatException e) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, "Malformed MQTYPE-Response option", e);
+                }
+                return Collections.emptyList();
+            }
+        }
+        // No OPT record at all in the response: server doesn't even echo
+        // EDNS0, so it certainly doesn't support RFC 10029.
+        if (server != null) {
+            DNSMultiQTypeCache.markUnsupported(server);
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Joins per-type results from {@link #queryBatch} into the batch's
+     * {@link BatchQueryCallback#onComplete()} signal, once every
+     * requested type has reported a result or an error.
+     */
+    private static final class BatchCollector {
+        private final BatchQueryCallback callback;
+        private final Set<DNSType> outstanding;
+
+        BatchCollector(Set<DNSType> requested, BatchQueryCallback callback) {
+            this.callback = callback;
+            this.outstanding = Collections.synchronizedSet(new java.util.HashSet<>(requested));
+        }
+
+        void deliver(DNSType type, List<DNSResourceRecord> records) {
+            callback.onResult(type, records);
+            settle(type);
+        }
+
+        void fail(DNSType type, String error) {
+            callback.onTypeError(type, error);
+            settle(type);
+        }
+
+        private void settle(DNSType type) {
+            boolean done;
+            synchronized (outstanding) {
+                // A type can settle twice if it's both the primary type
+                // and (defensively) requested again as an "additional"
+                // type -- queryBatch already dedupes via LinkedHashSet,
+                // but remove() is idempotent either way.
+                outstanding.remove(type);
+                done = outstanding.isEmpty();
+            }
+            if (done) {
+                callback.onComplete();
             }
         }
     }
