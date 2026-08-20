@@ -17,6 +17,8 @@ import static org.junit.Assert.*;
 public class DefaultServletSecurityTest {
 
     private static final class TestableDefaultServlet extends DefaultServlet {
+        private static final long serialVersionUID = 1L;
+
         boolean isProtected(String path) {
             return isWebInf(path);
         }

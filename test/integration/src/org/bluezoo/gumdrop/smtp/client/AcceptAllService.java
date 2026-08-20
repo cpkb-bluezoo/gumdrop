@@ -65,8 +65,8 @@ public class AcceptAllService extends SMTPService {
             Logger.getLogger(AcceptAllService.class.getName());
 
     /** Queue of received messages for test verification */
-    private final ConcurrentLinkedQueue receivedMessages =
-            new ConcurrentLinkedQueue();
+    private final ConcurrentLinkedQueue<ReceivedMessage> receivedMessages =
+            new ConcurrentLinkedQueue<ReceivedMessage>();
 
     /** Counter for generating unique queue IDs */
     private final AtomicInteger queueIdCounter = new AtomicInteger(1);
@@ -83,8 +83,8 @@ public class AcceptAllService extends SMTPService {
     /**
      * Returns all received messages.
      */
-    public List getReceivedMessages() {
-        return new ArrayList(receivedMessages);
+    public List<ReceivedMessage> getReceivedMessages() {
+        return new ArrayList<ReceivedMessage>(receivedMessages);
     }
 
     /**
@@ -114,18 +114,18 @@ public class AcceptAllService extends SMTPService {
      */
     public static class ReceivedMessage {
         private final EmailAddress sender;
-        private final List recipients;
+        private final List<EmailAddress> recipients;
         private final byte[] content;
         private final String queueId;
         private final boolean tlsActive;
         private final String authenticatedUser;
 
-        ReceivedMessage(EmailAddress sender, List recipients,
+        ReceivedMessage(EmailAddress sender, List<EmailAddress> recipients,
                         byte[] content, String queueId,
                         boolean tlsActive, String authenticatedUser) {
             this.sender = sender;
             this.recipients = Collections.unmodifiableList(
-                    new ArrayList(recipients));
+                    new ArrayList<EmailAddress>(recipients));
             this.content = content;
             this.queueId = queueId;
             this.tlsActive = tlsActive;
@@ -133,7 +133,7 @@ public class AcceptAllService extends SMTPService {
         }
 
         public EmailAddress getSender() { return sender; }
-        public List getRecipients() { return recipients; }
+        public List<EmailAddress> getRecipients() { return recipients; }
         public byte[] getContent() { return content; }
         public String getContentAsString() { return new String(content); }
         public String getQueueId() { return queueId; }
@@ -152,7 +152,7 @@ public class AcceptAllService extends SMTPService {
 
         // Current envelope
         private EmailAddress currentSender;
-        private List currentRecipients = new ArrayList();
+        private List<EmailAddress> currentRecipients = new ArrayList<EmailAddress>();
         private ByteArrayOutputStream currentMessageData =
                 new ByteArrayOutputStream();
 
@@ -306,7 +306,7 @@ public class AcceptAllService extends SMTPService {
 
             // Clear envelope for next message
             currentSender = null;
-            currentRecipients = new ArrayList();
+            currentRecipients = new ArrayList<EmailAddress>();
             currentMessageData.reset();
 
             state.acceptMessageDelivery(queueId, this);

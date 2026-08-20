@@ -63,7 +63,7 @@ public class SMTPClientLexerTest {
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
             if (type == SMTPClientLexer.Token.CRLF) {
-                ((SMTPClientLexer) lexerRef).resetForNextLine();
+                lexerRef.resetForNextLine();
             }
             return type == SMTPClientLexer.Token.DASH || type == SMTPClientLexer.Token.SP;
         }

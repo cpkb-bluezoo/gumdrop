@@ -12,6 +12,10 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link StreamPriorityTree}.
  */
+// StreamPriorityTree itself is @Deprecated (RFC 9113 section 5.3 dropped
+// stream priority signaling) but kept for legacy callers; this whole class
+// exercises that deprecated API on purpose, so every usage below warns.
+@SuppressWarnings("deprecation")
 public class StreamPriorityTreeTest {
 
     private StreamPriorityTree tree;

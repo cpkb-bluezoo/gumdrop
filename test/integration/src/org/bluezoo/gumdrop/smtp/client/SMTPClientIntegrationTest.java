@@ -267,7 +267,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         // Wait for server-side message processing and verify
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have received 1 message (lastStep: " + lastStep.get() + ")", 1, messages.size());
         
         // Queue ID is optional - some servers don't provide it
@@ -276,11 +276,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             log("Message queued with ID: " + queueId.get());
         }
 
-        AcceptAllService.ReceivedMessage received = (AcceptAllService.ReceivedMessage) messages.get(0);
+        AcceptAllService.ReceivedMessage received = messages.get(0);
         assertEquals("Sender should match", "sender@example.com", received.getSender().getAddress());
         assertEquals("Should have 1 recipient", 1, received.getRecipients().size());
         assertEquals("Recipient should match", "recipient@example.com",
-                     ((EmailAddress) received.getRecipients().get(0)).getAddress());
+                     received.getRecipients().get(0).getAddress());
         assertTrue("Content should contain body", 
                    received.getContentAsString().contains("Test body content."));
     }
@@ -353,10 +353,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertEquals("Should have 3 recipients", 3,
-                ((AcceptAllService.ReceivedMessage) messages.get(0)).getRecipients().size());
+                messages.get(0).getRecipients().size());
     }
 
     @Test
@@ -443,11 +443,11 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("RSET should succeed", rsetSucceeded.get());
 
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message (first was reset)", 1, messages.size());
         assertEquals("Sender should be from second transaction", 
                      "new-sender@example.com",
-                     ((AcceptAllService.ReceivedMessage) messages.get(0)).getSender().getAddress());
+                     messages.get(0).getSender().getAddress());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -520,10 +520,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("Connection should be TLS", tlsConfirmed.get());
 
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertTrue("Server should see TLS active",
-                ((AcceptAllService.ReceivedMessage) messages.get(0)).isTlsActive());
+                messages.get(0).isTlsActive());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -624,10 +624,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("STARTTLS should succeed", starttlsSucceeded.get());
 
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertTrue("Server should see TLS active after STARTTLS",
-                ((AcceptAllService.ReceivedMessage) messages.get(0)).isTlsActive());
+                messages.get(0).isTlsActive());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -703,13 +703,13 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertEquals("Should have sent 3 messages", Integer.valueOf(3), messagesSent.get());
 
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 3 messages", 3, messages.size());
         
         for (int i = 0; i < 3; i++) {
             assertEquals("Sender " + (i+1) + " should match", 
                         "sender" + (i+1) + "@example.com", 
-                        ((AcceptAllService.ReceivedMessage) messages.get(i)).getSender().getAddress());
+                        messages.get(i).getSender().getAddress());
         }
     }
 
@@ -769,10 +769,10 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         pause(200);
-        List messages = service.getReceivedMessages();
+        List<AcceptAllService.ReceivedMessage> messages = service.getReceivedMessages();
         assertEquals("Should have 1 message", 1, messages.size());
         assertNull("Sender should be null for bounce",
-                ((AcceptAllService.ReceivedMessage) messages.get(0)).getSender());
+                messages.get(0).getSender());
     }
 
     // ─────────────────────────────────────────────────────────────────────────

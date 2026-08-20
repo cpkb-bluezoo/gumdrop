@@ -132,6 +132,7 @@ public class BasicRealmTest {
     }
 
     @Test
+    @SuppressWarnings("deprecation") // testing the deprecated getPassword() contract itself
     public void testGetPassword() {
         assertEquals("secret123", realm.getPassword("alice"));
         assertNull(realm.getPassword("unknown"));

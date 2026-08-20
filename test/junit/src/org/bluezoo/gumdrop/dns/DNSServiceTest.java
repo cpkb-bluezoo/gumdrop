@@ -46,6 +46,7 @@ import static org.junit.Assert.*;
 public class DNSServiceTest {
 
     @Before
+    @SuppressWarnings("try") // the resource is never used in the body on purpose -- only its successful construction/close matters here
     public void assumeNetworkBinding() {
         try {
             try (DatagramSocket s = new DatagramSocket(0, InetAddress.getByName("127.0.0.1"))) {

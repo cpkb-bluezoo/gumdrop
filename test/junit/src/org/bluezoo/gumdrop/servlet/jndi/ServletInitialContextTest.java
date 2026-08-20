@@ -160,11 +160,12 @@ public class ServletInitialContextTest {
 
     @Test
     public void testGetEnvironment() throws NamingException {
-        Hashtable env = ctx.getEnvironment();
+        Hashtable<?, ?> env = ctx.getEnvironment();
         assertEquals("test.value", env.get("test.key"));
     }
 
     @Test
+    @SuppressWarnings({"rawtypes", "unchecked"}) // mutating the returned Hashtable.<?, ?> to prove it's a defensive clone needs a raw put()
     public void testGetEnvironmentIsClone() throws NamingException {
         Hashtable env = ctx.getEnvironment();
         env.put("new.key", "new.value");

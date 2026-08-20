@@ -30,7 +30,7 @@
 
     <groupId>org.bluezoo</groupId>
     <artifactId>gumdrop-container</artifactId>
-    <version>2.1.2-SNAPSHOT</version>
+    <version>2.2.0</version>
     <packaging>jar</packaging>
 
     <name>Gumdrop Container</name>

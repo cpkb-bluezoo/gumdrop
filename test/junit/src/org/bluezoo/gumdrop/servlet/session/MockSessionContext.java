@@ -204,14 +204,14 @@ class MockSessionContext implements SessionContext {
     }
 
     @Override
-    @SuppressWarnings({"deprecation", "rawtypes"})
-    public Enumeration getServlets() {
+    @SuppressWarnings("deprecation")
+    public Enumeration<Servlet> getServlets() {
         return Collections.emptyEnumeration();
     }
 
     @Override
-    @SuppressWarnings({"deprecation", "rawtypes"})
-    public Enumeration getServletNames() {
+    @SuppressWarnings("deprecation")
+    public Enumeration<String> getServletNames() {
         return Collections.emptyEnumeration();
     }
 
@@ -244,8 +244,7 @@ class MockSessionContext implements SessionContext {
     }
 
     @Override
-    @SuppressWarnings("rawtypes")
-    public Enumeration getInitParameterNames() {
+    public Enumeration<String> getInitParameterNames() {
         return Collections.emptyEnumeration();
     }
 
@@ -260,8 +259,7 @@ class MockSessionContext implements SessionContext {
     }
 
     @Override
-    @SuppressWarnings("rawtypes")
-    public Enumeration getAttributeNames() {
+    public Enumeration<String> getAttributeNames() {
         return Collections.enumeration(attributes.keySet());
     }
 

@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-20
+
 ### Added
 
 - **Pure-Java QUIC/HTTP/3 transport** replacing the quiche/BoringSSL JNI
@@ -14,6 +16,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   full QPACK dynamic-table support, HTTP/3 client and server, DoQ client,
   0-RTT, Retry packets, passive connection migration, WebSocket-over-HTTP/3
   (RFC 9220), and automatic h3/h2/h1.x transport negotiation.
+- **Multicast DNS (RFC 6762) and DNS-SD (RFC 6763)**: new
+  `org.bluezoo.gumdrop.mdns` package. `MDNSService`/`MDNSListener`
+  implement the full RFC 6762 peer lifecycle for a `.local` hostname —
+  probing with conflict detection and automatic rename, announcing,
+  answering queries (with known-answer suppression and QU-bit unicast
+  replies), and a goodbye packet on shutdown — plus an `MDNSCache` for
+  querying other hosts' records, with RFC 6762 §5.2 active refresh and
+  §10.2 cache-flush semantics. `DNSSDAdvertiser` auto-advertises
+  gumdrop's own configured services (HTTP, IMAP, POP3, FTP, SMTP, DNS)
+  as browsable DNS-SD records. `DNSQuestion`/`DNSResourceRecord` in the
+  `dns` package gained the QU and cache-flush wire-format bits mDNS
+  needs, plus a multi-string TXT record factory for DNS-SD attribute
+  pairs, and gained HTTPS/SVCB (RFC 9460) record factory methods.
+- **RFC 10029 batched DNS queries** (`DNSResolver.queryBatch()`/
+  `BatchQueryCallback`): requests extra RRTYPEs for the same name via
+  an MQTYPE-Query EDNS0 option, merging what a supporting server
+  returns into one round trip instead of several — used internally to
+  fetch A/AAAA and HTTPS records together for HTTP/3 connection setup.
+  Falls back automatically per-server via a capability cache for
+  servers that don't support the option. `DNSService` gained matching
+  server-side support.
 - **ResolvConf** pure-Java parser for system DNS nameserver discovery
   (replacing native `getSystemNameservers()` on POSIX; Windows still
   falls back to public resolvers).
@@ -25,6 +48,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   removed; QUIC/HTTP/3 no longer requires compiling quiche.
 - DNS stub resolver startup now warms `/etc/resolv.conf` off the
   selector loop alongside `/etc/hosts`.
+
+### Fixed
+
+- **QUIC path validation only tracked one migration candidate at a
+  time**: a second candidate address sending valid traffic while the
+  first was still being validated silently evicted it, dropping its
+  eventual `PATH_RESPONSE`. Concurrent candidates (capped at 3, per
+  RFC 9000 §9.3's amplification concern) are now tracked independently.
+- **QUIC connection migration could flip-flop back to an address just
+  migrated away from**: a still-live old-path client naturally
+  responding to a `PATH_CHALLENGE` looked like a new migration
+  candidate. A short, bounded cooldown on recently-migrated-from
+  addresses fixes it without a permanent blacklist.
+- **QUIC `PATH_CHALLENGE` was never retransmitted** (RFC 9000 §8.2.4):
+  sent exactly once outside the normal tracked-send machinery, so a
+  single dropped datagram left path validation stuck forever. Now
+  retries on an independent timer (roughly every PTO) and abandons
+  after `max(3×PTO, 6×kInitialRtt)`, per the RFC's specified failure
+  mode.
+- **DoQ query responses were silently dropped and always timed out**:
+  `DNSResolver`'s response correlation matched against the resolver's
+  original query ID, but RFC 9250 mandates ID 0 on the wire for DoQ.
+  Fixed within `DoQClientTransport`, transparent to callers.
 
 ### Removed
 

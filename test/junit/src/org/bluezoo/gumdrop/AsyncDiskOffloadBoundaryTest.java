@@ -592,6 +592,7 @@ public class AsyncDiskOffloadBoundaryTest {
         }
 
         @Override
+        @SuppressWarnings("deprecation") // mandated override of Realm's deprecated interface method
         public String getPassword(String username) {
             return user.equals(username) ? pass : null;
         }
