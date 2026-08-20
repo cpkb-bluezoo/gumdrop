@@ -146,6 +146,13 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     private static final byte[] EMPTY_TOKEN = new byte[0];
 
+    // RFC 9000 section 18.2's default, used unconditionally here since
+    // this endpoint never sends a non-default ack_delay_exponent
+    // transport parameter -- both the encoding of this endpoint's own
+    // outgoing ACK Delay field and the peer's interpretation of it rely
+    // on this same default applying on both sides.
+    private static final int DEFAULT_ACK_DELAY_EXPONENT = 3;
+
     private final QuicEngine engine;
     private final boolean isServer;
     private final InetSocketAddress localAddress;
@@ -224,6 +231,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
             EncryptionLevel.class);
     private final long[] sendPacketNumber = new long[EncryptionLevel.values().length];
     private final long[] largestReceived = { -1, -1, -1 };
+    // Wall-clock time this endpoint actually received the packet numbered
+    // largestReceived[level], updated only when a new largest arrives --
+    // RFC 9000 section 13.2.5's ACK Delay field measures elapsed time
+    // since *that* receipt, not since some other packet in the range.
+    private final long[] largestReceivedTime = { -1, -1, -1 };
     private final boolean[] ackOwed = new boolean[EncryptionLevel.values().length];
     // Packet numbers received (ack-eliciting) but not yet *confirmed
     // received by the peer* -- RFC 9000 section 13.2.1 requires an ACK
@@ -1014,7 +1026,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             byte[] ciphertext = java.util.Arrays.copyOfRange(packet, headerLength, packet.length);
             byte[] plaintext = PacketProtection.open(keys, fullPacketNumber, aad, ciphertext);
 
-            largestReceived[level.ordinal()] = Math.max(largestReceived[level.ordinal()], fullPacketNumber);
+            if (fullPacketNumber > largestReceived[level.ordinal()]) {
+                largestReceived[level.ordinal()] = fullPacketNumber;
+                largestReceivedTime[level.ordinal()] = System.currentTimeMillis();
+            }
             if (level == EncryptionLevel.HANDSHAKE) {
                 // RFC 9000 section 8.1: a successfully decrypted Handshake
                 // packet proves the peer holds the Handshake keys, which
@@ -1362,11 +1377,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
     }
 
-    // RFC 9000 section 18.2's default: max_ack_delay/ack_delay_exponent
-    // aren't implemented as transport parameters yet (TransportParameters
-    // doesn't carry them), so the default always applies.
-    private static long peerMaxAckDelay() {
-        return 25;
+    // The peer's declared max_ack_delay (RFC 9000 section 18.2), or the
+    // RFC's own default if the peer's transport parameters haven't
+    // arrived yet (e.g. while still building Initial-level packets).
+    private long peerMaxAckDelay() {
+        return peerTransportParameters == null
+                ? TransportParameters.DEFAULT_MAX_ACK_DELAY : peerTransportParameters.getMaxAckDelay();
     }
 
     // RFC 9000 section 13.2.4: once one of this endpoint's own sent
@@ -1957,6 +1973,23 @@ public final class QuicConnection implements QuicTlsEngineListener {
         return ranges.toArray(new long[0][]);
     }
 
+    // RFC 9000 section 13.2.5/19.3: the ACK Delay field is the time
+    // elapsed, in this endpoint's own ack_delay_exponent units, between
+    // receiving the largest packet number this ACK acknowledges and
+    // sending the ACK itself -- used by the peer to discount that delay
+    // out of its own RTT samples. largestReceivedTime is only ever
+    // updated for a genuinely new largest received packet number (see
+    // processPacket), matching what "receiving the largest acknowledged
+    // packet" means here.
+    private long computeAckDelay(EncryptionLevel level) {
+        long receivedAt = largestReceivedTime[level.ordinal()];
+        if (receivedAt < 0) {
+            return 0;
+        }
+        long elapsedMicros = Math.max(0, System.currentTimeMillis() - receivedAt) * 1000;
+        return elapsedMicros >>> DEFAULT_ACK_DELAY_EXPONENT;
+    }
+
     private byte[] buildProtectedPacket(EncryptionLevel level, int minDatagramSize) throws PacketProtectionException {
         boolean oneRtt = level == EncryptionLevel.ONE_RTT;
         List<PendingChunk> cryptoChunks = pendingCrypto.get(level);
@@ -1966,6 +1999,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         long[][] ackRangesForLevel = ackOwed[level.ordinal()] ? computeAckRanges(level) : null;
         boolean includeAck = ackRangesForLevel != null;
+        long ackDelay = includeAck ? computeAckDelay(level) : 0;
         boolean includeHandshakeDone = oneRtt && handshakeDoneOwed;
         boolean includePing = pendingPing[level.ordinal()];
         List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : java.util.Collections.<long[]>emptyList();
@@ -2001,7 +2035,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         long[][] ackRanges = ackRangesForLevel;
         if (includeAck) {
-            frameBytes += QuicFrameWriter.ackLength(ackRanges, 0);
+            frameBytes += QuicFrameWriter.ackLength(ackRanges, ackDelay);
         }
         if (includeHandshakeDone) {
             frameBytes += QuicFrameWriter.handshakeDoneLength();
@@ -2096,7 +2130,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         if (includeAck) {
-            QuicFrameWriter.writeAck(payload, ackRanges, 0);
+            QuicFrameWriter.writeAck(payload, ackRanges, ackDelay);
             ackOwed[level.ordinal()] = false;
             // Deliberately not clearing receivedUnacked here -- this ACK
             // frame has only been written into a buffer, not confirmed
@@ -2183,7 +2217,15 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
                 || retiresToSend.length > 0 || includeMaxData || !maxStreamDataToSend.isEmpty()
                 || includeDataBlocked || !streamDataBlockedToSend.isEmpty();
-        lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, true, packet.length);
+        // RFC 9002 section 2: a packet is in flight when it's
+        // ack-eliciting or carries a PADDING frame -- an ACK-only packet
+        // (no ack-eliciting frame, no padding, e.g. a bare
+        // buildProtectedPacket(HANDSHAKE, ...) call with nothing but an
+        // ACK owed) is neither, and must not inflate bytes-in-flight or
+        // be treated as congestion-window-relevant if it's ever declared
+        // lost.
+        boolean inFlight = ackEliciting || paddingBytes > 0;
+        lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, inFlight, packet.length);
         return packet;
     }
 

@@ -101,6 +101,26 @@ public class TransportParametersTest {
     }
 
     @Test
+    public void testMaxAckDelayDefaultsToRfcValueWhenNeverSet() {
+        TransportParameters params = new TransportParameters();
+        byte[] encoded = params.encode();
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(encoded));
+
+        assertEquals(TransportParameters.DEFAULT_MAX_ACK_DELAY, decoded.getMaxAckDelay());
+    }
+
+    @Test
+    public void testMaxAckDelayRoundTripsWithNonDefaultValue() {
+        TransportParameters params = new TransportParameters();
+        params.setMaxAckDelay(63);
+
+        byte[] encoded = params.encode();
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(encoded));
+
+        assertEquals(63, decoded.getMaxAckDelay());
+    }
+
+    @Test
     public void testUnknownParameterIsIgnored() {
         // A well-formed but unrecognised parameter (id 0x20) followed by
         // a recognised one (initial_max_data) must not disrupt decoding.

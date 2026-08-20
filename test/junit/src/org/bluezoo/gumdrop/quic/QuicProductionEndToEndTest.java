@@ -64,7 +64,9 @@ import org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys;
 import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.quic.recovery.CongestionController;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
+import org.bluezoo.gumdrop.quic.recovery.SentPacket;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -928,6 +930,233 @@ public class QuicProductionEndToEndTest {
                 serverEngine.close();
             }
         }
+    }
+
+    /**
+     * RFC 9002 section 2: a packet is "in flight" only when it is
+     * ack-eliciting or contains a PADDING frame. Before this fix,
+     * {@code buildProtectedPacket} passed {@code inFlight = true} to
+     * {@code LossDetector.onPacketSent} unconditionally, so a bare
+     * ACK-only packet (nothing else owed -- no CRYPTO/STREAM/HANDSHAKE_DONE/
+     * etc.) still inflated bytes-in-flight and would have counted toward
+     * a spurious congestion-window reduction had it ever been (wrongly)
+     * declared lost.
+     */
+    @Test
+    public void testAckOnlyPacketIsNotCountedInFlight() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch serverConnected = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverConnectionRef.set(connection);
+                            serverConnected.countDown();
+                        }
+                    }, loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have accepted the connection within 5s",
+                    serverConnected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection serverConnection = serverConnectionRef.get();
+
+            long deadline = System.currentTimeMillis() + 5000;
+            while (getOneRttSendKeys(serverConnection) == null && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertNotNull("Server should have 1-RTT send keys", getOneRttSendKeys(serverConnection));
+
+            LossDetector lossDetector = getPrivateField(serverConnection, "lossDetector", LossDetector.class);
+            CongestionController congestionController = lossDetector.getCongestionController();
+            long bytesInFlightBefore = congestionController.getBytesInFlight();
+
+            long peerPacketNumber = 4242L;
+            seedReceivedUnacked(serverConnection, peerPacketNumber);
+            long ackOnlyPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+            serverConnection.flush();
+
+            SentPacket sent = findSentPacket(lossDetector, EncryptionLevel.ONE_RTT, ackOnlyPacketNumber);
+            assertNotNull("The ACK-only packet must still be tracked by the loss detector", sent);
+            assertFalse("An ACK-only packet carries no ack-eliciting frame", sent.isAckEliciting());
+            assertFalse("An ACK-only packet must not count as in flight (RFC 9002 section 2)",
+                    sent.isInFlight());
+            assertEquals("Bytes in flight must be unchanged by an ACK-only packet",
+                    bytesInFlightBefore, congestionController.getBytesInFlight());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9000 section 13.2.5/19.3 (ACK Delay) and section 18.2
+     * (max_ack_delay): before this fix, the outgoing ACK Delay field was
+     * always written as {@code 0} regardless of how long this endpoint
+     * actually sat on the acknowledgment, and {@code peerMaxAckDelay()}
+     * ignored whatever the peer's transport parameters actually
+     * declared, always returning a hardcoded {@code 25}.
+     */
+    @Test
+    public void testOutgoingAckDelayAndPeerMaxAckDelayReflectRealState() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch serverConnected = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverConnectionRef.set(connection);
+                            serverConnected.countDown();
+                        }
+                    }, loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have accepted the connection within 5s",
+                    serverConnected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection serverConnection = serverConnectionRef.get();
+
+            long deadline = System.currentTimeMillis() + 5000;
+            while (getOneRttSendKeys(serverConnection) == null && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+            assertNotNull("Server should have 1-RTT send keys", getOneRttSendKeys(serverConnection));
+
+            // --- computeAckDelay must reflect real elapsed receipt time ---
+            Method computeAckDelay = QuicConnection.class.getDeclaredMethod(
+                    "computeAckDelay", EncryptionLevel.class);
+            computeAckDelay.setAccessible(true);
+
+            long[] largestReceivedTime = getPrivateField(serverConnection, "largestReceivedTime", long[].class);
+            long originalTime = largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()];
+
+            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = -1;
+            long delayWhenNeverReceived =
+                    (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
+            assertEquals("No delay should be reported before any packet has been received at this level",
+                    0, delayWhenNeverReceived);
+
+            long simulatedElapsedMillis = 200;
+            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] =
+                    System.currentTimeMillis() - simulatedElapsedMillis;
+            long delay = (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
+            assertTrue("A real elapsed receipt-to-send gap must produce a nonzero ACK Delay, "
+                    + "not the old hardcoded zero (was " + delay + ")", delay > 0);
+            // RFC 9000 section 18.2's default ack_delay_exponent is 3:
+            // the field value is (elapsed microseconds >> 3). A generous
+            // tolerance band absorbs test-scheduling jitter -- the point
+            // of this assertion is "clearly tracks real elapsed time",
+            // not exact timing.
+            long expectedApprox = (simulatedElapsedMillis * 1000) >>> 3;
+            assertTrue("ACK Delay should be roughly consistent with the simulated elapsed time "
+                    + "(expected around " + expectedApprox + ", was " + delay + ")",
+                    delay >= expectedApprox / 4 && delay <= expectedApprox * 8);
+
+            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = originalTime;
+
+            // --- peerMaxAckDelay must read the peer's real transport
+            // parameter, not a hardcoded 25 ---
+            Method peerMaxAckDelay = QuicConnection.class.getDeclaredMethod("peerMaxAckDelay");
+            peerMaxAckDelay.setAccessible(true);
+
+            TransportParameters original =
+                    getPrivateField(serverConnection, "peerTransportParameters", TransportParameters.class);
+            assertNotNull("A real handshake should have populated peer transport parameters", original);
+
+            setPrivateField(serverConnection, "peerTransportParameters", null);
+            long defaultDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
+            assertEquals("With no peer transport parameters yet, the RFC default must apply",
+                    TransportParameters.DEFAULT_MAX_ACK_DELAY, defaultDelay);
+
+            TransportParameters custom = new TransportParameters();
+            custom.setMaxAckDelay(777);
+            setPrivateField(serverConnection, "peerTransportParameters", custom);
+            long customDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
+            assertEquals("The peer's actual declared max_ack_delay must be used, not a hardcoded value",
+                    777, customDelay);
+
+            setPrivateField(serverConnection, "peerTransportParameters", original);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static SentPacket findSentPacket(LossDetector lossDetector, EncryptionLevel level, long packetNumber)
+            throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, List<SentPacket>> sentPackets =
+                getPrivateField(lossDetector, "sentPackets", Map.class);
+        for (SentPacket packet : sentPackets.get(level)) {
+            if (packet.getPacketNumber() == packetNumber) {
+                return packet;
+            }
+        }
+        return null;
     }
 
     private static Object getOneRttSendKeys(QuicConnection connection) throws Exception {

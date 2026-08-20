@@ -33,13 +33,14 @@ import java.nio.ByteBuffer;
  * <p>Only the parameters needed for basic connection setup, flow
  * control, and Retry are implemented: connection ID validation
  * ({@code original_destination_connection_id}, {@code initial_source_connection_id},
- * {@code retry_source_connection_id}), idle timeout, and the six
- * {@code initial_max_*} flow control limits. {@code ack_delay_exponent}
- * and {@code max_ack_delay} are not sent -- their RFC-specified defaults
- * (3 and 25ms) apply when absent, which is fine until real loss-recovery
- * timing needs tuning. {@code stateless_reset_token} is sent by servers
- * so peers can recognise a stateless reset for the handshake connection
- * ID (RFC 9000 section 10.3). {@code preferred_address} and
+ * {@code retry_source_connection_id}), idle timeout, the six
+ * {@code initial_max_*} flow control limits, and {@code max_ack_delay}
+ * (defaults to the RFC-specified 25ms when absent, matching an
+ * unsent value). {@code ack_delay_exponent} is not sent -- its
+ * RFC-specified default (3) applies always, since this endpoint never
+ * declares a non-default one. {@code stateless_reset_token} is sent by
+ * servers so peers can recognise a stateless reset for the handshake
+ * connection ID (RFC 9000 section 10.3). {@code preferred_address} and
  * {@code active_connection_id_limit} are not implemented yet. Unknown
  * parameters received from a peer are ignored, per RFC 9000
  * section 18.1.
@@ -61,6 +62,7 @@ public final class TransportParameters {
     public static final long INITIAL_MAX_STREAM_DATA_UNI = 0x07;
     public static final long INITIAL_MAX_STREAMS_BIDI = 0x08;
     public static final long INITIAL_MAX_STREAMS_UNI = 0x09;
+    public static final long MAX_ACK_DELAY = 0x0b;
     /** The sender's own connection ID from its first Initial packet (RFC 9000 section 7.3). */
     public static final long INITIAL_SOURCE_CONNECTION_ID = 0x0f;
     /** Server-only: the Source Connection ID from a Retry packet this handshake used (RFC 9000 section 7.3). */
@@ -68,10 +70,13 @@ public final class TransportParameters {
 
     /** RFC 9000 section 18.2: default when max_udp_payload_size is absent. */
     public static final long DEFAULT_MAX_UDP_PAYLOAD_SIZE = 65527;
+    /** RFC 9000 section 18.2: default when max_ack_delay is absent. */
+    public static final long DEFAULT_MAX_ACK_DELAY = 25;
 
     private byte[] originalDestinationConnectionId;
     private long maxIdleTimeout;
     private long maxUdpPayloadSize = DEFAULT_MAX_UDP_PAYLOAD_SIZE;
+    private long maxAckDelay = DEFAULT_MAX_ACK_DELAY;
     private long initialMaxData;
     private long initialMaxStreamDataBidiLocal;
     private long initialMaxStreamDataBidiRemote;
@@ -104,6 +109,23 @@ public final class TransportParameters {
 
     public void setMaxUdpPayloadSize(long maxUdpPayloadSize) {
         this.maxUdpPayloadSize = maxUdpPayloadSize;
+    }
+
+    /**
+     * Returns this endpoint's {@code max_ack_delay} (RFC 9000 section
+     * 18.2): the maximum amount of time, in milliseconds, by which it
+     * intends to delay sending acknowledgments. Defaults to
+     * {@link #DEFAULT_MAX_ACK_DELAY} when never set, matching the RFC's
+     * own default for when the parameter is absent.
+     *
+     * @return the max ack delay, in milliseconds
+     */
+    public long getMaxAckDelay() {
+        return maxAckDelay;
+    }
+
+    public void setMaxAckDelay(long maxAckDelay) {
+        this.maxAckDelay = maxAckDelay;
     }
 
     public long getInitialMaxData() {
@@ -207,6 +229,7 @@ public final class TransportParameters {
         size += entryLength(INITIAL_MAX_STREAM_DATA_UNI, varIntValueLength(initialMaxStreamDataUni));
         size += entryLength(INITIAL_MAX_STREAMS_BIDI, varIntValueLength(initialMaxStreamsBidi));
         size += entryLength(INITIAL_MAX_STREAMS_UNI, varIntValueLength(initialMaxStreamsUni));
+        size += entryLength(MAX_ACK_DELAY, varIntValueLength(maxAckDelay));
         if (initialSourceConnectionId != null) {
             size += entryLength(INITIAL_SOURCE_CONNECTION_ID, initialSourceConnectionId.length);
         }
@@ -229,6 +252,7 @@ public final class TransportParameters {
         writeVarIntParam(buf, INITIAL_MAX_STREAM_DATA_UNI, initialMaxStreamDataUni);
         writeVarIntParam(buf, INITIAL_MAX_STREAMS_BIDI, initialMaxStreamsBidi);
         writeVarIntParam(buf, INITIAL_MAX_STREAMS_UNI, initialMaxStreamsUni);
+        writeVarIntParam(buf, MAX_ACK_DELAY, maxAckDelay);
         if (initialSourceConnectionId != null) {
             writeBytesParam(buf, INITIAL_SOURCE_CONNECTION_ID, initialSourceConnectionId);
         }
@@ -295,6 +319,8 @@ public final class TransportParameters {
                 params.initialMaxStreamsBidi = VarInt.decode(buf);
             } else if (id == INITIAL_MAX_STREAMS_UNI) {
                 params.initialMaxStreamsUni = VarInt.decode(buf);
+            } else if (id == MAX_ACK_DELAY) {
+                params.maxAckDelay = VarInt.decode(buf);
             } else if (id == INITIAL_SOURCE_CONNECTION_ID) {
                 params.initialSourceConnectionId = new byte[length];
                 buf.get(params.initialSourceConnectionId);
