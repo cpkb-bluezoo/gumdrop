@@ -195,6 +195,22 @@ public final class DNSResourceRecord {
         return (rawClass & CACHE_FLUSH_BIT) != 0;
     }
 
+    /**
+     * Returns a copy of this record with the mDNS cache-flush bit
+     * (RFC 6762 section 10.2) set on its class field, leaving
+     * everything else unchanged. Convenience for callers building a
+     * record via one of the plain-{@code DNSClass.IN} factory methods
+     * (e.g. {@link #srv}, {@link #txt}) that then need cache-flush
+     * semantics -- e.g. DNS-SD's unique per-instance SRV/TXT records,
+     * as opposed to its shared, never-flushed PTR records.
+     *
+     * @return a copy with the cache-flush bit set
+     */
+    public DNSResourceRecord withCacheFlush() {
+        return new DNSResourceRecord(name, type, rawType, dnsClass,
+                rawClass | CACHE_FLUSH_BIT, ttl, rdata);
+    }
+
     // -- Convenience factory methods --
 
     /**

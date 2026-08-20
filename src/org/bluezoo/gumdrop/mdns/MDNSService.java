@@ -33,12 +33,16 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.ResourceBundle;
+import java.util.Set;
+import java.util.StringTokenizer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Service;
 import org.bluezoo.gumdrop.dns.DNSClass;
@@ -117,6 +121,8 @@ public class MDNSService implements Service {
     private final Random random = new Random();
 
     private String hostname;
+    private boolean advertiseServices = true;
+    private final Set<String> excludedDescriptions = new HashSet<String>();
 
     private String hostnameLabel;
     private int nameConflictSuffix = 1;
@@ -190,6 +196,42 @@ public class MDNSService implements Service {
      */
     public void setHostname(String hostname) {
         this.hostname = hostname;
+    }
+
+    /**
+     * Sets whether to auto-advertise gumdrop's own configured services
+     * as DNS-SD (RFC 6763) records once announced. Default true.
+     *
+     * <p>Uses {@code Gumdrop.getInstance().getServices()} at
+     * announce-time, so it only sees services that have already
+     * started -- declare the {@code mdns} service <strong>last</strong>
+     * in {@code gumdroprc.xml} (services start in document order) so
+     * every other configured service's listeners are already bound and
+     * assigned real ports by the time this runs.
+     *
+     * @param advertiseServices true to auto-advertise
+     */
+    public void setAdvertiseServices(boolean advertiseServices) {
+        this.advertiseServices = advertiseServices;
+    }
+
+    /**
+     * Sets {@link org.bluezoo.gumdrop.Listener#getDescription()} values
+     * to never advertise via DNS-SD even if otherwise eligible (e.g.
+     * {@code "dns"} to avoid advertising gumdrop's own DNS resolver).
+     * Space-separated.
+     *
+     * @param descriptions space-separated listener descriptions to exclude
+     */
+    public void setExcludedServices(String descriptions) {
+        excludedDescriptions.clear();
+        if (descriptions == null) {
+            return;
+        }
+        StringTokenizer st = new StringTokenizer(descriptions);
+        while (st.hasMoreTokens()) {
+            excludedDescriptions.add(st.nextToken());
+        }
     }
 
     /**
@@ -415,7 +457,16 @@ public class MDNSService implements Service {
     private void announce() {
         state = State.ANNOUNCED;
         announcesSent = 0;
-        currentRecords = buildRecords(currentName, RECORD_TTL, true);
+        List<DNSResourceRecord> records = new ArrayList<DNSResourceRecord>(
+                buildRecords(currentName, RECORD_TTL, true));
+        if (advertiseServices) {
+            String hostLabel = currentName.substring(
+                    0, currentName.length() - ".local".length());
+            records.addAll(DNSSDAdvertiser.buildRecords(
+                    Gumdrop.getInstance().getServices(), hostLabel,
+                    RECORD_TTL, excludedDescriptions));
+        }
+        currentRecords = records;
         sendAnnouncement();
     }
 
@@ -533,21 +584,36 @@ public class MDNSService implements Service {
         if (state != State.ANNOUNCED) {
             return;
         }
+        // RFC 6762 section 7.3: real queriers essentially always send a
+        // single question per query, so a response per matched question
+        // (rather than batching every question's answers into one
+        // packet) keeps this simple without losing anything in practice.
         List<DNSQuestion> questions = message.getQuestions();
         for (int i = 0; i < questions.size(); i++) {
             DNSQuestion q = questions.get(i);
-            if (!currentName.equalsIgnoreCase(q.getName())) {
+            List<DNSResourceRecord> matches = matchingRecords(q.getName(), q.getType());
+            if (matches.isEmpty() || isFullyKnown(message, matches)) {
                 continue;
             }
-            if (q.getType() != DNSType.A && q.getType() != DNSType.ANY) {
-                continue;
-            }
-            if (isFullyKnown(message)) {
-                continue;
-            }
-            respondToQuery(origin, q, source);
-            return;
+            respondToQuery(origin, q, matches, source);
         }
+    }
+
+    /**
+     * Returns our own current records (host address plus, once
+     * published, DNS-SD service records) matching a question's name
+     * and type.
+     */
+    private List<DNSResourceRecord> matchingRecords(String name, DNSType type) {
+        List<DNSResourceRecord> result = new ArrayList<DNSResourceRecord>();
+        for (int i = 0; i < currentRecords.size(); i++) {
+            DNSResourceRecord rr = currentRecords.get(i);
+            if (rr.getName().equalsIgnoreCase(name)
+                    && (type == DNSType.ANY || rr.getType() == type)) {
+                result.add(rr);
+            }
+        }
+        return result;
     }
 
     /**
@@ -594,22 +660,20 @@ public class MDNSService implements Service {
     /**
      * RFC 6762 section 7.1: known-answer suppression. Returns true only
      * if the querier's own known-answer list already includes every one
-     * of our current addresses with more than half its TTL remaining,
-     * in which case we owe no answer at all.
+     * of the given records (matched by name/type/rdata) with more than
+     * half its TTL remaining, in which case we owe no answer at all.
      */
-    private boolean isFullyKnown(DNSMessage message) {
-        if (ownAddresses.isEmpty()) {
-            return false;
-        }
+    private boolean isFullyKnown(DNSMessage message, List<DNSResourceRecord> matches) {
         List<DNSResourceRecord> knownAnswers = message.getAnswers();
-        for (InetAddress addr : ownAddresses) {
+        for (int i = 0; i < matches.size(); i++) {
+            DNSResourceRecord candidate = matches.get(i);
             boolean known = false;
-            for (int i = 0; i < knownAnswers.size(); i++) {
-                DNSResourceRecord rr = knownAnswers.get(i);
-                if (currentName.equalsIgnoreCase(rr.getName())
-                        && rr.getType() == DNSType.A
-                        && rr.getTTL() > RECORD_TTL / 2
-                        && Arrays.equals(addr.getAddress(), rr.getRData())) {
+            for (int j = 0; j < knownAnswers.size(); j++) {
+                DNSResourceRecord rr = knownAnswers.get(j);
+                if (candidate.getName().equalsIgnoreCase(rr.getName())
+                        && candidate.getType() == rr.getType()
+                        && rr.getTTL() > candidate.getTTL() / 2
+                        && Arrays.equals(candidate.getRData(), rr.getRData())) {
                     known = true;
                     break;
                 }
@@ -631,11 +695,12 @@ public class MDNSService implements Service {
     }
 
     private void respondToQuery(final MDNSListener origin, DNSQuestion question,
+                                 final List<DNSResourceRecord> answers,
                                  final InetSocketAddress source) {
         final DNSMessage response = new DNSMessage(0,
                 DNSMessage.FLAG_QR | DNSMessage.FLAG_AA,
                 Collections.<DNSQuestion>emptyList(),
-                currentRecords,
+                answers,
                 Collections.<DNSResourceRecord>emptyList(),
                 Collections.<DNSResourceRecord>emptyList());
         if (question.isUnicastResponseRequested()) {

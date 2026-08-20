@@ -447,6 +447,21 @@ public class DNSResourceRecordTest {
     }
 
     @Test
+    public void testWithCacheFlushSetsOnlyTheBit() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord rr = DNSResourceRecord.a("example.local", 300, ip);
+
+        DNSResourceRecord flushed = rr.withCacheFlush();
+
+        assertFalse(rr.isCacheFlush());
+        assertTrue(flushed.isCacheFlush());
+        assertEquals(rr.getName(), flushed.getName());
+        assertEquals(rr.getType(), flushed.getType());
+        assertEquals(rr.getTTL(), flushed.getTTL());
+        assertArrayEquals(rr.getRData(), flushed.getRData());
+    }
+
+    @Test
     public void testMultiStringTxt() {
         DNSResourceRecord rr = DNSResourceRecord.txt("_http._tcp.local", 4500,
                 Arrays.asList("path=/", "version=1.0"));

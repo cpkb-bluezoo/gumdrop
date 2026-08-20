@@ -452,6 +452,50 @@ public class MDNSServiceTest {
         assertTrue(service.lookup("other.local", DNSType.A).isEmpty());
     }
 
+    @Test
+    public void testAdvertiseServicesDisabledOnlyAnnouncesHostRecords() throws Exception {
+        CapturingMDNSListener listener = new CapturingMDNSListener();
+        MDNSService service = new MDNSService();
+        service.addListener(listener);
+        service.setHostname("testhost");
+        service.setAdvertiseServices(false);
+
+        service.start();
+        settle(service, listener);
+        assertTrue(service.isAnnounced());
+
+        DNSMessage lastAnnouncement = parse(listener.sentToGroup.get(listener.sentToGroup.size() - 1));
+        for (DNSResourceRecord rr : lastAnnouncement.getAnswers()) {
+            assertEquals(DNSType.A, rr.getType());
+        }
+        assertEquals(findOwnAddresses().size(), lastAnnouncement.getAnswers().size());
+    }
+
+    @Test
+    public void testAdvertiseServicesEnabledByDefaultStillAnnouncesHostRecord() throws Exception {
+        // Doesn't assert on any particular DNS-SD content -- Gumdrop's
+        // service list is shared JVM-wide state this test doesn't own
+        // -- just that enabling the (default-on) integration point
+        // doesn't break the host record it already had.
+        CapturingMDNSListener listener = new CapturingMDNSListener();
+        MDNSService service = new MDNSService();
+        service.addListener(listener);
+        service.setHostname("testhost");
+
+        service.start();
+        settle(service, listener);
+        assertTrue(service.isAnnounced());
+
+        DNSMessage lastAnnouncement = parse(listener.sentToGroup.get(listener.sentToGroup.size() - 1));
+        int hostRecords = 0;
+        for (DNSResourceRecord rr : lastAnnouncement.getAnswers()) {
+            if (rr.getType() == DNSType.A && "testhost.local".equalsIgnoreCase(rr.getName())) {
+                hostRecords++;
+            }
+        }
+        assertEquals(findOwnAddresses().size(), hostRecords);
+    }
+
     /**
      * An {@link MDNSListener} that never opens a real socket: {@code
      * start()}/{@code stop()} are no-ops, sends are captured in memory,
