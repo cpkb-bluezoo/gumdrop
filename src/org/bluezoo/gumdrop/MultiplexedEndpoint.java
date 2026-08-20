@@ -55,6 +55,25 @@ public interface MultiplexedEndpoint extends Endpoint {
     Endpoint openStream(ProtocolHandler handler);
 
     /**
+     * Opens a new outgoing unidirectional stream, for transports that
+     * distinguish stream directionality (QUIC: RFC 9000 section 2.1).
+     * Used by protocols layered on such a transport that need their own
+     * one-way control channels (e.g. HTTP/3's control and QPACK streams,
+     * RFC 9114 section 6.2) -- most callers never need this.
+     *
+     * <p>The default implementation throws
+     * {@link UnsupportedOperationException}, for transports (or callers)
+     * that never open unidirectional streams.
+     *
+     * @param handler the handler for the new stream; only ever receives
+     *                data (a unidirectional stream carries no return path)
+     * @return an Endpoint for the new stream
+     */
+    default Endpoint openUnidirectionalStream(ProtocolHandler handler) {
+        throw new UnsupportedOperationException("This transport does not support unidirectional streams");
+    }
+
+    /**
      * Registers a handler to accept incoming streams from the peer.
      *
      * <p>When the peer opens a new stream, the StreamAcceptHandler's

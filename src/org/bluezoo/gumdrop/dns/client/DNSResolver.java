@@ -53,7 +53,6 @@ import org.bluezoo.gumdrop.dns.DNSSECStatus;
 import org.bluezoo.gumdrop.dns.DNSSECTrustAnchor;
 import org.bluezoo.gumdrop.dns.DNSSECValidationCallback;
 import org.bluezoo.gumdrop.dns.DNSType;
-import org.bluezoo.gumdrop.GumdropNative;
 
 /**
  * Asynchronous DNS stub resolver using non-blocking I/O.
@@ -362,35 +361,20 @@ public class DNSResolver {
     /**
      * Adds the system's default DNS resolvers.
      *
-     * <p>Uses a native system call to discover the platform's configured
-     * nameservers. Falls back to well-known public resolvers (8.8.8.8
-     * and 1.1.1.1) if the native call fails or returns no servers.
+     * <p>Discovers the platform's configured nameservers by parsing
+     * {@code /etc/resolv.conf} (see {@link ResolvConf}). Falls back to
+     * well-known public resolvers (8.8.8.8 and 1.1.1.1) if none are found
+     * or none are valid.
      */
     public void useSystemResolvers() {
-        try {
-            String[] nameservers =
-                    GumdropNative.getSystemNameservers();
-            if (nameservers != null) {
-                for (String ns : nameservers) {
-                    try {
-                        addServer(ns);
-                    } catch (UnknownHostException e) {
-                        if (LOGGER.isLoggable(Level.FINE)) {
-                            LOGGER.fine("Skipping invalid system "
-                                    + "nameserver: " + ns);
-                        }
-                    }
+        for (String ns : ResolvConf.getNameservers()) {
+            try {
+                addServer(ns);
+            } catch (UnknownHostException e) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Skipping invalid system "
+                            + "nameserver: " + ns);
                 }
-            }
-        } catch (LinkageError e) {
-            // Native lib absent/unloadable: the first touch throws
-            // UnsatisfiedLinkError (surfaced as ExceptionInInitializerError),
-            // and every later touch throws NoClassDefFoundError. All are
-            // LinkageErrors; degrade gracefully to public resolvers instead of
-            // failing the caller when QUIC/native support is not present.
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Native nameserver discovery "
-                        + "unavailable: " + e);
             }
         }
         if (servers.isEmpty()) {
@@ -531,6 +515,19 @@ public class DNSResolver {
      */
     public void querySRV(String name, DNSQueryCallback callback) {
         query(name, DNSType.SRV, callback);
+    }
+
+    /**
+     * Queries for HTTPS records.
+     * RFC 9460: HTTPS records advertise, among other things, which ALPN
+     * protocols (e.g. "h3", "h2") a host supports, allowing a client to
+     * pick a transport before ever opening a connection.
+     *
+     * @param name the domain name to query
+     * @param callback the callback to receive results
+     */
+    public void queryHTTPS(String name, DNSQueryCallback callback) {
+        query(name, DNSType.HTTPS, callback);
     }
 
     // -- High-Level Resolution --

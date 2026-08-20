@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Pure-Java QUIC/HTTP/3 transport** replacing the quiche/BoringSSL JNI
+  stack: QUIC v1 packet protection, loss detection/congestion control
+  (NewReno), TLS 1.3 via [Agent15](https://github.com/ptrd/agent15),
+  full QPACK dynamic-table support, HTTP/3 client and server, DoQ client,
+  0-RTT, Retry packets, passive connection migration, WebSocket-over-HTTP/3
+  (RFC 9220), and automatic h3/h2/h1.x transport negotiation.
+- **ResolvConf** pure-Java parser for system DNS nameserver discovery
+  (replacing native `getSystemNameservers()` on POSIX; Windows still
+  falls back to public resolvers).
+
+### Changed
+
+- **100% Java**: all JNI sources (`GumdropNative`, `quiche_jni.c`,
+  `h3_jni.c`, `ssl_ctx_jni.c`, `dns_jni.c`) and the native build
+  removed; QUIC/HTTP/3 no longer requires compiling quiche.
+- DNS stub resolver startup now warms `/etc/resolv.conf` off the
+  selector loop alongside `/etc/hosts`.
+
+### Removed
+
+- Native quiche/BoringSSL dependency and `QUICHE_DIR` build requirement.
+
 ## [2.1.1] - 2026-08-13
 
 ### Changed

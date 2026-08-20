@@ -138,6 +138,20 @@ public class HTTPClientProtocolHandler
     private int maxFrameSize = 16384;
     private int maxHeaderListSize = 8192;
     private boolean serverPushEnabled = true;
+    // RFC 8441 section 3: whether the server advertised support for the
+    // extended CONNECT method (WebSocket-over-HTTP/2) -- consulted by
+    // WebSocketClient.connectExtendedConnect (via isConnectProtocolEnabled)
+    // before ever sending an Extended CONNECT request, per section 4:
+    // "If a client were to use the provisions of the extended CONNECT
+    // method... without first receiving a SETTINGS_ENABLE_CONNECT_PROTOCOL
+    // parameter, a non-supporting peer would detect a malformed request
+    // and generate a stream error."
+    private boolean serverEnablesConnectProtocol;
+    // Whether the server's initial SETTINGS frame -- and so
+    // serverEnablesConnectProtocol -- has arrived yet; see
+    // whenConnectProtocolKnown.
+    private boolean initialSettingsReceived;
+    private final List<Runnable> connectProtocolCallbacks = new ArrayList<Runnable>();
 
     // RFC 9113 section 6.8: highest server-initiated (even) stream ID seen
     private int highestServerStreamId = 0;
@@ -252,7 +266,7 @@ public class HTTPClientProtocolHandler
      *
      * @param listener the listener, or null to disable
      */
-    void setAltSvcListener(AltSvcListener listener) {
+    protected void setAltSvcListener(AltSvcListener listener) {
         this.altSvcListener = listener;
     }
 
@@ -649,6 +663,43 @@ public class HTTPClientProtocolHandler
      */
     public HTTPVersion getVersion() {
         return negotiatedVersion;
+    }
+
+    /**
+     * RFC 8441 section 3: returns whether the server has advertised
+     * {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1}, i.e. whether it is
+     * safe to send an Extended CONNECT request (WebSocket-over-HTTP/2)
+     * on this connection. Only meaningful once the server's initial
+     * SETTINGS frame has been received; false beforehand.
+     *
+     * @return true if the server supports Extended CONNECT
+     */
+    public boolean isConnectProtocolEnabled() {
+        return serverEnablesConnectProtocol;
+    }
+
+    /**
+     * Runs {@code task} once the server's initial SETTINGS frame has been
+     * received -- and so {@link #isConnectProtocolEnabled()} reflects its
+     * real, final value rather than the pre-SETTINGS default of {@code
+     * false} -- running immediately if that has already happened.
+     *
+     * <p>{@link #connected}/{@link #securityEstablished} fire {@code
+     * onConnected} as soon as the connection preface is sent, which is
+     * before the server's own SETTINGS frame can possibly have arrived;
+     * a caller that needs to know whether Extended CONNECT (RFC 8441) is
+     * safe to attempt must wait for this callback rather than checking
+     * {@link #isConnectProtocolEnabled()} directly from {@code
+     * onConnected}.
+     *
+     * @param task the task to run once the server's support is known
+     */
+    public void whenConnectProtocolKnown(Runnable task) {
+        if (initialSettingsReceived) {
+            task.run();
+        } else {
+            connectProtocolCallbacks.add(task);
+        }
     }
 
     /**
@@ -2129,11 +2180,22 @@ public class HTTPClientProtocolHandler
                     case H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE:
                         maxHeaderListSize = value;
                         break;
+                    case H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL:
+                        serverEnablesConnectProtocol = (value == 1);
+                        break;
                 }
             }
             if (hpackEncoder != null) {
                 hpackEncoder.setHeaderTableSize(headerTableSize);
                 hpackEncoder.setMaxHeaderListSize(maxHeaderListSize);
+            }
+            if (!initialSettingsReceived) {
+                initialSettingsReceived = true;
+                List<Runnable> pending = new ArrayList<Runnable>(connectProtocolCallbacks);
+                connectProtocolCallbacks.clear();
+                for (Runnable task : pending) {
+                    task.run();
+                }
             }
             // RFC 9113 section 6.5: ACK peer's SETTINGS
             sendSettingsAck();

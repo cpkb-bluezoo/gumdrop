@@ -14,7 +14,7 @@ more than one instance.
 ## Quick start
 
 ```bash
-# Build the image (native QUIC/HTTP-3 is not built here; HTTP/1.1+HTTP/2 work)
+# Build the image
 docker build -t gumdrop:latest .
 
 # Run with the container example config
@@ -165,12 +165,10 @@ token in `addresses`:
 
 ---
 
-## JVM & native library sizing (the `start` launcher)
+## JVM sizing (the `start` launcher)
 
-[`start`](../start) is OS-aware and container-friendly:
+[`start`](../start) is container-friendly:
 
-- picks the correct dynamic-linker variable (`LD_LIBRARY_PATH` on Linux,
-  `DYLD_LIBRARY_PATH` on macOS) for the optional native QUIC library;
 - sizes the heap from the container memory limit with
   `-XX:+UseContainerSupport -XX:MaxRAMPercentage` instead of a fixed `-Xmx`;
 - logs to the console (12-factor);
@@ -185,17 +183,12 @@ Overridable environment variables:
 | `GUMDROP_CONFIG`     | (search order)                 | Config file path.                         |
 | `LOGGING_PROPERTIES` | `logging.properties`           | `java.util.logging` config.               |
 | `MAX_RAM_PERCENTAGE` | `75.0`                         | Heap as a percentage of container memory. |
-| `NATIVE_LIB_PATH`    | `./dist`                       | Extra native library directories.         |
-| `QUICHE_DIR`         | `../quiche`                    | quiche checkout for dev builds.           |
 | `JAVA_OPTS`          | (empty)                        | Extra JVM options (appended last).        |
 
-### QUIC / HTTP-3 is optional
+### QUIC / HTTP-3
 
-The HTTP/3 listener requires the native `libgumdrop` library. If it is not on
-the library path, the listener is skipped with a warning and the rest of the
-server starts normally (serving HTTP/1.1 and HTTP/2). To enable HTTP/3, build
-the native library and place it on `NATIVE_LIB_PATH`, then uncomment the
-HTTP/3 listener in the config.
+The HTTP/3 listener is a pure-Java implementation and requires no native
+library or extra setup -- just uncomment the HTTP/3 listener in the config.
 
 ---
 
@@ -273,6 +266,6 @@ a shared volume for mail/quota) until an external shared store is introduced.
 | `GUMDROP_HOT_DEPLOY`        | servlet container      | `false`              | Enable servlet hot deploy when not set in config. |
 | `${ENV:NAME[:default]}`     | config parser          | —                    | Interpolate any env var into config values.    |
 | `MAX_RAM_PERCENTAGE`        | launcher               | `75.0`               | Heap percentage of container memory.           |
-| `JAVA`, `GUMDROP_JAR`, `LOGGING_PROPERTIES`, `NATIVE_LIB_PATH`, `QUICHE_DIR`, `JAVA_OPTS` | launcher | see table above | Launcher overrides. |
+| `JAVA`, `GUMDROP_JAR`, `LOGGING_PROPERTIES`, `JAVA_OPTS` | launcher | see table above | Launcher overrides. |
 
 System property equivalent: `-Dgumdrop.drainTimeoutMs=<ms>`.

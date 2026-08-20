@@ -247,6 +247,16 @@ public final class HTTPProtocolHandler
     int headerTableSize = DEFAULT_HEADER_TABLE_SIZE;
     // RFC 9113 section 6.5.2: SETTINGS_ENABLE_PUSH (default: 1 = enabled)
     boolean enablePush = true;
+    // RFC 8441 section 3: whether the client sent SETTINGS_ENABLE_CONNECT_PROTOCOL.
+    // Tracked for completeness, but deliberately never consulted before
+    // accepting an upgrade: per section 3, "Receipt of this parameter by
+    // a server does not have any impact" -- it's the client, not the
+    // server, that must not attempt Extended CONNECT before receiving
+    // this setting FROM the server (enforced client-side, see
+    // HTTPClientProtocolHandler#whenConnectProtocolKnown/
+    // WebSocketClient#connectExtendedConnect). RFC 9220 section 3
+    // states HTTP/3's semantics for this setting are identical.
+    boolean clientEnablesConnectProtocol;
     int maxConcurrentStreams = Integer.MAX_VALUE;
     int initialWindowSize = DEFAULT_INITIAL_WINDOW_SIZE;
     int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
@@ -477,6 +487,9 @@ public final class HTTPProtocolHandler
                     serverMaxConcurrentStreams);
             initialSettings.put(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE,
                     serverMaxHeaderListSize);
+            // RFC 8441 section 3: advertise support for the extended
+            // CONNECT method (WebSocket-over-HTTP/2).
+            initialSettings.put(H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
             sendSettingsFrame(false, initialSettings);
             startSettingsTimeout();
         }
@@ -1054,6 +1067,24 @@ public final class HTTPProtocolHandler
 
     @Override
     public void switchToWebSocketMode(int streamId) {
+        if (version == HTTPVersion.HTTP_2_0) {
+            // RFC 8441 section 5: unlike RFC 6455 over HTTP/1.1 (where the
+            // single stream *is* the whole connection, so upgrading means
+            // the entire connection stops being parsed as HTTP), WebSocket
+            // frames over HTTP/2 stay carried inside ordinary DATA frames
+            // on this one stream — HTTP/2 framing itself never stops, and
+            // every other concurrent stream on this connection is
+            // unaffected. Flipping the connection-wide `state` to
+            // WEBSOCKET here (as the HTTP/1.1 branch below does) would
+            // divert receive()'s top-level dispatch away from
+            // receiveFrameData()/h2Parser entirely, silently breaking
+            // every other stream multiplexed on this connection. Nothing
+            // to do here: Stream.webSocketAdapter (already set by the
+            // caller before this method runs) is the only signal needed —
+            // dataFrameReceived() -> Stream.receiveRequestBody() already
+            // routes this stream's DATA frame payloads to it per-stream.
+            return;
+        }
         this.webSocketStreamId = streamId;
         this.state = State.WEBSOCKET;
         // May be called synchronously, from within the call stack of a
@@ -1925,6 +1956,9 @@ public final class HTTPProtocolHandler
                 serverMaxConcurrentStreams);
         initialSettings.put(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE,
                 serverMaxHeaderListSize);
+        // RFC 8441 section 3: advertise support for the extended CONNECT
+        // method (WebSocket-over-HTTP/2).
+        initialSettings.put(H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
         sendSettingsFrame(false, initialSettings);
         startSettingsTimeout();
     }
@@ -2037,6 +2071,9 @@ public final class HTTPProtocolHandler
                     serverMaxConcurrentStreams);
             initialSettings.put(H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE,
                     serverMaxHeaderListSize);
+            // RFC 8441 section 3: advertise support for the extended
+            // CONNECT method (WebSocket-over-HTTP/2).
+            initialSettings.put(H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
             sendSettingsFrame(false, initialSettings);
             startSettingsTimeout();
         }
@@ -2424,6 +2461,9 @@ public final class HTTPProtocolHandler
                                 hpackDecoder.setMaxHeaderListSize(maxHeaderListSize);
                             }
                             break;
+                        case H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL:
+                            clientEnablesConnectProtocol = (value == 1);
+                            break;
                     }
                 }
                 // RFC 7541 section 4: initialize HPACK encoder/decoder
@@ -2485,6 +2525,9 @@ public final class HTTPProtocolHandler
                         if (hpackDecoder != null) {
                             hpackDecoder.setMaxHeaderListSize(maxHeaderListSize);
                         }
+                        break;
+                    case H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL:
+                        clientEnablesConnectProtocol = (value == 1);
                         break;
                 }
             }

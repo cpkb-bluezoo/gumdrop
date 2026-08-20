@@ -179,10 +179,18 @@ class Stream implements HTTPResponseState {
     private boolean handlerBodyEnded = false;
     private boolean requestBodyRejected = false;
 
-    /** Reusable header handler for HPACK decoding. */
+    /**
+     * Reusable header handler for HPACK decoding. Delegates to
+     * {@link #addHeader(Header)} rather than adding directly to
+     * {@code headers} -- HPACK-decoded requests (the normal, non-pushed
+     * HTTP/2 path) must populate {@code method}/{@code requestTarget} the
+     * same way the HTTP/1.1 path already does, or method-bound Digest
+     * authentication (RFC 7616 H(A2)) and HEAD response body suppression
+     * (RFC 9110 section 9.3.2) silently misbehave for HTTP/2.
+     */
     private final HeaderHandler hpackHandler = new HeaderHandler() {
         @Override public void header(Header header) {
-            headers.add(header);
+            addHeader(header);
         }
     };
 
@@ -750,6 +758,7 @@ class Stream implements HTTPResponseState {
         boolean hasMethod = false;
         boolean hasScheme = false;
         boolean hasPath = false;
+        boolean hasProtocol = false;
         String methodValue = null;
         java.util.Set<String> seenPseudo = new java.util.HashSet<String>();
 
@@ -777,6 +786,8 @@ class Stream implements HTTPResponseState {
                     hasScheme = true;
                 } else if (":path".equals(name)) {
                     hasPath = true;
+                } else if (":protocol".equals(name)) {
+                    hasProtocol = true;
                 }
             } else {
                 pastPseudo = true;
@@ -785,6 +796,12 @@ class Stream implements HTTPResponseState {
 
         // RFC 9113 section 8.3.1: CONNECT requests need only :method
         if ("CONNECT".equals(methodValue)) {
+            // RFC 8441 section 4: an *extended* CONNECT (:protocol present,
+            // used to bootstrap WebSocket-over-HTTP/2) additionally
+            // requires :scheme and :path, unlike classic CONNECT.
+            if (hasProtocol) {
+                return hasMethod && hasScheme && hasPath;
+            }
             return hasMethod;
         }
         // RFC 9113 section 8.3.1: all other requests MUST include
@@ -1163,7 +1180,18 @@ class Stream implements HTTPResponseState {
     // RFC 9110 section 7.8: Upgrade; RFC 6455: WebSocket Protocol
     
     private boolean isWebSocketUpgradeRequest() {
-        return headers != null && WebSocketHandshake.isValidWebSocketUpgrade(headers);
+        if (headers == null) {
+            return false;
+        }
+        // RFC 8441 section 4 -- WebSocket-over-HTTP/2 uses Extended CONNECT
+        // (:method CONNECT, :protocol websocket) instead of the RFC 6455
+        // Upgrade: handshake, which HTTP/2 forbids as a connection-specific
+        // header field.
+        if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+            return "CONNECT".equals(headers.getValue(":method"))
+                    && "websocket".equalsIgnoreCase(headers.getValue(":protocol"));
+        }
+        return WebSocketHandshake.isValidWebSocketUpgrade(headers);
     }
     
     // ─────────────────────────────────────────────────────────────────────────
@@ -1198,12 +1226,33 @@ class Stream implements HTTPResponseState {
         }
         
         try {
-            String key = headers.getValue("Sec-WebSocket-Key");
-            String extHeader = WebSocketHandshake.formatExtensions(extensions);
-            Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(
-                    key, subprotocol, extHeader);
-            sendResponseHeaders(101, responseHeaders, false);
-            
+            boolean h2 = connection.getVersion() == HTTPVersion.HTTP_2_0;
+            if (h2) {
+                // RFC 8441 section 4 -- accept the upgrade with a 200
+                // response; there is no Sec-WebSocket-Key/-Accept exchange
+                // (HTTP/2 already runs over TLS, unlike RFC 6455's original
+                // plaintext-friendly design). Reuses the generic response
+                // path (sendResponseHeaders), so this response also carries
+                // Server/Date/security headers a normal 200 would -- H3's
+                // equivalent 200 does not, since it builds its headers by
+                // hand; harmless, just a minor cross-transport divergence.
+                Headers responseHeaders = new Headers();
+                if (subprotocol != null && !subprotocol.isEmpty()) {
+                    responseHeaders.add("sec-websocket-protocol", subprotocol);
+                }
+                String extHeader = WebSocketHandshake.formatExtensions(extensions);
+                if (extHeader != null && !extHeader.isEmpty()) {
+                    responseHeaders.add("sec-websocket-extensions", extHeader);
+                }
+                sendResponseHeaders(200, responseHeaders, false);
+            } else {
+                String key = headers.getValue("Sec-WebSocket-Key");
+                String extHeader = WebSocketHandshake.formatExtensions(extensions);
+                Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(
+                        key, subprotocol, extHeader);
+                sendResponseHeaders(101, responseHeaders, false);
+            }
+
             // Resolve WebSocket metrics from the listener (if available)
             WebSocketServerMetrics wsMetrics = null;
             if (connection instanceof HTTPProtocolHandler) {

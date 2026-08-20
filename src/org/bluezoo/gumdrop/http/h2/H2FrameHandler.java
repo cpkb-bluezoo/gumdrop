@@ -97,6 +97,7 @@ public interface H2FrameHandler {
     int SETTINGS_INITIAL_WINDOW_SIZE = 0x4;    // RFC 9113 section 6.5.2
     int SETTINGS_MAX_FRAME_SIZE = 0x5;         // RFC 9113 section 6.5.2
     int SETTINGS_MAX_HEADER_LIST_SIZE = 0x6;   // RFC 9113 section 6.5.2
+    int SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x8; // RFC 8441 section 3
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame Callbacks

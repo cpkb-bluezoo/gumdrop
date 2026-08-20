@@ -43,6 +43,18 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <p>Pseudo-headers are constructed per RFC 9114 section 4.3.1:
  * {@code :method}, {@code :scheme}, {@code :authority}, {@code :path}.
  *
+ * <p>{@code HTTPRequest} carries no thread-affinity contract of its own --
+ * an application may call {@link #startRequestBody}/{@link #requestBodyContent}/
+ * {@link #endRequestBody} from whatever thread it likes, in separate calls
+ * with real time between them. The underlying {@link org.bluezoo.gumdrop.quic.QuicConnection}
+ * has the opposite contract (touched only from its own {@code SelectorLoop}
+ * thread), so every method here that actually sends anything does its
+ * QUIC-connection-touching work inside a task handed to
+ * {@link HTTP3ClientHandler#execute}, snapshotting any caller-owned mutable
+ * state (header lists, the body {@link ByteBuffer}'s remaining bytes)
+ * synchronously first so the caller is free to reuse/refill its buffer the
+ * moment the call returns, before the snapshot has necessarily been sent.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ClientHandler
  */
@@ -56,9 +68,26 @@ public class H3Request implements HTTPRequest {
     private final Trace traceContext;
 
     private final List<Header> headers = new ArrayList<Header>();
+    // Written and read only from tasks run via h3Handler.execute() (always
+    // the QuicConnection's own SelectorLoop thread), so ordinary field
+    // access is safe between them -- see the class documentation.
     private long streamId = -1;
-    private HTTPResponseHandler responseHandler;
-    private boolean cancelled;
+    // True from the moment send()/startRequestBody() itself gets deferred
+    // (h3Handler.isSafeToSendNow(method) was false) until the deferred send
+    // actually runs. requestBodyContent()/endRequestBody() consult this to
+    // avoid racing ahead of a send that hasn't happened yet: without it,
+    // streamId would still read -1 and body data would be silently dropped
+    // rather than queued behind the deferred send. Same thread-safety
+    // contract as streamId.
+    private boolean sendDeferred;
+    // volatile: set from the application's calling thread in send()/
+    // startRequestBody(), read from cancel() which may be called from a
+    // different thread (e.g. a timeout watchdog).
+    private volatile HTTPResponseHandler responseHandler;
+    // Unlike streamId, checked from whatever thread the application calls
+    // send/startRequestBody/requestBodyContent/endRequestBody/cancel from,
+    // so this one does need cross-thread visibility.
+    private volatile boolean cancelled;
 
     public H3Request(HTTP3ClientHandler h3Handler, String method,
                      String path, String authority, String scheme,
@@ -98,54 +127,137 @@ public class H3Request implements HTTPRequest {
     }
 
     @Override
-    public void send(HTTPResponseHandler handler) {
+    public void send(final HTTPResponseHandler handler) {
         if (cancelled) {
             handler.failed(new CancellationException("Request cancelled"));
             return;
         }
 
-        Headers h3Headers = buildHeaders();
-        streamId = h3Handler.sendRequest(h3Headers, handler, true);
         responseHandler = handler;
+        final Headers h3Headers = buildHeaders();
+        h3Handler.execute(new Runnable() {
+            @Override
+            public void run() {
+                Runnable sendTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        sendDeferred = false;
+                        streamId = h3Handler.sendRequest(h3Headers, handler, true);
+                    }
+                };
+                if (h3Handler.isSafeToSendNow(method)) {
+                    sendTask.run();
+                } else {
+                    sendDeferred = true;
+                    h3Handler.deferUntilEstablished(sendTask);
+                }
+            }
+        });
     }
 
     @Override
-    public void startRequestBody(HTTPResponseHandler handler) {
+    public void startRequestBody(final HTTPResponseHandler handler) {
         if (cancelled) {
             handler.failed(new CancellationException("Request cancelled"));
             return;
         }
 
-        Headers h3Headers = buildHeaders();
-        streamId = h3Handler.sendRequest(h3Headers, handler, false);
         responseHandler = handler;
+        final Headers h3Headers = buildHeaders();
+        h3Handler.execute(new Runnable() {
+            @Override
+            public void run() {
+                Runnable sendTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        sendDeferred = false;
+                        streamId = h3Handler.sendRequest(h3Headers, handler, false);
+                    }
+                };
+                if (h3Handler.isSafeToSendNow(method)) {
+                    sendTask.run();
+                } else {
+                    sendDeferred = true;
+                    h3Handler.deferUntilEstablished(sendTask);
+                }
+            }
+        });
     }
 
     @Override
     public int requestBodyContent(ByteBuffer data) {
-        if (streamId < 0 || cancelled) {
+        if (cancelled) {
             return 0;
         }
+        // Snapshot the remaining bytes synchronously, on the caller's own
+        // thread, before returning -- the actual send is deferred to the
+        // connection's own thread (see the class documentation), and the
+        // caller is free to reuse/refill data the moment this call returns.
         int remaining = data.remaining();
-        h3Handler.sendRequestBody(streamId, data, false);
+        final byte[] snapshot = new byte[remaining];
+        data.get(snapshot);
+        h3Handler.execute(new Runnable() {
+            @Override
+            public void run() {
+                Runnable bodyTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (streamId < 0) {
+                            return;
+                        }
+                        h3Handler.sendRequestBody(streamId, ByteBuffer.wrap(snapshot), false);
+                    }
+                };
+                if (sendDeferred) {
+                    // The request itself hasn't been sent yet -- queue behind
+                    // it rather than running now, or streamId would still
+                    // read -1 and this data would be silently dropped.
+                    h3Handler.deferUntilEstablished(bodyTask);
+                } else {
+                    bodyTask.run();
+                }
+            }
+        });
         return remaining;
     }
 
     @Override
     public void endRequestBody() {
-        if (streamId < 0 || cancelled) {
+        if (cancelled) {
             return;
         }
-        ByteBuffer empty = ByteBuffer.allocate(0);
-        h3Handler.sendRequestBody(streamId, empty, true);
+        h3Handler.execute(new Runnable() {
+            @Override
+            public void run() {
+                Runnable endTask = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (streamId < 0) {
+                            return;
+                        }
+                        h3Handler.sendRequestBody(streamId, ByteBuffer.allocate(0), true);
+                    }
+                };
+                if (sendDeferred) {
+                    h3Handler.deferUntilEstablished(endTask);
+                } else {
+                    endTask.run();
+                }
+            }
+        });
     }
 
     @Override
     public void cancel() {
         cancelled = true;
-        if (responseHandler != null) {
-            responseHandler.failed(
-                    new CancellationException("Request cancelled"));
+        final HTTPResponseHandler handler = responseHandler;
+        if (handler != null) {
+            h3Handler.execute(new Runnable() {
+                @Override
+                public void run() {
+                    handler.failed(new CancellationException("Request cancelled"));
+                }
+            });
         }
     }
 

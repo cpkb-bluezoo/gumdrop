@@ -40,6 +40,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
+import org.bluezoo.gumdrop.dns.client.ResolvConf;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
 import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 
@@ -612,6 +613,11 @@ public class Gumdrop {
         // thread on cold hosts-file I/O.
         HostsFile.warm();
 
+        // Parse /etc/resolv.conf once off the selector so the first
+        // DNSResolver.forLoop() call cannot stall a reactor thread on cold
+        // resolver-configuration I/O (see ResolvConf.warm()).
+        ResolvConf.warm();
+
         // Create or recreate worker loops (1-based naming for humans)
         if (workerLoops == null) {
             workerLoops = new SelectorLoop[workerCount];
@@ -1101,6 +1107,16 @@ public class Gumdrop {
                 if (loopTimer != null && loopTimer.isRunning()) {
                     return loopTimer.schedule(handler, delayMs, callback);
                 }
+            }
+        }
+        // Fall back to the shared timer -- lazily start it if this is the
+        // first time it's needed, e.g. a handler whose own SelectorLoop
+        // timer isn't (yet, or any longer) running and no full
+        // Gumdrop.start() has brought this singleton's own timer up.
+        synchronized (this) {
+            if (scheduledTimer == null || !scheduledTimer.isRunning()) {
+                scheduledTimer = new ScheduledTimer();
+                scheduledTimer.start();
             }
         }
         return scheduledTimer.schedule(handler, delayMs, callback);

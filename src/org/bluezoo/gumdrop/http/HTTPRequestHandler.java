@@ -160,5 +160,27 @@ public interface HTTPRequestHandler {
      */
     void requestComplete(HTTPResponseState state);
 
+    /**
+     * The request failed due to a transport or protocol-level error
+     * before {@link #requestComplete} could be delivered normally --
+     * e.g. the underlying connection was reset, or closed by the peer
+     * with an error (see {@code QuicConnectionCloseException} for the
+     * HTTP/3 case). This is the final callback for this stream; no more
+     * events will be delivered, and any response already sent through
+     * {@code state} is final.
+     *
+     * <p>Default implementation does nothing, so existing implementations
+     * are unaffected by this method's addition; override to react to
+     * abnormal termination the way {@link
+     * org.bluezoo.gumdrop.http.client.HTTPResponseHandler#failed} already
+     * lets client code do for the client side.
+     *
+     * @param state the response state
+     * @param cause the error
+     */
+    default void failed(HTTPResponseState state, Exception cause) {
+        // Default: do nothing
+    }
+
 }
 

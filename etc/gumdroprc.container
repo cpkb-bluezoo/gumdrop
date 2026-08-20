@@ -78,9 +78,7 @@
 		-->
 
 		<!--
-		  HTTP/3 (QUIC) listener. Requires the native libgumdrop library on
-		  the dynamic linker path; if it is absent the listener is skipped
-		  with a warning and the rest of the server still starts.
+		  HTTP/3 (QUIC) listener.
 
 		<listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener">
 			<property name="port" value="${ENV:HTTPS_PORT:8443}"/>

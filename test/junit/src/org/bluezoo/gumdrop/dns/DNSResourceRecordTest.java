@@ -24,6 +24,10 @@ package org.bluezoo.gumdrop.dns;
 import org.junit.Test;
 
 import java.net.InetAddress;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.*;
 
@@ -310,6 +314,117 @@ public class DNSResourceRecordTest {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
         DNSResourceRecord a = DNSResourceRecord.a("example.com", 300, ip);
         a.getUdpPayloadSize();
+    }
+
+    // -- SVCB/HTTPS record tests (RFC 9460) --
+
+    @Test
+    public void testHttpsRecordServiceForm() {
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
+                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3", "h2")));
+        DNSResourceRecord https = DNSResourceRecord.https(
+                "example.com", 3600, 1, ".", params);
+
+        assertEquals(DNSType.HTTPS, https.getType());
+        assertEquals("example.com", https.getName());
+        assertEquals(1, https.getSVCBPriority());
+        assertFalse(https.isSVCBAliasForm());
+        // "." (root, "same as owner name") round-trips as "" -- matches
+        // this codebase's DNSMessage.decodeName convention for the root name.
+        assertEquals("", https.getSVCBTargetName());
+        assertEquals(Arrays.asList("h3", "h2"), https.getSVCBAlpnProtocols());
+        assertEquals(-1, https.getSVCBPort());
+    }
+
+    @Test
+    public void testHttpsRecordAliasForm() {
+        DNSResourceRecord alias = DNSResourceRecord.https(
+                "example.com", 3600, 0, "target.example.net", null);
+
+        assertTrue(alias.isSVCBAliasForm());
+        assertEquals("target.example.net", alias.getSVCBTargetName());
+        assertTrue(alias.getSVCBAlpnProtocols().isEmpty());
+    }
+
+    @Test
+    public void testHttpsRecordPortParam() {
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
+                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
+        params.put(DNSResourceRecord.SVCB_PARAM_PORT,
+                DNSResourceRecord.encodeSVCBPort(8443));
+        DNSResourceRecord https = DNSResourceRecord.https(
+                "example.com", 3600, 1, ".", params);
+
+        assertEquals(8443, https.getSVCBPort());
+        assertEquals(Arrays.asList("h3"), https.getSVCBAlpnProtocols());
+    }
+
+    @Test
+    public void testSvcbRecordType() {
+        DNSResourceRecord svcb = DNSResourceRecord.svcb(
+                "example.com", 3600, 1, ".", null);
+        assertEquals(DNSType.SVCB, svcb.getType());
+    }
+
+    @Test
+    public void testHttpsRecordParamsInIncreasingKeyOrder() {
+        // RFC 9460 section 2.2: SvcParams must be written in strictly
+        // increasing key order regardless of insertion order.
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DNSResourceRecord.SVCB_PARAM_PORT,
+                DNSResourceRecord.encodeSVCBPort(443));
+        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
+                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
+        DNSResourceRecord https = DNSResourceRecord.https(
+                "example.com", 3600, 1, ".", params);
+
+        Map<Integer, byte[]> parsed = https.getSVCBParams();
+        List<Integer> keys = new java.util.ArrayList<>(parsed.keySet());
+        assertEquals(Arrays.asList(
+                DNSResourceRecord.SVCB_PARAM_ALPN,
+                DNSResourceRecord.SVCB_PARAM_PORT), keys);
+    }
+
+    @Test
+    public void testHttpsRecordNoParams() {
+        DNSResourceRecord https = DNSResourceRecord.https(
+                "example.com", 3600, 1, ".", null);
+        assertTrue(https.getSVCBParams().isEmpty());
+        assertEquals(-1, https.getSVCBPort());
+        assertTrue(https.getSVCBAlpnProtocols().isEmpty());
+    }
+
+    @Test
+    public void testToStringHttps() {
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
+                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
+        DNSResourceRecord https = DNSResourceRecord.https(
+                "example.com", 3600, 1, ".", params);
+
+        String str = https.toString();
+        assertTrue(str.contains("HTTPS"));
+        assertTrue(str.contains("h3"));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSVCBPriorityOnNonSVCB() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSVCBPriority();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSVCBTargetNameOnNonSVCB() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSVCBTargetName();
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetSVCBParamsOnNonSVCB() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord.a("example.com", 300, ip).getSVCBParams();
     }
 }
 

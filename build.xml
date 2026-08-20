@@ -23,9 +23,6 @@
   <!-- Project version -->
   <property name='version' value='2.1.2-SNAPSHOT'/>
 
-  <!-- Import environment variables (for QUICHE_DIR, JAVA_HOME) -->
-  <property environment='env'/>
-
   <property name='src' location='src'/>
   <property name='lib' location='lib'/>
   <property name='build' location='build'/>
@@ -39,6 +36,9 @@
   <!-- External parsing library dependencies (downloaded by resolve-deps target) -->
   <property name='gonzalez.jar' value='gonzalez-1.2.0.jar'/>
   <property name='jsonparser.jar' value='jsonparser-1.3.jar'/>
+  <!-- TLS 1.3 handshake engine for QUIC (downloaded by resolve-deps target) -->
+  <property name='agent15.jar' value='agent15-3.3.jar'/>
+  <property name='hkdf.jar' value='hkdf-2.0.0.jar'/>
   
   <!--
     Java version compatibility settings.
@@ -89,6 +89,10 @@
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
     <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.2.0/gonzalez-1.2.0.jar'
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/tech/kwik/agent15/3.3/agent15-3.3.jar'
+         dest='${lib}/${agent15.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/at/favre/lib/hkdf/2.0.0/hkdf-2.0.0.jar'
+         dest='${lib}/${hkdf.jar}' skipexisting='true'/>
   </target>
 
   <!-- Refresh the bundled Mozilla Public Suffix List (SEC-048). Run
@@ -116,6 +120,8 @@
       <classpath>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${agent15.jar}'/>
+        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -133,6 +139,8 @@
       <modulepath>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${agent15.jar}'/>
+        <pathelement location='${lib}/${hkdf.jar}'/>
       </modulepath>
     </javac>
     <copy todir='${build}'>
@@ -161,134 +169,6 @@
     </jar>
   </target>
 
-  <!-- Native JNI library for QUIC support (optional) -->
-  <!-- Requires QUICHE_DIR environment variable pointing to the quiche source tree -->
-
-  <target name='native-check'>
-    <condition property='quiche.available'>
-      <and>
-        <isset property='env.QUICHE_DIR'/>
-        <available file='${env.QUICHE_DIR}/quiche/include/quiche.h'/>
-      </and>
-    </condition>
-    <!-- JNI include directory: prefer JAVA_HOME env var, fall back to java.home system property -->
-    <condition property='jni.home' value='${env.JAVA_HOME}'>
-      <and>
-        <isset property='env.JAVA_HOME'/>
-        <available file='${env.JAVA_HOME}/include/jni.h'/>
-      </and>
-    </condition>
-    <!-- JDK 9+ layout: java.home points to JDK root -->
-    <condition property='jni.home' value='${java.home}'>
-      <available file='${java.home}/include/jni.h'/>
-    </condition>
-    <!-- Fallback: try parent directory (older JDK layouts) -->
-    <property name='jni.home' value='${java.home}/..'/>
-    <!-- Platform-specific JNI include subdirectory and library name -->
-    <condition property='os.jni.subdir' value='darwin'>
-      <os family='mac'/>
-    </condition>
-    <condition property='os.jni.subdir' value='linux'>
-      <and>
-        <os family='unix'/>
-        <not><os family='mac'/></not>
-      </and>
-    </condition>
-    <condition property='native.lib.name' value='libgumdrop.dylib'>
-      <os family='mac'/>
-    </condition>
-    <condition property='native.lib.name' value='libgumdrop.so'>
-      <and>
-        <os family='unix'/>
-        <not><os family='mac'/></not>
-      </and>
-    </condition>
-  </target>
-
-  <target name="check-os">
-    <condition property="is.mac">
-      <os family="mac"/>
-    </condition>
-    <condition property="is.linux">
-      <and>
-        <os family="unix"/>
-        <not><os family="mac"/></not>
-      </and>
-    </condition>
-  </target>
-
-  <target name="get-macos-version" depends="check-os" if="is.mac">
-    <exec executable="sw_vers" outputproperty="macos.version" failonerror="false">
-      <arg value="-productVersion"/>
-    </exec>
-  </target>
-
-  <target name="set-linux-version" depends="check-os" if="is.linux">
-    <property name="macos.version" value="N/A"/>
-  </target>
-
-  <target name="native" depends="native-check,jar,check-os,get-macos-version,set-linux-version" 
-        if="quiche.available"
-        description="Compile JNI native library">
-    
-    <mkdir dir="${dist}"/>
-    
-    <first id="boringssl.libssl.ref">
-      <fileset dir="${env.QUICHE_DIR}/target/release/build" includes="boring-sys-*/out/build/libssl.a"/>
-    </first>
-    <pathconvert property="boringssl.libssl" refid="boringssl.libssl.ref"/>
-    <first id="boringssl.libcrypto.ref">
-      <fileset dir="${env.QUICHE_DIR}/target/release/build" includes="boring-sys-*/out/build/libcrypto.a"/>
-    </first>
-    <pathconvert property="boringssl.libcrypto" refid="boringssl.libcrypto.ref"/>
-
-    <exec executable="cc" failonerror="true">
-      <env key="MACOSX_DEPLOYMENT_TARGET" value="${macos.version}"/>
-      <arg value="-shared"/>
-      <arg value="-fPIC"/>
-      <arg value="-o"/>
-      <arg value="${dist}/${native.lib.name}"/>
-      <arg value="-I${jni.home}/include"/>
-      <arg value="-I${jni.home}/include/${os.jni.subdir}"/>
-      <arg value="-I${env.QUICHE_DIR}/quiche/include"/>
-      <arg value="-I${env.QUICHE_DIR}/quiche/deps/boringssl/src/include"/>
-      <arg value="-L${env.QUICHE_DIR}/target/release"/>
-      <arg value="-lquiche"/>
-      <arg value="-Wl,-rpath,${is.mac ? '@loader_path' : '$ORIGIN'}"/>
-      <arg value="${boringssl.libssl}"/>
-      <arg value="${boringssl.libcrypto}"/>
-      <arg value="-lresolv"/>
-      <arg value="${src}/org/bluezoo/gumdrop/jni/quiche_jni.c"/>
-      <arg value="${src}/org/bluezoo/gumdrop/jni/ssl_ctx_jni.c"/>
-      <arg value="${src}/org/bluezoo/gumdrop/jni/h3_jni.c"/>
-      <arg value="${src}/org/bluezoo/gumdrop/jni/dns_jni.c"/>
-    </exec>
-
-    <antcall target="fix-mac-install-names"/>
-
-    <condition property="quiche.lib.actual" value="libquiche.dylib" else="libquiche.so">
-      <os family="mac"/>
-    </condition>
-
-    <copy file="${env.QUICHE_DIR}/target/release/${quiche.lib.actual}"
-        todir="${dist}" overwrite="true"/>
-    
-    <echo message="Built native library: ${dist}/${native.lib.name}"/>
-  </target>
-
-  <target name="fix-mac-install-names" if="is.mac">
-    <exec executable="install_name_tool" failonerror="true">
-      <arg value="-change"/>
-      <arg value="/usr/local/lib/libquiche.0.25.0.dylib"/>
-      <arg value="@loader_path/libquiche.dylib"/>
-      <arg value="${dist}/${native.lib.name}"/>
-    </exec>
-  </target>
-
-  <target name='native-skip' depends='native-check' unless='quiche.available'>
-    <echo message='QUICHE_DIR not set or quiche headers not found -- skipping native build'/>
-  </target>
-
   <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
   <!-- the gumdrop.jar, and the J2EE and parsing library dependencies for the server and container. -->
   <!-- Bootstrap will create a new classloader to load these jars -->
@@ -309,6 +189,8 @@
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
+        <include name='${agent15.jar}'/>
+        <include name='${hkdf.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
         <include name='${annotation.jar}'/>
@@ -326,7 +208,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar}'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${agent15.jar} ${hkdf.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -337,7 +219,7 @@
     <jar destfile='${manager.war}' basedir='${manager}'/>
   </target>
 
-  <target name='dist' depends='container-jar,manager-war,native,native-skip'/>
+  <target name='dist' depends='container-jar,manager-war'/>
 
   <!-- Release target creates versioned artifacts for distribution -->
   <target name='release' depends='dist' description='Create versioned release artifacts'>
@@ -437,6 +319,8 @@
       <classpath>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${agent15.jar}'/>
+        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -477,6 +361,8 @@
         <pathelement location='${build}'/>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${agent15.jar}'/>
+        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${jsp.jar}'/>
@@ -499,6 +385,8 @@
         <pathelement location='${build}'/>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${agent15.jar}'/>
+        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${jsp.jar}'/>
@@ -549,6 +437,8 @@
     <pathelement location='${build}'/>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${agent15.jar}'/>
+    <pathelement location='${lib}/${hkdf.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
@@ -572,9 +462,6 @@
       <junit printsummary='yes' haltonfailure='no' fork='yes'
              showoutput='true' logfailedtests='true'>
         <classpath refid='integration.classpath'/>
-        <!-- Locate the native libgumdrop (QUIC/DNS) built into dist by the
-             'native' target, so client-side tests that use it can load it. -->
-        <jvmarg value='-Djava.library.path=${dist}'/>
         <batchtest fork='yes' todir='${test}/integration/results/xml'>
           <fileset dir='${test}/integration/src'>
             <include name='@{includes}'/>
@@ -596,8 +483,7 @@
     <integration-junit includes='**/http/*IntegrationTest.java'/>
   </target>
 
-  <!-- Run HTTP client integration tests (needs TLS keystore for h2 over TLS;
-       HTTP/3 cases self-skip when the native QUIC library is unavailable) -->
+  <!-- Run HTTP client integration tests (needs TLS keystore for h2 over TLS) -->
   <target name='integration-test-http-client' depends='integration-setup'
           description='Run HTTP client integration tests (h1.1, h2, h3)'>
     <integration-junit includes='**/http/client/*IntegrationTest.java'/>

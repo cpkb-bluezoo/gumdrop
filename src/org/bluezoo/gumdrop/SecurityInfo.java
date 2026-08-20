@@ -121,4 +121,19 @@ public interface SecurityInfo {
      */
     boolean isSessionResumed();
 
+    /**
+     * Returns whether 0-RTT early data (RFC 9001 section 4.6.1) was
+     * accepted on this connection -- always false if 0-RTT was never
+     * attempted at all, not just if it was rejected.
+     *
+     * <p>Default implementation returns false, so existing implementations
+     * are unaffected by this method's addition. Currently meaningful only
+     * for QUIC connections; every other transport has no 0-RTT concept.
+     *
+     * @return true if 0-RTT was accepted
+     */
+    default boolean isEarlyDataAccepted() {
+        return false;
+    }
+
 }

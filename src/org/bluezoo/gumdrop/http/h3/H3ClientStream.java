@@ -22,35 +22,62 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.io.IOException;
+import java.net.ProtocolException;
 import java.nio.ByteBuffer;
+import java.security.Principal;
+import java.text.MessageFormat;
+import java.util.List;
+import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
+import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
+import org.bluezoo.gumdrop.websocket.WebSocketConnection;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
+import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 /**
  * A single HTTP/3 client request/response exchange on a QUIC stream.
  *
  * <p>This is the client-side counterpart of {@link H3Stream}. Each
- * instance tracks one outgoing request and translates h3 response events
- * (HEADERS, DATA, FINISHED, RESET) into
- * {@link HTTPResponseHandler} callbacks per RFC 9114 section 4.1
- * (HTTP message exchanges).
+ * instance is itself the QUIC stream's {@link ProtocolHandler}, owning
+ * its own {@link H3Parser} fed directly from {@link #receive}, and
+ * translates HTTP/3 response frames into {@link HTTPResponseHandler}
+ * callbacks per RFC 9114 section 4.1 (HTTP message exchanges) -- or, for a
+ * WebSocket-over-H3 Extended CONNECT (RFC 9220 section 3, see
+ * {@link #forWebSocket}), into {@link WebSocketEventHandler} callbacks
+ * once the {@code 200} response arrives, mirroring {@link H3Stream}'s own
+ * {@code H3WebSocketConnectionAdapter}/{@code H3WebSocketTransport} pair
+ * on the server side. Exactly one of {@code responseHandler}/{@code wsHandler}
+ * is non-null for a given instance.
  *
  * <p>Response pseudo-headers (RFC 9114 section 4.3.2) are parsed from
- * the initial HEADERS event; specifically the {@code :status}
- * pseudo-header determines the response status code.
+ * the initial HEADERS frame, decoded via the connection-shared {@link
+ * Decoder} (RFC 9204's full dynamic-table QPACK codec); specifically the
+ * {@code :status} pseudo-header determines the response status code.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ClientHandler
  * @see HTTPResponseHandler
  */
-class H3ClientStream {
+class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(H3ClientStream.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(H3ClientStream.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
+
+    private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
 
     /**
      * Stream lifecycle states.
@@ -66,57 +93,194 @@ class H3ClientStream {
         CLOSED
     }
 
-    private final HTTP3ClientHandler handler;
-    private final long streamId;
+    private final H3Parser parser = new H3Parser(this);
+    private final HTTP3ClientHandler connection;
+    private final Decoder qpackDecoder;
     private final HTTPResponseHandler responseHandler;
+    private final WebSocketEventHandler wsHandler;
+    private final List<WebSocketExtension> requestedExtensions;
+    private Endpoint endpoint;
+    // Mirrors ((QuicStreamEndpoint) endpoint).getStreamId(), captured
+    // once in connected() so QPACK bookkeeping doesn't depend on
+    // endpoint being non-null (unit tests construct this class directly
+    // without ever calling connected() -- see H3ClientStreamTest).
+    private long streamId;
 
     private State state;
     private boolean bodyStarted;
+    private H3ClientWebSocketConnectionAdapter webSocketAdapter;
 
-    H3ClientStream(HTTP3ClientHandler handler, long streamId,
-                   HTTPResponseHandler responseHandler) {
-        this.handler = handler;
-        this.streamId = streamId;
+    // RFC 9204 section 4.4.2: see H3Stream's identically-purposed field
+    // -- whether this stream's response field section was ever
+    // successfully decoded, consulted the same way on early termination.
+    private boolean headersDecoded;
+
+    H3ClientStream(HTTP3ClientHandler connection, Decoder qpackDecoder, HTTPResponseHandler responseHandler) {
+        this.connection = connection;
+        this.qpackDecoder = qpackDecoder;
         this.responseHandler = responseHandler;
+        this.wsHandler = null;
+        this.requestedExtensions = null;
+        this.state = State.OPEN;
+    }
+
+    private H3ClientStream(HTTP3ClientHandler connection, Decoder qpackDecoder, WebSocketEventHandler wsHandler,
+            List<WebSocketExtension> requestedExtensions) {
+        this.connection = connection;
+        this.qpackDecoder = qpackDecoder;
+        this.responseHandler = null;
+        this.wsHandler = wsHandler;
+        this.requestedExtensions = requestedExtensions;
         this.state = State.OPEN;
     }
 
     /**
-     * Returns the QUIC stream ID for this HTTP/3 stream.
+     * Creates a stream for a WebSocket-over-H3 Extended CONNECT (RFC 9220
+     * section 3), used by {@link HTTP3ClientHandler#connectWebSocket}.
+     *
+     * @param connection the owning connection, for flushing QPACK
+     *                   decoder-stream instructions
+     * @param qpackDecoder the QPACK decoder for the response HEADERS frame
+     * @param wsHandler the handler to receive WebSocket events once the
+     *                  upgrade completes
+     * @param requestedExtensions the extensions offered in the request, to
+     *                            reconcile against the server's response
+     * @return the new stream
      */
-    long getStreamId() {
-        return streamId;
+    static H3ClientStream forWebSocket(HTTP3ClientHandler connection, Decoder qpackDecoder,
+            WebSocketEventHandler wsHandler, List<WebSocketExtension> requestedExtensions) {
+        return new H3ClientStream(connection, qpackDecoder, wsHandler, requestedExtensions);
     }
 
-    // ── Event Dispatch (called by HTTP3ClientHandler) ──
+    // ── ProtocolHandler ──
+
+    @Override
+    public void connected(Endpoint endpoint) {
+        this.endpoint = endpoint;
+        this.streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
+    }
 
     /**
-     * Called when an h3 HEADERS event is received for this stream.
-     * The headers are provided as a flat array of alternating
-     * name/value pairs.
+     * Returns the endpoint for this stream, once {@link #connected} has
+     * been called.
      */
-    void onHeaders(String[] headerPairs) {
+    Endpoint getEndpoint() {
+        return endpoint;
+    }
+
+    @Override
+    public void receive(ByteBuffer data) {
+        parser.receive(data);
+    }
+
+    @Override
+    public void securityEstablished(SecurityInfo info) {
+    }
+
+    @Override
+    public void disconnected() {
+        // connection is only ever null when a test constructs this class
+        // directly without going through HTTP3ClientHandler (see
+        // H3ClientStreamTest) -- never in production.
+        if (!headersDecoded && connection != null) {
+            connection.cancelQpackStream(streamId);
+        }
+        // See H3Stream#disconnected: the QUIC layer delivers both a
+        // clean FIN and a peer RESET_STREAM through this same callback,
+        // so both are treated as a normal finish.
+        onFinished();
+    }
+
+    @Override
+    public void error(Exception cause) {
+        if (!headersDecoded && connection != null) {
+            connection.cancelQpackStream(streamId);
+        }
+        state = State.CLOSED;
+        if (webSocketAdapter != null) {
+            if (cause instanceof QuicConnectionCloseException) {
+                // RFC 6455 section 7.4: 1006 is reserved for "the connection
+                // was closed abnormally, e.g. without a Close frame being
+                // sent" -- exactly this case (the underlying QUIC connection
+                // is already gone, no closing handshake is possible). The
+                // real QUIC/H3 error code and reason go into the reason
+                // string, since 1006 itself carries no code slot.
+                webSocketAdapter.notifyTransportClosed(1006, cause.getMessage());
+            } else {
+                webSocketAdapter.notifyError(cause);
+            }
+        } else {
+            responseHandler.failed(cause);
+        }
+    }
+
+    // ── H3FrameHandler ──
+
+    @Override
+    public void headersFrameReceived(ByteBuffer encodedFieldSection) {
+        List<Header> fields;
+        try {
+            fields = qpackDecoder.decode(streamId, encodedFieldSection);
+        } catch (ProtocolException e) {
+            LOGGER.log(Level.WARNING, L10N.getString("warn.qpack_decode_failed"), e);
+            state = State.CLOSED;
+            IOException ex = new IOException("Malformed HTTP/3 response headers", e);
+            if (wsHandler != null) {
+                wsHandler.error(ex);
+            } else {
+                responseHandler.failed(ex);
+            }
+            return;
+        }
+        headersDecoded = true;
+        onHeaders(fields);
+        // connection is only ever null in a test that constructs this
+        // class directly (see H3ClientStreamTest).
+        if (connection != null) {
+            connection.flushQpackDecoderInstructions();
+        }
+    }
+
+    private void onHeaders(List<Header> fields) {
         if (state == State.OPEN) {
-            int statusCode = extractStatus(headerPairs);
+            int statusCode = extractStatus(fields);
 
             // RFC 9114 section 4.3.2: :status is mandatory; its
             // absence means the response is malformed
             if (statusCode < 0) {
                 state = State.CLOSED;
-                responseHandler.failed(new IOException(
-                        "Malformed HTTP/3 response: missing :status"));
+                IOException ex = new IOException("Malformed HTTP/3 response: missing :status");
+                if (wsHandler != null) {
+                    wsHandler.error(ex);
+                } else {
+                    responseHandler.failed(ex);
+                }
                 return;
             }
 
             // RFC 9114 section 4.1 / RFC 9110 section 15.2:
             // informational 1xx responses are interim — consume
-            // headers and return to OPEN to await the final response
+            // headers and return to OPEN to await the final response.
+            // RFC 9220 doesn't define an interim response for Extended
+            // CONNECT, so these are simply ignored in WebSocket mode.
             if (statusCode >= 100 && statusCode < 200) {
-                for (int i = 0; i < headerPairs.length; i += 2) {
-                    if (!headerPairs[i].startsWith(":")) {
-                        responseHandler.header(headerPairs[i],
-                                headerPairs[i + 1]);
+                if (wsHandler == null) {
+                    for (Header field : fields) {
+                        if (!field.getName().startsWith(":")) {
+                            responseHandler.header(field.getName(), field.getValue());
+                        }
                     }
+                }
+                return;
+            }
+
+            if (wsHandler != null) {
+                state = State.HEADERS_RECEIVED;
+                if (statusCode == 200) {
+                    completeWebSocketUpgrade(fields);
+                } else {
+                    state = State.CLOSED;
+                    wsHandler.error(new IOException("WebSocket upgrade failed: status " + statusCode));
                 }
                 return;
             }
@@ -131,24 +295,52 @@ class H3ClientStream {
             }
         }
 
-        for (int i = 0; i < headerPairs.length; i += 2) {
-            String name = headerPairs[i];
-            String value = headerPairs[i + 1];
-            if (!name.startsWith(":")) {
-                responseHandler.header(name, value);
+        if (wsHandler == null) {
+            for (Header field : fields) {
+                if (!field.getName().startsWith(":")) {
+                    responseHandler.header(field.getName(), field.getValue());
+                }
             }
         }
+    }
+
+    /**
+     * RFC 9220 section 3/4: the server accepted the Extended CONNECT with
+     * a {@code 200} response -- reconciles the negotiated subprotocol/
+     * extensions and bridges this stream to a {@link WebSocketConnection}.
+     */
+    private void completeWebSocketUpgrade(List<Header> fields) {
+        String extensionsHeader = null;
+        for (Header field : fields) {
+            if ("sec-websocket-extensions".equalsIgnoreCase(field.getName())) {
+                extensionsHeader = field.getValue();
+                break;
+            }
+        }
+        List<WebSocketExtension> activeExtensions =
+                WebSocketHandshake.reconcileExtensions(extensionsHeader, requestedExtensions);
+
+        webSocketAdapter = new H3ClientWebSocketConnectionAdapter(wsHandler);
+        // RFC 9220 changes only the opening handshake, not RFC 6455
+        // framing -- masking still applies over H3, and this is the
+        // client side of it (masks outgoing, expects unmasked incoming).
+        webSocketAdapter.setClientMode(true);
+        webSocketAdapter.setTransport(new H3ClientWebSocketTransport());
+        if (!activeExtensions.isEmpty()) {
+            webSocketAdapter.setExtensions(activeExtensions);
+        }
+        webSocketAdapter.notifyConnectionOpen();
     }
 
     /**
      * Extracts the :status pseudo-header value (RFC 9114 section 4.3.2).
      * Returns the status code, or -1 if :status is absent.
      */
-    private int extractStatus(String[] headerPairs) {
-        for (int i = 0; i < headerPairs.length; i += 2) {
-            if (":status".equals(headerPairs[i])) {
+    private static int extractStatus(List<Header> fields) {
+        for (Header field : fields) {
+            if (":status".equals(field.getName())) {
                 try {
-                    return Integer.parseInt(headerPairs[i + 1]);
+                    return Integer.parseInt(field.getValue());
                 } catch (NumberFormatException e) {
                     return 500;
                 }
@@ -157,10 +349,17 @@ class H3ClientStream {
         return -1;
     }
 
-    /**
-     * Called when an h3 DATA event is received for this stream.
-     */
-    void onData(ByteBuffer data) {
+    @Override
+    public void dataFrameReceived(ByteBuffer data, boolean endOfFrame) {
+        if (webSocketAdapter != null) {
+            try {
+                webSocketAdapter.processIncomingData(data);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("warn.websocket_frame_error"), e);
+                webSocketAdapter.notifyError(e);
+            }
+            return;
+        }
         if (!bodyStarted) {
             bodyStarted = true;
             state = State.RECEIVING_BODY;
@@ -169,11 +368,20 @@ class H3ClientStream {
         responseHandler.responseBodyContent(data);
     }
 
-    /**
-     * Called when an h3 FINISHED event is received (stream closed
-     * by server).
-     */
-    void onFinished() {
+    private void onFinished() {
+        if (state == State.CLOSED) {
+            return;
+        }
+        if (webSocketAdapter != null) {
+            try {
+                webSocketAdapter.processIncomingData(EMPTY_BUFFER.duplicate());
+            } catch (IOException ignored) {
+                // FIN with empty data
+            }
+            webSocketAdapter.notifyTransportClosed(1001, "Transport closed");
+            state = State.CLOSED;
+            return;
+        }
         if (bodyStarted) {
             responseHandler.endResponseBody();
         }
@@ -181,14 +389,41 @@ class H3ClientStream {
         responseHandler.close();
     }
 
-    /**
-     * Called when an h3 RESET event is received (stream aborted
-     * by server).
-     */
-    void onReset() {
+    @Override
+    public void cancelPushFrameReceived(long pushId) {
+    }
+
+    @Override
+    public void settingsFrameReceived(long[] settings) {
+        // SETTINGS is control-stream only; request-stream-level framing
+        // errors are handled uniformly via frameError.
+    }
+
+    @Override
+    public void pushPromiseFrameReceived(long pushId, ByteBuffer encodedFieldSection) {
+    }
+
+    @Override
+    public void goawayFrameReceived(long streamOrPushId) {
+    }
+
+    @Override
+    public void maxPushIdFrameReceived(long maxPushId) {
+    }
+
+    @Override
+    public void frameError(String message) {
+        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
+        LOGGER.warning(formatted);
         state = State.CLOSED;
-        responseHandler.failed(new IOException(
-                "HTTP/3 stream reset: " + streamId));
+        IOException ex = new IOException("HTTP/3 frame error: " + message);
+        if (webSocketAdapter != null) {
+            webSocketAdapter.notifyError(ex);
+        } else if (wsHandler != null) {
+            wsHandler.error(ex);
+        } else {
+            responseHandler.failed(ex);
+        }
     }
 
     /**
@@ -197,7 +432,104 @@ class H3ClientStream {
      * connection.
      */
     void onGoawayFailed(IOException cause) {
+        if (state == State.CLOSED) {
+            return;
+        }
         state = State.CLOSED;
-        responseHandler.failed(cause);
+        if (webSocketAdapter != null) {
+            webSocketAdapter.notifyError(cause);
+        } else if (wsHandler != null) {
+            wsHandler.error(cause);
+        } else {
+            responseHandler.failed(cause);
+        }
+    }
+
+    // ── WebSocket adapter inner classes ──
+    //
+    // Direct client-side mirrors of H3Stream's H3WebSocketConnectionAdapter/
+    // H3WebSocketTransport.
+
+    /**
+     * Bridges {@link WebSocketEventHandler} to the {@link WebSocketConnection}
+     * abstract class.
+     */
+    private static class H3ClientWebSocketConnectionAdapter extends WebSocketConnection implements WebSocketSession {
+
+        private final WebSocketEventHandler wsHandler;
+
+        H3ClientWebSocketConnectionAdapter(WebSocketEventHandler wsHandler) {
+            this.wsHandler = wsHandler;
+        }
+
+        @Override
+        protected void opened() {
+            wsHandler.opened(this);
+        }
+
+        @Override
+        protected void textMessageReceived(String message) {
+            wsHandler.textMessageReceived(this, message);
+        }
+
+        @Override
+        protected void binaryMessageReceived(ByteBuffer data) {
+            wsHandler.binaryMessageReceived(this, data);
+        }
+
+        @Override
+        protected void closed(int code, String reason) {
+            wsHandler.closed(code, reason);
+        }
+
+        @Override
+        protected void error(Throwable cause) {
+            wsHandler.error(cause);
+        }
+
+        @Override
+        public Principal getPrincipal() {
+            // No server-asserted principal concept on the client side.
+            return null;
+        }
+
+        void notifyError(Throwable cause) {
+            error(cause);
+        }
+
+        void notifyTransportClosed(int code, String reason) {
+            if (isOpen()) {
+                abnormalClose(code, reason);
+            }
+        }
+    }
+
+    /**
+     * {@link WebSocketConnection.WebSocketTransport} that sends WebSocket
+     * frames as HTTP/3 DATA frames on this stream.
+     */
+    private class H3ClientWebSocketTransport implements WebSocketConnection.WebSocketTransport {
+
+        @Override
+        public void sendFrame(ByteBuffer frameData) throws IOException {
+            if (state == State.CLOSED) {
+                throw new IOException("Stream closed");
+            }
+            int length = frameData.remaining();
+            ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(length));
+            byte[] bytes = new byte[length];
+            frameData.get(bytes);
+            H3Writer.writeData(out, bytes);
+            out.flip();
+            endpoint.send(out);
+        }
+
+        @Override
+        public void close(boolean normalClose) throws IOException {
+            if (state != State.CLOSED) {
+                endpoint.close();
+                state = State.CLOSED;
+            }
+        }
     }
 }

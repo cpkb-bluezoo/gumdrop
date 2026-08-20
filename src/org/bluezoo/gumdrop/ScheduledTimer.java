@@ -171,7 +171,17 @@ final class ScheduledTimer implements Runnable {
             }
 
             if (toDispatch != null) {
-                dispatchTimer(toDispatch);
+                // A callback that throws must not take this timer's whole
+                // thread down with it -- every other pending/future timer
+                // on this loop would silently stop firing, and (via the
+                // ChannelHandler.scheduleTimer fallback) so would every
+                // future scheduleTimer() call on this loop degrade to the
+                // shared Gumdrop-wide timer instead.
+                try {
+                    dispatchTimer(toDispatch);
+                } catch (RuntimeException e) {
+                    LOGGER.log(Level.WARNING, "Uncaught exception from timer callback", e);
+                }
                 toDispatch = null;
             }
         }

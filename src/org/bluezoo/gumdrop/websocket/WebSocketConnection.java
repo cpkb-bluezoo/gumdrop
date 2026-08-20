@@ -468,6 +468,27 @@ public abstract class WebSocketConnection {
     }
 
     /**
+     * Forces the closing handshake to complete immediately, without
+     * attempting to send or wait for a Close frame.
+     *
+     * <p>{@link #close(int, String)} always tries a real wire round-trip
+     * (send a Close frame, then wait for the peer's echo before actually
+     * delivering {@link #closed(int, String)}) -- appropriate when the
+     * transport is still up, but meaningless once it's already gone (e.g.
+     * the underlying QUIC/TCP connection was itself torn down): there is no
+     * peer left to echo anything back, so that wait never resolves and the
+     * application never learns the session closed. Use this instead when
+     * the transport's own disconnect notification is what's driving the
+     * close, not an application-initiated {@link #close()}.
+     *
+     * @param code the close code (RFC 6455 section 7.4)
+     * @param reason the close reason, or null
+     */
+    protected final void abnormalClose(int code, String reason) {
+        completeClose(code, reason);
+    }
+
+    /**
      * RFC 6455 §5 — processes incoming WebSocket frame data from the transport.
      *
      * @param buffer the buffer containing frame data

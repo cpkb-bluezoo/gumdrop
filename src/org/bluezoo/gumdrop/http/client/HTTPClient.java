@@ -56,7 +56,12 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.dns.DNSMessage;
+import org.bluezoo.gumdrop.dns.DNSQueryCallback;
+import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.http.HTTPVersion;
@@ -65,6 +70,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
 /**
  * High-level HTTP client facade.
@@ -133,6 +140,8 @@ public class HTTPClient implements AltSvcListener {
     private boolean h2WithPriorKnowledge;
     private boolean h3Enabled;
     private boolean altSvcEnabled = true;
+    private boolean dnsHttpsRecordEnabled = true;
+    private boolean earlyDataEnabled;
     private Path certFile;
     private Path keyFile;
     private boolean verifyPeer = true;
@@ -342,17 +351,22 @@ public class HTTPClient implements AltSvcListener {
     }
 
     /**
-     * Enables or disables HTTP/3 over QUIC.
+     * Forces HTTP/3 over QUIC, bypassing automatic transport negotiation.
      *
-     * <p>When enabled, the client connects via QUIC with ALPN "h3"
-     * instead of TCP. HTTP/3 requires TLS 1.3 (built into QUIC), so
+     * <p>By default (this not called), {@link #connect(HTTPClientHandler)}
+     * negotiates the transport automatically: a DNS HTTPS record
+     * advertising "h3" support (see {@link #setDnsHttpsRecordEnabled(boolean)}),
+     * then a cached Alt-Svc discovery ({@link AltSvcCache}), then plain TCP
+     * (HTTP/2 via ALPN/h2c, else HTTP/1.1). Calling this with {@code true}
+     * skips all of that and connects via QUIC with ALPN "h3" directly, with
+     * no fallback. HTTP/3 requires TLS 1.3 (built into QUIC), so
      * the {@link #setSecure(boolean)} flag is implicitly true.
      *
      * <p>If PEM certificate/key files are needed for client authentication,
      * set them via {@link #setCertFile(String)} and
      * {@link #setKeyFile(String)}.
      *
-     * @param enabled true to enable HTTP/3
+     * @param enabled true to force HTTP/3
      */
     public void setH3Enabled(boolean enabled) {
         this.h3Enabled = enabled;
@@ -363,13 +377,51 @@ public class HTTPClient implements AltSvcListener {
      * HTTP/3 upgrade.
      *
      * <p>When enabled (the default), the client inspects Alt-Svc
-     * response headers and may transparently open an HTTP/3 connection.
-     * Disable this when a specific protocol version is required.
+     * response headers, may transparently open an HTTP/3 connection for
+     * this instance, and caches the discovery ({@link AltSvcCache}) for
+     * later connections to the same host. Disable this when a specific
+     * protocol version is required.
      *
      * @param enabled true to enable Alt-Svc discovery
      */
     public void setAltSvcEnabled(boolean enabled) {
         this.altSvcEnabled = enabled;
+    }
+
+    /**
+     * Enables or disables DNS HTTPS-record discovery (RFC 9460) of HTTP/3
+     * support, checked before connecting.
+     *
+     * <p>When enabled (the default), {@link #connect(HTTPClientHandler)}
+     * queries an HTTPS record for the target host via gumdrop's async
+     * {@link DNSResolver} before choosing a transport; if it advertises
+     * "h3" ALPN support, the connection uses QUIC directly. This is the
+     * first tier of automatic negotiation, checked ahead of the
+     * {@link AltSvcCache}.
+     *
+     * @param enabled true to enable DNS HTTPS-record discovery
+     */
+    public void setDnsHttpsRecordEnabled(boolean enabled) {
+        this.dnsHttpsRecordEnabled = enabled;
+    }
+
+    /**
+     * Enables or disables QUIC 0-RTT early data (RFC 9001 section 4.6.1)
+     * for HTTP/3 connections.
+     *
+     * <p>When enabled, if a session ticket was cached from a previous
+     * connection to the same destination ({@link org.bluezoo.gumdrop.quic.SessionTicketCache}),
+     * a GET/HEAD/OPTIONS/TRACE request issued immediately after
+     * {@link #connect(HTTPClientHandler)} may ride the very first flight of
+     * packets, before the TLS handshake completes -- see
+     * {@link HTTPMethodSafety}. Disabled by default: 0-RTT data has no
+     * anti-replay guarantee at the transport layer, so this is an explicit
+     * opt-in.
+     *
+     * @param enabled true to enable 0-RTT
+     */
+    public void setEarlyDataEnabled(boolean enabled) {
+        this.earlyDataEnabled = enabled;
     }
 
     /**
@@ -504,6 +556,106 @@ public class HTTPClient implements AltSvcListener {
             return;
         }
 
+        discoverAndConnect(handler);
+    }
+
+    /**
+     * Automatic transport negotiation, tier 1 (DNS HTTPS record) and tier 2
+     * (cached Alt-Svc discovery), falling through to {@link #connectTcp}
+     * (today's HTTP/2-via-ALPN-or-h2c / HTTP/1.1 behaviour) when neither
+     * applies.
+     *
+     * <p>Skipped entirely -- straight to {@link #connectTcp} -- when there
+     * is no hostname to query: a literal {@link InetAddress} was given at
+     * construction, {@link #host} is itself a literal IP, or it's
+     * {@code localhost} (matching {@link DNSResolver#resolve}'s own
+     * loopback fast-path; a real DNS round trip for loopback targets would
+     * otherwise slow down/break every test and tool connecting locally).
+     */
+    private void discoverAndConnect(final HTTPClientHandler handler) {
+        if (hostAddress != null || host == null) {
+            connectTcp(handler);
+            return;
+        }
+        if (!dnsHttpsRecordEnabled || isUndiscoverableHost(host)) {
+            // Skip only the DNS round trip -- the AltSvcCache tier is a
+            // fast, in-memory lookup, worth checking even for localhost/
+            // literal-IP targets.
+            connectViaAltSvcCacheOrTcp(handler);
+            return;
+        }
+
+        SelectorLoop loop = selectorLoop;
+        if (loop == null) {
+            Gumdrop gumdrop = Gumdrop.getInstance();
+            gumdrop.start();
+            loop = gumdrop.nextWorkerLoop();
+        }
+        if (loop == null) {
+            connectTcp(handler);
+            return;
+        }
+
+        DNSResolver resolver = DNSResolver.forLoop(loop);
+        resolver.queryHTTPS(host, new DNSQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response) {
+                for (DNSResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DNSType.HTTPS || rr.isSVCBAliasForm()) {
+                        continue;
+                    }
+                    if (rr.getSVCBAlpnProtocols().contains("h3")) {
+                        int svcbPort = rr.getSVCBPort();
+                        int targetPort = svcbPort > 0 ? svcbPort : port;
+                        h3Enabled = true;
+                        resolveAndConnectH3(host, targetPort, handler);
+                        return;
+                    }
+                }
+                connectViaAltSvcCacheOrTcp(handler);
+            }
+
+            @Override
+            public void onError(String error) {
+                connectViaAltSvcCacheOrTcp(handler);
+            }
+        });
+    }
+
+    private void connectViaAltSvcCacheOrTcp(HTTPClientHandler handler) {
+        AltSvcCache.Entry cached = AltSvcCache.get(host, port);
+        if (cached != null) {
+            h3Enabled = true;
+            String altHost = cached.getH3Host();
+            if (altHost != null) {
+                resolveAndConnectH3(altHost, cached.getH3Port(), handler);
+            } else {
+                resolveAndConnectH3(host, cached.getH3Port(), handler);
+            }
+            return;
+        }
+        connectTcp(handler);
+    }
+
+    /**
+     * Returns true if {@code hostname} isn't worth issuing a DNS HTTPS-record
+     * query for: a literal IPv4/IPv6 address, or loopback.
+     */
+    private static boolean isUndiscoverableHost(String hostname) {
+        if ("localhost".equalsIgnoreCase(hostname)
+                || "localhost.".equalsIgnoreCase(hostname)) {
+            return true;
+        }
+        return HostsFile.parseLiteralIPv4(hostname) != null
+                || HostsFile.parseLiteralIPv6(hostname) != null;
+    }
+
+    /**
+     * Today's TCP-first behaviour: HTTP/2 via ALPN (secure) or h2c upgrade
+     * (cleartext), else HTTP/1.1 -- all already automatic, plus the
+     * existing reactive Alt-Svc upgrade once connected.
+     */
+    private void connectTcp(final HTTPClientHandler handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
         if (sslContext != null) {
@@ -672,6 +824,7 @@ public class HTTPClient implements AltSvcListener {
             quicTransportFactory.setKeyFile(keyFile);
         }
         quicTransportFactory.setVerifyPeer(verifyPeer);
+        quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
 
         try {
             quicTransportFactory.start();
@@ -688,10 +841,36 @@ public class HTTPClient implements AltSvcListener {
                         @Override
                         public void connectionAccepted(
                                 QuicConnection connection) {
-                            h3Handler = new HTTP3ClientHandler(connection);
-                            handler.onConnected(null);
+                            // Idempotent: if 0-RTT already constructed
+                            // h3Handler and told the application the
+                            // connection is ready (see EarlyDataHandler
+                            // below), don't do so again here -- just flush
+                            // anything deferred pending establishment.
+                            // Either way, this callback is the one place
+                            // that reports the handshake itself as done.
+                            if (h3Handler == null) {
+                                h3Handler = new HTTP3ClientHandler(connection);
+                                handler.onConnected(null);
+                            } else {
+                                h3Handler.runDeferredRequests();
+                            }
                             handler.onSecurityEstablished(
                                     connection.getSecurityInfo());
+                        }
+                    },
+                    new QuicEngine.EarlyDataHandler() {
+                        @Override
+                        public void earlyDataReady(QuicConnection connection) {
+                            // RFC 9001 section 4.6.1: 0-RTT send keys are
+                            // ready, well before the handshake completes.
+                            // Construct h3Handler and let the application
+                            // start issuing requests now -- H3Request gates
+                            // any non-0-RTT-eligible method behind full
+                            // establishment (see HTTPMethodSafety), so this
+                            // is safe even if the application immediately
+                            // issues a POST.
+                            h3Handler = new HTTP3ClientHandler(connection);
+                            handler.onConnected(null);
                         }
                     },
                     loop, serverName);
@@ -881,26 +1060,53 @@ public class HTTPClient implements AltSvcListener {
         return endpointHandler.request(method, path);
     }
 
+    /**
+     * Initiates a WebSocket-over-HTTP/3 connection via Extended CONNECT
+     * (RFC 9220 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     *
+     * @param path the request path
+     * @param subprotocol the WebSocket subprotocol to request, or null
+     * @param extensions the extensions to offer, or null/empty for none
+     * @param wsHandler the handler to receive WebSocket events
+     */
+    public void connectWebSocket(String path, String subprotocol,
+            List<WebSocketExtension> extensions, WebSocketEventHandler wsHandler) {
+        if (h3Handler == null) {
+            wsHandler.error(new IllegalStateException(
+                    "WebSocket-over-HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectWebSocket(authority, path, subprotocol, extensions, wsHandler);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Alt-Svc discovery
     // ═══════════════════════════════════════════════════════════════════
 
     @Override
     public void altSvcReceived(String value) {
-        if (h3Handler != null || h3UpgradeInProgress) {
-            return;
-        }
-
-        int[] parsed = parseAltSvcH3(value);
+        AltSvcListener.H3Entry parsed = AltSvcListener.parseAltSvcH3(value);
         if (parsed == null) {
             return;
         }
 
         String altHost = null;
-        int altHostLen = parsed[0];
-        int altPort = parsed[1];
-        if (altHostLen > 0) {
-            altHost = extractAltSvcHost(value, altHostLen);
+        if (parsed.hostLength > 0) {
+            altHost = AltSvcListener.extractAltSvcHost(value, parsed.hostLength);
+        }
+        int altPort = parsed.port;
+
+        // Cache for future connections/instances to this origin, regardless
+        // of whether this instance itself upgrades below.
+        AltSvcCache.put(host, port, altHost, altPort, parsed.maxAgeSeconds);
+
+        if (h3Handler != null || h3UpgradeInProgress) {
+            return;
         }
 
         if (LOGGER.isLoggable(Level.INFO)) {
@@ -917,107 +1123,6 @@ public class HTTPClient implements AltSvcListener {
         } else {
             resolveAndConnectH3(host, altPort, connectHandler);
         }
-    }
-
-    /**
-     * Parses the h3 entry from an Alt-Svc header value.
-     * Character-by-character parsing; no regex.
-     *
-     * <p>Looks for {@code h3="[host]:port"} in the value.
-     * Returns a two-element array {@code [hostLength, port]} where
-     * hostLength is the length of the host substring (0 means same
-     * origin), or {@code null} if no h3 entry is found.
-     */
-    static int[] parseAltSvcH3(String value) {
-        int len = value.length();
-        int i = 0;
-
-        while (i < len) {
-            while (i < len && (value.charAt(i) == ' '
-                    || value.charAt(i) == '\t')) {
-                i++;
-            }
-
-            if (i + 4 <= len
-                    && value.charAt(i) == 'h'
-                    && value.charAt(i + 1) == '3'
-                    && value.charAt(i + 2) == '='
-                    && value.charAt(i + 3) == '"') {
-                i += 4;
-
-                int hostStart = i;
-                int colonPos = -1;
-
-                while (i < len && value.charAt(i) != '"') {
-                    if (value.charAt(i) == ':') {
-                        colonPos = i;
-                    }
-                    i++;
-                }
-
-                if (i >= len || colonPos < 0) {
-                    return null;
-                }
-
-                int hostLen = colonPos - hostStart;
-                int portStart = colonPos + 1;
-                int portEnd = i;
-
-                int port = 0;
-                for (int p = portStart; p < portEnd; p++) {
-                    char c = value.charAt(p);
-                    if (c < '0' || c > '9') {
-                        return null;
-                    }
-                    port = port * 10 + (c - '0');
-                }
-
-                if (port <= 0 || port > 65535) {
-                    return null;
-                }
-
-                return new int[] { hostLen, port };
-            }
-
-            while (i < len && value.charAt(i) != ',') {
-                i++;
-            }
-            if (i < len) {
-                i++;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Extracts the host portion from the h3 Alt-Svc entry.
-     * Assumes the value starts with {@code h3="host:port"} and the
-     * host is {@code hostLen} characters after the opening quote.
-     */
-    private static String extractAltSvcHost(String value, int hostLen) {
-        int i = 0;
-        int len = value.length();
-        while (i < len) {
-            while (i < len && (value.charAt(i) == ' '
-                    || value.charAt(i) == '\t')) {
-                i++;
-            }
-            if (i + 4 <= len
-                    && value.charAt(i) == 'h'
-                    && value.charAt(i + 1) == '3'
-                    && value.charAt(i + 2) == '='
-                    && value.charAt(i + 3) == '"') {
-                return value.substring(i + 4, i + 4 + hostLen);
-            }
-            while (i < len && value.charAt(i) != ',') {
-                i++;
-            }
-            if (i < len) {
-                i++;
-            }
-        }
-        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════════

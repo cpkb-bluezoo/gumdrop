@@ -202,5 +202,6 @@ public class H2FrameHandlerTest {
         assertEquals(0x4, H2FrameHandler.SETTINGS_INITIAL_WINDOW_SIZE);
         assertEquals(0x5, H2FrameHandler.SETTINGS_MAX_FRAME_SIZE);
         assertEquals(0x6, H2FrameHandler.SETTINGS_MAX_HEADER_LIST_SIZE);
+        assertEquals(0x8, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL);
     }
 }
