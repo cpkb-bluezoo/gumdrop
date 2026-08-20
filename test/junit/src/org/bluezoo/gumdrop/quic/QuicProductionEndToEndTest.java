@@ -1146,6 +1146,147 @@ public class QuicProductionEndToEndTest {
         }
     }
 
+    /**
+     * RFC 9001 section 4.9 ("Discarding Unused Keys"): once Initial or
+     * Handshake keys are no longer needed, an endpoint MUST discard
+     * them -- and per RFC 9002 Appendix A.11, retire the corresponding
+     * loss-detection packet-number space. Before this fix, neither ever
+     * happened: the {@code discarded} array was declared but never set
+     * true anywhere, and {@code LossDetector.discardPacketNumberSpace}
+     * had no caller in the entire codebase, so every connection kept
+     * its Initial/Handshake send and receive keys, and the loss
+     * detector kept accumulating {@code sentPackets} entries for those
+     * two packet-number spaces, for the connection's entire lifetime --
+     * an unbounded memory leak, and (for any Initial/Handshake packet
+     * that was ever sent but never acknowledged) bytes permanently and
+     * incorrectly charged against the congestion window.
+     *
+     * <p>Verified on both ends of a real handshake: the client discards
+     * Initial keys once it has sent a Handshake packet and Handshake
+     * keys once it receives HANDSHAKE_DONE; the server discards Initial
+     * keys once it has processed a Handshake packet and Handshake keys
+     * once it confirms the handshake (queues HANDSHAKE_DONE). 1-RTT
+     * must never be discarded.
+     */
+    @Test
+    public void testInitialAndHandshakeStateDiscardedOnceNoLongerNeeded() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch serverConnected = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverConnectionRef.set(connection);
+                            serverConnected.countDown();
+                        }
+                    }, loop);
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            clientConnected.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have accepted the connection within 5s",
+                    serverConnected.await(5, TimeUnit.SECONDS));
+            assertTrue("Client should have completed its handshake within 5s",
+                    clientConnected.await(5, TimeUnit.SECONDS));
+
+            QuicConnection serverConnection = serverConnectionRef.get();
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+
+            long deadline = System.currentTimeMillis() + 5000;
+            while ((!isLevelDiscarded(serverConnection, EncryptionLevel.HANDSHAKE)
+                    || !isLevelDiscarded(clientConnection, EncryptionLevel.HANDSHAKE))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20);
+            }
+
+            for (QuicConnection conn : new QuicConnection[] { serverConnection, clientConnection }) {
+                assertTrue("Initial state should be discarded once no longer needed",
+                        isLevelDiscarded(conn, EncryptionLevel.INITIAL));
+                assertTrue("Handshake state should be discarded once the handshake is confirmed",
+                        isLevelDiscarded(conn, EncryptionLevel.HANDSHAKE));
+                assertFalse("1-RTT must never be discarded", isLevelDiscarded(conn, EncryptionLevel.ONE_RTT));
+
+                Map<EncryptionLevel, PacketProtectionKeys> sendKeys = getSendKeys(conn);
+                assertNull("Initial send keys must be discarded", sendKeys.get(EncryptionLevel.INITIAL));
+                assertNull("Handshake send keys must be discarded", sendKeys.get(EncryptionLevel.HANDSHAKE));
+                assertNotNull("1-RTT send keys must remain", sendKeys.get(EncryptionLevel.ONE_RTT));
+
+                Map<EncryptionLevel, PacketProtectionKeys> recvKeys = getRecvKeys(conn);
+                assertNull("Initial receive keys must be discarded", recvKeys.get(EncryptionLevel.INITIAL));
+                assertNull("Handshake receive keys must be discarded", recvKeys.get(EncryptionLevel.HANDSHAKE));
+                assertNotNull("1-RTT receive keys must remain", recvKeys.get(EncryptionLevel.ONE_RTT));
+
+                LossDetector lossDetector = getPrivateField(conn, "lossDetector", LossDetector.class);
+                assertTrue("LossDetector must have discarded the Initial packet-number space",
+                        getSentPacketsForLevel(lossDetector, EncryptionLevel.INITIAL).isEmpty());
+                assertTrue("LossDetector must have discarded the Handshake packet-number space",
+                        getSentPacketsForLevel(lossDetector, EncryptionLevel.HANDSHAKE).isEmpty());
+            }
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private static boolean isLevelDiscarded(QuicConnection connection, EncryptionLevel level) throws Exception {
+        boolean[] discarded = getPrivateField(connection, "discarded", boolean[].class);
+        return discarded[level.ordinal()];
+    }
+
+    private static Map<EncryptionLevel, PacketProtectionKeys> getSendKeys(QuicConnection connection) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, PacketProtectionKeys> sendKeys =
+                getPrivateField(connection, "sendKeys", Map.class);
+        return sendKeys;
+    }
+
+    private static Map<EncryptionLevel, PacketProtectionKeys> getRecvKeys(QuicConnection connection) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, PacketProtectionKeys> recvKeys =
+                getPrivateField(connection, "recvKeys", Map.class);
+        return recvKeys;
+    }
+
+    private static List<SentPacket> getSentPacketsForLevel(LossDetector lossDetector, EncryptionLevel level)
+            throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<EncryptionLevel, List<SentPacket>> sentPackets =
+                getPrivateField(lossDetector, "sentPackets", Map.class);
+        return sentPackets.get(level);
+    }
+
     private static SentPacket findSentPacket(LossDetector lossDetector, EncryptionLevel level, long packetNumber)
             throws Exception {
         @SuppressWarnings("unchecked")

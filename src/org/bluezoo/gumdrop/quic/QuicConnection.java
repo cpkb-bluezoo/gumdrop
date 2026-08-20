@@ -363,6 +363,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private long amplificationBytesReceived;
     private long amplificationBytesSent;
     private boolean addressValidated;
+    // RFC 9001 section 4.9.1: distinct from addressValidated above --
+    // this is the server-side trigger for discarding Initial keys ("a
+    // server MUST discard Initial keys when it first successfully
+    // processes a Handshake packet"), tracked separately even though
+    // both happen to be set by the same event, so the two RFC-distinct
+    // concepts don't become accidentally coupled if either's trigger
+    // condition ever changes independently. sentHandshakePacket is the
+    // client-side mirror ("a client MUST discard Initial keys when it
+    // first sends a Handshake packet"). Both are persistent flags, not
+    // recomputed per flush -- see the two discardEncryptionLevel call
+    // sites in flush(), which must keep retrying every flush even on a
+    // cycle that builds nothing new at HANDSHAKE, since
+    // discardEncryptionLevel itself can defer past its first attempt
+    // (see its own javadoc).
+    private boolean receivedHandshakePacket;
+    private boolean sentHandshakePacket;
 
     // RFC 9000 section 8.1.2/17.2.5: client-only Retry state. originalDcid
     // is the Destination Connection ID this client used in its very first
@@ -999,6 +1015,36 @@ public final class QuicConnection implements QuicTlsEngineListener {
         sent.clear();
     }
 
+    // RFC 9001 section 4.9: once Initial or Handshake keys are no longer
+    // needed (see the two call sites in flush(), plus the Initial-only
+    // one in processPacket), discard all state for that packet number
+    // space -- no packet is ever built, sent, or accepted at this level
+    // again. Guarded on pendingCrypto being empty so a chunk that was
+    // queued but never actually sent even once is never silently thrown
+    // away; per RFC 9001 section 4.9.1's own "ignoring any outstanding
+    // Initial packets" language, anything already sent-but-unacknowledged
+    // (sentCrypto) is fine to abandon here, along with the space's
+    // loss-recovery bookkeeping (RFC 9002 Appendix A.11) -- closing a gap
+    // where LossDetector.discardPacketNumberSpace was never called at
+    // all, leaving bytes-in-flight for long-abandoned Initial/Handshake
+    // packets permanently charged against the congestion window and
+    // sentPackets for those levels growing without bound for the life of
+    // the connection. Never called for EncryptionLevel.ONE_RTT.
+    private void discardEncryptionLevel(EncryptionLevel level) {
+        if (discarded[level.ordinal()] || !pendingCrypto.get(level).isEmpty()) {
+            return;
+        }
+        discarded[level.ordinal()] = true;
+        sendKeys.remove(level);
+        recvKeys.remove(level);
+        sentCrypto.get(level).clear();
+        ackOwed[level.ordinal()] = false;
+        receivedUnacked.remove(level);
+        sentAckCoverage.remove(level);
+        pendingPing[level.ordinal()] = false;
+        lossDetector.discardPacketNumberSpace(level);
+    }
+
     private void processPacket(EncryptionLevel level, byte[] packet, int pnOffset, boolean isZeroRtt) {
         PacketProtectionKeys keys = isZeroRtt ? zeroRttRecvKeys : recvKeys.get(level);
         if (keys == null) {
@@ -1037,6 +1083,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 // Initial response -- an off-path attacker spoofing the
                 // client's address could not have produced this.
                 addressValidated = true;
+                receivedHandshakePacket = true;
             } else if (level == EncryptionLevel.ONE_RTT && !isZeroRtt) {
                 // Likewise proves the peer holds the 1-RTT keys -- the
                 // signal receive() uses to tell a genuine candidate
@@ -1469,6 +1516,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
     void flush() {
         byte[] zeroRttBytes = buildZeroRttPacketOrNull();
         byte[] handshakeBytes = buildLevelPacketOrNull(EncryptionLevel.HANDSHAKE, 0);
+        if (handshakeBytes != null) {
+            sentHandshakePacket = true;
+        }
         byte[] oneRttBytes = buildLevelPacketOrNull(EncryptionLevel.ONE_RTT, 0);
 
         int zeroRttHandshakeAndOneRttBytes = (zeroRttBytes != null ? zeroRttBytes.length : 0)
@@ -1476,6 +1526,27 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 + (oneRttBytes != null ? oneRttBytes.length : 0);
         int initialMinDatagramSize = !isServer ? Math.max(0, MIN_DATAGRAM_SIZE - zeroRttHandshakeAndOneRttBytes) : 0;
         byte[] initialBytes = buildLevelPacketOrNull(EncryptionLevel.INITIAL, initialMinDatagramSize);
+
+        // RFC 9001 section 4.9: attempted on every flush (not just one
+        // that happens to build something new at these levels), since
+        // discardEncryptionLevel can itself defer past its first
+        // attempt if a chunk was still queued but never yet sent -- see
+        // its own javadoc. Placed after every buildLevelPacketOrNull
+        // call above so this flush's own Initial/Handshake-level packet
+        // (if any) is always built with the still-current keys first;
+        // discarding only ever affects later flushes.
+        if (isServer ? receivedHandshakePacket : sentHandshakePacket) {
+            // RFC 9001 section 4.9.1: a client discards Initial keys
+            // once it has sent a Handshake packet; a server discards
+            // them once it has successfully processed one.
+            discardEncryptionLevel(EncryptionLevel.INITIAL);
+        }
+        if (handshakeConfirmed) {
+            // RFC 9001 section 4.9.2: both sides discard Handshake
+            // keys once the handshake is confirmed (see
+            // handshakeConfirmed's own two set sites).
+            discardEncryptionLevel(EncryptionLevel.HANDSHAKE);
+        }
 
         if (initialBytes == null && zeroRttBytes == null && handshakeBytes == null && oneRttBytes == null) {
             // Nothing to send, but the set of in-flight/lost packets may
@@ -2442,14 +2513,27 @@ public final class QuicConnection implements QuicTlsEngineListener {
             timerHandle.cancel();
             timerHandle = null;
         }
-        for (EncryptionLevel level : EncryptionLevel.values()) {
+        // RFC 9000 section 10.2.1: send at only the highest available
+        // level -- EncryptionLevel.values() is declared in ascending
+        // order (INITIAL, HANDSHAKE, ONE_RTT), so this must walk it
+        // backwards; iterating forwards and breaking at the first
+        // non-null level (as this used to) picks the *lowest* available
+        // level instead. That inversion stayed invisible for as long as
+        // Initial/Handshake keys were never actually discarded (see
+        // discardEncryptionLevel) -- every level's sendKeys entry was
+        // permanently non-null, so this loop always picked INITIAL,
+        // and both sides having kept every key forever meant the peer
+        // could still decrypt it regardless of the level mismatch.
+        EncryptionLevel[] levels = EncryptionLevel.values();
+        for (int i = levels.length - 1; i >= 0; i--) {
+            EncryptionLevel level = levels[i];
             PacketProtectionKeys keys = sendKeys.get(level);
             if (keys == null) {
                 continue;
             }
             try {
                 sendConnectionClose(level, keys);
-                break; // RFC 9000 section 10.2.1: send at only the highest available level
+                break;
             } catch (PacketProtectionException e) {
                 LOGGER.log(Level.FINE, "Failed to send CONNECTION_CLOSE", e);
             }
