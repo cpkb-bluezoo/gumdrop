@@ -351,6 +351,8 @@
         <text x="232" y="20" class="protocol-text">SOCKS</text>
         <text x="267" y="20" class="subtitle-text" opacity="0.4">•</text>
         <text x="277" y="20" class="protocol-text">Redis</text>
+        <text x="312" y="20" class="subtitle-text" opacity="0.4">•</text>
+        <text x="322" y="20" class="protocol-text">AMQP 0-9-1</text>
       </g>
       <g class="fade-slide" style="animation-delay: 4s;">
         <text x="0" y="40" class="protocol-text">TLS</text>
