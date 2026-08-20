@@ -426,5 +426,62 @@ public class DNSResourceRecordTest {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
         DNSResourceRecord.a("example.com", 300, ip).getSVCBParams();
     }
+
+    @Test
+    public void testCacheFlushDefaultsFalse() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord rr = DNSResourceRecord.a("example.com", 300, ip);
+
+        assertFalse(rr.isCacheFlush());
+    }
+
+    @Test
+    public void testCacheFlushBitSetViaRawClass() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        int rawClass = DNSClass.IN.getValue() | DNSResourceRecord.CACHE_FLUSH_BIT;
+        DNSResourceRecord rr = new DNSResourceRecord("example.local", DNSType.A,
+                DNSType.A.getValue(), DNSClass.IN, rawClass, 120, ip.getAddress());
+
+        assertTrue(rr.isCacheFlush());
+        assertEquals(DNSClass.IN, rr.getDNSClass());
+    }
+
+    @Test
+    public void testWithCacheFlushSetsOnlyTheBit() throws Exception {
+        InetAddress ip = InetAddress.getByName("1.2.3.4");
+        DNSResourceRecord rr = DNSResourceRecord.a("example.local", 300, ip);
+
+        DNSResourceRecord flushed = rr.withCacheFlush();
+
+        assertFalse(rr.isCacheFlush());
+        assertTrue(flushed.isCacheFlush());
+        assertEquals(rr.getName(), flushed.getName());
+        assertEquals(rr.getType(), flushed.getType());
+        assertEquals(rr.getTTL(), flushed.getTTL());
+        assertArrayEquals(rr.getRData(), flushed.getRData());
+    }
+
+    @Test
+    public void testMultiStringTxt() {
+        DNSResourceRecord rr = DNSResourceRecord.txt("_http._tcp.local", 4500,
+                Arrays.asList("path=/", "version=1.0"));
+
+        assertEquals(DNSType.TXT, rr.getType());
+        byte[] rdata = rr.getRData();
+        // "path=/" (6 bytes) + "version=1.0" (11 bytes), each its own
+        // length-prefixed character-string
+        assertEquals(1 + 6 + 1 + 11, rdata.length);
+        assertEquals(6, rdata[0] & 0xFF);
+        assertEquals(11, rdata[7] & 0xFF);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testMultiStringTxtRejectsOverlongString() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 256; i++) {
+            sb.append('a');
+        }
+        DNSResourceRecord.txt("example.local", 4500, Arrays.asList(sb.toString()));
+    }
 }
 

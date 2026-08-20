@@ -36,6 +36,7 @@ public final class DNSQuestion {
     private final String name;
     private final DNSType type;
     private final DNSClass dnsClass;
+    private final boolean unicastResponseRequested;
 
     /**
      * Creates a new DNS question.
@@ -45,9 +46,27 @@ public final class DNSQuestion {
      * @param dnsClass the record class
      */
     public DNSQuestion(String name, DNSType type, DNSClass dnsClass) {
+        this(name, type, dnsClass, false);
+    }
+
+    /**
+     * Creates a new DNS question, optionally requesting a unicast
+     * response. RFC 6762 section 5.4: in multicast DNS, the top bit of
+     * the QCLASS field ("QU bit") asks the responder to reply via
+     * unicast rather than to the multicast group. Meaningless outside
+     * mDNS.
+     *
+     * @param name the domain name to query
+     * @param type the record type
+     * @param dnsClass the record class
+     * @param unicastResponseRequested whether the QU bit is set
+     */
+    public DNSQuestion(String name, DNSType type, DNSClass dnsClass,
+                        boolean unicastResponseRequested) {
         this.name = name;
         this.type = type;
         this.dnsClass = dnsClass;
+        this.unicastResponseRequested = unicastResponseRequested;
     }
 
     /**
@@ -57,7 +76,17 @@ public final class DNSQuestion {
      * @param type the record type
      */
     public DNSQuestion(String name, DNSType type) {
-        this(name, type, DNSClass.IN);
+        this(name, type, DNSClass.IN, false);
+    }
+
+    /**
+     * Returns whether this question requested a unicast response
+     * (the mDNS "QU bit", RFC 6762 section 5.4).
+     *
+     * @return true if a unicast response was requested
+     */
+    public boolean isUnicastResponseRequested() {
+        return unicastResponseRequested;
     }
 
     /**
@@ -87,6 +116,10 @@ public final class DNSQuestion {
         return dnsClass;
     }
 
+    // unicastResponseRequested is a per-query transport hint, not part
+    // of question identity, so it is deliberately excluded here: two
+    // otherwise-identical questions must still compare equal regardless
+    // of the QU bit (e.g. for cache lookups and known-answer matching).
     @Override
     public boolean equals(Object o) {
         if (this == o) {

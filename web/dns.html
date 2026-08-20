@@ -41,6 +41,15 @@ resolution. It serves both as a practical DNS proxy and as a reference
 implementation for developers building UDP-based services.
 </p>
 
+<p>
+Gumdrop also includes a separate <a href="#mdns">multicast DNS (mDNS, RFC
+6762) and DNS-SD (RFC 6763)</a> implementation in the
+<code>org.bluezoo.gumdrop.mdns</code> package: it claims and defends a
+<code>.local</code> hostname on the local network, can query for other hosts'
+records, and can auto-advertise Gumdrop's own configured services (mail, web,
+DNS, etc.) so they're discoverable via Bonjour/Avahi/<code>dns-sd -B</code>.
+</p>
+
 <h3>Contents</h3>
 <ul>
 <li><a href="#architecture">Architecture</a></li>
@@ -52,6 +61,13 @@ implementation for developers building UDP-based services.
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#listeners">Listeners</a></li>
 <li><a href="#resolver">DNS Resolver (Client)</a></li>
+<li><a href="#mdns">Multicast DNS &amp; DNS-SD</a></li>
+<li><a href="#mdns-architecture">mDNS Architecture</a></li>
+<li><a href="#mdns-lifecycle">Probing, Announcing &amp; Withdrawal</a></li>
+<li><a href="#mdns-wire">Wire Format Extensions</a></li>
+<li><a href="#mdns-query">Querying &amp; the Record Cache</a></li>
+<li><a href="#dnssd">DNS-SD Service Advertisement</a></li>
+<li><a href="#mdns-config">mDNS Configuration</a></li>
 <li><a href="#udp">UDP Protocol Support</a></li>
 </ul>
 
@@ -752,6 +768,271 @@ resolver.querySRV("_xmpp-server._tcp.example.com",
     }
 });
 </pre>
+
+<h3 id="mdns">Multicast DNS &amp; DNS-SD</h3>
+
+<p>
+The <code>org.bluezoo.gumdrop.mdns</code> package implements multicast DNS
+(mDNS, RFC 6762) and DNS-SD (RFC 6763). Unlike the unicast <code>dns</code>
+package's caching proxy, mDNS is a peer protocol: every host on the local
+network both answers queries about itself and can query others, over a
+single shared UDP multicast group rather than client/server request-response
+to a fixed upstream. A Gumdrop instance running <code>MDNSService</code>
+claims a <code>.local</code> hostname, defends it against conflicts,
+answers other hosts' queries for it, and (optionally) publishes DNS-SD
+records advertising its own other configured services.
+</p>
+
+<h4 id="mdns-architecture">Architecture</h4>
+
+<ul>
+<li><code>MDNSService</code> &ndash; owns configuration, the probing/announcing
+state machine for this instance's own hostname, the record cache, and the
+public <code>query()</code>/<code>lookup()</code> API</li>
+<li><code>MDNSListener</code> &ndash; the UDP multicast transport: binds port
+5353 and joins the mDNS group (<code>224.0.0.251</code>) on every up,
+multicast-capable, non-loopback, non-point-to-point network interface</li>
+<li><code>MDNSCache</code> &ndash; the querier-side record cache, with RFC
+6762 section 5.2 active refresh and section 10.2 cache-flush semantics</li>
+<li><code>DNSSDAdvertiser</code> &ndash; builds RFC 6763 PTR/SRV/TXT records
+for this Gumdrop instance's own configured services</li>
+</ul>
+
+<p>
+mDNS reuses the standard DNS wire format almost entirely &mdash;
+<code>DNSMessage</code>, <code>DNSQuestion</code>, <code>DNSResourceRecord</code>,
+<code>DNSType</code>, and <code>DNSClass</code> from the <code>dns</code>
+package are shared as-is between both packages (see
+<a href="#mdns-wire">Wire Format Extensions</a> below for the two small
+additions mDNS needed). Everything else &mdash; the probing/announcing
+state machine, the active-refresh cache, and DNS-SD &mdash; is specific to
+the <code>mdns</code> package: mDNS is a continuous, stateful peer rather
+than the unicast proxy's largely stateless per-request model, so it needed
+its own cache and its own service/listener pair rather than extending
+<code>DNSService</code>/<code>DNSCache</code> directly.
+</p>
+
+<p>
+All mutable mDNS state (probe/announce state, the cache, pending timers) is
+touched only from datagram handling and timer callbacks, both of which are
+always invoked on the owning <code>MDNSListener</code>'s single transport
+thread &mdash; there is no separate synchronization anywhere in the package.
+</p>
+
+<h4 id="mdns-lifecycle">Probing, Announcing &amp; Withdrawal</h4>
+
+<p>
+On <code>start()</code>, <code>MDNSService</code> runs the RFC 6762 section 8
+lifecycle for its own hostname:
+</p>
+
+<ol>
+<li><b>Probing</b> (section 8.1) &ndash; after a random 0&ndash;250ms delay,
+sends 3 probe queries 250ms apart, each asking whether anyone already has the
+proposed name and proposing this host's own address record(s) in the
+authority section</li>
+<li><b>Conflict detection</b> &ndash; if a response arrives claiming the name
+with a different address, or another host wins a simultaneous-probe
+tie-break (section 8.2, by comparing proposed record data), the host renames
+itself (e.g. <code>gumdrop</code> &rarr; <code>gumdrop-2</code>) and restarts
+probing; losing a simultaneous-probe tie-break instead just waits one second
+and re-probes the <em>same</em> name, since that only decided probing order,
+not an existing claim</li>
+<li><b>Announcing</b> (section 8.3) &ndash; once probing succeeds, sends two
+unsolicited responses (1 second apart) asserting its address record(s), with
+the cache-flush bit set so other hosts atomically replace anything they had
+cached under the old address</li>
+<li><b>Answering</b> &ndash; while announced, answers matching queries from
+other hosts, honouring RFC 6762 section 7.1 known-answer suppression and the
+"QU" unicast-response-requested bit, and randomizing multicast replies by
+20&ndash;120ms to avoid many responders answering in lockstep (section 6)</li>
+<li><b>Withdrawal</b> (section 10.1) &ndash; on <code>stop()</code>, sends a
+"goodbye" packet: the same records with TTL 0, telling other hosts to remove
+them immediately</li>
+</ol>
+
+<p>
+Check <code>getCurrentName()</code> (after <code>isAnnounced()</code> returns
+true) to find out what name was actually claimed, since it may not be the
+configured <code>hostname</code> verbatim if a rename happened.
+</p>
+
+<h4 id="mdns-wire">Wire Format Extensions</h4>
+
+<p>
+mDNS repurposes the top bit (<code>0x8000</code>) of two wire-format fields
+that unicast DNS never uses: the QCLASS field's top bit is the "QU" bit
+(RFC 6762 section 5.4, a question asking for a unicast rather than
+multicast reply), and the RR CLASS field's top bit is the "cache-flush" bit
+(section 10.2, marking a record as the complete, authoritative answer for
+its name/type). These live on the shared <code>dns</code> package classes,
+since parsing an ordinary mDNS packet would otherwise fail outright with an
+"unknown class" error for any question or record using either bit:
+</p>
+
+<ul>
+<li><code>DNSQuestion.isUnicastResponseRequested()</code> &ndash; the QU bit;
+excluded from <code>equals()</code>/<code>hashCode()</code> since it's a
+transport hint, not part of question identity</li>
+<li><code>DNSResourceRecord.isCacheFlush()</code></li>
+<li><code>DNSResourceRecord.withCacheFlush()</code> &ndash; returns a copy of
+a record with the bit set, for building unique (as opposed to shared, e.g.
+PTR) records</li>
+<li><code>DNSResourceRecord.CACHE_FLUSH_BIT</code> &ndash; the raw bit value,
+for callers constructing a record directly via the RFC 3597
+raw-class-preserving constructor</li>
+<li><code>DNSResourceRecord.txt(name, ttl, List&lt;String&gt;)</code> &ndash;
+a TXT record from several independent character-strings (one per list
+entry), as DNS-SD's <code>key=value</code> attribute pairs need, distinct
+from the existing single-string <code>txt(name, ttl, String)</code> which
+splits one long value across the 255-byte character-string boundary instead</li>
+</ul>
+
+<h4 id="mdns-query">Querying &amp; the Record Cache</h4>
+
+<p>
+Besides answering for its own hostname, <code>MDNSService</code> can query
+for other hosts' records:
+</p>
+
+<pre>
+mdnsService.query("printer.local", DNSType.A);
+// ... answers arrive asynchronously as other hosts respond ...
+List&lt;DNSResourceRecord&gt; answers = mdnsService.lookup("printer.local", DNSType.A);
+</pre>
+
+<p>
+Answers are kept in an <code>MDNSCache</code>, separate from the unicast
+<code>DNSCache</code> because mDNS caching works differently in two ways
+that matter: the cache-flush bit means "this is now the complete record set
+for this name/type" (anything cached but not re-asserted in a cache-flush
+batch is removed, though only after a one-second grace period in case a
+real response arrives split across more than one packet, per section 10.2),
+and each cached record actively re-queries itself at 80%, 85%, 90%, and 95%
+of its original TTL (section 5.2) so a <code>lookup()</code> result stays
+current without the caller needing to re-query. A "goodbye" (TTL 0) record
+gets the same one-second grace removal as a cache-flush eviction (section
+10.1).
+</p>
+
+<h4 id="dnssd">DNS-SD Service Advertisement</h4>
+
+<p>
+Once announced, <code>MDNSService</code> (by default) also publishes RFC
+6763 DNS-SD records for this Gumdrop instance's other configured services,
+so they're discoverable via <code>dns-sd -B _services._dns-sd._udp local.</code>
+or a Bonjour/Avahi browser. This reads
+<code>Gumdrop.getInstance().getServices()</code> at announce time, so
+<b>the <code>mdns</code> service must be declared last</b> in
+<code>gumdroprc.xml</code> &mdash; services start in document order, and any
+service started after <code>mdns</code> won't have its listener ports
+picked up yet.
+</p>
+
+<p>
+For each listener across every service, <code>DNSSDAdvertiser</code> maps
+its <code>getDescription()</code> value to a DNS-SD service type using a
+deliberately conservative table of long-established Bonjour service types
+&mdash; not the full IANA registry, and not a guess at every protocol
+Gumdrop can serve:
+</p>
+
+<table border="1" cellpadding="5">
+<tr><th>Listener description</th><th>DNS-SD service type</th></tr>
+<tr><td><code>http</code></td><td><code>_http._tcp</code></td></tr>
+<tr><td><code>https</code></td><td><code>_https._tcp</code></td></tr>
+<tr><td><code>ftp</code></td><td><code>_ftp._tcp</code></td></tr>
+<tr><td><code>imap</code></td><td><code>_imap._tcp</code></td></tr>
+<tr><td><code>imaps</code></td><td><code>_imaps._tcp</code></td></tr>
+<tr><td><code>pop3</code></td><td><code>_pop3._tcp</code></td></tr>
+<tr><td><code>pop3s</code></td><td><code>_pop3s._tcp</code></td></tr>
+<tr><td><code>smtp</code></td><td><code>_smtp._tcp</code></td></tr>
+</table>
+
+<p>
+A listener whose description isn't in this table &mdash; including
+internal-only listeners like <code>health</code> or <code>cluster</code>,
+and protocols without a clearly-established DNS-SD type such as
+<code>mqtt</code>, <code>socks</code>, or the WebSocket/HTTP3/DoQ variants
+&mdash; is silently skipped rather than treated as an error, so adding a new
+protocol listener elsewhere in Gumdrop never needs a matching change here
+just to avoid breaking. Use <code>excluded-services</code> (see
+<a href="#mdns-config">Configuration</a>) to also skip a normally-mapped one,
+e.g. to avoid advertising Gumdrop's own DNS resolver.
+</p>
+
+<p>
+For each eligible listener, three records are generated: a PTR from the
+service type to a per-instance name (<code>&lt;host&gt;._http._tcp.local</code>),
+an SRV record for that instance giving its port and target host, and a TXT
+record (a single empty string, since RFC 6763 section 6.1 requires
+non-zero-length RDATA even with nothing to say). A PTR from
+<code>_services._dns-sd._udp.local</code> to each distinct service type
+advertised (RFC 6763 section 9) lets browsers enumerate what's available
+without knowing the types in advance. The PTR records are shared resource
+records and never carry the cache-flush bit; the SRV/TXT records are unique
+per-instance records and do.
+</p>
+
+<h4 id="mdns-config">Configuration</h4>
+
+<h4>MDNSService Properties</h4>
+
+<ul>
+<li><code>hostname</code> &ndash; the label to probe for and advertise as
+<code>&lt;hostname&gt;.local</code> (optional). If omitted, the JVM's local
+hostname (domain suffix stripped) is used, falling back to
+<code>"gumdrop"</code></li>
+<li><code>advertise-services</code> &ndash; auto-advertise this instance's
+other configured services via DNS-SD (default: true)</li>
+<li><code>excluded-services</code> &ndash; space-separated
+<code>Listener.getDescription()</code> values to never advertise via DNS-SD
+even if otherwise eligible (e.g. <code>"dns"</code>)</li>
+</ul>
+
+<h4>MDNSListener Properties</h4>
+
+<ul>
+<li><code>port</code> &ndash; UDP port (default: 5353). mDNS's port isn't
+meaningfully configurable in practice &mdash; it's part of the protocol, and
+changing it means real mDNS clients on the network can no longer find this
+host; the property exists mainly for testing</li>
+</ul>
+
+<h4>Example Configuration</h4>
+
+<pre>
+&lt;!-- mDNS + DNS-SD auto-advertisement. Must be declared LAST in this
+     file: DNS-SD reads every other configured service's listeners at
+     announce time, and services start in document order. --&gt;
+&lt;service id="mdns" class="org.bluezoo.gumdrop.mdns.MDNSService"&gt;
+    &lt;property name="hostname" value="gumdrop"/&gt;
+    &lt;property name="advertise-services" value="true"/&gt;
+
+    &lt;listener class="org.bluezoo.gumdrop.mdns.MDNSListener"/&gt;
+&lt;/service&gt;
+</pre>
+
+<p>
+Note: mDNS's UDP port 5353 is the same port the DNS proxy example above
+uses for its non-privileged <code>DNSListener</code> (see
+<a href="#configuration">Configuration</a>) &mdash; declaring both in the
+same <code>gumdroprc.xml</code> collides. Use a different port for the
+unicast <code>DNSListener</code>, or omit it, if running both.
+</p>
+
+<h4>Known Limitations</h4>
+
+<ul>
+<li>IPv4 only &ndash; no <code>ff02::fb</code> IPv6 multicast group support
+yet</li>
+<li>RFC 6762 section 8.2's simultaneous-probe tie-break compares a single
+representative address rather than the full RRset ordering algorithm (a
+real host usually only advertises one address, so this covers the common
+case)</li>
+<li>DNS-SD's SRV/TXT records aren't put through mDNS probing before use,
+unlike the host's own address record(s)</li>
+</ul>
 
 <h3 id="udp">UDP Protocol Support</h3>
 

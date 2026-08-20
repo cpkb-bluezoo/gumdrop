@@ -309,10 +309,47 @@ public class DNSMessageTest {
     public void testToString() {
         DNSMessage query = DNSMessage.createQuery(1, "test.com", DNSType.A);
         String str = query.toString();
-        
+
         assertTrue(str.contains("QUERY"));
         assertTrue(str.contains("RD"));
         assertTrue(str.contains("questions=1"));
+    }
+
+    @Test
+    public void testQuestionUnicastResponseBitRoundTrip() throws Exception {
+        // RFC 6762 section 5.4: the mDNS "QU" bit shares the QCLASS
+        // field's top bit; parsing must not confuse it with an unknown
+        // class, and encoding must reproduce it.
+        DNSQuestion q = new DNSQuestion("gumdrop.local", DNSType.A, DNSClass.IN, true);
+        DNSMessage original = new DNSMessage(99, DNSMessage.FLAG_RD,
+                Collections.singletonList(q),
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
+
+        DNSMessage parsed = DNSMessage.parse(original.serialize());
+
+        DNSQuestion parsedQuestion = parsed.getQuestions().get(0);
+        assertEquals(DNSClass.IN, parsedQuestion.getDNSClass());
+        assertTrue(parsedQuestion.isUnicastResponseRequested());
+    }
+
+    @Test
+    public void testResourceRecordCacheFlushBitRoundTrip() throws Exception {
+        // RFC 6762 section 10.2: the mDNS cache-flush bit shares the RR
+        // CLASS field's top bit.
+        InetAddress addr = InetAddress.getByName("192.0.2.5");
+        int rawClass = DNSClass.IN.getValue() | DNSResourceRecord.CACHE_FLUSH_BIT;
+        DNSResourceRecord rr = new DNSResourceRecord("gumdrop.local", DNSType.A,
+                DNSType.A.getValue(), DNSClass.IN, rawClass, 120, addr.getAddress());
+        DNSMessage original = new DNSMessage(0, DNSMessage.FLAG_QR | DNSMessage.FLAG_AA,
+                Collections.emptyList(),
+                Collections.singletonList(rr),
+                Collections.emptyList(), Collections.emptyList());
+
+        DNSMessage parsed = DNSMessage.parse(original.serialize());
+
+        DNSResourceRecord parsedRr = parsed.getAnswers().get(0);
+        assertEquals(DNSClass.IN, parsedRr.getDNSClass());
+        assertTrue(parsedRr.isCacheFlush());
     }
 }
 

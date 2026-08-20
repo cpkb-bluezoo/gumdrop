@@ -1,0 +1,27 @@
+<?xml version='1.0' standalone='yes'?>
+<gumdrop>
+	<!-- Multicast DNS (RFC 6762) + DNS-SD (RFC 6763) service.
+	     Claims "gumdrop.local" on the local network (renaming itself to
+	     e.g. "gumdrop-2.local" automatically if another host already
+	     holds the name), answers queries for it, and auto-advertises
+	     this Gumdrop instance's other configured services so they show
+	     up in Bonjour/Avahi/`dns-sd -B` browsers.
+
+	     Note: mDNS always uses UDP port 5353, as part of the protocol,
+	     not just this example's choice. If another service in this same
+	     gumdroprc.xml also binds 5353 (e.g. following etc/gumdroprc.dns's
+	     example DNSListener configuration verbatim), the two will
+	     collide; pick a different port for that one.
+
+	     Because DNS-SD auto-advertisement reads every other configured
+	     service's listeners at announce time, this service must be
+	     declared LAST, since services start in the order they appear in
+	     this file, and anything started after "mdns" won't have its
+	     listener ports picked up. -->
+	<service id="mdns" class="org.bluezoo.gumdrop.mdns.MDNSService">
+		<property name="hostname" value="gumdrop"/>
+		<property name="advertise-services" value="true"/>
+
+		<listener class="org.bluezoo.gumdrop.mdns.MDNSListener"/>
+	</service>
+</gumdrop>
