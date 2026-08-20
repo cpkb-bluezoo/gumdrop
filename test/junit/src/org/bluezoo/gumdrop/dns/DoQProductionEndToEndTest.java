@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.dns.client.DNSClientTransportHandler;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -347,6 +348,148 @@ public class DoQProductionEndToEndTest {
                 serverEngine.close();
             }
             SessionTicketCache.clear();
+        }
+    }
+
+    /**
+     * RFC 9250 section 4.2.1: Message ID MUST be 0 on the wire in both
+     * directions for DoQ, so {@code DNSResolver}'s ID-keyed {@code
+     * pendingQueries} map (RFC 1035 section 7.3 correlation, designed for
+     * transports where the ID survives on the wire) cannot rely on the
+     * parsed response ID to tell two concurrent DoQ queries apart -- both
+     * responses parse to ID 0 regardless of which query they answer.
+     * Drives two concurrent {@code queryA} calls for different names
+     * through a real {@code DNSResolver} configured with a real {@code
+     * DoQClientTransport} against a real DoQ server (same server harness
+     * as the 0-RTT test above) that answers each name with a distinct
+     * address, and asserts each callback receives the answer for its own
+     * name -- proving correlation survives the round trip through a
+     * transport that legitimately zeroes the ID both ways, not just that
+     * some response eventually arrives.
+     */
+    @Test
+    public void testConcurrentQueriesCorrelateThroughDNSResolver() throws Exception {
+        final String nameA = "doq-concurrent-a.gumdrop.local";
+        final String nameB = "doq-concurrent-b.gumdrop.local";
+        final String ipA = "10.11.12.1";
+        final String ipB = "10.11.12.2";
+
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        final DoQClientTransport transport = new DoQClientTransport();
+        transport.setCaFile(certFile);
+        final DNSResolver resolver = new DNSResolver();
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("doq");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final DNSService dnsService = new DNSService() {
+                @Override
+                protected DNSMessage resolve(DNSMessage query) {
+                    DNSQuestion question = query.getQuestions().get(0);
+                    String ip = nameA.equals(question.getName()) ? ipA : ipB;
+                    List<DNSResourceRecord> answers = new ArrayList<DNSResourceRecord>();
+                    try {
+                        answers.add(DNSResourceRecord.a(question.getName(), 60,
+                                InetAddress.getByName(ip)));
+                    } catch (java.net.UnknownHostException e) {
+                        throw new AssertionError(e);
+                    }
+                    return query.createResponse(answers);
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new DoQStreamHandler(dnsService);
+                        }
+                    }, loop);
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            resolver.setTransport(transport);
+            resolver.setSelectorLoop(loop);
+            // Short timeout: pre-fix, both responses are silently dropped
+            // (neither correlates to a pending query keyed by its real,
+            // non-zero ID) and this test's failure should come from a
+            // clear "query timed out" error well before any risk of the
+            // test's own await() racing that timeout.
+            resolver.setTimeoutMs(2000);
+            resolver.addServer(InetAddress.getLoopbackAddress(), port);
+            resolver.open();
+
+            assertTrue("Transport should become connected within 5s",
+                    awaitConnected(transport, 5000));
+
+            final CountDownLatch latch = new CountDownLatch(2);
+            final AtomicReference<InetAddress> resultA = new AtomicReference<InetAddress>();
+            final AtomicReference<InetAddress> resultB = new AtomicReference<InetAddress>();
+            final AtomicReference<AssertionError> failure = new AtomicReference<AssertionError>();
+
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    resolver.queryA(nameA, new DNSQueryCallback() {
+                        @Override
+                        public void onResponse(DNSMessage response) {
+                            for (DNSResourceRecord rr : response.getAnswers()) {
+                                if (rr.getType() == DNSType.A) {
+                                    resultA.set(rr.getAddress());
+                                }
+                            }
+                            latch.countDown();
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            failure.compareAndSet(null,
+                                    new AssertionError("Query for " + nameA + " failed: " + error));
+                            latch.countDown();
+                        }
+                    });
+                    resolver.queryA(nameB, new DNSQueryCallback() {
+                        @Override
+                        public void onResponse(DNSMessage response) {
+                            for (DNSResourceRecord rr : response.getAnswers()) {
+                                if (rr.getType() == DNSType.A) {
+                                    resultB.set(rr.getAddress());
+                                }
+                            }
+                            latch.countDown();
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            failure.compareAndSet(null,
+                                    new AssertionError("Query for " + nameB + " failed: " + error));
+                            latch.countDown();
+                        }
+                    });
+                }
+            });
+
+            assertTrue("Both concurrent queries should complete within 4s",
+                    latch.await(4, TimeUnit.SECONDS));
+            if (failure.get() != null) {
+                throw failure.get();
+            }
+            assertEquals("Query for " + nameA + " should get " + nameA + "'s own answer",
+                    InetAddress.getByName(ipA), resultA.get());
+            assertEquals("Query for " + nameB + " should get " + nameB + "'s own answer",
+                    InetAddress.getByName(ipB), resultB.get());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            resolver.close();
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
         }
     }
 

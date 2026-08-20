@@ -24,8 +24,10 @@ package org.bluezoo.gumdrop.dns.client;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DNSCache;
 import org.bluezoo.gumdrop.dns.DNSClass;
+import org.bluezoo.gumdrop.dns.DNSCookie;
 import org.bluezoo.gumdrop.dns.DNSFormatException;
 import org.bluezoo.gumdrop.dns.DNSMessage;
+import org.bluezoo.gumdrop.dns.DNSMultiQType;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSQuestion;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
@@ -36,10 +38,14 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.*;
@@ -57,11 +63,13 @@ public class DNSResolverTest {
     public void setUp() {
         originalCache = DNSResolver.getCache();
         DNSResolver.setCache(new DNSCache());
+        DNSMultiQTypeCache.clear();
     }
 
     @After
     public void tearDown() {
         DNSResolver.setCache(originalCache);
+        DNSMultiQTypeCache.clear();
     }
 
     @Test
@@ -451,6 +459,255 @@ public class DNSResolverTest {
             public void onError(String err) {
             }
         };
+    }
+
+    // -- queryBatch (RFC 10029) --
+
+    @Test
+    public void testBatchMergedResponseSingleExchange() throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.open();
+
+        final List<DNSType> resultTypes = new ArrayList<>();
+        final List<List<DNSResourceRecord>> resultRecords = new ArrayList<>();
+        final boolean[] completed = {false};
+        resolver.queryBatch("merged.example.com", Arrays.asList(DNSType.A, DNSType.AAAA),
+                new BatchQueryCallback() {
+                    @Override
+                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                        resultTypes.add(type);
+                        resultRecords.add(records);
+                    }
+
+                    @Override
+                    public void onTypeError(DNSType type, String error) {
+                        fail("Should not error for " + type + ": " + error);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        completed[0] = true;
+                    }
+                });
+
+        // Only the primary query should have gone out -- the option
+        // asks the server to merge AAAA in too.
+        assertEquals("Should be exactly one exchange", 1, mockTransport.sendCount);
+        int queryId = extractId(mockTransport.lastSentData);
+        assertNotNull("Outgoing query should carry MQTYPE-Query for AAAA",
+                mqTypeQueryOption(mockTransport.lastSentData));
+
+        DNSMessage response = buildBatchResponse(queryId, "merged.example.com",
+                Arrays.asList(DNSType.A, DNSType.AAAA),
+                Collections.singletonList(DNSType.AAAA));
+        mockTransport.handler.onReceive(response.serialize());
+
+        assertEquals("Still exactly one exchange (no fallback needed)",
+                1, mockTransport.sendCount);
+        assertTrue("Should have completed", completed[0]);
+        assertEquals(new HashSet<>(Arrays.asList(DNSType.A, DNSType.AAAA)),
+                new HashSet<>(resultTypes));
+        resolver.close();
+    }
+
+    @Test
+    public void testBatchPartialMQTypeResponseFallsBackForMissingType() throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.open();
+
+        final Set<DNSType> delivered = Collections.synchronizedSet(new HashSet<DNSType>());
+        final boolean[] completed = {false};
+        resolver.queryBatch("partial.example.com",
+                Arrays.asList(DNSType.A, DNSType.AAAA, DNSType.HTTPS),
+                new BatchQueryCallback() {
+                    @Override
+                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                        delivered.add(type);
+                    }
+
+                    @Override
+                    public void onTypeError(DNSType type, String error) {
+                        fail("Should not error for " + type + ": " + error);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        completed[0] = true;
+                    }
+                });
+
+        assertEquals(1, mockTransport.sendCount);
+        int primaryId = extractId(mockTransport.lastSentData);
+
+        // Server only merges AAAA back -- HTTPS is left uncovered.
+        DNSMessage response = buildBatchResponse(primaryId, "partial.example.com",
+                Arrays.asList(DNSType.A, DNSType.AAAA),
+                Collections.singletonList(DNSType.AAAA));
+        mockTransport.handler.onReceive(response.serialize());
+
+        assertFalse("Should not be complete yet (HTTPS still outstanding)", completed[0]);
+        assertEquals("Should have sent a standalone fallback query for HTTPS",
+                2, mockTransport.sendCount);
+        int fallbackId = extractId(mockTransport.lastSentData);
+        assertNotEquals(primaryId, fallbackId);
+
+        DNSMessage httpsResponse = buildBatchResponse(fallbackId, "partial.example.com",
+                Collections.singletonList(DNSType.HTTPS),
+                Collections.<DNSType>emptyList());
+        mockTransport.handler.onReceive(httpsResponse.serialize());
+
+        assertTrue("Should be complete now", completed[0]);
+        assertEquals(new HashSet<>(Arrays.asList(DNSType.A, DNSType.AAAA, DNSType.HTTPS)),
+                delivered);
+        resolver.close();
+    }
+
+    @Test
+    public void testBatchUnsupportedServerFallsBackForAllAdditionalTypes() throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.open();
+
+        final Set<DNSType> delivered = Collections.synchronizedSet(new HashSet<DNSType>());
+        final boolean[] completed = {false};
+        resolver.queryBatch("unsupported.example.com", Arrays.asList(DNSType.A, DNSType.AAAA),
+                new BatchQueryCallback() {
+                    @Override
+                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                        delivered.add(type);
+                    }
+
+                    @Override
+                    public void onTypeError(DNSType type, String error) {
+                        fail("Should not error for " + type + ": " + error);
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        completed[0] = true;
+                    }
+                });
+
+        assertEquals(1, mockTransport.sendCount);
+        int primaryId = extractId(mockTransport.lastSentData);
+
+        // Plain response, no MQTYPE-Response option at all -- server
+        // doesn't support RFC 10029.
+        DNSMessage response = buildResponse(primaryId, "unsupported.example.com",
+                false, new byte[]{1, 2, 3, 4});
+        mockTransport.handler.onReceive(response.serialize());
+
+        assertEquals("Should have fallen back to a standalone AAAA query",
+                2, mockTransport.sendCount);
+        int fallbackId = extractId(mockTransport.lastSentData);
+
+        DNSMessage aaaaResponse = buildBatchResponse(fallbackId, "unsupported.example.com",
+                Collections.singletonList(DNSType.AAAA), Collections.<DNSType>emptyList());
+        mockTransport.handler.onReceive(aaaaResponse.serialize());
+
+        assertTrue(completed[0]);
+        assertEquals(new HashSet<>(Arrays.asList(DNSType.A, DNSType.AAAA)), delivered);
+        assertTrue("Server should now be cached as not supporting RFC 10029",
+                DNSMultiQTypeCache.isKnownUnsupported(
+                        new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 53)));
+        resolver.close();
+    }
+
+    @Test
+    public void testBatchSkipsOptionForKnownUnsupportedServer() throws Exception {
+        DNSMultiQTypeCache.markUnsupported(
+                new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 53));
+
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.open();
+
+        resolver.queryBatch("skip-option.example.com", Arrays.asList(DNSType.A, DNSType.AAAA),
+                new BatchQueryCallback() {
+                    @Override
+                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                    }
+
+                    @Override
+                    public void onTypeError(DNSType type, String error) {
+                    }
+
+                    @Override
+                    public void onComplete() {
+                    }
+                });
+
+        assertEquals("Primary query still goes out immediately", 1, mockTransport.sendCount);
+        assertNull("Should not attach MQTYPE-Query to a server known not to support it",
+                mqTypeQueryOption(mockTransport.lastSentData));
+        resolver.close();
+    }
+
+    private static byte[] mqTypeQueryOption(ByteBuffer data) throws DNSFormatException {
+        ByteBuffer copy = data.duplicate();
+        copy.rewind();
+        DNSMessage message;
+        try {
+            message = DNSMessage.parse(copy);
+        } catch (DNSFormatException e) {
+            throw e;
+        }
+        for (DNSResourceRecord rr : message.getAdditionals()) {
+            if (rr.getType() == DNSType.OPT) {
+                return DNSCookie.findEdnsOption(rr.getRData(),
+                        DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY);
+            }
+        }
+        return null;
+    }
+
+    private static DNSMessage buildBatchResponse(int queryId, String name,
+                                                  List<DNSType> answerTypes,
+                                                  List<DNSType> mqTypeResponseCoverage)
+            throws Exception {
+        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        List<DNSResourceRecord> answers = new ArrayList<>();
+        DNSType primaryType = answerTypes.get(0);
+        for (DNSType type : answerTypes) {
+            answers.add(answerRecord(name, type));
+        }
+        List<DNSResourceRecord> additionals = new ArrayList<>();
+        if (!mqTypeResponseCoverage.isEmpty()) {
+            byte[] mqtypeOption = DNSMultiQType.buildMQTypeResponseOption(mqTypeResponseCoverage);
+            additionals.add(DNSResourceRecord.opt(4096, 0, mqtypeOption));
+        }
+        return new DNSMessage(queryId, flags,
+                Collections.singletonList(new DNSQuestion(name, primaryType)),
+                answers,
+                Collections.<DNSResourceRecord>emptyList(),
+                additionals);
+    }
+
+    private static DNSResourceRecord answerRecord(String name, DNSType type) throws Exception {
+        switch (type) {
+            case A:
+                return DNSResourceRecord.a(name, 300,
+                        InetAddress.getByAddress(new byte[]{10, 0, 0, 1}));
+            case AAAA:
+                return DNSResourceRecord.aaaa(name, 300,
+                        InetAddress.getByAddress(new byte[]{
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}));
+            case HTTPS:
+                return DNSResourceRecord.https(name, 300, 1, ".",
+                        Collections.<Integer, byte[]>emptyMap());
+            default:
+                throw new IllegalArgumentException("Unsupported test type: " + type);
+        }
     }
 
     // -- Helpers --

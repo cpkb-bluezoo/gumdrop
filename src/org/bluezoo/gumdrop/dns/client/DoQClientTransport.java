@@ -226,9 +226,17 @@ public class DoQClientTransport implements DNSClientTransport {
     }
 
     private void sendNow(ByteBuffer data) {
-        // RFC 9250 section 4.2.1: rewrite Message ID to 0
+        // RFC 9250 section 4.2.1: rewrite Message ID to 0 on the wire.
+        // DNSResolver's pendingQueries map (RFC 1035 section 7.3
+        // correlation) is keyed by the real, non-zero ID it allocated,
+        // so that original ID is captured here and restored onto the
+        // response in DoQStreamHandler.disconnected() below -- otherwise
+        // every response would parse to ID 0 and never match any pending
+        // query, regardless of which query it actually answers.
+        int originalId = 0;
         if (data.remaining() >= 2) {
             int pos = data.position();
+            originalId = ((data.get(pos) & 0xFF) << 8) | (data.get(pos + 1) & 0xFF);
             data.put(pos, (byte) 0);
             data.put(pos + 1, (byte) 0);
         }
@@ -240,7 +248,7 @@ public class DoQClientTransport implements DNSClientTransport {
         framed.put(padded);
         framed.flip();
         Endpoint stream = engine.openStream(
-                new DoQStreamHandler(handler));
+                new DoQStreamHandler(handler, originalId));
         stream.send(framed);
         stream.close();
     }
@@ -267,11 +275,13 @@ public class DoQClientTransport implements DNSClientTransport {
         private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
         private final DNSClientTransportHandler handler;
+        private final int originalId;
         private final ByteArrayOutputStream accumulator =
                 new ByteArrayOutputStream(512);
 
-        DoQStreamHandler(DNSClientTransportHandler handler) {
+        DoQStreamHandler(DNSClientTransportHandler handler, int originalId) {
             this.handler = handler;
+            this.originalId = originalId;
         }
 
         @Override
@@ -307,6 +317,14 @@ public class DoQClientTransport implements DNSClientTransport {
                 handler.onError(new IOException(
                         "DoQ response length mismatch"));
                 return;
+            }
+            // Restore the original Message ID (see sendNow) so
+            // DNSResolver's ID-keyed correlation finds the right
+            // pending query -- the server's ID field is 0 per RFC 9250
+            // section 4.2.1, same as what was actually sent.
+            if (msgLen >= 2) {
+                raw[2] = (byte) (originalId >> 8);
+                raw[3] = (byte) originalId;
             }
             handler.onReceive(ByteBuffer.wrap(raw, 2, msgLen));
         }
