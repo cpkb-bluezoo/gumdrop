@@ -72,6 +72,14 @@ public final class DNSMessage {
     /** Checking Disabled flag (bit 4). RFC 4035 section 3.2.2. */
     public static final int FLAG_CD = 0x0010;
 
+    /**
+     * RFC 6762 section 5.4/10.2: in multicast DNS, the top bit of the
+     * QCLASS field ("QU", unicast response requested) and the top bit
+     * of the RR CLASS field ("cache-flush") are the same bit position,
+     * repurposed from the class value's most significant bit.
+     */
+    static final int QU_OR_CACHE_FLUSH_BIT = 0x8000;
+
     // RFC 1035 section 4.1.1 - OPCODE (bits 14-11)
 
     /** Standard query. RFC 1035 section 4.1.1. */
@@ -382,13 +390,17 @@ public final class DNSMessage {
             throw new DNSFormatException(msg);
         }
 
-        DNSClass dnsClass = DNSClass.fromValue(classValue);
+        // RFC 6762 section 5.4: in mDNS, the top bit of QCLASS is the
+        // "QU" unicast-response-requested bit, not part of the class
+        // value itself.
+        boolean unicastResponseRequested = (classValue & QU_OR_CACHE_FLUSH_BIT) != 0;
+        DNSClass dnsClass = DNSClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
         if (dnsClass == null) {
             String msg = MessageFormat.format(L10N.getString("err.unknown_class"), classValue);
             throw new DNSFormatException(msg);
         }
 
-        return new DNSQuestion(name, type, dnsClass);
+        return new DNSQuestion(name, type, dnsClass, unicastResponseRequested);
     }
 
     private static DNSResourceRecord parseResourceRecord(ByteBuffer data, ByteBuffer original)
@@ -409,9 +421,14 @@ public final class DNSMessage {
         byte[] rdata = new byte[rdLength];
         data.get(rdata);
 
-        // RFC 3597: preserve unknown types/classes as opaque data
+        // RFC 3597: preserve unknown types/classes as opaque data.
+        // RFC 6762 section 10.2: in mDNS, the top bit of the RR CLASS
+        // field is the "cache-flush" bit, not part of the class value
+        // itself; classValue (with the bit intact) is still passed
+        // through as rawClass below so DNSResourceRecord.isCacheFlush()
+        // can recover it and re-encoding round-trips it unchanged.
         DNSType type = DNSType.fromValue(typeValue);
-        DNSClass dnsClass = DNSClass.fromValue(classValue);
+        DNSClass dnsClass = DNSClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
 
         return new DNSResourceRecord(name, type, typeValue,
                 dnsClass, classValue, ttl, rdata);
@@ -610,14 +627,22 @@ public final class DNSMessage {
         byte[] name = encodeName(q.getName());
         out.write(name, 0, name.length);
         writeShort(out, q.getType().getValue());
-        writeShort(out, q.getDNSClass().getValue());
+        writeShort(out, questionClassValue(q));
     }
 
     private static void writeQuestion(ByteArrayOutputStream out, DNSQuestion q,
                                        Map<String, Integer> compressionTable) {
         writeNameCompressed(out, q.getName(), compressionTable);
         writeShort(out, q.getType().getValue());
-        writeShort(out, q.getDNSClass().getValue());
+        writeShort(out, questionClassValue(q));
+    }
+
+    private static int questionClassValue(DNSQuestion q) {
+        int value = q.getDNSClass().getValue();
+        if (q.isUnicastResponseRequested()) {
+            value |= QU_OR_CACHE_FLUSH_BIT;
+        }
+        return value;
     }
 
     private static void writeResourceRecord(ByteArrayOutputStream out, DNSResourceRecord rr) {

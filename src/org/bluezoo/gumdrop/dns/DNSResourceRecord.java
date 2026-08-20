@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import java.io.ByteArrayOutputStream;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -171,6 +172,28 @@ public final class DNSResourceRecord {
      * portion (lower half of the 32-bit TTL).
      */
     public static final int EDNS_FLAG_DO = 0x8000;
+
+    /**
+     * RFC 6762 section 10.2: the "cache-flush" bit repurposed from the
+     * top bit of the RR CLASS field in multicast DNS. Set on a record
+     * to tell mDNS receivers this is the complete, authoritative RRset
+     * for the name/type, replacing (rather than accumulating with) any
+     * previously cached records. Combine with a class value's raw form
+     * (e.g. {@code DNSClass.IN.getValue() | CACHE_FLUSH_BIT}) and pass
+     * as {@code rawClass} to the RFC 3597 constructor. Meaningless
+     * outside mDNS.
+     */
+    public static final int CACHE_FLUSH_BIT = 0x8000;
+
+    /**
+     * Returns whether the mDNS cache-flush bit is set on this record's
+     * class field (RFC 6762 section 10.2).
+     *
+     * @return true if the cache-flush bit is set
+     */
+    public boolean isCacheFlush() {
+        return (rawClass & CACHE_FLUSH_BIT) != 0;
+    }
 
     // -- Convenience factory methods --
 
@@ -413,6 +436,34 @@ public final class DNSResourceRecord {
         buf.flip();
         buf.get(rdataBytes);
         return new DNSResourceRecord(name, DNSType.TXT, DNSClass.IN, ttl, rdataBytes);
+    }
+
+    /**
+     * Creates a TXT record from multiple independent character-strings,
+     * e.g. DNS-SD (RFC 6763 section 6) {@code key=value} attribute
+     * pairs, where each pair must remain its own character-string
+     * rather than being split arbitrarily across the 255-byte boundary
+     * the way {@link #txt(String, int, String)} splits one long string.
+     *
+     * @param name the domain name
+     * @param ttl time to live in seconds
+     * @param strings the character-strings, each at most 255 UTF-8 bytes
+     * @return the resource record
+     * @throws IllegalArgumentException if any string exceeds 255 UTF-8 bytes
+     */
+    public static DNSResourceRecord txt(String name, int ttl, List<String> strings) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (String s : strings) {
+            byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+            if (bytes.length > 255) {
+                String msg = MessageFormat.format(
+                        L10N.getString("err.txt_string_too_long"), s, bytes.length);
+                throw new IllegalArgumentException(msg);
+            }
+            out.write(bytes.length);
+            out.write(bytes, 0, bytes.length);
+        }
+        return new DNSResourceRecord(name, DNSType.TXT, DNSClass.IN, ttl, out.toByteArray());
     }
 
     /**

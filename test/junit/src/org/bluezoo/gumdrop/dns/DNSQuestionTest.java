@@ -118,8 +118,35 @@ public class DNSQuestionTest {
     @Test
     public void testAnyQuery() {
         DNSQuestion question = new DNSQuestion("example.com", DNSType.ANY);
-        
+
         assertEquals(DNSType.ANY, question.getType());
+    }
+
+    @Test
+    public void testUnicastResponseRequestedDefaultsFalse() {
+        DNSQuestion question = new DNSQuestion("example.com", DNSType.A);
+
+        assertFalse(question.isUnicastResponseRequested());
+    }
+
+    @Test
+    public void testUnicastResponseRequestedTrue() {
+        DNSQuestion question = new DNSQuestion(
+                "example.local", DNSType.A, DNSClass.IN, true);
+
+        assertTrue(question.isUnicastResponseRequested());
+        assertEquals(DNSClass.IN, question.getDNSClass());
+    }
+
+    @Test
+    public void testEqualsIgnoresUnicastResponseRequested() {
+        DNSQuestion q1 = new DNSQuestion(
+                "example.local", DNSType.A, DNSClass.IN, true);
+        DNSQuestion q2 = new DNSQuestion(
+                "example.local", DNSType.A, DNSClass.IN, false);
+
+        assertEquals(q1, q2);
+        assertEquals(q1.hashCode(), q2.hashCode());
     }
 }
 
