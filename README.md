@@ -22,17 +22,11 @@ non-blocking, event-driven I/O.
 
 ## Why Gumdrop?
 
-- 100% pure Java
-    - no JNI, no native libraries, nothing to compile beyond `ant`
-    - runs unmodified on any JVM 17+ platform
-    - even QUIC/HTTP-3 and TLS 1.3 — usually the hardest protocols to get
-      pure-Java — have zero native dependencies
 - HTTP/3 and QUIC support
     - one of very few Java frameworks with HTTP/3 server support
       (only Netty offers comparable capability; JDK 26's JEP 517 is
       client-only)
-    - pure Java implementation, unlike alternatives built on native
-      quiche/BoringSSL via JNI
+    - pure Java (17+) implementation, no native code
     - servlet container runs transparently on top of HTTP/3
 - high performance
     - Java NIO non-blocking I/O throughout
