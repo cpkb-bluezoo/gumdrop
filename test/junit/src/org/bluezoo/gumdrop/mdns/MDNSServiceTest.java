@@ -368,6 +368,90 @@ public class MDNSServiceTest {
         assertFalse(service.isAnnounced());
     }
 
+    @Test
+    public void testLookupEmptyBeforeAnyQuery() {
+        MDNSService service = new MDNSService();
+        assertTrue(service.lookup("other.local", DNSType.A).isEmpty());
+    }
+
+    @Test
+    public void testQuerySendsMulticastQuestion() throws Exception {
+        CapturingMDNSListener listener = new CapturingMDNSListener();
+        MDNSService service = new MDNSService();
+        service.addListener(listener);
+        service.setHostname("testhost");
+
+        service.start();
+        settle(service, listener);
+        int sentBefore = listener.sentToGroup.size();
+
+        service.query("other.local", DNSType.A);
+
+        assertEquals(sentBefore + 1, listener.sentToGroup.size());
+        DNSMessage query = parse(listener.sentToGroup.get(sentBefore));
+        assertFalse(query.isResponse());
+        assertEquals(1, query.getQuestions().size());
+        DNSQuestion question = query.getQuestions().get(0);
+        assertEquals("other.local", question.getName());
+        assertEquals(DNSType.A, question.getType());
+        assertFalse(question.isUnicastResponseRequested());
+    }
+
+    @Test
+    public void testQueryResponseIsCachedAndLookupable() throws Exception {
+        CapturingMDNSListener listener = new CapturingMDNSListener();
+        MDNSService service = new MDNSService();
+        service.addListener(listener);
+        service.setHostname("testhost");
+
+        service.start();
+        settle(service, listener);
+
+        InetAddress otherAddr = InetAddress.getByName("203.0.113.42");
+        DNSResourceRecord answer = DNSResourceRecord.a("other.local", 120, otherAddr);
+        DNSMessage response = new DNSMessage(0,
+                DNSMessage.FLAG_QR | DNSMessage.FLAG_AA,
+                Collections.<DNSQuestion>emptyList(),
+                Collections.singletonList(answer),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList());
+
+        assertTrue(service.lookup("other.local", DNSType.A).isEmpty());
+        service.handleDatagram(listener, response.serialize(),
+                new InetSocketAddress(otherAddr, 5353));
+
+        List<DNSResourceRecord> found = service.lookup("other.local", DNSType.A);
+        assertEquals(1, found.size());
+        assertArrayEquals(otherAddr.getAddress(), found.get(0).getRData());
+    }
+
+    @Test
+    public void testStopClearsCache() throws Exception {
+        CapturingMDNSListener listener = new CapturingMDNSListener();
+        MDNSService service = new MDNSService();
+        service.addListener(listener);
+        service.setHostname("testhost");
+
+        service.start();
+        settle(service, listener);
+
+        InetAddress otherAddr = InetAddress.getByName("203.0.113.42");
+        DNSResourceRecord answer = DNSResourceRecord.a("other.local", 120, otherAddr);
+        DNSMessage response = new DNSMessage(0,
+                DNSMessage.FLAG_QR | DNSMessage.FLAG_AA,
+                Collections.<DNSQuestion>emptyList(),
+                Collections.singletonList(answer),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList());
+        service.handleDatagram(listener, response.serialize(),
+                new InetSocketAddress(otherAddr, 5353));
+        assertEquals(1, service.lookup("other.local", DNSType.A).size());
+
+        service.stop();
+
+        assertTrue(service.lookup("other.local", DNSType.A).isEmpty());
+    }
+
     /**
      * An {@link MDNSListener} that never opens a real socket: {@code
      * start()}/{@code stop()} are no-ops, sends are captured in memory,

@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 import org.bluezoo.gumdrop.dns.DNSType;
 
 /**
- * A multicast DNS responder (RFC 6762).
+ * A multicast DNS responder and querier (RFC 6762).
  *
  * <p>On {@link #start()}, this service probes for the exclusive right
  * to use its configured hostname on the local network (RFC 6762
@@ -60,16 +60,20 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * queries from other hosts until {@link #stop()}, when it sends a
  * "goodbye" packet (section 10.1) withdrawing its records.
  *
- * <p>This is the responder half of RFC 6762 only: it does not perform
- * outbound queries or maintain a cache of other hosts' records (that
- * is a separate, later phase), and does not yet publish DNS-SD (RFC
- * 6763) service records.
+ * <p>It can also query for other hosts' records via {@link #query} and
+ * read them back via {@link #lookup}: answers are kept in an
+ * {@link MDNSCache} that actively re-queries each record before it
+ * expires (section 5.2), so a lookup stays populated without the
+ * caller needing to re-query.
+ *
+ * <p>DNS-SD (RFC 6763) service records are not yet published (a
+ * separate, later phase).
  *
  * <p>All mutable state here (probe/announce state, the current name,
- * pending timer) is touched only from {@link #handleDatagram} and
- * timer callbacks, both of which are always invoked on the owning
- * {@link MDNSListener}'s single transport thread &mdash; there is no
- * separate synchronization.
+ * pending timer, the record cache) is touched only from
+ * {@link #handleDatagram} and timer callbacks, both of which are
+ * always invoked on the owning {@link MDNSListener}'s single transport
+ * thread &mdash; there is no separate synchronization.
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
@@ -124,6 +128,18 @@ public class MDNSService implements Service {
     private int announcesSent;
     private List<DNSResourceRecord> currentRecords = Collections.emptyList();
     private MDNSListener.TimerHandleWrapper timerHandle;
+
+    private final MDNSCache cache = new MDNSCache(new MDNSCache.Refresher() {
+        @Override
+        public void sendRefreshQuery(String name, DNSType type) {
+            sendQuery(name, type, true);
+        }
+
+        @Override
+        public MDNSListener.TimerHandleWrapper scheduleTimer(long delayMs, Runnable task) {
+            return primaryListener().scheduleTimer(delayMs, task);
+        }
+    });
 
     /**
      * Creates a new mDNS service.
@@ -197,6 +213,52 @@ public class MDNSService implements Service {
         return state == State.ANNOUNCED;
     }
 
+    // ── Querying (RFC 6762 section 5) ──
+
+    /**
+     * Sends a one-shot mDNS query for the given name/type to the local
+     * network. Answers arrive asynchronously as other hosts respond
+     * and are cached (with RFC 6762 section 5.2 active refresh, so
+     * they stay current without needing to be re-queried by the
+     * caller); poll {@link #lookup} afterwards to read them &mdash;
+     * e.g. after a short delay, or periodically.
+     *
+     * @param name the name to query for (e.g. {@code "foo.local"})
+     * @param type the record type to query for
+     */
+    public void query(String name, DNSType type) {
+        sendQuery(name, type, true);
+    }
+
+    /**
+     * Returns the currently cached records for a name/type, most
+     * recently populated by {@link #query} or by another host's
+     * unsolicited announcement. Empty if nothing is cached (including
+     * if nothing has been queried for yet).
+     *
+     * @param name the record name
+     * @param type the record type
+     * @return the cached records, never null
+     */
+    public List<DNSResourceRecord> lookup(String name, DNSType type) {
+        return cache.lookup(name, type);
+    }
+
+    private void sendQuery(String name, DNSType type, boolean includeKnownAnswers) {
+        if (listeners.isEmpty()) {
+            return;
+        }
+        DNSQuestion question = new DNSQuestion(name, type, DNSClass.IN);
+        List<DNSResourceRecord> knownAnswers = includeKnownAnswers
+                ? cache.lookup(name, type) : Collections.<DNSResourceRecord>emptyList();
+        DNSMessage query = new DNSMessage(0, 0,
+                Collections.singletonList(question),
+                knownAnswers,
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList());
+        primaryListener().sendToGroup(query.serialize());
+    }
+
     // ── Lifecycle ──
 
     @Override
@@ -248,6 +310,7 @@ public class MDNSService implements Service {
             }
         }
         cancelTimer();
+        cache.clear();
         state = State.IDLE;
     }
 
@@ -437,17 +500,21 @@ public class MDNSService implements Service {
     }
 
     private void handleIncomingResponse(DNSMessage message) {
-        if (state != State.PROBING) {
-            // Phase 2 has no querier/cache to feed responses into.
+        if (state == State.PROBING && checkProbeConflict(message)) {
             return;
         }
+        cache.addAll(message.getAnswers());
+    }
+
+    private boolean checkProbeConflict(DNSMessage message) {
         List<DNSResourceRecord> answers = message.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
             if (isConflicting(answers.get(i))) {
                 restartProbingAfterConflict();
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     private boolean isConflicting(DNSResourceRecord rr) {
