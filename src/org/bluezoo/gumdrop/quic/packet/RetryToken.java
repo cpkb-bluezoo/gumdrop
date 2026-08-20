@@ -117,6 +117,12 @@ public final class RetryToken {
         byte[] plaintext;
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            // This is the decrypt side: nonce is read back from the
+            // token bytes above (whatever seal() actually generated via
+            // SecureRandom for that specific token, not a fixed value
+            // reused across encryptions), which is the only way to
+            // decrypt a GCM ciphertext at all.
+            // codeql[java/static-initialization-vector]
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce));
             cipher.updateAAD(clientAddress.getAddress());
             plaintext = cipher.doFinal(ciphertext);

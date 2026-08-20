@@ -87,6 +87,14 @@ public final class RetryIntegrityTag {
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             GCMParameterSpec spec = new GCMParameterSpec(LENGTH * 8, NONCE);
+            // RFC 9001 section 5.8 mandates this exact fixed key and nonce
+            // -- both are published in the RFC itself and known to every
+            // QUIC implementation. This is not a secrecy mechanism (the
+            // key is public); its only purpose is corruption/off-path-
+            // forgery detection, which depends on the key/nonce being the
+            // same constant everywhere. A random nonce here would
+            // silently break interop with every RFC-compliant peer.
+            // codeql[java/static-initialization-vector]
             cipher.init(Cipher.ENCRYPT_MODE, SECRET_KEY, spec);
             cipher.updateAAD(pseudoPacket);
             // RFC 9001 section 5.8: "The plaintext, P, is empty" -- with
