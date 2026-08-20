@@ -1116,12 +1116,63 @@ public class HTTPClient implements AltSvcListener {
         }
 
         h3UpgradeInProgress = true;
+        // RFC 7838's Alt-Svc is purely advisory for *future* requests to
+        // this origin -- it says nothing about the request whose response
+        // this header arrived on, which may still be streaming in (and,
+        // for a non-idempotent method, may not yet be confirmed to have
+        // taken effect). New requests already route to h3Handler as soon
+        // as it's set (see request()), in parallel with this h1/h2
+        // connection still draining -- that part is safe and unconditional
+        // per the design. What must NOT happen is tearing down this
+        // connection while it still has streams open: closeWhenIdle()
+        // (called once h3 is ready, via the wrapper below) defers that
+        // until every stream this connection already accepted has
+        // genuinely finished, rather than aborting it out from under a
+        // still-in-flight request.
+        HTTPClientHandler upgradeHandler = new AltSvcUpgradeHandler(connectHandler);
         if (altHost != null) {
-            resolveAndConnectH3(altHost, altPort, connectHandler);
+            resolveAndConnectH3(altHost, altPort, upgradeHandler);
         } else if (hostAddress != null) {
-            connectH3(hostAddress, altPort, host, connectHandler);
+            connectH3(hostAddress, altPort, host, upgradeHandler);
         } else {
-            resolveAndConnectH3(host, altPort, connectHandler);
+            resolveAndConnectH3(host, altPort, upgradeHandler);
+        }
+    }
+
+    // Wraps the application's own connectHandler for the Alt-Svc-triggered
+    // same-instance h3 upgrade specifically (not the normal connect()
+    // path, where there is no earlier h1/h2 connection to worry about):
+    // once h3 is genuinely ready, tells the old connection it may close
+    // once idle, then delegates to the real handler unchanged.
+    private final class AltSvcUpgradeHandler implements HTTPClientHandler {
+
+        private final HTTPClientHandler delegate;
+
+        AltSvcUpgradeHandler(HTTPClientHandler delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void onConnected(Endpoint endpoint) {
+            if (endpointHandler != null) {
+                endpointHandler.closeWhenIdle();
+            }
+            delegate.onConnected(endpoint);
+        }
+
+        @Override
+        public void onSecurityEstablished(SecurityInfo info) {
+            delegate.onSecurityEstablished(info);
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            delegate.onError(cause);
+        }
+
+        @Override
+        public void onDisconnected() {
+            delegate.onDisconnected();
         }
     }
 

@@ -105,6 +105,20 @@ public class HTTPClientProtocolHandler
     private HTTPVersion negotiatedVersion;
     private volatile boolean open;
 
+    // Set by closeWhenIdle() -- an alternative transport (HTTP/3 via
+    // Alt-Svc) is already available for new requests, but this
+    // connection must not be torn down while any stream it already
+    // accepted is still in flight (or merely queued -- see
+    // pendingRequests below): closing out from under one aborts it via
+    // failAllStreams()/responseHandler.failed(...), and for a
+    // non-idempotent request a caller that retries on connection
+    // failure could then re-issue it -- over the new connection -- as a
+    // genuine duplicate. Consulted (via maybeCloseWhenIdle) at every
+    // point a stream is removed from activeStreams that represents a
+    // real completion, not the auth-retry path's own remove-then-
+    // immediately-resend-on-this-same-connection sequence.
+    private boolean closePending;
+
     // h2c upgrade state
     private boolean h2Enabled = true;
     private boolean h2cUpgradeEnabled = true;
@@ -721,6 +735,40 @@ public class HTTPClientProtocolHandler
     }
 
     /**
+     * Closes this connection once every stream it has already accepted
+     * -- active or merely queued behind {@code SETTINGS_MAX_CONCURRENT_STREAMS}
+     * -- has finished, rather than immediately. Intended for when an
+     * alternative transport has become available (HTTP/3 via Alt-Svc)
+     * and new requests are already being routed there: this connection
+     * must still be allowed to finish whatever it already committed to,
+     * since closing out from under a still-in-flight request aborts it
+     * with an error, and a caller that retries a non-idempotent request
+     * on connection failure could then re-issue it -- over the new
+     * connection -- as a genuine duplicate.
+     */
+    public void closeWhenIdle() {
+        if (activeStreams.isEmpty() && pendingRequests.isEmpty()) {
+            close();
+        } else {
+            closePending = true;
+        }
+    }
+
+    // Consulted after a stream is removed from activeStreams for a
+    // genuine completion (normal finish, cancellation, reset, or a
+    // failed send) -- never after the auth-retry path's own remove, since
+    // that immediately re-sends on this same connection rather than
+    // freeing it up. Checked after any pending-request draining that
+    // completion may have triggered, so a queued request that just took
+    // the newly-freed slot correctly counts as "still busy," not idle.
+    private void maybeCloseWhenIdle() {
+        if (closePending && activeStreams.isEmpty() && pendingRequests.isEmpty()) {
+            closePending = false;
+            close();
+        }
+    }
+
+    /**
      * Enables or disables HTTP/2 via ALPN for TLS connections.
      *
      * @param enabled true to offer HTTP/2 in ALPN negotiation
@@ -882,6 +930,7 @@ public class HTTPClientProtocolHandler
             }
             drainPendingRequests();
         }
+        maybeCloseWhenIdle();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1033,6 +1082,7 @@ public class HTTPClientProtocolHandler
             }
             activeStreams.remove(streamId);
             streamIdByRequest.remove(request);
+            maybeCloseWhenIdle();
         }
     }
 
@@ -1717,6 +1767,7 @@ public class HTTPClientProtocolHandler
             close();
         } else {
             LOGGER.fine("Response complete");
+            maybeCloseWhenIdle();
         }
     }
 
@@ -2132,6 +2183,7 @@ public class HTTPClientProtocolHandler
             }
             drainPendingRequests();
         }
+        maybeCloseWhenIdle();
     }
 
     // RFC 9113 section 6.5: SETTINGS frame reception
@@ -2526,6 +2578,7 @@ public class HTTPClientProtocolHandler
             }
         }
         drainPendingRequests();
+        maybeCloseWhenIdle();
     }
 
     // RFC 9113 section 5.1.2: dispatch queued requests when capacity
@@ -2782,6 +2835,7 @@ public class HTTPClientProtocolHandler
                 }
                 activeStreams.remove(streamId);
                 streamIdByRequest.remove(request);
+                maybeCloseWhenIdle();
             } finally {
                 ByteBufferPool.release(headerBlock);
             }
