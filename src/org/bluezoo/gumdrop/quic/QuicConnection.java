@@ -64,6 +64,7 @@ import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.recovery.LossDetector;
+import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.recovery.SentPacket;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 import org.bluezoo.gumdrop.quic.tls.Hkdf;
@@ -410,6 +411,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // actually arrived from.
     private InetSocketAddress migratingPathAddress;
     private byte[] pendingPathChallengeData;
+    // RFC 9000 section 8.2.4: independent retry/abandon state for the
+    // PATH_CHALLENGE currently outstanding for migratingPathAddress.
+    // Deliberately not registered with lossDetector -- see
+    // beginMigrationValidation's comment.
+    private long pathValidationDeadlineMillis;
+    private TimerHandle pathValidationTimerHandle;
     private InetSocketAddress currentDatagramSource;
     private boolean sawValidOneRttThisReceive;
     private boolean decryptFailedOrUnparseableThisDatagram;
@@ -1624,16 +1631,108 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     // ── Connection migration (RFC 9000 section 9) ──
 
-    // Starts validating a candidate new path: generates the 8 bytes a
-    // PATH_RESPONSE from that address must echo, then sends a
-    // PATH_CHALLENGE there directly (via QuicEngine.sendTo, bypassing the
-    // normal flush()/remoteAddress send path -- ordinary traffic keeps
-    // going to the old, still-current remoteAddress until this validates).
+    // Starts validating a candidate new path: computes the RFC 9000
+    // section 8.2.4 abandon deadline (max(3*PTO, 6*kInitialRtt)) for
+    // this attempt, then sends the first PATH_CHALLENGE and arms its
+    // retry timer. Ordinary traffic keeps going to the old,
+    // still-current remoteAddress until this validates.
+    //
+    // A second, different candidate address arriving while one
+    // validation is already in flight is possible (the guard at the
+    // sole call site only blocks a *repeat* of the *same* candidate),
+    // so any previous attempt's retry timer is cancelled first --
+    // otherwise it would keep firing for the superseded candidate
+    // (harmless on its own, since onPathValidationTimeout no-ops once
+    // migratingPathAddress no longer matches, but pointless).
     private void beginMigrationValidation(InetSocketAddress candidate) {
+        if (pathValidationTimerHandle != null) {
+            pathValidationTimerHandle.cancel();
+            pathValidationTimerHandle = null;
+        }
         migratingPathAddress = candidate;
+        long pto = currentPathValidationPto();
+        pathValidationDeadlineMillis = System.currentTimeMillis()
+                + Math.max(3 * pto, 6 * RttEstimator.K_INITIAL_RTT);
+        sendPathChallengeAndScheduleRetry(candidate, pto);
+    }
+
+    // RFC 9000 section 8.2.4: "An endpoint MAY send multiple
+    // PATH_CHALLENGE frames to guard against packet loss." Sends a
+    // freshly-generated challenge and, if there's still time left
+    // before the abandon deadline, arms a timer to do it again after
+    // about one PTO -- deliberately independent of lossDetector (see
+    // the class-level migration comment: these frames aren't
+    // registered with it, so this can't piggyback on its PTO/loss
+    // machinery and needs its own).
+    private void sendPathChallengeAndScheduleRetry(final InetSocketAddress candidate, long pto) {
         pendingPathChallengeData = new byte[QuicFrameHandler.PATH_DATA_LENGTH];
         RANDOM.nextBytes(pendingPathChallengeData);
         sendPathChallenge(pendingPathChallengeData, candidate);
+
+        long now = System.currentTimeMillis();
+        long delay = Math.min(pto, pathValidationDeadlineMillis - now);
+        if (delay <= 0) {
+            abandonMigrationValidation();
+            return;
+        }
+        pathValidationTimerHandle = engine.scheduleTimer(delay, new Runnable() {
+            @Override
+            public void run() {
+                onPathValidationTimeout(candidate);
+            }
+        });
+    }
+
+    private void onPathValidationTimeout(InetSocketAddress candidate) {
+        // Superseded by a newer candidate, already completed, or the
+        // connection closed out from under this timer -- nothing to do.
+        if (closed || !candidate.equals(migratingPathAddress) || pendingPathChallengeData == null) {
+            return;
+        }
+        if (System.currentTimeMillis() >= pathValidationDeadlineMillis) {
+            abandonMigrationValidation();
+            return;
+        }
+        sendPathChallengeAndScheduleRetry(candidate, currentPathValidationPto());
+    }
+
+    // RFC 9000 section 8.2.4: "an endpoint SHOULD abandon path
+    // validation based on a timer." Failure here just means staying on
+    // the existing, already-validated path -- leaving remoteAddress
+    // untouched already achieves that; this only needs to clear the
+    // attempt's own state so a stray late PATH_RESPONSE for the
+    // abandoned candidate is no longer treated as validating anything.
+    private void abandonMigrationValidation() {
+        migratingPathAddress = null;
+        pendingPathChallengeData = null;
+        pathValidationTimerHandle = null;
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Path validation abandoned: no PATH_RESPONSE within the deadline");
+        }
+    }
+
+    // RFC 9002 Appendix A.3's PTO formula (the same one
+    // scheduleLossDetectionTimer ultimately relies on via LossDetector),
+    // computed independently of lossDetector's own packet-number-space
+    // bookkeeping (see the class-level migration comment for why
+    // PATH_CHALLENGE isn't registered with it) -- reuses the same
+    // RttEstimator instance lossDetector already maintains from
+    // ordinary traffic, since a separate one would just start back at
+    // kInitialRtt for no reason.
+    //
+    // The +peerMaxAckDelay() term is not optional padding: on a fast,
+    // low-RTT path (loopback, or any well-connected real path) smoothed
+    // RTT and rttvar can both be a millisecond or less, collapsing
+    // smoothed+max(4*rttvar,1) to near-zero and turning "retry after
+    // about one PTO" into a tight, near-continuous retransmission loop
+    // -- exactly the RTT-independent floor max_ack_delay exists to
+    // provide (a peer that's simply slow to ack shouldn't look like
+    // packet loss).
+    private long currentPathValidationPto() {
+        RttEstimator rtt = lossDetector.getRttEstimator();
+        long smoothed = rtt.hasRttSample() ? rtt.getSmoothedRtt() : RttEstimator.K_INITIAL_RTT;
+        long rttVar = rtt.hasRttSample() ? rtt.getRttVar() : RttEstimator.K_INITIAL_RTT / 2;
+        return smoothed + Math.max(4 * rttVar, 1) + peerMaxAckDelay();
     }
 
     // Called once a PATH_RESPONSE has proven the candidate path is real
@@ -1644,6 +1743,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         remoteAddress = migratingPathAddress;
         migratingPathAddress = null;
         pendingPathChallengeData = null;
+        if (pathValidationTimerHandle != null) {
+            pathValidationTimerHandle.cancel();
+            pathValidationTimerHandle = null;
+        }
 
         // RFC 9000 section 9.5: prefer a peer connection ID not already
         // used on the old path, if the peer has issued a spare one via
@@ -2513,6 +2616,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             timerHandle.cancel();
             timerHandle = null;
         }
+        if (pathValidationTimerHandle != null) {
+            pathValidationTimerHandle.cancel();
+            pathValidationTimerHandle = null;
+        }
         // RFC 9000 section 10.2.1: send at only the highest available
         // level -- EncryptionLevel.values() is declared in ascending
         // order (INITIAL, HANDSHAKE, ONE_RTT), so this must walk it
@@ -2557,6 +2664,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             timerHandle.cancel();
             timerHandle = null;
         }
+        if (pathValidationTimerHandle != null) {
+            pathValidationTimerHandle.cancel();
+            pathValidationTimerHandle = null;
+        }
         engine.onConnectionClosed(this);
     }
 
@@ -2568,6 +2679,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         if (timerHandle != null) {
             timerHandle.cancel();
             timerHandle = null;
+        }
+        if (pathValidationTimerHandle != null) {
+            pathValidationTimerHandle.cancel();
+            pathValidationTimerHandle = null;
         }
         deferredCloseIsError = true;
         tearDownStreams(new QuicStatelessResetException());
