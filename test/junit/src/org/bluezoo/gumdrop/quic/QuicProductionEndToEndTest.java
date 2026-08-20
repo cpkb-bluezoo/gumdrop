@@ -3690,8 +3690,8 @@ public class QuicProductionEndToEndTest {
      * RFC 9000 section 8.2.4: "an endpoint SHOULD abandon path
      * validation based on a timer" -- if no PATH_RESPONSE ever arrives,
      * the server must give up (not migrate, not leak the attempt
-     * forever) rather than leaving {@code migratingPathAddress}/{@code
-     * pendingPathChallengeData} set with nothing left driving them.
+     * forever) rather than leaving its entry in {@code
+     * pathValidationAttempts} sitting with nothing left driving it.
      * Never responds to any PATH_CHALLENGE at all and asserts that,
      * after the validation deadline passes, the connection is still on
      * its original path and the migration-attempt state has actually
@@ -3815,21 +3815,17 @@ public class QuicProductionEndToEndTest {
             boolean abandoned = false;
             long deadline = System.currentTimeMillis() + 15000;
             while (System.currentTimeMillis() < deadline) {
-                InetSocketAddress migratingPathAddress =
-                        getPrivateField(serverConnection, "migratingPathAddress", InetSocketAddress.class);
-                if (migratingPathAddress == null) {
+                @SuppressWarnings("unchecked")
+                Map<InetSocketAddress, ?> pathValidationAttempts =
+                        getPrivateField(serverConnection, "pathValidationAttempts", Map.class);
+                if (pathValidationAttempts.isEmpty()) {
                     abandoned = true;
                     break;
                 }
                 Thread.sleep(50);
             }
             assertTrue("Server should have abandoned path validation "
-                    + "(migratingPathAddress cleared) within the deadline", abandoned);
-
-            byte[] pendingPathChallengeData =
-                    getPrivateField(serverConnection, "pendingPathChallengeData", byte[].class);
-            assertNull("pendingPathChallengeData should be cleared once abandoned",
-                    pendingPathChallengeData);
+                    + "(pathValidationAttempts cleared) within the deadline", abandoned);
 
             InetSocketAddress finalRemote =
                     getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
@@ -3840,6 +3836,372 @@ public class QuicProductionEndToEndTest {
         } finally {
             if (rebindChannel != null) {
                 rebindChannel.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9000 section 9.3: multiple candidate addresses can legitimately
+     * produce valid-looking traffic close together (the RFC's own example
+     * is an off-path attacker duplicating packets to several addresses,
+     * but a benign NAT re-numbering twice in quick succession looks the
+     * same to the server). Forges PINGs from two different rebind
+     * addresses back to back, before either's PATH_RESPONSE goes out, and
+     * asserts the server validates both independently -- neither's
+     * PATH_CHALLENGE is lost to the other -- then proves that completing
+     * migration to one clears the other's now-moot attempt, so its
+     * stale PATH_RESPONSE (using its own, no-longer-tracked nonce)
+     * cannot pull the connection back once it's moved on.
+     */
+    @Test
+    public void testConcurrentCandidatesBothValidateIndependently() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        DatagramChannel channelA = null;
+        DatagramChannel channelB = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                    stream.close();
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+            awaitHandshakeSettled();
+
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
+                    getPrivateField(clientConnection, "sendKeys", Map.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientRecvKeys =
+                    getPrivateField(clientConnection, "recvKeys", Map.class);
+            PacketProtectionKeys clientToServerKeys = clientSendKeys.get(EncryptionLevel.ONE_RTT);
+            PacketProtectionKeys serverToClientKeys = clientRecvKeys.get(EncryptionLevel.ONE_RTT);
+            byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
+            byte[] clientConnectionId = getPrivateField(clientConnection, "ourConnectionId", byte[].class);
+            long[] clientSendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
+
+            channelA = DatagramChannel.open();
+            channelA.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            channelA.configureBlocking(false);
+            channelB = DatagramChannel.open();
+            channelB.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            channelB.configureBlocking(false);
+            InetSocketAddress addressB = (InetSocketAddress) channelB.getLocalAddress();
+
+            // Both PINGs go out before either response comes back, so
+            // neither candidate has a chance to complete (and clear
+            // pathValidationAttempts) before the other is even detected.
+            long pingA = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            sendReliably(channelA, forgePingPacket(clientToServerKeys, serverConnectionId, pingA), serverAddress);
+            long pingB = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            sendReliably(channelB, forgePingPacket(clientToServerKeys, serverConnectionId, pingB), serverAddress);
+
+            byte[] challengeA = receivePathChallengeData(channelA, serverToClientKeys,
+                    clientConnectionId.length, 10000);
+            assertTrue("Candidate A should have received its own PATH_CHALLENGE", challengeA != null);
+            byte[] challengeB = receivePathChallengeData(channelB, serverToClientKeys,
+                    clientConnectionId.length, 10000);
+            assertTrue("Candidate B should have received its own PATH_CHALLENGE "
+                    + "(must not have been evicted by A's validation)", challengeB != null);
+
+            QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
+
+            // Respond to B first -- the server should migrate to B.
+            long responseB = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            sendReliably(channelB,
+                    forgePathResponsePacket(clientToServerKeys, serverConnectionId, responseB, challengeB),
+                    serverAddress);
+
+            InetSocketAddress switchedToB = null;
+            long deadline = System.currentTimeMillis() + 10000;
+            while (System.currentTimeMillis() < deadline) {
+                InetSocketAddress currentRemote =
+                        getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
+                if (addressB.equals(currentRemote)) {
+                    switchedToB = currentRemote;
+                    break;
+                }
+                Thread.sleep(20);
+            }
+            assertEquals("The server should have migrated to B", addressB, switchedToB);
+
+            // A's response, sent afterward, uses A's own (now-stale)
+            // challenge nonce -- its attempt was already cleared when B
+            // won, so this must not pull the connection back to A.
+            long responseA = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            sendReliably(channelA,
+                    forgePathResponsePacket(clientToServerKeys, serverConnectionId, responseA, challengeA),
+                    serverAddress);
+            Thread.sleep(200);
+            InetSocketAddress finalRemote =
+                    getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
+            assertEquals("A's stale response must not re-migrate the connection -- should still be on B",
+                    addressB, finalRemote);
+        } finally {
+            if (channelA != null) {
+                channelA.close();
+            }
+            if (channelB != null) {
+                channelB.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9000 section 9.3: bounds how many candidate paths can be
+     * validated concurrently (QuicConnection.MAX_CONCURRENT_PATH_VALIDATIONS),
+     * so an attacker spoofing many distinct source addresses can't make
+     * the server spend unbounded PATH_CHALLENGE traffic on unproven
+     * addresses. Forges PINGs from one more distinct address than the
+     * cap allows and asserts the extra one is simply never validated --
+     * no PATH_CHALLENGE sent for it -- while every candidate within the
+     * cap is.
+     */
+    @Test
+    public void testConcurrentCandidatesCapEnforced() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        List<DatagramChannel> channels = new java.util.ArrayList<DatagramChannel>();
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                    stream.close();
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+            awaitHandshakeSettled();
+
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
+                    getPrivateField(clientConnection, "sendKeys", Map.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientRecvKeys =
+                    getPrivateField(clientConnection, "recvKeys", Map.class);
+            PacketProtectionKeys clientToServerKeys = clientSendKeys.get(EncryptionLevel.ONE_RTT);
+            PacketProtectionKeys serverToClientKeys = clientRecvKeys.get(EncryptionLevel.ONE_RTT);
+            byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
+            byte[] clientConnectionId = getPrivateField(clientConnection, "ourConnectionId", byte[].class);
+            long[] clientSendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
+
+            QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
+            int cap = getPrivateField(serverConnection, "MAX_CONCURRENT_PATH_VALIDATIONS", Integer.class);
+
+            for (int i = 0; i < cap; i++) {
+                DatagramChannel channel = DatagramChannel.open();
+                channel.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+                channel.configureBlocking(false);
+                channels.add(channel);
+
+                long pingNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+                sendReliably(channel, forgePingPacket(clientToServerKeys, serverConnectionId, pingNumber),
+                        serverAddress);
+
+                byte[] challenge = receivePathChallengeData(channel, serverToClientKeys,
+                        clientConnectionId.length, 10000);
+                assertTrue("Candidate " + i + " (within the cap of " + cap + ") should have received a "
+                        + "PATH_CHALLENGE", challenge != null);
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<InetSocketAddress, ?> attemptsAtCap =
+                    getPrivateField(serverConnection, "pathValidationAttempts", Map.class);
+            assertEquals("Should be validating exactly " + cap + " candidates concurrently",
+                    cap, attemptsAtCap.size());
+
+            // One more, distinct candidate address -- beyond the cap.
+            DatagramChannel extraChannel = DatagramChannel.open();
+            extraChannel.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            extraChannel.configureBlocking(false);
+            channels.add(extraChannel);
+            InetSocketAddress extraAddress = (InetSocketAddress) extraChannel.getLocalAddress();
+
+            long extraPingNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+            sendReliably(extraChannel, forgePingPacket(clientToServerKeys, serverConnectionId, extraPingNumber),
+                    serverAddress);
+
+            // Check the map itself first, promptly (a short settle
+            // delay, not a wait-for-negative-result timeout): each of
+            // the cap candidates above has its own abandon deadline
+            // already ticking (RFC 9000 section 8.2.4, typically a
+            // couple of seconds), so a long wait here risks them all
+            // expiring before this check runs, which would make the
+            // size assertion pass for the wrong reason (everything
+            // gone, not "still exactly cap"). This is the primary,
+            // fast, precise proof that the extra candidate was never
+            // added.
+            Thread.sleep(300);
+            @SuppressWarnings("unchecked")
+            Map<InetSocketAddress, ?> attemptsAfterExtra =
+                    getPrivateField(serverConnection, "pathValidationAttempts", Map.class);
+            assertEquals("The cap should still hold -- the extra candidate must not have been added",
+                    cap, attemptsAfterExtra.size());
+            assertFalse("The extra candidate specifically must not be one of the tracked attempts",
+                    attemptsAfterExtra.containsKey(extraAddress));
+
+            // Secondary, corroborating check -- a working cap means
+            // this will never arrive, not just arrive late, so a much
+            // shorter bound than the other tests' 10s is fine, and
+            // safely within the still-outstanding candidates' own
+            // abandon deadlines.
+            byte[] extraChallenge = receivePathChallengeData(extraChannel, serverToClientKeys,
+                    clientConnectionId.length, 1000);
+            assertTrue("The (cap+1)th candidate should NOT have been validated -- "
+                    + "no PATH_CHALLENGE should have been sent for it", extraChallenge == null);
+        } finally {
+            for (DatagramChannel channel : channels) {
+                channel.close();
             }
             loop.shutdown();
             loop.awaitQuiesce(2000);
