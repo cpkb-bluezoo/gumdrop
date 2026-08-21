@@ -36,10 +36,11 @@ import java.nio.ByteBuffer;
  * {@code org.bluezoo.gumdrop.http.hpack} and {@code http.h2} are kept
  * separate.
  *
- * <p>Server push (CANCEL_PUSH, PUSH_PROMISE, MAX_PUSH_ID, and push
- * streams) is parsed for protocol correctness but is not meaningfully
- * supported -- gumdrop's HTTP/3 implementation declines all push
- * (see {@code H3Stream#pushPromise}), matching this codec's stance.
+ * <p>Server push is declined ({@code H3Stream#pushPromise} returns
+ * false; no {@code MAX_PUSH_ID} is sent). Unpermitted
+ * {@link #TYPE_PUSH_PROMISE}, {@link #TYPE_CANCEL_PUSH}, and
+ * {@link #TYPE_MAX_PUSH_ID} frames are connection errors as RFC 9114
+ * requires, not silently ignored.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H3Parser

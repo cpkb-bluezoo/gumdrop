@@ -355,25 +355,33 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     @Override
     public void cancelPushFrameReceived(long pushId) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "CANCEL_PUSH is not valid on a request stream");
     }
 
     @Override
     public void settingsFrameReceived(long[] settings) {
-        // SETTINGS is control-stream only; RFC 9114 section 7.2.4 makes
-        // this a connection error, but request-stream-level framing
-        // errors are handled uniformly via frameError.
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "SETTINGS is not valid on a request stream");
     }
 
     @Override
     public void pushPromiseFrameReceived(long pushId, ByteBuffer encodedFieldSection) {
+        // RFC 9114 section 7.2.5: a client MUST NOT send PUSH_PROMISE.
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "PUSH_PROMISE is not valid from a client");
     }
 
     @Override
     public void goawayFrameReceived(long streamOrPushId) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "GOAWAY is not valid on a request stream");
     }
 
     @Override
     public void maxPushIdFrameReceived(long maxPushId) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "MAX_PUSH_ID is not valid on a request stream");
     }
 
     @Override
@@ -381,6 +389,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
         LOGGER.warning(formatted);
         cancel();
+    }
+
+    private void connectionError(long errorCode, String message) {
+        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
+        LOGGER.warning(formatted);
+        connection.closeWithApplicationError(errorCode, message);
     }
 
     // ── HTTPResponseState Implementation ──

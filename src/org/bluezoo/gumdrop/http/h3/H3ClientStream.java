@@ -449,24 +449,34 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void cancelPushFrameReceived(long pushId) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "CANCEL_PUSH is not valid on a request stream");
     }
 
     @Override
     public void settingsFrameReceived(long[] settings) {
-        // SETTINGS is control-stream only; request-stream-level framing
-        // errors are handled uniformly via frameError.
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "SETTINGS is not valid on a request stream");
     }
 
     @Override
     public void pushPromiseFrameReceived(long pushId, ByteBuffer encodedFieldSection) {
+        // RFC 9114 section 7.2.5: gumdrop never sends MAX_PUSH_ID, so
+        // any PUSH_PROMISE exceeds the permitted push ID set.
+        connectionError(H3ErrorCode.H3_ID_ERROR,
+                "PUSH_PROMISE for a push ID that was never permitted");
     }
 
     @Override
     public void goawayFrameReceived(long streamOrPushId) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "GOAWAY is not valid on a request stream");
     }
 
     @Override
     public void maxPushIdFrameReceived(long maxPushId) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "MAX_PUSH_ID is not valid on a request stream");
     }
 
     @Override
@@ -481,6 +491,16 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             wsHandler.error(ex);
         } else {
             responseHandler.failed(ex);
+        }
+    }
+
+    private void connectionError(long errorCode, String message) {
+        String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
+        LOGGER.warning(formatted);
+        // connection is only ever null when a test constructs this class
+        // directly without going through HTTP3ClientHandler.
+        if (connection != null) {
+            connection.closeWithApplicationError(errorCode, message);
         }
     }
 

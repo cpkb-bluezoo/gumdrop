@@ -152,7 +152,8 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         quicConnection.setUnidirectionalStreamAcceptHandler(new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(Endpoint stream) {
-                return new H3ControlStream(quicConnection, HTTP3ServerHandler.this, qpackEncoder, qpackDecoder);
+                return new H3ControlStream(quicConnection, HTTP3ServerHandler.this, qpackEncoder, qpackDecoder,
+                        false);
             }
         });
 
@@ -412,6 +413,17 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
      */
     SelectorLoop getSelectorLoop() {
         return quicConnection.getSelectorLoop();
+    }
+
+    /**
+     * Closes the underlying QUIC connection with an HTTP/3 application
+     * error (RFC 9114 section 8.1).
+     *
+     * @param errorCode an {@link H3ErrorCode} value
+     * @param reason a human-readable reason phrase
+     */
+    void closeWithApplicationError(long errorCode, String reason) {
+        quicConnection.closeWithApplicationError(errorCode, reason);
     }
 
     // ── Telemetry ──

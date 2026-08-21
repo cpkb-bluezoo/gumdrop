@@ -62,6 +62,10 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * Encoder#feedDecoderStream} -- these are all bare integers with no
  * distinct malformed-content case, so there is nothing to check
  * afterwards.</li>
+ * <li>{@link #STREAM_TYPE_PUSH}: gumdrop never permits push, so a
+ * client treats this as {@link H3ErrorCode#H3_ID_ERROR} (RFC 9114
+ * section 4.6) and a server treats it as
+ * {@link H3ErrorCode#H3_STREAM_CREATION_ERROR}.</li>
  * <li>Any other type: all further bytes are discarded, per RFC 9114
  * section 9's tolerance requirement for unknown unidirectional stream
  * types.</li>
@@ -77,6 +81,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     /** RFC 9114 section 6.2.1. */
     private static final long STREAM_TYPE_CONTROL = 0x00;
+
+    /** RFC 9114 section 6.2.2. */
+    private static final long STREAM_TYPE_PUSH = 0x01;
 
     /** RFC 9204 section 4.2. */
     private static final long STREAM_TYPE_QPACK_ENCODER = 0x02;
@@ -107,23 +114,29 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         void goawayReceived(long streamOrPushId);
     }
 
-    private enum StreamKind { CONTROL, QPACK_ENCODER, QPACK_DECODER, UNKNOWN }
+    private enum StreamKind { CONTROL, PUSH, QPACK_ENCODER, QPACK_DECODER, UNKNOWN }
 
     private final QuicConnection quicConnection;
     private final Listener listener;
     private final Encoder qpackEncoder;
     private final Decoder qpackDecoder;
+    // True when this handler sits on an HTTP/3 client connection, so
+    // MAX_PUSH_ID from the peer is a server-sent frame (forbidden) and
+    // a push stream is H3_ID_ERROR rather than H3_STREAM_CREATION_ERROR.
+    private final boolean client;
 
     private int typeBytesNeeded = -1;
     private final ByteArrayOutputStream typeBuffer = new ByteArrayOutputStream(8);
     private StreamKind kind;
     private H3Parser parser;
 
-    H3ControlStream(QuicConnection quicConnection, Listener listener, Encoder qpackEncoder, Decoder qpackDecoder) {
+    H3ControlStream(QuicConnection quicConnection, Listener listener, Encoder qpackEncoder, Decoder qpackDecoder,
+            boolean client) {
         this.quicConnection = quicConnection;
         this.listener = listener;
         this.qpackEncoder = qpackEncoder;
         this.qpackDecoder = qpackDecoder;
+        this.client = client;
     }
 
     // ── ProtocolHandler ──
@@ -144,6 +157,17 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
             }
             if (kind == StreamKind.CONTROL) {
                 parser = new H3Parser(this);
+            } else if (kind == StreamKind.PUSH) {
+                // RFC 9114 section 4.6: a client that never sent
+                // MAX_PUSH_ID (gumdrop never does) MUST treat a push
+                // stream as H3_ID_ERROR. A server MUST treat a
+                // client-opened push stream as H3_STREAM_CREATION_ERROR.
+                long code = client ? H3ErrorCode.H3_ID_ERROR : H3ErrorCode.H3_STREAM_CREATION_ERROR;
+                String message = client
+                        ? "push stream received but no MAX_PUSH_ID was sent"
+                        : "client opened a push stream";
+                connectionError(code, message);
+                return;
             }
         }
         switch (kind) {
@@ -194,6 +218,8 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         long streamType = VarInt.decode(ByteBuffer.wrap(typeBuffer.toByteArray()));
         if (streamType == STREAM_TYPE_CONTROL) {
             kind = StreamKind.CONTROL;
+        } else if (streamType == STREAM_TYPE_PUSH) {
+            kind = StreamKind.PUSH;
         } else if (streamType == STREAM_TYPE_QPACK_ENCODER) {
             kind = StreamKind.QPACK_ENCODER;
         } else if (streamType == STREAM_TYPE_QPACK_DECODER) {
@@ -229,6 +255,11 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void cancelPushFrameReceived(long pushId) {
+        // RFC 9114 section 7.2.3: gumdrop never permits push (no
+        // MAX_PUSH_ID is sent, and the server never promises a push),
+        // so any referenced push ID exceeds the allowed set.
+        connectionError(H3ErrorCode.H3_ID_ERROR,
+                "CANCEL_PUSH for a push ID that was never permitted");
     }
 
     @Override
@@ -248,20 +279,25 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void maxPushIdFrameReceived(long maxPushId) {
+        if (client) {
+            // RFC 9114 section 7.2.7: a server MUST NOT send MAX_PUSH_ID.
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "MAX_PUSH_ID is not valid from a server");
+            return;
+        }
+        // Server role: the client is raising the push budget. Gumdrop
+        // never pushes, so the frame is legal and ignored.
     }
 
     @Override
     public void frameError(String message) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED, message);
+    }
+
+    private void connectionError(long errorCode, String message) {
         String formatted = MessageFormat.format(
                 L10N.getString("warn.control_stream_error"), message);
         LOGGER.warning(formatted);
-        // RFC 9114 section 8.1: a fatal framing violation on the control
-        // stream is a connection error, not just a stream error -- unlike
-        // H3Stream#frameError, which can cancel just the one offending
-        // request stream, a malformed frame here can desynchronize the
-        // whole connection's control-stream state (e.g. a SETTINGS frame
-        // sent somewhere other than first), so the entire connection is
-        // closed rather than merely discarding this stream.
-        quicConnection.closeWithApplicationError(H3ErrorCode.H3_FRAME_UNEXPECTED, message);
+        quicConnection.closeWithApplicationError(errorCode, message);
     }
 }
