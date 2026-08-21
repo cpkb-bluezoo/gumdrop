@@ -277,6 +277,194 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * RFC 9000 section 4.6: {@link QuicConnection#openStream} must not
+     * mint a stream ID the peer has not granted. With
+     * {@code initial_max_streams_bidi = 1} the first client open succeeds
+     * immediately; the second is queued (returns {@code null}) until the
+     * server raises the limit with MAX_STREAMS, at which point
+     * {@code connected} fires and the queued stream can send.
+     */
+    @Test
+    public void testOpenStreamHonoursPeerMaxStreamsCredit() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setMaxStreamsBidi(1);
+            serverFactory.start();
+
+            final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
+            final CountDownLatch firstStreamReceived = new CountDownLatch(1);
+            final CountDownLatch secondStreamReceived = new CountDownLatch(1);
+            final AtomicReference<String> firstPayload = new AtomicReference<String>();
+            final AtomicReference<String> secondPayload = new AtomicReference<String>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverConnectionRef.set(connection);
+                            connection.setStreamAcceptHandler(new StreamAcceptHandler() {
+                                @Override
+                                public ProtocolHandler acceptStream(Endpoint stream) {
+                                    return new ProtocolHandler() {
+                                        private final java.io.ByteArrayOutputStream buf =
+                                                new java.io.ByteArrayOutputStream();
+
+                                        @Override
+                                        public void connected(Endpoint endpoint) {
+                                        }
+
+                                        @Override
+                                        public void receive(ByteBuffer data) {
+                                            byte[] bytes = new byte[data.remaining()];
+                                            data.get(bytes);
+                                            buf.write(bytes, 0, bytes.length);
+                                        }
+
+                                        @Override
+                                        public void securityEstablished(SecurityInfo info) {
+                                        }
+
+                                        @Override
+                                        public void disconnected() {
+                                            String payload = new String(buf.toByteArray(),
+                                                    StandardCharsets.US_ASCII);
+                                            if (firstPayload.compareAndSet(null, payload)) {
+                                                firstStreamReceived.countDown();
+                                            } else {
+                                                secondPayload.set(payload);
+                                                secondStreamReceived.countDown();
+                                            }
+                                        }
+
+                                        @Override
+                                        public void error(Exception cause) {
+                                            fail("Server stream error: " + cause);
+                                        }
+                                    };
+                                }
+                            });
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch handshakeDone = new CountDownLatch(1);
+            final CountDownLatch secondStreamOpened = new CountDownLatch(1);
+            final AtomicReference<Endpoint> firstOpen = new AtomicReference<Endpoint>();
+            final AtomicReference<Endpoint> secondOpenImmediate = new AtomicReference<Endpoint>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            Endpoint first = connection.openStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    endpoint.send(ByteBuffer.wrap("one".getBytes(StandardCharsets.US_ASCII)));
+                                    endpoint.close();
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("First client stream error: " + cause);
+                                }
+                            });
+                            firstOpen.set(first);
+                            Endpoint second = connection.openStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    endpoint.send(ByteBuffer.wrap("two".getBytes(StandardCharsets.US_ASCII)));
+                                    endpoint.close();
+                                    secondStreamOpened.countDown();
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Second client stream error: " + cause);
+                                }
+                            });
+                            secondOpenImmediate.set(second);
+                            handshakeDone.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("handshake should complete", handshakeDone.await(5, TimeUnit.SECONDS));
+            assertNotNull("first stream must open immediately under the peer's initial credit of 1",
+                    firstOpen.get());
+            assertNull("second stream must be queued until MAX_STREAMS raises the limit",
+                    secondOpenImmediate.get());
+
+            assertTrue("server should receive the first stream",
+                    firstStreamReceived.await(5, TimeUnit.SECONDS));
+            assertEquals("one", firstPayload.get());
+            assertFalse("queued stream must not open before the server grants more credit",
+                    secondStreamOpened.await(200, TimeUnit.MILLISECONDS));
+
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    QuicConnection serverConnection = serverConnectionRef.get();
+                    assertNotNull("server connection should exist", serverConnection);
+                    serverConnection.grantMaxStreams(true, 2);
+                }
+            });
+
+            assertTrue("queued open must complete once MAX_STREAMS raises the limit",
+                    secondStreamOpened.await(5, TimeUnit.SECONDS));
+            assertTrue("server should receive the second stream",
+                    secondStreamReceived.await(5, TimeUnit.SECONDS));
+            assertEquals("two", secondPayload.get());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * Regression test for a false-positive Probe Timeout retransmit:
      * {@link QuicConnection#flush} used to call its own
      * {@code scheduleLossDetectionTimer()} only on the branch where it
@@ -3410,6 +3598,7 @@ public class QuicProductionEndToEndTest {
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+            awaitHandshakeSettled();
 
             // Reach into the real, negotiated key material and packet
             // number counter -- the only way to construct further packets

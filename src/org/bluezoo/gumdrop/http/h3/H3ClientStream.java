@@ -26,6 +26,7 @@ import java.net.ProtocolException;
 import java.nio.ByteBuffer;
 import java.security.Principal;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -35,6 +36,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
@@ -104,7 +106,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     // once in connected() so QPACK bookkeeping doesn't depend on
     // endpoint being non-null (unit tests construct this class directly
     // without ever calling connected() -- see H3ClientStreamTest).
-    private long streamId;
+    // -1 until the QUIC layer actually grants a stream ID.
+    private long streamId = -1;
 
     private State state;
     private boolean bodyStarted;
@@ -114,6 +117,15 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     // -- whether this stream's response field section was ever
     // successfully decoded, consulted the same way on early termination.
     private boolean headersDecoded;
+
+    // Set by HTTP3ClientHandler.sendRequest / connectWebSocket before
+    // openStream, then flushed from connected() once a stream ID is
+    // granted -- including when the open was queued behind MAX_STREAMS
+    // credit (RFC 9000 section 4.6).
+    private Headers pendingRequestHeaders;
+    private boolean pendingRequestFin;
+    private final List<byte[]> pendingBody = new ArrayList<byte[]>();
+    private boolean pendingBodyFin;
 
     H3ClientStream(HTTP3ClientHandler connection, Decoder qpackDecoder, HTTPResponseHandler responseHandler) {
         this.connection = connection;
@@ -158,6 +170,52 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
         this.streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
+        if (connection != null && pendingRequestHeaders != null) {
+            connection.completePreparedRequest(this);
+        }
+    }
+
+    /**
+     * Returns the QUIC stream ID once {@link #connected} has run, or
+     * {@code -1} if the open is still queued behind peer MAX_STREAMS
+     * credit.
+     */
+    long getStreamId() {
+        return streamId;
+    }
+
+    void prepareRequest(Headers headers, boolean fin) {
+        this.pendingRequestHeaders = headers;
+        this.pendingRequestFin = fin;
+    }
+
+    Headers takePendingRequestHeaders() {
+        Headers headers = pendingRequestHeaders;
+        pendingRequestHeaders = null;
+        return headers;
+    }
+
+    boolean takePendingRequestFin() {
+        return pendingRequestFin;
+    }
+
+    void queueRequestBody(byte[] data, boolean fin) {
+        pendingBody.add(data);
+        if (fin) {
+            pendingBodyFin = true;
+        }
+    }
+
+    List<byte[]> takePendingBody() {
+        List<byte[]> body = new ArrayList<byte[]>(pendingBody);
+        pendingBody.clear();
+        return body;
+    }
+
+    boolean takePendingBodyFin() {
+        boolean fin = pendingBodyFin;
+        pendingBodyFin = false;
+        return fin;
     }
 
     /**
