@@ -34,6 +34,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.AfterClass;
@@ -44,6 +45,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
@@ -431,7 +433,14 @@ public class HTTP3ProductionEndToEndTest {
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Exception> failure = new AtomicReference<Exception>();
-        h3.sendRequest(requestHeaders, new LatchResponseHandler(latch, failure), true);
+        // sendRequest mutates QuicConnection; that is only safe on the
+        // connection's SelectorLoop (see HTTP3ClientHandler#execute).
+        h3.execute(new Runnable() {
+            @Override
+            public void run() {
+                h3.sendRequest(requestHeaders, new LatchResponseHandler(latch, failure), true);
+            }
+        });
         assertTrue("Response to " + path + " should complete within 5s", latch.await(5, TimeUnit.SECONDS));
         if (failure.get() != null) {
             throw failure.get();
@@ -555,6 +564,311 @@ public class HTTP3ProductionEndToEndTest {
             assertTrue("Should be an application-level close", qcce.isApplicationError());
             assertEquals("RFC 9114 section 8.1 H3_FRAME_UNEXPECTED",
                     H3ErrorCode.H3_FRAME_UNEXPECTED, qcce.getErrorCode());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9114 section 7.2.3: gumdrop never permits push, so CANCEL_PUSH
+     * on the control stream is a connection error of type H3_ID_ERROR.
+     */
+    @Test
+    public void testCancelPushOnControlStreamIsIdError() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00)
+                + H3Writer.settingsLength(new long[0])
+                + H3Writer.cancelPushLength(0);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, new long[0]);
+        H3Writer.writeCancelPush(payload, 0);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_ID_ERROR,
+                "RFC 9114 section 7.2.3 H3_ID_ERROR");
+    }
+
+    /**
+     * RFC 9114 section 4.6: a server MUST treat a client-opened push
+     * stream as H3_STREAM_CREATION_ERROR.
+     */
+    @Test
+    public void testClientPushStreamIsStreamCreationError() throws Exception {
+        int length = H3Writer.streamTypeLength(0x01);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x01);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_STREAM_CREATION_ERROR,
+                "RFC 9114 section 4.6 H3_STREAM_CREATION_ERROR");
+    }
+
+    /**
+     * RFC 9114 section 7.2.5: a client MUST NOT send PUSH_PROMISE; the
+     * server treats it as H3_FRAME_UNEXPECTED.
+     */
+    @Test
+    public void testClientPushPromiseOnRequestStreamIsFrameUnexpected() throws Exception {
+        byte[] emptyFieldSection = new byte[0];
+        int length = H3Writer.pushPromiseLength(0, emptyFieldSection.length);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writePushPromise(payload, 0, emptyFieldSection);
+        payload.flip();
+        assertRawClientBidiSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 7.2.5 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
+     * RFC 9114 section 7.2.4: SETTINGS is control-stream only.
+     */
+    @Test
+    public void testSettingsOnRequestStreamIsFrameUnexpected() throws Exception {
+        int length = H3Writer.settingsLength(new long[0]);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeSettings(payload, new long[0]);
+        payload.flip();
+        assertRawClientBidiSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 7.2.4 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
+     * RFC 9114 section 7.2.7: a server MUST NOT send MAX_PUSH_ID; a
+     * gumdrop client treats it as H3_FRAME_UNEXPECTED.
+     */
+    @Test
+    public void testServerMaxPushIdIsFrameUnexpected() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch errorLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> serverStreamError = new AtomicReference<Exception>();
+            final AtomicBoolean sent = new AtomicBoolean(false);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            connection.setUnidirectionalStreamAcceptHandler(
+                                    new StreamAcceptHandler() {
+                                        @Override
+                                        public ProtocolHandler acceptStream(Endpoint stream) {
+                                            return new ProtocolHandler() {
+                                                @Override
+                                                public void connected(Endpoint endpoint) {
+                                                    // Client opened a uni stream (control or QPACK).
+                                                    // Reply once with SETTINGS then an illegal
+                                                    // server MAX_PUSH_ID.
+                                                    if (!sent.compareAndSet(false, true)) {
+                                                        return;
+                                                    }
+                                                    long[] settings = new long[0];
+                                                    int length = H3Writer.streamTypeLength(0x00)
+                                                            + H3Writer.settingsLength(settings)
+                                                            + H3Writer.maxPushIdLength(0);
+                                                    ByteBuffer out = ByteBuffer.allocate(length);
+                                                    H3Writer.writeStreamType(out, 0x00);
+                                                    H3Writer.writeSettings(out, settings);
+                                                    H3Writer.writeMaxPushId(out, 0);
+                                                    out.flip();
+                                                    connection.openUnidirectionalStream(new ProtocolHandler() {
+                                                        @Override
+                                                        public void connected(Endpoint sendEndpoint) {
+                                                            sendEndpoint.send(out);
+                                                        }
+
+                                                        @Override
+                                                        public void receive(ByteBuffer data) {
+                                                        }
+
+                                                        @Override
+                                                        public void securityEstablished(SecurityInfo info) {
+                                                        }
+
+                                                        @Override
+                                                        public void disconnected() {
+                                                        }
+
+                                                        @Override
+                                                        public void error(Exception cause) {
+                                                            serverStreamError.set(cause);
+                                                            errorLatch.countDown();
+                                                        }
+                                                    });
+                                                }
+
+                                                @Override
+                                                public void receive(ByteBuffer data) {
+                                                }
+
+                                                @Override
+                                                public void securityEstablished(SecurityInfo info) {
+                                                }
+
+                                                @Override
+                                                public void disconnected() {
+                                                }
+
+                                                @Override
+                                                public void error(Exception cause) {
+                                                }
+                                            };
+                                        }
+                                    });
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ClientHandler(connection);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should observe the connection close within 5s",
+                    errorLatch.await(5, TimeUnit.SECONDS));
+
+            Exception cause = serverStreamError.get();
+            assertTrue("Cause should be a QuicConnectionCloseException, was: " + cause,
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("Should be an application-level close", qcce.isApplicationError());
+            assertEquals("RFC 9114 section 7.2.7 H3_FRAME_UNEXPECTED",
+                    H3ErrorCode.H3_FRAME_UNEXPECTED, qcce.getErrorCode());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    private void assertRawClientUniSendClosesWith(ByteBuffer payload, long expectedErrorCode,
+            String assertionMessage) throws Exception {
+        assertRawClientSendClosesWith(true, payload, expectedErrorCode, assertionMessage);
+    }
+
+    private void assertRawClientBidiSendClosesWith(ByteBuffer payload, long expectedErrorCode,
+            String assertionMessage) throws Exception {
+        assertRawClientSendClosesWith(false, payload, expectedErrorCode, assertionMessage);
+    }
+
+    /**
+     * Opens a gumdrop HTTP/3 server, connects a raw QUIC client, and sends
+     * {@code payload} on a new uni or bidi stream. Asserts the client
+     * observes an application CONNECTION_CLOSE with {@code expectedErrorCode}.
+     */
+    private void assertRawClientSendClosesWith(boolean unidirectional, ByteBuffer payload,
+            long expectedErrorCode, String assertionMessage) throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new DefaultHTTPRequestHandler();
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch errorLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> clientStreamError = new AtomicReference<Exception>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            ProtocolHandler handler = new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    endpoint.send(payload.duplicate());
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    clientStreamError.set(cause);
+                                    errorLatch.countDown();
+                                }
+                            };
+                            if (unidirectional) {
+                                connection.openUnidirectionalStream(handler);
+                            } else {
+                                connection.openStream(handler);
+                            }
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should observe the connection close within 5s",
+                    errorLatch.await(5, TimeUnit.SECONDS));
+
+            Exception cause = clientStreamError.get();
+            assertTrue("Cause should be a QuicConnectionCloseException, was: " + cause,
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("Should be an application-level close", qcce.isApplicationError());
+            assertEquals(assertionMessage, expectedErrorCode, qcce.getErrorCode());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);

@@ -129,7 +129,8 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         quicConnection.setUnidirectionalStreamAcceptHandler(new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(Endpoint stream) {
-                return new H3ControlStream(quicConnection, HTTP3ClientHandler.this, qpackEncoder, qpackDecoder);
+                return new H3ControlStream(quicConnection, HTTP3ClientHandler.this, qpackEncoder, qpackDecoder,
+                        true);
             }
         });
         openControlStream();
@@ -666,5 +667,16 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
             stream.error(closed);
         }
         streams.clear();
+    }
+
+    /**
+     * Closes the underlying QUIC connection with an HTTP/3 application
+     * error (RFC 9114 section 8.1).
+     *
+     * @param errorCode an {@link H3ErrorCode} value
+     * @param reason a human-readable reason phrase
+     */
+    void closeWithApplicationError(long errorCode, String reason) {
+        quicConnection.closeWithApplicationError(errorCode, reason);
     }
 }
