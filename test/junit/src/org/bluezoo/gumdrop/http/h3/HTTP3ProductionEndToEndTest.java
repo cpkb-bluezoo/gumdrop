@@ -553,7 +553,8 @@ public class HTTP3ProductionEndToEndTest {
                     cause instanceof QuicConnectionCloseException);
             QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
             assertTrue("Should be an application-level close", qcce.isApplicationError());
-            assertEquals("RFC 9114 section 8.1 H3_FRAME_UNEXPECTED", 0x105L, qcce.getErrorCode());
+            assertEquals("RFC 9114 section 8.1 H3_FRAME_UNEXPECTED",
+                    H3ErrorCode.H3_FRAME_UNEXPECTED, qcce.getErrorCode());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);

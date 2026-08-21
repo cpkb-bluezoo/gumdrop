@@ -95,9 +95,6 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private static final ResourceBundle HTTP_L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
-    /** RFC 9114 section 8.1: the server no longer needs the response the client requested. */
-    private static final long H3_REQUEST_CANCELLED = 0x10c;
-
     /** Reusable empty buffer for FIN-only sends. */
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
 
@@ -761,7 +758,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         }
         state = State.CLOSED;
         handler = null;
-        endpoint.resetStream(H3_REQUEST_CANCELLED);
+        endpoint.resetStream(H3ErrorCode.H3_REQUEST_CANCELLED);
     }
 
     // ── Telemetry ──
