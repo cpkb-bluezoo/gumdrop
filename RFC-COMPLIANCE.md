@@ -850,7 +850,8 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `close()` sends GOAWAY with highest client-initiated stream ID via `quiche_h3_send_goaway` before resetting streams |
 | Stream reset handling | 8 | Compliant | `onReset()` ends span and cleans up stream |
 | Request cancellation | 8 | Compliant | `H3Stream.cancel()` resets stream |
-| HTTP/3 error codes | 8.1 | Compliant (quiche) | quiche manages H3 error codes in RESET_STREAM/STOP_SENDING |
+| HTTP/3 error codes | 8.1 | Compliant | `H3ErrorCode` constants; unpermitted push frames and premature control/QPACK closure use the RFC 9114 codes |
+| Premature closure of control/QPACK streams | 6.2.1 / RFC 9204 4.2 | Compliant | `H3ControlStream.disconnected()`/`error()` close with `H3_CLOSED_CRITICAL_STREAM`; unknown/GREASE uni streams are ignored |
 
 ### HTTP/3 Server Extended Features
 

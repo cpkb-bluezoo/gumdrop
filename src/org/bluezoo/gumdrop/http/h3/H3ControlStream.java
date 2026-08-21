@@ -68,8 +68,12 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * {@link H3ErrorCode#H3_STREAM_CREATION_ERROR}.</li>
  * <li>Any other type: all further bytes are discarded, per RFC 9114
  * section 9's tolerance requirement for unknown unidirectional stream
- * types.</li>
+ * types. Premature closure of those streams is not a connection error.</li>
  * </ul>
+ *
+ * <p>RFC 9114 section 6.2.1 / RFC 9204 section 4.2: a FIN or reset of
+ * the control stream or either QPACK critical stream is a connection
+ * error of type {@link H3ErrorCode#H3_CLOSED_CRITICAL_STREAM}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -138,6 +142,10 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     private final ByteArrayOutputStream typeBuffer = new ByteArrayOutputStream(8);
     private StreamKind kind;
     private H3Parser parser;
+    // Set once we have decided to close the connection, so a later FIN
+    // on the same stream does not overwrite a more specific error
+    // (e.g. H3_FRAME_UNEXPECTED) with H3_CLOSED_CRITICAL_STREAM.
+    private boolean closing;
 
     H3ControlStream(QuicConnection quicConnection, Listener listener, Encoder qpackEncoder, Decoder qpackDecoder,
             boolean client) {
@@ -241,6 +249,11 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void disconnected() {
+        // RFC 9114 section 6.2.1 / RFC 9204 section 4.2: premature FIN
+        // or reset of the control stream or either QPACK critical stream
+        // is a connection error. Unknown/GREASE uni streams (and push,
+        // already handled when the type is read) may close without one.
+        closeIfCriticalStreamClosed();
     }
 
     @Override
@@ -248,6 +261,20 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         String formatted = MessageFormat.format(
                 L10N.getString("warn.control_stream_error"), cause);
         LOGGER.warning(formatted);
+        closeIfCriticalStreamClosed();
+    }
+
+    private boolean isCritical() {
+        return kind == StreamKind.CONTROL
+                || kind == StreamKind.QPACK_ENCODER
+                || kind == StreamKind.QPACK_DECODER;
+    }
+
+    private void closeIfCriticalStreamClosed() {
+        if (isCritical()) {
+            connectionError(H3ErrorCode.H3_CLOSED_CRITICAL_STREAM,
+                    "critical unidirectional stream closed");
+        }
     }
 
     // ── H3FrameHandler ──
@@ -334,6 +361,10 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     }
 
     private void connectionError(long errorCode, String message) {
+        if (closing) {
+            return;
+        }
+        closing = true;
         String formatted = MessageFormat.format(
                 L10N.getString("warn.control_stream_error"), message);
         LOGGER.warning(formatted);
