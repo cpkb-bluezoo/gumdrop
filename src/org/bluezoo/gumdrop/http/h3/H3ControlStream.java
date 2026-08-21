@@ -48,8 +48,10 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * is read:
  * <ul>
  * <li>{@link #STREAM_TYPE_CONTROL}: an {@link H3Parser} is wired up,
- * expecting SETTINGS as the first frame (RFC 9114 section 7.2.4) and
- * GOAWAY thereafter (section 5.2).</li>
+     * expecting SETTINGS as the first frame of the control stream
+     * (RFC 9114 section 7.2.4: {@code H3_MISSING_SETTINGS} otherwise,
+     * including GREASE before SETTINGS; a second SETTINGS is
+     * {@code H3_FRAME_UNEXPECTED}) and GOAWAY thereafter (section 5.2).</li>
  * <li>{@link #STREAM_TYPE_QPACK_ENCODER} (RFC 9204 section 4.2): the
  * peer's QPACK encoder instructions, fed into this connection's own
  * {@link Decoder} via {@link Decoder#feedEncoderStream}; a rejected
@@ -142,6 +144,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     private final ByteArrayOutputStream typeBuffer = new ByteArrayOutputStream(8);
     private StreamKind kind;
     private H3Parser parser;
+    // RFC 9114 section 7.2.4: SETTINGS must be the first (and only)
+    // SETTINGS frame on the control stream.
+    private boolean settingsReceived;
     // Set once we have decided to close the connection, so a later FIN
     // on the same stream does not overwrite a more specific error
     // (e.g. H3_FRAME_UNEXPECTED) with H3_CLOSED_CRITICAL_STREAM.
@@ -277,20 +282,44 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         }
     }
 
+    /**
+     * RFC 9114 section 7.2.4: any frame other than SETTINGS as the
+     * first frame of the control stream is H3_MISSING_SETTINGS.
+     *
+     * @return true if SETTINGS has already been received
+     */
+    private boolean requireSettingsFirst() {
+        if (!settingsReceived) {
+            connectionError(H3ErrorCode.H3_MISSING_SETTINGS,
+                    "SETTINGS must be the first frame on the control stream");
+            return false;
+        }
+        return true;
+    }
+
     // ── H3FrameHandler ──
 
     @Override
     public void dataFrameReceived(ByteBuffer data, boolean endOfFrame) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         frameError("DATA frame is not valid on the control stream");
     }
 
     @Override
     public void headersFrameReceived(ByteBuffer encodedFieldSection) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         frameError("HEADERS frame is not valid on the control stream");
     }
 
     @Override
     public void cancelPushFrameReceived(long pushId) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         // RFC 9114 section 7.2.3: gumdrop never permits push (no
         // MAX_PUSH_ID is sent, and the server never promises a push),
         // so any referenced push ID exceeds the allowed set.
@@ -300,21 +329,37 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void settingsFrameReceived(long[] settings) {
+        if (settingsReceived) {
+            // RFC 9114 section 7.2.4: a second SETTINGS is unexpected.
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "SETTINGS must not be sent more than once");
+            return;
+        }
+        settingsReceived = true;
         listener.settingsReceived(settings);
     }
 
     @Override
     public void pushPromiseFrameReceived(long pushId, ByteBuffer encodedFieldSection) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         frameError("PUSH_PROMISE frame is not valid on the control stream");
     }
 
     @Override
     public void goawayFrameReceived(long streamOrPushId) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         listener.goawayReceived(streamOrPushId);
     }
 
     @Override
     public void maxPushIdFrameReceived(long maxPushId) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         if (client) {
             // RFC 9114 section 7.2.7: a server MUST NOT send MAX_PUSH_ID.
             connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
@@ -327,6 +372,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void priorityUpdateRequestFrameReceived(long streamId, String fieldValue) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         if (client) {
             // RFC 9218 section 7.2: a server MUST NOT send PRIORITY_UPDATE.
             connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
@@ -345,6 +393,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void priorityUpdatePushFrameReceived(long pushId, String fieldValue) {
+        if (!requireSettingsFirst()) {
+            return;
+        }
         if (client) {
             connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
                     "PRIORITY_UPDATE is not valid from a server");
@@ -353,6 +404,13 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         // Gumdrop never pushes — any push PRIORITY_UPDATE is an ID error.
         connectionError(H3ErrorCode.H3_ID_ERROR,
                 "PRIORITY_UPDATE for a push ID that was never permitted");
+    }
+
+    @Override
+    public void unknownFrameReceived(long frameType) {
+        // RFC 9114 section 7.2.4 / section 9: GREASE after SETTINGS is
+        // ignored; GREASE before SETTINGS does not satisfy SETTINGS-first.
+        requireSettingsFirst();
     }
 
     @Override

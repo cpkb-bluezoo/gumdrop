@@ -815,7 +815,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 |-------------|---------|--------|-------|
 | ALPN "h3" negotiation | 3.1 | Compliant | `HTTP3Listener.createTransportFactory()` sets ALPN "h3" |
 | TLS 1.3 mandatory | 3 | Compliant (quiche) | QUIC mandates TLS 1.3 via BoringSSL |
-| SETTINGS frame exchange | 7.2.4 | Compliant (quiche) | quiche h3 module exchanges SETTINGS during `initH3()` |
+| SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` configured via JNI |
 | Unidirectional control streams | 6.2 | Compliant (quiche) | quiche manages control, QPACK encoder/decoder streams |
 
@@ -874,7 +874,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 |-------------|---------|--------|-------|
 | ALPN "h3" negotiation | 3.1 | Compliant | `HTTPClient.connectH3()` sets ALPN "h3" on `QuicTransportFactory` |
 | TLS 1.3 mandatory | 3 | Compliant (quiche) | QUIC mandates TLS 1.3 via BoringSSL |
-| SETTINGS frame exchange | 7.2.4 | Compliant (quiche) | quiche h3 module exchanges SETTINGS during `initH3()` |
+| SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` configured via JNI |
 | Alt-Svc discovery | 3.1 | Compliant | `HTTPClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
 
