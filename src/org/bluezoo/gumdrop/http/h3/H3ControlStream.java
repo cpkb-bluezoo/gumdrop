@@ -112,6 +112,15 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
          *                       process further requests/pushes
          */
         void goawayReceived(long streamOrPushId);
+
+        /**
+         * Called when a PRIORITY_UPDATE for a request stream arrives on
+         * the control stream (RFC 9218 section 7.2).
+         *
+         * @param streamId the client-initiated bidirectional stream ID
+         * @param fieldValue the Priority Field Value
+         */
+        void priorityUpdateReceived(long streamId, String fieldValue);
     }
 
     private enum StreamKind { CONTROL, PUSH, QPACK_ENCODER, QPACK_DECODER, UNKNOWN }
@@ -287,6 +296,36 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         }
         // Server role: the client is raising the push budget. Gumdrop
         // never pushes, so the frame is legal and ignored.
+    }
+
+    @Override
+    public void priorityUpdateRequestFrameReceived(long streamId, String fieldValue) {
+        if (client) {
+            // RFC 9218 section 7.2: a server MUST NOT send PRIORITY_UPDATE.
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "PRIORITY_UPDATE is not valid from a server");
+            return;
+        }
+        // RFC 9114 section 7.2 / RFC 9218 section 7.2: client-initiated
+        // bidirectional stream IDs are 0 mod 4.
+        if (streamId % 4 != 0) {
+            connectionError(H3ErrorCode.H3_ID_ERROR,
+                    "PRIORITY_UPDATE stream ID is not a client-initiated bidirectional stream");
+            return;
+        }
+        listener.priorityUpdateReceived(streamId, fieldValue);
+    }
+
+    @Override
+    public void priorityUpdatePushFrameReceived(long pushId, String fieldValue) {
+        if (client) {
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "PRIORITY_UPDATE is not valid from a server");
+            return;
+        }
+        // Gumdrop never pushes — any push PRIORITY_UPDATE is an ID error.
+        connectionError(H3ErrorCode.H3_ID_ERROR,
+                "PRIORITY_UPDATE for a push ID that was never permitted");
     }
 
     @Override

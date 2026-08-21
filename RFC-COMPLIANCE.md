@@ -886,7 +886,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` sends via `quiche_h3_send_body`; buffers in `PendingWrite` on QUICHE_ERR_DONE and drains in `resumePendingWrites()` |
 | FIN to complete request | 4.1 | Compliant | `H3Request.endRequestBody()` sends empty buffer with fin=true |
 | GOAWAY rejection of new requests | 5.2 | Compliant | `sendRequest()` returns -1 with IOException when goaway is set |
-| Priority (RFC 9218) | RFC 9218 4, 5 | Compliant | `H3Request.priority()` emits `Priority` header with `u=` urgency parameter |
+| Priority (RFC 9218) | RFC 9218 4, 5, 7, 10 | Compliant | `Priority` header and `PRIORITY_UPDATE` frames; HTTP/2 advertises `SETTINGS_NO_RFC7540_PRIORITIES`; response DATA scheduled by urgency with non-incremental serialization |
 
 ### HTTP/3 Client Response Parsing — RFC 9114 section 4
 

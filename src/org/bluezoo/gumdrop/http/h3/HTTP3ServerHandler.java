@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.http.h3;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -38,6 +40,8 @@ import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.PriorityParams;
+import org.bluezoo.gumdrop.http.Rfc9218NonIncrementalSlots;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
@@ -62,8 +66,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
  * own control stream and sending SETTINGS (RFC 9114 section 7.2.4)
  * immediately. Each accepted request stream becomes a new {@link H3Stream},
  * which owns its own {@link H3Parser} and handles its request/response
- * lifecycle directly; unlike the previous quiche-backed implementation,
- * this class does not poll for events or track per-stream state itself.
+ * lifecycle; this class additionally tracks RFC 9218 stream priority so
+ * response DATA can be scheduled by urgency.
  *
  * <p>Architecture:
  * <pre>
@@ -119,6 +123,10 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     private WebSocketServerMetrics wsMetrics;
     // RFC 9114 section 5.2: client-indicated last stream ID from GOAWAY
     private long goawayStreamId = Long.MAX_VALUE;
+
+    private final Map<Long, PriorityParams> streamPriority = new HashMap<Long, PriorityParams>();
+    private final Map<Long, H3Stream> requestStreams = new HashMap<Long, H3Stream>();
+    private final Rfc9218NonIncrementalSlots nonIncSlots = new Rfc9218NonIncrementalSlots();
 
     /**
      * Creates a new HTTP/3 server handler on top of an existing
@@ -354,6 +362,72 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         }
         if (highestClientStreamId >= 0) {
             sendGoaway(highestClientStreamId);
+        }
+    }
+
+    @Override
+    public void priorityUpdateReceived(long streamId, String fieldValue) {
+        applyRequestPriority(streamId, PriorityParams.parse(fieldValue), true);
+    }
+
+    void registerRequestStream(H3Stream stream) {
+        requestStreams.put(Long.valueOf(stream.getStreamId()), stream);
+    }
+
+    /**
+     * Applies RFC 9218 priority. A PRIORITY_UPDATE always overwrites;
+     * a {@code Priority} header is ignored if an update already landed.
+     *
+     * @param streamId the request stream
+     * @param params the parsed parameters
+     * @param fromUpdate true if this came from PRIORITY_UPDATE
+     */
+    void applyRequestPriority(long streamId, PriorityParams params, boolean fromUpdate) {
+        Long key = Long.valueOf(streamId);
+        if (!fromUpdate && streamPriority.containsKey(key)) {
+            return;
+        }
+        streamPriority.put(key, params);
+        quicConnection.setStreamSendPriority(streamId, params.quicSendPriority());
+    }
+
+    PriorityParams getStreamPriority(long streamId) {
+        PriorityParams params = streamPriority.get(Long.valueOf(streamId));
+        return params != null ? params : PriorityParams.DEFAULT;
+    }
+
+    boolean claimResponseBodySlot(long streamId) {
+        return nonIncSlots.claim(streamId, getStreamPriority(streamId));
+    }
+
+    void streamFinished(H3Stream stream) {
+        long streamId = stream.getStreamId();
+        Long key = Long.valueOf(streamId);
+        if (requestStreams.remove(key) == null) {
+            return;
+        }
+        PriorityParams params = getStreamPriority(streamId);
+        nonIncSlots.release(streamId, params);
+        streamPriority.remove(key);
+        flushHeldBodies(params.getUrgency());
+    }
+
+    private void flushHeldBodies(int urgency) {
+        H3Stream next = null;
+        for (H3Stream stream : requestStreams.values()) {
+            if (!stream.hasHeldBody()) {
+                continue;
+            }
+            PriorityParams params = getStreamPriority(stream.getStreamId());
+            if (params.isIncremental() || params.getUrgency() != urgency) {
+                continue;
+            }
+            if (next == null || stream.getStreamId() < next.getStreamId()) {
+                next = stream;
+            }
+        }
+        if (next != null) {
+            next.flushHeldBody();
         }
     }
 

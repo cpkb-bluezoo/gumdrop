@@ -33,11 +33,15 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
@@ -282,6 +286,9 @@ public final class HTTPProtocolHandler
     // thread (see #123).
     private final Map<Integer, AtomicInteger> h2PendingBytes =
             new ConcurrentHashMap<Integer, AtomicInteger>();
+    private final Map<Integer, PriorityParams> h2Priority =
+            new HashMap<Integer, PriorityParams>();
+    private final Rfc9218NonIncrementalSlots h2NonIncSlots = new Rfc9218NonIncrementalSlots();
 
     private int clientStreamId = INITIAL_CLIENT_STREAM_ID;
     private int serverStreamId = INITIAL_SERVER_STREAM_ID;
@@ -490,6 +497,7 @@ public final class HTTPProtocolHandler
             // RFC 8441 section 3: advertise support for the extended
             // CONNECT method (WebSocket-over-HTTP/2).
             initialSettings.put(H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
+            initialSettings.put(H2FrameHandler.SETTINGS_NO_RFC7540_PRIORITIES, 1);
             sendSettingsFrame(false, initialSettings);
             startSettingsTimeout();
         }
@@ -845,6 +853,15 @@ public final class HTTPProtocolHandler
             return;
         }
 
+        if (!claimH2BodySlot(streamId)) {
+            int enqueued = buf.remaining();
+            pending = acquirePendingData();
+            pending.enqueue(buf, endStream);
+            h2PendingData.put(streamId, pending);
+            pendingBytesCounter(streamId).addAndGet(enqueued);
+            return;
+        }
+
         int toSend = buf.remaining();
         int window = h2FlowControl.availableSendWindow(streamId);
         if (window >= toSend) {
@@ -958,6 +975,41 @@ public final class HTTPProtocolHandler
             Runnable cb = h2WriteCallbacks.remove(streamId);
             if (cb != null) {
                 cb.run();
+            }
+            releaseH2BodySlot(streamId);
+            drainRfc9218Pending();
+        }
+    }
+
+    private PriorityParams h2PriorityOf(int streamId) {
+        PriorityParams params = h2Priority.get(Integer.valueOf(streamId));
+        return params != null ? params : PriorityParams.DEFAULT;
+    }
+
+    private boolean claimH2BodySlot(int streamId) {
+        return h2NonIncSlots.claim(streamId, h2PriorityOf(streamId));
+    }
+
+    private void releaseH2BodySlot(int streamId) {
+        h2NonIncSlots.release(streamId, h2PriorityOf(streamId));
+    }
+
+    private void drainRfc9218Pending() {
+        if (h2PendingData.isEmpty()) {
+            return;
+        }
+        List<Integer> ids = new ArrayList<Integer>(h2PendingData.keySet());
+        Collections.sort(ids, new Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                return PriorityParams.compareSchedule(h2PriorityOf(a.intValue()), a.intValue(),
+                        h2PriorityOf(b.intValue()), b.intValue());
+            }
+        });
+        for (int i = 0; i < ids.size(); i++) {
+            int id = ids.get(i).intValue();
+            if (h2PendingData.containsKey(Integer.valueOf(id)) && claimH2BodySlot(id)) {
+                drainPendingData(id);
             }
         }
     }
@@ -1549,6 +1601,7 @@ public final class HTTPProtocolHandler
                         }
                         h2WriteCallbacks.remove(sid);
                         h2PendingBytes.remove(sid);
+                        h2Priority.remove(Integer.valueOf(sid));
                         PendingData removed = h2PendingData.remove(sid);
                         if (removed != null) {
                             releasePendingData(removed);
@@ -1959,6 +2012,7 @@ public final class HTTPProtocolHandler
         // RFC 8441 section 3: advertise support for the extended CONNECT
         // method (WebSocket-over-HTTP/2).
         initialSettings.put(H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
+        initialSettings.put(H2FrameHandler.SETTINGS_NO_RFC7540_PRIORITIES, 1);
         sendSettingsFrame(false, initialSettings);
         startSettingsTimeout();
     }
@@ -2074,6 +2128,7 @@ public final class HTTPProtocolHandler
             // RFC 8441 section 3: advertise support for the extended
             // CONNECT method (WebSocket-over-HTTP/2).
             initialSettings.put(H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
+            initialSettings.put(H2FrameHandler.SETTINGS_NO_RFC7540_PRIORITIES, 1);
             sendSettingsFrame(false, initialSettings);
             startSettingsTimeout();
         }
@@ -2299,6 +2354,7 @@ public final class HTTPProtocolHandler
         h2WriteCallbacks.clear();
         h2PendingData.clear();
         h2PendingBytes.clear();
+        h2Priority.clear();
     }
 
     // ── H2FrameHandler implementation ──
@@ -2394,6 +2450,27 @@ public final class HTTPProtocolHandler
         }
     }
 
+    @Override
+    public void priorityUpdateFrameReceived(int prioritizedStreamId, String fieldValue) {
+        if (expectingInitialSettings()) {
+            return;
+        }
+        applyRfc9218Priority(prioritizedStreamId, PriorityParams.parse(fieldValue), true);
+    }
+
+    @Override
+    public void applyRfc9218Priority(int streamId, Headers headers) {
+        applyRfc9218Priority(streamId, PriorityParams.fromHeaders(headers), false);
+    }
+
+    private void applyRfc9218Priority(int streamId, PriorityParams params, boolean fromUpdate) {
+        Integer key = Integer.valueOf(streamId);
+        if (!fromUpdate && h2Priority.containsKey(key)) {
+            return;
+        }
+        h2Priority.put(key, params);
+    }
+
     // RFC 9113 section 6.4: RST_STREAM frame reception
     @Override
     public void rstStreamFrameReceived(int streamId, int errorCode) {
@@ -2464,6 +2541,13 @@ public final class HTTPProtocolHandler
                         case H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL:
                             clientEnablesConnectProtocol = (value == 1);
                             break;
+                        case H2FrameHandler.SETTINGS_NO_RFC7540_PRIORITIES:
+                            if (value != 0 && value != 1) {
+                                sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+                                closeEndpoint();
+                                return;
+                            }
+                            break;
                     }
                 }
                 // RFC 7541 section 4: initialize HPACK encoder/decoder
@@ -2528,6 +2612,13 @@ public final class HTTPProtocolHandler
                         break;
                     case H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL:
                         clientEnablesConnectProtocol = (value == 1);
+                        break;
+                    case H2FrameHandler.SETTINGS_NO_RFC7540_PRIORITIES:
+                        if (value != 0 && value != 1) {
+                            sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+                            closeEndpoint();
+                            return;
+                        }
                         break;
                 }
             }
@@ -2594,14 +2685,11 @@ public final class HTTPProtocolHandler
             return;
         }
         if (streamId == 0) {
-            h2FlowControl.forEachUnblockedStream(new H2FlowControl.UnblockedStreamCallback() {
-                @Override
-                public void onUnblocked(int id) {
-                    drainPendingData(id);
-                }
-            });
+            drainRfc9218Pending();
         } else {
-            drainPendingData(streamId);
+            if (claimH2BodySlot(streamId)) {
+                drainPendingData(streamId);
+            }
         }
     }
 

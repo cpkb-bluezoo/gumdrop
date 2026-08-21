@@ -262,4 +262,65 @@ public final class H3Writer {
         VarInt.encode(VarInt.encodedLength(maxPushId), out);
         VarInt.encode(maxPushId, out);
     }
+
+    /**
+     * Returns the encoded length of a PRIORITY_UPDATE frame for a request
+     * stream (RFC 9218 section 7.2).
+     *
+     * @param streamId the client-initiated bidirectional stream ID
+     * @param fieldValueLength the length of the Priority Field Value
+     * @return the encoded length in bytes
+     */
+    public static int priorityUpdateRequestLength(long streamId, int fieldValueLength) {
+        int payloadLength = VarInt.encodedLength(streamId) + fieldValueLength;
+        return VarInt.encodedLength(H3FrameHandler.TYPE_PRIORITY_UPDATE_REQUEST)
+                + VarInt.encodedLength(payloadLength)
+                + payloadLength;
+    }
+
+    /**
+     * Writes a PRIORITY_UPDATE frame for a request stream (RFC 9218
+     * section 7.2).
+     *
+     * @param out the destination buffer
+     * @param streamId the client-initiated bidirectional stream ID
+     * @param fieldValue the Priority Field Value bytes
+     */
+    public static void writePriorityUpdateRequest(ByteBuffer out, long streamId, byte[] fieldValue) {
+        int payloadLength = VarInt.encodedLength(streamId) + fieldValue.length;
+        VarInt.encode(H3FrameHandler.TYPE_PRIORITY_UPDATE_REQUEST, out);
+        VarInt.encode(payloadLength, out);
+        VarInt.encode(streamId, out);
+        out.put(fieldValue);
+    }
+
+    /**
+     * Returns the encoded length of a PRIORITY_UPDATE frame for a push
+     * stream (RFC 9218 section 7.2).
+     *
+     * @param pushId the push ID
+     * @param fieldValueLength the length of the Priority Field Value
+     * @return the encoded length in bytes
+     */
+    public static int priorityUpdatePushLength(long pushId, int fieldValueLength) {
+        int payloadLength = VarInt.encodedLength(pushId) + fieldValueLength;
+        return VarInt.encodedLength(H3FrameHandler.TYPE_PRIORITY_UPDATE_PUSH)
+                + VarInt.encodedLength(payloadLength)
+                + payloadLength;
+    }
+
+    /**
+     * Writes a PRIORITY_UPDATE frame for a push stream (RFC 9218 section 7.2).
+     *
+     * @param out the destination buffer
+     * @param pushId the push ID
+     * @param fieldValue the Priority Field Value bytes
+     */
+    public static void writePriorityUpdatePush(ByteBuffer out, long pushId, byte[] fieldValue) {
+        int payloadLength = VarInt.encodedLength(pushId) + fieldValue.length;
+        VarInt.encode(H3FrameHandler.TYPE_PRIORITY_UPDATE_PUSH, out);
+        VarInt.encode(payloadLength, out);
+        VarInt.encode(pushId, out);
+        out.put(fieldValue);
+    }
 }

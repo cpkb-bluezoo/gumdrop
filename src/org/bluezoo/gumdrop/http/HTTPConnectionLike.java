@@ -147,4 +147,14 @@ interface HTTPConnectionLike {
      *      applicable to this transport
      */
     int pendingResponseBytes(int streamId);
+
+    /**
+     * Applies RFC 9218 priority from a request's {@code Priority} header.
+     * Default: ignore (HTTP/1.1 stubs).
+     *
+     * @param streamId the HTTP/2 stream identifier
+     * @param headers the decoded request headers
+     */
+    default void applyRfc9218Priority(int streamId, Headers headers) {
+    }
 }

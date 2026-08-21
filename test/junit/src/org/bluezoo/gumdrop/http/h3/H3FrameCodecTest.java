@@ -98,6 +98,16 @@ public class H3FrameCodecTest {
         }
 
         @Override
+        public void priorityUpdateRequestFrameReceived(long streamId, String fieldValue) {
+            events.add("priority_update_request:" + streamId + ":" + fieldValue);
+        }
+
+        @Override
+        public void priorityUpdatePushFrameReceived(long pushId, String fieldValue) {
+            events.add("priority_update_push:" + pushId + ":" + fieldValue);
+        }
+
+        @Override
         public void frameError(String message) {
             events.add("error:" + message);
         }
@@ -211,6 +221,20 @@ public class H3FrameCodecTest {
 
         assertEquals(1, handler.events.size());
         assertEquals("max_push_id:100", handler.events.get(0));
+    }
+
+    @Test
+    public void testPriorityUpdateRequestFrame() {
+        byte[] value = "u=0, i".getBytes(StandardCharsets.US_ASCII);
+        ByteBuffer buf = ByteBuffer.allocate(H3Writer.priorityUpdateRequestLength(0, value.length));
+        H3Writer.writePriorityUpdateRequest(buf, 0, value);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new H3Parser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("priority_update_request:0:u=0, i", handler.events.get(0));
     }
 
     @Test

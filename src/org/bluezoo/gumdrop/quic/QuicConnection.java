@@ -27,6 +27,8 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -304,6 +306,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
     // STREAM data pending send, keyed by stream ID; only ever flushed at ONE_RTT.
     private final Map<Long, List<PendingChunk>> pendingStream = new HashMap<Long, List<PendingChunk>>();
+    // RFC 9218: higher values are sent sooner when multiplexing STREAM frames.
+    private final Map<Long, Integer> streamSendPriority = new HashMap<Long, Integer>();
     private final Map<Long, Long> streamSendOffset = new HashMap<Long, Long>();
     // Per-stream reassembler for received data -- distinct from
     // checkAndRecordFlowControl's streamBytesReceived (which tracks the
@@ -989,6 +993,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
         requestFlush();
     }
 
+    /**
+     * Sets the send priority for a stream when multiplexing STREAM frames
+     * (RFC 9218: higher values are sent sooner). Default is 0.
+     *
+     * @param streamId the stream
+     * @param priority higher means sooner
+     */
+    public void setStreamSendPriority(long streamId, int priority) {
+        streamSendPriority.put(Long.valueOf(streamId), Integer.valueOf(priority));
+    }
+
     private long getAndAdvanceStreamOffset(long streamId, int length) {
         Long key = Long.valueOf(streamId);
         long offset = streamSendOffset.containsKey(key) ? streamSendOffset.get(key).longValue() : 0;
@@ -1047,6 +1062,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             streams.remove(key);
             streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
+            streamSendPriority.remove(key);
         }
     }
 
@@ -2381,7 +2397,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // 4.6.1 doesn't create a separate one for 0-RTT).
     private Map<Long, List<PendingChunk>> drainEligibleStreamChunks() {
         Map<Long, List<PendingChunk>> streamChunksToSend = new HashMap<Long, List<PendingChunk>>();
-        for (Map.Entry<Long, List<PendingChunk>> entry : pendingStream.entrySet()) {
+        List<Map.Entry<Long, List<PendingChunk>>> entries =
+                new ArrayList<Map.Entry<Long, List<PendingChunk>>>(pendingStream.entrySet());
+        Collections.sort(entries, new Comparator<Map.Entry<Long, List<PendingChunk>>>() {
+            @Override
+            public int compare(Map.Entry<Long, List<PendingChunk>> a,
+                    Map.Entry<Long, List<PendingChunk>> b) {
+                int pa = streamSendPriority.containsKey(a.getKey())
+                        ? streamSendPriority.get(a.getKey()).intValue() : 0;
+                int pb = streamSendPriority.containsKey(b.getKey())
+                        ? streamSendPriority.get(b.getKey()).intValue() : 0;
+                if (pa != pb) {
+                    return pb - pa;
+                }
+                return Long.compare(a.getKey().longValue(), b.getKey().longValue());
+            }
+        });
+        for (int i = 0; i < entries.size(); i++) {
+            Map.Entry<Long, List<PendingChunk>> entry = entries.get(i);
             long streamId = entry.getKey().longValue();
             List<PendingChunk> queued = entry.getValue();
             List<PendingChunk> toSend = new ArrayList<PendingChunk>();

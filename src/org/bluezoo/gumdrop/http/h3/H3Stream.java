@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h3;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.net.SocketAddress;
@@ -53,6 +54,7 @@ import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
@@ -147,6 +149,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     // table references it made for this stream; otherwise they leak
     // for the rest of the connection.
     private boolean headersDecoded;
+    private ByteArrayOutputStream heldBody;
 
     private H3WebSocketConnectionAdapter webSocketAdapter;
 
@@ -177,6 +180,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     public void connected(Endpoint endpoint) {
         this.endpoint = (QuicStreamEndpoint) endpoint;
         this.streamId = this.endpoint.getStreamId();
+        if (connection != null) {
+            connection.registerRequestStream(this);
+        }
     }
 
     @Override
@@ -205,6 +211,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         } else {
             onFinished();
         }
+        if (connection != null) {
+            connection.streamFinished(this);
+        }
     }
 
     @Override
@@ -232,6 +241,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         }
         state = State.CLOSED;
         handler = null;
+        if (connection != null) {
+            connection.streamFinished(this);
+        }
     }
 
     // ── H3FrameHandler ──
@@ -314,6 +326,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
                 return;
             }
 
+            if (connection != null) {
+                connection.applyRequestPriority(streamId, PriorityParams.fromHeaders(headers), false);
+            }
+
             initTelemetrySpan();
             handler.headers(this, headers);
         } else if (state == State.RECEIVING_BODY || state == State.HALF_CLOSED_REMOTE) {
@@ -382,6 +398,18 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     public void maxPushIdFrameReceived(long maxPushId) {
         connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
                 "MAX_PUSH_ID is not valid on a request stream");
+    }
+
+    @Override
+    public void priorityUpdateRequestFrameReceived(long streamId, String fieldValue) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "PRIORITY_UPDATE is not valid on a request stream");
+    }
+
+    @Override
+    public void priorityUpdatePushFrameReceived(long pushId, String fieldValue) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "PRIORITY_UPDATE is not valid on a request stream");
     }
 
     @Override
@@ -509,6 +537,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         }
         state = State.CLOSED;
         endTelemetrySpan(responseStatusCode);
+        if (connection != null) {
+            connection.streamFinished(this);
+        }
     }
 
     /**
@@ -966,9 +997,45 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     private void sendBody(ByteBuffer data) {
         int length = data.remaining();
-        ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(length));
         byte[] bytes = new byte[length];
         data.get(bytes);
+        if (connection != null
+                && !connection.claimResponseBodySlot(streamId)) {
+            if (heldBody == null) {
+                heldBody = new ByteArrayOutputStream();
+            }
+            try {
+                heldBody.write(bytes);
+            } catch (IOException e) {
+                // ByteArrayOutputStream does not throw
+            }
+            return;
+        }
+        emitBody(bytes);
+    }
+
+    boolean hasHeldBody() {
+        return heldBody != null && heldBody.size() > 0;
+    }
+
+    long getStreamId() {
+        return streamId;
+    }
+
+    void flushHeldBody() {
+        if (heldBody == null || heldBody.size() == 0) {
+            return;
+        }
+        if (connection != null && !connection.claimResponseBodySlot(streamId)) {
+            return;
+        }
+        byte[] bytes = heldBody.toByteArray();
+        heldBody.reset();
+        emitBody(bytes);
+    }
+
+    private void emitBody(byte[] bytes) {
+        ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(bytes.length));
         H3Writer.writeData(out, bytes);
         out.flip();
         endpoint.send(out);

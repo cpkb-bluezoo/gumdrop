@@ -2167,6 +2167,13 @@ public class HTTPClientProtocolHandler
     }
 
     @Override
+    public void priorityUpdateFrameReceived(int prioritizedStreamId, String fieldValue) {
+        // RFC 9218 section 7.1: a server MUST NOT send PRIORITY_UPDATE.
+        sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+        close();
+    }
+
+    @Override
     public void rstStreamFrameReceived(int streamId, int errorCode) {
         HTTPStream stream = activeStreams.remove(streamId);
         if (stream != null) {
@@ -2900,7 +2907,9 @@ public class HTTPClientProtocolHandler
         @Override
         public void run() {
             try {
-                h2Writer.writeSettings(new LinkedHashMap<Integer, Integer>());
+                Map<Integer, Integer> settings = new LinkedHashMap<Integer, Integer>();
+                settings.put(H2FrameHandler.SETTINGS_NO_RFC7540_PRIORITIES, 1);
+                h2Writer.writeSettings(settings);
                 h2Writer.flush();
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error sending HTTP/2 connection preface", e);

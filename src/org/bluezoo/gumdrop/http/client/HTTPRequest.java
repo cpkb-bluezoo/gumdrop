@@ -101,13 +101,12 @@ public interface HTTPRequest {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Sets the stream priority weight for HTTP/2.
+     * Sets RFC 9218 urgency via the {@code Priority} header.
      *
-     * <p>Higher weights indicate higher priority. The server may use this
-     * to allocate bandwidth between concurrent streams. This has no effect
-     * for HTTP/1.x connections.
+     * <p>The weight (0–255, higher = more important) is mapped to urgency
+     * 0–7. This applies to HTTP/2 and HTTP/3; it has no effect for HTTP/1.x.
      *
-     * @param weight the priority weight (1-256, default 16)
+     * @param weight the 0–255 weight
      */
     void priority(int weight);
 

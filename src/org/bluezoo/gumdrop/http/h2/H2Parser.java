@@ -22,6 +22,10 @@
 package org.bluezoo.gumdrop.http.h2;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -238,6 +242,9 @@ public class H2Parser {
                 break;
             case H2FrameHandler.TYPE_CONTINUATION:
                 parseContinuationFrame(flags, streamId, payload);
+                break;
+            case H2FrameHandler.TYPE_PRIORITY_UPDATE:
+                parsePriorityUpdateFrame(streamId, payload);
                 break;
             default:
                 // RFC 9113 section 4.1: implementations MUST ignore unknown frame types
@@ -592,5 +599,37 @@ public class H2Parser {
         ByteBuffer headerBlockFragment = payload.slice();
 
         handler.continuationFrameReceived(streamId, endHeaders, headerBlockFragment);
+    }
+
+    // RFC 9218 section 7.1: PRIORITY_UPDATE frame parsing
+    private void parsePriorityUpdateFrame(int streamId, ByteBuffer payload) {
+        if (streamId != 0) {
+            handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, streamId,
+                "PRIORITY_UPDATE frame must be sent on stream 0");
+            return;
+        }
+        if (payload.remaining() < 4) {
+            handler.frameError(H2FrameHandler.ERROR_FRAME_SIZE_ERROR, 0,
+                "PRIORITY_UPDATE frame must be at least 4 bytes");
+            return;
+        }
+        int prioritizedStreamId = ((payload.get() & 0x7f) << 24)
+            | ((payload.get() & 0xff) << 16)
+            | ((payload.get() & 0xff) << 8)
+            | (payload.get() & 0xff);
+        byte[] valueBytes = new byte[payload.remaining()];
+        payload.get(valueBytes);
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        String fieldValue;
+        try {
+            fieldValue = decoder.decode(ByteBuffer.wrap(valueBytes)).toString();
+        } catch (CharacterCodingException e) {
+            handler.frameError(H2FrameHandler.ERROR_PROTOCOL_ERROR, 0,
+                "PRIORITY_UPDATE field value is not valid UTF-8");
+            return;
+        }
+        handler.priorityUpdateFrameReceived(prioritizedStreamId, fieldValue);
     }
 }
