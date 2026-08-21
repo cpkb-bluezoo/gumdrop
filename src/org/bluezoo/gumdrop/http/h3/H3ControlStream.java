@@ -84,12 +84,6 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     /** RFC 9204 section 4.2. */
     private static final long STREAM_TYPE_QPACK_DECODER = 0x03;
 
-    /** RFC 9114 section 8.1: a frame was received that was not permitted in the current state. */
-    private static final long H3_FRAME_UNEXPECTED = 0x105;
-
-    /** RFC 9204 section 3.2.3: a QPACK encoder-stream instruction could not be processed. */
-    private static final long QPACK_ENCODER_STREAM_ERROR = 0x02;
-
     /**
      * Notified of the meaningful events on the peer's control stream.
      */
@@ -163,7 +157,7 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                     String formatted = MessageFormat.format(
                             L10N.getString("warn.qpack_encoder_stream_error"), error);
                     LOGGER.warning(formatted);
-                    quicConnection.closeWithApplicationError(QPACK_ENCODER_STREAM_ERROR, error);
+                    quicConnection.closeWithApplicationError(H3ErrorCode.QPACK_ENCODER_STREAM_ERROR, error);
                 }
                 break;
             case QPACK_DECODER:
@@ -268,6 +262,6 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         // whole connection's control-stream state (e.g. a SETTINGS frame
         // sent somewhere other than first), so the entire connection is
         // closed rather than merely discarding this stream.
-        quicConnection.closeWithApplicationError(H3_FRAME_UNEXPECTED, message);
+        quicConnection.closeWithApplicationError(H3ErrorCode.H3_FRAME_UNEXPECTED, message);
     }
 }
