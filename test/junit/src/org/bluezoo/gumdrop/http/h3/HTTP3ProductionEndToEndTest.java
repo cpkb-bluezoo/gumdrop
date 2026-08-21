@@ -471,8 +471,9 @@ public class HTTP3ProductionEndToEndTest {
      * <p>Deliberately bypasses {@link HTTP3ClientHandler} on the client
      * side -- it opens a raw unidirectional stream, writes the RFC 9114
      * section 6.2.1 control-stream type byte (0x00) followed immediately
-     * by a HEADERS frame (section 7.2.2), which section 7.2.4 forbids on
-     * the control stream. The server's real {@link H3ControlStream}
+     * by a HEADERS frame (section 7.2.2), which section 7.2.4 forbids as
+     * the first control-stream frame ({@code H3_MISSING_SETTINGS}). The
+     * server's real {@link H3ControlStream}
      * (registered by the real {@link HTTP3ServerHandler}) is the one
      * that detects this and must react.
      */
@@ -562,8 +563,8 @@ public class HTTP3ProductionEndToEndTest {
                     cause instanceof QuicConnectionCloseException);
             QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
             assertTrue("Should be an application-level close", qcce.isApplicationError());
-            assertEquals("RFC 9114 section 8.1 H3_FRAME_UNEXPECTED",
-                    H3ErrorCode.H3_FRAME_UNEXPECTED, qcce.getErrorCode());
+            assertEquals("RFC 9114 section 8.1 H3_MISSING_SETTINGS",
+                    H3ErrorCode.H3_MISSING_SETTINGS, qcce.getErrorCode());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -637,6 +638,58 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 7.2.4: SETTINGS must be the first frame of the
+     * control stream; GOAWAY first is H3_MISSING_SETTINGS.
+     */
+    @Test
+    public void testGoawayBeforeSettingsIsMissingSettings() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00) + H3Writer.goawayLength(0);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeGoaway(payload, 0);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_MISSING_SETTINGS,
+                "RFC 9114 section 7.2.4 H3_MISSING_SETTINGS");
+    }
+
+    /**
+     * RFC 9114 section 7.2.4: a second SETTINGS frame is
+     * H3_FRAME_UNEXPECTED.
+     */
+    @Test
+    public void testSecondSettingsIsFrameUnexpected() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00)
+                + H3Writer.settingsLength(new long[0])
+                + H3Writer.settingsLength(new long[0]);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, new long[0]);
+        H3Writer.writeSettings(payload, new long[0]);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 7.2.4 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
+     * RFC 9114 section 7.2.4 / section 9: GREASE before SETTINGS does
+     * not satisfy the SETTINGS-first requirement.
+     */
+    @Test
+    public void testGreaseBeforeSettingsIsMissingSettings() throws Exception {
+        byte[] greasePayload = new byte[] { (byte) 0xaa, (byte) 0xbb, (byte) 0xcc };
+        int greaseFrameLength = 1 + 1 + greasePayload.length;
+        int length = H3Writer.streamTypeLength(0x00) + greaseFrameLength;
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        payload.put((byte) 0x21);
+        payload.put((byte) greasePayload.length);
+        payload.put(greasePayload);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_MISSING_SETTINGS,
+                "RFC 9114 section 7.2.4 H3_MISSING_SETTINGS");
+    }
+
+    /**
      * RFC 9114 section 6.2.1: premature FIN of the peer control stream
      * is a connection error of type H3_CLOSED_CRITICAL_STREAM.
      */
@@ -681,8 +734,8 @@ public class HTTP3ProductionEndToEndTest {
     /**
      * RFC 9114 section 9: unknown/GREASE unidirectional streams may be
      * closed without a connection error. After a GREASE stream FINs, a
-     * subsequent malformed control stream is still H3_FRAME_UNEXPECTED
-     * rather than H3_CLOSED_CRITICAL_STREAM.
+     * subsequent control stream whose first frame is not SETTINGS is
+     * still H3_MISSING_SETTINGS rather than H3_CLOSED_CRITICAL_STREAM.
      */
     @Test
     public void testGreaseUniStreamFinIsTolerated() throws Exception {
@@ -698,7 +751,7 @@ public class HTTP3ProductionEndToEndTest {
         H3Writer.writeHeaders(malformedControl, emptyFieldSection);
         malformedControl.flip();
         assertRawClientUniGreaseThenMalformedControlClosesWith(grease, malformedControl,
-                H3ErrorCode.H3_FRAME_UNEXPECTED,
+                H3ErrorCode.H3_MISSING_SETTINGS,
                 "RFC 9114 section 9 GREASE uni stream FIN is not H3_CLOSED_CRITICAL_STREAM");
     }
 

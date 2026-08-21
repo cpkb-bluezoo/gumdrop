@@ -52,12 +52,11 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * effectively is; every other frame type is buffered internally until
  * complete before its callback fires.
  *
- * <p>Frame types this parser does not recognise are skipped (their
- * payload discarded without reporting an error), per RFC 9114 section
- * 7.2.8's general extensibility rule -- only a small fixed set of
- * frame types reserved from HTTP/2 (which this parser does not encode
- * as a special case, since none of them collide with the frame type
- * values actually in use here) would be a real protocol violation.
+ * <p>Frame types this parser does not recognise are delivered via
+ * {@link H3FrameHandler#unknownFrameReceived} rather than as an error,
+ * per RFC 9114 section 7.2.8's general extensibility rule. The control
+ * stream uses that callback to enforce SETTINGS-first (section 7.2.4);
+ * request streams ignore it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H3FrameHandler
@@ -297,9 +296,12 @@ public class H3Parser {
                 } else {
                     handler.priorityUpdatePushFrameReceived(pushId, fieldValue);
                 }
+            } else {
+                // RFC 9114 section 7.2.8: unrecognised types are ignored
+                // on request streams; the control stream is notified so
+                // it can enforce SETTINGS-first (RFC 9114 section 7.2.4).
+                handler.unknownFrameReceived(frameType);
             }
-            // RFC 9114 section 7.2.8: frame types this parser does not
-            // recognise are silently ignored, payload already discarded.
         } catch (BufferUnderflowException e) {
             handler.frameError("Malformed frame payload for type " + frameType
                     + ": fields do not fit within the declared frame length");

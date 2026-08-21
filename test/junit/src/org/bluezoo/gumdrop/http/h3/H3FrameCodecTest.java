@@ -108,6 +108,11 @@ public class H3FrameCodecTest {
         }
 
         @Override
+        public void unknownFrameReceived(long frameType) {
+            events.add("unknown:" + frameType);
+        }
+
+        @Override
         public void frameError(String message) {
             events.add("error:" + message);
         }
@@ -240,7 +245,7 @@ public class H3FrameCodecTest {
     @Test
     public void testUnrecognisedFrameTypeIsSilentlyIgnored() {
         // RFC 9114 section 7.2.8: a generic reserved/unknown frame type
-        // (0x21 = 0x1f*0 + 0x21) must be skipped, not reported as an error.
+        // (0x21 = 0x1f*0 + 0x21) is delivered as unknown, not as an error.
         ByteBuffer buf = ByteBuffer.allocate(16);
         buf.put((byte) 0x21); // type
         buf.put((byte) 0x03); // length = 3
@@ -252,7 +257,8 @@ public class H3FrameCodecTest {
         RecordingHandler handler = new RecordingHandler();
         new H3Parser(handler).receive(buf);
 
-        assertEquals(0, handler.events.size());
+        assertEquals(1, handler.events.size());
+        assertEquals("unknown:33", handler.events.get(0));
     }
 
     @Test

@@ -168,6 +168,16 @@ public interface H3FrameHandler {
     void priorityUpdatePushFrameReceived(long pushId, String fieldValue);
 
     /**
+     * Called when a complete frame of an unrecognised type is received
+     * (RFC 9114 section 7.2.8 / section 9). Request streams ignore these;
+     * the control stream uses this to enforce SETTINGS-first.
+     *
+     * @param frameType the unrecognised frame type
+     */
+    default void unknownFrameReceived(long frameType) {
+    }
+
+    /**
      * Called when a frame cannot be parsed.
      *
      * @param message a human-readable description of the error
