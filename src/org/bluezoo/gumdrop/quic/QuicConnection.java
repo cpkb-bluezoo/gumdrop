@@ -135,6 +135,17 @@ import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
  * recovery relies on the peer re-sending a BLOCKED frame while still
  * blocked (RFC 9000 section 4.1), a bounded delay rather than a deadlock.
  *
+ * <p>Stream concurrency (RFC 9000 section 4.6) is honoured the same way:
+ * {@link #openStream} / {@link #openUnidirectionalStream} never mint a
+ * stream ID the peer has not granted via {@code initial_max_streams_*}
+ * and subsequent {@code MAX_STREAMS} frames. Opens that would exceed the
+ * current credit are queued and completed from
+ * {@link ProtocolHandler#connected} once the limit lifts;
+ * {@code STREAMS_BLOCKED} is sent while waiting. A STREAM/RESET_STREAM/
+ * STREAM_DATA_BLOCKED frame that would open a peer-initiated stream
+ * beyond this endpoint's own advertised limit is a
+ * {@code STREAM_LIMIT_ERROR}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class QuicConnection implements QuicTlsEngineListener {
@@ -376,6 +387,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final Map<Long, Long> streamDataBlockedOwed = new HashMap<Long, Long>();
     private final java.util.Set<Long> streamDataBlockedSignalled = new java.util.HashSet<Long>();
 
+    // RFC 9000 section 4.6 / 19.11: the peer's current stream-concurrency
+    // credit (initial_max_streams_* from transport parameters, then grown
+    // by MAX_STREAMS). Zero until those parameters arrive, so locally
+    // initiated opens before the handshake cannot emit STREAM frames for
+    // IDs the peer has not granted. localMaxStreams* is this endpoint's
+    // own advertised receive-side ceiling.
+    private long peerMaxStreamsBidi;
+    private long peerMaxStreamsUni;
+    private long localMaxStreamsBidi;
+    private long localMaxStreamsUni;
+    private final List<ProtocolHandler> pendingOpenBidi = new ArrayList<ProtocolHandler>();
+    private final List<ProtocolHandler> pendingOpenUni = new ArrayList<ProtocolHandler>();
+    private boolean streamsBlockedBidiOwed;
+    private boolean streamsBlockedBidiSignalled;
+    private boolean streamsBlockedUniOwed;
+    private boolean streamsBlockedUniSignalled;
+    private boolean maxStreamsBidiOwed;
+    private boolean maxStreamsUniOwed;
+
     // RFC 9000 section 8.1: anti-amplification limit. Server-side only --
     // a server MUST NOT send more than 3x what it has received from a
     // peer whose address isn't yet validated, to bound how much this
@@ -552,6 +582,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         this.lossDetector = new LossDetector(MIN_DATAGRAM_SIZE);
         this.connectionIdManager = new ConnectionIdManager(ourConnectionId, peerConnectionId, connectionIdStaticKey);
         this.localMaxData = localTransportParameters.getInitialMaxData();
+        this.localMaxStreamsBidi = localTransportParameters.getInitialMaxStreamsBidi();
+        this.localMaxStreamsUni = localTransportParameters.getInitialMaxStreamsUni();
     }
 
     /**
@@ -704,6 +736,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     void seedRememberedTransportParameters(TransportParameters remembered) {
         this.peerTransportParameters = remembered;
         this.peerMaxData = remembered.getInitialMaxData();
+        this.peerMaxStreamsBidi = remembered.getInitialMaxStreamsBidi();
+        this.peerMaxStreamsUni = remembered.getInitialMaxStreamsUni();
     }
 
     /**
@@ -739,25 +773,145 @@ public final class QuicConnection implements QuicTlsEngineListener {
     /**
      * Opens a new locally-initiated bidirectional stream.
      *
+     * <p>If the peer has not yet granted enough stream credit (RFC 9000
+     * section 4.6), the open is queued and {@code handler.connected} fires
+     * once a later {@code MAX_STREAMS} (or the handshake transport
+     * parameters) lifts the limit. Callers that send immediately after
+     * this returns must tolerate a {@code null} result and send from
+     * {@link ProtocolHandler#connected} instead.
+     *
      * @param handler the handler for the new stream
-     * @return the new stream's endpoint
+     * @return the new stream's endpoint, or {@code null} if the open was
+     *         queued until the peer grants credit
      */
     public Endpoint openStream(ProtocolHandler handler) {
-        long streamId = nextLocalBidiStreamId;
-        nextLocalBidiStreamId += 4;
-        return createStream(streamId, handler);
+        return openLocalStream(handler, true);
     }
 
     /**
      * Opens a new locally-initiated unidirectional stream.
      *
+     * <p>See {@link #openStream} for the credit-queuing contract.
+     *
      * @param handler the handler for the new stream
-     * @return the new stream's endpoint
+     * @return the new stream's endpoint, or {@code null} if the open was
+     *         queued until the peer grants credit
      */
     public Endpoint openUnidirectionalStream(ProtocolHandler handler) {
-        long streamId = nextLocalUniStreamId;
-        nextLocalUniStreamId += 4;
+        return openLocalStream(handler, false);
+    }
+
+    private Endpoint openLocalStream(ProtocolHandler handler, boolean bidirectional) {
+        if (closed) {
+            handler.error(new IOException("Connection is closed"));
+            return null;
+        }
+        if (canOpenLocalStream(bidirectional)) {
+            return createLocalStream(handler, bidirectional);
+        }
+        if (bidirectional) {
+            pendingOpenBidi.add(handler);
+        } else {
+            pendingOpenUni.add(handler);
+        }
+        signalStreamsBlocked(bidirectional);
+        return null;
+    }
+
+    private boolean canOpenLocalStream(boolean bidirectional) {
+        if (bidirectional) {
+            return openedLocalBidi() < peerMaxStreamsBidi;
+        }
+        return openedLocalUni() < peerMaxStreamsUni;
+    }
+
+    // RFC 9000 section 2.1: stream IDs of one type are 4 apart, so the
+    // next-to-assign ID divided by 4 is the count already opened.
+    private long openedLocalBidi() {
+        return nextLocalBidiStreamId / 4;
+    }
+
+    private long openedLocalUni() {
+        return nextLocalUniStreamId / 4;
+    }
+
+    private Endpoint createLocalStream(ProtocolHandler handler, boolean bidirectional) {
+        long streamId;
+        if (bidirectional) {
+            streamId = nextLocalBidiStreamId;
+            nextLocalBidiStreamId += 4;
+        } else {
+            streamId = nextLocalUniStreamId;
+            nextLocalUniStreamId += 4;
+        }
         return createStream(streamId, handler);
+    }
+
+    private void drainPendingOpens() {
+        while (!pendingOpenBidi.isEmpty() && canOpenLocalStream(true)) {
+            ProtocolHandler handler = pendingOpenBidi.remove(0);
+            createLocalStream(handler, true);
+        }
+        while (!pendingOpenUni.isEmpty() && canOpenLocalStream(false)) {
+            ProtocolHandler handler = pendingOpenUni.remove(0);
+            createLocalStream(handler, false);
+        }
+        if (!pendingOpenBidi.isEmpty()) {
+            signalStreamsBlocked(true);
+        }
+        if (!pendingOpenUni.isEmpty()) {
+            signalStreamsBlocked(false);
+        }
+    }
+
+    private void signalStreamsBlocked(boolean bidirectional) {
+        // STREAMS_BLOCKED carries the limit that blocked us (RFC 9000
+        // section 19.14). Until transport parameters arrive that limit
+        // is unknown, so there is nothing useful to signal yet.
+        if (peerTransportParameters == null) {
+            return;
+        }
+        if (bidirectional) {
+            if (!streamsBlockedBidiSignalled) {
+                streamsBlockedBidiSignalled = true;
+                streamsBlockedBidiOwed = true;
+                requestFlush();
+            }
+        } else {
+            if (!streamsBlockedUniSignalled) {
+                streamsBlockedUniSignalled = true;
+                streamsBlockedUniOwed = true;
+                requestFlush();
+            }
+        }
+    }
+
+    /**
+     * Raises this endpoint's advertised stream-concurrency limit and
+     * queues a MAX_STREAMS frame (RFC 9000 section 19.11). Values that
+     * do not increase the current limit are ignored, matching the
+     * receive-side rule for the same frame.
+     *
+     * @param bidirectional true to raise the bidirectional limit
+     * @param maximumStreams the new limit; must not exceed 2^60
+     */
+    void grantMaxStreams(boolean bidirectional, long maximumStreams) {
+        if (maximumStreams > MAX_STREAMS_COUNT) {
+            throw new IllegalArgumentException("MAX_STREAMS exceeds 2^60");
+        }
+        if (bidirectional) {
+            if (maximumStreams > localMaxStreamsBidi) {
+                localMaxStreamsBidi = maximumStreams;
+                maxStreamsBidiOwed = true;
+                requestFlush();
+            }
+        } else {
+            if (maximumStreams > localMaxStreamsUni) {
+                localMaxStreamsUni = maximumStreams;
+                maxStreamsUniOwed = true;
+                requestFlush();
+            }
+        }
     }
 
     private Endpoint createStream(long streamId, ProtocolHandler handler) {
@@ -779,7 +933,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
         return isServer == clientInitiated;
     }
 
+    // RFC 9000 section 4.6: the stream count implied by streamId is
+    // (streamId / 4) + 1. A peer-initiated stream whose count exceeds
+    // the limit this endpoint advertised is a STREAM_LIMIT_ERROR.
+    private boolean peerInitiatedStreamExceedsLimit(long streamId) {
+        if (!isPeerInitiated(streamId)) {
+            return false;
+        }
+        long count = (streamId / 4) + 1;
+        long limit = isUnidirectional(streamId) ? localMaxStreamsUni : localMaxStreamsBidi;
+        return count > limit;
+    }
+
     private QuicStreamEndpoint acceptStream(long streamId) {
+        if (peerInitiatedStreamExceedsLimit(streamId)) {
+            closeWithError(TRANSPORT_ERROR_STREAM_LIMIT_ERROR,
+                    "peer opened a stream beyond the advertised MAX_STREAMS limit");
+            return null;
+        }
         boolean unidirectional = isUnidirectional(streamId);
         StreamAcceptHandler handler = unidirectional ? unidirectionalStreamAcceptHandler : streamAcceptHandler;
         if (handler == null) {
@@ -1274,6 +1445,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
         public void resetStreamFrameReceived(long streamId, long applicationErrorCode, long finalSize) {
             ackEliciting = true;
             Long key = Long.valueOf(streamId);
+            if (streams.get(key) == null && peerInitiatedStreamExceedsLimit(streamId)) {
+                closeWithError(TRANSPORT_ERROR_STREAM_LIMIT_ERROR,
+                        "RESET_STREAM would open a stream beyond the advertised MAX_STREAMS limit");
+                return;
+            }
             streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
             QuicStreamEndpoint stream = streams.remove(key);
@@ -1389,6 +1565,24 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void maxStreamsFrameReceived(boolean bidirectional, long maximumStreams) {
             ackEliciting = true;
+            if (maximumStreams > MAX_STREAMS_COUNT) {
+                closeWithError(TRANSPORT_ERROR_FRAME_ENCODING_ERROR,
+                        "MAX_STREAMS exceeds 2^60");
+                return;
+            }
+            if (bidirectional) {
+                if (maximumStreams > peerMaxStreamsBidi) {
+                    peerMaxStreamsBidi = maximumStreams;
+                    streamsBlockedBidiSignalled = false;
+                    drainPendingOpens();
+                }
+            } else {
+                if (maximumStreams > peerMaxStreamsUni) {
+                    peerMaxStreamsUni = maximumStreams;
+                    streamsBlockedUniSignalled = false;
+                    drainPendingOpens();
+                }
+            }
         }
 
         // RFC 9000 section 4.1: the peer is blocked sending -- grow our
@@ -1406,6 +1600,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
         @Override
         public void streamDataBlockedFrameReceived(long streamId, long maximumStreamData) {
             ackEliciting = true;
+            if (streams.get(Long.valueOf(streamId)) == null && peerInitiatedStreamExceedsLimit(streamId)) {
+                closeWithError(TRANSPORT_ERROR_STREAM_LIMIT_ERROR,
+                        "STREAM_DATA_BLOCKED would open a stream beyond the advertised MAX_STREAMS limit");
+                return;
+            }
             growStreamLimitOnBlocked(streamId);
         }
 
@@ -2298,11 +2497,17 @@ public final class QuicConnection implements QuicTlsEngineListener {
         boolean includeDataBlocked = oneRtt && dataBlockedOwed;
         Map<Long, Long> streamDataBlockedToSend = oneRtt
                 ? new HashMap<Long, Long>(streamDataBlockedOwed) : java.util.Collections.<Long, Long>emptyMap();
+        boolean includeMaxStreamsBidi = oneRtt && maxStreamsBidiOwed;
+        boolean includeMaxStreamsUni = oneRtt && maxStreamsUniOwed;
+        boolean includeStreamsBlockedBidi = oneRtt && streamsBlockedBidiOwed;
+        boolean includeStreamsBlockedUni = oneRtt && streamsBlockedUniOwed;
 
         boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
                 && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
                 && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
-                && !includeDataBlocked && streamDataBlockedToSend.isEmpty();
+                && !includeDataBlocked && streamDataBlockedToSend.isEmpty()
+                && !includeMaxStreamsBidi && !includeMaxStreamsUni
+                && !includeStreamsBlockedBidi && !includeStreamsBlockedUni;
         if (nothingToSend) {
             return null;
         }
@@ -2347,6 +2552,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         for (Map.Entry<Long, Long> entry : streamDataBlockedToSend.entrySet()) {
             frameBytes += QuicFrameWriter.streamDataBlockedLength(entry.getKey().longValue(), entry.getValue().longValue());
+        }
+        if (includeMaxStreamsBidi) {
+            frameBytes += QuicFrameWriter.maxStreamsLength(true, localMaxStreamsBidi);
+        }
+        if (includeMaxStreamsUni) {
+            frameBytes += QuicFrameWriter.maxStreamsLength(false, localMaxStreamsUni);
+        }
+        if (includeStreamsBlockedBidi) {
+            frameBytes += QuicFrameWriter.streamsBlockedLength(true, peerMaxStreamsBidi);
+        }
+        if (includeStreamsBlockedUni) {
+            frameBytes += QuicFrameWriter.streamsBlockedLength(false, peerMaxStreamsUni);
         }
 
         boolean longHeader = !oneRtt;
@@ -2476,6 +2693,22 @@ public final class QuicConnection implements QuicTlsEngineListener {
             QuicFrameWriter.writeStreamDataBlocked(payload, entry.getKey().longValue(), entry.getValue().longValue());
         }
         streamDataBlockedOwed.keySet().removeAll(streamDataBlockedToSend.keySet());
+        if (includeMaxStreamsBidi) {
+            QuicFrameWriter.writeMaxStreams(payload, true, localMaxStreamsBidi);
+            maxStreamsBidiOwed = false;
+        }
+        if (includeMaxStreamsUni) {
+            QuicFrameWriter.writeMaxStreams(payload, false, localMaxStreamsUni);
+            maxStreamsUniOwed = false;
+        }
+        if (includeStreamsBlockedBidi) {
+            QuicFrameWriter.writeStreamsBlocked(payload, true, peerMaxStreamsBidi);
+            streamsBlockedBidiOwed = false;
+        }
+        if (includeStreamsBlockedUni) {
+            QuicFrameWriter.writeStreamsBlocked(payload, false, peerMaxStreamsUni);
+            streamsBlockedUniOwed = false;
+        }
         if (paddingBytes > 0) {
             QuicFrameWriter.writePadding(payload, paddingBytes);
         }
@@ -2677,10 +2910,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private static final long TRANSPORT_ERROR_INTERNAL_ERROR = 0x1;
     /** RFC 9000 section 20.1: an endpoint received more data than the flow control limits it advertised permit. */
     private static final long TRANSPORT_ERROR_FLOW_CONTROL_ERROR = 0x3;
+    /** RFC 9000 section 20.1: an endpoint received a STREAM/RESET_STREAM/STREAM_DATA_BLOCKED frame that would open more streams than it advertised. */
+    private static final long TRANSPORT_ERROR_STREAM_LIMIT_ERROR = 0x4;
+    /** RFC 9000 section 20.1: a frame was malformed, e.g. MAX_STREAMS greater than 2^60. */
+    private static final long TRANSPORT_ERROR_FRAME_ENCODING_ERROR = 0x7;
     /** RFC 9000 section 20.1: a transport parameter was received with a value not permitted for its type, e.g. a mismatched retry_source_connection_id. */
     private static final long TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR = 0x8;
     /** RFC 9000 section 20.1: the amount of buffered reordered CRYPTO data exceeds this endpoint's ability to buffer it. */
     private static final long TRANSPORT_ERROR_CRYPTO_BUFFER_EXCEEDED = 0xd;
+    /** RFC 9000 section 19.11: MAX_STREAMS (and initial_max_streams_*) must not exceed 2^60. */
+    private static final long MAX_STREAMS_COUNT = 1L << 60;
 
     /**
      * Closes the connection with a specific transport error code (RFC
@@ -2806,6 +3045,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
             }
         }
         streams.clear();
+        failPendingOpens(streamError);
+    }
+
+    private void failPendingOpens(Exception streamError) {
+        Exception cause = streamError != null ? streamError : new IOException("Connection closed");
+        List<ProtocolHandler> pending = new ArrayList<ProtocolHandler>(pendingOpenBidi);
+        pending.addAll(pendingOpenUni);
+        pendingOpenBidi.clear();
+        pendingOpenUni.clear();
+        for (int i = 0; i < pending.size(); i++) {
+            pending.get(i).error(cause);
+        }
     }
 
     private void sendConnectionClose(EncryptionLevel level, PacketProtectionKeys keys) throws PacketProtectionException {
@@ -2957,6 +3208,27 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         this.peerTransportParameters = transportParameters;
         peerMaxData = transportParameters.getInitialMaxData();
+        long initialMaxStreamsBidi = transportParameters.getInitialMaxStreamsBidi();
+        long initialMaxStreamsUni = transportParameters.getInitialMaxStreamsUni();
+        if (initialMaxStreamsBidi > MAX_STREAMS_COUNT || initialMaxStreamsUni > MAX_STREAMS_COUNT) {
+            closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR,
+                    "initial_max_streams exceeds 2^60");
+            return;
+        }
+        // RFC 9000 section 19.11: MAX_STREAMS that do not increase the
+        // limit MUST be ignored. The same applies when 0-RTT already
+        // seeded a remembered ceiling: a later handshake offering the
+        // same or a larger value is applied (and may drain queued opens);
+        // a smaller value was already rejected above as a 0-RTT shrink.
+        if (initialMaxStreamsBidi > peerMaxStreamsBidi) {
+            peerMaxStreamsBidi = initialMaxStreamsBidi;
+            streamsBlockedBidiSignalled = false;
+        }
+        if (initialMaxStreamsUni > peerMaxStreamsUni) {
+            peerMaxStreamsUni = initialMaxStreamsUni;
+            streamsBlockedUniSignalled = false;
+        }
+        drainPendingOpens();
         if (!isServer) {
             byte[] resetToken = transportParameters.getStatelessResetToken();
             if (resetToken != null) {

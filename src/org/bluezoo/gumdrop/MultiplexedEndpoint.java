@@ -48,9 +48,16 @@ public interface MultiplexedEndpoint extends Endpoint {
      *
      * <p>The returned Endpoint represents the new stream. The provided
      * handler will receive data and lifecycle events for this stream.
+     * If the transport cannot open the stream immediately (QUIC: the
+     * peer has not granted enough {@code MAX_STREAMS} credit; RFC 9000
+     * section 4.6), this method returns {@code null} and
+     * {@link ProtocolHandler#connected} fires later, once credit is
+     * available. Callers that send on the stream must therefore either
+     * tolerate a {@code null} return or send from {@code connected}.
      *
      * @param handler the handler for the new stream
-     * @return an Endpoint for the new stream
+     * @return an Endpoint for the new stream, or {@code null} if the
+     *         open was queued until the peer grants credit
      */
     Endpoint openStream(ProtocolHandler handler);
 
@@ -67,7 +74,9 @@ public interface MultiplexedEndpoint extends Endpoint {
      *
      * @param handler the handler for the new stream; only ever receives
      *                data (a unidirectional stream carries no return path)
-     * @return an Endpoint for the new stream
+     * @return an Endpoint for the new stream, or {@code null} if the
+     *         open was queued until the peer grants credit (see
+     *         {@link #openStream})
      */
     default Endpoint openUnidirectionalStream(ProtocolHandler handler) {
         throw new UnsupportedOperationException("This transport does not support unidirectional streams");

@@ -161,36 +161,99 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     }
 
     // RFC 9114 section 6.2.1 / 7.2.4: open our own control stream and
-    // send SETTINGS as its first frame.
+    // send SETTINGS as its first frame. The send lives in connected()
+    // so a queued open (no uni-stream credit yet; RFC 9000 section 4.6)
+    // still emits SETTINGS once the peer grants the stream.
     private void openControlStream() {
-        Endpoint controlStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
-        long[] settings = {
+        final long[] settings = {
             H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
             H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY
         };
-        int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
-        ByteBuffer out = ByteBuffer.allocate(length);
-        H3Writer.writeStreamType(out, 0x00);
-        H3Writer.writeSettings(out, settings);
-        out.flip();
-        controlStream.send(out);
+        quicConnection.openUnidirectionalStream(new ProtocolHandler() {
+            @Override
+            public void connected(Endpoint endpoint) {
+                int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
+                ByteBuffer out = ByteBuffer.allocate(length);
+                H3Writer.writeStreamType(out, 0x00);
+                H3Writer.writeSettings(out, settings);
+                out.flip();
+                endpoint.send(out);
+            }
+
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        });
     }
 
     // RFC 9204 section 4.2: open our own QPACK encoder and decoder
     // streams, kept open for the connection's lifetime -- neither is
     // ever closed, matching the control stream.
     private void openQpackStreams() {
-        qpackEncoderStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
-        ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
-        H3Writer.writeStreamType(out, 0x02);
-        out.flip();
-        qpackEncoderStream.send(out);
+        quicConnection.openUnidirectionalStream(new ProtocolHandler() {
+            @Override
+            public void connected(Endpoint endpoint) {
+                qpackEncoderStream = endpoint;
+                ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
+                H3Writer.writeStreamType(out, 0x02);
+                out.flip();
+                endpoint.send(out);
+            }
 
-        qpackDecoderStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
-        out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
-        H3Writer.writeStreamType(out, 0x03);
-        out.flip();
-        qpackDecoderStream.send(out);
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        });
+        quicConnection.openUnidirectionalStream(new ProtocolHandler() {
+            @Override
+            public void connected(Endpoint endpoint) {
+                qpackDecoderStream = endpoint;
+                ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
+                H3Writer.writeStreamType(out, 0x03);
+                out.flip();
+                endpoint.send(out);
+            }
+
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        });
     }
 
     /**
@@ -202,7 +265,7 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
      *                     positioned for reading
      */
     void flushQpackEncoderInstructions(ByteBuffer instructions) {
-        if (instructions.hasRemaining()) {
+        if (instructions.hasRemaining() && qpackEncoderStream != null) {
             qpackEncoderStream.send(instructions);
         }
     }
@@ -215,7 +278,7 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
      */
     void flushQpackDecoderInstructions() {
         byte[] bytes = qpackDecoder.takePendingInstructions();
-        if (bytes.length > 0) {
+        if (bytes.length > 0 && qpackDecoderStream != null) {
             qpackDecoderStream.send(ByteBuffer.wrap(bytes));
         }
     }
@@ -295,6 +358,9 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
 
     private void sendGoaway(long streamId) {
         Endpoint controlStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
+        if (controlStream == null) {
+            return;
+        }
         int length = H3Writer.goawayLength(streamId);
         ByteBuffer out = ByteBuffer.allocate(length);
         H3Writer.writeGoaway(out, streamId);

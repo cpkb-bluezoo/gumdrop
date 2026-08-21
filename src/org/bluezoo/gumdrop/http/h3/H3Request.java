@@ -80,6 +80,9 @@ public class H3Request implements HTTPRequest {
     // rather than queued behind the deferred send. Same thread-safety
     // contract as streamId.
     private boolean sendDeferred;
+    // The H3ClientStream for this request, so body data can be buffered
+    // if the QUIC open is still queued behind MAX_STREAMS credit.
+    private H3ClientStream h3Stream;
     // volatile: set from the application's calling thread in send()/
     // startRequestBody(), read from cancel() which may be called from a
     // different thread (e.g. a timeout watchdog).
@@ -142,7 +145,8 @@ public class H3Request implements HTTPRequest {
                     @Override
                     public void run() {
                         sendDeferred = false;
-                        streamId = h3Handler.sendRequest(h3Headers, handler, true);
+                        h3Stream = h3Handler.startRequest(h3Headers, handler, true);
+                        streamId = h3Stream.getStreamId();
                     }
                 };
                 if (h3Handler.isSafeToSendNow(method)) {
@@ -171,7 +175,8 @@ public class H3Request implements HTTPRequest {
                     @Override
                     public void run() {
                         sendDeferred = false;
-                        streamId = h3Handler.sendRequest(h3Headers, handler, false);
+                        h3Stream = h3Handler.startRequest(h3Headers, handler, false);
+                        streamId = h3Stream.getStreamId();
                     }
                 };
                 if (h3Handler.isSafeToSendNow(method)) {
@@ -202,10 +207,10 @@ public class H3Request implements HTTPRequest {
                 Runnable bodyTask = new Runnable() {
                     @Override
                     public void run() {
-                        if (streamId < 0) {
+                        if (h3Stream == null) {
                             return;
                         }
-                        h3Handler.sendRequestBody(streamId, ByteBuffer.wrap(snapshot), false);
+                        h3Handler.sendRequestBody(h3Stream, ByteBuffer.wrap(snapshot), false);
                     }
                 };
                 if (sendDeferred) {
@@ -232,10 +237,10 @@ public class H3Request implements HTTPRequest {
                 Runnable endTask = new Runnable() {
                     @Override
                     public void run() {
-                        if (streamId < 0) {
+                        if (h3Stream == null) {
                             return;
                         }
-                        h3Handler.sendRequestBody(streamId, ByteBuffer.allocate(0), true);
+                        h3Handler.sendRequestBody(h3Stream, ByteBuffer.allocate(0), true);
                     }
                 };
                 if (sendDeferred) {

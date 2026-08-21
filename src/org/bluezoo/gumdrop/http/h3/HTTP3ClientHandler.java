@@ -45,7 +45,6 @@ import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
-import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
@@ -144,36 +143,99 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     }
 
     // RFC 9114 section 6.2.1 / 7.2.4: open our own control stream and
-    // send SETTINGS as its first frame.
+    // send SETTINGS as its first frame. The send lives in connected()
+    // so a queued open (no uni-stream credit yet; RFC 9000 section 4.6)
+    // still emits SETTINGS once the peer grants the stream.
     private void openControlStream() {
-        Endpoint controlStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
-        long[] settings = {
+        final long[] settings = {
             H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
             H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY
         };
-        int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
-        ByteBuffer out = ByteBuffer.allocate(length);
-        H3Writer.writeStreamType(out, 0x00);
-        H3Writer.writeSettings(out, settings);
-        out.flip();
-        controlStream.send(out);
+        quicConnection.openUnidirectionalStream(new ProtocolHandler() {
+            @Override
+            public void connected(Endpoint endpoint) {
+                int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
+                ByteBuffer out = ByteBuffer.allocate(length);
+                H3Writer.writeStreamType(out, 0x00);
+                H3Writer.writeSettings(out, settings);
+                out.flip();
+                endpoint.send(out);
+            }
+
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        });
     }
 
     // RFC 9204 section 4.2: open our own QPACK encoder and decoder
     // streams, kept open for the connection's lifetime -- neither is
     // ever closed, matching the control stream.
     private void openQpackStreams() {
-        qpackEncoderStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
-        ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
-        H3Writer.writeStreamType(out, 0x02);
-        out.flip();
-        qpackEncoderStream.send(out);
+        quicConnection.openUnidirectionalStream(new ProtocolHandler() {
+            @Override
+            public void connected(Endpoint endpoint) {
+                qpackEncoderStream = endpoint;
+                ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x02));
+                H3Writer.writeStreamType(out, 0x02);
+                out.flip();
+                endpoint.send(out);
+            }
 
-        qpackDecoderStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
-        out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
-        H3Writer.writeStreamType(out, 0x03);
-        out.flip();
-        qpackDecoderStream.send(out);
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        });
+        quicConnection.openUnidirectionalStream(new ProtocolHandler() {
+            @Override
+            public void connected(Endpoint endpoint) {
+                qpackDecoderStream = endpoint;
+                ByteBuffer out = ByteBuffer.allocate(H3Writer.streamTypeLength(0x03));
+                H3Writer.writeStreamType(out, 0x03);
+                out.flip();
+                endpoint.send(out);
+            }
+
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        });
     }
 
     /**
@@ -185,7 +247,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      *                     positioned for reading
      */
     void flushQpackEncoderInstructions(ByteBuffer instructions) {
-        if (instructions.hasRemaining()) {
+        if (instructions.hasRemaining() && qpackEncoderStream != null) {
             qpackEncoderStream.send(instructions);
         }
     }
@@ -198,7 +260,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      */
     void flushQpackDecoderInstructions() {
         byte[] bytes = qpackDecoder.takePendingInstructions();
-        if (bytes.length > 0) {
+        if (bytes.length > 0 && qpackDecoderStream != null) {
             qpackDecoderStream.send(ByteBuffer.wrap(bytes));
         }
     }
@@ -342,23 +404,60 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * {@code :authority}, and {@code :path}.
      *
      * <p>If {@code fin} is false, the caller must send the request body
-     * via {@link #sendRequestBody(long, ByteBuffer, boolean)}.
+     * via {@link #sendRequestBody(H3ClientStream, ByteBuffer, boolean)}
+     * (or {@link #sendRequestBody(long, ByteBuffer, boolean)} once the
+     * stream ID is known).
      *
      * @param headers the request headers
      * @param handler the handler to receive response events
      * @param fin true if no request body will follow
-     * @return the stream ID, or -1 on failure
+     * @return the stream ID, or -1 on failure or if the open is still
+     *         queued behind peer MAX_STREAMS credit
      */
     public long sendRequest(Headers headers, HTTPResponseHandler handler, boolean fin) {
+        return startRequest(headers, handler, fin).getStreamId();
+    }
+
+    /**
+     * Opens an HTTP/3 request stream, queuing the HEADERS send until the
+     * QUIC layer grants a stream ID. Used by {@link H3Request} so body
+     * data can be buffered on the same object if MAX_STREAMS credit is
+     * not yet available.
+     *
+     * @param headers the request headers
+     * @param handler the handler to receive response events
+     * @param fin true if no request body will follow
+     * @return the stream object; {@link H3ClientStream#getStreamId} is
+     *         {@code -1} until the open completes
+     */
+    H3ClientStream startRequest(Headers headers, HTTPResponseHandler handler, boolean fin) {
+        H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, handler);
         if (goaway) {
             handler.failed(new IOException("Connection received GOAWAY"));
-            return -1;
+            return clientStream;
         }
+        clientStream.prepareRequest(headers, fin);
+        quicConnection.openStream(clientStream);
+        return clientStream;
+    }
 
-        H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, handler);
-        Endpoint endpoint = quicConnection.openStream(clientStream);
-        long streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
+    /**
+     * Encodes and sends a request that was armed via
+     * {@link H3ClientStream#prepareRequest} once the QUIC stream actually
+     * exists. Invoked from {@link H3ClientStream#connected}, including
+     * when the open was queued behind peer MAX_STREAMS credit.
+     *
+     * @param clientStream the stream whose pending request is now writable
+     */
+    void completePreparedRequest(H3ClientStream clientStream) {
+        long streamId = clientStream.getStreamId();
         streams.put(Long.valueOf(streamId), clientStream);
+        Headers headers = clientStream.takePendingRequestHeaders();
+        boolean fin = clientStream.takePendingRequestFin();
+        Endpoint endpoint = clientStream.getEndpoint();
+        if (headers == null || endpoint == null) {
+            return;
+        }
 
         ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
         ByteBuffer encoderInstructions = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
@@ -373,11 +472,14 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         H3Writer.writeHeaders(out, encoded);
         out.flip();
         endpoint.send(out);
-        if (fin) {
+        List<byte[]> body = clientStream.takePendingBody();
+        boolean bodyFin = clientStream.takePendingBodyFin();
+        for (int i = 0; i < body.size(); i++) {
+            sendRequestBody(streamId, ByteBuffer.wrap(body.get(i)), false);
+        }
+        if (fin || bodyFin) {
             endpoint.close();
         }
-
-        return streamId;
     }
 
     /**
@@ -412,6 +514,24 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         if (fin) {
             endpoint.close();
         }
+    }
+
+    /**
+     * Sends request body data, buffering it on {@code clientStream} if
+     * the QUIC stream has not been granted yet.
+     *
+     * @param clientStream the request stream returned by {@link #startRequest}
+     * @param data the body data
+     * @param fin true if this is the last body data
+     */
+    void sendRequestBody(H3ClientStream clientStream, ByteBuffer data, boolean fin) {
+        if (clientStream.getEndpoint() == null) {
+            byte[] snapshot = new byte[data.remaining()];
+            data.get(snapshot);
+            clientStream.queueRequestBody(snapshot, fin);
+            return;
+        }
+        sendRequestBody(clientStream.getStreamId(), data, fin);
     }
 
     /**
@@ -456,10 +576,6 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         }
 
         H3ClientStream clientStream = H3ClientStream.forWebSocket(this, qpackDecoder, wsHandler, extensions);
-        Endpoint endpoint = quicConnection.openStream(clientStream);
-        long streamId = ((QuicStreamEndpoint) endpoint).getStreamId();
-        streams.put(Long.valueOf(streamId), clientStream);
-
         Headers headers = new Headers();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "websocket"));
@@ -472,22 +588,9 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         if (extensions != null && !extensions.isEmpty()) {
             headers.add(new Header("sec-websocket-extensions", WebSocketHandshake.formatOffers(extensions)));
         }
-
-        ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
-        ByteBuffer encoderInstructions = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
-        qpackEncoder.encode(fieldSection, encoderInstructions, streamId, headers);
-        fieldSection.flip();
-        byte[] encoded = new byte[fieldSection.remaining()];
-        fieldSection.get(encoded);
-        encoderInstructions.flip();
-        flushQpackEncoderInstructions(encoderInstructions);
-
-        ByteBuffer out = ByteBuffer.allocate(H3Writer.headersLength(encoded.length));
-        H3Writer.writeHeaders(out, encoded);
-        out.flip();
-        endpoint.send(out);
-
-        return streamId;
+        clientStream.prepareRequest(headers, false);
+        quicConnection.openStream(clientStream);
+        return clientStream.getStreamId();
     }
 
     // ── H3ControlStream.Listener (peer's control stream) ──
@@ -563,29 +666,5 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
             stream.error(closed);
         }
         streams.clear();
-    }
-
-    /** A {@link ProtocolHandler} for our own send-only unidirectional streams, which never receive data. */
-    private static final class NullProtocolHandler implements ProtocolHandler {
-
-        @Override
-        public void connected(Endpoint endpoint) {
-        }
-
-        @Override
-        public void receive(ByteBuffer data) {
-        }
-
-        @Override
-        public void securityEstablished(SecurityInfo info) {
-        }
-
-        @Override
-        public void disconnected() {
-        }
-
-        @Override
-        public void error(Exception cause) {
-        }
     }
 }

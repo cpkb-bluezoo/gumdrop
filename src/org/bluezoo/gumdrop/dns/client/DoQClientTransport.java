@@ -247,10 +247,7 @@ public class DoQClientTransport implements DNSClientTransport {
         framed.putShort((short) len);
         framed.put(padded);
         framed.flip();
-        Endpoint stream = engine.openStream(
-                new DoQStreamHandler(handler, originalId));
-        stream.send(framed);
-        stream.close();
+        engine.openStream(new DoQStreamHandler(handler, originalId, framed));
     }
 
     @Override
@@ -276,16 +273,20 @@ public class DoQClientTransport implements DNSClientTransport {
 
         private final DNSClientTransportHandler handler;
         private final int originalId;
+        private final ByteBuffer pendingQuery;
         private final ByteArrayOutputStream accumulator =
                 new ByteArrayOutputStream(512);
 
-        DoQStreamHandler(DNSClientTransportHandler handler, int originalId) {
+        DoQStreamHandler(DNSClientTransportHandler handler, int originalId, ByteBuffer pendingQuery) {
             this.handler = handler;
             this.originalId = originalId;
+            this.pendingQuery = pendingQuery;
         }
 
         @Override
         public void connected(Endpoint ep) {
+            ep.send(pendingQuery);
+            ep.close();
         }
 
         @Override
