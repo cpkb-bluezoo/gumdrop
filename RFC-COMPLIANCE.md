@@ -846,7 +846,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Server push (PUSH_PROMISE) | 4.6 | Not implemented | `H3Stream.pushPromise()` returns false |
-| GOAWAY reception (from client) | 5.2 | Compliant | `onGoaway()` records last-stream-ID, rejects new streams beyond it, sends server GOAWAY in response |
+| GOAWAY reception (from client) | 5.2 | Compliant | Records the ID, rejects a later GOAWAY with a greater identifier (`H3_ID_ERROR`), rejects new streams beyond the announced ID, sends a server GOAWAY in response |
 | GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `close()` sends GOAWAY with highest client-initiated stream ID via `quiche_h3_send_goaway` before resetting streams |
 | Stream reset handling | 8 | Compliant | `onReset()` ends span and cleans up stream |
 | Request cancellation | 8 | Compliant | `H3Stream.cancel()` resets stream |
@@ -905,7 +905,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| GOAWAY reception | 5.2 | Compliant | Records last-stream-ID; fails unprocessed streams (ID > last) with retryable IOException |
+| GOAWAY reception | 5.2 | Compliant | Validates client-initiated bidi stream ID and monotonicity (`H3_ID_ERROR`); fails unprocessed streams (ID > last) with retryable IOException |
 | Connection readiness callback | 3 | Compliant | `HTTP3ClientHandler.onConnectionReady()` fires readyCallback then polls |
 | Resource cleanup | — | Compliant | `close()` resets all streams, frees h3 config and connection handles |
 

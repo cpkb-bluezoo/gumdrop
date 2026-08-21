@@ -653,6 +653,64 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 5.2: a GOAWAY identifier MUST NOT be greater than
+     * any previously received.
+     */
+    @Test
+    public void testGoawayWithHigherIdThanPreviousIsIdError() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00)
+                + H3Writer.settingsLength(new long[0])
+                + H3Writer.goawayLength(0)
+                + H3Writer.goawayLength(1);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, new long[0]);
+        H3Writer.writeGoaway(payload, 0);
+        H3Writer.writeGoaway(payload, 1);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_ID_ERROR,
+                "RFC 9114 section 5.2 H3_ID_ERROR");
+    }
+
+    /**
+     * RFC 9114 section 7.2.6: server-to-client GOAWAY must carry a
+     * client-initiated bidirectional stream ID (0 mod 4).
+     */
+    @Test
+    public void testClientRejectsGoawayWithNonClientBidiStreamId() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00)
+                + H3Writer.settingsLength(new long[0])
+                + H3Writer.goawayLength(1);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, new long[0]);
+        H3Writer.writeGoaway(payload, 1);
+        payload.flip();
+        assertRawServerControlPayloadClosesGumdropClientWith(payload, H3ErrorCode.H3_ID_ERROR,
+                "RFC 9114 section 7.2.6 H3_ID_ERROR");
+    }
+
+    /**
+     * RFC 9114 section 5.2: a later server-to-client GOAWAY with a
+     * greater stream ID is H3_ID_ERROR.
+     */
+    @Test
+    public void testClientRejectsGoawayWithHigherIdThanPrevious() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00)
+                + H3Writer.settingsLength(new long[0])
+                + H3Writer.goawayLength(0)
+                + H3Writer.goawayLength(4);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, new long[0]);
+        H3Writer.writeGoaway(payload, 0);
+        H3Writer.writeGoaway(payload, 4);
+        payload.flip();
+        assertRawServerControlPayloadClosesGumdropClientWith(payload, H3ErrorCode.H3_ID_ERROR,
+                "RFC 9114 section 5.2 H3_ID_ERROR");
+    }
+
+    /**
      * RFC 9114 section 7.2.4: a second SETTINGS frame is
      * H3_FRAME_UNEXPECTED.
      */
@@ -901,6 +959,130 @@ public class HTTP3ProductionEndToEndTest {
     private void assertRawClientBidiSendClosesWith(ByteBuffer payload, long expectedErrorCode,
             String assertionMessage) throws Exception {
         assertRawClientSendClosesWith(false, payload, expectedErrorCode, assertionMessage, false);
+    }
+
+    /**
+     * Connects a gumdrop HTTP/3 client to a raw QUIC server that, on the
+     * first peer uni stream, opens its own uni stream and sends
+     * {@code controlPayload}. Asserts the connection closes with
+     * {@code expectedErrorCode}.
+     */
+    private void assertRawServerControlPayloadClosesGumdropClientWith(ByteBuffer controlPayload,
+            long expectedErrorCode, String assertionMessage) throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch errorLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> observedError = new AtomicReference<Exception>();
+            final AtomicBoolean sent = new AtomicBoolean(false);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            connection.setUnidirectionalStreamAcceptHandler(
+                                    new StreamAcceptHandler() {
+                                        @Override
+                                        public ProtocolHandler acceptStream(Endpoint stream) {
+                                            return new ProtocolHandler() {
+                                                @Override
+                                                public void connected(Endpoint endpoint) {
+                                                    if (!sent.compareAndSet(false, true)) {
+                                                        return;
+                                                    }
+                                                    connection.openUnidirectionalStream(new ProtocolHandler() {
+                                                        @Override
+                                                        public void connected(Endpoint sendEndpoint) {
+                                                            sendEndpoint.send(controlPayload.duplicate());
+                                                        }
+
+                                                        @Override
+                                                        public void receive(ByteBuffer data) {
+                                                        }
+
+                                                        @Override
+                                                        public void securityEstablished(SecurityInfo info) {
+                                                        }
+
+                                                        @Override
+                                                        public void disconnected() {
+                                                        }
+
+                                                        @Override
+                                                        public void error(Exception cause) {
+                                                            observedError.set(cause);
+                                                            errorLatch.countDown();
+                                                        }
+                                                    });
+                                                }
+
+                                                @Override
+                                                public void receive(ByteBuffer data) {
+                                                }
+
+                                                @Override
+                                                public void securityEstablished(SecurityInfo info) {
+                                                }
+
+                                                @Override
+                                                public void disconnected() {
+                                                }
+
+                                                @Override
+                                                public void error(Exception cause) {
+                                                    observedError.set(cause);
+                                                    errorLatch.countDown();
+                                                }
+                                            };
+                                        }
+                                    });
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ClientHandler(connection);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Connection should close within 5s",
+                    errorLatch.await(5, TimeUnit.SECONDS));
+
+            Exception cause = observedError.get();
+            assertTrue("Cause should be a QuicConnectionCloseException, was: " + cause,
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("Should be an application-level close", qcce.isApplicationError());
+            assertEquals(assertionMessage, expectedErrorCode, qcce.getErrorCode());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
     }
 
     private void assertRawClientSendClosesWith(boolean unidirectional, ByteBuffer payload,
