@@ -3598,6 +3598,7 @@ public class QuicProductionEndToEndTest {
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+            awaitHandshakeSettled();
 
             // Reach into the real, negotiated key material and packet
             // number counter -- the only way to construct further packets
