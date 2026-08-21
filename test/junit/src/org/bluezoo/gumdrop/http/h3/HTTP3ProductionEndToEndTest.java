@@ -637,6 +637,72 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 6.2.1: premature FIN of the peer control stream
+     * is a connection error of type H3_CLOSED_CRITICAL_STREAM.
+     */
+    @Test
+    public void testControlStreamFinIsClosedCriticalStream() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        payload.flip();
+        assertRawClientUniSendThenFinClosesWith(payload, H3ErrorCode.H3_CLOSED_CRITICAL_STREAM,
+                "RFC 9114 section 6.2.1 H3_CLOSED_CRITICAL_STREAM");
+    }
+
+    /**
+     * RFC 9204 section 4.2: premature FIN of the peer QPACK encoder
+     * stream is H3_CLOSED_CRITICAL_STREAM.
+     */
+    @Test
+    public void testQpackEncoderStreamFinIsClosedCriticalStream() throws Exception {
+        int length = H3Writer.streamTypeLength(0x02);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x02);
+        payload.flip();
+        assertRawClientUniSendThenFinClosesWith(payload, H3ErrorCode.H3_CLOSED_CRITICAL_STREAM,
+                "RFC 9204 section 4.2 H3_CLOSED_CRITICAL_STREAM");
+    }
+
+    /**
+     * RFC 9204 section 4.2: premature FIN of the peer QPACK decoder
+     * stream is H3_CLOSED_CRITICAL_STREAM.
+     */
+    @Test
+    public void testQpackDecoderStreamFinIsClosedCriticalStream() throws Exception {
+        int length = H3Writer.streamTypeLength(0x03);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x03);
+        payload.flip();
+        assertRawClientUniSendThenFinClosesWith(payload, H3ErrorCode.H3_CLOSED_CRITICAL_STREAM,
+                "RFC 9204 section 4.2 H3_CLOSED_CRITICAL_STREAM");
+    }
+
+    /**
+     * RFC 9114 section 9: unknown/GREASE unidirectional streams may be
+     * closed without a connection error. After a GREASE stream FINs, a
+     * subsequent malformed control stream is still H3_FRAME_UNEXPECTED
+     * rather than H3_CLOSED_CRITICAL_STREAM.
+     */
+    @Test
+    public void testGreaseUniStreamFinIsTolerated() throws Exception {
+        byte[] emptyFieldSection = new byte[0];
+        int greaseLength = H3Writer.streamTypeLength(0x21);
+        int controlLength = H3Writer.streamTypeLength(0x00)
+                + H3Writer.headersLength(emptyFieldSection.length);
+        ByteBuffer grease = ByteBuffer.allocate(greaseLength);
+        H3Writer.writeStreamType(grease, 0x21);
+        grease.flip();
+        ByteBuffer malformedControl = ByteBuffer.allocate(controlLength);
+        H3Writer.writeStreamType(malformedControl, 0x00);
+        H3Writer.writeHeaders(malformedControl, emptyFieldSection);
+        malformedControl.flip();
+        assertRawClientUniGreaseThenMalformedControlClosesWith(grease, malformedControl,
+                H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 9 GREASE uni stream FIN is not H3_CLOSED_CRITICAL_STREAM");
+    }
+
+    /**
      * RFC 9114 section 7.2.7: a server MUST NOT send MAX_PUSH_ID; a
      * gumdrop client treats it as H3_FRAME_UNEXPECTED.
      */
@@ -771,21 +837,34 @@ public class HTTP3ProductionEndToEndTest {
 
     private void assertRawClientUniSendClosesWith(ByteBuffer payload, long expectedErrorCode,
             String assertionMessage) throws Exception {
-        assertRawClientSendClosesWith(true, payload, expectedErrorCode, assertionMessage);
+        assertRawClientSendClosesWith(true, payload, expectedErrorCode, assertionMessage, false);
+    }
+
+    private void assertRawClientUniSendThenFinClosesWith(ByteBuffer payload, long expectedErrorCode,
+            String assertionMessage) throws Exception {
+        assertRawClientSendClosesWith(true, payload, expectedErrorCode, assertionMessage, true);
     }
 
     private void assertRawClientBidiSendClosesWith(ByteBuffer payload, long expectedErrorCode,
             String assertionMessage) throws Exception {
-        assertRawClientSendClosesWith(false, payload, expectedErrorCode, assertionMessage);
+        assertRawClientSendClosesWith(false, payload, expectedErrorCode, assertionMessage, false);
+    }
+
+    private void assertRawClientSendClosesWith(boolean unidirectional, ByteBuffer payload,
+            long expectedErrorCode, String assertionMessage) throws Exception {
+        assertRawClientSendClosesWith(unidirectional, payload, expectedErrorCode, assertionMessage, false);
     }
 
     /**
      * Opens a gumdrop HTTP/3 server, connects a raw QUIC client, and sends
      * {@code payload} on a new uni or bidi stream. Asserts the client
      * observes an application CONNECTION_CLOSE with {@code expectedErrorCode}.
+     *
+     * @param finAfterSend if true, the stream is FINned after sending
+     *                     (RFC 9114 section 6.2.1 premature closure)
      */
     private void assertRawClientSendClosesWith(boolean unidirectional, ByteBuffer payload,
-            long expectedErrorCode, String assertionMessage) throws Exception {
+            long expectedErrorCode, String assertionMessage, boolean finAfterSend) throws Exception {
         SelectorLoop loop = new SelectorLoop(0);
         loop.start();
         QuicEngine serverEngine = null;
@@ -832,6 +911,9 @@ public class HTTP3ProductionEndToEndTest {
                                 @Override
                                 public void connected(Endpoint endpoint) {
                                     endpoint.send(payload.duplicate());
+                                    if (finAfterSend) {
+                                        endpoint.close();
+                                    }
                                 }
 
                                 @Override
@@ -857,6 +939,130 @@ public class HTTP3ProductionEndToEndTest {
                             } else {
                                 connection.openStream(handler);
                             }
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should observe the connection close within 5s",
+                    errorLatch.await(5, TimeUnit.SECONDS));
+
+            Exception cause = clientStreamError.get();
+            assertTrue("Cause should be a QuicConnectionCloseException, was: " + cause,
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("Should be an application-level close", qcce.isApplicationError());
+            assertEquals(assertionMessage, expectedErrorCode, qcce.getErrorCode());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * Opens a grease unidirectional stream (send + FIN), then a second
+     * uni stream carrying {@code malformedControl}. The connection must
+     * close with {@code expectedErrorCode} from the second stream, not
+     * from the grease FIN.
+     */
+    private void assertRawClientUniGreaseThenMalformedControlClosesWith(ByteBuffer grease,
+            ByteBuffer malformedControl, long expectedErrorCode, String assertionMessage)
+            throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new DefaultHTTPRequestHandler();
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch errorLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> clientStreamError = new AtomicReference<Exception>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            connection.openUnidirectionalStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    endpoint.send(grease.duplicate());
+                                    endpoint.close();
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    clientStreamError.set(cause);
+                                    errorLatch.countDown();
+                                }
+                            });
+                            connection.openUnidirectionalStream(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    endpoint.send(malformedControl.duplicate());
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    clientStreamError.set(cause);
+                                    errorLatch.countDown();
+                                }
+                            });
                         }
                     }, loop, SERVER_NAME);
 
