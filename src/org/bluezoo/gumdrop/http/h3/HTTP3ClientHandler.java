@@ -648,6 +648,12 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         }
     }
 
+    @Override
+    public void priorityUpdateReceived(long streamId, String fieldValue) {
+        // Servers MUST NOT send PRIORITY_UPDATE; H3ControlStream already
+        // treats that as H3_FRAME_UNEXPECTED before this is called.
+    }
+
     private static int estimateFieldSectionCapacity(List<Header> fields) {
         int estimate = 16;
         for (Header field : fields) {

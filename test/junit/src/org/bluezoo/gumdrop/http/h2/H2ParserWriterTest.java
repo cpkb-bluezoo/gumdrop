@@ -92,6 +92,17 @@ public class H2ParserWriterTest {
         assertTrue(handler.settings.get(0).settings.isEmpty());
     }
 
+    @Test
+    public void testPriorityUpdateRoundTrip() throws IOException {
+        writer.writePriorityUpdate(1, "u=0, i");
+        flushAndParse();
+
+        assertEquals(1, handler.priorityUpdates.size());
+        RecordingHandler.PriorityUpdateRecord rec = handler.priorityUpdates.get(0);
+        assertEquals(1, rec.prioritizedStreamId);
+        assertEquals("u=0, i", rec.fieldValue);
+    }
+
     // ========== DATA round-trip ==========
 
     @Test
@@ -336,13 +347,14 @@ public class H2ParserWriterTest {
         List<GoawayRecord> goaways = new ArrayList<>();
         List<WindowUpdateRecord> windowUpdates = new ArrayList<>();
         List<ContinuationRecord> continuations = new ArrayList<>();
+        List<PriorityUpdateRecord> priorityUpdates = new ArrayList<>();
         List<ErrorRecord> errors = new ArrayList<>();
 
         int totalFrames() {
             return dataFrames.size() + headersFrames.size() + priorities.size() +
                    rstStreams.size() + settings.size() + pushPromises.size() +
                    pings.size() + goaways.size() + windowUpdates.size() +
-                   continuations.size();
+                   continuations.size() + priorityUpdates.size();
         }
 
         static class DataFrame { int streamId; boolean endStream; ByteBuffer data; }
@@ -355,6 +367,7 @@ public class H2ParserWriterTest {
         static class GoawayRecord { int lastStreamId; int errorCode; ByteBuffer debugData; }
         static class WindowUpdateRecord { int streamId; int increment; }
         static class ContinuationRecord { int streamId; boolean endHeaders; ByteBuffer headerBlockFragment; }
+        static class PriorityUpdateRecord { int prioritizedStreamId; String fieldValue; }
         static class ErrorRecord { int errorCode; int streamId; String message; }
 
         private ByteBuffer copy(ByteBuffer src) {
@@ -393,6 +406,9 @@ public class H2ParserWriterTest {
         }
         public void continuationFrameReceived(int streamId, boolean endHeaders, ByteBuffer headerBlockFragment) {
             ContinuationRecord r = new ContinuationRecord(); r.streamId = streamId; r.endHeaders = endHeaders; r.headerBlockFragment = copy(headerBlockFragment); continuations.add(r);
+        }
+        public void priorityUpdateFrameReceived(int prioritizedStreamId, String fieldValue) {
+            PriorityUpdateRecord r = new PriorityUpdateRecord(); r.prioritizedStreamId = prioritizedStreamId; r.fieldValue = fieldValue; priorityUpdates.add(r);
         }
         public void frameError(int errorCode, int streamId, String message) {
             ErrorRecord r = new ErrorRecord(); r.errorCode = errorCode; r.streamId = streamId; r.message = message; errors.add(r);

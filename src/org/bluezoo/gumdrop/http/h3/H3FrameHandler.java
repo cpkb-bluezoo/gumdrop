@@ -73,6 +73,11 @@ public interface H3FrameHandler {
     /** RFC 9220 section 2 (Extended CONNECT / WebSocket). */
     long SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x08;
 
+    /** RFC 9218 section 7.2: PRIORITY_UPDATE for a request stream. */
+    long TYPE_PRIORITY_UPDATE_REQUEST = 0xF0700;
+    /** RFC 9218 section 7.2: PRIORITY_UPDATE for a push stream. */
+    long TYPE_PRIORITY_UPDATE_PUSH = 0xF0701;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Frame Callbacks
     // ─────────────────────────────────────────────────────────────────────────
@@ -143,6 +148,24 @@ public interface H3FrameHandler {
      * @param maxPushId the new maximum push ID the server may use
      */
     void maxPushIdFrameReceived(long maxPushId);
+
+    /**
+     * Called when a complete PRIORITY_UPDATE frame for a request stream
+     * is received (RFC 9218 section 7.2). Control-stream only.
+     *
+     * @param streamId the client-initiated bidirectional stream ID
+     * @param fieldValue the Priority Field Value
+     */
+    void priorityUpdateRequestFrameReceived(long streamId, String fieldValue);
+
+    /**
+     * Called when a complete PRIORITY_UPDATE frame for a push stream is
+     * received (RFC 9218 section 7.2). Control-stream only.
+     *
+     * @param pushId the push ID
+     * @param fieldValue the Priority Field Value
+     */
+    void priorityUpdatePushFrameReceived(long pushId, String fieldValue);
 
     /**
      * Called when a frame cannot be parsed.

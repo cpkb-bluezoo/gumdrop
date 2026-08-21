@@ -98,6 +98,10 @@ public interface H2FrameHandler {
     int SETTINGS_MAX_FRAME_SIZE = 0x5;         // RFC 9113 section 6.5.2
     int SETTINGS_MAX_HEADER_LIST_SIZE = 0x6;   // RFC 9113 section 6.5.2
     int SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x8; // RFC 8441 section 3
+    /** RFC 9218 section 2.1: ignore HTTP/2 PRIORITY frames. */
+    int SETTINGS_NO_RFC7540_PRIORITIES = 0x9;
+    /** RFC 9218 section 7.1: PRIORITY_UPDATE frame type. */
+    int TYPE_PRIORITY_UPDATE = 0x10;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Frame Callbacks
@@ -137,6 +141,14 @@ public interface H2FrameHandler {
      */
     void priorityFrameReceived(int streamId, int streamDependency,
             boolean exclusive, int weight);
+
+    /**
+     * Called when a PRIORITY_UPDATE frame is received (RFC 9218 section 7.1).
+     *
+     * @param prioritizedStreamId the stream whose priority is being updated
+     * @param fieldValue the Priority Field Value
+     */
+    void priorityUpdateFrameReceived(int prioritizedStreamId, String fieldValue);
 
     /**
      * Called when a RST_STREAM frame is received.
@@ -241,6 +253,8 @@ public interface H2FrameHandler {
                 return "WINDOW_UPDATE";
             case TYPE_CONTINUATION:
                 return "CONTINUATION";
+            case TYPE_PRIORITY_UPDATE:
+                return "PRIORITY_UPDATE";
             default:
                 return "UNKNOWN(" + type + ")";
         }

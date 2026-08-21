@@ -24,6 +24,10 @@ package org.bluezoo.gumdrop.http.h3;
 import java.io.ByteArrayOutputStream;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
@@ -277,6 +281,22 @@ public class H3Parser {
             } else if (frameType == H3FrameHandler.TYPE_MAX_PUSH_ID) {
                 long maxPushId = VarInt.decode(payload);
                 handler.maxPushIdFrameReceived(maxPushId);
+            } else if (frameType == H3FrameHandler.TYPE_PRIORITY_UPDATE_REQUEST) {
+                long streamId = VarInt.decode(payload);
+                String fieldValue = decodePriorityFieldValue(payload);
+                if (fieldValue == null) {
+                    handler.frameError("PRIORITY_UPDATE field value is not valid UTF-8");
+                } else {
+                    handler.priorityUpdateRequestFrameReceived(streamId, fieldValue);
+                }
+            } else if (frameType == H3FrameHandler.TYPE_PRIORITY_UPDATE_PUSH) {
+                long pushId = VarInt.decode(payload);
+                String fieldValue = decodePriorityFieldValue(payload);
+                if (fieldValue == null) {
+                    handler.frameError("PRIORITY_UPDATE field value is not valid UTF-8");
+                } else {
+                    handler.priorityUpdatePushFrameReceived(pushId, fieldValue);
+                }
             }
             // RFC 9114 section 7.2.8: frame types this parser does not
             // recognise are silently ignored, payload already discarded.
@@ -302,5 +322,18 @@ public class H3Parser {
             settings[i++] = VarInt.decode(payload);
         }
         handler.settingsFrameReceived(settings);
+    }
+
+    private static String decodePriorityFieldValue(ByteBuffer payload) {
+        byte[] bytes = new byte[payload.remaining()];
+        payload.get(bytes);
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+            return decoder.decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException e) {
+            return null;
+        }
     }
 }

@@ -480,6 +480,18 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     }
 
     @Override
+    public void priorityUpdateRequestFrameReceived(long streamId, String fieldValue) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "PRIORITY_UPDATE is not valid on a request stream");
+    }
+
+    @Override
+    public void priorityUpdatePushFrameReceived(long pushId, String fieldValue) {
+        connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "PRIORITY_UPDATE is not valid on a request stream");
+    }
+
+    @Override
     public void frameError(String message) {
         String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
         LOGGER.warning(formatted);

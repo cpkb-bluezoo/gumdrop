@@ -419,6 +419,9 @@ class Stream implements HTTPResponseState {
             timestampCompleted = System.currentTimeMillis();
             return;
         }
+        if (headers != null) {
+            connection.applyRfc9218Priority(streamId, headers);
+        }
         // RFC 9113 section 5.1: stream state transitions on HEADERS receipt
         if (state == State.IDLE) {
             if (pushPromise) {

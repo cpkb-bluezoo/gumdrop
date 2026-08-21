@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.PriorityParams;
 
 /**
  * Internal implementation of {@link HTTPRequest} representing an HTTP stream.
@@ -151,10 +152,9 @@ class HTTPStream implements HTTPRequest {
 
     @Override
     public void priority(int weight) {
-        if (weight < 1 || weight > 256) {
-            throw new IllegalArgumentException("Priority weight must be 1-256");
-        }
         this.priority = weight;
+        int urgency = PriorityParams.urgencyFromWeight(weight);
+        headers.add(PriorityParams.PRIORITY_HEADER, "u=" + urgency);
     }
 
     @Override

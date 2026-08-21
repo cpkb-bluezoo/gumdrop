@@ -28,6 +28,7 @@ import java.util.concurrent.CancellationException;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -115,7 +116,7 @@ public class H3Request implements HTTPRequest {
      */
     @Override
     public void priority(int weight) {
-        int urgency = 7 - Math.min(7, weight * 7 / 255);
+        int urgency = PriorityParams.urgencyFromWeight(weight);
         headers.add(new Header("priority", "u=" + urgency));
     }
 

@@ -388,6 +388,26 @@ public class H2Writer {
     }
 
     /**
+     * Writes a PRIORITY_UPDATE frame on the control stream (RFC 9218
+     * section 7.1).
+     *
+     * @param prioritizedStreamId the stream whose priority is being updated
+     * @param fieldValue the Priority Field Value
+     * @throws IOException if there is an error writing
+     */
+    public void writePriorityUpdate(int prioritizedStreamId, String fieldValue)
+            throws IOException {
+        byte[] value = fieldValue.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        int payloadLength = 4 + value.length;
+        writeFrameHeader(payloadLength, H2FrameHandler.TYPE_PRIORITY_UPDATE, 0, 0);
+        ensureCapacity(payloadLength);
+        buffer.putInt(prioritizedStreamId & 0x7fffffff);
+        buffer.put(value);
+        sendIfNeeded();
+        logFrame("PRIORITY_UPDATE", 0, payloadLength, 0);
+    }
+
+    /**
      * Writes a PUSH_PROMISE frame.
      *
      * @param streamId the stream identifier (must be non-zero)
