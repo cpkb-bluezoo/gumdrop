@@ -19,8 +19,8 @@ RUN apt-get update \
 WORKDIR /src
 COPY . .
 
-# Build the runnable container jar and the manager webapp.
-RUN ant container-jar manager-war
+# Build the lib/ distribution (primary) and legacy fat jar.
+RUN ant container-zip
 
 # ---- Runtime stage ---------------------------------------------------------
 FROM eclipse-temurin:17-jre AS runtime
@@ -31,19 +31,14 @@ RUN groupadd --system gumdrop \
 
 WORKDIR /opt/gumdrop
 
-COPY --from=build /src/dist/gumdrop-container.jar ./dist/gumdrop-container.jar
-COPY --from=build /src/dist/manager.war ./dist/manager.war
-COPY --from=build /src/start ./start
-COPY --from=build /src/logging.properties ./logging.properties
-COPY --from=build /src/etc/ ./etc/
-COPY --from=build /src/web/ ./web/
+COPY --from=build /src/dist/container-home/ ./
 
-RUN chmod +x ./start && chown -R gumdrop:gumdrop /opt/gumdrop
+RUN chmod +x ./bin/gumdrop.sh && chown -R gumdrop:gumdrop /opt/gumdrop
 
 USER gumdrop
 
-# Container defaults; override per deployment.
-ENV GUMDROP_CONFIG=/opt/gumdrop/etc/gumdroprc.container \
+ENV GUMDROP_HOME=/opt/gumdrop \
+    GUMDROP_CONFIG=/opt/gumdrop/conf/gumdroprc.xml.example \
     GUMDROP_DRAIN_TIMEOUT_MS=30000 \
     HTTP_PORT=8080 \
     GUMDROP_HEALTH_PORT=8081 \
@@ -58,4 +53,4 @@ EXPOSE 8080 8081
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
     CMD ["/bin/sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/${GUMDROP_HEALTH_PORT:-8081}; printf 'GET /readyz HTTP/1.0\\r\\n\\r\\n' >&3; grep -q '200' <&3"]
 
-ENTRYPOINT ["./start"]
+ENTRYPOINT ["./bin/gumdrop.sh"]

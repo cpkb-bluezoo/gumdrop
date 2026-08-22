@@ -3,9 +3,9 @@ Compile-time and container-runtime dependency jars for Gumdrop.
 Populated by `ant resolve-deps` (downloads from GitHub Releases and Maven Central).
 Version pins live in `boms/versions.properties`.
 
-J2EE API jars are bundled into gumdrop-container.jar at build time and loaded by
-ContainerClassLoader at runtime, isolating servlet implementations from Gumdrop
-internals.
+J2EE API jars are bundled into gumdrop-container.jar (legacy fat jar) or live
+as plain jars under lib/ in the zip distribution. ContainerClassLoader loads
+them at runtime, isolating servlet implementations from Gumdrop internals.
 
 Also includes gonzalez (XML), jsonparser (JSON), agent15 + hkdf (QUIC / TLS 1.3).
 

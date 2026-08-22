@@ -8,13 +8,34 @@
 #   * logs to the console (12-factor) unless a logging config is supplied;
 #   * exec's the JVM so it receives SIGTERM directly for graceful shutdown.
 #
+# Prefers the lib/ distribution layout (bin/gumdrop.sh under GUMDROP_HOME or
+# dist/container-home after ant dist). Falls back to the legacy fat jar.
+#
 # Overridable via environment:
 #   JAVA               java binary (default: java)
-#   GUMDROP_JAR        server jar   (default: ./dist/gumdrop-container.jar)
+#   GUMDROP_HOME       install root (lib/ layout)
+#   GUMDROP_JAR        legacy fat jar (default: ./dist/gumdrop-container.jar)
 #   GUMDROP_CONFIG     config path  (also honoured by the server itself)
 #   LOGGING_PROPERTIES java.util.logging config file (default: logging.properties)
 #   JAVA_OPTS          extra JVM options (appended last, so they win)
 #   MAX_RAM_PERCENTAGE heap as % of available RAM (default: 75.0)
+
+set -e
+
+script_dir=$(cd "$(dirname "$0")" && pwd)
+
+# Installed or ant dist layout: dist/container-home or explicit GUMDROP_HOME
+if [[ -z "$GUMDROP_HOME" ]]; then
+	if [[ -f "$script_dir/dist/container-home/bin/gumdrop.sh" ]]; then
+		export GUMDROP_HOME="$script_dir/dist/container-home"
+	elif [[ -f "$script_dir/bin/gumdrop.sh" ]]; then
+		export GUMDROP_HOME="$script_dir"
+	fi
+fi
+
+if [[ -n "$GUMDROP_HOME" && -f "$GUMDROP_HOME/bin/gumdrop.sh" ]]; then
+	exec "$GUMDROP_HOME/bin/gumdrop.sh" "$@"
+fi
 
 java="${JAVA:-java}"
 GUMDROP_JAR="${GUMDROP_JAR:-./dist/gumdrop-container.jar}"

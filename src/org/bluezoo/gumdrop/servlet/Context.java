@@ -369,7 +369,28 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     HitStatisticsImpl hitStatistics = new HitStatisticsImpl();
 
-    private byte[] managerDigest = ByteArrays.toByteArray("38ef87e9959197a79990562e5a515e4f");
+    /** MD5 of the official manager.war, generated at build time. */
+    private final byte[] managerDigest = loadManagerWarDigest();
+
+    private static byte[] loadManagerWarDigest() {
+        try (InputStream in = Context.class.getResourceAsStream("/META-INF/gumdrop-manager-war.md5")) {
+            if (in == null) {
+                return new byte[0];
+            }
+            StringBuilder hex = new StringBuilder();
+            byte[] buf = new byte[256];
+            for (int len = in.read(buf); len != -1; len = in.read(buf)) {
+                hex.append(new String(buf, 0, len, java.nio.charset.StandardCharsets.US_ASCII));
+            }
+            String trimmed = hex.toString().trim();
+            if (trimmed.isEmpty()) {
+                return new byte[0];
+            }
+            return ByteArrays.toByteArray(trimmed);
+        } catch (IOException e) {
+            return new byte[0];
+        }
+    }
 
     /**
      * No-arg constructor for dependency injection.
@@ -446,7 +467,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                 for (int len = md5in.read(buf); len != -1; len = md5in.read(buf)) {
                 }
                 byte[] computedDigest = md5.digest();
-                if (ByteArrays.equals(computedDigest, managerDigest)) {
+                if (managerDigest.length > 0 && ByteArrays.equals(computedDigest, managerDigest)) {
                     manager = true;
                 }
             } catch (NoSuchAlgorithmException e) {

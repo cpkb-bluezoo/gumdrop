@@ -45,6 +45,9 @@
   <property name='test' location='test'/>
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
   <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
+  <property name='gumdrop-container.zip' location='${dist}/gumdrop-container-${version}.zip'/>
+  <property name='container.home' location='${dist}/gumdrop-${version}'/>
+  <property name='container.home.stable' location='${dist}/container-home'/>
   <property name='manager.war' location='${dist}/manager.war'/>
   <!--
     Java version compatibility settings.
@@ -166,7 +169,7 @@
 
   <!-- gumdrop.jar contains the server and servlet container -->
   <!-- Bootstrap and ContainerClassLoader are excluded: they live in the container jar -->
-  <target name='jar' depends='build'>
+  <target name='jar' depends='build,manager-war-digest'>
     <mkdir dir='${dist}'/>
     <jar destfile='${gumdrop.jar}' basedir='${build}'>
       <!-- Bootstrap classes live in the container jar; exclude from gumdrop.jar.
@@ -181,10 +184,8 @@
     </jar>
   </target>
 
-  <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
-  <!-- the gumdrop.jar, and the J2EE and parsing library dependencies for the server and container. -->
-  <!-- Bootstrap will create a new classloader to load these jars -->
-  <target name='build-bootstrap' depends='jar'>
+  <!-- Compile bootstrap / classloader classes (shared by fat jar and gumdrop-bootstrap.jar) -->
+  <target name='compile-bootstrap' depends='jar'>
     <mkdir dir='${build-bootstrap}'/>
     <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'
            release='${java.release.version}'
@@ -196,6 +197,34 @@
       <include name="org/bluezoo/gumdrop/util/IteratorEnumeration.java"/>
       <include name="org/bluezoo/gumdrop/util/JarInputStream.java"/>
     </javac>
+  </target>
+
+  <!-- Slim bootstrap jar for lib/ distribution layout (no nested dependencies) -->
+  <target name='bootstrap-jar' depends='compile-bootstrap'>
+    <mkdir dir='${dist}/lib'/>
+    <jar destfile='${dist}/lib/gumdrop-bootstrap.jar'>
+      <fileset dir='${build-bootstrap}'>
+        <include name='org/bluezoo/gumdrop/Bootstrap.class'/>
+        <include name='org/bluezoo/gumdrop/Bootstrap$*.class'/>
+        <include name='org/bluezoo/gumdrop/DependencyClassLoader.class'/>
+        <include name='org/bluezoo/gumdrop/DependencyClassLoader$*.class'/>
+        <include name='org/bluezoo/gumdrop/ContainerClassLoader.class'/>
+        <include name='org/bluezoo/gumdrop/ContainerClassLoader$*.class'/>
+        <include name='org/bluezoo/gumdrop/util/IteratorEnumeration.class'/>
+        <include name='org/bluezoo/gumdrop/util/JarInputStream.class'/>
+      </fileset>
+      <manifest>
+        <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
+        <attribute name='Container-Layout' value='lib'/>
+        <attribute name='Container-Jar' value='gumdrop.jar'/>
+      </manifest>
+    </jar>
+  </target>
+
+  <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
+  <!-- the gumdrop.jar, and the J2EE and parsing library dependencies for the legacy fat jar. -->
+  <!-- Bootstrap will create a new classloader to load these jars -->
+  <target name='build-bootstrap' depends='compile-bootstrap'>
     <copy todir='${build-bootstrap}' file='${gumdrop.jar}'/>
     <copy todir='${build-bootstrap}'>
       <fileset dir='${lib}'>
@@ -213,8 +242,8 @@
     </copy>
   </target>
 
-  <!-- The container jar contains the bootstrap class and all dependencies -->
-  <target name='container-jar' depends='build-bootstrap'>
+  <!-- Legacy self-contained fat jar (deprecated; use container-zip / lib layout) -->
+  <target name='container-jar' depends='build-bootstrap' description='Build legacy fat gumdrop-container.jar'>
     <mkdir dir='${dist}'/>
     <jar destfile='${gumdrop-container.jar}' basedir='build-bootstrap'>
       <manifest>
@@ -228,19 +257,83 @@
   <!-- manager.war contains the manager web application -->
   <target name='manager-war'>
     <mkdir dir='${dist}'/>
-    <jar destfile='${manager.war}' basedir='${manager}'/>
+    <jar destfile='${manager.war}' basedir='${manager}'>
+      <manifest>
+        <attribute name='Implementation-Title' value='Gumdrop Manager'/>
+        <attribute name='Implementation-Version' value='${version}'/>
+        <attribute name='Implementation-Vendor' value='org.bluezoo'/>
+      </manifest>
+    </jar>
   </target>
 
-  <target name='dist' depends='container-jar,manager-war'/>
+  <!-- Trust pin for the manager webapp (bundled in gumdrop.jar for Context) -->
+  <target name='manager-war-digest' depends='manager-war'>
+    <mkdir dir='${build}/META-INF'/>
+    <checksum file='${manager.war}' algorithm='MD5' property='manager.war.md5'/>
+    <echo file='${build}/META-INF/gumdrop-manager-war.md5' message='${manager.war.md5}'/>
+  </target>
+
+  <!-- Production install tree: bin/, lib/, webapps/, conf/ -->
+  <target name='assemble-container' depends='jar,bootstrap-jar,manager-war,resolve-deps'
+          description='Assemble servlet container distribution directory'>
+    <delete dir='${container.home}' quiet='true'/>
+    <mkdir dir='${container.home}/bin'/>
+    <mkdir dir='${container.home}/lib'/>
+    <mkdir dir='${container.home}/webapps'/>
+    <mkdir dir='${container.home}/conf'/>
+    <copy file='bin/gumdrop.sh' todir='${container.home}/bin'/>
+    <copy file='bin/gumdrop.bat' todir='${container.home}/bin'/>
+    <chmod file='${container.home}/bin/gumdrop.sh' perm='ugo+rx'/>
+    <copy file='${dist}/lib/gumdrop-bootstrap.jar' todir='${container.home}/lib'/>
+    <copy file='${gumdrop.jar}' tofile='${container.home}/lib/gumdrop.jar'/>
+    <copy todir='${container.home}/lib'>
+      <fileset dir='${lib}'>
+        <include name='${gonzalez.jar}'/>
+        <include name='${jsonparser.jar}'/>
+        <include name='${agent15.jar}'/>
+        <include name='${hkdf.jar}'/>
+        <include name='${servlet.jar}'/>
+        <include name='${javamail.jar}'/>
+        <include name='${annotation.jar}'/>
+        <include name='${ejb.jar}'/>
+        <include name='${persistence.jar}'/>
+        <include name='${jaxws.jar}'/>
+      </fileset>
+    </copy>
+    <copy file='${manager.war}' tofile='${container.home}/webapps/manager.war'/>
+    <copy file='conf/gumdroprc.xml.example' todir='${container.home}/conf'/>
+    <copy file='etc/realm-servlet.xml' tofile='${container.home}/conf/realm-servlet.xml'/>
+    <copy file='logging.properties' todir='${container.home}'/>
+    <copy todir='${container.home}/webapps/ROOT'>
+      <fileset dir='web'/>
+    </copy>
+    <copy file='COPYING' tofile='${container.home}/LICENSE'/>
+    <copy file='README.md' todir='${container.home}'/>
+    <!-- Stable path for Docker / CI regardless of version string -->
+    <delete dir='${container.home.stable}' quiet='true'/>
+    <copy todir='${container.home.stable}'>
+      <fileset dir='${container.home}'/>
+    </copy>
+  </target>
+
+  <target name='container-zip' depends='assemble-container'
+          description='Zip the servlet container distribution'>
+    <zip destfile='${gumdrop-container.zip}' basedir='${dist}'
+         includes='gumdrop-${version}/**'/>
+  </target>
+
+  <target name='dist' depends='container-zip,container-jar' description='Build all distribution artifacts'/>
 
   <!-- Release target creates versioned artifacts for distribution -->
   <target name='release' depends='dist' description='Create versioned release artifacts'>
     <copy file='${gumdrop.jar}' tofile='${dist}/gumdrop-${version}.jar'/>
     <copy file='${gumdrop-container.jar}' tofile='${dist}/gumdrop-container-${version}.jar'/>
+    <copy file='${gumdrop-container.zip}' tofile='${dist}/gumdrop-container-${version}.zip'/>
     <copy file='${manager.war}' tofile='${dist}/gumdrop-manager-${version}.war'/>
     <echo message='Release artifacts created:'/>
     <echo message='  ${dist}/gumdrop-${version}.jar (core library)'/>
-    <echo message='  ${dist}/gumdrop-container-${version}.jar (servlet container)'/>
+    <echo message='  ${dist}/gumdrop-container-${version}.zip (container distribution)'/>
+    <echo message='  ${dist}/gumdrop-container-${version}.jar (legacy fat jar)'/>
     <echo message='  ${dist}/gumdrop-manager-${version}.war (manager webapp)'/>
   </target>
 

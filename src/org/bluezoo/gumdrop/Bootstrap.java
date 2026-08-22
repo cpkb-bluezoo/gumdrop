@@ -25,9 +25,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.lang.reflect.Method;
+import java.net.URI;
 import java.net.URL;
-import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Properties;
@@ -45,53 +46,148 @@ import java.util.logging.Logger;
  * It will create a classloader specifically to load the gumdrop server
  * classes (including servlet container) in, and then load the server.
  *
+ * <p>Two startup layouts are supported:</p>
+ * <ul>
+ *   <li><strong>lib layout</strong> — {@code GUMDROP_HOME/lib/gumdrop-bootstrap.jar}
+ *       plus sibling jars (production zip distribution). No nested-jar extraction.</li>
+ *   <li><strong>fat jar</strong> — legacy {@code gumdrop-container.jar} with nested
+ *       {@code gumdrop.jar} and dependency jars (deprecated).</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class Bootstrap {
 
+    private static final String CONTAINER_LAYOUT_LIB = "lib";
+    private static final String BOOTSTRAP_JAR = "gumdrop-bootstrap.jar";
+    private static final String SERVER_JAR = "gumdrop.jar";
+
     public static void main(String[] args) throws Exception {
-        // Get URL of the jar we were loaded from
         URL bootstrapUrl = Bootstrap.class.getProtectionDomain().getCodeSource().getLocation();
-        // Open the jar to read its manifest
-        JarFile bootstrapJar = new JarFile(bootstrapUrl.getPath());
-        Manifest manifest = bootstrapJar.getManifest();
-        Attributes mainAttributes = manifest.getMainAttributes();
-        // server.jar
-        String containerJar = mainAttributes.getValue("Container-Jar");
-        // J2EE dependencies
-        String containerDependencies = mainAttributes.getValue("Container-Dependencies");
-        // URLs for container classloader
-        URL containerUrl = new URL("jar:" + bootstrapUrl + "!/" + containerJar);
-        List<URL> urls = new ArrayList<URL>();
-        // Parse space-separated dependencies
-        int depStart = 0;
-        int depsLen = containerDependencies.length();
-        while (depStart <= depsLen) {
-            int depEnd = containerDependencies.indexOf(' ', depStart);
-            if (depEnd < 0) {
-                depEnd = depsLen;
-            }
-            String dependency = containerDependencies.substring(depStart, depEnd);
-            if (!dependency.isEmpty()) {
-                urls.add(new URL("jar:" + bootstrapUrl + "!/" + dependency));
-            }
-            depStart = depEnd + 1;
-        }
-        // Set up container classloader
+        File bootstrapFile = toFile(bootstrapUrl);
         ClassLoader bootstrapClassLoader = Bootstrap.class.getClassLoader();
-        ClassLoader containerClassLoader = new ContainerClassLoader(containerUrl, urls, bootstrapClassLoader);
-        // Load the Gumdrop class in the container classloader and
-        // run it
+
+        File libDir = resolveLibDir(bootstrapFile);
+        if (libDir != null) {
+            startFromLibDir(libDir, bootstrapClassLoader, args);
+            return;
+        }
+
+        startFromFatJar(bootstrapUrl, bootstrapFile, bootstrapClassLoader, args);
+    }
+
+    /**
+     * Resolves the {@code lib/} directory for the external-jar distribution layout.
+     */
+    private static File resolveLibDir(File bootstrapFile) {
+        String gumdropHome = System.getenv("GUMDROP_HOME");
+        if (gumdropHome != null && !gumdropHome.isEmpty()) {
+            File fromHome = new File(gumdropHome, "lib");
+            if (isLibLayout(fromHome)) {
+                return fromHome;
+            }
+        }
+        if (BOOTSTRAP_JAR.equals(bootstrapFile.getName())) {
+            File siblingLib = bootstrapFile.getParentFile();
+            if (isLibLayout(siblingLib)) {
+                return siblingLib;
+            }
+        }
+        try (JarFile bootstrapJar = new JarFile(bootstrapFile)) {
+            Manifest manifest = bootstrapJar.getManifest();
+            if (manifest != null) {
+                Attributes attrs = manifest.getMainAttributes();
+                if (CONTAINER_LAYOUT_LIB.equals(attrs.getValue("Container-Layout"))) {
+                    File siblingLib = bootstrapFile.getParentFile();
+                    if (isLibLayout(siblingLib)) {
+                        return siblingLib;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // fall through to fat-jar detection
+        }
+        return null;
+    }
+
+    private static boolean isLibLayout(File libDir) {
+        return libDir != null && libDir.isDirectory()
+                && new File(libDir, SERVER_JAR).isFile();
+    }
+
+    private static void startFromLibDir(File libDir, ClassLoader bootstrapClassLoader, String[] args)
+            throws Exception {
+        URL containerUrl = new File(libDir, SERVER_JAR).toURI().toURL();
+        List<URL> dependencyUrls = new ArrayList<>();
+        File[] jars = libDir.listFiles((dir, name) -> name.endsWith(".jar"));
+        if (jars != null) {
+            Arrays.sort(jars, (a, b) -> a.getName().compareTo(b.getName()));
+            for (File jar : jars) {
+                String name = jar.getName();
+                if (BOOTSTRAP_JAR.equals(name) || SERVER_JAR.equals(name)) {
+                    continue;
+                }
+                dependencyUrls.add(jar.toURI().toURL());
+            }
+        }
+        launchServer(containerUrl, dependencyUrls, bootstrapClassLoader, args);
+    }
+
+    private static void startFromFatJar(URL bootstrapUrl, File bootstrapFile,
+            ClassLoader bootstrapClassLoader, String[] args) throws Exception {
+        try (JarFile bootstrapJar = new JarFile(bootstrapFile)) {
+            Manifest manifest = bootstrapJar.getManifest();
+            if (manifest == null) {
+                throw new IllegalStateException("Missing manifest in " + bootstrapFile);
+            }
+            Attributes mainAttributes = manifest.getMainAttributes();
+            String containerJar = mainAttributes.getValue("Container-Jar");
+            String containerDependencies = mainAttributes.getValue("Container-Dependencies");
+            if (containerJar == null || containerDependencies == null) {
+                throw new IllegalStateException(
+                        "Not a Gumdrop container jar (missing Container-Jar manifest entries): "
+                                + bootstrapFile);
+            }
+            URL containerUrl = new URL("jar:" + bootstrapUrl + "!/" + containerJar);
+            List<URL> dependencyUrls = new ArrayList<>();
+            int depStart = 0;
+            int depsLen = containerDependencies.length();
+            while (depStart <= depsLen) {
+                int depEnd = containerDependencies.indexOf(' ', depStart);
+                if (depEnd < 0) {
+                    depEnd = depsLen;
+                }
+                String dependency = containerDependencies.substring(depStart, depEnd);
+                if (!dependency.isEmpty()) {
+                    dependencyUrls.add(new URL("jar:" + bootstrapUrl + "!/" + dependency));
+                }
+                depStart = depEnd + 1;
+            }
+            launchServer(containerUrl, dependencyUrls, bootstrapClassLoader, args);
+        }
+    }
+
+    private static void launchServer(URL containerUrl, List<URL> dependencyUrls,
+            ClassLoader bootstrapClassLoader, String[] args) throws Exception {
+        ClassLoader containerClassLoader =
+                new ContainerClassLoader(containerUrl, dependencyUrls, bootstrapClassLoader);
         Thread.currentThread().setContextClassLoader(containerClassLoader);
-
-        // Reconfigure logging to use formatter classes from the ContainerClassLoader.
-        // The LogManager uses the system classloader to load formatter classes,
-        // but our formatters are in server.jar (ContainerClassLoader).
         reconfigureLogging(containerClassLoader);
-
         Class<?> gumdropClass = containerClassLoader.loadClass("org.bluezoo.gumdrop.Gumdrop");
         Method main = gumdropClass.getMethod("main", String[].class);
         main.invoke(null, new Object[] { args });
+    }
+
+    private static File toFile(URL url) throws Exception {
+        URI uri = url.toURI();
+        if ("jar".equals(uri.getScheme())) {
+            String ssp = uri.getSchemeSpecificPart();
+            int bang = ssp.indexOf('!');
+            if (bang >= 0) {
+                uri = URI.create(ssp.substring(0, bang));
+            }
+        }
+        return new File(uri);
     }
 
     /**
@@ -128,19 +224,7 @@ public class Bootstrap {
 
         // Reconfigure formatters on all handlers
         for (Handler handler : rootLogger.getHandlers()) {
-            String handlerClassName = handler.getClass().getName();
-            String formatterProp = handlerClassName + ".formatter";
-            String formatterClassName = props.getProperty(formatterProp);
-
-            if (formatterClassName != null) {
-                try {
-                    Class<?> formatterClass = classLoader.loadClass(formatterClassName);
-                    Formatter formatter = (Formatter) formatterClass.getDeclaredConstructor().newInstance();
-                    handler.setFormatter(formatter);
-                } catch (Exception e) {
-                    // Failed to load formatter, keep existing one
-                }
-            }
+            reconfigureHandlerFormatter(handler, props, classLoader);
         }
 
         // Also reconfigure any named loggers that might have handlers
@@ -150,20 +234,25 @@ public class Bootstrap {
             Logger logger = logManager.getLogger(loggerName);
             if (logger != null) {
                 for (Handler handler : logger.getHandlers()) {
-                    String handlerClassName = handler.getClass().getName();
-                    String formatterProp = handlerClassName + ".formatter";
-                    String formatterClassName = props.getProperty(formatterProp);
-
-                    if (formatterClassName != null) {
-                        try {
-                            Class<?> formatterClass = classLoader.loadClass(formatterClassName);
-                            Formatter formatter = (Formatter) formatterClass.getDeclaredConstructor().newInstance();
-                            handler.setFormatter(formatter);
-                        } catch (Exception e) {
-                            // Failed to load formatter, keep existing one
-                        }
-                    }
+                    reconfigureHandlerFormatter(handler, props, classLoader);
                 }
+            }
+        }
+    }
+
+    private static void reconfigureHandlerFormatter(Handler handler, Properties props,
+            ClassLoader classLoader) {
+        String handlerClassName = handler.getClass().getName();
+        String formatterProp = handlerClassName + ".formatter";
+        String formatterClassName = props.getProperty(formatterProp);
+
+        if (formatterClassName != null) {
+            try {
+                Class<?> formatterClass = classLoader.loadClass(formatterClassName);
+                Formatter formatter = (Formatter) formatterClass.getDeclaredConstructor().newInstance();
+                handler.setFormatter(formatter);
+            } catch (Exception e) {
+                // Failed to load formatter, keep existing one
             }
         }
     }

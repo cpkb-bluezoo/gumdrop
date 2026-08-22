@@ -14,10 +14,10 @@ more than one instance.
 ## Quick start
 
 ```bash
-# Build the image
+# Build the image (lib/ distribution layout)
 docker build -t gumdrop:latest .
 
-# Run with the container example config
+# Run with the bundled example config
 docker run --rm -p 8080:8080 -p 8081:8081 gumdrop:latest
 
 # Readiness / liveness
@@ -25,8 +25,9 @@ curl http://localhost:8081/readyz
 curl http://localhost:8081/livez
 ```
 
-The image starts from [`etc/gumdroprc.container`](../etc/gumdroprc.container),
-which is parameterised entirely through environment variables.
+The image uses `bin/gumdrop.sh` with jars in `lib/` (no nested-jar extraction).
+Configuration defaults to `conf/gumdroprc.xml.example` inside `GUMDROP_HOME`
+(`/opt/gumdrop`), which is parameterised through environment variables.
 
 ---
 
@@ -167,19 +168,22 @@ token in `addresses`:
 
 ## JVM sizing (the `start` launcher)
 
-[`start`](../start) is container-friendly:
+[`start`](../start) and [`bin/gumdrop.sh`](../bin/gumdrop.sh) are container-friendly:
 
-- sizes the heap from the container memory limit with
+- prefer the **lib/ distribution** (`GUMDROP_HOME/bin/gumdrop.sh`) when present;
+  fall back to the legacy `gumdrop-container.jar` fat jar;
+- size the heap from the container memory limit with
   `-XX:+UseContainerSupport -XX:MaxRAMPercentage` instead of a fixed `-Xmx`;
-- logs to the console (12-factor);
-- `exec`s the JVM so it receives `SIGTERM` directly.
+- log to the console (12-factor);
+- `exec` the JVM so it receives `SIGTERM` directly.
 
 Overridable environment variables:
 
 | Variable             | Default                        | Purpose                                   |
 |----------------------|--------------------------------|-------------------------------------------|
 | `JAVA`               | `java`                         | Java binary.                              |
-| `GUMDROP_JAR`        | `./dist/gumdrop-container.jar` | Server jar.                               |
+| `GUMDROP_HOME`       | (inferred)                     | Install root for lib/ layout.             |
+| `GUMDROP_JAR`        | `./dist/gumdrop-container.jar` | Legacy fat jar when lib/ layout absent.   |
 | `GUMDROP_CONFIG`     | (search order)                 | Config file path.                         |
 | `LOGGING_PROPERTIES` | `logging.properties`           | `java.util.logging` config.               |
 | `MAX_RAM_PERCENTAGE` | `75.0`                         | Heap as a percentage of container memory. |
@@ -207,10 +211,12 @@ needed:
 
 ## Filesystem expectations
 
-- **Writable `/tmp`** is required at startup: the bootstrap classloader
-  extracts bundled jars, and the servlet container uses temp dirs (multipart,
-  JSP). If you use `readOnlyRootFilesystem`, mount a writable `emptyDir` at
-  `/tmp` (and at any servlet work directory).
+- **Writable `/tmp`** is required for the **legacy fat jar** layout: nested jars are
+  extracted to temp files at startup. The **lib/ distribution zip** loads plain
+  jars from `GUMDROP_HOME/lib/` and does not extract nested dependencies (servlet
+  temp dirs for multipart/JSP still need writable space).
+- If you use `readOnlyRootFilesystem`, mount a writable `emptyDir` at `/tmp` (and
+  at any servlet work directory).
 - **Shared/persistent volumes** are required for stateful services (mail
   storage, quota) — see below.
 

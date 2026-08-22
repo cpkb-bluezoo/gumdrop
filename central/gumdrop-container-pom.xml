@@ -8,17 +8,12 @@
   this file is only consumed by scripts/publish-to-central.sh when
   assembling the Central upload bundle.
 
-  Deliberately no <dependencies>: unlike gumdrop-pom.xml, this artifact is
-  genuinely self-contained. build.xml's container-jar target (via
-  build-bootstrap) copies gumdrop.jar and every one of its dependency jars
-  bodily into gumdrop-container.jar as nested jar entries, loaded at
-  runtime through gumdrop's own Bootstrap/DependencyClassLoader
-  (Main-Class: org.bluezoo.gumdrop.Bootstrap) rather than the standard
-  jar Class-Path mechanism Maven understands. Declaring the usual
-  dependencies here would be wrong - a Maven consumer would get them on
-  the classpath twice (once from Maven, once already embedded), and
-  Maven's own resolution has no visibility into the embedded copies
-  either way.
+  Deliberately no <dependencies>: unlike gumdrop-pom.xml, the primary container
+  artifact is a distribution zip with external lib/ jars. build.xml also builds
+  a legacy gumdrop-container.jar fat jar (nested dependencies) for one release
+  cycle; runtime class loading is handled by Bootstrap/DependencyClassLoader
+  in either layout. Declaring Maven dependencies here would misrepresent the
+  zip layout and could double-load jars for consumers of the fat jar.
 
   See gumdrop-pom.xml for the general notes on why this file exists
   separately from the root pom.xml, and on the SNAPSHOT version blocker.
@@ -34,7 +29,7 @@
     <packaging>jar</packaging>
 
     <name>Gumdrop Container</name>
-    <description>Self-contained, executable bootstrap jar for running Gumdrop as a standalone server process - bundles gumdrop.jar and all of its dependencies internally.</description>
+    <description>Servlet container distribution for running Gumdrop as a standalone server process — primarily a zip with bin/, lib/, webapps/, and conf/ (lib/ layout), plus an optional legacy self-contained fat jar.</description>
     <url>https://github.com/cpkb-bluezoo/gumdrop</url>
 
     <licenses>

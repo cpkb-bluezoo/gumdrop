@@ -16,9 +16,20 @@ Or explicitly:
 ant dist
 ```
 
-This compiles the project and creates the distribution JARs. The build downloads external dependencies automatically on first run via `ant resolve-deps` (Ant only — no Maven required). Versions are pinned in `boms/versions.properties`; Dependabot proposes updates via root `pom.xml`.
+This compiles the project and creates the distribution artifacts. The build downloads external dependencies automatically on first run via `ant resolve-deps` (Ant only — no Maven required). Versions are pinned in `boms/versions.properties`; Dependabot proposes updates via root `pom.xml`.
 
-**Build artifacts:** Use `gumdrop-container.jar` (the "fat jar") to run the servlet container with all J2EE dependencies. If you don't need the servlet container and want to develop pure async non-blocking services using the Gumdrop framework, you only need `gumdrop.jar` plus [Gonzalez](https://github.com/cpkb-bluezoo/gonzalez) and [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) if you use those. Artifacts are located in the `dist` subdirectory.
+**Build artifacts:**
+
+| Artifact | Description |
+|---|---|
+| `dist/gumdrop-container-${version}.zip` | **Primary** servlet container install (Tomcat-style `bin/`, `lib/`, `webapps/`, `conf/`) |
+| `dist/gumdrop.jar` | Core server library (all protocols + servlet container code) |
+| `dist/gumdrop-container.jar` | Legacy self-contained fat jar (deprecated; use the zip) |
+| `dist/manager.war` | Admin web application |
+
+Unpack the zip and start with `bin/gumdrop.sh conf/gumdroprc.xml.example`, or from a dev tree run `./start` after `ant dist` (uses `dist/container-home/` automatically).
+
+If you don't need the servlet container and want to develop pure async non-blocking services using the Gumdrop framework, you only need `gumdrop.jar` plus [Gonzalez](https://github.com/cpkb-bluezoo/gonzalez) and [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) if you use those.
 
 ## Running
 

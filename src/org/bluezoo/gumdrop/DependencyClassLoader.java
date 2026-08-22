@@ -307,6 +307,16 @@ public class DependencyClassLoader extends ClassLoader {
      * specified URL.
      */
     protected synchronized File getFile(URL url) throws IOException {
+        if ("file".equals(url.getProtocol())) {
+            try {
+                File file = new File(url.toURI());
+                if (file.isFile()) {
+                    return file;
+                }
+            } catch (java.net.URISyntaxException e) {
+                throw new IOException(e);
+            }
+        }
         File file = files.get(url);
         if (file == null) {
             // Get jar file as a stream
