@@ -28,13 +28,15 @@ package org.bluezoo.gumdrop.http.h3;
  *
  * <p>RFC 9114 section 8.1 defines the HTTP/3 namespace ({@code 0x0100}
  * through {@code 0x0110}). RFC 9204 section 6 defines the QPACK
- * namespace ({@code 0x0200} through {@code 0x0202}). These values are
+ * namespace ({@code 0x0200} through {@code 0x0202}). RFC 9297 defines
+ * {@link #H3_DATAGRAM_ERROR} ({@code 0x33}). These values are
  * distinct from HTTP/3 frame types ({@link H3FrameHandler#TYPE_DATA}
  * and so on) and from QPACK unidirectional stream types.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9114#section-8.1">RFC 9114 section 8.1</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9204#section-6">RFC 9204 section 6</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9297">RFC 9297</a>
  */
 public final class H3ErrorCode {
 
@@ -82,4 +84,11 @@ public final class H3ErrorCode {
     public static final long QPACK_ENCODER_STREAM_ERROR = 0x0201;
     /** RFC 9204 section 6: the peer's decoder stream sent a malformed instruction. */
     public static final long QPACK_DECODER_STREAM_ERROR = 0x0202;
+
+    /**
+     * RFC 9297: HTTP Datagram protocol violation (unknown stream,
+     * malformed quarter-stream-ID, or SETTINGS_H3_DATAGRAM not agreed).
+     * Distinct from the {@code 0x0100}-range codes in RFC 9114 section 8.1.
+     */
+    public static final long H3_DATAGRAM_ERROR = 0x33;
 }

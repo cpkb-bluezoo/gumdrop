@@ -2,8 +2,8 @@
  * H3ErrorCodeTest.java
  * Copyright (C) 2026 Chris Burdess
  *
- * Tests that HTTP/3 and QPACK application error codes match RFC 9114
- * section 8.1 and RFC 9204 section 6.
+ * Tests that HTTP/3, QPACK, and HTTP Datagram application error codes
+ * match RFC 9114 section 8.1, RFC 9204 section 6, and RFC 9297.
  */
 
 package org.bluezoo.gumdrop.http.h3;
@@ -42,6 +42,11 @@ public class H3ErrorCodeTest {
         assertEquals(0x010eL, H3ErrorCode.H3_MESSAGE_ERROR);
         assertEquals(0x010fL, H3ErrorCode.H3_CONNECT_ERROR);
         assertEquals(0x0110L, H3ErrorCode.H3_VERSION_FALLBACK);
+    }
+
+    @Test
+    public void testRfc9297DatagramErrorCode() {
+        assertEquals(0x33L, H3ErrorCode.H3_DATAGRAM_ERROR);
     }
 
     @Test

@@ -35,6 +35,8 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPStatus;
@@ -117,6 +119,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     // -- whether this stream's response field section was ever
     // successfully decoded, consulted the same way on early termination.
     private boolean headersDecoded;
+
+    private boolean capsuleMode;
+    private final CapsuleParser capsuleParser = new CapsuleParser();
 
     // Set by HTTP3ClientHandler.sendRequest / connectWebSocket before
     // openStream, then flushed from connected() once a stream ID is
@@ -291,6 +296,26 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         }
     }
 
+    void httpDatagramReceived(ByteBuffer data) {
+        if (responseHandler != null && responseHandler.wantsDatagrams()) {
+            responseHandler.datagramReceived(data);
+            return;
+        }
+        abortDatagramError();
+    }
+
+    private void abortDatagramError() {
+        state = State.CLOSED;
+        if (endpoint instanceof QuicStreamEndpoint) {
+            ((QuicStreamEndpoint) endpoint).resetStream(H3ErrorCode.H3_DATAGRAM_ERROR);
+        }
+        if (wsHandler != null) {
+            wsHandler.error(new IOException("HTTP Datagram error"));
+        } else if (responseHandler != null) {
+            responseHandler.failed(new IOException("HTTP Datagram error"));
+        }
+    }
+
     // ── H3FrameHandler ──
 
     @Override
@@ -384,6 +409,11 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
                     responseHandler.header(field.getName(), field.getValue());
                 }
             }
+            Headers hdrs = new Headers();
+            for (int i = 0; i < fields.size(); i++) {
+                hdrs.add(fields.get(i));
+            }
+            capsuleMode = Capsule.capsuleProtocolEnabled(hdrs);
         }
     }
 
@@ -443,12 +473,40 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
             return;
         }
+        if (capsuleMode) {
+            dispatchCapsules(data);
+            return;
+        }
         if (!bodyStarted) {
             bodyStarted = true;
             state = State.RECEIVING_BODY;
             responseHandler.startResponseBody();
         }
         responseHandler.responseBodyContent(data);
+    }
+
+    private void dispatchCapsules(ByteBuffer data) {
+        List<Capsule> capsules;
+        try {
+            capsules = capsuleParser.push(data);
+        } catch (CapsuleParser.CapsuleException e) {
+            abortDatagramError();
+            return;
+        }
+        for (int i = 0; i < capsules.size(); i++) {
+            Capsule capsule = capsules.get(i);
+            if (capsule.getType() == Capsule.TYPE_DATAGRAM) {
+                if (responseHandler.wantsDatagrams()) {
+                    responseHandler.datagramReceived(ByteBuffer.wrap(capsule.getValue()));
+                } else {
+                    abortDatagramError();
+                    return;
+                }
+            } else {
+                responseHandler.capsuleReceived(capsule.getType(),
+                        ByteBuffer.wrap(capsule.getValue()));
+            }
+        }
     }
 
     private void onFinished() {
@@ -463,6 +521,10 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
             webSocketAdapter.notifyTransportClosed(1001, "Transport closed");
             state = State.CLOSED;
+            return;
+        }
+        if (capsuleMode && !capsuleParser.finish()) {
+            abortDatagramError();
             return;
         }
         if (bodyStarted) {

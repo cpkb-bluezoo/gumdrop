@@ -81,6 +81,11 @@ public interface H3FrameHandler {
     long SETTINGS_QPACK_BLOCKED_STREAMS = 0x07;
     /** RFC 9220 section 2 (Extended CONNECT / WebSocket). */
     long SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x08;
+    /**
+     * RFC 9297 section 2.1.1: willingness to receive HTTP/3 Datagrams.
+     * Value MUST be 0 or 1; any other value is {@code H3_SETTINGS_ERROR}.
+     */
+    long SETTINGS_H3_DATAGRAM = 0x33;
 
     /** RFC 9218 section 7.2: PRIORITY_UPDATE for a request stream. */
     long TYPE_PRIORITY_UPDATE_REQUEST = 0xF0700;

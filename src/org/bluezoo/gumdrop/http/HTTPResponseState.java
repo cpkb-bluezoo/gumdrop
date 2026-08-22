@@ -423,6 +423,37 @@ public interface HTTPResponseState {
     boolean pushPromise(Headers headers);
 
     // ─────────────────────────────────────────────────────────────────────────
+    // HTTP Datagrams (RFC 9297)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Sends an HTTP Datagram associated with this request (RFC 9297).
+     * Over HTTP/3 this is a QUIC DATAGRAM with a Quarter Stream ID
+     * prefix when the peer advertised {@code SETTINGS_H3_DATAGRAM=1};
+     * over HTTP/1.1 and HTTP/2 (and HTTP/3 Capsule-Protocol streams) it
+     * is a DATAGRAM capsule on the data stream.
+     *
+     * @param data the datagram payload; copied
+     * @return true if the datagram was queued
+     */
+    default boolean sendDatagram(ByteBuffer data) {
+        return false;
+    }
+
+    /**
+     * Sends a Capsule Protocol capsule on this stream's data (RFC 9297
+     * section 3.2). Use {@link #sendDatagram} for DATAGRAM capsules
+     * unless a different type is required.
+     *
+     * @param type the Capsule Type
+     * @param value the Capsule Value; copied
+     * @return true if the capsule was queued
+     */
+    default boolean sendCapsule(long type, ByteBuffer value) {
+        return false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // WebSocket Upgrade
     // ─────────────────────────────────────────────────────────────────────────
 

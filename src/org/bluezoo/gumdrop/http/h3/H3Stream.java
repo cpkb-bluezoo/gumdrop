@@ -54,6 +54,8 @@ import org.bluezoo.gumdrop.http.HTTPServerMetrics;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
@@ -151,6 +153,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private boolean headersDecoded;
     private ByteArrayOutputStream heldBody;
 
+    private boolean capsuleMode;
+    private final CapsuleParser capsuleParser = new CapsuleParser();
+
     private H3WebSocketConnectionAdapter webSocketAdapter;
 
     private Span span;
@@ -208,11 +213,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         // are treated as a normal finish -- a known simplification.
         if (isWebSocketUpgraded()) {
             onWebSocketFinished();
+            if (connection != null) {
+                connection.streamFinished(this);
+            }
         } else {
             onFinished();
-        }
-        if (connection != null) {
-            connection.streamFinished(this);
+            // HTTP Datagrams (RFC 9297 section 2.1) are demuxed by
+            // quarter-stream-ID after the request FIN; the stream stays
+            // registered until complete() or error().
         }
     }
 
@@ -335,6 +343,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
                 return;
             }
 
+            capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+
             if (connection != null) {
                 connection.applyRequestPriority(streamId, PriorityParams.fromHeaders(headers), false);
             }
@@ -354,6 +364,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
             onWebSocketData(data);
             return;
         }
+        if (capsuleMode) {
+            dispatchCapsules(data);
+            return;
+        }
         if (state == State.OPEN) {
             state = State.RECEIVING_BODY;
             if (!bodyStarted && handler != null) {
@@ -366,7 +380,38 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         }
     }
 
+    private void dispatchCapsules(ByteBuffer data) {
+        List<Capsule> capsules;
+        try {
+            capsules = capsuleParser.push(data);
+        } catch (CapsuleParser.CapsuleException e) {
+            abortDatagramError();
+            return;
+        }
+        for (int i = 0; i < capsules.size(); i++) {
+            Capsule capsule = capsules.get(i);
+            if (capsule.getType() == Capsule.TYPE_DATAGRAM) {
+                if (handler != null && handler.wantsDatagrams()) {
+                    handler.datagramReceived(this, ByteBuffer.wrap(capsule.getValue()));
+                } else {
+                    abortDatagramError();
+                    return;
+                }
+            } else if (handler != null) {
+                handler.capsuleReceived(this, capsule.getType(),
+                        ByteBuffer.wrap(capsule.getValue()));
+            }
+        }
+    }
+
     private void onFinished() {
+        if (state == State.CLOSED || state == State.HALF_CLOSED_REMOTE) {
+            return;
+        }
+        if (capsuleMode && !capsuleParser.finish()) {
+            abortDatagramError();
+            return;
+        }
         if (state == State.RECEIVING_BODY) {
             if (handler != null) {
                 handler.endRequestBody(this);
@@ -560,6 +605,52 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     @Override
     public boolean pushPromise(Headers headers) {
         return false;
+    }
+
+    @Override
+    public boolean sendDatagram(ByteBuffer data) {
+        if (data == null || connection == null) {
+            return false;
+        }
+        byte[] copy = new byte[data.remaining()];
+        data.get(copy);
+        if (connection.peerH3Datagram()) {
+            return connection.sendHttpDatagram(streamId, copy);
+        }
+        if (capsuleMode) {
+            return sendCapsule(Capsule.TYPE_DATAGRAM, ByteBuffer.wrap(copy));
+        }
+        return false;
+    }
+
+    @Override
+    public boolean sendCapsule(long type, ByteBuffer value) {
+        if (value == null) {
+            return false;
+        }
+        byte[] copy = new byte[value.remaining()];
+        value.get(copy);
+        byte[] encoded = new Capsule(type, copy).encode();
+        sendBody(ByteBuffer.wrap(encoded));
+        return true;
+    }
+
+    void httpDatagramReceived(ByteBuffer data) {
+        if (handler != null && handler.wantsDatagrams()) {
+            handler.datagramReceived(this, data);
+            return;
+        }
+        abortDatagramError();
+    }
+
+    private void abortDatagramError() {
+        state = State.CLOSED;
+        if (endpoint != null) {
+            endpoint.resetStream(H3ErrorCode.H3_DATAGRAM_ERROR);
+        }
+        if (connection != null) {
+            connection.streamFinished(this);
+        }
     }
 
     /**
