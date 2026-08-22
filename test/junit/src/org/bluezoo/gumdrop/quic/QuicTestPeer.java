@@ -832,6 +832,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         }
 
         @Override
+        public void datagramFrameReceived(ByteBuffer data, int encodedLength) {
+        }
+
+        @Override
         public void frameError(String message) {
             deliveryError = new IOException("Frame parse error: " + message);
         }

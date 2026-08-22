@@ -953,6 +953,18 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 | initial_max_streams_uni | 18.2 | Compliant | `DEFAULT_MAX_STREAMS_UNI = 100` |
 | Congestion control algorithm | — | Compliant | Reno, CUBIC (default), BBR selectable via `setCongestionControl()` |
 
+### QUIC Unreliable Datagrams — RFC 9221
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| DATAGRAM frame types 0x30/0x31 | 4 | Compliant | `QuicFrameParser`/`QuicFrameWriter`; production sends 0x31 (Length present) so DATAGRAM can share a packet |
+| `max_datagram_frame_size` transport parameter (0x20) | 3 | Compliant | Advertised by default (`QuicTransportFactory.setMaxDatagramFrameSize`); 0/absent means DATAGRAM is not supported |
+| Do not send DATAGRAM if peer omitted the parameter or sent 0 | 3 | Compliant | `QuicConnection.sendDatagram` returns false; queued payloads dropped when the peer's parameters arrive |
+| DATAGRAM only in 1-RTT packets | 5 | Compliant | Receipt in Initial/Handshake/0-RTT is `PROTOCOL_VIOLATION` |
+| Receipt without advertising support → PROTOCOL_VIOLATION | 4 | Compliant | Same if the received frame exceeds the advertised max |
+| Ack-eliciting, congestion-controlled, not retransmitted | 5 | Compliant | Packed into 1-RTT packets; lost DATAGRAMs are not requeued |
+| Application API | — | Compliant | `Endpoint.sendDatagram` / `QuicConnection.sendDatagram`; `ProtocolHandler.datagramReceived` via `QuicConnection.setDatagramHandler` |
+
 ## IMAP Server — RFC 9051
 
 ### Connection and State Model

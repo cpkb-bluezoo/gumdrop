@@ -177,6 +177,11 @@ public final class QuicStreamEndpoint implements Endpoint {
     }
 
     @Override
+    public boolean sendDatagram(ByteBuffer data) {
+        return connection.sendDatagram(data);
+    }
+
+    @Override
     public boolean isOpen() {
         return open;
     }

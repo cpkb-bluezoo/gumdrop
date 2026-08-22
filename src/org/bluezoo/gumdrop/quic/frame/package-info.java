@@ -32,7 +32,8 @@
  * flow-control frame family (MAX_DATA, MAX_STREAM_DATA, MAX_STREAMS,
  * DATA_BLOCKED, STREAM_DATA_BLOCKED, STREAMS_BLOCKED),
  * NEW_CONNECTION_ID, RETIRE_CONNECTION_ID, PATH_CHALLENGE,
- * PATH_RESPONSE, CONNECTION_CLOSE, and HANDSHAKE_DONE. This package
+ * PATH_RESPONSE, CONNECTION_CLOSE, and HANDSHAKE_DONE, plus RFC 9221
+ * DATAGRAM (types 0x30/0x31). This package
  * only encodes/decodes the frames -- connection ID lifecycle management
  * is {@link org.bluezoo.gumdrop.quic.cid}, and path validation/migration
  * logic that would actually send PATH_CHALLENGE/PATH_RESPONSE is not

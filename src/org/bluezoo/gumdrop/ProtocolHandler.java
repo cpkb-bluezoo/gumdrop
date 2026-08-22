@@ -103,4 +103,17 @@ public interface ProtocolHandler {
      * @param cause the exception that caused the error
      */
     void error(Exception cause);
+
+    /**
+     * Called when an unreliable DATAGRAM (RFC 9221) is received on the
+     * QUIC connection this handler was registered on via
+     * {@code QuicConnection.setDatagramHandler}. The default is a no-op.
+     *
+     * <p>The buffer is in read mode (position at data start, limit at
+     * data end). After this method returns it is no longer valid.
+     *
+     * @param data the datagram payload
+     */
+    default void datagramReceived(ByteBuffer data) {
+    }
 }

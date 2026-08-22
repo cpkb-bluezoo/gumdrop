@@ -173,6 +173,13 @@ public class QuicFrameCodecTest {
         }
 
         @Override
+        public void datagramFrameReceived(ByteBuffer data, int encodedLength) {
+            byte[] bytes = new byte[data.remaining()];
+            data.get(bytes);
+            events.add("datagram:" + encodedLength + ":" + ByteArrays.toHexString(bytes));
+        }
+
+        @Override
         public void frameError(String message) {
             events.add("error:" + message);
         }
@@ -579,5 +586,66 @@ public class QuicFrameCodecTest {
 
         assertEquals(1, handler.events.size());
         assertEquals("path_response:" + ByteArrays.toHexString(data), handler.events.get(0));
+    }
+
+    @Test
+    public void testDatagramFrameWithLength() {
+        byte[] payload = ByteArrays.toByteArray("cafef00d");
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.datagramLength(payload.length));
+        QuicFrameWriter.writeDatagram(buf, payload);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        int encoded = QuicFrameWriter.datagramLength(payload.length);
+        assertEquals("datagram:" + encoded + ":" + ByteArrays.toHexString(payload), handler.events.get(0));
+    }
+
+    @Test
+    public void testDatagramFrameWithoutLengthConsumesRemainder() {
+        byte[] payload = ByteArrays.toByteArray("deadbeef");
+        ByteBuffer buf = ByteBuffer.allocate(QuicFrameWriter.datagramWithoutLengthLength(payload.length));
+        QuicFrameWriter.writeDatagramWithoutLength(buf, payload);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        int encoded = QuicFrameWriter.datagramWithoutLengthLength(payload.length);
+        assertEquals("datagram:" + encoded + ":" + ByteArrays.toHexString(payload), handler.events.get(0));
+    }
+
+    @Test
+    public void testDatagramFrameWithLengthThenPing() {
+        byte[] payload = ByteArrays.toByteArray("01");
+        int size = QuicFrameWriter.datagramLength(payload.length) + QuicFrameWriter.pingLength();
+        ByteBuffer buf = ByteBuffer.allocate(size);
+        QuicFrameWriter.writeDatagram(buf, payload);
+        QuicFrameWriter.writePing(buf);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(2, handler.events.size());
+        assertTrue(handler.events.get(0).startsWith("datagram:"));
+        assertEquals("ping", handler.events.get(1));
+    }
+
+    @Test
+    public void testDatagramFrameLengthUnderflowReportsError() {
+        ByteBuffer buf = ByteBuffer.allocate(3);
+        buf.put((byte) QuicFrameHandler.TYPE_DATAGRAM_LEN);
+        buf.put((byte) 10); // Length claims 10 bytes that are not present
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new QuicFrameParser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertTrue(handler.events.get(0).startsWith("error:"));
     }
 }
