@@ -117,6 +117,11 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     private boolean peerEnablesConnectProtocol;
     private final List<Runnable> connectProtocolCallbacks = new ArrayList<Runnable>();
 
+    // RFC 9114 section 4.2.2 / 7.2.4.1: peer's advertised
+    // SETTINGS_MAX_FIELD_SECTION_SIZE. Unlimited (the RFC default)
+    // until the peer's SETTINGS arrives.
+    private long peerMaxFieldSectionSize = Long.MAX_VALUE;
+
     /**
      * Creates a new HTTP/3 client handler on top of an existing
      * QUIC connection.
@@ -150,7 +155,8 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     private void openControlStream() {
         final long[] settings = {
             H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
-            H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY
+            H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY,
+            H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE, H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE
         };
         quicConnection.openUnidirectionalStream(new ProtocolHandler() {
             @Override
@@ -459,6 +465,13 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         if (headers == null || endpoint == null) {
             return;
         }
+        if (exceedsPeerFieldSectionLimit(headers)) {
+            // RFC 9114 section 4.2.2: SHOULD NOT send a field section
+            // over the peer's advertised ceiling.
+            clientStream.abortExcessiveLoad(
+                    "request field section exceeds peer SETTINGS_MAX_FIELD_SECTION_SIZE");
+            return;
+        }
 
         ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
         ByteBuffer encoderInstructions = ByteBuffer.allocate(estimateFieldSectionCapacity(headers));
@@ -610,6 +623,8 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
                 flushQpackEncoderInstructions(instructions);
             } else if (settings[i] == H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL) {
                 peerEnablesConnectProtocol = settings[i + 1] == 1;
+            } else if (settings[i] == H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE) {
+                peerMaxFieldSectionSize = settings[i + 1];
             }
         }
         if (!initialSettingsReceived) {
@@ -620,6 +635,28 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
                 task.run();
             }
         }
+    }
+
+    /**
+     * Returns this endpoint's advertised {@code SETTINGS_MAX_FIELD_SECTION_SIZE}
+     * (RFC 9114 section 4.2.2), enforced on inbound HEADERS.
+     *
+     * @return the local receive ceiling in octets
+     */
+    long getLocalMaxFieldSectionSize() {
+        return H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE;
+    }
+
+    /**
+     * Returns whether {@code fields} exceeds the peer's advertised
+     * {@code SETTINGS_MAX_FIELD_SECTION_SIZE}. The RFC default when the
+     * peer omitted the parameter is unlimited.
+     *
+     * @param fields the field section about to be sent
+     * @return true if this section must not be sent
+     */
+    boolean exceedsPeerFieldSectionLimit(List<Header> fields) {
+        return H3Writer.fieldSectionSize(fields) > peerMaxFieldSectionSize;
     }
 
     // RFC 9114 section 5.2: GOAWAY for graceful shutdown. The server

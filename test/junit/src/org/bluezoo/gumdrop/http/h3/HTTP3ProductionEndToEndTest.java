@@ -302,6 +302,234 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 4.2.2: after the peer advertises
+     * {@code SETTINGS_MAX_FIELD_SECTION_SIZE}, an outbound field section
+     * larger than that ceiling must not be sent. The stream is aborted
+     * with {@code H3_EXCESSIVE_LOAD} and the connection stays usable
+     * for a subsequent in-limit request.
+     */
+    @Test
+    public void testOversizedRequestIsNotSentAndConnectionStaysUp() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final AtomicBoolean sawTooBig = new AtomicBoolean(false);
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    if ("/too-big".equals(requestHeaders.getPath())) {
+                        sawTooBig.set(true);
+                    }
+                    return new HTTPRequestHandler() {
+                        @Override
+                        public void headers(HTTPResponseState state, Headers headers) {
+                            Headers response = new Headers();
+                            response.add(":status", "200");
+                            response.add("content-type", "text/plain");
+                            state.headers(response);
+                            state.startResponseBody();
+                            state.responseBodyContent(
+                                    ByteBuffer.wrap("ok".getBytes(StandardCharsets.US_ASCII)));
+                            state.endResponseBody();
+                            state.complete();
+                        }
+
+                        @Override
+                        public void startRequestBody(HTTPResponseState state) {
+                        }
+
+                        @Override
+                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void endRequestBody(HTTPResponseState state) {
+                        }
+
+                        @Override
+                        public void requestComplete(HTTPResponseState state) {
+                        }
+                    };
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch oversizedFailed = new CountDownLatch(1);
+            final AtomicReference<Exception> oversizedCause = new AtomicReference<Exception>();
+            final CountDownLatch okLatch = new CountDownLatch(1);
+            final AtomicReference<HTTPStatus> okStatus = new AtomicReference<HTTPStatus>();
+            final AtomicReference<Exception> okFailure = new AtomicReference<Exception>();
+            final AtomicReference<HTTP3ClientHandler> h3Ref =
+                    new AtomicReference<HTTP3ClientHandler>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            final HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            h3Ref.set(h3);
+                            h3.whenConnectProtocolKnown(new Runnable() {
+                                @Override
+                                public void run() {
+                                    StringBuilder pad = new StringBuilder();
+                                    for (int i = 0; i < (int) H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE; i++) {
+                                        pad.append('x');
+                                    }
+                                    Headers oversized = new Headers();
+                                    oversized.add(":method", "GET");
+                                    oversized.add(":scheme", "https");
+                                    oversized.add(":authority", SERVER_NAME);
+                                    oversized.add(":path", "/too-big");
+                                    oversized.add("x-pad", pad.toString());
+                                    h3.sendRequest(oversized, new HTTPResponseHandler() {
+                                        @Override
+                                        public void ok(HTTPResponse response) {
+                                        }
+
+                                        @Override
+                                        public void error(HTTPResponse response) {
+                                        }
+
+                                        @Override
+                                        public void header(String name, String value) {
+                                        }
+
+                                        @Override
+                                        public void startResponseBody() {
+                                        }
+
+                                        @Override
+                                        public void responseBodyContent(ByteBuffer data) {
+                                        }
+
+                                        @Override
+                                        public void endResponseBody() {
+                                        }
+
+                                        @Override
+                                        public void pushPromise(PushPromise promise) {
+                                        }
+
+                                        @Override
+                                        public void close() {
+                                        }
+
+                                        @Override
+                                        public void failed(Exception ex) {
+                                            oversizedCause.set(ex);
+                                            oversizedFailed.countDown();
+                                        }
+                                    }, true);
+                                }
+                            });
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Oversized request should fail locally within 5s",
+                    oversizedFailed.await(5, TimeUnit.SECONDS));
+            assertNotNull(oversizedCause.get());
+            assertTrue(oversizedCause.get().getMessage().contains("SETTINGS_MAX_FIELD_SECTION_SIZE"));
+            assertFalse("Server must not have seen the oversized request", sawTooBig.get());
+
+            h3Ref.get().execute(new Runnable() {
+                @Override
+                public void run() {
+                    Headers okHeaders = new Headers();
+                    okHeaders.add(":method", "GET");
+                    okHeaders.add(":scheme", "https");
+                    okHeaders.add(":authority", SERVER_NAME);
+                    okHeaders.add(":path", "/");
+                    h3Ref.get().sendRequest(okHeaders, new HTTPResponseHandler() {
+                        @Override
+                        public void ok(HTTPResponse response) {
+                            okStatus.set(response.getStatus());
+                        }
+
+                        @Override
+                        public void error(HTTPResponse response) {
+                            okFailure.set(new IOException("Unexpected error status: "
+                                    + response.getStatus()));
+                            okLatch.countDown();
+                        }
+
+                        @Override
+                        public void header(String name, String value) {
+                        }
+
+                        @Override
+                        public void startResponseBody() {
+                        }
+
+                        @Override
+                        public void responseBodyContent(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void endResponseBody() {
+                        }
+
+                        @Override
+                        public void pushPromise(PushPromise promise) {
+                        }
+
+                        @Override
+                        public void close() {
+                            okLatch.countDown();
+                        }
+
+                        @Override
+                        public void failed(Exception ex) {
+                            okFailure.set(ex);
+                            okLatch.countDown();
+                        }
+                    }, true);
+                }
+            });
+
+            assertTrue("In-limit request should complete within 5s",
+                    okLatch.await(5, TimeUnit.SECONDS));
+            if (okFailure.get() != null) {
+                throw okFailure.get();
+            }
+            assertEquals(HTTPStatus.OK, okStatus.get());
+            assertFalse("Server must still not have seen the oversized request", sawTooBig.get());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9204's dynamic table (previously not wired in at all -- the H3
      * layer used the static-table-only {@code SimpleEncoder}/{@code
      * SimpleDecoder} pair) is now actually used end to end: a header the

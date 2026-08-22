@@ -28,6 +28,7 @@ import java.util.List;
 
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
 import static org.junit.Assert.assertEquals;
@@ -186,6 +187,15 @@ public class H3FrameCodecTest {
 
         assertEquals(1, handler.events.size());
         assertEquals("settings:", handler.events.get(0));
+    }
+
+    @Test
+    public void testFieldSectionSizeAccounting() {
+        List<Header> fields = new ArrayList<Header>();
+        fields.add(new Header(":method", "GET"));
+        fields.add(new Header("x", "y"));
+        // RFC 9114 section 4.2.2: name + value + 32 per field line.
+        assertEquals((7 + 3 + 32) + (1 + 1 + 32), H3Writer.fieldSectionSize(fields));
     }
 
     @Test
