@@ -51,7 +51,9 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
      * expecting SETTINGS as the first frame of the control stream
      * (RFC 9114 section 7.2.4: {@code H3_MISSING_SETTINGS} otherwise,
      * including GREASE before SETTINGS; a second SETTINGS is
-     * {@code H3_FRAME_UNEXPECTED}) and GOAWAY thereafter (section 5.2).</li>
+     * {@code H3_FRAME_UNEXPECTED}) and GOAWAY thereafter (section 5.2:
+     * identifiers must be monotonic and, server-to-client, a
+     * client-initiated bidirectional stream ID).</li>
  * <li>{@link #STREAM_TYPE_QPACK_ENCODER} (RFC 9204 section 4.2): the
  * peer's QPACK encoder instructions, fed into this connection's own
  * {@link Decoder} via {@link Decoder#feedEncoderStream}; a rejected
@@ -147,6 +149,9 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     // RFC 9114 section 7.2.4: SETTINGS must be the first (and only)
     // SETTINGS frame on the control stream.
     private boolean settingsReceived;
+    // RFC 9114 section 5.2: a later GOAWAY must not carry a greater ID.
+    private boolean goawayReceived;
+    private long lastGoawayId;
     // Set once we have decided to close the connection, so a later FIN
     // on the same stream does not overwrite a more specific error
     // (e.g. H3_FRAME_UNEXPECTED) with H3_CLOSED_CRITICAL_STREAM.
@@ -352,6 +357,24 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
         if (!requireSettingsFirst()) {
             return;
         }
+        if (client) {
+            // RFC 9114 section 7.2.6: server-to-client GOAWAY carries a
+            // client-initiated bidirectional stream ID (0 mod 4).
+            if (streamOrPushId % 4 != 0) {
+                connectionError(H3ErrorCode.H3_ID_ERROR,
+                        "GOAWAY stream ID is not a client-initiated bidirectional stream");
+                return;
+            }
+        }
+        if (goawayReceived && streamOrPushId > lastGoawayId) {
+            // RFC 9114 section 5.2: each GOAWAY identifier MUST NOT be
+            // greater than any previously received.
+            connectionError(H3ErrorCode.H3_ID_ERROR,
+                    "GOAWAY identifier increased");
+            return;
+        }
+        goawayReceived = true;
+        lastGoawayId = streamOrPushId;
         listener.goawayReceived(streamOrPushId);
     }
 
