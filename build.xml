@@ -81,7 +81,6 @@
   <property name='gumdrop.socks.jar' location='${dist}/gumdrop-socks.jar'/>
   <property name='gumdrop.webdav.jar' location='${dist}/gumdrop-webdav.jar'/>
   <property name='gumdrop.mdns.jar' location='${dist}/gumdrop-mdns.jar'/>
-  <property name='gumdrop.protocols.jar' location='${dist}/gumdrop-protocols.jar'/>
   <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
   <property name='gumdrop-container.zip' location='${dist}/gumdrop-container-${version}.zip'/>
   <property name='gumdrop.telemetry.jar' location='${dist}/gumdrop-telemetry.jar'/>
@@ -129,7 +128,6 @@
     <delete dir='build-socks' quiet='true'/>
     <delete dir='build-webdav' quiet='true'/>
     <delete dir='build-mdns' quiet='true'/>
-    <delete dir='build-protocols' quiet='true'/>
   </target>
 
   <target name='clean' depends='clean-junit,clean-integration,clean-legacy-dirs'>
@@ -269,23 +267,6 @@
     <jar destfile='${gumdrop.mdns.jar}' basedir='${build.mdns}'/>
   </target>
 
-  <!-- Legacy aggregate of all optional protocol jars -->
-  <target name='jar-protocols' depends='jar-protocol-modules'>
-    <jar destfile='${gumdrop.protocols.jar}'>
-      <fileset dir='${build.imap}'/>
-      <fileset dir='${build.smtp}'/>
-      <fileset dir='${build.pop3}'/>
-      <fileset dir='${build.ftp}'/>
-      <fileset dir='${build.amqp}'/>
-      <fileset dir='${build.mqtt}'/>
-      <fileset dir='${build.redis}'/>
-      <fileset dir='${build.grpc}'/>
-      <fileset dir='${build.socks}'/>
-      <fileset dir='${build.webdav}'/>
-      <fileset dir='${build.mdns}'/>
-    </jar>
-  </target>
-
   <target name='jar-telemetry' depends='build-telemetry'>
     <mkdir dir='${dist}'/>
     <jar destfile='${gumdrop.telemetry.jar}' basedir='${build.telemetry}'/>
@@ -303,7 +284,7 @@
 
   <!-- gumdrop.jar: all-in-one library merge (Phase 2.11) -->
   <!-- Bootstrap and ContainerClassLoader are excluded: they live in the container jar -->
-  <target name='jar' depends='build,manager-war-digest,build-modules,build-jpms,jar-core,jar-mime,jar-mailbox,jar-http,jar-servlet,jar-protocol-modules,jar-protocols,jar-telemetry,jar-ldap'>
+  <target name='jar' depends='build,manager-war-digest,build-modules,build-jpms,jar-core,jar-mime,jar-mailbox,jar-http,jar-servlet,jar-protocol-modules,jar-telemetry,jar-ldap'>
     <mkdir dir='${dist}'/>
     <jar destfile='${gumdrop.jar}'>
       <fileset dir='${build.core}'>
@@ -497,7 +478,6 @@
     <copy file='${gumdrop.socks.jar}' tofile='${dist}/gumdrop-socks-${version}.jar'/>
     <copy file='${gumdrop.webdav.jar}' tofile='${dist}/gumdrop-webdav-${version}.jar'/>
     <copy file='${gumdrop.mdns.jar}' tofile='${dist}/gumdrop-mdns-${version}.jar'/>
-    <copy file='${gumdrop.protocols.jar}' tofile='${dist}/gumdrop-protocols-${version}.jar'/>
     <copy file='${gumdrop.ldap.jar}' tofile='${dist}/gumdrop-ldap-${version}.jar'/>
     <copy file='${gumdrop-container.jar}' tofile='${dist}/gumdrop-container-${version}.jar'/>
     <copy file='${gumdrop-container.zip}' tofile='${dist}/gumdrop-container-${version}.zip'/>
