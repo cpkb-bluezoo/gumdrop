@@ -6,6 +6,51 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+Planned as **2.3.0** (minor bump for new HTTP/QUIC functionality).
+
+### Added
+
+- **RFC 9218 extensible prioritisation**: `PRIORITY_UPDATE` and urgency-based
+  scheduling on HTTP/2 and HTTP/3.
+- **RFC 9221 QUIC DATAGRAM**: unreliable datagram send/receive with
+  `max_datagram_frame_size` negotiation.
+- **RFC 9297 HTTP Datagrams and Capsule Protocol** over HTTP/1.1, HTTP/2, and
+  HTTP/3.
+- **Tomcat-style container distribution zip** (`bin/`, `lib/`, `webapps/`,
+  `conf/`) as the primary servlet-container install; modular library jars are
+  also published to Maven Central.
+
+### Changed
+
+- **Modularised build**: Gumdrop is split into smaller interlinked internal
+  jars (core, servlet stack, and per-protocol modules) with JPMS descriptors;
+  `dist/gumdrop.jar` remains the all-in-one library artifact. Several types
+  moved to JPMS-clean subpackages (`auth.oauth`, `auth.ldap`, `mailbox.spi`,
+  `http.doh`, `telemetry.otlp`).
+- **QUIC Retry-based address validation is enabled by default** on listeners.
+- **Compile/runtime and test dependencies** (third-party jars, J2EE APIs,
+  JUnit/Hamcrest) are downloaded by Ant when needed, not stored in git.
+- **Gonzalez dependency is now `gonzalez-core` only** (same JPMS module name).
+- **`gumdrop-container.jar`** (fat jar) is deprecated in favour of the zip
+  layout.
+
+### Fixed
+
+- **HTTP/3 conformance**: SETTINGS must be first and sent once; enforce
+  `SETTINGS_MAX_FIELD_SECTION_SIZE`; reject bad GOAWAY and unpermitted push
+  frames; treat premature control/QPACK stream closure as
+  `H3_CLOSED_CRITICAL_STREAM`; HTTP/3 and QPACK application error codes
+  aligned with the spec.
+- **QUIC**: honour peer `MAX_STREAMS` when opening streams; defer client-rebind
+  PING until the handshake has settled.
+- **HTTP client**: defer closing a shared HTTP/1.1 or HTTP/2 origin connection
+  until its streams have drained.
+
+### Removed
+
+- **`gumdrop-protocols.jar`** aggregate (superseded by per-protocol jars and
+  `gumdrop.jar`).
+
 ## [2.2.0] - 2026-08-20
 
 ### Added
