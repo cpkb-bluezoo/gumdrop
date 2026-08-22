@@ -1,8 +1,12 @@
-This directory holds the J2EE API jars required for compilation.
+Compile-time and container-runtime dependency jars for Gumdrop.
 
-These are bundled into gumdrop-container.jar at build time and loaded by the
-ContainerClassLoader at runtime, ensuring servlet implementations cannot
-access gumdrop's internal classes.
+Populated by `ant resolve-deps` (downloads from GitHub Releases and Maven Central).
+Version pins live in `boms/versions.properties`.
 
-Note: gonzalez (XML parsing) and jsonparser (JSON parsing) sources are now
-integrated directly into gumdrop with zero external dependencies.
+J2EE API jars are bundled into gumdrop-container.jar at build time and loaded by
+ContainerClassLoader at runtime, isolating servlet implementations from Gumdrop
+internals.
+
+Also includes gonzalez (XML), jsonparser (JSON), agent15 + hkdf (QUIC / TLS 1.3).
+
+Only README is tracked in git; jars are downloaded locally (see .gitignore).

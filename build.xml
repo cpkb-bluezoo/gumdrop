@@ -23,6 +23,19 @@
   <!-- Project version -->
   <property name='version' value='2.2.1-SNAPSHOT'/>
 
+  <!-- External dependency versions (sync with pom.xml and boms/* — Ant-only build) -->
+  <property file='boms/versions.properties'/>
+  <property name='gonzalez.jar' value='gonzalez-${gonzalez.version}.jar'/>
+  <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
+  <property name='agent15.jar' value='agent15-${agent15.version}.jar'/>
+  <property name='hkdf.jar' value='hkdf-${hkdf.version}.jar'/>
+  <property name='servlet.jar' value='javax.servlet-api-${javax.servlet.api.version}.jar'/>
+  <property name='javamail.jar' value='javax.mail-${javax.mail.version}.jar'/>
+  <property name='annotation.jar' value='javax.annotation-api-${javax.annotation.api.version}.jar'/>
+  <property name='ejb.jar' value='javax.ejb-api-${javax.ejb.api.version}.jar'/>
+  <property name='persistence.jar' value='javax.persistence-api-${javax.persistence.api.version}.jar'/>
+  <property name='jaxws.jar' value='jaxws-api-${jaxws.api.version}.jar'/>
+
   <property name='src' location='src'/>
   <property name='lib' location='lib'/>
   <property name='build' location='build'/>
@@ -33,13 +46,6 @@
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
   <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
   <property name='manager.war' location='${dist}/manager.war'/>
-  <!-- External parsing library dependencies (downloaded by resolve-deps target) -->
-  <property name='gonzalez.jar' value='gonzalez-1.2.0.jar'/>
-  <property name='jsonparser.jar' value='jsonparser-1.3.jar'/>
-  <!-- TLS 1.3 handshake engine for QUIC (downloaded by resolve-deps target) -->
-  <property name='agent15.jar' value='agent15-3.3.jar'/>
-  <property name='hkdf.jar' value='hkdf-2.0.0.jar'/>
-  
   <!--
     Java version compatibility settings.
     Gumdrop v2 requires Java 17 (LTS) as the minimum baseline.
@@ -50,13 +56,6 @@
   -->
   <property name='java.release.version' value='17'/>
   
-  <property name='servlet.jar' value='javax.servlet-api-4.0.1.jar'/>
-  <property name='javamail.jar' value='javax.mail-1.6.2.jar'/>
-  <property name='annotation.jar' value='javax.annotation-api-1.3.2.jar'/>
-  <property name='ejb.jar' value='javax.ejb-api-3.2.2.jar'/>
-  <property name='persistence.jar' value='javax.persistence-api-2.2.jar'/>
-  <property name='jaxws.jar' value='jaxws-api-2.3.1.jar'/>
-
   <!-- JUnit dependencies -->
   <property name='junit.jar' value='junit-4.13.2.jar'/>
   <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
@@ -83,16 +82,29 @@
     <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
   </target>
 
-  <!-- Download external parsing library dependencies from GitHub Releases -->
+  <!-- Download compile/runtime dependencies (versions from boms/versions.properties) -->
   <target name='resolve-deps' description='Download external dependencies'>
-    <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v1.3/jsonparser-1.3.jar'
+    <mkdir dir='${lib}'/>
+    <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
-    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.2.0/gonzalez-1.2.0.jar'
+    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v${gonzalez.version}/gonzalez-${gonzalez.version}.jar'
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
-    <get src='https://repo1.maven.org/maven2/tech/kwik/agent15/3.3/agent15-3.3.jar'
+    <get src='https://repo1.maven.org/maven2/tech/kwik/agent15/${agent15.version}/agent15-${agent15.version}.jar'
          dest='${lib}/${agent15.jar}' skipexisting='true'/>
-    <get src='https://repo1.maven.org/maven2/at/favre/lib/hkdf/2.0.0/hkdf-2.0.0.jar'
+    <get src='https://repo1.maven.org/maven2/at/favre/lib/hkdf/${hkdf.version}/hkdf-${hkdf.version}.jar'
          dest='${lib}/${hkdf.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/javax/servlet/javax.servlet-api/${javax.servlet.api.version}/javax.servlet-api-${javax.servlet.api.version}.jar'
+         dest='${lib}/${servlet.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/com/sun/mail/javax.mail/${javax.mail.version}/javax.mail-${javax.mail.version}.jar'
+         dest='${lib}/${javamail.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/javax/annotation/javax.annotation-api/${javax.annotation.api.version}/javax.annotation-api-${javax.annotation.api.version}.jar'
+         dest='${lib}/${annotation.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/javax/ejb/javax.ejb-api/${javax.ejb.api.version}/javax.ejb-api-${javax.ejb.api.version}.jar'
+         dest='${lib}/${ejb.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/javax/persistence/javax.persistence-api/${javax.persistence.api.version}/javax.persistence-api-${javax.persistence.api.version}.jar'
+         dest='${lib}/${persistence.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/javax/xml/ws/jaxws-api/${jaxws.api.version}/jaxws-api-${jaxws.api.version}.jar'
+         dest='${lib}/${jaxws.jar}' skipexisting='true'/>
   </target>
 
   <!-- Refresh the bundled Mozilla Public Suffix List (SEC-048). Run

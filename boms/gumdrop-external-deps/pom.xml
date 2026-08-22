@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  External runtime/compile dependency pins for Gumdrop.
+
+  Not used by Ant or Maven at build time. Ant downloads jars via resolve-deps
+  (see boms/versions.properties). This POM mirrors coordinates for
+  documentation and future BOM publication; Dependabot scans the root pom.xml.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.bluezoo</groupId>
+    <artifactId>gumdrop-external-deps</artifactId>
+    <version>2.2.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Gumdrop external dependencies</name>
+    <description>gonzalez, jsonparser, agent15, hkdf, and J2EE API version pins</description>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.bluezoo</groupId>
+                <artifactId>gumdrop-j2ee-bom</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>gonzalez</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>jsonparser</artifactId>
+            <version>1.3</version>
+        </dependency>
+        <dependency>
+            <groupId>tech.kwik</groupId>
+            <artifactId>agent15</artifactId>
+            <version>3.3</version>
+        </dependency>
+        <dependency>
+            <groupId>at.favre.lib</groupId>
+            <artifactId>hkdf</artifactId>
+            <version>2.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.sun.mail</groupId>
+            <artifactId>javax.mail</artifactId>
+            <version>1.6.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+            <version>1.3.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.ejb</groupId>
+            <artifactId>javax.ejb-api</artifactId>
+            <version>3.2.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.persistence</groupId>
+            <artifactId>javax.persistence-api</artifactId>
+            <version>2.2</version>
+        </dependency>
+        <dependency>
+            <groupId>javax.xml.ws</groupId>
+            <artifactId>jaxws-api</artifactId>
+            <version>2.3.1</version>
+        </dependency>
+    </dependencies>
+
+</project>

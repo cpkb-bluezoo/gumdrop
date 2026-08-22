@@ -13,16 +13,12 @@ updates:
         patterns:
           - "*"
 
-  # Only the root pom.xml can be scanned: Dependabot's maven ecosystem only
-  # ever looks for a file literally named pom.xml in `directory`, and the
-  # central/*-pom.xml files are deliberately NOT named pom.xml (so that
-  # `mvn`/tooling doesn't auto-discover them outside the explicit
-  # publish-to-central.sh flow - see central/gumdrop-pom.xml's header
-  # comment). A "/central" entry here always fails with
-  # "/central/pom.xml not found" (issue: run 31725470839) and there is no
-  # Dependabot config to point it at a differently-named file, so it isn't
-  # configured. If central/*-pom.xml dependencies drift from pom.xml's,
-  # they need to be updated by hand.
+  # Dependabot scans root pom.xml <dependencyManagement> for external jar versions.
+  # Ant resolve-deps reads boms/versions.properties — keep both in sync when
+  # merging Dependabot PRs (see docs/MODULARIZATION-PLAN.md Phase 0).
+  # The boms/*/pom.xml files mirror the same pins for future BOM publication;
+  # Dependabot does not scan them (not named pom.xml at repo root).
+  # central/gumdrop-pom.xml is updated by hand for Maven Central metadata.
   - package-ecosystem: "maven"
     directory: "/"
     schedule:

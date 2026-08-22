@@ -12,6 +12,9 @@
   transcription of the working Ant classpath, with coordinates verified
   against search.maven.org.
 
+  Keep versions in sync with boms/versions.properties and pom.xml
+  dependencyManagement (see docs/MODULARIZATION-PLAN.md Phase 0).
+
   Gumdrop publishes three separate Central coordinates from one source
   tree - see also gumdrop-container-pom.xml and gumdrop-manager-pom.xml in
   this same directory. This is unrelated to the root pom.xml, which is a
