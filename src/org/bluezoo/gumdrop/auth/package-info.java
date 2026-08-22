@@ -44,12 +44,12 @@
  * in plaintext and supports all authentication mechanisms.</p>
  *
  * <h3>OAuthRealm</h3>
- * <p>{@link org.bluezoo.gumdrop.auth.OAuthRealm} (in {@code gumdrop-http.jar}) validates
+ * <p>{@link org.bluezoo.gumdrop.auth.oauth.OAuthRealm} (in {@code gumdrop-http.jar}) validates
  * OAuth 2.0 access tokens using RFC 7662 token introspection and local JWT validation.
  * It supports Bearer token authentication and configurable scope-to-role mapping.</p>
  *
  * <h3>LDAPRealm</h3>
- * <p>{@link org.bluezoo.gumdrop.auth.LDAPRealm} (in {@code gumdrop-ldap.jar}) authenticates
+ * <p>{@link org.bluezoo.gumdrop.auth.ldap.LDAPRealm} (in {@code gumdrop-ldap.jar}) authenticates
  * users against an LDAP directory via the {@code ldap.client} API in core.</p>
  *
  * <h3>SASL Support</h3>

@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.mailbox;
 
 import java.io.IOException;
 
+import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
+
 /**
  * Default {@link MailboxLifecycle} registered in {@code gumdrop-mailbox.jar}.
  */

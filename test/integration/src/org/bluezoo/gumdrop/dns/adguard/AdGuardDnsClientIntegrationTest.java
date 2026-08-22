@@ -27,7 +27,7 @@ import org.bluezoo.gumdrop.dns.DNSMessage;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
-import org.bluezoo.gumdrop.dns.client.DoHClientTransport;
+import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
 import org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport;
 import org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport;

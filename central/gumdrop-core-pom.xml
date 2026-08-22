@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Central metadata for org.bluezoo:gumdrop-core (Phase 3).
+  Ant builds the jar; publish-to-central.sh bundles this POM at release time.
+  Version must match build.xml and other central/*-pom.xml files.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.bluezoo</groupId>
+    <artifactId>gumdrop-core</artifactId>
+    <version>2.2.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Gumdrop Core</name>
+    <description>Core Gumdrop server framework (I/O, QUIC, DNS, telemetry API, auth primitives)</description>
+    <url>https://github.com/cpkb-bluezoo/gumdrop</url>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License v3.0</name>
+            <url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>gonzalez</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bluezoo</groupId>
+            <artifactId>jsonparser</artifactId>
+            <version>1.3</version>
+        </dependency>
+        <dependency>
+            <groupId>tech.kwik</groupId>
+            <artifactId>agent15</artifactId>
+            <version>3.3</version>
+        </dependency>
+        <dependency>
+            <groupId>at.favre.lib</groupId>
+            <artifactId>hkdf</artifactId>
+            <version>2.0.0</version>
+        </dependency>
+    </dependencies>
+
+</project>

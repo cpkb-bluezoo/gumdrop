@@ -10,7 +10,7 @@
 <gumdrop>
     
     <!-- OAuth realm configured from properties file -->
-    <realm id="oauth" class="org.bluezoo.gumdrop.auth.OAuthRealm"
+    <realm id="oauth" class="org.bluezoo.gumdrop.auth.oauth.OAuthRealm"
            configFile="config/oauth.properties"/>
     
     <!-- HTTPS servlet container with OAuth authentication -->

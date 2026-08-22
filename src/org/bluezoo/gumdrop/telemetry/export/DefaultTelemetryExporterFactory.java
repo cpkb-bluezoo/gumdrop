@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.telemetry.export;
 
-import org.bluezoo.gumdrop.telemetry.OTLPExporter;
-import org.bluezoo.gumdrop.telemetry.OTLPGrpcExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OTLPExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OTLPGrpcExporter;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;

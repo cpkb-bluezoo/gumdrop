@@ -5,10 +5,9 @@ name: Publish to Maven Central
 # runnable by hand locally for a one-off publish that doesn't need a fresh
 # GitHub Release. This workflow just supplies secrets - VERSION is left
 # unset so the script auto-detects it from build.xml's own "version"
-# property (and cross-checks it against all three central/*-pom.xml
-# files). It publishes all three Gumdrop coordinates (gumdrop,
-# gumdrop-container, gumdrop-manager) in one bundle - see the script's own
-# comments for why.
+# property (and cross-checks it against all central/*-pom.xml files). It
+# publishes all Gumdrop Maven coordinates in one bundle - see the script's
+# comments for the full artifact list.
 #
 # NOTE: as of this writing, build.xml's version is 2.1-SNAPSHOT - the
 # script hard-refuses to publish a SNAPSHOT version (Central doesn't

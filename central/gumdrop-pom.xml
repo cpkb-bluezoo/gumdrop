@@ -15,19 +15,13 @@
   Keep versions in sync with boms/versions.properties and pom.xml
   dependencyManagement (see docs/MODULARIZATION-PLAN.md Phase 0).
 
-  Gumdrop publishes three separate Central coordinates from one source
-  tree - see also gumdrop-container-pom.xml and gumdrop-manager-pom.xml in
-  this same directory. This is unrelated to the root pom.xml, which is a
-  distribution POM for GitHub Packages, driven by a standalone
-  `mvn deploy:deploy-file` invocation (see
-  .github/workflows/release-to-github-packages.yml) that does not consume
-  any of these three files.
+  Gumdrop publishes library modules (gumdrop, gumdrop-core, gumdrop-http, …),
+  container/manager distribution artifacts, and gumdrop-j2ee-bom to Central -
+  see scripts/publish-to-central.sh and central/*-pom.xml. This file is the
+  all-in-one library POM. Unrelated to the root pom.xml used for GitHub Packages.
 
-  NOTE: version must always match build.xml's "version" property and the
-  other two POMs in this directory - scripts/publish-to-central.sh
-  cross-checks all four and refuses to run on a mismatch, and refuses to
-  run at all on a SNAPSHOT version (Maven Central does not accept them).
-  Bump all four together when a real release is cut.
+  NOTE: version must always match build.xml's "version" property and every
+  central/*-pom.xml file - scripts/publish-to-central.sh cross-checks them all.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

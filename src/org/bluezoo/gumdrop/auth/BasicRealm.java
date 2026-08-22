@@ -59,7 +59,7 @@ import org.xml.sax.helpers.DefaultHandler;
  *
  * <p><strong>Production use:</strong> BasicRealm with plaintext passwords is
  * intended for development and testing only. For production, use
- * {@link LDAPRealm} or {@link OAuthRealm}. When hashed passwords are used
+ * {@link org.bluezoo.gumdrop.auth.ldap.LDAPRealm} or {@link org.bluezoo.gumdrop.auth.oauth.OAuthRealm}. When hashed passwords are used
  * (RFC 2307 format), only PLAIN and LOGIN SASL mechanisms are supported.
  *
  * <h4>Hashed Passwords</h4>

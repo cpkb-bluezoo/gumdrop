@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
+import org.bluezoo.gumdrop.telemetry.otlp.OTLPExporter;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;

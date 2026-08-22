@@ -1,0 +1,133 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Per-jar JPMS descriptors (Phase 3). Imported by compile-modules.xml.
+  Runs after all module class compiles so module-info.class does not affect javac classpath splits.
+-->
+<project name='gumdrop-jpms'>
+
+  <path id='jpms.lib.modulepath'>
+    <pathelement location='${lib}/${gonzalez.jar}'/>
+    <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${agent15.jar}'/>
+    <pathelement location='${lib}/${hkdf.jar}'/>
+    <pathelement location='${lib}/${servlet.jar}'/>
+  </path>
+
+  <path id='jpms.core.modulepath'>
+    <path refid='jpms.lib.modulepath'/>
+  </path>
+
+  <path id='jpms.mime.modulepath'>
+    <pathelement location='${build.core}'/>
+    <path refid='jpms.lib.modulepath'/>
+  </path>
+
+  <path id='jpms.http.modulepath'>
+    <pathelement location='${build.core}'/>
+    <pathelement location='${build.mime.module}'/>
+    <path refid='jpms.lib.modulepath'/>
+  </path>
+
+  <path id='jpms.http-only.modulepath'>
+    <pathelement location='${build.http}'/>
+    <path refid='jpms.http.modulepath'/>
+  </path>
+
+  <path id='jpms.mailbox.modulepath'>
+    <path refid='jpms.http.modulepath'/>
+  </path>
+
+  <path id='jpms.servlet.modulepath'>
+    <pathelement location='${build.http}'/>
+    <path refid='jpms.mailbox.modulepath'/>
+  </path>
+
+  <path id='jpms.ldap.modulepath'>
+    <pathelement location='${build.core}'/>
+    <path refid='jpms.lib.modulepath'/>
+  </path>
+
+  <path id='jpms.grpc.modulepath'>
+    <path refid='jpms.http-only.modulepath'/>
+  </path>
+
+  <path id='jpms.telemetry.modulepath'>
+    <pathelement location='${build.grpc}'/>
+    <path refid='jpms.http-only.modulepath'/>
+  </path>
+
+  <path id='jpms.mail.protocol.modulepath'>
+    <pathelement location='${build.mailbox}'/>
+    <path refid='jpms.http-only.modulepath'/>
+  </path>
+
+  <path id='jpms.protocol.modulepath'>
+    <path refid='jpms.http-only.modulepath'/>
+  </path>
+
+  <macrodef name='compile-module-descriptor'>
+    <attribute name='destdir'/>
+    <attribute name='descriptor'/>
+    <attribute name='modulepath-ref'/>
+    <sequential>
+      <delete file='@{destdir}/module-info.class' quiet='true'/>
+      <javac srcdir='${ant.modules}/@{descriptor}' destdir='@{destdir}' debug='true'
+             release='${java.release.version}' includeantruntime='false'>
+        <include name='module-info.java'/>
+        <modulepath refid='@{modulepath-ref}'/>
+      </javac>
+    </sequential>
+  </macrodef>
+
+  <target name='build-jpms' depends='build,build-telemetry,build-ldap'
+          description='Compile module-info.java into each jar output tree'>
+    <compile-module-descriptor destdir='${build.core}' descriptor='core'
+                               modulepath-ref='jpms.core.modulepath'/>
+    <compile-module-descriptor destdir='${build.mime.module}' descriptor='mime'
+                               modulepath-ref='jpms.mime.modulepath'/>
+    <compile-module-descriptor destdir='${build.http}' descriptor='http'
+                               modulepath-ref='jpms.http.modulepath'/>
+    <compile-module-descriptor destdir='${build.mailbox}' descriptor='mailbox'
+                               modulepath-ref='jpms.mailbox.modulepath'/>
+    <compile-module-descriptor destdir='${build.servlet.module}' descriptor='servlet'
+                               modulepath-ref='jpms.servlet.modulepath'/>
+    <compile-module-descriptor destdir='${build.ldap}' descriptor='ldap'
+                               modulepath-ref='jpms.ldap.modulepath'/>
+    <compile-module-descriptor destdir='${build.grpc}' descriptor='grpc'
+                               modulepath-ref='jpms.grpc.modulepath'/>
+    <compile-module-descriptor destdir='${build.telemetry}' descriptor='telemetry'
+                               modulepath-ref='jpms.telemetry.modulepath'/>
+    <compile-module-descriptor destdir='${build.imap}' descriptor='imap'
+                               modulepath-ref='jpms.mail.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.smtp}' descriptor='smtp'
+                               modulepath-ref='jpms.mail.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.pop3}' descriptor='pop3'
+                               modulepath-ref='jpms.mail.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.ftp}' descriptor='ftp'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.amqp}' descriptor='amqp'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.mqtt}' descriptor='mqtt'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.redis}' descriptor='redis'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.socks}' descriptor='socks'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.webdav}' descriptor='webdav'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <compile-module-descriptor destdir='${build.mdns}' descriptor='mdns'
+                               modulepath-ref='jpms.protocol.modulepath'/>
+    <mkdir dir='${build.aggregator}'/>
+    <delete file='${build.aggregator}/module-info.class' quiet='true'/>
+    <property name='jpms.patch.path'
+              value='${build.core}:${build.mime.module}:${build.mailbox}:${build.http}:${build.servlet.module}:${build.imap}:${build.smtp}:${build.pop3}:${build.ftp}:${build.amqp}:${build.mqtt}:${build.redis}:${build.grpc}:${build.socks}:${build.webdav}:${build.mdns}:${build.telemetry}:${build.ldap}'/>
+    <javac srcdir='${ant.modules}/gumdrop' destdir='${build.aggregator}' debug='true'
+           release='${java.release.version}' includeantruntime='false'>
+      <include name='module-info.java'/>
+      <modulepath refid='jpms.lib.modulepath'/>
+      <compilerarg value='--patch-module'/>
+      <compilerarg value='org.bluezoo.gumdrop=${jpms.patch.path}'/>
+    </javac>
+  </target>
+
+</project>

@@ -67,11 +67,14 @@
   </path>
 
   <import file='compile-protocols.xml'/>
+  <import file='compile-jpms.xml'/>
 
   <!-- util + javax stubs (mime and the rest of core depend on this) -->
   <target name='build-core' depends='resolve-deps'>
+    <delete quiet='true'>
+      <fileset dir='${build.dir}' includes='**/module-info.class'/>
+    </delete>
     <mkdir dir='${build.core}'/>
-    <delete file='${build.core}/module-info.class' quiet='true'/>
     <javac srcdir='${src}' destdir='${build.core}' debug='true'
            release='${java.release.version}' sourcepath=''
            includeantruntime='false' createMissingPackageInfoClass='false'>
@@ -108,7 +111,7 @@
            release='${java.release.version}' sourcepath=''
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='core.only.classpath'/>
-      <include name='org/bluezoo/gumdrop/mailbox/MailboxLifecycle.java'/>
+      <include name='org/bluezoo/gumdrop/mailbox/spi/MailboxLifecycle.java'/>
     </javac>
     <javac srcdir='${src}' destdir='${build.core}' debug='true'
            release='${java.release.version}' sourcepath=''
@@ -134,13 +137,11 @@
       <exclude name='org/bluezoo/gumdrop/smtp/**'/>
       <exclude name='org/bluezoo/gumdrop/socks/**'/>
       <exclude name='org/bluezoo/gumdrop/webdav/**'/>
-      <exclude name='org/bluezoo/gumdrop/auth/OAuthRealm.java'/>
-      <exclude name='org/bluezoo/gumdrop/auth/LDAPRealm.java'/>
+      <exclude name='org/bluezoo/gumdrop/auth/oauth/**'/>
+      <exclude name='org/bluezoo/gumdrop/auth/ldap/**'/>
       <exclude name='org/bluezoo/gumdrop/telemetry/json/**'/>
       <exclude name='org/bluezoo/gumdrop/telemetry/export/**'/>
-      <exclude name='org/bluezoo/gumdrop/telemetry/OTLP*.java'/>
-      <exclude name='org/bluezoo/gumdrop/telemetry/HTTPRequestChannel.java'/>
-      <exclude name='org/bluezoo/gumdrop/dns/client/DoHClientTransport.java'/>
+      <exclude name='org/bluezoo/gumdrop/telemetry/otlp/**'/>
       <exclude name='module-info.java'/>
     </javac>
     <copy todir='${build.core}'>
@@ -177,7 +178,7 @@
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='core.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/mailbox/**'/>
-      <exclude name='org/bluezoo/gumdrop/mailbox/MailboxLifecycle.java'/>
+      <exclude name='org/bluezoo/gumdrop/mailbox/spi/**'/>
     </javac>
     <copy todir='${build.mailbox}'>
       <fileset dir='${src}' includes='org/bluezoo/gumdrop/mailbox/**' excludes='**/*.java'/>
@@ -194,7 +195,7 @@
       <include name='org/bluezoo/gumdrop/http/**'/>
       <include name='org/bluezoo/gumdrop/websocket/**'/>
       <include name='org/bluezoo/gumdrop/health/**'/>
-      <include name='org/bluezoo/gumdrop/auth/OAuthRealm.java'/>
+      <include name='org/bluezoo/gumdrop/auth/oauth/**'/>
     </javac>
     <javac srcdir='${src}' destdir='${build.http}' debug='true'
            release='${java.release.version}' sourcepath=''
@@ -203,7 +204,7 @@
         <path refid='http.compile.classpath'/>
         <pathelement location='${build.http}'/>
       </classpath>
-      <include name='org/bluezoo/gumdrop/dns/client/DoHClientTransport.java'/>
+      <include name='org/bluezoo/gumdrop/http/doh/DoHClientTransport.java'/>
     </javac>
     <copy todir='${build.http}'>
       <fileset dir='${src}'>
@@ -222,42 +223,16 @@
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='servlet.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/servlet/**'/>
+      <exclude name='javax/**'/>
     </javac>
+    <delete dir='${build.servlet.module}/javax' quiet='true'/>
     <copy todir='${build.servlet.module}'>
       <fileset dir='${src}' includes='org/bluezoo/gumdrop/servlet/**' excludes='**/*.java'/>
     </copy>
   </target>
 
   <target name='build'
-          depends='build-servlet-module,build-mailbox-module,build-protocol-modules'>
-    <javac srcdir='${src}' destdir='${build.core}' debug='true'
-           release='${java.release.version}' includeantruntime='false'>
-      <include name='module-info.java'/>
-      <classpath>
-        <pathelement location='${build.core}'/>
-        <pathelement location='${build.mime.module}'/>
-        <pathelement location='${build.mailbox}'/>
-        <pathelement location='${build.http}'/>
-        <pathelement location='${build.servlet.module}'/>
-        <pathelement location='${build.imap}'/>
-        <pathelement location='${build.smtp}'/>
-        <pathelement location='${build.pop3}'/>
-        <pathelement location='${build.ftp}'/>
-        <pathelement location='${build.amqp}'/>
-        <pathelement location='${build.mqtt}'/>
-        <pathelement location='${build.redis}'/>
-        <pathelement location='${build.grpc}'/>
-        <pathelement location='${build.socks}'/>
-        <pathelement location='${build.webdav}'/>
-        <pathelement location='${build.mdns}'/>
-      </classpath>
-      <modulepath>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${agent15.jar}'/>
-        <pathelement location='${lib}/${hkdf.jar}'/>
-      </modulepath>
-    </javac>
-  </target>
+          depends='build-servlet-module,build-mailbox-module,build-protocol-modules'
+          description='Compile all module class files (no JPMS descriptors)'/>
 
 </project>

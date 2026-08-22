@@ -39,8 +39,10 @@
   <!-- Compiled classes: build/{core,mime,http,servlet,bootstrap,…}; release jars: dist/ -->
   <property name='build.dir' location='build'/>
   <property name='ant.services' location='ant/services'/>
+  <property name='ant.modules' location='ant/modules'/>
   <property name='build.telemetry' location='${build.dir}/telemetry'/>
   <property name='build.core' location='${build.dir}/core'/>
+  <property name='build.aggregator' location='${build.dir}/aggregator'/>
   <property name='build.mime.module' location='${build.dir}/mime'/>
   <property name='build.mailbox' location='${build.dir}/mailbox'/>
   <property name='build.http' location='${build.dir}/http'/>
@@ -194,8 +196,7 @@
       <classpath refid='module.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/telemetry/json/**'/>
       <include name='org/bluezoo/gumdrop/telemetry/export/**'/>
-      <include name='org/bluezoo/gumdrop/telemetry/OTLP*.java'/>
-      <include name='org/bluezoo/gumdrop/telemetry/HTTPRequestChannel.java'/>
+      <include name='org/bluezoo/gumdrop/telemetry/otlp/**'/>
     </javac>
     <copy todir='${build.telemetry}'>
       <fileset dir='${src}'>
@@ -217,7 +218,7 @@
            includeantruntime='false'
            createMissingPackageInfoClass='false'>
       <classpath refid='core.compile.classpath'/>
-      <include name='org/bluezoo/gumdrop/auth/LDAPRealm.java'/>
+      <include name='org/bluezoo/gumdrop/auth/ldap/**'/>
     </javac>
   </target>
 
@@ -302,7 +303,7 @@
 
   <!-- gumdrop.jar: all-in-one library merge (Phase 2.11) -->
   <!-- Bootstrap and ContainerClassLoader are excluded: they live in the container jar -->
-  <target name='jar' depends='build,manager-war-digest,build-modules,jar-core,jar-mime,jar-mailbox,jar-http,jar-servlet,jar-protocol-modules,jar-protocols,jar-telemetry,jar-ldap'>
+  <target name='jar' depends='build,manager-war-digest,build-modules,build-jpms,jar-core,jar-mime,jar-mailbox,jar-http,jar-servlet,jar-protocol-modules,jar-protocols,jar-telemetry,jar-ldap'>
     <mkdir dir='${dist}'/>
     <jar destfile='${gumdrop.jar}'>
       <fileset dir='${build.core}'>
@@ -312,24 +313,26 @@
         <exclude name='org/bluezoo/gumdrop/DependencyClassLoader$*.class'/>
         <exclude name='org/bluezoo/gumdrop/ContainerClassLoader.class'/>
         <exclude name='org/bluezoo/gumdrop/ContainerClassLoader$*.class'/>
+        <exclude name='module-info.class'/>
       </fileset>
-      <fileset dir='${build.mime.module}'/>
-      <fileset dir='${build.mailbox}'/>
-      <fileset dir='${build.http}'/>
-      <fileset dir='${build.servlet.module}'/>
-      <fileset dir='${build.imap}'/>
-      <fileset dir='${build.smtp}'/>
-      <fileset dir='${build.pop3}'/>
-      <fileset dir='${build.ftp}'/>
-      <fileset dir='${build.amqp}'/>
-      <fileset dir='${build.mqtt}'/>
-      <fileset dir='${build.redis}'/>
-      <fileset dir='${build.grpc}'/>
-      <fileset dir='${build.socks}'/>
-      <fileset dir='${build.webdav}'/>
-      <fileset dir='${build.mdns}'/>
-      <fileset dir='${build.telemetry}'/>
-      <fileset dir='${build.ldap}'/>
+      <fileset dir='${build.mime.module}' excludes='module-info.class'/>
+      <fileset dir='${build.mailbox}' excludes='module-info.class'/>
+      <fileset dir='${build.http}' excludes='module-info.class'/>
+      <fileset dir='${build.servlet.module}' excludes='module-info.class'/>
+      <fileset dir='${build.imap}' excludes='module-info.class'/>
+      <fileset dir='${build.smtp}' excludes='module-info.class'/>
+      <fileset dir='${build.pop3}' excludes='module-info.class'/>
+      <fileset dir='${build.ftp}' excludes='module-info.class'/>
+      <fileset dir='${build.amqp}' excludes='module-info.class'/>
+      <fileset dir='${build.mqtt}' excludes='module-info.class'/>
+      <fileset dir='${build.redis}' excludes='module-info.class'/>
+      <fileset dir='${build.grpc}' excludes='module-info.class'/>
+      <fileset dir='${build.socks}' excludes='module-info.class'/>
+      <fileset dir='${build.webdav}' excludes='module-info.class'/>
+      <fileset dir='${build.mdns}' excludes='module-info.class'/>
+      <fileset dir='${build.telemetry}' excludes='module-info.class'/>
+      <fileset dir='${build.ldap}' excludes='module-info.class'/>
+      <fileset dir='${build.aggregator}' includes='module-info.class'/>
     </jar>
   </target>
 
@@ -683,6 +686,29 @@
 
   <!-- Main test target that runs all available tests -->
   <target name='test' depends='junit-test' description='Run all unit tests'>
+  </target>
+
+  <!-- Phase 3: verify modular jars resolve on the module path -->
+  <path id='jpms.smoke.modulepath'>
+    <pathelement location='${dist}/gumdrop-core.jar'/>
+    <pathelement location='${dist}/gumdrop-mime.jar'/>
+    <pathelement location='${dist}/gumdrop-http.jar'/>
+    <pathelement location='${dist}/gumdrop-servlet.jar'/>
+    <pathelement location='${lib}/${gonzalez.jar}'/>
+    <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${agent15.jar}'/>
+    <pathelement location='${lib}/${hkdf.jar}'/>
+    <pathelement location='${lib}/${servlet.jar}'/>
+  </path>
+
+  <target name='jpms-smoke-test' depends='jar'
+          description='Validate servlet-closure modular jars on the module path'>
+    <exec executable='${java.home}/bin/java' failonerror='true'>
+      <arg value='--validate-modules'/>
+      <arg value='-p'/>
+      <arg pathref='jpms.smoke.modulepath'/>
+    </exec>
+    <echo>JPMS smoke test: servlet closure modules resolve on the module path</echo>
   </target>
 
   <!-- Build integration tests -->

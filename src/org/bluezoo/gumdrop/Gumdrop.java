@@ -41,7 +41,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolvConf;
-import org.bluezoo.gumdrop.mailbox.MailboxLifecycle;
+import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
 
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
