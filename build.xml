@@ -25,7 +25,7 @@
 
   <!-- External dependency versions (sync with pom.xml and boms/* — Ant-only build) -->
   <property file='boms/versions.properties'/>
-  <property name='gonzalez.jar' value='gonzalez-${gonzalez.version}.jar'/>
+  <property name='gonzalez.jar' value='gonzalez-core-${gonzalez.version}.jar'/>
   <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
   <property name='agent15.jar' value='agent15-${agent15.version}.jar'/>
   <property name='hkdf.jar' value='hkdf-${hkdf.version}.jar'/>
@@ -153,7 +153,8 @@
     <mkdir dir='${lib}'/>
     <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
-    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v${gonzalez.version}/gonzalez-${gonzalez.version}.jar'
+    <delete file='${lib}/gonzalez-${gonzalez.version}.jar' quiet='true'/>
+    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v${gonzalez.version}/gonzalez-core-${gonzalez.version}.jar'
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/tech/kwik/agent15/${agent15.version}/agent15-${agent15.version}.jar'
          dest='${lib}/${agent15.jar}' skipexisting='true'/>

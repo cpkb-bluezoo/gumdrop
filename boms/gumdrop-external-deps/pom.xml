@@ -17,7 +17,7 @@
     <packaging>pom</packaging>
 
     <name>Gumdrop external dependencies</name>
-    <description>gonzalez, jsonparser, agent15, hkdf, and J2EE API version pins</description>
+    <description>gonzalez-core, jsonparser, agent15, hkdf, and J2EE API version pins</description>
 
     <dependencyManagement>
         <dependencies>
@@ -34,7 +34,7 @@
     <dependencies>
         <dependency>
             <groupId>org.bluezoo</groupId>
-            <artifactId>gonzalez</artifactId>
+            <artifactId>gonzalez-core</artifactId>
             <version>1.2.0</version>
         </dependency>
         <dependency>

@@ -61,7 +61,7 @@
     <dependencies>
         <dependency>
             <groupId>org.bluezoo</groupId>
-            <artifactId>gonzalez</artifactId>
+            <artifactId>gonzalez-core</artifactId>
             <version>1.2.0</version>
         </dependency>
         <dependency>
