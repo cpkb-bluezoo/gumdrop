@@ -35,6 +35,8 @@
   <property name='ejb.jar' value='javax.ejb-api-${javax.ejb.api.version}.jar'/>
   <property name='persistence.jar' value='javax.persistence-api-${javax.persistence.api.version}.jar'/>
   <property name='jaxws.jar' value='jaxws-api-${jaxws.api.version}.jar'/>
+  <property name='junit.jar' value='junit-${junit.version}.jar'/>
+  <property name='hamcrest.jar' value='hamcrest-${hamcrest.version}.jar'/>
 
   <!-- Compiled classes: build/{core,mime,http,servlet,bootstrap,…}; release jars: dist/ -->
   <property name='build.dir' location='build'/>
@@ -99,10 +101,6 @@
   -->
   <property name='java.release.version' value='17'/>
   
-  <!-- JUnit dependencies -->
-  <property name='junit.jar' value='junit-4.13.2.jar'/>
-  <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
-
   <import file='ant/compile-modules.xml'/>
 
   <!-- Remove compiled classes and build directories -->
@@ -148,8 +146,9 @@
     <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
   </target>
 
-  <!-- Download compile/runtime dependencies (versions from boms/versions.properties) -->
-  <target name='resolve-deps' description='Download external dependencies'>
+  <!-- Download compile/runtime dependencies (versions from boms/versions.properties).
+       J2EE API jars are not stored in git; this target is the only source. -->
+  <target name='resolve-deps' description='Download external and J2EE API dependencies into lib/'>
     <mkdir dir='${lib}'/>
     <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
@@ -172,6 +171,16 @@
          dest='${lib}/${persistence.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/javax/xml/ws/jaxws-api/${jaxws.api.version}/jaxws-api-${jaxws.api.version}.jar'
          dest='${lib}/${jaxws.jar}' skipexisting='true'/>
+  </target>
+
+  <!-- Download test-only dependencies (JUnit, Hamcrest). Not invoked by
+       compile/dist; junit-build and integration-build depend on this. -->
+  <target name='resolve-test-deps' description='Download JUnit and Hamcrest into test/junit/lib/'>
+    <mkdir dir='${test}/junit/lib'/>
+    <get src='https://repo1.maven.org/maven2/junit/junit/${junit.version}/junit-${junit.version}.jar'
+         dest='${test}/junit/lib/${junit.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/hamcrest/hamcrest/${hamcrest.version}/hamcrest-${hamcrest.version}.jar'
+         dest='${test}/junit/lib/${hamcrest.jar}' skipexisting='true'/>
   </target>
 
   <!-- Refresh the bundled Mozilla Public Suffix List (SEC-048). Run
@@ -356,7 +365,7 @@
   </target>
 
   <!-- The build/bootstrap directory holds Bootstrap classes and, for the legacy fat jar, nested copies. -->
-  <target name='build-bootstrap' depends='compile-bootstrap'>
+  <target name='build-bootstrap' depends='compile-bootstrap,resolve-deps'>
     <copy todir='${build.bootstrap}' file='${gumdrop.jar}'/>
     <copy todir='${build.bootstrap}'>
       <fileset dir='${lib}'>
@@ -609,7 +618,7 @@
     </javac>
   </target>
 
-  <target name='junit-build' depends='build-modules'>
+  <target name='junit-build' depends='resolve-test-deps,build-modules'>
     <mkdir dir='${test}/junit/classes'/>
     <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'
            release='${java.release.version}'
@@ -693,7 +702,7 @@
   </target>
 
   <!-- Build integration tests -->
-  <target name='integration-build' depends='build-modules'>
+  <target name='integration-build' depends='resolve-test-deps,build-modules'>
     <mkdir dir='${test}/integration/classes'/>
     <javac srcdir='${test}/integration/src'
            destdir='${test}/integration/classes'

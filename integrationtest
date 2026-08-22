@@ -1,2 +1,3 @@
 #!/bin/sh
+# Run `ant resolve-test-deps` first if test/junit/lib/ is empty (see test/junit/lib/README).
 java -cp test/integration/classes:test/junit/lib/junit-4.13.2.jar:test/junit/lib/hamcrest-3.0.jar:build:lib/javax.mail-1.6.2.jar org.junit.runner.JUnitCore org.bluezoo.gumdrop.http.HTTPSServerIntegrationTest

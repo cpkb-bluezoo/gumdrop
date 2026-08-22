@@ -1,0 +1,14 @@
+Test-only dependency jars for JUnit 4 unit and integration tests.
+
+**Not in git.** Only this README is tracked; `test/junit/lib/*.jar` is gitignored.
+Run `ant resolve-test-deps` once (or any test target — it runs automatically
+from `junit-build` and `integration-build`). A plain `ant` / `ant dist` does not
+download these.
+
+Version pins: `boms/versions.properties` (`junit.version`, `hamcrest.version`;
+keep in sync with root `pom.xml` when merging Dependabot PRs).
+
+| Jar | Source |
+|-----|--------|
+| junit-* | Maven Central |
+| hamcrest-* | Maven Central |

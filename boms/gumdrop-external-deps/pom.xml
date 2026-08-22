@@ -17,7 +17,7 @@
     <packaging>pom</packaging>
 
     <name>Gumdrop external dependencies</name>
-    <description>gonzalez-core, jsonparser, agent15, hkdf, and J2EE API version pins</description>
+    <description>gonzalez-core, jsonparser, agent15, hkdf, J2EE API, and test dependency version pins</description>
 
     <dependencyManagement>
         <dependencies>
@@ -81,6 +81,18 @@
             <groupId>javax.xml.ws</groupId>
             <artifactId>jaxws-api</artifactId>
             <version>2.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest</artifactId>
+            <version>3.0</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

@@ -16,7 +16,9 @@ Or explicitly:
 ant dist
 ```
 
-This compiles the project and creates the distribution artifacts. The build downloads external dependencies automatically on first run via `ant resolve-deps` (Ant only — no Maven required). Versions are pinned in `boms/versions.properties`; Dependabot proposes updates via root `pom.xml`.
+This compiles the project and creates the distribution artifacts. External jars (Gonzalez, jsonparser, agent15, hkdf, and the six javax.* API jars) are **not** in the repository; the first build downloads them into `lib/` via `ant resolve-deps` (Ant only — no Maven required). That target runs automatically when compiling or assembling the container. Versions are pinned in `boms/versions.properties`; Dependabot proposes updates via root `pom.xml`. You need network access on a fresh clone until `lib/` is populated.
+
+JUnit and Hamcrest (under `test/junit/lib/`) are downloaded separately by `ant resolve-test-deps`, which runs automatically when you invoke test targets (`ant test`, `ant integration-test`, etc.) but **not** for a compile-only build (`ant`, `ant dist`).
 
 **Build artifacts:**
 

@@ -1,12 +1,29 @@
 Compile-time and container-runtime dependency jars for Gumdrop.
 
-Populated by `ant resolve-deps` (downloads from GitHub Releases and Maven Central).
-Version pins live in `boms/versions.properties`.
+**Not in git.** Only this README is tracked; `lib/*.jar` is gitignored. A fresh
+clone needs network access once for `ant resolve-deps` (invoked automatically
+from `build-core` and `assemble-container`).
 
-J2EE API jars are bundled into gumdrop-container.jar (legacy fat jar) or live
-as plain jars under lib/ in the zip distribution. ContainerClassLoader loads
-them at runtime, isolating servlet implementations from Gumdrop internals.
+Version pins: `boms/versions.properties` (keep in sync with root `pom.xml` and
+`central/*-pom.xml` when cutting releases).
 
-Also includes gonzalez-core (XML parser/writer), jsonparser (JSON), agent15 + hkdf (QUIC / TLS 1.3).
+## Downloaded by `ant resolve-deps`
 
-Only README is tracked in git; jars are downloaded locally (see .gitignore).
+| Jar | Source |
+|-----|--------|
+| gonzalez-core-* | GitHub Releases (cpkb-bluezoo/gonzalez) |
+| jsonparser-* | GitHub Releases (cpkb-bluezoo/jsonparser) |
+| agent15-*, hkdf-* | Maven Central |
+| javax.servlet-api-* | Maven Central (J2EE API) |
+| javax.mail-* | Maven Central (J2EE API) |
+| javax.annotation-api-* | Maven Central (J2EE API) |
+| javax.ejb-api-* | Maven Central (J2EE API) |
+| javax.persistence-api-* | Maven Central (J2EE API) |
+| jaxws-api-* | Maven Central (J2EE API) |
+
+## Runtime layout
+
+- **Container zip (`lib/` layout):** J2EE and third-party jars stay as plain files
+  under `lib/`; `ContainerClassLoader` loads them at runtime.
+- **Legacy fat jar:** the same jars are nested inside `gumdrop-container.jar`
+  (deprecated; prefer the zip distribution).

@@ -22,6 +22,8 @@ test/integration/ftp-data/
 test/integration/ftp-server-data/
 test/integration/results/
 test/integration/webapp/WEB-INF/classes/
+test/junit/lib/*.jar
+!test/junit/lib/README
 test/junit/classes/
 test/junit/results/
 build/
