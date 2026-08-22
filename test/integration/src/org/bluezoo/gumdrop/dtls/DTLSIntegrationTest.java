@@ -185,6 +185,8 @@ public class DTLSIntegrationTest {
         serverFactory.setSecure(true);
         serverFactory.setKeystoreFile(Paths.get(keystore.getPath()));
         serverFactory.setKeystorePass(KEYSTORE_PASSWORD);
+        serverFactory.setTruststoreFile(Paths.get(truststore.getPath()));
+        serverFactory.setTruststorePass(KEYSTORE_PASSWORD);
         serverFactory.start();
 
         EchoHandler echoHandler = new EchoHandler();
@@ -232,6 +234,8 @@ public class DTLSIntegrationTest {
         serverFactory.setSecure(true);
         serverFactory.setKeystoreFile(Paths.get(keystore.getPath()));
         serverFactory.setKeystorePass(KEYSTORE_PASSWORD);
+        serverFactory.setTruststoreFile(Paths.get(truststore.getPath()));
+        serverFactory.setTruststorePass(KEYSTORE_PASSWORD);
         serverFactory.start();
 
         EchoHandler echoHandler = new EchoHandler();

@@ -713,7 +713,47 @@ public class TestCertificateManager {
             throws GeneralSecurityException, IOException {
         generateCA("Test CA", validDays);
         generateServerCertificate(hostname, validDays);
-        
+        publishSharedTestPki(password);
+    }
+
+    /**
+     * Ensures {@code test-keystore.p12} and {@code test-truststore.p12} exist,
+     * match, and are loaded into this manager. Regenerates both when either is
+     * missing or the truststore is older than the keystore (a stale truststore
+     * breaks later DTLS/TLS tests that share these files).
+     *
+     * @param password keystore/truststore password
+     */
+    public void ensureSharedTestPki(String password)
+            throws GeneralSecurityException, IOException {
+        File keystore = new File(certsDirectory, "test-keystore.p12");
+        File truststore = new File(certsDirectory, "test-truststore.p12");
+        if (keystore.exists() && truststore.exists()
+                && truststore.lastModified() >= keystore.lastModified()) {
+            loadExistingPKI(password);
+            return;
+        }
+        deleteQuietly(new File(certsDirectory, "ca-keystore.p12"));
+        deleteQuietly(keystore);
+        deleteQuietly(truststore);
+        generateCA("Gumdrop Test CA", 365);
+        generateServerCertificate("localhost", 365);
+        publishSharedTestPki(password);
+    }
+
+    private static void deleteQuietly(File file) {
+        if (file.exists()) {
+            file.delete();
+        }
+    }
+
+    /**
+     * Writes the shared integration-test keystore and truststore together.
+     *
+     * @param password keystore/truststore password
+     */
+    public void publishSharedTestPki(String password)
+            throws GeneralSecurityException, IOException {
         saveServerKeystore(new File(certsDirectory, "test-keystore.p12"), password);
         saveTrustStore(new File(certsDirectory, "test-truststore.p12"), password);
     }

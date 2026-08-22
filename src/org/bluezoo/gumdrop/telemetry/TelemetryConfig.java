@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.telemetry.json.OTLPFileExporter;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 
@@ -29,7 +28,9 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -754,9 +755,9 @@ public class TelemetryConfig {
      * This method is called automatically by the ComponentRegistry after
      * all properties have been set via the gumdroprc configuration file.
      *
-     * <p>If the exporter type is "file", an {@link OTLPFileExporter} is created.
-     * Otherwise, if any OTLP endpoints are configured, an {@link OTLPExporter}
-     * is created.
+     * <p>When export is configured, a {@link TelemetryExporter} is created via
+     * {@link ServiceLoader} from {@link TelemetryExporterFactory} implementations
+     * (provided by the optional {@code gumdrop-telemetry.jar}).
      *
      * <p>When metrics and JMX bridge are enabled, metrics are exposed via
      * MBeans for JMX-based monitoring tools.
@@ -765,22 +766,42 @@ public class TelemetryConfig {
         if (exporter != null) {
             return;
         }
-        if ("file".equalsIgnoreCase(exporterType)) {
-            exporter = new OTLPFileExporter(this,
-                    fileTracesPath, fileLogsPath, fileMetricsPath);
-            registerShutdownHook();
-        } else if (hasAnyEndpoint()) {
-            if ("grpc".equalsIgnoreCase(protocol)) {
-                exporter = new OTLPGrpcExporter(this);
+        if (isExportConfigured()) {
+            exporter = loadExporter();
+            if (exporter != null) {
+                registerShutdownHook();
             } else {
-                exporter = new OTLPExporter(this);
+                logger.log(Level.WARNING,
+                        "Telemetry export is configured but no TelemetryExporterFactory "
+                                + "was found (add gumdrop-telemetry.jar to the classpath)");
             }
-            registerShutdownHook();
         }
         if (metricsEnabled && jmxBridgeEnabled) {
             jmxBridge = new TelemetryJMXBridge(this);
             jmxBridge.register();
         }
+    }
+
+    /**
+     * Returns true when OTLP or JSONL file export has been configured.
+     */
+    public boolean isExportConfigured() {
+        return "file".equalsIgnoreCase(exporterType) || hasAnyEndpoint();
+    }
+
+    private TelemetryExporter loadExporter() {
+        for (TelemetryExporterFactory factory : ServiceLoader.load(TelemetryExporterFactory.class)) {
+            try {
+                TelemetryExporter created = factory.createExporter(this);
+                if (created != null) {
+                    return created;
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING,
+                        "TelemetryExporterFactory " + factory.getClass().getName() + " failed", e);
+            }
+        }
+        return null;
     }
 
     /**
@@ -955,12 +976,7 @@ public class TelemetryConfig {
             jmxBridge = null;
         }
         if (exporter != null) {
-            // Force flush ensures all pending data is exported
-            if (exporter instanceof OTLPExporter) {
-                ((OTLPExporter) exporter).forceFlush();
-            } else if (exporter instanceof OTLPGrpcExporter) {
-                ((OTLPGrpcExporter) exporter).forceFlush();
-            }
+            exporter.forceFlush();
             exporter.shutdown();
         }
     }

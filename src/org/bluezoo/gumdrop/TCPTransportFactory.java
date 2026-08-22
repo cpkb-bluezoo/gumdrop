@@ -333,12 +333,10 @@ public class TCPTransportFactory extends TransportFactory {
                                             ProtocolHandler handler,
                                             boolean secure)
             throws IOException {
-        // Unlike start() (which now happily builds a keystore-less,
-        // client-only SSLContext -- see its own comment), a server
-        // endpoint genuinely cannot proceed without a certificate to
-        // present, so that requirement is enforced here instead, where
-        // it's actually load-bearing.
-        if (secure && keystoreFile == null) {
+        // A server endpoint needs credentials to present: either a keystore
+        // on this factory or an SSLContext injected via setSSLContext()
+        // (e.g. Listener.setSSLContext / MockOTLPCollector).
+        if (secure && keystoreFile == null && sslContext == null) {
             String message = Gumdrop.L10N.getString("err.no_keystore");
             throw new IOException(
                     "Secure TCP server endpoint requires keystore: " + message);

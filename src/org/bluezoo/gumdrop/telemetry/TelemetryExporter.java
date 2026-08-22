@@ -62,6 +62,14 @@ public interface TelemetryExporter {
     void flush();
 
     /**
+     * Flushes any buffered telemetry data, waiting for in-flight export to finish.
+     * Implementations that queue asynchronously should override this method.
+     */
+    default void forceFlush() {
+        flush();
+    }
+
+    /**
      * Shuts down the exporter, releasing any resources.
      */
     void shutdown();

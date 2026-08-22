@@ -141,16 +141,20 @@ public class TestFixtureSetup {
         File keystoreFile = new File(certsDir, "test-keystore.p12");
         File truststoreFile = new File(certsDir, "test-truststore.p12");
         
-        // Check if certs already exist and are recent
+        // Check if certs already exist, are recent, and keystore/truststore match
         if (keystoreFile.exists() && truststoreFile.exists()) {
-            long age = System.currentTimeMillis() - keystoreFile.lastModified();
+            long keystoreAge = System.currentTimeMillis() - keystoreFile.lastModified();
             long maxAge = 30L * 24 * 60 * 60 * 1000; // 30 days in ms
-            
-            if (age < maxAge) {
+            boolean truststoreMatchesKeystore =
+                    truststoreFile.lastModified() >= keystoreFile.lastModified();
+
+            if (keystoreAge < maxAge && truststoreMatchesKeystore) {
                 log.println("Certificates exist and are recent (< 30 days old)");
                 log.println("  Keystore: " + keystoreFile);
                 log.println("  Truststore: " + truststoreFile);
                 return;
+            } else if (keystoreAge < maxAge && !truststoreMatchesKeystore) {
+                log.println("Truststore is older than keystore; regenerating PKI...");
             } else {
                 log.println("Certificates are old, regenerating...");
             }
@@ -158,6 +162,9 @@ public class TestFixtureSetup {
         
         // Generate new PKI
         log.println("Generating test PKI...");
+        deleteIfExists(new File(certsDir, "ca-keystore.p12"));
+        deleteIfExists(keystoreFile);
+        deleteIfExists(truststoreFile);
         
         try {
             certMgr.generateCA("Gumdrop Test CA", 365);
@@ -279,6 +286,12 @@ public class TestFixtureSetup {
      */
     public int getErrorCount() {
         return errors;
+    }
+
+    private static void deleteIfExists(File file) throws IOException {
+        if (file.exists() && !file.delete()) {
+            throw new IOException("Could not delete " + file);
+        }
     }
 
     /**

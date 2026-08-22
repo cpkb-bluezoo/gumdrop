@@ -23,7 +23,10 @@ This compiles the project and creates the distribution artifacts. The build down
 | Artifact | Description |
 |---|---|
 | `dist/gumdrop-container-${version}.zip` | **Primary** servlet container install (Tomcat-style `bin/`, `lib/`, `webapps/`, `conf/`) |
-| `dist/gumdrop.jar` | Core server library (all protocols + servlet container code) |
+| `dist/gumdrop.jar` | Core server library (all protocols + servlet container; merges optional modules) |
+| `dist/gumdrop-telemetry.jar` | Optional OTLP/JSONL export (also merged into `gumdrop.jar`) |
+| `dist/gumdrop-http.jar` | OAuthRealm (compiled against http client; merged into `gumdrop.jar`) |
+| `dist/gumdrop-ldap.jar` | LDAPRealm (compiled against ldap client; merged into `gumdrop.jar`) |
 | `dist/gumdrop-container.jar` | Legacy self-contained fat jar (deprecated; use the zip) |
 | `dist/manager.war` | Admin web application |
 

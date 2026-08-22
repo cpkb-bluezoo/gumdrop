@@ -148,7 +148,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.protobuf;
-    exports org.bluezoo.gumdrop.telemetry.json;
+    // telemetry.json export lives in gumdrop-telemetry.jar (Phase 2 split)
 
     // gRPC
     exports org.bluezoo.gumdrop.grpc;

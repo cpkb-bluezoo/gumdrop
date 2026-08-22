@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
+import org.bluezoo.gumdrop.mailbox.MailboxRuntime;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
@@ -200,7 +201,7 @@ public class MboxMailboxStore implements MailboxStore {
 
     private void enqueueEagerIndexWarming() {
         Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
         if (indexer == null) {
             return;
         }
@@ -211,7 +212,7 @@ public class MboxMailboxStore implements MailboxStore {
             LOGGER.log(Level.FINE, "Could not enumerate mailboxes for eager index warming", e);
             return;
         }
-        MailboxWatcher watcher = gumdrop.getMailboxWatcher();
+        MailboxWatcher watcher = MailboxRuntime.getWatcher();
         for (String mailboxName : names) {
             try {
                 final Path mboxFilePath = resolveMailboxPath(mailboxName);

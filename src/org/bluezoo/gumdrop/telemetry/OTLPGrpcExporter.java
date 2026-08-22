@@ -216,6 +216,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
     /**
      * Forces an immediate flush of all pending telemetry data.
      */
+    @Override
     public void forceFlush() {
         if (!running) {
             return;

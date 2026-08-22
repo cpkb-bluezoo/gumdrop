@@ -1,6 +1,5 @@
 # Build outputs (rebuilt inside the image)
 build/
-build-bootstrap/
 dist/
 doc/
 

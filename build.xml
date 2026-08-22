@@ -36,16 +36,55 @@
   <property name='persistence.jar' value='javax.persistence-api-${javax.persistence.api.version}.jar'/>
   <property name='jaxws.jar' value='jaxws-api-${jaxws.api.version}.jar'/>
 
+  <!-- Compiled classes: build/{core,mime,http,servlet,bootstrap,…}; release jars: dist/ -->
+  <property name='build.dir' location='build'/>
+  <property name='ant.services' location='ant/services'/>
+  <property name='build.telemetry' location='${build.dir}/telemetry'/>
+  <property name='build.core' location='${build.dir}/core'/>
+  <property name='build.mime.module' location='${build.dir}/mime'/>
+  <property name='build.mailbox' location='${build.dir}/mailbox'/>
+  <property name='build.http' location='${build.dir}/http'/>
+  <property name='build.ldap' location='${build.dir}/ldap'/>
+  <property name='build.servlet.module' location='${build.dir}/servlet'/>
+  <property name='build.imap' location='${build.dir}/imap'/>
+  <property name='build.smtp' location='${build.dir}/smtp'/>
+  <property name='build.pop3' location='${build.dir}/pop3'/>
+  <property name='build.ftp' location='${build.dir}/ftp'/>
+  <property name='build.amqp' location='${build.dir}/amqp'/>
+  <property name='build.mqtt' location='${build.dir}/mqtt'/>
+  <property name='build.redis' location='${build.dir}/redis'/>
+  <property name='build.grpc' location='${build.dir}/grpc'/>
+  <property name='build.socks' location='${build.dir}/socks'/>
+  <property name='build.webdav' location='${build.dir}/webdav'/>
+  <property name='build.mdns' location='${build.dir}/mdns'/>
   <property name='src' location='src'/>
   <property name='lib' location='lib'/>
-  <property name='build' location='build'/>
-  <property name='build-bootstrap' location='build-bootstrap'/>
+  <property name='build.bootstrap' location='${build.dir}/bootstrap'/>
   <property name='manager' location='manager'/>
   <property name='dist' location='dist'/>
   <property name='test' location='test'/>
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
+  <property name='gumdrop.core.jar' location='${dist}/gumdrop-core.jar'/>
+  <property name='gumdrop.mime.jar' location='${dist}/gumdrop-mime.jar'/>
+  <property name='gumdrop.mailbox.jar' location='${dist}/gumdrop-mailbox.jar'/>
+  <property name='gumdrop.servlet.jar' location='${dist}/gumdrop-servlet.jar'/>
+  <property name='gumdrop.imap.jar' location='${dist}/gumdrop-imap.jar'/>
+  <property name='gumdrop.smtp.jar' location='${dist}/gumdrop-smtp.jar'/>
+  <property name='gumdrop.pop3.jar' location='${dist}/gumdrop-pop3.jar'/>
+  <property name='gumdrop.ftp.jar' location='${dist}/gumdrop-ftp.jar'/>
+  <property name='gumdrop.amqp.jar' location='${dist}/gumdrop-amqp.jar'/>
+  <property name='gumdrop.mqtt.jar' location='${dist}/gumdrop-mqtt.jar'/>
+  <property name='gumdrop.redis.jar' location='${dist}/gumdrop-redis.jar'/>
+  <property name='gumdrop.grpc.jar' location='${dist}/gumdrop-grpc.jar'/>
+  <property name='gumdrop.socks.jar' location='${dist}/gumdrop-socks.jar'/>
+  <property name='gumdrop.webdav.jar' location='${dist}/gumdrop-webdav.jar'/>
+  <property name='gumdrop.mdns.jar' location='${dist}/gumdrop-mdns.jar'/>
+  <property name='gumdrop.protocols.jar' location='${dist}/gumdrop-protocols.jar'/>
   <property name='gumdrop-container.jar' location='${dist}/gumdrop-container.jar'/>
   <property name='gumdrop-container.zip' location='${dist}/gumdrop-container-${version}.zip'/>
+  <property name='gumdrop.telemetry.jar' location='${dist}/gumdrop-telemetry.jar'/>
+  <property name='gumdrop.http.jar' location='${dist}/gumdrop-http.jar'/>
+  <property name='gumdrop.ldap.jar' location='${dist}/gumdrop-ldap.jar'/>
   <property name='container.home' location='${dist}/gumdrop-${version}'/>
   <property name='container.home.stable' location='${dist}/container-home'/>
   <property name='manager.war' location='${dist}/manager.war'/>
@@ -63,12 +102,36 @@
   <property name='junit.jar' value='junit-4.13.2.jar'/>
   <property name='hamcrest.jar' value='hamcrest-3.0.jar'/>
 
+  <import file='ant/compile-modules.xml'/>
+
   <!-- Remove compiled classes and build directories -->
   <!-- Note: does NOT delete doc/ directory to avoid constant javadoc churn in git -->
   <!-- Use 'ant clean-javadoc' explicitly if you need to regenerate all documentation -->
-  <target name='clean' depends='clean-junit,clean-integration'>
-    <delete dir='${build-bootstrap}'/>
-    <delete dir='${build}'/>
+  <target name='clean-legacy-dirs' description='Remove obsolete top-level build-* output from earlier layouts'>
+    <delete dir='build-bootstrap' quiet='true'/>
+    <delete dir='build-core' quiet='true'/>
+    <delete dir='build-mime' quiet='true'/>
+    <delete dir='build-mailbox' quiet='true'/>
+    <delete dir='build-http' quiet='true'/>
+    <delete dir='build-servlet' quiet='true'/>
+    <delete dir='build-telemetry' quiet='true'/>
+    <delete dir='build-ldap' quiet='true'/>
+    <delete dir='build-imap' quiet='true'/>
+    <delete dir='build-smtp' quiet='true'/>
+    <delete dir='build-pop3' quiet='true'/>
+    <delete dir='build-ftp' quiet='true'/>
+    <delete dir='build-amqp' quiet='true'/>
+    <delete dir='build-mqtt' quiet='true'/>
+    <delete dir='build-redis' quiet='true'/>
+    <delete dir='build-grpc' quiet='true'/>
+    <delete dir='build-socks' quiet='true'/>
+    <delete dir='build-webdav' quiet='true'/>
+    <delete dir='build-mdns' quiet='true'/>
+    <delete dir='build-protocols' quiet='true'/>
+  </target>
+
+  <target name='clean' depends='clean-junit,clean-integration,clean-legacy-dirs'>
+    <delete dir='${build.dir}'/>
     <delete dir='${dist}'/>
     <delete dir='${manager}/WEB-INF/classes'/>
     <delete dir='${test}/cluster/WEB-INF/classes'/>
@@ -119,75 +182,161 @@
     <echo message='Updated public_suffix_list.dat from publicsuffix.org'/>
   </target>
 
-  <!-- Target for the server/servlet container and all its resources -->
-  <target name='build' depends='resolve-deps'>
-    <mkdir dir='${build}'/>
-    <!-- Remove module-info.class before main compilation to prevent javac from
-         detecting an existing module descriptor and entering module mode -->
-    <delete file='${build}/module-info.class' quiet='true'/>
-    <!-- Compile main sources (sourcepath='' prevents javac from auto-discovering
-         module-info.java on the source path and entering module mode) -->
-    <javac srcdir='${src}' destdir='${build}' debug='true'
+  <!-- Optional OTLP/JSONL telemetry export (ServiceLoader SPI); sources mapped in build, not separate src tree -->
+  <target name='build-telemetry' depends='build'
+          description='Compile gumdrop-telemetry export jar'>
+    <mkdir dir='${build.telemetry}'/>
+    <javac srcdir='${src}' destdir='${build.telemetry}' debug='true'
            release='${java.release.version}'
            sourcepath=''
            includeantruntime='false'
            createMissingPackageInfoClass='false'>
-      <classpath>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${agent15.jar}'/>
-        <pathelement location='${lib}/${hkdf.jar}'/>
-        <pathelement location='${lib}/${servlet.jar}'/>
-        <pathelement location='${lib}/${javamail.jar}'/>
-        <pathelement location='${lib}/${annotation.jar}'/>
-        <pathelement location='${lib}/${ejb.jar}'/>
-        <pathelement location='${lib}/${persistence.jar}'/>
-        <pathelement location='${lib}/${jaxws.jar}'/>
-      </classpath>
-      <include name="**/*.java"/>
-      <exclude name="module-info.java"/>
+      <classpath refid='module.compile.classpath'/>
+      <include name='org/bluezoo/gumdrop/telemetry/json/**'/>
+      <include name='org/bluezoo/gumdrop/telemetry/export/**'/>
+      <include name='org/bluezoo/gumdrop/telemetry/OTLP*.java'/>
+      <include name='org/bluezoo/gumdrop/telemetry/HTTPRequestChannel.java'/>
     </javac>
-    <!-- Compile module-info.java separately (JPMS module descriptor) -->
-    <javac srcdir='${src}' destdir='${build}' debug='true'
-           release='${java.release.version}' includeantruntime='false'>
-      <include name="module-info.java"/>
-      <modulepath>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${agent15.jar}'/>
-        <pathelement location='${lib}/${hkdf.jar}'/>
-      </modulepath>
-    </javac>
-    <copy todir='${build}'>
+    <copy todir='${build.telemetry}'>
       <fileset dir='${src}'>
-        <include name='**/*.properties'/>
-        <include name='**/*.dat'/>
-        <include name='META-INF/**'/>
+        <include name='org/bluezoo/gumdrop/telemetry/json/**'/>
+        <include name='org/bluezoo/gumdrop/telemetry/export/**'/>
+        <exclude name='**/*.java'/>
       </fileset>
+      <fileset dir='${ant.services}/telemetry' includes='META-INF/**'/>
     </copy>
   </target>
 
-  <!-- gumdrop.jar contains the server and servlet container -->
-  <!-- Bootstrap and ContainerClassLoader are excluded: they live in the container jar -->
-  <target name='jar' depends='build,manager-war-digest'>
+  <!-- LDAPRealm (depends on ldap client in core) -->
+  <target name='build-ldap' depends='build-core-main'
+          description='Compile gumdrop-ldap module jar (LDAPRealm)'>
+    <mkdir dir='${build.ldap}'/>
+    <javac srcdir='${src}' destdir='${build.ldap}' debug='true'
+           release='${java.release.version}'
+           sourcepath=''
+           includeantruntime='false'
+           createMissingPackageInfoClass='false'>
+      <classpath refid='core.compile.classpath'/>
+      <include name='org/bluezoo/gumdrop/auth/LDAPRealm.java'/>
+    </javac>
+  </target>
+
+  <target name='build-modules' depends='build,build-telemetry,build-ldap'
+          description='Compile optional module source sets (telemetry, ldap realm)'/>
+
+  <target name='jar-core' depends='build'>
     <mkdir dir='${dist}'/>
-    <jar destfile='${gumdrop.jar}' basedir='${build}'>
-      <!-- Bootstrap classes live in the container jar; exclude from gumdrop.jar.
-           IteratorEnumeration and JarInputStream are kept in both jars since
-           they are used by the main codebase as well as the bootstrap chain. -->
-      <exclude name='org/bluezoo/gumdrop/Bootstrap.class'/>
-      <exclude name='org/bluezoo/gumdrop/Bootstrap$*.class'/>
-      <exclude name='org/bluezoo/gumdrop/DependencyClassLoader.class'/>
-      <exclude name='org/bluezoo/gumdrop/DependencyClassLoader$*.class'/>
-      <exclude name='org/bluezoo/gumdrop/ContainerClassLoader.class'/>
-      <exclude name='org/bluezoo/gumdrop/ContainerClassLoader$*.class'/>
+    <jar destfile='${gumdrop.core.jar}'>
+      <fileset dir='${build.core}'>
+        <exclude name='org/bluezoo/gumdrop/Bootstrap.class'/>
+        <exclude name='org/bluezoo/gumdrop/Bootstrap$*.class'/>
+        <exclude name='org/bluezoo/gumdrop/DependencyClassLoader.class'/>
+        <exclude name='org/bluezoo/gumdrop/DependencyClassLoader$*.class'/>
+        <exclude name='org/bluezoo/gumdrop/ContainerClassLoader.class'/>
+        <exclude name='org/bluezoo/gumdrop/ContainerClassLoader$*.class'/>
+      </fileset>
+    </jar>
+  </target>
+
+  <target name='jar-mime' depends='build'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.mime.jar}' basedir='${build.mime.module}'/>
+  </target>
+
+  <target name='jar-servlet' depends='build'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.servlet.jar}' basedir='${build.servlet.module}'/>
+  </target>
+
+  <target name='jar-mailbox' depends='build'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.mailbox.jar}' basedir='${build.mailbox}'/>
+  </target>
+
+  <target name='jar-protocol-modules' depends='build'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.imap.jar}' basedir='${build.imap}'/>
+    <jar destfile='${gumdrop.smtp.jar}' basedir='${build.smtp}'/>
+    <jar destfile='${gumdrop.pop3.jar}' basedir='${build.pop3}'/>
+    <jar destfile='${gumdrop.ftp.jar}' basedir='${build.ftp}'/>
+    <jar destfile='${gumdrop.amqp.jar}' basedir='${build.amqp}'/>
+    <jar destfile='${gumdrop.mqtt.jar}' basedir='${build.mqtt}'/>
+    <jar destfile='${gumdrop.redis.jar}' basedir='${build.redis}'/>
+    <jar destfile='${gumdrop.grpc.jar}' basedir='${build.grpc}'/>
+    <jar destfile='${gumdrop.socks.jar}' basedir='${build.socks}'/>
+    <jar destfile='${gumdrop.webdav.jar}' basedir='${build.webdav}'/>
+    <jar destfile='${gumdrop.mdns.jar}' basedir='${build.mdns}'/>
+  </target>
+
+  <!-- Legacy aggregate of all optional protocol jars -->
+  <target name='jar-protocols' depends='jar-protocol-modules'>
+    <jar destfile='${gumdrop.protocols.jar}'>
+      <fileset dir='${build.imap}'/>
+      <fileset dir='${build.smtp}'/>
+      <fileset dir='${build.pop3}'/>
+      <fileset dir='${build.ftp}'/>
+      <fileset dir='${build.amqp}'/>
+      <fileset dir='${build.mqtt}'/>
+      <fileset dir='${build.redis}'/>
+      <fileset dir='${build.grpc}'/>
+      <fileset dir='${build.socks}'/>
+      <fileset dir='${build.webdav}'/>
+      <fileset dir='${build.mdns}'/>
+    </jar>
+  </target>
+
+  <target name='jar-telemetry' depends='build-telemetry'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.telemetry.jar}' basedir='${build.telemetry}'/>
+  </target>
+
+  <target name='jar-http' depends='build-http-module'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.http.jar}' basedir='${build.http}'/>
+  </target>
+
+  <target name='jar-ldap' depends='build-ldap'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.ldap.jar}' basedir='${build.ldap}'/>
+  </target>
+
+  <!-- gumdrop.jar: all-in-one library merge (Phase 2.11) -->
+  <!-- Bootstrap and ContainerClassLoader are excluded: they live in the container jar -->
+  <target name='jar' depends='build,manager-war-digest,build-modules,jar-core,jar-mime,jar-mailbox,jar-http,jar-servlet,jar-protocol-modules,jar-protocols,jar-telemetry,jar-ldap'>
+    <mkdir dir='${dist}'/>
+    <jar destfile='${gumdrop.jar}'>
+      <fileset dir='${build.core}'>
+        <exclude name='org/bluezoo/gumdrop/Bootstrap.class'/>
+        <exclude name='org/bluezoo/gumdrop/Bootstrap$*.class'/>
+        <exclude name='org/bluezoo/gumdrop/DependencyClassLoader.class'/>
+        <exclude name='org/bluezoo/gumdrop/DependencyClassLoader$*.class'/>
+        <exclude name='org/bluezoo/gumdrop/ContainerClassLoader.class'/>
+        <exclude name='org/bluezoo/gumdrop/ContainerClassLoader$*.class'/>
+      </fileset>
+      <fileset dir='${build.mime.module}'/>
+      <fileset dir='${build.mailbox}'/>
+      <fileset dir='${build.http}'/>
+      <fileset dir='${build.servlet.module}'/>
+      <fileset dir='${build.imap}'/>
+      <fileset dir='${build.smtp}'/>
+      <fileset dir='${build.pop3}'/>
+      <fileset dir='${build.ftp}'/>
+      <fileset dir='${build.amqp}'/>
+      <fileset dir='${build.mqtt}'/>
+      <fileset dir='${build.redis}'/>
+      <fileset dir='${build.grpc}'/>
+      <fileset dir='${build.socks}'/>
+      <fileset dir='${build.webdav}'/>
+      <fileset dir='${build.mdns}'/>
+      <fileset dir='${build.telemetry}'/>
+      <fileset dir='${build.ldap}'/>
     </jar>
   </target>
 
   <!-- Compile bootstrap / classloader classes (shared by fat jar and gumdrop-bootstrap.jar) -->
   <target name='compile-bootstrap' depends='jar'>
-    <mkdir dir='${build-bootstrap}'/>
-    <javac srcdir='${src}' destdir='${build-bootstrap}' debug='true'
+    <mkdir dir='${build.bootstrap}'/>
+    <javac srcdir='${src}' destdir='${build.bootstrap}' debug='true'
            release='${java.release.version}'
            sourcepath=''
            includeantruntime='false'>
@@ -203,7 +352,7 @@
   <target name='bootstrap-jar' depends='compile-bootstrap'>
     <mkdir dir='${dist}/lib'/>
     <jar destfile='${dist}/lib/gumdrop-bootstrap.jar'>
-      <fileset dir='${build-bootstrap}'>
+      <fileset dir='${build.bootstrap}'>
         <include name='org/bluezoo/gumdrop/Bootstrap.class'/>
         <include name='org/bluezoo/gumdrop/Bootstrap$*.class'/>
         <include name='org/bluezoo/gumdrop/DependencyClassLoader.class'/>
@@ -221,12 +370,10 @@
     </jar>
   </target>
 
-  <!-- The build-bootstrap directory will contain the org.bluezoo.gumdrop.Bootstrap class, -->
-  <!-- the gumdrop.jar, and the J2EE and parsing library dependencies for the legacy fat jar. -->
-  <!-- Bootstrap will create a new classloader to load these jars -->
+  <!-- The build/bootstrap directory holds Bootstrap classes and, for the legacy fat jar, nested copies. -->
   <target name='build-bootstrap' depends='compile-bootstrap'>
-    <copy todir='${build-bootstrap}' file='${gumdrop.jar}'/>
-    <copy todir='${build-bootstrap}'>
+    <copy todir='${build.bootstrap}' file='${gumdrop.jar}'/>
+    <copy todir='${build.bootstrap}'>
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
@@ -245,7 +392,7 @@
   <!-- Legacy self-contained fat jar (deprecated; use container-zip / lib layout) -->
   <target name='container-jar' depends='build-bootstrap' description='Build legacy fat gumdrop-container.jar'>
     <mkdir dir='${dist}'/>
-    <jar destfile='${gumdrop-container.jar}' basedir='build-bootstrap'>
+    <jar destfile='${gumdrop-container.jar}' basedir='${build.bootstrap}'>
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
@@ -268,9 +415,9 @@
 
   <!-- Trust pin for the manager webapp (bundled in gumdrop.jar for Context) -->
   <target name='manager-war-digest' depends='manager-war'>
-    <mkdir dir='${build}/META-INF'/>
+    <mkdir dir='${build.core}/META-INF'/>
     <checksum file='${manager.war}' algorithm='MD5' property='manager.war.md5'/>
-    <echo file='${build}/META-INF/gumdrop-manager-war.md5' message='${manager.war.md5}'/>
+    <echo file='${build.core}/META-INF/gumdrop-manager-war.md5' message='${manager.war.md5}'/>
   </target>
 
   <!-- Production install tree: bin/, lib/, webapps/, conf/ -->
@@ -285,7 +432,10 @@
     <copy file='bin/gumdrop.bat' todir='${container.home}/bin'/>
     <chmod file='${container.home}/bin/gumdrop.sh' perm='ugo+rx'/>
     <copy file='${dist}/lib/gumdrop-bootstrap.jar' todir='${container.home}/lib'/>
-    <copy file='${gumdrop.jar}' tofile='${container.home}/lib/gumdrop.jar'/>
+    <copy file='${gumdrop.core.jar}' tofile='${container.home}/lib/gumdrop-core.jar'/>
+    <copy file='${gumdrop.http.jar}' tofile='${container.home}/lib/gumdrop-http.jar'/>
+    <copy file='${gumdrop.servlet.jar}' tofile='${container.home}/lib/gumdrop-servlet.jar'/>
+    <copy file='${gumdrop.mime.jar}' tofile='${container.home}/lib/gumdrop-mime.jar'/>
     <copy todir='${container.home}/lib'>
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
@@ -327,6 +477,25 @@
   <!-- Release target creates versioned artifacts for distribution -->
   <target name='release' depends='dist' description='Create versioned release artifacts'>
     <copy file='${gumdrop.jar}' tofile='${dist}/gumdrop-${version}.jar'/>
+    <copy file='${gumdrop.telemetry.jar}' tofile='${dist}/gumdrop-telemetry-${version}.jar'/>
+    <copy file='${gumdrop.core.jar}' tofile='${dist}/gumdrop-core-${version}.jar'/>
+    <copy file='${gumdrop.mime.jar}' tofile='${dist}/gumdrop-mime-${version}.jar'/>
+    <copy file='${gumdrop.mailbox.jar}' tofile='${dist}/gumdrop-mailbox-${version}.jar'/>
+    <copy file='${gumdrop.servlet.jar}' tofile='${dist}/gumdrop-servlet-${version}.jar'/>
+    <copy file='${gumdrop.http.jar}' tofile='${dist}/gumdrop-http-${version}.jar'/>
+    <copy file='${gumdrop.imap.jar}' tofile='${dist}/gumdrop-imap-${version}.jar'/>
+    <copy file='${gumdrop.smtp.jar}' tofile='${dist}/gumdrop-smtp-${version}.jar'/>
+    <copy file='${gumdrop.pop3.jar}' tofile='${dist}/gumdrop-pop3-${version}.jar'/>
+    <copy file='${gumdrop.ftp.jar}' tofile='${dist}/gumdrop-ftp-${version}.jar'/>
+    <copy file='${gumdrop.amqp.jar}' tofile='${dist}/gumdrop-amqp-${version}.jar'/>
+    <copy file='${gumdrop.mqtt.jar}' tofile='${dist}/gumdrop-mqtt-${version}.jar'/>
+    <copy file='${gumdrop.redis.jar}' tofile='${dist}/gumdrop-redis-${version}.jar'/>
+    <copy file='${gumdrop.grpc.jar}' tofile='${dist}/gumdrop-grpc-${version}.jar'/>
+    <copy file='${gumdrop.socks.jar}' tofile='${dist}/gumdrop-socks-${version}.jar'/>
+    <copy file='${gumdrop.webdav.jar}' tofile='${dist}/gumdrop-webdav-${version}.jar'/>
+    <copy file='${gumdrop.mdns.jar}' tofile='${dist}/gumdrop-mdns-${version}.jar'/>
+    <copy file='${gumdrop.protocols.jar}' tofile='${dist}/gumdrop-protocols-${version}.jar'/>
+    <copy file='${gumdrop.ldap.jar}' tofile='${dist}/gumdrop-ldap-${version}.jar'/>
     <copy file='${gumdrop-container.jar}' tofile='${dist}/gumdrop-container-${version}.jar'/>
     <copy file='${gumdrop-container.zip}' tofile='${dist}/gumdrop-container-${version}.zip'/>
     <copy file='${manager.war}' tofile='${dist}/gumdrop-manager-${version}.war'/>
@@ -350,7 +519,7 @@
 
   <!-- Sources jar for Maven Central (gumdrop-container.jar) - just the
        bootstrap classes it actually adds on top of gumdrop.jar, mirroring
-       build-bootstrap's own include list exactly. -->
+       build/bootstrap's own include list exactly. -->
   <target name='release-sources-container'>
     <mkdir dir='${dist}'/>
     <jar jarfile='${dist}/gumdrop-container-${version}-sources.jar'>
@@ -456,14 +625,14 @@
     </javac>
   </target>
 
-  <target name='junit-build' depends='build'>
+  <target name='junit-build' depends='build-modules'>
     <mkdir dir='${test}/junit/classes'/>
     <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'
            release='${java.release.version}'
            includeantruntime='false'>
       <classpath>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
-        <pathelement location='${build}'/>
+        <path refid='server.classes'/>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${agent15.jar}'/>
@@ -487,7 +656,7 @@
         <pathelement location='${test}/junit/classes'/>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
-        <pathelement location='${build}'/>
+        <path refid='server.classes'/>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${agent15.jar}'/>
@@ -517,7 +686,7 @@
   </target>
 
   <!-- Build integration tests -->
-  <target name='integration-build' depends='build'>
+  <target name='integration-build' depends='build-modules'>
     <mkdir dir='${test}/integration/classes'/>
     <javac srcdir='${test}/integration/src'
            destdir='${test}/integration/classes'
@@ -525,7 +694,7 @@
            includeantruntime='false'
            debug='true'>
       <classpath>
-        <pathelement location='${build}'/>
+        <path refid='server.classes'/>
         <pathelement location='${test}/junit/lib/${junit.jar}'/>
         <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
@@ -539,7 +708,7 @@
     <pathelement location='${test}/integration/classes'/>
     <pathelement location='${test}/junit/lib/${junit.jar}'/>
     <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
-    <pathelement location='${build}'/>
+    <path refid='server.classes'/>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
     <pathelement location='${lib}/${agent15.jar}'/>
@@ -658,7 +827,7 @@
   </target>
 
   <!-- Run DTLS integration tests (needs TLS keystore/truststore, issue #190) -->
-  <target name='integration-test-dtls' depends='integration-build'
+  <target name='integration-test-dtls' depends='integration-setup'
           description='Run DTLS (UDP) integration tests'>
     <integration-junit includes='**/dtls/*IntegrationTest.java'/>
   </target>

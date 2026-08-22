@@ -1,0 +1,263 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Multi-module compilation (Phase 2). Imported from build.xml via ant/compile-modules.xml.
+  Output: build/{core,mime,mailbox,http,servlet,imap,…}; no merged "all" tree (jars are assembled in dist/).
+-->
+<project name='gumdrop-modules'>
+
+  <path id='lib.compile.classpath'>
+    <pathelement location='${lib}/${gonzalez.jar}'/>
+    <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${agent15.jar}'/>
+    <pathelement location='${lib}/${hkdf.jar}'/>
+    <pathelement location='${lib}/${servlet.jar}'/>
+    <pathelement location='${lib}/${javamail.jar}'/>
+    <pathelement location='${lib}/${annotation.jar}'/>
+    <pathelement location='${lib}/${ejb.jar}'/>
+    <pathelement location='${lib}/${persistence.jar}'/>
+    <pathelement location='${lib}/${jaxws.jar}'/>
+  </path>
+
+  <path id='server.classes'>
+    <pathelement location='${build.core}'/>
+    <pathelement location='${build.mime.module}'/>
+    <pathelement location='${build.mailbox}'/>
+    <pathelement location='${build.http}'/>
+    <pathelement location='${build.servlet.module}'/>
+    <pathelement location='${build.imap}'/>
+    <pathelement location='${build.smtp}'/>
+    <pathelement location='${build.pop3}'/>
+    <pathelement location='${build.ftp}'/>
+    <pathelement location='${build.amqp}'/>
+    <pathelement location='${build.mqtt}'/>
+    <pathelement location='${build.redis}'/>
+    <pathelement location='${build.grpc}'/>
+    <pathelement location='${build.socks}'/>
+    <pathelement location='${build.webdav}'/>
+    <pathelement location='${build.mdns}'/>
+    <pathelement location='${build.telemetry}'/>
+    <pathelement location='${build.ldap}'/>
+  </path>
+
+  <path id='module.compile.classpath'>
+    <path refid='server.classes'/>
+    <path refid='lib.compile.classpath'/>
+  </path>
+
+  <path id='core.only.classpath'>
+    <pathelement location='${build.core}'/>
+    <path refid='lib.compile.classpath'/>
+  </path>
+
+  <path id='core.compile.classpath'>
+    <pathelement location='${build.core}'/>
+    <pathelement location='${build.mime.module}'/>
+    <path refid='lib.compile.classpath'/>
+  </path>
+
+  <!-- gumdrop-http.jar compile unit: core + mime (container ships both) -->
+  <path id='http.compile.classpath'>
+    <path refid='core.compile.classpath'/>
+  </path>
+
+  <!-- gumdrop-servlet.jar: http stack + mime (multipart/form-data, Content-Type, …) -->
+  <path id='servlet.compile.classpath'>
+    <path refid='http.compile.classpath'/>
+    <pathelement location='${build.http}'/>
+  </path>
+
+  <import file='compile-protocols.xml'/>
+
+  <!-- util + javax stubs (mime and the rest of core depend on this) -->
+  <target name='build-core' depends='resolve-deps'>
+    <mkdir dir='${build.core}'/>
+    <delete file='${build.core}/module-info.class' quiet='true'/>
+    <javac srcdir='${src}' destdir='${build.core}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='lib.compile.classpath'/>
+      <include name='org/bluezoo/gumdrop/util/**'/>
+      <include name='org/bluezoo/util/**'/>
+      <include name='javax/**'/>
+      <exclude name='module-info.java'/>
+    </javac>
+    <copy todir='${build.core}'>
+      <fileset dir='${src}'>
+        <include name='javax/**'/>
+        <include name='META-INF/**'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name='build-mime-module' depends='build-core'>
+    <mkdir dir='${build.mime.module}'/>
+    <javac srcdir='${src}' destdir='${build.mime.module}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='core.only.classpath'/>
+      <include name='org/bluezoo/gumdrop/mime/**'/>
+    </javac>
+    <copy todir='${build.mime.module}'>
+      <fileset dir='${src}' includes='org/bluezoo/gumdrop/mime/**' excludes='**/*.java'/>
+    </copy>
+  </target>
+
+  <!-- Core server code (root I/O, config, auth, quic, telemetry API, dns, …) -->
+  <target name='build-core-main' depends='build-core'>
+    <javac srcdir='${src}' destdir='${build.core}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='core.only.classpath'/>
+      <include name='org/bluezoo/gumdrop/mailbox/MailboxLifecycle.java'/>
+    </javac>
+    <javac srcdir='${src}' destdir='${build.core}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='core.only.classpath'/>
+      <include name='org/bluezoo/gumdrop/**'/>
+      <include name='javax/**'/>
+      <exclude name='org/bluezoo/gumdrop/util/**'/>
+      <exclude name='org/bluezoo/gumdrop/http/**'/>
+      <exclude name='org/bluezoo/gumdrop/websocket/**'/>
+      <exclude name='org/bluezoo/gumdrop/health/**'/>
+      <exclude name='org/bluezoo/gumdrop/servlet/**'/>
+      <exclude name='org/bluezoo/gumdrop/mime/**'/>
+      <exclude name='org/bluezoo/gumdrop/mailbox/**'/>
+      <exclude name='org/bluezoo/gumdrop/amqp/**'/>
+      <exclude name='org/bluezoo/gumdrop/ftp/**'/>
+      <exclude name='org/bluezoo/gumdrop/grpc/**'/>
+      <exclude name='org/bluezoo/gumdrop/imap/**'/>
+      <exclude name='org/bluezoo/gumdrop/mdns/**'/>
+      <exclude name='org/bluezoo/gumdrop/mqtt/**'/>
+      <exclude name='org/bluezoo/gumdrop/pop3/**'/>
+      <exclude name='org/bluezoo/gumdrop/redis/**'/>
+      <exclude name='org/bluezoo/gumdrop/smtp/**'/>
+      <exclude name='org/bluezoo/gumdrop/socks/**'/>
+      <exclude name='org/bluezoo/gumdrop/webdav/**'/>
+      <exclude name='org/bluezoo/gumdrop/auth/OAuthRealm.java'/>
+      <exclude name='org/bluezoo/gumdrop/auth/LDAPRealm.java'/>
+      <exclude name='org/bluezoo/gumdrop/telemetry/json/**'/>
+      <exclude name='org/bluezoo/gumdrop/telemetry/export/**'/>
+      <exclude name='org/bluezoo/gumdrop/telemetry/OTLP*.java'/>
+      <exclude name='org/bluezoo/gumdrop/telemetry/HTTPRequestChannel.java'/>
+      <exclude name='org/bluezoo/gumdrop/dns/client/DoHClientTransport.java'/>
+      <exclude name='module-info.java'/>
+    </javac>
+    <copy todir='${build.core}'>
+      <fileset dir='${src}'>
+        <include name='org/bluezoo/gumdrop/**/*.properties'/>
+        <include name='org/bluezoo/gumdrop/**/*.dat'/>
+        <exclude name='org/bluezoo/gumdrop/http/**'/>
+        <exclude name='org/bluezoo/gumdrop/websocket/**'/>
+        <exclude name='org/bluezoo/gumdrop/health/**'/>
+        <exclude name='org/bluezoo/gumdrop/servlet/**'/>
+        <exclude name='org/bluezoo/gumdrop/mime/**'/>
+        <exclude name='org/bluezoo/gumdrop/mailbox/**'/>
+        <exclude name='org/bluezoo/gumdrop/amqp/**'/>
+        <exclude name='org/bluezoo/gumdrop/ftp/**'/>
+        <exclude name='org/bluezoo/gumdrop/grpc/**'/>
+        <exclude name='org/bluezoo/gumdrop/imap/**'/>
+        <exclude name='org/bluezoo/gumdrop/mdns/**'/>
+        <exclude name='org/bluezoo/gumdrop/mqtt/**'/>
+        <exclude name='org/bluezoo/gumdrop/pop3/**'/>
+        <exclude name='org/bluezoo/gumdrop/redis/**'/>
+        <exclude name='org/bluezoo/gumdrop/smtp/**'/>
+        <exclude name='org/bluezoo/gumdrop/socks/**'/>
+        <exclude name='org/bluezoo/gumdrop/webdav/**'/>
+        <exclude name='org/bluezoo/gumdrop/telemetry/json/**'/>
+        <exclude name='org/bluezoo/gumdrop/telemetry/export/**'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name='build-mailbox-module' depends='build-mime-module'>
+    <mkdir dir='${build.mailbox}'/>
+    <javac srcdir='${src}' destdir='${build.mailbox}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='core.compile.classpath'/>
+      <include name='org/bluezoo/gumdrop/mailbox/**'/>
+      <exclude name='org/bluezoo/gumdrop/mailbox/MailboxLifecycle.java'/>
+    </javac>
+    <copy todir='${build.mailbox}'>
+      <fileset dir='${src}' includes='org/bluezoo/gumdrop/mailbox/**' excludes='**/*.java'/>
+      <fileset dir='${ant.services}/mailbox' includes='META-INF/**'/>
+    </copy>
+  </target>
+
+  <target name='build-http-module' depends='build-core-main,build-mime-module'>
+    <mkdir dir='${build.http}'/>
+    <javac srcdir='${src}' destdir='${build.http}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='http.compile.classpath'/>
+      <include name='org/bluezoo/gumdrop/http/**'/>
+      <include name='org/bluezoo/gumdrop/websocket/**'/>
+      <include name='org/bluezoo/gumdrop/health/**'/>
+      <include name='org/bluezoo/gumdrop/auth/OAuthRealm.java'/>
+    </javac>
+    <javac srcdir='${src}' destdir='${build.http}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath>
+        <path refid='http.compile.classpath'/>
+        <pathelement location='${build.http}'/>
+      </classpath>
+      <include name='org/bluezoo/gumdrop/dns/client/DoHClientTransport.java'/>
+    </javac>
+    <copy todir='${build.http}'>
+      <fileset dir='${src}'>
+        <include name='org/bluezoo/gumdrop/http/**'/>
+        <include name='org/bluezoo/gumdrop/websocket/**'/>
+        <include name='org/bluezoo/gumdrop/health/**'/>
+        <exclude name='**/*.java'/>
+      </fileset>
+    </copy>
+  </target>
+
+  <target name='build-servlet-module' depends='build-http-module'>
+    <mkdir dir='${build.servlet.module}'/>
+    <javac srcdir='${src}' destdir='${build.servlet.module}' debug='true'
+           release='${java.release.version}' sourcepath=''
+           includeantruntime='false' createMissingPackageInfoClass='false'>
+      <classpath refid='servlet.compile.classpath'/>
+      <include name='org/bluezoo/gumdrop/servlet/**'/>
+    </javac>
+    <copy todir='${build.servlet.module}'>
+      <fileset dir='${src}' includes='org/bluezoo/gumdrop/servlet/**' excludes='**/*.java'/>
+    </copy>
+  </target>
+
+  <target name='build'
+          depends='build-servlet-module,build-mailbox-module,build-protocol-modules'>
+    <javac srcdir='${src}' destdir='${build.core}' debug='true'
+           release='${java.release.version}' includeantruntime='false'>
+      <include name='module-info.java'/>
+      <classpath>
+        <pathelement location='${build.core}'/>
+        <pathelement location='${build.mime.module}'/>
+        <pathelement location='${build.mailbox}'/>
+        <pathelement location='${build.http}'/>
+        <pathelement location='${build.servlet.module}'/>
+        <pathelement location='${build.imap}'/>
+        <pathelement location='${build.smtp}'/>
+        <pathelement location='${build.pop3}'/>
+        <pathelement location='${build.ftp}'/>
+        <pathelement location='${build.amqp}'/>
+        <pathelement location='${build.mqtt}'/>
+        <pathelement location='${build.redis}'/>
+        <pathelement location='${build.grpc}'/>
+        <pathelement location='${build.socks}'/>
+        <pathelement location='${build.webdav}'/>
+        <pathelement location='${build.mdns}'/>
+      </classpath>
+      <modulepath>
+        <pathelement location='${lib}/${gonzalez.jar}'/>
+        <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${agent15.jar}'/>
+        <pathelement location='${lib}/${hkdf.jar}'/>
+      </modulepath>
+    </javac>
+  </target>
+
+</project>

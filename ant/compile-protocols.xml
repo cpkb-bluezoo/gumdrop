@@ -1,0 +1,97 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--
+  Optional protocol module compiles (Phase 2.12). Imported by compile-modules.xml.
+  Mail protocols (imap/smtp/pop3) also depend on gumdrop-mailbox.
+-->
+<project name='gumdrop-protocols'>
+
+  <path id='protocol.compile.classpath'>
+    <path refid='core.compile.classpath'/>
+    <pathelement location='${build.http}'/>
+  </path>
+
+  <path id='mail.protocol.compile.classpath'>
+    <path refid='protocol.compile.classpath'/>
+    <pathelement location='${build.mailbox}'/>
+  </path>
+
+  <macrodef name='compile-protocol-module'>
+    <attribute name='destdir'/>
+    <attribute name='package'/>
+    <attribute name='classpath-ref' default='protocol.compile.classpath'/>
+    <sequential>
+      <mkdir dir='@{destdir}'/>
+      <javac srcdir='${src}' destdir='@{destdir}' debug='true'
+             release='${java.release.version}' sourcepath=''
+             includeantruntime='false' createMissingPackageInfoClass='false'>
+        <classpath refid='@{classpath-ref}'/>
+        <include name='@{package}/**'/>
+      </javac>
+      <copy todir='@{destdir}'>
+        <fileset dir='${src}' includes='@{package}/**' excludes='**/*.java'/>
+      </copy>
+    </sequential>
+  </macrodef>
+
+  <target name='build-imap-module' depends='build-mailbox-module'>
+    <compile-protocol-module destdir='${build.imap}'
+                             package='org/bluezoo/gumdrop/imap'
+                             classpath-ref='mail.protocol.compile.classpath'/>
+  </target>
+
+  <target name='build-smtp-module' depends='build-mailbox-module'>
+    <compile-protocol-module destdir='${build.smtp}'
+                             package='org/bluezoo/gumdrop/smtp'
+                             classpath-ref='mail.protocol.compile.classpath'/>
+  </target>
+
+  <target name='build-pop3-module' depends='build-mailbox-module'>
+    <compile-protocol-module destdir='${build.pop3}'
+                             package='org/bluezoo/gumdrop/pop3'
+                             classpath-ref='mail.protocol.compile.classpath'/>
+  </target>
+
+  <target name='build-ftp-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.ftp}'
+                             package='org/bluezoo/gumdrop/ftp'/>
+  </target>
+
+  <target name='build-amqp-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.amqp}'
+                             package='org/bluezoo/gumdrop/amqp'/>
+  </target>
+
+  <target name='build-mqtt-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.mqtt}'
+                             package='org/bluezoo/gumdrop/mqtt'/>
+  </target>
+
+  <target name='build-redis-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.redis}'
+                             package='org/bluezoo/gumdrop/redis'/>
+  </target>
+
+  <target name='build-grpc-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.grpc}'
+                             package='org/bluezoo/gumdrop/grpc'/>
+  </target>
+
+  <target name='build-socks-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.socks}'
+                             package='org/bluezoo/gumdrop/socks'/>
+  </target>
+
+  <target name='build-webdav-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.webdav}'
+                             package='org/bluezoo/gumdrop/webdav'/>
+  </target>
+
+  <target name='build-mdns-module' depends='build-http-module'>
+    <compile-protocol-module destdir='${build.mdns}'
+                             package='org/bluezoo/gumdrop/mdns'/>
+  </target>
+
+  <target name='build-protocol-modules'
+          depends='build-imap-module,build-smtp-module,build-pop3-module,build-ftp-module,build-amqp-module,build-mqtt-module,build-redis-module,build-grpc-module,build-socks-module,build-webdav-module,build-mdns-module'/>
+
+</project>

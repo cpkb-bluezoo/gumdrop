@@ -104,21 +104,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         if (!certsDir.exists()) {
             certsDir.mkdirs();
         }
-
-        // Clean up existing CA keystore to avoid password conflicts
-        File caKeystore = new File(certsDir, "ca-keystore.p12");
-        if (caKeystore.exists()) {
-            caKeystore.delete();
-        }
-
         certManager = new TestCertificateManager(certsDir);
-
-        // Generate fresh certificates
-        certManager.generateCA("Test CA", 365);
-        certManager.generateServerCertificate("localhost", 365);
-
-        File keystoreFile = new File(certsDir, "test-keystore.p12");
-        certManager.saveServerKeystore(keystoreFile, "testpass");
+        certManager.ensureSharedTestPki("testpass");
     }
 
     // Handler factory is configured in XML - no programmatic setup needed

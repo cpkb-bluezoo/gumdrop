@@ -29,6 +29,7 @@ import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Properties;
@@ -61,6 +62,13 @@ public class Bootstrap {
     private static final String CONTAINER_LAYOUT_LIB = "lib";
     private static final String BOOTSTRAP_JAR = "gumdrop-bootstrap.jar";
     private static final String SERVER_JAR = "gumdrop.jar";
+    /** Servlet container module closure (Phase 2 modular lib/ layout). */
+    private static final String[] CONTAINER_MODULE_JARS = {
+        "gumdrop-core.jar",
+        "gumdrop-http.jar",
+        "gumdrop-servlet.jar",
+        "gumdrop-mime.jar",
+    };
 
     public static void main(String[] args) throws Exception {
         URL bootstrapUrl = Bootstrap.class.getProtectionDomain().getCodeSource().getLocation();
@@ -111,13 +119,34 @@ public class Bootstrap {
     }
 
     private static boolean isLibLayout(File libDir) {
-        return libDir != null && libDir.isDirectory()
-                && new File(libDir, SERVER_JAR).isFile();
+        if (libDir == null || !libDir.isDirectory()) {
+            return false;
+        }
+        if (new File(libDir, SERVER_JAR).isFile()) {
+            return true;
+        }
+        return new File(libDir, CONTAINER_MODULE_JARS[0]).isFile();
     }
 
     private static void startFromLibDir(File libDir, ClassLoader bootstrapClassLoader, String[] args)
             throws Exception {
-        URL containerUrl = new File(libDir, SERVER_JAR).toURI().toURL();
+        List<URL> containerUrls = new ArrayList<>();
+        File monolith = new File(libDir, SERVER_JAR);
+        if (monolith.isFile()) {
+            containerUrls.add(monolith.toURI().toURL());
+        } else {
+            for (String moduleJar : CONTAINER_MODULE_JARS) {
+                File jar = new File(libDir, moduleJar);
+                if (jar.isFile()) {
+                    containerUrls.add(jar.toURI().toURL());
+                }
+            }
+            if (containerUrls.isEmpty()) {
+                throw new IllegalStateException(
+                        "No gumdrop server jars found in " + libDir
+                                + " (expected gumdrop.jar or servlet module jars)");
+            }
+        }
         List<URL> dependencyUrls = new ArrayList<>();
         File[] jars = libDir.listFiles((dir, name) -> name.endsWith(".jar"));
         if (jars != null) {
@@ -127,10 +156,22 @@ public class Bootstrap {
                 if (BOOTSTRAP_JAR.equals(name) || SERVER_JAR.equals(name)) {
                     continue;
                 }
+                if (isContainerModuleJar(name)) {
+                    continue;
+                }
                 dependencyUrls.add(jar.toURI().toURL());
             }
         }
-        launchServer(containerUrl, dependencyUrls, bootstrapClassLoader, args);
+        launchServer(containerUrls, dependencyUrls, bootstrapClassLoader, args);
+    }
+
+    private static boolean isContainerModuleJar(String name) {
+        for (String moduleJar : CONTAINER_MODULE_JARS) {
+            if (moduleJar.equals(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void startFromFatJar(URL bootstrapUrl, File bootstrapFile,
@@ -163,14 +204,14 @@ public class Bootstrap {
                 }
                 depStart = depEnd + 1;
             }
-            launchServer(containerUrl, dependencyUrls, bootstrapClassLoader, args);
+            launchServer(Collections.singletonList(containerUrl), dependencyUrls, bootstrapClassLoader, args);
         }
     }
 
-    private static void launchServer(URL containerUrl, List<URL> dependencyUrls,
+    private static void launchServer(List<URL> containerUrls, List<URL> dependencyUrls,
             ClassLoader bootstrapClassLoader, String[] args) throws Exception {
         ClassLoader containerClassLoader =
-                new ContainerClassLoader(containerUrl, dependencyUrls, bootstrapClassLoader);
+                new ContainerClassLoader(containerUrls, dependencyUrls, bootstrapClassLoader);
         Thread.currentThread().setContextClassLoader(containerClassLoader);
         reconfigureLogging(containerClassLoader);
         Class<?> gumdropClass = containerClassLoader.loadClass("org.bluezoo.gumdrop.Gumdrop");

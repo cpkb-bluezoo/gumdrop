@@ -116,17 +116,8 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         if (!certsDir.exists()) {
             certsDir.mkdirs();
         }
-        // Remove any stale CA keystore so keytool does not append to a
-        // keystore written with a different (random) password.
-        File caKeystore = new File(certsDir, "ca-keystore.p12");
-        if (caKeystore.exists()) {
-            caKeystore.delete();
-        }
-
         certManager = new TestCertificateManager(certsDir);
-        certManager.generateCA("Test CA", 365);
-        certManager.generateServerCertificate("localhost", 365);
-        certManager.saveServerKeystore(new File(certsDir, "test-keystore.p12"), "testpass");
+        certManager.ensureSharedTestPki("testpass");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -113,8 +113,16 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
 
         @Override
         public void requestComplete(HTTPResponseState state) {
-            // Always return 200 OK for echo server - we're reflecting content, not creating resources
             HTTPStatus status = HTTPStatus.OK;
+
+            // RFC 9110 section 9.3.2: HEAD responses have no message body
+            if ("HEAD".equals(method)) {
+                Headers responseHeaders = new Headers();
+                responseHeaders.status(status);
+                state.headers(responseHeaders);
+                state.complete();
+                return;
+            }
 
             // Build response body
             StringBuilder responseBody = new StringBuilder();

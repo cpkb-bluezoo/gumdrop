@@ -26,12 +26,9 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 
 /**
@@ -44,40 +41,42 @@ import org.bluezoo.gumdrop.util.IteratorEnumeration;
 public class ContainerClassLoader extends DependencyClassLoader {
 
     /**
-     * URL of the server/container class jar.
-     * Only this classLoader can access this.
+     * URLs of server/module jars (monolithic gumdrop.jar or modular closure).
      */
-    private final URL containerUrl;
+    private final List<URL> containerUrls;
 
     /**
-     * Constructor for the container classloader.
-     * @param containerUrl url for the container classes (server.jar)
-     * @param dependencyUrls urls for dependency jars (J2EE API jars)
+     * Constructor for the container classloader (single server jar).
      */
     public ContainerClassLoader(URL containerUrl, List<URL> dependencyUrls, ClassLoader parent) {
+        this(Collections.singletonList(containerUrl), dependencyUrls, parent);
+    }
+
+    /**
+     * Constructor for the container classloader (modular server jars).
+     */
+    public ContainerClassLoader(List<URL> containerUrls, List<URL> dependencyUrls, ClassLoader parent) {
         super(dependencyUrls, parent);
-        this.containerUrl = containerUrl;
+        this.containerUrls = Collections.unmodifiableList(new ArrayList<>(containerUrls));
     }
 
     @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         if ("org.bluezoo.gumdrop.ContainerClassLoader".equals(name)) {
-            // That's me!
             return ContainerClassLoader.class;
         }
-        // Check if class has already been loaded
         Class<?> t = findLoadedClass(name);
         if (t != null) {
             return t;
         }
-        // Try to load the class from server.jar
-        t = findClass(containerUrl, name);
-        if (t != null) {
-            if (resolve) {
-                resolveClass(t);
+        for (URL containerUrl : containerUrls) {
+            t = findClass(containerUrl, name);
+            if (t != null) {
+                if (resolve) {
+                    resolveClass(t);
+                }
+                return t;
             }
-            return t;
         }
-        // Next try the dependency URLs
         for (URL url : urls) {
             t = findClass(url, name);
             if (t != null) {
@@ -87,47 +86,54 @@ public class ContainerClassLoader extends DependencyClassLoader {
                 return t;
             }
         }
-        // Lastly, try to load from the parent (bootstrap)
         return super.loadClass(name, resolve);
     }
 
     /**
      * Indicates whether the specified class is a container class.
-     * This will be used by the ContextClassLoader to decide whether to call
-     * super.loadClass
      */
     public boolean isContainerClass(String name) {
-        String resourceName = name.replace('.', '/') + ".class";
-        try (InputStream in = findResourceAsStream(containerUrl, name)) {
-            return in != null;
-        } catch (IOException e) {
-            return false;
+        for (URL containerUrl : containerUrls) {
+            try (InputStream in = findResourceAsStream(containerUrl, name)) {
+                if (in != null) {
+                    return true;
+                }
+            } catch (IOException e) {
+                // try next jar
+            }
         }
+        return false;
     }
 
     @Override public URL getResource(String name) {
         name = (name.charAt(0) == '/') ? name.substring(1) : name;
-        URL resourceUrl = findResource(containerUrl, name);
-        if (resourceUrl != null) {
-            return resourceUrl;
+        for (URL containerUrl : containerUrls) {
+            URL resourceUrl = findResource(containerUrl, name);
+            if (resourceUrl != null) {
+                return resourceUrl;
+            }
         }
         return super.getResource(name);
     }
 
     @Override protected URL findResource(String name) {
         name = (name.charAt(0) == '/') ? name.substring(1) : name;
-        URL resourceUrl = findResource(containerUrl, name);
-        if (resourceUrl != null) {
-            return resourceUrl;
+        for (URL containerUrl : containerUrls) {
+            URL resourceUrl = findResource(containerUrl, name);
+            if (resourceUrl != null) {
+                return resourceUrl;
+            }
         }
         return super.findResource(name);
     }
 
     @Override public InputStream getResourceAsStream(String name) {
         name = (name.charAt(0) == '/') ? name.substring(1) : name;
-        InputStream in = findResourceAsStream(containerUrl, name);
-        if (in != null) {
-            return in;
+        for (URL containerUrl : containerUrls) {
+            InputStream in = findResourceAsStream(containerUrl, name);
+            if (in != null) {
+                return in;
+            }
         }
         return super.getResourceAsStream(name);
     }
@@ -135,9 +141,11 @@ public class ContainerClassLoader extends DependencyClassLoader {
     @Override public Enumeration<URL> getResources(String name) throws IOException {
         name = (name.charAt(0) == '/') ? name.substring(1) : name;
         List<URL> acc = new ArrayList<>();
-        URL containerResource = findResource(containerUrl, name);
-        if (containerResource != null) {
-            acc.add(containerResource);
+        for (URL containerUrl : containerUrls) {
+            URL containerResource = findResource(containerUrl, name);
+            if (containerResource != null) {
+                acc.add(containerResource);
+            }
         }
         for (URL url : urls) {
             URL dependencyResource = findResource(url, name);
@@ -151,12 +159,13 @@ public class ContainerClassLoader extends DependencyClassLoader {
     }
 
     @Override protected Enumeration<URL> findResources(String name) throws IOException {
-        // Ensure resource name is not prefixed by '/'
         name = (name.charAt(0) == '/') ? name.substring(1) : name;
         List<URL> acc = new ArrayList<>();
-        URL containerResource = findResource(containerUrl, name);
-        if (containerResource != null) {
-            acc.add(containerResource);
+        for (URL containerUrl : containerUrls) {
+            URL containerResource = findResource(containerUrl, name);
+            if (containerResource != null) {
+                acc.add(containerResource);
+            }
         }
         for (URL url : urls) {
             URL dependencyResource = findResource(url, name);
@@ -169,13 +178,15 @@ public class ContainerClassLoader extends DependencyClassLoader {
 
     @Override public List<File> getClasspathFiles() throws IOException {
         List<File> result = new ArrayList<>();
-        result.add(getFile(containerUrl));
+        for (URL containerUrl : containerUrls) {
+            result.add(getFile(containerUrl));
+        }
         result.addAll(super.getClasspathFiles());
         return result;
     }
 
     @Override protected boolean urlValid(URL url) {
-        return containerUrl.equals(url) || urls.contains(url);
+        return containerUrls.contains(url) || urls.contains(url);
     }
 
 }

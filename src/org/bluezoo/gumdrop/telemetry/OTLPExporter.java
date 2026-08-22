@@ -231,6 +231,7 @@ public class OTLPExporter implements TelemetryExporter {
      * Forces an immediate flush of all pending telemetry data.
      * This method blocks until the flush completes or times out.
      */
+    @Override
     public void forceFlush() {
         if (!running) {
             return;

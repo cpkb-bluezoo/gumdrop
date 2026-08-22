@@ -172,9 +172,12 @@
  *   <li>{@link org.bluezoo.gumdrop.telemetry.Attribute} - Key-value span metadata
  *   <li>{@link org.bluezoo.gumdrop.telemetry.SpanKind} - Categorises span role
  *   <li>{@link org.bluezoo.gumdrop.telemetry.SpanStatus} - Operation outcome
- *   <li>{@link org.bluezoo.gumdrop.telemetry.OTLPExporter} - OTLP/HTTP exporter
+ *   <li>{@link org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory} - SPI for optional export
  *   <li>{@link org.bluezoo.gumdrop.telemetry.TelemetryJMXBridge} - JMX exposure of metrics
  * </ul>
+ *
+ * <p>OTLP/HTTP, OTLP/gRPC, and JSONL export implementations live in the optional
+ * {@code gumdrop-telemetry.jar} (loaded via {@link java.util.ServiceLoader}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.telemetry.metrics

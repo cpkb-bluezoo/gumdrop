@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
+import org.bluezoo.gumdrop.mailbox.MailboxRuntime;
 import org.bluezoo.gumdrop.mailbox.MessageContext;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexKey;
 import org.bluezoo.gumdrop.mailbox.index.MailboxIndexer;
@@ -221,7 +222,7 @@ public final class MboxMailbox implements Mailbox {
         gatePath = mboxFile.toRealPath();
         gate = acquireGateRef(gatePath);
         Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
         if (indexer != null && indexer.isCurrentThread()) {
             // Running on the single MailboxIndexer worker thread (a
             // background warming job): never block here. A concurrent
@@ -1059,7 +1060,7 @@ public final class MboxMailbox implements Mailbox {
         // turns out to need a rebuild), do it inline instead of submitting
         // a second job that thread would have to wait on itself to run.
         Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? gumdrop.getMailboxIndexer() : null;
+        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
         if (indexer == null || indexer.isCurrentThread()) {
             rebuildSearchIndex();
             return;
