@@ -175,6 +175,11 @@ public class QuicFrameParser {
                 }
             } else if (type == QuicFrameHandler.TYPE_HANDSHAKE_DONE) {
                 handler.handshakeDoneFrameReceived();
+            } else if (type == QuicFrameHandler.TYPE_DATAGRAM
+                    || type == QuicFrameHandler.TYPE_DATAGRAM_LEN) {
+                if (!parseDatagramFrame(buf, startPosition, type == QuicFrameHandler.TYPE_DATAGRAM_LEN)) {
+                    return;
+                }
             } else {
                 buf.position(startPosition);
                 handler.frameError("Unsupported or unknown frame type: " + type);
@@ -424,6 +429,34 @@ public class QuicFrameParser {
         buf.limit(savedLimit);
         buf.position(buf.position() + length);
         return data;
+    }
+
+    // RFC 9221 section 4: type 0x30 has no Length (payload is the
+    // remainder of the packet); type 0x31 prefixes the payload with a
+    // Length varint so a DATAGRAM can share a packet with other frames.
+    private boolean parseDatagramFrame(ByteBuffer buf, int typeStartPosition, boolean lengthPresent) {
+        int payloadLength;
+        if (lengthPresent) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("DATAGRAM frame underflow");
+                return false;
+            }
+            long declaredLength = VarInt.decode(buf);
+            if (declaredLength < 0 || declaredLength > buf.remaining()) {
+                handler.frameError("DATAGRAM frame underflow");
+                return false;
+            }
+            payloadLength = (int) declaredLength;
+        } else {
+            payloadLength = buf.remaining();
+        }
+        int encodedLength = buf.position() - typeStartPosition + payloadLength;
+        ByteBuffer data = parseFixedLengthData(buf, payloadLength, "DATAGRAM");
+        if (data == null) {
+            return false;
+        }
+        handler.datagramFrameReceived(data, encodedLength);
+        return true;
     }
 
     // RFC 9000 section 19.19

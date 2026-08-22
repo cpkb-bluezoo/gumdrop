@@ -64,6 +64,24 @@ public interface Endpoint {
      */
     void send(ByteBuffer data);
 
+    /**
+     * Sends an unreliable datagram on this endpoint's QUIC connection
+     * (RFC 9221). The datagram is not retransmitted if lost, is subject
+     * to congestion control, and is delivered at most once.
+     *
+     * <p>TCP and other non-QUIC transports return {@code false}.
+     *
+     * @param data the datagram payload; copied, the caller's buffer is
+     *             not retained
+     * @return true if the datagram was queued, false if this transport
+     *         does not support DATAGRAM frames, the peer did not
+     *         advertise a non-zero {@code max_datagram_frame_size}, or
+     *         the encoded frame exceeds that limit
+     */
+    default boolean sendDatagram(ByteBuffer data) {
+        return false;
+    }
+
     // -- Lifecycle --
 
     /**

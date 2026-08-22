@@ -31,10 +31,13 @@ import java.nio.ByteBuffer;
  * <p>Only the frame types listed in the {@code TYPE_*} constants are
  * currently understood; see the package documentation for what is
  * still missing (connection ID management, PATH_CHALLENGE/RESPONSE).
+ * DATAGRAM (RFC 9221 types {@link #TYPE_DATAGRAM}/{@link #TYPE_DATAGRAM_LEN})
+ * is included.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicFrameParser
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9000#section-19">RFC 9000 section 19</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9221#section-4">RFC 9221 section 4</a>
  */
 public interface QuicFrameHandler {
 
@@ -67,6 +70,8 @@ public interface QuicFrameHandler {
     long TYPE_CONNECTION_CLOSE = 0x1c;  // RFC 9000 section 19.19, transport error
     long TYPE_CONNECTION_CLOSE_APP = 0x1d; // RFC 9000 section 19.19, application error
     long TYPE_HANDSHAKE_DONE = 0x1e;    // RFC 9000 section 19.20
+    long TYPE_DATAGRAM = 0x30;          // RFC 9221 section 4, no Length field
+    long TYPE_DATAGRAM_LEN = 0x31;      // RFC 9221 section 4, Length varint present
 
     /** RFC 9000 section 19.15: the fixed length of the Stateless Reset Token field, in bytes. */
     int STATELESS_RESET_TOKEN_LENGTH = 16;
@@ -269,6 +274,17 @@ public interface QuicFrameHandler {
      * confirms handshake completion (RFC 9001 section 4.1.1).
      */
     void handshakeDoneFrameReceived();
+
+    /**
+     * Called when a DATAGRAM frame is received (RFC 9221 section 4).
+     *
+     * @param data the datagram payload (a slice -- consume or copy
+     *             before returning)
+     * @param encodedLength the size of the DATAGRAM frame including
+     *                      type and Length fields, for comparison
+     *                      against {@code max_datagram_frame_size}
+     */
+    void datagramFrameReceived(ByteBuffer data, int encodedLength);
 
     /**
      * Called when a frame cannot be parsed, or is a type not

@@ -612,4 +612,57 @@ public final class QuicFrameWriter {
     public static void writeHandshakeDone(ByteBuffer out) {
         VarInt.encode(QuicFrameHandler.TYPE_HANDSHAKE_DONE, out);
     }
+
+    /**
+     * Returns the encoded length of a DATAGRAM frame with a Length
+     * field (RFC 9221 type {@link QuicFrameHandler#TYPE_DATAGRAM_LEN}).
+     * Production sends always use this form so a DATAGRAM can share a
+     * packet with other frames.
+     *
+     * @param payloadLength the payload size in bytes
+     * @return the encoded length in bytes, including type and Length
+     */
+    public static int datagramLength(int payloadLength) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_DATAGRAM_LEN)
+                + VarInt.encodedLength(payloadLength)
+                + payloadLength;
+    }
+
+    /**
+     * Writes a DATAGRAM frame with a Length field (RFC 9221 type
+     * {@link QuicFrameHandler#TYPE_DATAGRAM_LEN}).
+     *
+     * @param out the destination buffer
+     * @param payload the datagram payload
+     */
+    public static void writeDatagram(ByteBuffer out, byte[] payload) {
+        VarInt.encode(QuicFrameHandler.TYPE_DATAGRAM_LEN, out);
+        VarInt.encode(payload.length, out);
+        out.put(payload);
+    }
+
+    /**
+     * Returns the encoded length of a DATAGRAM frame without a Length
+     * field (RFC 9221 type {@link QuicFrameHandler#TYPE_DATAGRAM}): the
+     * payload occupies the remainder of the packet.
+     *
+     * @param payloadLength the payload size in bytes
+     * @return the encoded length in bytes, including type
+     */
+    public static int datagramWithoutLengthLength(int payloadLength) {
+        return VarInt.encodedLength(QuicFrameHandler.TYPE_DATAGRAM) + payloadLength;
+    }
+
+    /**
+     * Writes a DATAGRAM frame without a Length field (RFC 9221 type
+     * {@link QuicFrameHandler#TYPE_DATAGRAM}). The payload is the
+     * remainder of the packet, so this must be the last frame written.
+     *
+     * @param out the destination buffer
+     * @param payload the datagram payload
+     */
+    public static void writeDatagramWithoutLength(ByteBuffer out, byte[] payload) {
+        VarInt.encode(QuicFrameHandler.TYPE_DATAGRAM, out);
+        out.put(payload);
+    }
 }

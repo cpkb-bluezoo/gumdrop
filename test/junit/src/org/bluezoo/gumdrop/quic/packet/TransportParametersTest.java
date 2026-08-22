@@ -67,6 +67,7 @@ public class TransportParametersTest {
         assertEquals(100, decoded.getInitialMaxStreamsUni());
         assertArrayEquals(scid, decoded.getInitialSourceConnectionId());
         assertNull(decoded.getOriginalDestinationConnectionId());
+        assertEquals(0, decoded.getMaxDatagramFrameSize());
     }
 
     @Test
@@ -122,10 +123,10 @@ public class TransportParametersTest {
 
     @Test
     public void testUnknownParameterIsIgnored() {
-        // A well-formed but unrecognised parameter (id 0x20) followed by
+        // A well-formed but unrecognised parameter (id 0x27) followed by
         // a recognised one (initial_max_data) must not disrupt decoding.
         ByteBuffer buf = ByteBuffer.allocate(32);
-        VarInt.encode(0x20L, buf);
+        VarInt.encode(0x27L, buf);
         VarInt.encode(3L, buf);
         buf.put((byte) 1);
         buf.put((byte) 2);
@@ -137,5 +138,28 @@ public class TransportParametersTest {
 
         TransportParameters decoded = TransportParameters.decode(buf);
         assertEquals(42, decoded.getInitialMaxData());
+        assertEquals(0, decoded.getMaxDatagramFrameSize());
+    }
+
+    @Test
+    public void testMaxDatagramFrameSizeRoundTrips() {
+        TransportParameters params = new TransportParameters();
+        params.setMaxDatagramFrameSize(65527);
+
+        byte[] encoded = params.encode();
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(encoded));
+
+        assertEquals(65527, decoded.getMaxDatagramFrameSize());
+    }
+
+    @Test
+    public void testMaxDatagramFrameSizeOmittedWhenZero() {
+        TransportParameters params = new TransportParameters();
+        params.setMaxDatagramFrameSize(0);
+
+        byte[] encoded = params.encode();
+        TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(encoded));
+
+        assertEquals(0, decoded.getMaxDatagramFrameSize());
     }
 }

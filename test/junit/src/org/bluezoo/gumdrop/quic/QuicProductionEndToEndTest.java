@@ -277,6 +277,386 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * RFC 9221: after a handshake that advertises {@code
+     * max_datagram_frame_size}, a DATAGRAM sent on the connection is
+     * delivered to the peer's {@link ProtocolHandler#datagramReceived}
+     * and can be echoed the same way. An oversized payload is refused
+     * locally rather than sent.
+     */
+    @Test
+    public void testDatagramRoundTrip() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch serverGotDatagram = new CountDownLatch(1);
+            final AtomicReference<byte[]> serverReceived = new AtomicReference<byte[]>();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(final QuicConnection connection) {
+                            connection.setDatagramHandler(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Server datagram handler error: " + cause);
+                                }
+
+                                @Override
+                                public void datagramReceived(ByteBuffer data) {
+                                    byte[] bytes = new byte[data.remaining()];
+                                    data.get(bytes);
+                                    serverReceived.set(bytes);
+                                    connection.sendDatagram(ByteBuffer.wrap(bytes));
+                                    serverGotDatagram.countDown();
+                                }
+                            });
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientGotDatagram = new CountDownLatch(1);
+            final AtomicReference<byte[]> clientReceived = new AtomicReference<byte[]>();
+            final AtomicReference<Boolean> oversizedRejected = new AtomicReference<Boolean>();
+            final byte[] payload = "rfc9221".getBytes(StandardCharsets.US_ASCII);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            connection.setDatagramHandler(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Client datagram handler error: " + cause);
+                                }
+
+                                @Override
+                                public void datagramReceived(ByteBuffer data) {
+                                    byte[] bytes = new byte[data.remaining()];
+                                    data.get(bytes);
+                                    clientReceived.set(bytes);
+                                    clientGotDatagram.countDown();
+                                }
+                            });
+                            assertTrue("Peer advertised DATAGRAM support",
+                                    connection.getPeerMaxDatagramFrameSize() > 0);
+                            assertTrue("DATAGRAM within the peer's limit should be queued",
+                                    connection.sendDatagram(ByteBuffer.wrap(payload)));
+                            byte[] tooLarge = new byte[70000];
+                            oversizedRejected.set(Boolean.valueOf(
+                                    !connection.sendDatagram(ByteBuffer.wrap(tooLarge))));
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Server should have received the DATAGRAM within 5s",
+                    serverGotDatagram.await(5, TimeUnit.SECONDS));
+            assertTrue("Client should have received the echoed DATAGRAM within 5s",
+                    clientGotDatagram.await(5, TimeUnit.SECONDS));
+            assertArrayEquals(payload, serverReceived.get());
+            assertArrayEquals(payload, clientReceived.get());
+            assertEquals(Boolean.TRUE, oversizedRejected.get());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9221 section 3: an endpoint that omitted {@code
+     * max_datagram_frame_size} (or sent 0) does not support DATAGRAM.
+     * {@link QuicConnection#sendDatagram} must refuse rather than send.
+     */
+    @Test
+    public void testDatagramNotSentWhenPeerOmitsMaxDatagramFrameSize() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setMaxDatagramFrameSize(0);
+            serverFactory.start();
+
+            final CountDownLatch serverGotDatagram = new CountDownLatch(1);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            connection.setDatagramHandler(new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+
+                                @Override
+                                public void datagramReceived(ByteBuffer data) {
+                                    serverGotDatagram.countDown();
+                                }
+                            });
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch handshakeDone = new CountDownLatch(1);
+            final AtomicReference<Boolean> sendRefused = new AtomicReference<Boolean>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            sendRefused.set(Boolean.valueOf(
+                                    !connection.sendDatagram(ByteBuffer.wrap(
+                                            "nope".getBytes(StandardCharsets.US_ASCII)))));
+                            handshakeDone.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Handshake should complete within 5s",
+                    handshakeDone.await(5, TimeUnit.SECONDS));
+            assertEquals(Boolean.TRUE, sendRefused.get());
+            assertFalse("Server must not receive a DATAGRAM the client refused to send",
+                    serverGotDatagram.await(300, TimeUnit.MILLISECONDS));
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9221 section 4: receiving a DATAGRAM when this endpoint did
+     * not advertise {@code max_datagram_frame_size} (or advertised 0)
+     * is a connection error of type PROTOCOL_VIOLATION.
+     */
+    @Test
+    public void testDatagramReceivedWithoutAdvertisementIsProtocolViolation() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        DatagramChannel injector = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.setMaxDatagramFrameSize(0);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+            final CountDownLatch clientStreamError = new CountDownLatch(1);
+            final AtomicReference<Exception> clientError = new AtomicReference<Exception>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            endpoint.send(ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                            clientError.set(cause);
+                            clientStreamError.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client stream should be connected within 5s",
+                    clientConnected.await(5, TimeUnit.SECONDS));
+            awaitHandshakeSettled();
+            waitForConnectionIdle(getPrivateField(clientEngine, "clientConnection", QuicConnection.class));
+
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            @SuppressWarnings("unchecked")
+            Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
+                    getPrivateField(clientConnection, "sendKeys", Map.class);
+            PacketProtectionKeys clientToServerKeys = clientSendKeys.get(EncryptionLevel.ONE_RTT);
+            byte[] serverConnectionId = getPrivateField(clientConnection, "peerConnectionId", byte[].class);
+
+            final CountDownLatch pnStolen = new CountDownLatch(1);
+            final AtomicReference<Long> packetNumber = new AtomicReference<Long>();
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        long[] sendPacketNumber = getPrivateField(clientConnection, "sendPacketNumber", long[].class);
+                        long pn = sendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+                        packetNumber.set(Long.valueOf(pn));
+                    } catch (Exception e) {
+                        fail(e.getMessage());
+                    } finally {
+                        pnStolen.countDown();
+                    }
+                }
+            });
+            assertTrue(pnStolen.await(5, TimeUnit.SECONDS));
+
+            injector = DatagramChannel.open();
+            injector.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
+            injector.configureBlocking(false);
+            byte[] forged = forgeDatagramPacket(clientToServerKeys, serverConnectionId,
+                    packetNumber.get().longValue(), "unsolicited".getBytes(StandardCharsets.US_ASCII));
+            sendReliably(injector, forged, serverAddress);
+
+            assertTrue("Client should observe PROTOCOL_VIOLATION within 5s",
+                    clientStreamError.await(5, TimeUnit.SECONDS));
+            Exception cause = clientError.get();
+            assertNotNull(cause);
+            assertTrue(cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertFalse(qcce.isApplicationError());
+            assertEquals(0xaL, qcce.getErrorCode());
+        } finally {
+            if (injector != null) {
+                injector.close();
+            }
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9000 section 4.6: {@link QuicConnection#openStream} must not
      * mint a stream ID the peer has not granted. With
      * {@code initial_max_streams_bidi = 1} the first client open succeeds
@@ -4425,6 +4805,25 @@ public class QuicProductionEndToEndTest {
         fail("Failed to send a " + packet.length + "-byte datagram to " + target + " after repeated retries");
     }
 
+    private static byte[] forgeDatagramPacket(PacketProtectionKeys keys, byte[] destinationConnectionId,
+            long packetNumber, byte[] payload) throws Exception {
+        int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
+        byte[] header = ShortHeaderCodec.build(destinationConnectionId, false, packetNumber, pnLength);
+
+        int frameBytes = QuicFrameWriter.datagramLength(payload.length);
+        int paddingBytes = hpSamplePadding(pnLength, frameBytes);
+        ByteBuffer plaintextBuf = ByteBuffer.allocate(frameBytes + paddingBytes);
+        QuicFrameWriter.writeDatagram(plaintextBuf, payload);
+        if (paddingBytes > 0) {
+            QuicFrameWriter.writePadding(plaintextBuf, paddingBytes);
+        }
+        plaintextBuf.flip();
+        byte[] plaintext = new byte[plaintextBuf.remaining()];
+        plaintextBuf.get(plaintext);
+
+        return sealShortHeaderPacket(keys, header, plaintext, packetNumber, destinationConnectionId.length, pnLength);
+    }
+
     private static byte[] forgePingPacket(PacketProtectionKeys keys, byte[] destinationConnectionId, long packetNumber)
             throws Exception {
         int pnLength = PacketNumberCodec.encodedLength(packetNumber, -1);
@@ -4632,6 +5031,10 @@ public class QuicProductionEndToEndTest {
 
         @Override
         public void handshakeDoneFrameReceived() {
+        }
+
+        @Override
+        public void datagramFrameReceived(ByteBuffer data, int encodedLength) {
         }
 
         @Override

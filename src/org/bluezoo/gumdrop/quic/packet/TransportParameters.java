@@ -31,22 +31,25 @@ import java.nio.ByteBuffer;
  * stream or connection data can be sent at all.
  *
  * <p>Only the parameters needed for basic connection setup, flow
- * control, and Retry are implemented: connection ID validation
+ * control, Retry, and RFC 9221 DATAGRAM support are implemented:
+ * connection ID validation
  * ({@code original_destination_connection_id}, {@code initial_source_connection_id},
  * {@code retry_source_connection_id}), idle timeout, the six
- * {@code initial_max_*} flow control limits, and {@code max_ack_delay}
+ * {@code initial_max_*} flow control limits, {@code max_ack_delay}
  * (defaults to the RFC-specified 25ms when absent, matching an
- * unsent value). {@code ack_delay_exponent} is not sent -- its
- * RFC-specified default (3) applies always, since this endpoint never
- * declares a non-default one. {@code stateless_reset_token} is sent by
- * servers so peers can recognise a stateless reset for the handshake
- * connection ID (RFC 9000 section 10.3). {@code preferred_address} and
- * {@code active_connection_id_limit} are not implemented yet. Unknown
+ * unsent value), and {@code max_datagram_frame_size} (RFC 9221; omitted
+ * or 0 means DATAGRAM frames are not supported). {@code ack_delay_exponent}
+ * is not sent -- its RFC-specified default (3) applies always, since this
+ * endpoint never declares a non-default one. {@code stateless_reset_token}
+ * is sent by servers so peers can recognise a stateless reset for the
+ * handshake connection ID (RFC 9000 section 10.3). {@code preferred_address}
+ * and {@code active_connection_id_limit} are not implemented yet. Unknown
  * parameters received from a peer are ignored, per RFC 9000
  * section 18.1.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9000#section-18">RFC 9000 section 18</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9221#section-3">RFC 9221 section 3</a>
  */
 public final class TransportParameters {
 
@@ -67,6 +70,8 @@ public final class TransportParameters {
     public static final long INITIAL_SOURCE_CONNECTION_ID = 0x0f;
     /** Server-only: the Source Connection ID from a Retry packet this handshake used (RFC 9000 section 7.3). */
     public static final long RETRY_SOURCE_CONNECTION_ID = 0x10;
+    /** RFC 9221 section 3: maximum DATAGRAM frame size this endpoint will receive. Absent or 0 means DATAGRAM is not supported. */
+    public static final long MAX_DATAGRAM_FRAME_SIZE = 0x20;
 
     /** RFC 9000 section 18.2: default when max_udp_payload_size is absent. */
     public static final long DEFAULT_MAX_UDP_PAYLOAD_SIZE = 65527;
@@ -86,6 +91,7 @@ public final class TransportParameters {
     private byte[] initialSourceConnectionId;
     private byte[] retrySourceConnectionId;
     private byte[] statelessResetToken;
+    private long maxDatagramFrameSize;
 
     public byte[] getOriginalDestinationConnectionId() {
         return originalDestinationConnectionId;
@@ -212,6 +218,31 @@ public final class TransportParameters {
     }
 
     /**
+     * Returns {@code max_datagram_frame_size} (RFC 9221 section 3): the
+     * maximum size of a DATAGRAM frame, including type and Length
+     * fields, this endpoint is willing to receive. Zero (the default
+     * when the parameter is absent) means DATAGRAM frames are not
+     * supported.
+     *
+     * @return the limit in bytes, or 0 if DATAGRAM is not supported
+     */
+    public long getMaxDatagramFrameSize() {
+        return maxDatagramFrameSize;
+    }
+
+    /**
+     * Sets {@code max_datagram_frame_size} (RFC 9221 section 3). A value
+     * of 0 (the default) omits the parameter from {@link #encode},
+     * matching an endpoint that does not support DATAGRAM frames.
+     *
+     * @param maxDatagramFrameSize the limit in bytes, including type
+     *                             and Length fields
+     */
+    public void setMaxDatagramFrameSize(long maxDatagramFrameSize) {
+        this.maxDatagramFrameSize = maxDatagramFrameSize;
+    }
+
+    /**
      * Encodes these parameters as the transport-parameters TLV list
      * (RFC 9000 section 18.1) -- the extension_data of the
      * quic_transport_parameters TLS extension (RFC 9001 section 8.2),
@@ -242,6 +273,9 @@ public final class TransportParameters {
         if (statelessResetToken != null) {
             size += entryLength(STATELESS_RESET_TOKEN, statelessResetToken.length);
         }
+        if (maxDatagramFrameSize > 0) {
+            size += entryLength(MAX_DATAGRAM_FRAME_SIZE, varIntValueLength(maxDatagramFrameSize));
+        }
 
         ByteBuffer buf = ByteBuffer.allocate(size);
         writeVarIntParam(buf, MAX_IDLE_TIMEOUT, maxIdleTimeout);
@@ -264,6 +298,9 @@ public final class TransportParameters {
         }
         if (statelessResetToken != null) {
             writeBytesParam(buf, STATELESS_RESET_TOKEN, statelessResetToken);
+        }
+        if (maxDatagramFrameSize > 0) {
+            writeVarIntParam(buf, MAX_DATAGRAM_FRAME_SIZE, maxDatagramFrameSize);
         }
         return buf.array();
     }
@@ -333,6 +370,8 @@ public final class TransportParameters {
             } else if (id == STATELESS_RESET_TOKEN) {
                 params.statelessResetToken = new byte[length];
                 buf.get(params.statelessResetToken);
+            } else if (id == MAX_DATAGRAM_FRAME_SIZE) {
+                params.maxDatagramFrameSize = VarInt.decode(buf);
             }
             // RFC 9000 section 18.1: ignore parameters we don't understand.
 

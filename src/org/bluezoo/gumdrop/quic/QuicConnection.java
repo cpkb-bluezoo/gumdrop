@@ -339,6 +339,11 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final Map<Long, Map<Long, List<PendingChunk>>> sentZeroRttStream = new HashMap<Long, Map<Long, List<PendingChunk>>>();
     // Each entry: {streamId, applicationErrorCode, finalSize}, owed a RESET_STREAM frame.
     private final List<long[]> pendingResetStreams = new ArrayList<long[]>();
+    // RFC 9221 DATAGRAM payloads queued for the next 1-RTT packet. Not
+    // retransmitted if the packet is lost -- unreliable by design.
+    private final List<byte[]> pendingDatagrams = new ArrayList<byte[]>();
+    private long peerMaxDatagramFrameSize;
+    private ProtocolHandler datagramHandler;
 
     private final LossDetector lossDetector;
     private Hkdf hkdf = Hkdf.sha256();
@@ -696,6 +701,57 @@ public final class QuicConnection implements QuicTlsEngineListener {
         this.unidirectionalStreamAcceptHandler = handler;
     }
 
+    /**
+     * Registers the handler that receives unreliable DATAGRAM payloads
+     * (RFC 9221) on this connection. Only {@link ProtocolHandler#datagramReceived}
+     * is invoked; the other callbacks are unused. Pass {@code null} to
+     * drop received datagrams silently.
+     *
+     * @param handler the handler, or {@code null}
+     */
+    public void setDatagramHandler(ProtocolHandler handler) {
+        this.datagramHandler = handler;
+    }
+
+    /**
+     * Returns the peer's {@code max_datagram_frame_size} (RFC 9221
+     * section 3), or 0 if the peer omitted the parameter / sent 0
+     * (DATAGRAM frames must not be sent).
+     *
+     * @return the peer's receive ceiling in bytes, including type and
+     *         Length fields
+     */
+    public long getPeerMaxDatagramFrameSize() {
+        return peerMaxDatagramFrameSize;
+    }
+
+    /**
+     * Queues an unreliable DATAGRAM frame (RFC 9221) for the next 1-RTT
+     * packet. Not retransmitted if lost. Dropped (and returns
+     * {@code false}) when the peer has not advertised a non-zero
+     * {@code max_datagram_frame_size}, or when the encoded frame would
+     * exceed that limit.
+     *
+     * @param data the payload; copied, the caller's buffer is not retained
+     * @return true if queued, false if it cannot be sent
+     */
+    public boolean sendDatagram(ByteBuffer data) {
+        if (data == null || closed) {
+            return false;
+        }
+        byte[] copy = new byte[data.remaining()];
+        data.get(copy);
+        int encoded = QuicFrameWriter.datagramLength(copy.length);
+        if (peerTransportParameters != null) {
+            if (peerMaxDatagramFrameSize <= 0 || encoded > peerMaxDatagramFrameSize) {
+                return false;
+            }
+        }
+        pendingDatagrams.add(copy);
+        requestFlush();
+        return true;
+    }
+
     void setClientConnectionAcceptedHandler(QuicEngine.ConnectionAcceptedHandler handler) {
         this.clientConnectionAcceptedHandler = handler;
     }
@@ -742,6 +798,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         this.peerMaxData = remembered.getInitialMaxData();
         this.peerMaxStreamsBidi = remembered.getInitialMaxStreamsBidi();
         this.peerMaxStreamsUni = remembered.getInitialMaxStreamsUni();
+        this.peerMaxDatagramFrameSize = remembered.getMaxDatagramFrameSize();
     }
 
     /**
@@ -1344,7 +1401,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 sawValidOneRttThisReceive = true;
             }
 
-            FrameDispatcher dispatcher = new FrameDispatcher(level);
+            FrameDispatcher dispatcher = new FrameDispatcher(level, isZeroRtt);
             new QuicFrameParser(dispatcher).receive(ByteBuffer.wrap(plaintext));
             // RFC 9000 section 13.2: only owe an ACK if this packet
             // carried at least one ack-eliciting frame -- acknowledging a
@@ -1410,6 +1467,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final class FrameDispatcher implements QuicFrameHandler {
 
         private final EncryptionLevel level;
+        private final boolean zeroRtt;
 
         // RFC 9000 section 13.2: every frame type is ack-eliciting except
         // ACK, PADDING, and CONNECTION_CLOSE -- an incoming packet whose
@@ -1421,8 +1479,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // received; processPacket only sets ackOwed when this ends up true.
         boolean ackEliciting;
 
-        FrameDispatcher(EncryptionLevel level) {
+        FrameDispatcher(EncryptionLevel level, boolean zeroRtt) {
             this.level = level;
+            this.zeroRtt = zeroRtt;
         }
 
         @Override
@@ -1688,6 +1747,34 @@ public final class QuicConnection implements QuicTlsEngineListener {
             ackEliciting = true;
             handshakeConfirmed = true;
             notifyClientHandshakeComplete();
+        }
+
+        @Override
+        public void datagramFrameReceived(ByteBuffer data, int encodedLength) {
+            ackEliciting = true;
+            // RFC 9221 section 5: DATAGRAM frames MUST only appear in
+            // 1-RTT packets (not Initial, Handshake, or 0-RTT).
+            if (level != EncryptionLevel.ONE_RTT || zeroRtt) {
+                closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
+                        "DATAGRAM frames are only permitted in 1-RTT packets");
+                return;
+            }
+            long localMax = localTransportParameters.getMaxDatagramFrameSize();
+            if (localMax <= 0) {
+                closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
+                        "DATAGRAM received but max_datagram_frame_size was not advertised");
+                return;
+            }
+            if (encodedLength > localMax) {
+                closeWithError(TRANSPORT_ERROR_PROTOCOL_VIOLATION,
+                        "DATAGRAM frame exceeds advertised max_datagram_frame_size");
+                return;
+            }
+            if (datagramHandler != null) {
+                byte[] copy = new byte[data.remaining()];
+                data.get(copy);
+                datagramHandler.datagramReceived(ByteBuffer.wrap(copy));
+            }
         }
 
         @Override
@@ -2452,6 +2539,23 @@ public final class QuicConnection implements QuicTlsEngineListener {
         return streamChunksToSend;
     }
 
+    // RFC 9221: DATAGRAM frames that currently fit the peer's advertised
+    // max_datagram_frame_size. Not removed from pendingDatagrams until
+    // actually written, matching STREAM's drain-then-commit pattern.
+    private List<byte[]> eligibleDatagrams() {
+        List<byte[]> toSend = new ArrayList<byte[]>();
+        if (peerMaxDatagramFrameSize <= 0) {
+            return toSend;
+        }
+        for (int i = 0; i < pendingDatagrams.size(); i++) {
+            byte[] payload = pendingDatagrams.get(i);
+            if (QuicFrameWriter.datagramLength(payload.length) <= peerMaxDatagramFrameSize) {
+                toSend.add(payload);
+            }
+        }
+        return toSend;
+    }
+
     // Converts receivedUnacked.get(level) into the descending, gap-encoded
     // range format QuicFrameWriter.writeAck/ackLength expect (RFC 9000
     // section 19.3: ranges[0] contains the largest acknowledged packet
@@ -2534,13 +2638,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
         boolean includeMaxStreamsUni = oneRtt && maxStreamsUniOwed;
         boolean includeStreamsBlockedBidi = oneRtt && streamsBlockedBidiOwed;
         boolean includeStreamsBlockedUni = oneRtt && streamsBlockedUniOwed;
+        List<byte[]> datagramsToSend = oneRtt
+                ? eligibleDatagrams() : java.util.Collections.<byte[]>emptyList();
 
         boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
                 && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
                 && retiresToSend.length == 0 && !includeMaxData && maxStreamDataToSend.isEmpty()
                 && !includeDataBlocked && streamDataBlockedToSend.isEmpty()
                 && !includeMaxStreamsBidi && !includeMaxStreamsUni
-                && !includeStreamsBlockedBidi && !includeStreamsBlockedUni;
+                && !includeStreamsBlockedBidi && !includeStreamsBlockedUni
+                && datagramsToSend.isEmpty();
         if (nothingToSend) {
             return null;
         }
@@ -2597,6 +2704,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         if (includeStreamsBlockedUni) {
             frameBytes += QuicFrameWriter.streamsBlockedLength(false, peerMaxStreamsUni);
+        }
+        for (byte[] datagram : datagramsToSend) {
+            frameBytes += QuicFrameWriter.datagramLength(datagram.length);
         }
 
         boolean longHeader = !oneRtt;
@@ -2742,6 +2852,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
             QuicFrameWriter.writeStreamsBlocked(payload, false, peerMaxStreamsUni);
             streamsBlockedUniOwed = false;
         }
+        for (byte[] datagram : datagramsToSend) {
+            QuicFrameWriter.writeDatagram(payload, datagram);
+        }
+        if (!datagramsToSend.isEmpty()) {
+            pendingDatagrams.removeAll(datagramsToSend);
+        }
         if (paddingBytes > 0) {
             QuicFrameWriter.writePadding(payload, paddingBytes);
         }
@@ -2765,7 +2881,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
         boolean ackEliciting = !sentCryptoThisPacket.isEmpty() || !sentStreamThisPacket.isEmpty()
                 || includeHandshakeDone || includePing || !resetsToSend.isEmpty() || !newCidsToSend.isEmpty()
                 || retiresToSend.length > 0 || includeMaxData || !maxStreamDataToSend.isEmpty()
-                || includeDataBlocked || !streamDataBlockedToSend.isEmpty();
+                || includeDataBlocked || !streamDataBlockedToSend.isEmpty()
+                || !datagramsToSend.isEmpty();
         // RFC 9002 section 2: a packet is in flight when it's
         // ack-eliciting or carries a PADDING frame -- an ACK-only packet
         // (no ack-eliciting frame, no padding, e.g. a bare
@@ -2949,6 +3066,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private static final long TRANSPORT_ERROR_FRAME_ENCODING_ERROR = 0x7;
     /** RFC 9000 section 20.1: a transport parameter was received with a value not permitted for its type, e.g. a mismatched retry_source_connection_id. */
     private static final long TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR = 0x8;
+    /** RFC 9000 section 20.1: an endpoint received a frame that violates protocol rules, e.g. a DATAGRAM when max_datagram_frame_size was not advertised (RFC 9221). */
+    private static final long TRANSPORT_ERROR_PROTOCOL_VIOLATION = 0xa;
     /** RFC 9000 section 20.1: the amount of buffered reordered CRYPTO data exceeds this endpoint's ability to buffer it. */
     private static final long TRANSPORT_ERROR_CRYPTO_BUFFER_EXCEEDED = 0xd;
     /** RFC 9000 section 19.11: MAX_STREAMS (and initial_max_streams_*) must not exceed 2^60. */
@@ -3232,7 +3351,9 @@ public final class QuicConnection implements QuicTlsEngineListener {
                         || transportParameters.getInitialMaxStreamDataUni()
                                 < remembered.getInitialMaxStreamDataUni()
                         || transportParameters.getInitialMaxStreamsBidi() < remembered.getInitialMaxStreamsBidi()
-                        || transportParameters.getInitialMaxStreamsUni() < remembered.getInitialMaxStreamsUni()) {
+                        || transportParameters.getInitialMaxStreamsUni() < remembered.getInitialMaxStreamsUni()
+                        || transportParameters.getMaxDatagramFrameSize()
+                                < remembered.getMaxDatagramFrameSize()) {
                     closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR,
                             "0-RTT transport parameters reduced below remembered values");
                     return;
@@ -3241,6 +3362,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
         this.peerTransportParameters = transportParameters;
         peerMaxData = transportParameters.getInitialMaxData();
+        peerMaxDatagramFrameSize = transportParameters.getMaxDatagramFrameSize();
+        if (peerMaxDatagramFrameSize <= 0) {
+            pendingDatagrams.clear();
+        } else {
+            int i = 0;
+            while (i < pendingDatagrams.size()) {
+                byte[] payload = pendingDatagrams.get(i);
+                if (QuicFrameWriter.datagramLength(payload.length) > peerMaxDatagramFrameSize) {
+                    pendingDatagrams.remove(i);
+                } else {
+                    i++;
+                }
+            }
+        }
         long initialMaxStreamsBidi = transportParameters.getInitialMaxStreamsBidi();
         long initialMaxStreamsUni = transportParameters.getInitialMaxStreamsUni();
         if (initialMaxStreamsBidi > MAX_STREAMS_COUNT || initialMaxStreamsUni > MAX_STREAMS_COUNT) {

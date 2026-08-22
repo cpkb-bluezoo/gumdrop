@@ -94,6 +94,8 @@ public class QuicTransportFactory extends TransportFactory {
     private static final long DEFAULT_MAX_STREAM_DATA = 1_000_000;
     private static final long DEFAULT_MAX_STREAMS_BIDI = 100;
     private static final long DEFAULT_MAX_STREAMS_UNI = 100;
+    private static final long DEFAULT_MAX_DATAGRAM_FRAME_SIZE =
+            TransportParameters.DEFAULT_MAX_UDP_PAYLOAD_SIZE;
 
     /** Reno congestion control -- accepted but not implemented; see the class documentation. */
     public static final int CC_RENO = 0;
@@ -114,6 +116,7 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamDataUni = DEFAULT_MAX_STREAM_DATA;
     private long maxStreamsBidi = DEFAULT_MAX_STREAMS_BIDI;
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
+    private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
 
     private TlsServerEngineFactory serverEngineFactory;
     private X509TrustManager trustManager;
@@ -279,6 +282,30 @@ public class QuicTransportFactory extends TransportFactory {
     }
 
     /**
+     * Sets {@code max_datagram_frame_size} (RFC 9221 section 3), the
+     * maximum size of a DATAGRAM frame this endpoint is willing to
+     * receive, including type and Length fields. The default is
+     * {@link TransportParameters#DEFAULT_MAX_UDP_PAYLOAD_SIZE}, so
+     * DATAGRAM support is advertised. Pass 0 to omit the parameter
+     * and refuse incoming DATAGRAM frames.
+     *
+     * @param bytes the limit in bytes, or 0 to disable DATAGRAM
+     */
+    public void setMaxDatagramFrameSize(long bytes) {
+        this.maxDatagramFrameSize = bytes;
+    }
+
+    /**
+     * Returns the configured {@code max_datagram_frame_size} this
+     * factory will advertise.
+     *
+     * @return the limit in bytes, or 0 if DATAGRAM is disabled
+     */
+    public long getMaxDatagramFrameSize() {
+        return maxDatagramFrameSize;
+    }
+
+    /**
      * Sets the congestion control algorithm. Accepted but not
      * implemented -- see the class documentation.
      *
@@ -389,6 +416,7 @@ public class QuicTransportFactory extends TransportFactory {
         params.setInitialMaxStreamDataUni(maxStreamDataUni);
         params.setInitialMaxStreamsBidi(maxStreamsBidi);
         params.setInitialMaxStreamsUni(maxStreamsUni);
+        params.setMaxDatagramFrameSize(maxDatagramFrameSize);
         if (server) {
             params.setStatelessResetToken(
                     StatelessResetToken.generate(connectionIdStaticKey, initialSourceConnectionId));
